@@ -1522,6 +1522,16 @@ So: **the bindless path currently differs visibly from the slot path, and #691
 does not yet have the evidence its notes claim.** The heap is off by default so
 nothing ships broken, but this is open work, not a closed question.
 
+> **SUPERSEDED (2026-08-04) — see §4e.** Both figures above are measurements of an
+> unstable harness, not of the heap. Re-measured on the same sandbox, two captures
+> of the *same build* at the *same pose* differ by 23.5% (RMSE 9.74) — larger than
+> any ON-vs-OFF number ever recorded here, including these. The scene animates
+> water, vehicles and a TAA history, so the live A/B cannot resolve the question in
+> either direction and no amount of retaking will change that. The evidence that
+> does exist: all **80** golden and visual-evidence tests pass in both
+> configurations, un-rebased. Do not treat "the bindless path differs visibly" as a
+> standing finding — it was never measured by an instrument that could show it.
+
 ### Two ordering rules the slot path did not care about
 
 - **Bind the shader before the image.** The seam consults
@@ -1611,6 +1621,405 @@ binding satisfies.
 The general rule: after converting a pass, grep for tests that load that shader
 by filename. They bind through their own helper, not through the pass you just
 converted, and they will keep compiling and start lying.
+
+---
+
+## 4e. Bucket 1 resumed: the revert was aimed at the wrong layer
+
+The revert recorded in `rhi_boundary_baseline.json` backed out all 30 shader
+conversions and concluded *"expect ONE systematic defect in the conversion
+recipe, not sixty."* Right about the count, wrong about the layer. The defects
+were in the **environment**, and #747's later commits fixed them without touching
+a shader: a non-GPU unit test that shut down the process-wide `DescriptorHeap`
+and never restored it, an offset table never re-based across a heap epoch bump, a
+static-destructor teardown running at atexit with no GL context, and a
+leak-detector constant that had drifted behind the binding registry.
+
+Restoring all 30 by reverse-applying the revert, in six batches, held parity at
+every step — **5417 passed / 1 failed in both configurations**, the failure being
+the pre-existing `AtmosphereVisualEvidenceTest` (#735) that also fails with the
+heap off. `ToneMap` and `FullscreenBlit`, which the revert's own bisect blamed for
+roughly half of the 74 failures, now pass untouched.
+
+**The transferable part is the bisect, not the outcome.** "Reverting ToneMap +
+FullscreenBlit alone took 74 → 40" describes a per-frame *ordering* effect — those
+two run every frame, so they were the biggest consumers of a broken shared
+fixture, not the biggest producers of bugs. A failure set that moves when test
+order moves is evidence about shared state (§4d already says this); a bisect over
+*subjects* will still find a subject, and it will be the wrong answer that fits.
+Bisect the fixture before reverting N changes to find one shared cause.
+
+### Verify that a conversion RAN — and know all three ways it says so
+
+A failed bindless build degrades to the slot path silently, so a green suite is
+satisfied just as well by a conversion that never executed. The evidence is the
+engine log's set of shaders that took the route, plus zero `.bindless.failed.glsl`
+dumps and zero fallback warnings.
+
+It announces itself **three different ways**, and a detector missing any one
+reports healthy conversions as silent fallbacks:
+
+| case | log line |
+|---|---|
+| graphics, fresh build | `'<Name>' built through the raw-GLSL route (no SPIR-V).` |
+| graphics, `.pgr` cache hit | `Loaded bindless program from binary cache: <path>` |
+| **compute** | *no `[Bindless]` line at all* — only a `(bindless)` suffix on `Compiled compute shader '<Name>'` |
+
+The compute case is structural rather than an oversight:
+`OpenGLComputeShader::Compile` has always fed raw GLSL to `glShaderSource`, so it
+never travelled the shaderc→SPIR-V hop that forced `CreateProgramFromRawGLSL` on
+the graphics side, and never grew that logging. Matching only the cache form made
+six freshly-converted shaders — i.e. exactly the ones under test — look like they
+had fallen back; matching only the graphics forms did the same to seven `.comp`
+files. Both false alarms are shape-identical to the real failure mode, so neither
+can be waved off, and both cost a diagnosis.
+
+### A suite-wide route list under-reports for a second reason
+
+Some shaders are created only inside `ScopedSlotBasedShaders` scopes (the
+post-process math harnesses), so in a full-suite run they never build a bindless
+variant at all. That is by design (§4d), but it means the route list from a full
+run is a *lower bound*. Confirm a specific conversion by running the tests that
+drive that pass in isolation, where nothing has pre-empted it.
+
+And some passes are unreachable from the suite entirely: `Terrain_Erosion.comp` is
+instantiated only by the editor's terrain brush, so no test can exercise its
+bindless variant however the suite is run. Converting it is fine; claiming the
+suite verified it is not.
+
+### The live ON-vs-OFF A/B is not an instrument on an animated scene — stop retaking it
+
+§4c records the #740 A/B (14.36% differing against a 14.39% floor) and re-measures
+it at 13.65% against a 2.70–3.10% floor, leaving "the bindless path differs
+visibly from the slot path" as open work. Re-measured again here on
+`VehiclesTest.olo`, through the MCP camera at four fixed orbit poses,
+`settleFrames = 12`:
+
+| measurement | pixels differing (>8) | RMSE |
+|---|---|---|
+| **noise floor** — same config, same pose, two consecutive captures | **23.50%** | **9.74** |
+| heap ON vs OFF, front | 15.54% | 7.44 |
+| heap ON vs OFF, side | 31.60% | 9.19 |
+| heap ON vs OFF, high | 8.43% | 4.68 |
+| heap ON vs OFF, low | 22.25% | 7.62 |
+
+**Every ON-vs-OFF RMSE (4.68–9.19) is below the same-config RMSE floor of 9.74.**
+The claim is about RMSE specifically, and deliberately not about the pixel counts:
+the side pose differs in 31.60% of pixels against a 23.50% floor, so "two captures
+of the identical build differ by more" is true of the RMSE and false of the pixel
+percentage. The scene animates water, three vehicles and a TAA history, which is
+enough for two captures of the *identical* build at the *identical* pose to land
+in the same RMSE band as the two builds do against each other. This measurement
+cannot distinguish a correct implementation from a broken one — which
+is precisely what `live-verification-noise-floor.md` says a floor the size of its
+signal means, and precisely the error #740 made in the other direction by reading
+"signal ≈ floor" as parity.
+
+So the earlier figures were not wrong so much as **meaningless on this scene**, and
+retaking them on it will keep being meaningless. Do not quote a live A/B here.
+
+**The deterministic instrument already exists and was ignored.** The suite's 80
+golden and visual-evidence tests use fixed cameras and committed goldens, and they
+run under `OLO_RHI_BINDLESS=1` exactly as they run without it. On this branch all
+80 **ran (0 skipped) and passed in both configurations with
+`OLOENGINE_GOLDEN_REBASE` unset** — that is the ON-vs-OFF pixel comparison, done
+against a stable reference, and it is the evidence to cite. A live capture is
+still worth taking for what it *can* show (the frame renders, the log is clean,
+the expected shaders took the route); it is not worth differencing.
+
+If a live A/B is ever genuinely needed, pause the scene or pick a static one
+first, and publish the same-config floor next to the number — a floor is only
+reassuring when it is *small*.
+
+### A BINDLESS DESCRIPTOR BAKES SAMPLER STATE — the slot path does not
+
+> **SUPERSEDED (2026-08-04) — see the Phase 3 narrative in
+> `OloEngine/tests/Rendering/rhi_boundary_baseline.json`, the section beginning
+> "LOCALISED, AND THE VERTEX-PATH DIAGNOSIS BELOW WAS WRONG".**
+>
+> What survives below is sound and worth reading: the sampler state IS derivable
+> at the call site, and the measurement that the *correct* `Repeat` sampler made
+> the number WORSE (5.861 → 10.447) is real — it is what killed the sampler
+> hypothesis, and the reasoning about why a same-configuration test cancels a
+> systematic difference still holds.
+>
+> Three claims in it are RETRACTED:
+>
+> - **"A residual ~5.861 … Still unexplained."** It is explained. The
+>   depth-invariance contract group had split across compile routes: converting
+>   `PBR_MultiLight` moved it to the raw-GLSL route while `DepthPrepass.glsl` —
+>   which declares no samplers and so never mentions `OLO_BINDLESS` — stayed on
+>   the SPIR-V one. `invariant gl_Position` cannot bridge two front-ends, so the
+>   colour pass failed `GL_LEQUAL` against depth its own prepass wrote. See
+>   glsl-shaders §7a-bis.
+> - **"`PBR_MultiLight` stays slot-based."** It is converted and shipped, along
+>   with `PBR_MultiLight_Skinned`, `PBR_GBuffer{,_Skinned}` and
+>   `VirtualMeshGBuffer` — the whole material bucket.
+> - **"the plumbing sits inert."** It is live and exercised by the suite in both
+>   configurations.
+>
+> **AND ONE CLAIM IS REINSTATED (2026-08-07).** The heading is not just sound in
+> principle — the mismatch it warns about was REAL and shipping, in the
+> `SamplerDesc` DEFAULT rather than at any call site. Converting `Water.glsl`
+> collapsed its tiled FFT displacement field into flat terraces: 22.670 RMSE
+> ON-vs-OFF against a **0.000** same-config floor, down to 2.783 once fixed.
+>
+> **DO NOT READ THE FIX OUT OF THAT SENTENCE.** The first attempt was to make
+> `Repeat` the struct default, matching `OpenGLTexture2D`; it produced the 2.783
+> and BROKE the terrain arrays and cubemaps, which are `CLAMP_TO_EDGE`. What
+> shipped is `SamplerDesc{}` meaning *inherit the texture object's state*, minted
+> with `glGetTextureHandleARB`. Restoring a per-target default here would
+> reintroduce the array regression. See §4f and ADR 0011 amendment (38).
+>
+> So the retraction below applies to the DIAGNOSIS of the rebase pop, not to the
+> hazard. The experiment that "killed the sampler hypothesis" — a `Repeat`
+> sampler making the number worse — was measuring a test that cannot see a
+> systematic difference, which is exactly what the paragraph after it says.
+
+This is the one thing that stops the per-material conversion today, and it is a
+property of the model rather than a bug in the plumbing.
+
+`glGetTextureSamplerHandleARB` folds sampler state **into the handle**. A
+slot-based bind does not: `glBindTextureUnit` uses whatever wrap/filter/anisotropy
+the *texture object* carries. So a converted shader samples with the state its
+DESCRIPTOR was minted with, and an unconverted one with the state the OBJECT
+carries — and if those disagree, the two variants render differently while both
+look entirely plausible.
+
+`RHI::SamplerDesc{}` defaults to `AddressU/V/W = ClampToEdge` and
+`MaxAnisotropy = 1.0`. That is right for a render target — which is why every
+pass conversion so far has passed `{}` and seen no difference — and wrong for a
+**material** texture: every `OpenGLTexture2D` path sets `GL_REPEAT`, while
+`OpenGLTextureCubemap` sets `GL_CLAMP_TO_EDGE`. Anisotropy is never set on a
+texture object at all, so the default already matches.
+
+So the state IS derivable at the call site (it follows the texture TYPE, not the
+individual material) and does **not** need to travel in `PODMaterialData` — an
+earlier version of this section claimed it did.
+
+**BUT FIXING IT DID NOT FIX THE DIVERGENCE, and that is the point worth keeping.**
+Measured on `WorldOriginRebaseVisualEvidenceTest`, which compares a frame before
+and after a floating-origin shift:
+
+| configuration | RMSE |
+|---|---|
+| heap OFF | **1.413** |
+| heap ON, C++ plumbing live, shader NOT converted | **1.413** |
+| heap ON, converted, default (`ClampToEdge`) sampler | **5.861** |
+| heap ON, converted, correct (`Repeat`) sampler | **10.447** |
+| heap ON, converted, correct sampler, material UBO cache **disabled** | **5.861** |
+
+Two independent defects, and a hypothesis killed:
+
+1. **The material UBO cache is stale-prone.** Disabling it takes 10.447 back to
+   5.861, so roughly 4.5 of the divergence is a cached upload outliving what it
+   describes. The slot path cannot have this bug: `BindTrackedTexture` re-reads
+   `mat.albedoMapID` every draw, whereas a cached offset is computed once and the
+   bind-skip means nothing re-checks it.
+2. **A residual ~5.861 that sampler state does not touch.** Still unexplained.
+
+**The sampler hypothesis was wrong, and the shape of the error is instructive.**
+This test compares two frames in the SAME configuration, so any *systematic*
+difference — including a wrong sampler — affects both frames equally and cancels.
+It can only detect something that changes ACROSS the rebase. Attributing a
+temporal-consistency failure to a systematic cause was a category error, and the
+measurement that exposed it (correct sampler made it *worse*, not better) is the
+kind only an A/B can give you.
+
+So the per-material path is built, proven to compile and render, and **not
+landed**: `PBR_MultiLight` stays slot-based and the plumbing sits inert behind
+`WritesOffsetsForBoundProgram()`. What remains is to find what changes across a
+rebase — start with descriptor lifetime against the rebase's own resource
+churn, since `Persistent` views plus a cached offset is precisely the
+combination the slot path never has.
+
+### Every texture type that mints an identity owes a retire
+
+`~OpenGLTexture2DArray` and `~OpenGLTexture3D` called
+`m_RHIHandle.Sync(ResourceKind::Texture, …)` in their constructors and retired
+nothing in their destructors, through two PRs and a full suite run. Both are bound
+as **storage-image** descriptors in production — the wind field, the froxel fog
+scatter/integrated volumes, the cloud noise volumes, the ocean FFT ping-pong — so
+each destruction left an `ARB_bindless_texture` image handle resident on a texture
+the next statement queued for deletion.
+
+Nothing caught it because the symptom is one `GL_INVALID_OPERATION: Not a valid
+texture` at shutdown, under `OLO_RHI_BINDLESS=1` only, which is not what CI runs.
+The two calls now live in one place — `Utils::RetireTextureViews`
+(`Platform/OpenGL/OpenGLUtilities.h`) — and it is `noexcept` deliberately: a
+destructor is implicitly `noexcept`, `RetireResource` takes the heap's mutex and
+touches containers, and a throw there turns a recoverable descriptor leak into a
+process kill during teardown. `~OpenGLTexture2D` and `~OpenGLTextureCubemap` had
+that hazard too and now share the guard.
+
+Guarded from both ends: `BindlessHeapGpuTest` destroys a real `Texture3D` and
+`Texture2DArray` and asserts residency drops, and
+`RHIBoundaryRatchet.EveryTextureTypeThatMintsAnIdentityRetiresItsViews` scans
+`Platform/OpenGL/` so the *next* sibling type cannot repeat it.
+
+Two things that test taught, both worth keeping:
+
+- **A storage view has its own residency namespace.** `glGetImageHandleARB`
+  counts into `ResidentImageHandles`, not `ResidentHandles`. Asserting the sampler
+  counter reads 0 both before *and* after the destructor — the test passes whether
+  or not the retire happens. Assert the **precondition** (`== 1`), not just the
+  postcondition; that is what caught it.
+- **The invariant is "you retire what you minted", not "you call this helper".**
+  `OpenGLFramebuffer` mints texture identities too and retires them correctly in a
+  loop over N attachment handles — a different shape, already correct. A guard
+  demanding the helper would have been demanding a refactor rather than enforcing
+  a property.
+
+## 4f. Closing bucket 1: the counter measured one spelling, and the blocker was four lines
+
+Three things came out of converting the remaining 36 shaders, and each is the
+kind that only shows up when you try to finish rather than to sample.
+
+### The bind-site counter is blind to `Texture::Bind(slot)`
+
+`sweep_bind_texture_sites` counts `BindTexture(` / `BindImageTexture(` — the
+`RendererAPI` facade's spelling. `Texture::Bind(slot)` is the same act through the
+resource object, and no text rule can catch it without also catching
+`SoundGraph`'s `ref.Bind(...)` and `Templates/Function.h`'s `Storage.Bind(...)`,
+which are unrelated methods that happen to share a name.
+
+That blind spot is not cosmetic: **seven shaders looked unconvertible purely
+because of it.** `IBLPrecompute`, `AssetPreviewRenderer`, `ImpostorBaker` and
+`FoliageRenderer` bound their inputs that way, so the seam never saw them and a
+converted shader would have read an offset nobody staged — a black frame with no
+diagnostic. Seventeen such sites moved onto the seam here.
+
+The eight that remain are deliberate, and three are **load-bearing**: `ShadowMap`
+(×2), `WindSystem` and `SnowAccumulationSystem` are the "a direct `Texture::Bind()`
+that never consults the seam" mechanism the §5c allowlist depends on, because a
+shared `include/` header's declaration cannot be converted per-includer.
+
+**No counter was added.** A ratchet whose rule is "the identifiers I could think
+of" is precisely the false confidence §1.3's survey exists to prevent. The
+artefact that replaces it measures the property instead of a proxy for it — see
+below.
+
+### Two orderings that decide whether a conversion works at all
+
+Both are per-call-site and neither is visible in the shader:
+
+- **The seam forks on the program in flight.** `BindTextureOrOffset` asks
+  `Shader::IsBoundProgramBindless()`, so a bind issued *before* `shader->Bind()`
+  always takes the fallback. `IBLPrecompute` binds its environment cube before the
+  shader every time, which is why those five sites became
+  `PublishTextureOffsetAndBind` (stage **and** bind) rather than the forking form.
+  Reach for the publish whenever the consuming program is not bound yet.
+- **A staged offset is CPU-side until the flush.** Every draw in
+  `CommandDispatch` now publishes unconditionally, because *which* handler owes a
+  flush is a property of the shader it dispatches — and that changes as shaders
+  convert. Pairing them per site is a rule that has to be re-derived on every
+  `.glsl` edit, and it fails quietly: the pass keeps rendering and reads the
+  previous flush's offsets.
+
+### The cost argument that blocked everything was measured on a different case
+
+ADR 0011 amendment (32) declined the per-draw paths because a converted shader
+"needs a flush per draw, which gives back exactly the cost bindless exists to
+remove." It was written about *materials*, where per-material offsets in the
+material UBO were and remain the right answer — then reused as a general reason,
+and nothing re-checked it.
+
+The cost it names is the table **upload**, and `HeapBinding::StageOffset` was
+marking the table dirty even when writing the value already there. Consecutive
+draws in a bucket overwhelmingly restage the same offsets (the same terrain
+textures across every patch), so one `if` turns those flushes into a bool test.
+The redundant-bind cache cannot suppress the writes — amendment (32)'s own second
+finding is that it must not — so the stage is the only place the distinction can
+be made.
+
+Generalisable: **when a cost argument starts blocking more than it was measured
+on, re-derive it.** This one cost roughly two thirds of the shader tree.
+
+### `SamplerDesc{}` means INHERIT, and getting there took two goes
+
+A bindless descriptor bakes the sampler in; the slot path samples with the
+TEXTURE OBJECT's parameters. `RHI::SamplerDesc{}` therefore decides what a
+converted shader sees while an unconverted reader of the same texture keeps
+seeing the object's state.
+
+The first fix changed the struct default from `ClampToEdge` to `Repeat`, matching
+`OpenGLTexture2D` and GL's own default. It fixed `Water.glsl` — whose TILED FFT
+displacement field had collapsed into flat terraces — and **broke the terrain
+arrays**, because `OpenGLTexture2DArray` is `CLAMP_TO_EDGE`. There is no majority
+answer to default to:
+
+| target | what the object carries |
+|---|---|
+| `Texture2D`, framebuffer attachments | `REPEAT` |
+| `Texture2DArray` (colour) | `CLAMP_TO_EDGE` |
+| `Texture2DArray` (depth) | `CLAMP_TO_BORDER`, opaque-white |
+| `TextureCubemap` | `CLAMP_TO_EDGE` |
+| `Texture3D` | caller-supplied |
+| **any integer format** | **`NEAREST`, mandatory** |
+
+The last row is the sharp one. GL makes an integer texture with a `LINEAR` filter
+INCOMPLETE, and an incomplete texture samples as **zero** — `texelFetch`
+included, on Mesa but not NVIDIA. `Texture.h::IsIntegerFormat` records what that
+cost once already (every Slug glyph vanished on AMD, logs clean); the heap had
+reintroduced it for the `RG16UI` font band texture, the `R16UI` GTAO Hilbert LUT
+and the `R32I` entity buffer. A sixth face: `LinearMipFilter` defaults true, which
+makes a SINGLE-LEVEL texture incomplete — the hazard `ShadowDepthSampler` works
+around by hand.
+
+**So the answer is not a better table, it is not having one.** No stated intent ->
+`glGetTextureHandleARB`, which bakes the object's own state and is parity by
+construction. Stated intent -> `glGetTextureSamplerHandleARB`, which models a
+split heap and is what the two sites that genuinely differ from their texture use.
+`HeapBinding::CubeSampler()`, invented during the first attempt, was deleted.
+
+**`SamplerDesc::Source` carries which it is**, so "inherit" and "these exact
+values" stay distinct when the values coincide. And a desc that sets fields but
+forgets `Source = Explicit` still has its fields honoured — making `Source` the
+sole test would mean one forgotten line silently swaps a caller's sampler for the
+texture's state, which deleting it from `ShadowDepthSampler` proved reachable
+(136 tests passed with the shadow comparison sampler inheriting).
+
+**The debt this creates is counted, not hidden.** Vulkan has no inherit — a
+`VkSampler` must be described — so every default-desc site is Phase 4 work:
+**199 of 209** seam call sites, with `Stats::DefaultSamplerInherits` counting them
+at runtime.
+
+**§4e retired the LIVE A/B; this is the instrument that replaced it.** The suite's
+fixed-camera evidence PNGs are bit-identical across consecutive same-config runs —
+a noise floor of exactly 0.000 — so the cross-config number means something:
+
+| | RMSE | pixels >8 |
+|---|---|---|
+| noise floor (ON, two consecutive runs) | **0.000** | **0.000%** |
+| OFF vs ON, before | 22.670 | 39.93% |
+| OFF vs ON, after | 2.783 | 1.76% |
+
+The residual was characterised, not waved off: amplified 6x it is hairline
+contours around the FOAM boundaries, max 58 with nothing over 64 — a `smoothstep`
+crossing differently because the two compile routes round the last bit
+differently. §7a-bis's phenomenon on a threshold instead of on depth.
+
+Four things generalise:
+
+- **When a neutral struct's default has to agree with a backend, ask the backend
+  rather than guess well.** Six rows, no majority.
+- **A fix that turns one bug into another is telling you about the SHAPE**, not
+  the value. `ClampToEdge` -> `Repeat` moved the failure from 2D to arrays.
+- **A green suite is not evidence about pixels.** Every image above came from a
+  passing test, in both configurations, before and after.
+- **A zero floor is what makes a small number readable.** 2.783 would be invisible
+  against the live scene's floor of 9.74.
+
+### "Done" needs an end condition, and it has to be a test
+
+A shader left slot-based renders correctly, so it is indistinguishable from one
+nobody reached — which is why "39 remaining" survived three review rounds without
+ever meaning anything. `BindlessShaderPipeline.EveryShaderIsOnTheRouteOrExplicitlyExcluded`
+now fails on any sampler-declaring shader that is neither converted nor carries a
+recorded reason, and checks its exception table in **both** directions so the
+table cannot rot into a silencer. The four surviving reasons are tabulated in
+glsl-shaders.md §5e; they are genuinely different from each other, which is why a
+single "not yet" bucket would have been worse than none.
 
 ---
 

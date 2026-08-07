@@ -76,7 +76,8 @@ namespace OloEngine
 
         void BindHeap() override;
 
-        [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage) const -> u64 override;
+        [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage, RHI::NullSamplerKind kind) const
+            -> u64 override;
 
         struct Stats
         {
@@ -86,10 +87,22 @@ namespace OloEngine
             u64 AcquireFailures = 0;         ///< dead resource, or a view GL cannot express
             u64 UnsupportedViews = 0;        ///< subresource/format reinterpretation, see below
             u64 ImageResidencyWidenings = 0; ///< a handle re-made resident READ_WRITE, see below
+            /// Views minted with `glGetTextureHandleARB`, i.e. the caller stated no
+            /// sampling intent and the descriptor inherited the texture object's
+            /// state. That is parity with the slot path on GL and has no Vulkan
+            /// equivalent — a VkSampler must be described — so this counts the
+            /// sites Phase 4 has to give real sampler state (issue #691 Phase 3).
+            u64 DefaultSamplerInherits = 0;
         };
         [[nodiscard]] auto GetStats() const -> Stats;
 
       private:
+        // Retire every per-format null image: drop residency, delete the texture,
+        // empty the map. ONE definition because Initialize's failure paths and
+        // Shutdown had byte-identical copies of it, and a cleanup that exists twice
+        // is a cleanup that will eventually release different sets.
+        void ReleaseTypedNullImages() noexcept;
+
         [[nodiscard]] auto SamplerObjectFor(const RHI::SamplerDesc& sampler, bool depthCompare) -> GLuint;
         [[nodiscard]] auto AcquireSampledDescriptor(GLuint texture, const RHI::ViewDesc& view,
                                                     const RHI::SamplerDesc& sampler) -> u64;
@@ -111,6 +124,35 @@ namespace OloEngine
         // separate HANDLE because `image2D(samplerHandle)` is undefined.
         GLuint m_NullImageTexture = 0u;
         u64 m_NullImageDescriptor = 0u;
+
+        // One null image per FORMAT. glGetImageHandleARB bakes the format into
+        // the handle and a mismatched `layout(...)` qualifier is undefined, so a
+        // single R32F null cannot serve an r32ui or rgba8 binding — the sampler
+        // TARGET argument one axis over (issue #691 Phase 3).
+        struct NullImage
+        {
+            GLuint Texture = 0u;
+            u64 Descriptor = 0u;
+        };
+        std::unordered_map<u32, NullImage> m_NullImagesByFormat;
+
+        [[nodiscard]] auto NullStorageDescriptor(RHI::Format format) const -> u64 override;
+
+        // And one null per SAMPLER TYPE, for the same reason one level over: the
+        // GLSL type used to construct a sampler from a handle must match the
+        // texture's target or the read is undefined. A shader whose environment
+        // probe is unset resolves to a null offset and builds `samplerCube` from
+        // it — so a 2D null there is not a safe fallback, it is the bug
+        // (issue #691 Phase 3). The array-shadow null carries a depth format and a
+        // comparison sampler because `sampler2DArrayShadow` demands both.
+        GLuint m_NullCubeTexture = 0u;
+        u64 m_NullCubeDescriptor = 0u;
+        GLuint m_NullArrayTexture = 0u;
+        u64 m_NullArrayDescriptor = 0u;
+        GLuint m_NullArrayShadowTexture = 0u;
+        GLuint m_NullShadowSampler = 0u;
+        u64 m_NullArrayShadowDescriptor = 0u;
+
         u32 m_SlotCapacity = 0u;
 
         // Residency refcount. Two views that differ only in a field GL folds

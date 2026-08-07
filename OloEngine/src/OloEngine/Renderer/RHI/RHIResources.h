@@ -353,8 +353,48 @@ namespace OloEngine::RHI
     // and CreateDepthArrayCompareOffView is Nearest+ClampToBorder — so a
     // two-bool sampler would have forced those call sites to keep a GL escape
     // hatch. See RHITypes.h's Filter/AddressMode note.
+    // Where a view's sampling state comes from. `SamplerDesc::Source` carries it,
+    // so "inherit" and "these exact values" stay distinct even when the values
+    // coincide (issue #691 Phase 3).
+    //
+    // WITHOUT THE DISCRIMINATOR the two are indistinguishable, because the test
+    // for inherit is "the desc equals a default-constructed one". A caller
+    // wanting Linear+Repeat EXPLICITLY — on a colour `Texture2DArray`, whose
+    // object is ClampToEdge — would silently get the object's state instead. No
+    // call site needs that today; the field exists so the one that eventually
+    // does can say so rather than discovering it the quiet way.
+    enum class SamplerSource : u8
+    {
+        /// Take the texture object's own state. Parity with the slot path.
+        InheritTexture = 0,
+        /// Use the fields below verbatim, even where they match the defaults.
+        Explicit
+    };
+
+    // A DEFAULT-CONSTRUCTED SamplerDesc IS A REQUEST TO INHERIT, not a request for
+    // these values (issue #691 Phase 3). The heap backend mints a view for
+    // `SamplerDesc{}` with `glGetTextureHandleARB`, which bakes the TEXTURE
+    // OBJECT's own state — because the slot path samples with the object's
+    // parameters, so a caller that expresses no intent is asking for those.
+    //
+    // Why it cannot be a table of defaults instead: there is no single right
+    // answer. `OpenGLTexture2D` and every framebuffer attachment are REPEAT,
+    // `OpenGLTexture2DArray` is CLAMP_TO_EDGE for colour and CLAMP_TO_BORDER for
+    // depth, `OpenGLTextureCubemap` is CLAMP_TO_EDGE, `OpenGLTexture3D` takes its
+    // from the caller — and an INTEGER format must additionally be NEAREST or GL
+    // treats the texture as incomplete and it samples as zero. Chasing that with
+    // per-target defaults was tried and is whack-a-mole: the fix for 2D broke the
+    // terrain arrays. See `OpenGLDescriptorHeapBackend::AcquireSampledDescriptor`.
+    //
+    // The values below therefore only apply to a desc somebody built ON PURPOSE,
+    // and every field is worth setting deliberately when you do — see
+    // `HeapBinding::ShadowDepthSampler` for the worked example.
     struct SamplerDesc
     {
+        /// Inherit unless the caller says otherwise. Part of `operator==`, so it
+        /// flows into the view memo key and the sampler-slot dedup automatically —
+        /// an inherited and an explicit view of one texture stay two views.
+        SamplerSource Source = SamplerSource::InheritTexture;
         // `Compare`, not `CompareOp` — a member sharing the enum's name hides it
         // and breaks the default member initializer (same trap as
         // TextureDesc::PixelFormat above).
@@ -362,10 +402,14 @@ namespace OloEngine::RHI
         Filter MinFilter = Filter::Linear;
         Filter MagFilter = Filter::Linear;
         bool LinearMipFilter = true;
-        AddressMode AddressU = AddressMode::ClampToEdge;
-        AddressMode AddressV = AddressMode::ClampToEdge;
-        AddressMode AddressW = AddressMode::ClampToEdge;
+        // Repeat because that is GL's own texture-object default, so an explicit
+        // desc that forgets to set these lands on the least surprising value.
+        AddressMode AddressU = AddressMode::Repeat;
+        AddressMode AddressV = AddressMode::Repeat;
+        AddressMode AddressW = AddressMode::Repeat;
         f32 MaxAnisotropy = 1.0f;
+        /// Only consulted when an address mode is ClampToBorder. See BorderColor.
+        BorderColor Border = BorderColor::TransparentBlack;
 
         [[nodiscard]] auto operator==(const SamplerDesc& other) const -> bool = default;
     };

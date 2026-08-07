@@ -744,10 +744,16 @@ namespace OloEngine::Tests
         // could drive to zero, so "zero" is not self-evidently a broken
         // scanner. It is nonetheless not reachable — the slot-based path must
         // survive for devices without ARB_bindless_texture (that is the whole
-        // fallback design), so the engine will always contain some. A floor an
-        // order of magnitude below today's count catches a broken needle
-        // without constraining the conversion.
-        EXPECT_GT(tally.SweepBindTextureSites, 20u)
+        // fallback design), so the engine will always contain some.
+        //
+        // 5, NOT 20. The count is 22 today, so a floor of 20 left two sites of
+        // headroom and would have FAILED a legitimate further conversion — the
+        // opposite of what a floor guard is for, and flatly contrary to the "an
+        // order of magnitude below today's count" this comment used to claim.
+        // The irreducible residue is the facade declarations plus the seam's own
+        // fallbacks, on the order of ten; 5 sits below that and still catches a
+        // needle that has stopped matching.
+        EXPECT_GT(tally.SweepBindTextureSites, 5u)
             << "Found only " << tally.SweepBindTextureSites << " slot-based texture-bind sites outside "
             << "Platform/. Heap-bindless deletes these, but it cannot delete ALL of them: the "
             << "slot-based path is the fallback for devices without ARB_bindless_texture. A number "
@@ -885,6 +891,96 @@ namespace OloEngine::Tests
         }
 
         EXPECT_GE(headersChecked, 2u) << "Expected at least RHITypes.h and RHIResources.h";
+    }
+
+    // -------------------------------------------------------------------------
+    // MINTING A TEXTURE IDENTITY OBLIGES YOU TO RETIRE ITS VIEWS, and the rule
+    // needs a guard because breaking it is silent.
+    //
+    // A backend type that calls `m_RHIHandle.Sync(ResourceKind::Texture, ...)`
+    // can have heap descriptors minted against it — a bindless descriptor names
+    // the underlying GL OBJECT, so it dangles the moment that object is deleted.
+    // `~OpenGLTexture2D` and `~OpenGLTextureCubemap` paid that debt from the
+    // start; `~OpenGLTexture2DArray` and `~OpenGLTexture3D` never did, and both
+    // are bound as storage-image descriptors through the heap (the wind field,
+    // the froxel fog volumes, the cloud noise volumes, the ocean FFT ping-pong).
+    //
+    // NOTHING CAUGHT IT FOR TWO PRs. It fails no test, renders nothing wrong,
+    // and costs exactly one `GL_INVALID_OPERATION: Not a valid texture` in the
+    // log at process shutdown — under `OLO_RHI_BINDLESS=1` only, which is not
+    // the configuration CI runs. The GPU-side proof lives in
+    // `BindlessHeapGpuTest` (which really destroys a Texture3D and a
+    // Texture2DArray and checks residency drops), but that test can only cover
+    // the types someone thought to write it for. This one covers the types
+    // nobody has written yet, which is where the next instance will be.
+    //
+    // Scanned on the blanked text so the prose above — and the identical prose
+    // in OpenGLUtilities.h — cannot satisfy the rule it describes.
+    // -------------------------------------------------------------------------
+    TEST(RHIBoundaryRatchet, EveryTextureTypeThatMintsAnIdentityRetiresItsViews)
+    {
+        const fs::path backend = RepoRoot() / "OloEngine" / "src" / "Platform" / "OpenGL";
+        ASSERT_TRUE(fs::exists(backend)) << "Missing " << backend.string();
+
+        // WHITESPACE-TOLERANT, because the plain substring was a needle that could
+        // stop matching in silence. clang-format wraps a long call, and
+        // `m_RHIHandle.Sync(` + newline + `RHI::ResourceKind::Texture2D, ...)` does
+        // not contain the literal above — so the file would be skipped as a
+        // non-minter and its missing retire would never be checked. A scanner that
+        // under-reports passes for the wrong reason, which is the failure mode this
+        // whole test file exists to prevent.
+        static const std::regex kMint(R"(Sync\s*\(\s*RHI::ResourceKind::Texture)");
+
+        // EITHER spelling satisfies the rule, and the second one is not a
+        // loophole. `Utils::RetireTextureViews` is the form a texture TYPE
+        // should use — one owned identity, one call, noexcept. `OpenGLFramebuffer`
+        // is the other shape: it owns N attachment identities rather than one
+        // `m_RHIHandle`, and retires them in a loop at two lifecycle points. It
+        // is already correct, and a guard that demanded the helper would be
+        // demanding a refactor rather than enforcing a property.
+        //
+        // The property IS "you retire what you minted". Which call you retire
+        // with is style; not retiring at all is the bug.
+        static constexpr std::string_view kRetireHelper = "RetireTextureViews(";
+        static constexpr std::string_view kRetireDirect = "RetireResource(";
+
+        u32 mintingFiles = 0;
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(backend, ec), end; it != end; it.increment(ec))
+        {
+            std::error_code entryEc;
+            if (ec || !it->is_regular_file(entryEc) || entryEc || it->path().extension() != ".cpp")
+            {
+                continue;
+            }
+
+            const std::string blanked = BlankLiterals(ReadFile(it->path()));
+            if (!std::regex_search(blanked, kMint))
+            {
+                continue;
+            }
+            ++mintingFiles;
+
+            const bool retires = blanked.find(kRetireHelper) != std::string::npos ||
+                                 blanked.find(kRetireDirect) != std::string::npos;
+            EXPECT_TRUE(retires)
+                << it->path().filename().string()
+                << " mints a texture identity with m_RHIHandle.Sync(ResourceKind::Texture, ...) but "
+                   "never retires it. Call Utils::RetireTextureViews() from the destructor — it pairs "
+                   "the heap's RetireResource with the slot path's InvalidateTextureBinding and "
+                   "cannot throw out of a destructor (Platform/OpenGL/OpenGLUtilities.h). Skipping it "
+                   "leaves a resident bindless descriptor on a deleted GL object: undefined behaviour "
+                   "when sampled, and a lone 'GL_INVALID_OPERATION: Not a valid texture' at shutdown "
+                   "if you are lucky (issue #691 Phase 3).";
+        }
+
+        // The anchor that stops a broken scan from passing silently: the four
+        // OpenGLTexture* units plus OpenGLFramebuffer (its attachments) mint one
+        // today.
+        EXPECT_GE(mintingFiles, 5u)
+            << "Expected at least OpenGLTexture{,2DArray,3D,Cubemap}.cpp and OpenGLFramebuffer.cpp "
+               "to mint a texture identity — a lower number means this scan stopped finding them, "
+               "not that the engine grew simpler.";
     }
 
     // -------------------------------------------------------------------------

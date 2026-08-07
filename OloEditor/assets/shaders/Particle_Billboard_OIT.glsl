@@ -122,8 +122,19 @@ struct VertexOutput
 
 layout(location = 0) in VertexOutput Input;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Both slots move
+// together because ParticleBatchRenderer::BindParticleTextures stages both in
+// one call — converting one and leaving the other would leave the unconverted
+// sampler unbound once this program builds as the bindless variant (§5c).
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)
+#define u_DepthTexture OLO_HEAP_TEX_2D(1)
+#else
 layout(binding = 0) uniform sampler2D u_Texture;
 layout(binding = 1) uniform sampler2D u_DepthTexture;
+#endif
 
 layout(std140, binding = 2) uniform ParticleParams
 {

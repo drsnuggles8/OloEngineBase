@@ -605,26 +605,22 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
-        // Drop any cached "this slot already has this texture bound" entries so a
-        // future bind with a recycled GL ID isn't skipped against stale tracking.
-        CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
-        // …and the HEAP's descriptors too. `InvalidateTextureBinding` above clears
-        // the slot path's "already bound" cache; it does nothing for a bindless
-        // descriptor, which names the underlying GL OBJECT and so dangles the
-        // moment that object is deleted or its storage recreated.
+        // Both lifecycle calls, through the one helper every texture destructor
+        // shares — see Utils::RetireTextureViews for why there are two of them
+        // and why the helper is noexcept.
         //
         // ADR 0011 amendment (22) says every site that recreates a resource's
-        // storage owes BOTH calls. Until now only two hand-written sites paid it
+        // storage owes BOTH calls. Originally only two hand-written sites paid it
         // (SSAO's noise texture and the colour-grading LUT), so every framebuffer
         // RESIZE — which recreates every attachment — left live views pointing at
         // deleted objects. Sampling a dead bindless handle is undefined behaviour,
         // not a black read: observed as a flickering viewport and a hard crash on
         // resize once enough passes held persistent views.
         //
-        // Wiring it into the texture lifecycle here, next to its sibling, is what
-        // makes it automatic rather than a rule every future call site has to
-        // remember (issue #691 Phase 3).
-        RHI::DescriptorHeap::Get().RetireResource(m_RHIHandle.Get());
+        // Wiring it into the texture lifecycle here is what makes it automatic
+        // rather than a rule every future call site has to remember
+        // (issue #691 Phase 3).
+        Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()

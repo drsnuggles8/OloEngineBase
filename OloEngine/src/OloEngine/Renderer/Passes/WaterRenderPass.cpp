@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -193,24 +194,49 @@ namespace OloEngine
 
         m_SceneFramebuffer->Bind();
 
+        // PUBLISH, NOT BIND — and the distinction is forced by this pass's shape.
+        //
+        // These four are pass-LEVEL state consumed by whatever the command bucket
+        // dispatches below, not inputs to a draw issued here. `BindTextureOrHeap-
+        // Offset` forks on Shader::IsBoundProgramBindless(), i.e. on the program
+        // in flight — and at this point that is whatever ran last, never the water
+        // shaders, which each bind themselves inside CommandBucket::Execute. The
+        // fork has no correct answer here, so the seam must do BOTH: stage the
+        // offset for a bindless consumer and issue the bind for a slot-based one
+        // (issue #691 Phase 3; HeapBindingSeam.h, "published-global bindings").
+        //
+        // FrameTransient throughout: every one is graph-resolved or a per-frame
+        // renderer target, so none may be memoised onto a pooled object.
+
         // Bind scene depth for depth softening and shoreline foam
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, depthTextureID);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_DEPTH, depthTextureID,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
 
         // Bind refraction color copy
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
 
         // Bind scene view-space normals for SSR ray marching
-        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTextureID);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTextureID,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
 
         // Planar reflection (mirror) — bind the reflection colour target produced
         // by PlanarReflectionRenderPass and rebind its binding-43 UBO so the shader
         // has a live mirror VP + enable flag. The UBO's enable flag (set to 0 when
         // the pass is disabled / the texture id is 0) gates the shader, so a stale
         // texture is never sampled as a reflection.
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION,
-                            Renderer3D::GetPlanarReflectionTextureID());
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION,
+                                                 Renderer3D::GetPlanarReflectionTextureID(),
+                                                 RHI::HeapSlotLifetime::FrameTransient);
         if (m_PlanarReflectionUBO)
             m_PlanarReflectionUBO->Bind();
+
+        // Publish the offsets before the bucket runs. Nothing inside
+        // CommandBucket::Execute flushes on this pass's behalf, so without this
+        // the bindless water shaders would index the PREVIOUS frame's offsets
+        // while the slot-based bind above worked perfectly — a divergence that
+        // shows as wrong reflections rather than as an error.
+        HeapBinding::FlushOffsets();
 
         // Sort and dispatch water commands through the command bucket
         m_CommandBucket.SortCommands();
@@ -263,10 +289,19 @@ namespace OloEngine
         // Unbind the three texture slots we sampled into — leaving them
         // bound lets water-depth / scene-normals / refraction slots leak
         // into subsequent passes that share the same sampler layout.
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource);
-        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, RHI::NullResource);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, RHI::NullResource);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION, RHI::NullResource);
+        // Cleared through the same publish seam, so BOTH consumers see the clear:
+        // the slot-based one loses its binding, the bindless one gets the reserved
+        // null offset. Clearing only the bind would leave a later bindless pass
+        // sampling this frame's refraction copy through a still-valid index.
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SCENE_NORMALS, RHI::NullResource,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_REFRACTION, RHI::NullResource,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION,
+                                                 RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::FlushOffsets();
 
         m_SceneFramebuffer->Unbind();
 

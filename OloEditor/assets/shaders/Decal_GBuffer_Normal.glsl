@@ -45,8 +45,14 @@ layout(std140, binding = 21) uniform DecalParams {
     vec4 u_DecalParams; // x = fadeDistance, y = normalAngleThreshold
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_DecalNormal OLO_HEAP_TEX_2D(11)  // TEX_USER_1
+#define u_SceneDepth OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 11) uniform sampler2D u_DecalNormal;
 layout(binding = 19) uniform sampler2D u_SceneDepth;
+#endif
 
 // Oct encode to match PBR_GBuffer.glsl / DeferredLighting.glsl.
 vec2 OctWrap(vec2 v)

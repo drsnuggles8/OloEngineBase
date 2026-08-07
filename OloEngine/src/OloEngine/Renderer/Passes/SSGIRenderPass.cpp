@@ -160,14 +160,21 @@ namespace OloEngine
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
+        // Heap-bindless conversion (issue #691 Phase 3, bucket 1). Shader bound
+        // first — the seam forks on the program in flight. All four inputs are
+        // graph-resolved (pooled), so FrameTransient rather than Persistent.
         m_SSGIShader->Bind();
-        context.BindTexture(0, inputColorTextureID);
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID);
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID);
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         RenderCommand::DrawIndexed(va);
 
         RenderCommand::SetDepthMask(true);

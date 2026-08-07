@@ -83,9 +83,16 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_LayerBlendSharpness1;
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_TerrainAlbedoArray OLO_HEAP_TEX_2D_ARRAY(25)  // TEX_TERRAIN_ALBEDO_ARRAY
+#define u_TerrainNormalArray OLO_HEAP_TEX_2D_ARRAY(26)  // TEX_TERRAIN_NORMAL_ARRAY
+#define u_TerrainARMArray OLO_HEAP_TEX_2D_ARRAY(27)  // TEX_TERRAIN_ARM_ARRAY
+#else
 layout(binding = 25) uniform sampler2DArray u_TerrainAlbedoArray;
 layout(binding = 26) uniform sampler2DArray u_TerrainNormalArray;
 layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
+#endif
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;

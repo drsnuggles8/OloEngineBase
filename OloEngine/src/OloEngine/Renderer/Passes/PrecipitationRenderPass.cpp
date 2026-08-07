@@ -139,8 +139,11 @@ namespace OloEngine
         if (const auto precipitationUBO = PrecipitationSystem::GetPrecipitationUBO())
             precipitationUBO->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
-        m_PrecipitationShader->SetInt("u_Texture", 0);
+        // FrameTransient: graph-resolved. The SetInt companion is gone — it was
+        // redundant against the shader's layout(binding = 0) and would log
+        // "uniform not found" every frame under the bindless variant, where the
+        // name is a #define (issue #691 Phase 3).
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         {
             PrecipitationScreenUBOData uboData;
@@ -157,6 +160,7 @@ namespace OloEngine
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);

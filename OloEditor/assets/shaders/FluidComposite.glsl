@@ -30,13 +30,25 @@ void main()
 layout(location = 0) in vec2 v_TexCoord;
 
 // Fluid intermediates (FluidIntermediatesPass outputs)
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_FluidDepth OLO_HEAP_TEX_2D(54)  // R32F smoothed view depth (positive metres, 0 = no fluid) — TEX_FLUID_DEPTH
+#define u_FluidThickness OLO_HEAP_TEX_2D(55)  // RG16F: r = thickness, g = speed-weighted thickness — TEX_FLUID_THICKNESS
+#else
 layout(binding = 54) uniform sampler2D u_FluidDepth;     // R32F smoothed view depth (positive metres, 0 = no fluid)
 layout(binding = 55) uniform sampler2D u_FluidThickness; // RG16F: r = thickness, g = speed-weighted thickness
+#endif
 
 // Scene inputs (water-identical slots + uniform names)
+#ifdef OLO_BINDLESS
+#define u_SceneDepth OLO_HEAP_TEX_2D(39)  // opaque scene depth — TEX_WATER_DEPTH
+#define u_RefractionTexture OLO_HEAP_TEX_2D(40)  // pre-fluid scene colour copy — TEX_WATER_REFRACTION
+#define u_EnvironmentMap OLO_HEAP_TEX_CUBE(9)  // global environment/skybox (Counts.z gates sampling) — TEX_ENVIRONMENT
+#else
 layout(binding = 39) uniform sampler2D u_SceneDepth;        // opaque scene depth
 layout(binding = 40) uniform sampler2D u_RefractionTexture; // pre-fluid scene colour copy
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;   // global environment/skybox (Counts.z gates sampling)
+#endif
 
 // MRT outputs matching SceneRenderPass format
 layout(location = 0) out vec4 o_Color;

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "ParticleBatchRenderer.h"
 #include "OloEngine/Particle/GPUParticleSystem.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -362,9 +363,25 @@ namespace OloEngine
     // Bind textures for particle rendering (slot 0 = diffuse, slot 1 = depth for soft particles)
     static void BindParticleTextures(bool hasTexture, RHI::ResourceHandle texture)
     {
-        RenderCommand::BindTexture(0, hasTexture ? texture : s_Data.WhiteTexture->GetRHIHandle());
-        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID
-                                                                : s_Data.WhiteTexture->GetRHIHandle());
+        // Every caller binds its shader BEFORE calling this, which is what makes the
+        // seam's IsBoundProgramBindless() fork meaningful here (issue #691 Phase 3).
+        //
+        // Slot 0 is always an asset-owned texture (the particle atlas or the shared
+        // white fallback) — Persistent. Slot 1 is MIXED: the soft-particle depth is
+        // graph-resolved while the fallback is asset-owned, so it takes the
+        // conservative FrameTransient. Persistent on a pooled target would memoise
+        // an offset the planner can reassign; FrameTransient on an asset merely
+        // re-mints a descriptor each frame. Only one of those errors is unsafe.
+        HeapBinding::BindTextureOrOffset(0, hasTexture ? texture : s_Data.WhiteTexture->GetRHIHandle(),
+                                         RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::BindTextureOrOffset(1,
+                                         s_Data.SoftParams.Enabled
+                                             ? s_Data.SoftParams.DepthTextureID
+                                             : s_Data.WhiteTexture->GetRHIHandle(),
+                                         RHI::HeapSlotLifetime::FrameTransient);
+        // This function is the last texture setup before each of the four particle
+        // draws, so the flush belongs here rather than repeated at every call site.
+        HeapBinding::FlushOffsets();
     }
 
     void ParticleBatchRenderer::EndBatch()

@@ -37,8 +37,14 @@ layout(location = 0) out vec4 o_Cloud;
 #include "include/NoiseCommon.glsl"
 #include "include/CloudscapeCommon.glsl"
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_CloudCurrent OLO_HEAP_TEX_2D(0)  // pass A output (half-res) — TEX_DIFFUSE
+#define u_CloudHistory OLO_HEAP_TEX_2D(1)  // last frame's resolve (half-res) — TEX_SPECULAR
+#else
 layout(binding = 0) uniform sampler2D u_CloudCurrent; // pass A output (half-res)
 layout(binding = 1) uniform sampler2D u_CloudHistory; // last frame's resolve (half-res)
+#endif
 
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;

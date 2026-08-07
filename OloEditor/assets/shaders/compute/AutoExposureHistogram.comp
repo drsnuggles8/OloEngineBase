@@ -20,7 +20,15 @@ layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) i
 
 // Metering input: the HDR colour about to be tone-mapped (post-process chain
 // output, linear radiance).
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1), converted with
+// ToneMapRenderPass's histogram bind.
+#ifdef OLO_BINDLESS
+#define u_HDRColor OLO_HEAP_TEX_2D(0)
+#else
 layout(binding = 0) uniform sampler2D u_HDRColor;
+#endif
 
 layout(std430, binding = 19) buffer HistogramBuffer
 {

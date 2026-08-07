@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -351,13 +352,19 @@ namespace OloEngine
             auto foliageUBO = Renderer3D::GetFoliageUBO();
             foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
 
-            // Bind albedo texture
+            // Bind albedo texture. THROUGH THE SEAM, not Texture::Bind — a direct
+            // bind is invisible to the heap, so a converted Foliage_Instance would
+            // read an offset nobody staged (issue #691 Phase 3). Persistent: the
+            // atlas is asset-owned and outlives the frame.
             if (layer.AlbedoTexture)
             {
-                layer.AlbedoTexture->Bind(0); // TEX_DIFFUSE
+                HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
+                                                 layer.AlbedoTexture->GetRHIHandle(),
+                                                 RHI::HeapSlotLifetime::Persistent);
             }
 
             layer.VAO->Bind();
+            HeapBinding::FlushOffsets();
             RenderCommand::DrawIndexedInstanced(layer.VAO, layer.IndexCount, layer.InstanceCount);
             m_VisibleInstances += layer.InstanceCount;
         }
@@ -404,13 +411,16 @@ namespace OloEngine
             auto foliageUBO = Renderer3D::GetFoliageUBO();
             foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
 
-            // Bind albedo for alpha test in shadow pass
+            // Bind albedo for alpha test in shadow pass (see the seam note above).
             if (layer.AlbedoTexture)
             {
-                layer.AlbedoTexture->Bind(0);
+                HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
+                                                 layer.AlbedoTexture->GetRHIHandle(),
+                                                 RHI::HeapSlotLifetime::Persistent);
             }
 
             layer.VAO->Bind();
+            HeapBinding::FlushOffsets();
             RenderCommand::DrawIndexedInstanced(layer.VAO, layer.IndexCount, layer.InstanceCount);
         }
     }

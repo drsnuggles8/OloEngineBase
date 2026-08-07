@@ -35,6 +35,11 @@ namespace OloEngine
         // overloads funnel into, and it is the only identity available at the
         // point the publication has to happen.
         std::unordered_set<u32> s_BindlessPrograms;
+
+        // Parallel to s_BindlessPrograms and deliberately SEPARATE — see
+        // Shader::ReadsMaterialHeapOffsets for why one set cannot answer both.
+        std::unordered_set<u32> s_MaterialOffsetPrograms;
+        bool s_BoundProgramReadsMaterialOffsets = false;
     } // namespace
 
     auto Shader::IsBoundProgramBindless() -> bool
@@ -68,7 +73,41 @@ namespace OloEngine
 
     void Shader::UnregisterProgram(const u32 programID)
     {
+        // BOTH sets, unconditionally. GL reissues freed program names, so an entry
+        // left in either would mark an unrelated future program.
         s_BindlessPrograms.erase(programID);
+        s_MaterialOffsetPrograms.erase(programID);
+    }
+
+    auto Shader::ReadsMaterialHeapOffsets() -> bool
+    {
+        return s_BoundProgramReadsMaterialOffsets;
+    }
+
+    void Shader::SetBoundProgramMaterialOffsets(const bool reads)
+    {
+        s_BoundProgramReadsMaterialOffsets = reads;
+    }
+
+    void Shader::RegisterProgramMaterialOffsets(const u32 programID, const bool reads)
+    {
+        if (programID == 0u)
+        {
+            return;
+        }
+        if (reads)
+        {
+            s_MaterialOffsetPrograms.insert(programID);
+        }
+        else
+        {
+            s_MaterialOffsetPrograms.erase(programID);
+        }
+    }
+
+    auto Shader::ProgramReadsMaterialOffsets(const u32 programID) -> bool
+    {
+        return s_MaterialOffsetPrograms.contains(programID);
     }
 
     auto Shader::IsProgramBindless(const u32 programID) -> bool

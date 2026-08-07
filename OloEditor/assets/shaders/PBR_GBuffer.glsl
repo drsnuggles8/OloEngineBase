@@ -73,6 +73,10 @@ void main()
 #type fragment
 #version 460 core
 
+// FIRST — the sampler declarations below expand its accessors on the bindless
+// build. Contributes nothing on the slot-based build.
+#include "include/BindlessHeap.glsl"
+
 #include "include/PBRCommon.glsl"
 
 // PBR Material UBO (binding 2) — identical layout to PBR_MultiLight so the
@@ -96,6 +100,14 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;
     int u_AlphaMode;        // 0=Opaque, 1=Mask, 2=Blend
     int _pbrPad2;
+    // Per-material heap offsets (issue #691 Phase 3). MUST mirror
+    // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
+    // layouts disagree, and this block is the LAST member so a missing
+    // declaration reads garbage rather than failing to link.
+    //   [0] albedo, metallicRoughness, normal, ao
+    //   [1] emissive, environment, irradiance, prefilter
+    //   [2] brdfLut, diffuse(legacy), specular(legacy), unused
+    uvec4 u_MaterialHeapOffsets[3];
 };
 
 // Model UBO (binding 3) — entity-ID is not written from the G-Buffer path
@@ -106,11 +118,25 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 #include "include/InstanceBlock.glsl"
 
 // Texture bindings — must match PBR_MultiLight so material data works unchanged.
+//
+// This shader declares ONLY the material five, so converting it is the whole
+// job (§5c: the unit of conversion is a C++ bind and its declaration together).
+// Everything else it reads — the G-Buffer targets it WRITES, the instance block
+// — is not a sampler.
+#ifdef OLO_BINDLESS
+#define OLO_MATERIAL_HEAP_READER 1
+#define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
+#define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
+#define u_NormalMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET)
+#define u_AOMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET)
+#define u_EmissiveMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET)
+#else
 layout(binding = 0) uniform sampler2D u_AlbedoMap;
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap;
 layout(binding = 2) uniform sampler2D u_NormalMap;
 layout(binding = 4) uniform sampler2D u_AOMap;
 layout(binding = 5) uniform sampler2D u_EmissiveMap;
+#endif
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;

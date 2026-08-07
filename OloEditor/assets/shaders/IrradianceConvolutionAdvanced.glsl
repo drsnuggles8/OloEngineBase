@@ -45,7 +45,12 @@ void main()
 layout(location = 0) in vec3 v_LocalPos;
 layout(location = 0) out vec4 o_Color;
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_EnvironmentMap OLO_HEAP_TEX_CUBE(9)  // TEX_ENVIRONMENT
+#else
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;
+#endif
 
 // IBLAdvancedParamsUBO at UBO_USER_0 (binding 7). See ShaderBindingLayout.h.
 layout(std140, binding = 7) uniform IBLAdvancedParams {

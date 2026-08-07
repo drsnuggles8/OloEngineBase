@@ -175,7 +175,12 @@ namespace OloEngine::Ocean
 
         m_ButterflyShader->Bind();
         m_ButterflyShader->SetInt("u_Resolution", static_cast<int>(N));
-        RenderCommand::BindTexture(0, m_ButterflyTex->GetRHIHandle());
+        // Persistent: the twiddle table is pass-owned and never pooled. Staged
+        // once here rather than per stage — the offset scratch persists across
+        // flushes, and the loop below already flushes per iteration for the
+        // ping-pong images (issue #691 Phase 3).
+        HeapBinding::BindTextureOrOffset(0, m_ButterflyTex->GetRHIHandle(),
+                                         RHI::HeapSlotLifetime::Persistent);
 
         u32 src = srcIndex;
         for (int vertical = 0; vertical <= 1; ++vertical)
@@ -227,7 +232,10 @@ namespace OloEngine::Ocean
             m_EvolveShader->SetFloat("u_PatchSize", m_PatchSize);
             m_EvolveShader->SetFloat("u_Gravity", m_Gravity);
             m_EvolveShader->SetFloat("u_Time", time);
-            RenderCommand::BindTexture(0, m_H0Tex->GetRHIHandle());
+            // Persistent: the h0 spectrum is pass-owned, generated once per
+            // parameter change rather than acquired from the transient pool.
+            HeapBinding::BindTextureOrOffset(0, m_H0Tex->GetRHIHandle(),
+                                             RHI::HeapSlotLifetime::Persistent);
             HeapBinding::BindImageOrOffset(0, m_PingPong[0]->GetRHIHandle(), 0, true, 0,
                                            RHI::Access::StorageWrite, RHI::Format::RGBA32Float,
                                            RHI::HeapSlotLifetime::Persistent);

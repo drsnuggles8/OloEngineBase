@@ -4,6 +4,7 @@
 
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -137,7 +138,10 @@ namespace OloEngine
         RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 0.0f });
         RenderCommand::ClearColorAndDepth();
 
-        albedo->Bind(ShaderBindingLayout::TEX_DIFFUSE);
+        // Through the seam: the bake shader is already bound above, so the fork
+        // on IsBoundProgramBindless() is answerable (issue #691 Phase 3).
+        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE, albedo->GetRHIHandle(),
+                                         RHI::HeapSlotLifetime::Persistent);
 
         auto vao = mesh->GetVertexArray();
 
@@ -164,6 +168,7 @@ namespace OloEngine
                 RenderCommand::SetViewport(fx * tileRes, fy * tileRes, tileRes, tileRes);
 
                 vao->Bind();
+                HeapBinding::FlushOffsets();
                 RenderCommand::DrawIndexed(vao);
             }
         }

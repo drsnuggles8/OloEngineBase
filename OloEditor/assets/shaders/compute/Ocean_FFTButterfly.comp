@@ -23,10 +23,22 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
+// Converted with OceanFFTGpu's bind — bindless variant, see §5c.
+#ifdef OLO_BINDLESS
+#define u_Butterfly OLO_HEAP_TEX_2D(0)
+#else
 layout(binding = 0) uniform sampler2D u_Butterfly; // rg = twiddle, ba = gather indices
+#endif
 
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declarations move into main() as locals built from the heap descriptors at
+// these image units; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
 layout(rgba32f, binding = 0) readonly uniform image2DArray u_Input;
 layout(rgba32f, binding = 1) writeonly uniform image2DArray u_Output;
+#endif
 
 uniform int u_Resolution; // N (power of two)
 uniform int u_Stage;      // 0 .. log2(N)-1
@@ -40,6 +52,10 @@ vec2 cmul(vec2 a, vec2 b)
 
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba32f, OLO_HEAP_IMAGE_RW, image2DArray, u_Input, 0);
+    OLO_HEAP_IMAGE(rgba32f, writeonly, image2DArray, u_Output, 1);
+#endif
     ivec3 gid = ivec3(gl_GlobalInvocationID);
     if (gid.x >= u_Resolution || gid.y >= u_Resolution)
         return;

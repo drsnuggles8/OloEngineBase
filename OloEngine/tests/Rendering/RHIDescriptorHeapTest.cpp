@@ -122,9 +122,63 @@ namespace OloEngine::Tests
             // storage slot poisoned with the sampler null would look correct.
             static constexpr u64 kNull = 0xD15AB1EDu;
             static constexpr u64 kNullImage = 0xDEADFA11u;
-            [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage) const -> u64 override
+            // One sentinel per SAMPLER TYPE, and they differ for the same reason
+            // the two above do: a cube slot seeded with the 2D null would look
+            // correct to any test that only asks "is this a null", which is
+            // precisely the bug the typed nulls exist to remove (issue #691).
+            static constexpr u64 kNullCube = 0xC0BEC0BEu;
+            static constexpr u64 kNullArray = 0xA55A4A55u;
+            static constexpr u64 kNullArrayShadow = 0x5AD05AD0u;
+            // A distinct sentinel per storage FORMAT, so a poison that picked the
+            // wrong one is visible rather than merely plausible.
+            [[nodiscard]] static auto StorageSentinel(RHI::Format format) -> u64
             {
-                return usage == RHI::ViewUsage::Storage ? kNullImage : kNull;
+                switch (format)
+                {
+                    case RHI::Format::RGBA32Float:
+                        return 0xF32Fu;
+                    case RHI::Format::R8UNorm:
+                        return 0xF008u;
+                    case RHI::Format::RGBA16Float:
+                        return 0xF16Fu;
+                    // SRGB shares the RGBA8 null, exactly as
+                    // RHI::NullOffsetForStorageFormat folds it. If these two ever
+                    // disagree, an SRGB view resolves to one format's OFFSET and
+                    // poisons with another format's DESCRIPTOR.
+                    case RHI::Format::RGBA8SRGB:
+                    case RHI::Format::RGBA8UNorm:
+                        return 0xF8A8u;
+                    case RHI::Format::R32UInt:
+                        return 0xF321u;
+                    default:
+                        return kNullImage;
+                }
+            }
+
+            [[nodiscard]] auto NullStorageDescriptor(RHI::Format format) const -> u64 override
+            {
+                return StorageSentinel(format);
+            }
+
+            [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage, RHI::NullSamplerKind kind) const
+                -> u64 override
+            {
+                if (usage == RHI::ViewUsage::Storage)
+                {
+                    return kNullImage;
+                }
+                switch (kind)
+                {
+                    case RHI::NullSamplerKind::Cube:
+                        return kNullCube;
+                    case RHI::NullSamplerKind::Texture2DArray:
+                        return kNullArray;
+                    case RHI::NullSamplerKind::Texture2DArrayShadow:
+                        return kNullArrayShadow;
+                    case RHI::NullSamplerKind::Texture2D:
+                    default:
+                        return kNull;
+                }
             }
         };
 
@@ -172,10 +226,20 @@ namespace OloEngine::Tests
                 EngineHeapWasEnabled = RHI::DescriptorHeap::Get().IsEnabled();
             }
 
+            // `persistent` is the count of ALLOCATABLE slots, not the raw capacity.
+            //
+            // It used to be the capacity, which quietly meant "capacity minus
+            // however many slots are reserved" — and that number changed when the
+            // typed sampler nulls took reserved slots 2..4 (issue #691 Phase 3).
+            // Every test then lost three allocations it thought it had, and the two
+            // that allocate six views failed on the fourth with an invalid handle:
+            // a real regression signal pointing at the wrong thing entirely. Adding
+            // the reserved count here keeps each test's stated intent — "give me
+            // eight slots I can allocate" — true across any future reservation.
             void SetUpHeap(u32 persistent = 8u, u32 transient = 4u, bool poison = false)
             {
                 RHI::HeapDesc desc;
-                desc.ResourceSlotCapacity = persistent;
+                desc.ResourceSlotCapacity = RHI::kFirstAllocatableHeapSlot + persistent;
                 desc.SamplerSlotCapacity = 8u;
                 desc.FrameTransientRingSlots = transient;
                 desc.PoisonOnFree = poison;
@@ -545,6 +609,148 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     // Poison — the instrument that makes a use-after-free deterministic.
     // -------------------------------------------------------------------------
+    // POISON MUST KEEP THE VIEW'S SAMPLER TYPE, not fall back to the 2D null.
+    //
+    // The offset outlives the view: a material UBO is cached on the material
+    // index, so it can still hold the offset of a slot whose texture has since
+    // been retired. If that slot is poisoned with a 2D descriptor while the
+    // shader still builds `samplerCube` from it, the read is UNDEFINED — which is
+    // exactly the defect the typed nulls were added to remove, one level down
+    // from where they were added (issue #691 Phase 3).
+    //
+    // Checks the sampler-typed cases; a storage view has no sampler type to keep.
+    TEST_F(HeapFixture, PoisonKeepsTheViewsSamplerKind)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true);
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const std::array<std::pair<RHI::NullSamplerKind, u64>, 3> kCases{ {
+            { RHI::NullSamplerKind::Cube, FakeHeapBackend::kNullCube },
+            { RHI::NullSamplerKind::Texture2DArray, FakeHeapBackend::kNullArray },
+            { RHI::NullSamplerKind::Texture2DArrayShadow, FakeHeapBackend::kNullArrayShadow },
+        } };
+
+        u32 resourceId = 8100u;
+        for (const auto& [kind, expected] : kCases)
+        {
+            const RHI::ResourceHandle resource = MakeResource(resourceId++);
+            const RHI::ViewHandle view = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                         RHI::HeapSlotLifetime::Persistent, kind);
+            ASSERT_TRUE(view.IsValid());
+            const u32 slot = heap.OffsetOf(view).Value;
+
+            heap.RetireResource(resource);
+            heap.Flush();
+
+            ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+            ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+            EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], expected)
+                << "a retired view of kind " << static_cast<int>(kind)
+                << " was poisoned with the wrong typed null — a shader still holding this"
+                   " offset would construct its sampler from a descriptor of another target.";
+        }
+    }
+
+    // POISON MUST KEEP THE VIEW'S STORAGE FORMAT, for the same reason it must keep
+    // a sampler's target — one axis over. glGetImageHandleARB bakes the format into
+    // the handle, so loading through a `layout(r32ui)` qualifier from an R32F null
+    // is UNDEFINED, not a reinterpretation of the zero bit pattern.
+    TEST_F(HeapFixture, PoisonKeepsTheViewsStorageFormat)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true);
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const std::array<RHI::Format, 6> kFormats{ RHI::Format::RGBA32Float, RHI::Format::R8UNorm,
+                                                   RHI::Format::RGBA16Float, RHI::Format::RGBA8UNorm,
+                                                   RHI::Format::RGBA8SRGB, RHI::Format::R32UInt };
+        u32 resourceId = 8300u;
+        for (const RHI::Format format : kFormats)
+        {
+            const RHI::ResourceHandle resource = MakeResource(resourceId++);
+            RHI::ViewDesc storage;
+            storage.Resource = resource;
+            storage.Usage = RHI::ViewUsage::Storage;
+            storage.FormatOverride = format;
+
+            const RHI::ViewHandle view =
+                heap.CreateView(resource, storage, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::Persistent);
+            ASSERT_TRUE(view.IsValid());
+            const u32 slot = heap.OffsetOf(view).Value;
+
+            heap.RetireResource(resource);
+            heap.Flush();
+
+            ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+            ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+            EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot],
+                      FakeHeapBackend::StorageSentinel(format))
+                << "a retired storage view was poisoned with the wrong format's null image";
+        }
+    }
+
+    // The STORAGE half of the failed-reacquisition path. Same reasoning as the
+    // sampler case below: when a resource dies under a live view the re-acquire
+    // fails, and what gets published must still match the format the shader loads
+    // through — a zero or wrongly-formatted image handle is undefined, not black.
+    TEST_F(HeapFixture, FailedReacquisitionKeepsTheViewsStorageFormat)
+    {
+        const std::array<RHI::Format, 6> kFormats{ RHI::Format::RGBA32Float, RHI::Format::R8UNorm,
+                                                   RHI::Format::RGBA16Float, RHI::Format::RGBA8UNorm,
+                                                   RHI::Format::RGBA8SRGB, RHI::Format::R32UInt };
+        u32 resourceId = 8400u;
+        for (const RHI::Format format : kFormats)
+        {
+            SetUpHeap();
+            auto& heap = RHI::DescriptorHeap::Get();
+
+            const RHI::ResourceHandle resource = MakeResource(resourceId++);
+            RHI::ViewDesc storage;
+            storage.Resource = resource;
+            storage.Usage = RHI::ViewUsage::Storage;
+            storage.FormatOverride = format;
+
+            const RHI::ViewHandle view =
+                heap.CreateView(resource, storage, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::Persistent);
+            ASSERT_TRUE(view.IsValid());
+            const u32 slot = heap.OffsetOf(view).Value;
+
+            Backend.FailNextAcquire = true;
+            heap.InvalidateResource(resource);
+            heap.Flush();
+
+            ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+            ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+            EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot],
+                      FakeHeapBackend::StorageSentinel(format))
+                << "a failed storage re-acquisition published the wrong format's null image";
+        }
+    }
+
+    // The same rule on the OTHER path that writes a null: a re-acquisition that
+    // FAILS (the resource died under a live view) also has to publish the typed
+    // null, not the 2D one.
+    TEST_F(HeapFixture, FailedReacquisitionKeepsTheViewsSamplerKind)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(8200u);
+        const RHI::ViewHandle view = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                     RHI::HeapSlotLifetime::Persistent,
+                                                     RHI::NullSamplerKind::Cube);
+        ASSERT_TRUE(view.IsValid());
+        const u32 slot = heap.OffsetOf(view).Value;
+
+        Backend.FailNextAcquire = true;
+        heap.InvalidateResource(resource);
+        heap.Flush();
+
+        ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+        ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+        EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], FakeHeapBackend::kNullCube)
+            << "a failed re-acquisition of a CUBE view published the 2D null";
+    }
+
     TEST_F(HeapFixture, PoisonOnFreeOverwritesTheSlotInThePublishedTable)
     {
         SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true);
@@ -604,7 +810,8 @@ namespace OloEngine::Tests
         // Read the two SLOTS this test is about, not the raw upload span.
         //
         // The span is not a contract: a flush uploads whatever range is dirty,
-        // and Initialize now dirties the two reserved null slots (0 and 1) so the
+        // and Initialize now dirties every reserved null slot
+        // (0 .. RHI::kFirstAllocatableHeapSlot - 1) so the
         // first flush is wider than the second. Comparing `LastUpload` wholesale
         // made the test depend on those two flushes happening to cover the same
         // indices — true only while nothing else was ever dirty. What the test
@@ -991,12 +1198,14 @@ namespace OloEngine::Tests
             << "The release must be told the kind — GL has two residency namespaces with two entry points.";
     }
 
-    // The two reserved slots exist and hold the right kind each. Nothing else
-    // ever writes them (the allocator starts above both), so if Initialize does
-    // not seed them the storage null is whatever the backend's buffer prefill
-    // left there — which is the sampler null, i.e. undefined behaviour for every
-    // cleared image binding.
-    TEST_F(HeapFixture, BothReservedNullSlotsArePublishedOnTheFirstFlush)
+    // ALL FIVE reserved slots exist and hold the right kind each. Nothing else
+    // ever writes them (the allocator starts above all of them), so if Initialize
+    // does not seed one, that slot holds whatever the backend's buffer prefill
+    // left there — the 2D sampler null — and every consumer of that kind gets a
+    // descriptor of the wrong type, which is undefined to sample rather than
+    // black. Asserting only the first two left the three typed sampler nulls
+    // unpinned, which is exactly the gap they were added to close.
+    TEST_F(HeapFixture, EveryReservedNullSlotIsPublishedOnTheFirstFlush)
     {
         SetUpHeap();
         RHI::DescriptorHeap::Get().Flush();
@@ -1005,12 +1214,27 @@ namespace OloEngine::Tests
         ASSERT_GE(Backend.LastUpload.size(), static_cast<sizet>(RHI::kFirstAllocatableHeapSlot));
         EXPECT_EQ(Backend.LastUpload[RHI::kNullHeapOffset], FakeHeapBackend::kNull);
         EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageHeapOffset], FakeHeapBackend::kNullImage);
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullCubeHeapOffset], FakeHeapBackend::kNullCube);
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullArrayHeapOffset], FakeHeapBackend::kNullArray);
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullArrayShadowHeapOffset], FakeHeapBackend::kNullArrayShadow);
+        // And one per storage FORMAT — the format axis of the same rule.
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageRGBA32FHeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::RGBA32Float));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageR8HeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::R8UNorm));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageRGBA16FHeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::RGBA16Float));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageRGBA8HeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::RGBA8UNorm));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageR32UIHeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::R32UInt));
     }
 
-    // Neither reserved slot may ever be handed out. A view landing on slot 0 or 1
-    // would make "I am not using this input" indistinguishable from a real
-    // binding, which is the whole hazard the reservation exists to remove.
-    TEST_F(HeapFixture, TheAllocatorNeverHandsOutEitherReservedNullSlot)
+    // No reserved slot may ever be handed out. A view landing anywhere in
+    // 0 .. RHI::kFirstAllocatableHeapSlot - 1 would make "I am not using this
+    // input" indistinguishable from a real binding, which is the whole hazard the
+    // reservation exists to remove.
+    TEST_F(HeapFixture, TheAllocatorNeverHandsOutAReservedNullSlot)
     {
         SetUpHeap();
         auto& heap = RHI::DescriptorHeap::Get();
@@ -1116,7 +1340,9 @@ namespace OloEngine::Tests
         SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u);
         auto& heap = RHI::DescriptorHeap::Get();
 
-        // 6 allocatable slots (2 are the reserved nulls). Churn well past that.
+        // SetUpHeap's first argument is the ALLOCATABLE count, so this is 8 of
+        // them — the reserved nulls sit below RHI::kFirstAllocatableHeapSlot and are
+        // not taken out of it. Churn well past that.
         for (u32 round = 0u; round < 5u; ++round)
         {
             std::vector<RHI::ResourceHandle> live;

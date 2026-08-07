@@ -62,8 +62,14 @@ layout(std140, binding = 23) uniform WaterParams
 
 // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1). Sampled when
 // u_FFTParams.x > 0.5 instead of summing Gerstner waves analytically.
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_FFTDisplacement OLO_HEAP_TEX_2D(50)  // rgb = (dx, h, dz), a = foam — TEX_WATER_FFT_DISPLACEMENT
+#define u_FFTDerivatives OLO_HEAP_TEX_2D(51)  // rgb = normal, a = jacobian — TEX_WATER_FFT_DERIVATIVES
+#else
 layout(binding = 50) uniform sampler2D u_FFTDisplacement; // rgb = (dx, h, dz), a = foam
 layout(binding = 51) uniform sampler2D u_FFTDerivatives;  // rgb = normal, a = jacobian
+#endif
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
@@ -405,8 +411,14 @@ layout(std140, binding = 23) uniform WaterParams
 #include "include/WaterCommon.glsl"
 
 // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1).
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_FFTDisplacement OLO_HEAP_TEX_2D(50)  // rgb = (dx, h, dz), a = foam — TEX_WATER_FFT_DISPLACEMENT
+#define u_FFTDerivatives OLO_HEAP_TEX_2D(51)  // rgb = normal, a = jacobian — TEX_WATER_FFT_DERIVATIVES
+#else
 layout(binding = 50) uniform sampler2D u_FFTDisplacement; // rgb = (dx, h, dz), a = foam
 layout(binding = 51) uniform sampler2D u_FFTDerivatives;  // rgb = normal, a = jacobian
+#endif
 
 layout(location = 0) in vec3 tc_WorldPos[];
 layout(location = 1) in vec3 tc_Normal[];
@@ -573,23 +585,48 @@ layout(std140, binding = 23) uniform WaterParams
 };
 
 // Environment map for reflection (same slot as PBR shaders)
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_EnvironmentMap OLO_HEAP_TEX_CUBE(9)  // TEX_ENVIRONMENT
+#else
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;
+#endif
 
 // FFT ocean displacement (binding 50): a-channel carries the Jacobian-based foam.
+#ifdef OLO_BINDLESS
+#define u_FFTDisplacement OLO_HEAP_TEX_2D(50)  // TEX_WATER_FFT_DISPLACEMENT
+#else
 layout(binding = 50) uniform sampler2D u_FFTDisplacement;
+#endif
 
 // Scrolling normal maps and noise texture
+#ifdef OLO_BINDLESS
+#define u_NormalMap0 OLO_HEAP_TEX_2D(36)  // TEX_WATER_NORMAL_0
+#define u_NormalMap1 OLO_HEAP_TEX_2D(37)  // TEX_WATER_NORMAL_1
+#define u_NoiseMap OLO_HEAP_TEX_2D(38)  // TEX_WATER_NOISE
+#else
 layout(binding = 36) uniform sampler2D u_NormalMap0;
 layout(binding = 37) uniform sampler2D u_NormalMap1;
 layout(binding = 38) uniform sampler2D u_NoiseMap;
+#endif
 
 // Depth and refraction textures (bound by WaterRenderPass)
+#ifdef OLO_BINDLESS
+#define u_SceneDepth OLO_HEAP_TEX_2D(39)  // TEX_WATER_DEPTH
+#define u_RefractionTexture OLO_HEAP_TEX_2D(40)  // TEX_WATER_REFRACTION
+#define u_FoamTexture OLO_HEAP_TEX_2D(41)  // TEX_WATER_FOAM
+#else
 layout(binding = 39) uniform sampler2D u_SceneDepth;
 layout(binding = 40) uniform sampler2D u_RefractionTexture;
 layout(binding = 41) uniform sampler2D u_FoamTexture;
+#endif
 
 // Scene view-space normals for SSR (bound by WaterRenderPass)
+#ifdef OLO_BINDLESS
+#define u_SceneNormals OLO_HEAP_TEX_2D(22)  // TEX_SCENE_NORMALS
+#else
 layout(binding = 22) uniform sampler2D u_SceneNormals;
+#endif
 
 // Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
 // clipped camera by PlanarReflectionRenderPass. u_PlanarReflectionVP projects a
@@ -600,7 +637,11 @@ layout(std140, binding = 43) uniform PlanarReflectionParams
     mat4 u_PlanarReflectionVP;   // world -> mirrored reflection clip space
     vec4 u_PlanarReflectionData; // x = enabled (0/1), y = intensity, z = distortion, w = unused
 };
+#ifdef OLO_BINDLESS
+#define u_PlanarReflectionTexture OLO_HEAP_TEX_2D(52)  // TEX_WATER_PLANAR_REFLECTION
+#else
 layout(binding = 52) uniform sampler2D u_PlanarReflectionTexture;
+#endif
 
 // Sample the planar reflection at this surface point, perturbing the projected
 // UV by the surface normal so ripples break up the mirror. Returns rgb in .rgb

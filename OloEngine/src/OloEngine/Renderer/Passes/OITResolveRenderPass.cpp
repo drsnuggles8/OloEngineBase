@@ -127,9 +127,14 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);
         RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
 
+        // Heap-bindless conversion (issue #691 Phase 3, bucket 1). Shader first —
+        // the seam forks on the program in flight. Both inputs are graph-resolved
+        // (pooled), hence FrameTransient. DrawFullscreenTriangle flushes.
         m_ResolveShader->Bind();
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, oitAccumTextureID);
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, oitRevealageTextureID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_OIT_ACCUM, oitAccumTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_OIT_REVEALAGE, oitRevealageTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
         DrawFullscreenTriangle(context);
 
@@ -138,8 +143,17 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(2, true, true, true, true);
         RenderCommand::SetBlendStateForAttachment(0, false);
         context.SetBlendState(false);
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, RHI::NullResource);
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, RHI::NullResource);
+        // Clearing the inputs needs the seam AND its own flush. Under the heap
+        // there is no bind to undo — the shader reads an offset — so an offset
+        // left in the table keeps a later pass sampling this frame's accum
+        // buffer through a perfectly valid index. The seam stages the reserved
+        // null; without the flush that clear would only land whenever some other
+        // pass happened to flush next (§4b, "unbind has no translation").
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_OIT_ACCUM, RHI::NullResource,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_OIT_REVEALAGE, RHI::NullResource,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.FlushHeapOffsets();
         context.SetDepthMask(true);
         context.SetDepthTest(true);
 
@@ -196,6 +210,12 @@ namespace OloEngine
     {
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        // THE FLUSH LIVES WITH THE DRAW, not at the call site. "A flush per draw"
+        // (§4b) is a rule someone has to remember at every call site; putting it
+        // in the one helper that issues this pass's draw makes it structural
+        // instead. Publishes the descriptors minted since the last flush AND the
+        // offsets indexing them, in that order (issue #691 Phase 3).
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
     }
 } // namespace OloEngine

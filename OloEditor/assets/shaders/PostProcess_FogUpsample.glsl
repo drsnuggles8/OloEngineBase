@@ -27,9 +27,20 @@ layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// byte-identical between the two variants — only these declarations move, and
+// each names the same slot FogRenderPass binds with.
+#ifdef OLO_BINDLESS
+#define u_SceneColor OLO_HEAP_TEX_2D(0)
+#define u_FogTexture OLO_HEAP_TEX_2D(1)
+#define u_DepthTexture OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 0) uniform sampler2D u_SceneColor;    // Full-res HDR scene
 layout(binding = 1) uniform sampler2D u_FogTexture;    // Half-res fog (RGB=inscatter, A=transmittance)
 layout(binding = 19) uniform sampler2D u_DepthTexture; // Full-res depth
+#endif
 
 // Camera UBO for near/far linearization
 layout(std140, binding = 0) uniform CameraMatrices

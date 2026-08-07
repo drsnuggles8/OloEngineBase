@@ -128,10 +128,55 @@ namespace OloEngine::HeapBinding
         {
             auto& table = OffsetTable();
             SyncEpoch(table);
+            // AN IDENTICAL WRITE IS NOT A CHANGE, and the distinction is what makes
+            // a per-draw flush affordable (issue #691 Phase 3). ADR 0011 amendment
+            // (32) rejected converting the per-draw paths because "a converted
+            // shader needs a flush per draw, which gives back exactly the cost
+            // bindless exists to remove" — but the cost it names is the TABLE
+            // UPLOAD, and consecutive draws in a bucket overwhelmingly restage the
+            // same offsets (the same terrain textures across every patch, the same
+            // atlas across every foliage layer). Guarding the dirty flag here turns
+            // those flushes into a bool test plus the heap rebind that
+            // DescriptorHeap::Flush owes anyway.
+            //
+            // SyncEpoch runs FIRST so this cannot swallow a re-base: it reseeds the
+            // scratch with the nulls of the NEW heap, after which an incoming offset
+            // differs and is written.
+            if (table.Scratch[tableIndex] == value)
+            {
+                return;
+            }
             table.Scratch[tableIndex] = value;
             table.Dirty = true;
         }
     } // namespace
+
+    auto ResolveTextureOffset(const RHI::ResourceHandle texture, const RHI::HeapSlotLifetime lifetime,
+                              const RHI::SamplerDesc& sampler, const RHI::NullSamplerKind kind) -> RHI::HeapOffset
+    {
+        if (!HeapPathIsLive())
+        {
+            return {};
+        }
+
+        RHI::ViewDesc viewDesc;
+        viewDesc.Resource = texture;
+
+        if (const RHI::ViewHandle view =
+                RHI::DescriptorHeap::Get().GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
+            view.IsValid())
+        {
+            // Fetched at the point of USE, never stored — ADR 0011 §1.2. The
+            // caller writes it straight into the material UBO it is about to
+            // upload, so it never outlives the draw it was minted for.
+            return RHI::OffsetOf(view);
+        }
+
+        // A dead resource or an exhausted heap. An invalid offset tells the caller
+        // to keep binding, which is the same fallback every other entry point
+        // here takes — the material simply renders through the slot path.
+        return {};
+    }
 
     auto WritesOffsetsForBoundProgram() -> bool
     {
@@ -144,29 +189,29 @@ namespace OloEngine::HeapBinding
         // fallback goes through RenderCommand — see the header for why the
         // distinction has to survive down to the actual call.
         auto BindTextureOrOffsetImpl(RendererAPI* api, u32 slot, RHI::ResourceHandle texture,
-                                     RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
-            -> RHI::HeapOffset;
+                                     RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                                     RHI::NullSamplerKind kind) -> RHI::HeapOffset;
     } // namespace
 
     auto BindTextureOrOffset(const u32 slot, const RHI::ResourceHandle texture,
-                             const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
-        -> RHI::HeapOffset
+                             const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                             const RHI::NullSamplerKind kind) -> RHI::HeapOffset
     {
-        return BindTextureOrOffsetImpl(nullptr, slot, texture, lifetime, sampler);
+        return BindTextureOrOffsetImpl(nullptr, slot, texture, lifetime, sampler, kind);
     }
 
     auto BindTextureOrOffset(RendererAPI& api, const u32 slot, const RHI::ResourceHandle texture,
-                             const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
-        -> RHI::HeapOffset
+                             const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                             const RHI::NullSamplerKind kind) -> RHI::HeapOffset
     {
-        return BindTextureOrOffsetImpl(&api, slot, texture, lifetime, sampler);
+        return BindTextureOrOffsetImpl(&api, slot, texture, lifetime, sampler, kind);
     }
 
     namespace
     {
         auto BindTextureOrOffsetImpl(RendererAPI* const api, const u32 slot, const RHI::ResourceHandle texture,
-                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
-            -> RHI::HeapOffset
+                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                                     const RHI::NullSamplerKind kind) -> RHI::HeapOffset
         {
             auto& heap = RHI::DescriptorHeap::Get();
 
@@ -179,8 +224,19 @@ namespace OloEngine::HeapBinding
             {
                 RHI::ViewDesc viewDesc;
                 viewDesc.Resource = texture;
+                // DERIVED, not defaulted, so the two knobs cannot disagree. The
+                // backend already gates the GL compare mode on
+                // `DepthCompare && sampler.Compare != Never`, so a caller asking
+                // for a comparison sampler always means "compare", and one that
+                // does not always means "give me the raw depth" — which is
+                // exactly what the PCSS blocker search reads at
+                // TEX_SHADOW_*_RAW. Leaving this at its `true` default made every
+                // slot request a compare-capable view while the sampler said
+                // Never, so the two raw views and the two comparison views of the
+                // same depth array differed only by a field with no effect.
+                viewDesc.DepthCompare = (sampler.Compare != RHI::CompareOp::Never);
 
-                if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime);
+                if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
                     view.IsValid())
                 {
                     // Fetched at the point of write, never stored — ADR 0011 §1.2.
@@ -221,15 +277,43 @@ namespace OloEngine::HeapBinding
             // descriptor so the shader samples nothing instead.
             if (HeapPathIsLive() && slotInRange)
             {
-                StageOffset(slot, RHI::kNullHeapOffset);
+                StageOffset(slot, RHI::NullOffsetForSamplerKind(kind));
             }
             return {};
         }
 
     } // namespace
 
+    auto ShadowDepthSampler(const bool comparison) -> RHI::SamplerDesc
+    {
+        // Every field here is READ OFF THE BACKEND rather than chosen, because the
+        // claim this phase makes is that only the binding MECHANISM changes.
+        // OpenGLTexture2DArray gives a DEPTH_COMPONENT32F array CLAMP_TO_BORDER on
+        // all three axes with an opaque-WHITE border, so a lookup outside a cascade
+        // reads "lit" instead of "fully shadowed"; and, when DepthComparisonMode is
+        // set, COMPARE_REF_TO_TEXTURE with LEQUAL.
+        RHI::SamplerDesc desc;
+        desc.Source = RHI::SamplerSource::Explicit;
+        // EXPLICIT, or the fields below are ignored and the descriptor inherits the
+        // texture object instead — which for the raw view would leave comparison ON.
+        desc.AddressU = RHI::AddressMode::ClampToBorder;
+        desc.AddressV = RHI::AddressMode::ClampToBorder;
+        desc.AddressW = RHI::AddressMode::ClampToBorder;
+        desc.Border = RHI::BorderColor::OpaqueWhite;
+        desc.Compare = comparison ? RHI::CompareOp::LessOrEqual : RHI::CompareOp::Never;
+
+        // NO MIP FILTERING: the arrays are created with one level, and the
+        // SamplerDesc default (LinearMipFilter = true) resolves to
+        // GL_LINEAR_MIPMAP_LINEAR, which makes a single-level texture INCOMPLETE.
+        // "Read the sampler state off the backend" means all of it — the same
+        // omission the heap backend's ToGLMinFilter note records for SSAO's noise.
+        desc.LinearMipFilter = false;
+        return desc;
+    }
+
     auto PublishTextureOffsetAndBind(const u32 slot, const RHI::ResourceHandle texture,
-                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
+                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                                     const RHI::NullSamplerKind kind)
         -> RHI::HeapOffset
     {
         auto& heap = RHI::DescriptorHeap::Get();
@@ -246,7 +330,7 @@ namespace OloEngine::HeapBinding
             RHI::ViewDesc viewDesc;
             viewDesc.Resource = texture;
 
-            if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime);
+            if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
                 view.IsValid())
             {
                 if (const RHI::HeapOffset offset = RHI::OffsetOf(view); offset.IsValid())
@@ -261,14 +345,16 @@ namespace OloEngine::HeapBinding
                 // The heap is on and a bindless consumer WILL read this slot, so
                 // leaving the previous frame's offset there is the stale-read
                 // hazard. Point it at the reserved null instead.
-                StageOffset(slot, RHI::kNullHeapOffset);
+                StageOffset(slot, RHI::NullOffsetForSamplerKind(kind));
             }
         }
 
-        // ALWAYS bind as well. A slot-based consumer of this same slot — of which
-        // there is at least one for the DDGI atlases (Skybox_GBuffer) — reads the
-        // binding, not the offset, and cannot be converted while the bindless
-        // route produces no reflection.
+        // ALWAYS bind as well. A slot-based consumer of this same slot reads the
+        // BINDING, not the offset, and a slot declared in a shared include/ header
+        // is guaranteed to have one whenever any includer stays slot-based —
+        // TEX_WIND_FIELD's Particle_Simulate.comp today. This bind is what keeps
+        // those working, and it is the mechanism BindlessShaderPipeline's
+        // SlotAlwaysReceivesARealBind allowlist is allowed to point at.
         RenderCommand::BindTexture(slot, texture);
 
         return published;
@@ -308,7 +394,12 @@ namespace OloEngine::HeapBinding
         // undefined-behaviour one instead of fixing it.
         if (HeapPathIsLive() && unitInRange)
         {
-            StageOffset(tableIndex, RHI::kNullStorageHeapOffset);
+            // ITS OWN FORMAT'S null, not the shared R32F one. An image handle bakes
+            // the format in, and loading through a disagreeing `layout(...)`
+            // qualifier is undefined rather than a reinterpretation — so an r32ui
+            // or rgba32f binding cleared to the R32F null was undefined on the
+            // ordinary path (issue #691 Phase 3).
+            StageOffset(tableIndex, RHI::NullOffsetForStorageFormat(format));
         }
         return {};
     }

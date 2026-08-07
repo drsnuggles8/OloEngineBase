@@ -106,21 +106,44 @@ layout(std140, binding = 10) uniform TerrainParams {
 };
 
 // Shadow maps — CSM array + the budgeted local-light shadow atlas (issue #435)
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)  // TEX_SHADOW
+#define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)  // TEX_SHADOW_ATLAS
+#else
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;
 layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;
+#endif
 // Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
+#ifdef OLO_BINDLESS
+#define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)  // TEX_SHADOW_CSM_RAW
+#define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)  // TEX_SHADOW_ATLAS_RAW
+#else
 layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;
 layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
+#endif
 
 // IBL textures
+#ifdef OLO_BINDLESS
+#define u_IrradianceMap OLO_HEAP_TEX_CUBE(10)  // TEX_USER_0
+#define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)  // TEX_USER_1
+#define u_BRDFLutMap OLO_HEAP_TEX_2D(12)  // TEX_USER_2
+#else
 layout(binding = 10) uniform samplerCube u_IrradianceMap;
 layout(binding = 11) uniform samplerCube u_PrefilterMap;
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;
+#endif
 
 // Terrain texture arrays (same as heightmap terrain — reuses splatmap layer 0)
+#ifdef OLO_BINDLESS
+#define u_TerrainAlbedoArray OLO_HEAP_TEX_2D_ARRAY(25)  // TEX_TERRAIN_ALBEDO_ARRAY
+#define u_TerrainNormalArray OLO_HEAP_TEX_2D_ARRAY(26)  // TEX_TERRAIN_NORMAL_ARRAY
+#define u_TerrainARMArray OLO_HEAP_TEX_2D_ARRAY(27)  // TEX_TERRAIN_ARM_ARRAY
+#else
 layout(binding = 25) uniform sampler2DArray u_TerrainAlbedoArray;
 layout(binding = 26) uniform sampler2DArray u_TerrainNormalArray;
 layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
+#endif
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;

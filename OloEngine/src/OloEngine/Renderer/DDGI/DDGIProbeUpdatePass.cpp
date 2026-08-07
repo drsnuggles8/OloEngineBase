@@ -900,9 +900,13 @@ namespace OloEngine
         // Same split as the caster albedo above: the black fallback cubemap is
         // still a pass-owned native texture.
         if (const RHI::ResourceHandle envMap = Renderer3D::GetGlobalEnvironmentMapHandle(); envMap.IsValid())
-            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, envMap, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, envMap,
+                                                     RHI::HeapSlotLifetime::Persistent, {},
+                                                     RHI::NullSamplerKind::Cube);
         else
-            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, m_BlackCubemap, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, m_BlackCubemap,
+                                                     RHI::HeapSlotLifetime::Persistent, {},
+                                                     RHI::NullSamplerKind::Cube);
 
         // CSM + shadow atlas at the binding units include/PBRCommon.glsl's
         // evaluators expect (8 / 13 comparison, 33 / 34 raw for PCSS) — same
@@ -920,10 +924,30 @@ namespace OloEngine
         const RHI::ResourceHandle atlasRawID = shadowMap.GetAtlasRawHandle().IsValid()
                                                    ? shadowMap.GetAtlasRawHandle()
                                                    : ShadowMap::GetAtlasRawPlaceholderHandle();
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW, csmID, RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID, RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID, RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID, RHI::HeapSlotLifetime::Persistent);
+        // THE COMPARISON SAMPLER IS MANDATORY HERE, not a refinement. This
+        // PUBLISHES into the shared offset table, so the descriptor staged here is
+        // what every bindless reader of TEX_SHADOW sees for the rest of the frame
+        // — including shaders that never go near DDGI. Defaulting the sampler
+        // stages a compare-DISABLED handle, and a `sampler2DArrayShadow` built
+        // from one is undefined and reads as unshadowed. See
+        // HeapBinding::ShadowDepthSampler.
+        const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW, csmID,
+                                                 RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                                 RHI::NullSamplerKind::Texture2DArrayShadow);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID,
+                                                 RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                                 RHI::NullSamplerKind::Texture2DArrayShadow);
+        // Comparison OFF but everything else as the texture object carries it — see
+        // the note in DeferredLightingPass. `{}` here would publish a ClampToEdge,
+        // mip-filtered descriptor to a slot every bindless reader shares.
+        const RHI::SamplerDesc rawShadowSampler = HeapBinding::ShadowDepthSampler(false);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID,
+                                                 RHI::HeapSlotLifetime::Persistent, rawShadowSampler,
+                                                 RHI::NullSamplerKind::Texture2DArray);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID,
+                                                 RHI::HeapSlotLifetime::Persistent, rawShadowSampler,
+                                                 RHI::NullSamplerKind::Texture2DArray);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

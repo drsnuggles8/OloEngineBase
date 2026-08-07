@@ -52,7 +52,12 @@ layout(std140, binding = 55) uniform ImpostorBakeParams
     vec4 u_BakeTint;
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_AlbedoTexture OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
+#else
 layout(binding = 0) uniform sampler2D u_AlbedoTexture;
+#endif
 
 void main()
 {

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture3D.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -90,6 +91,15 @@ namespace OloEngine
         {
             OLO_TRACK_DEALLOC(this);
         }
+
+        // Every texture type that mints an RHI handle owes this — see
+        // Utils::RetireTextureViews. A Texture3D is the wind field, the
+        // volumetric-fog scatter/integrated volumes, the cloud noise volumes and
+        // the terrain-erosion heightmap, all of which are bound as storage-image
+        // descriptors through the heap, so destroying one used to leave a
+        // resident image handle on a texture that was about to be deleted
+        // (issue #691 Phase 3).
+        Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()

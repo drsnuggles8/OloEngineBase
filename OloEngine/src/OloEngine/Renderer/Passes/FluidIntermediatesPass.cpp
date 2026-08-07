@@ -174,7 +174,12 @@ namespace OloEngine
 
         // Scene depth for behind-geometry discard in both splat shaders
         // (water-identical slot/uniform name so IsKnownTextureBinding passes).
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID);
+        // PUBLISH: consumed by BOTH splat shaders drawn below, neither of which is
+        // bound at this point, so the seam's program fork has no correct answer
+        // here (issue #691 Phase 3).
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::FlushOffsets();
 
         auto bindDrawBuffers = [](const FluidRenderData& draw)
         {
@@ -272,7 +277,11 @@ namespace OloEngine
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
 
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource);
+        // Cleared through the same seam so BOTH consumers see it: the slot-based
+        // one loses its binding, the bindless one gets the reserved null offset.
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::FlushOffsets();
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_POSITIONS, RHI::NullResource);
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, RHI::NullResource);
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_COUNTERS, RHI::NullResource);

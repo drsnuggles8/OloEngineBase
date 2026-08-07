@@ -239,6 +239,7 @@ namespace OloEngine
         // the heap this sampler state rides in the descriptor rather than on the
         // texture object, which is what a split sampler heap will need.
         RHI::SamplerDesc noiseSampler;
+        noiseSampler.Source = RHI::SamplerSource::Explicit;
         noiseSampler.MinFilter = RHI::Filter::Nearest;
         noiseSampler.MagFilter = RHI::Filter::Nearest;
         noiseSampler.LinearMipFilter = false;
@@ -265,10 +266,19 @@ namespace OloEngine
         // Bind raw SSAO result at slot 0 (texture from the transient or fallback FB).
         // The attachment's identity, not its GL name — attachments started
         // minting handles in slice 3, so this consumer can take one.
-        context.BindTexture(0, rawFB->GetColorAttachmentHandle(0));
+        // FrameTransient: it is a graph-pooled attachment either way
+        // (issue #691 Phase 3).
+        context.BindTextureOrHeapOffset(0, rawFB->GetColorAttachmentHandle(0),
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+
+        // A flush per DRAW, not per pass: this is the pass's second draw and it
+        // rebinds slot 0 to a different texture than pass 1 did, so the offsets
+        // staged above are unpublished until here.
+        context.FlushHeapOffsets();
 
         DrawFullscreenTriangle();
         blurFB->Unbind();

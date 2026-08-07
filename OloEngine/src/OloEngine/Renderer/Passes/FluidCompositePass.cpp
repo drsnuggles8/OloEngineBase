@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -186,7 +187,9 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID, RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID, RHI::HeapSlotLifetime::FrameTransient);
         if (environmentMap.IsValid())
-            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMap, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMap,
+                                            RHI::HeapSlotLifetime::FrameTransient, {},
+                                            RHI::NullSamplerKind::Cube);
         const auto fullscreenTriangle = MeshPrimitives::GetFullscreenTriangle();
         fullscreenTriangle->Bind();
         context.FlushHeapOffsets();
@@ -205,7 +208,9 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_REFRACTION, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
         if (environmentMap.IsValid())
-            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource,
+                                            RHI::HeapSlotLifetime::FrameTransient, {},
+                                            RHI::NullSamplerKind::Cube);
 
         m_SceneFramebuffer->Unbind();
     }

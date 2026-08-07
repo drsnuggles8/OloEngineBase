@@ -44,8 +44,18 @@ layout(location = 0) in vec2 v_TexCoord;
 // depth-reuse slot for post/particle passes, slot 2 (TEX_NORMAL) is the
 // velocity-reuse slot for TAA / motion-blur — matching the passes that read
 // these buffers.
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// byte-identical between the two variants — only these declarations move, and
+// each names the same slot DepthVelocityUpscalePass binds with.
+#ifdef OLO_BINDLESS
+#define u_Depth OLO_HEAP_TEX_2D(1)
+#define u_Velocity OLO_HEAP_TEX_2D(2)
+#else
 layout(binding = 1) uniform sampler2D u_Depth;    // Reduced-res scene depth (sampled .r)
 layout(binding = 2) uniform sampler2D u_Velocity; // Reduced-res motion vectors (RG)
+#endif
 
 // Reduced (rendered) scene size in pixels. Reuses the EASU params UBO layout
 // (binding 45): InputSizeAndTexel.xy = reduced width/height.

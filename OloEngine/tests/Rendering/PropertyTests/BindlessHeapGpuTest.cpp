@@ -48,6 +48,8 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Texture2DArray.h"
+#include "OloEngine/Renderer/Texture3D.h"
 #include "Platform/OpenGL/OpenGLDescriptorHeap.h"
 
 #include <gtest/gtest.h>
@@ -389,6 +391,7 @@ void main()
                 const RHI::ResourceHandle resource = RegisterTexture(texture);
 
                 RHI::SamplerDesc sampler;
+                sampler.Source = RHI::SamplerSource::Explicit;
                 sampler.MinFilter = RHI::Filter::Nearest;
                 sampler.MagFilter = RHI::Filter::Nearest;
                 sampler.LinearMipFilter = false;
@@ -666,6 +669,7 @@ void main()
         const RHI::ResourceHandle physical = RegisterTexture(texture);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -752,6 +756,7 @@ void main()
         const RHI::ResourceHandle blue = RegisterTexture(blueTex);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -824,6 +829,7 @@ void main()
         const RHI::ResourceHandle blue = RegisterTexture(blueTex);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -855,6 +861,133 @@ void main()
     }
 
     // -------------------------------------------------------------------------
+    // A DEFAULT SamplerDesc INHERITS THE TEXTURE OBJECT'S STATE, which is what
+    // makes a converted shader sample identically to an unconverted one.
+    //
+    // WHY THIS IS ASSERTED ON THE MECHANISM RATHER THAN ON PIXELS. The
+    // consequences of getting it wrong are all real but none of them is a
+    // portable pixel assertion: an integer texture with a LINEAR filter is
+    // INCOMPLETE and samples as zero on Mesa while NVIDIA quietly tolerates it
+    // (Texture.h::IsIntegerFormat), and the wrap difference only shows outside
+    // [0, 1], which this fixture's quad never reaches. A test that renders green
+    // on the machine that runs it and black on the machine that ships is worse
+    // than one that checks the contract. The pixel evidence for this lives in the
+    // suite's fixed-camera visual-evidence PNGs, whose same-config noise floor is
+    // 0.000 — see ADR 0011 amendment (38).
+    //
+    // WHAT WENT WRONG WITHOUT IT: every call site that passes `{}` — which is
+    // most of them — got a sampler object built from struct defaults instead of
+    // the texture's own state. There is no set of defaults that is right for all
+    // four targets (2D is REPEAT, colour arrays and cubemaps are CLAMP_TO_EDGE,
+    // depth arrays are CLAMP_TO_BORDER), which is why a per-target table was
+    // whack-a-mole: fixing 2D broke the terrain arrays (issue #691 Phase 3).
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, ADefaultSamplerDescInheritsTheTextureObjectRatherThanMintingOne)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        const GLuint texture = MakeSolidTexture(32u, 64u, 96u, 255u);
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        const u32 samplerObjectsBefore = Backend.GetStats().SamplerObjects;
+        const u64 inheritsBefore = Backend.GetStats().DefaultSamplerInherits;
+
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ViewHandle inherited =
+            heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(inherited.IsValid());
+
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, inheritsBefore + 1u)
+            << "A default-constructed SamplerDesc must take the glGetTextureHandleARB path.";
+        EXPECT_EQ(Backend.GetStats().SamplerObjects, samplerObjectsBefore)
+            << "Inheriting must mint NO sampler object — one built from struct defaults is exactly "
+               "the state that diverges from the slot path.";
+
+        // The other half, so this cannot pass by the backend simply never
+        // building sampler objects any more.
+        RHI::SamplerDesc stated;
+        stated.Source = RHI::SamplerSource::Explicit;
+        stated.MinFilter = RHI::Filter::Nearest;
+        stated.MagFilter = RHI::Filter::Nearest;
+        stated.LinearMipFilter = false;
+        const RHI::ViewHandle explicitView =
+            heap.CreateView(resource, RHI::ViewDesc{}, stated, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(explicitView.IsValid());
+
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, inheritsBefore + 1u)
+            << "A STATED sampler must not be treated as an inherit.";
+        EXPECT_GT(Backend.GetStats().SamplerObjects, samplerObjectsBefore)
+            << "A stated sampler must still mint a sampler object — that is what models a split heap.";
+        EXPECT_NE(heap.SamplerOffsetOf(inherited).Value, heap.SamplerOffsetOf(explicitView).Value)
+            << "Inherited and stated are two different descriptors of one texture.";
+    }
+
+    // -------------------------------------------------------------------------
+    // THE TWO HALVES OF SamplerDesc::Source, and the second one is a backstop
+    // against a trap the FIRST one creates.
+    //
+    // Half one: `Source = Explicit` with otherwise-default fields must mint a
+    // sampler object rather than inherit. That is the whole reason the
+    // discriminator exists — before it, "inherit" was inferred from equality with
+    // the defaults, so a caller wanting Linear+Repeat EXPLICITLY on a colour
+    // Texture2DArray (whose object is ClampToEdge) silently got the object.
+    //
+    // Half two: a desc that sets fields but forgets `Source` must still have its
+    // fields honoured. Making Source the sole test would mean forgetting one line
+    // silently replaces a caller's whole sampler with the texture's state —
+    // verified reachable by deleting it from HeapBinding::ShadowDepthSampler, at
+    // which point 136 tests passed with the shadow comparison sampler inheriting.
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, SamplerSourceDistinguishesInheritFromExplicitAndSurvivesAForgottenDiscriminator)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        const GLuint texture = MakeSolidTexture(10u, 20u, 30u, 255u);
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        auto& heap = RHI::DescriptorHeap::Get();
+        const u64 inheritsBefore = Backend.GetStats().DefaultSamplerInherits;
+        const u32 objectsBefore = Backend.GetStats().SamplerObjects;
+
+        // Half one: explicit, every field left at its default.
+        RHI::SamplerDesc explicitDefaults;
+        explicitDefaults.Source = RHI::SamplerSource::Explicit;
+        const RHI::ViewHandle stated =
+            heap.CreateView(resource, RHI::ViewDesc{}, explicitDefaults, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(stated.IsValid());
+
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, inheritsBefore)
+            << "Source = Explicit must NOT inherit, even when every other field matches the defaults.";
+        EXPECT_GT(Backend.GetStats().SamplerObjects, objectsBefore)
+            << "Explicit-with-default-values is exactly the case the discriminator was added to express.";
+
+        // Half two: fields stated, discriminator forgotten.
+        RHI::SamplerDesc forgotten;
+        forgotten.MinFilter = RHI::Filter::Nearest;
+        forgotten.MagFilter = RHI::Filter::Nearest;
+        forgotten.LinearMipFilter = false;
+        const u64 inheritsBeforeForgotten = Backend.GetStats().DefaultSamplerInherits;
+        const RHI::ViewHandle honoured =
+            heap.CreateView(resource, RHI::ViewDesc{}, forgotten, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(honoured.IsValid());
+
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, inheritsBeforeForgotten)
+            << "A desc that STATES fields must be honoured whatever its Source says — otherwise forgetting "
+               "one line silently swaps the caller's sampler for the texture object's state.";
+
+        // And a genuinely unstated desc still inherits, so neither branch above
+        // passes by the backend having stopped inheriting altogether.
+        const u64 beforeInherit = Backend.GetStats().DefaultSamplerInherits;
+        const RHI::ViewHandle inherited =
+            heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(inherited.IsValid());
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, beforeInherit + 1u)
+            << "A default-constructed desc must still take the inherit path.";
+    }
+
+    // -------------------------------------------------------------------------
     // Sampler dedup, checked against the driver rather than against our own
     // bookkeeping: one texture, two sampler configurations, two distinct
     // handles. This is the mechanism that makes the second GL texture object
@@ -869,18 +1002,28 @@ void main()
         const RHI::ResourceHandle resource = RegisterTexture(texture);
 
         RHI::SamplerDesc nearestClamp;
+        nearestClamp.Source = RHI::SamplerSource::Explicit;
         nearestClamp.MinFilter = RHI::Filter::Nearest;
         nearestClamp.MagFilter = RHI::Filter::Nearest;
         nearestClamp.LinearMipFilter = false;
 
-        RHI::SamplerDesc linearRepeat;
-        linearRepeat.AddressU = RHI::AddressMode::Repeat;
-        linearRepeat.AddressV = RHI::AddressMode::Repeat;
+        // DELIBERATELY NOT A DEFAULT-CONSTRUCTED DESC, and this is the whole
+        // reason the test needed revisiting: `SamplerDesc{}` now means "inherit
+        // the texture object's state" and mints its view with
+        // glGetTextureHandleARB, so it creates NO sampler object at all
+        // (issue #691 Phase 3, AcquireSampledDescriptor). An earlier version of
+        // this test built `linearRepeat` out of what happen to be the default
+        // values and would have silently started measuring one object instead of
+        // two. ClampToEdge is what makes it an intent rather than a shrug.
+        RHI::SamplerDesc linearClamp;
+        linearClamp.Source = RHI::SamplerSource::Explicit;
+        linearClamp.AddressU = RHI::AddressMode::ClampToEdge;
+        linearClamp.AddressV = RHI::AddressMode::ClampToEdge;
 
         auto& heap = RHI::DescriptorHeap::Get();
         const RHI::ViewHandle a = heap.CreateView(resource, RHI::ViewDesc{}, nearestClamp,
                                                   RHI::HeapSlotLifetime::Persistent);
-        const RHI::ViewHandle b = heap.CreateView(resource, RHI::ViewDesc{}, linearRepeat,
+        const RHI::ViewHandle b = heap.CreateView(resource, RHI::ViewDesc{}, linearClamp,
                                                   RHI::HeapSlotLifetime::Persistent);
         ASSERT_TRUE(a.IsValid());
         ASSERT_TRUE(b.IsValid());
@@ -1159,6 +1302,7 @@ void main()
         Shader::SetBoundProgramBindless(true);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -1321,6 +1465,7 @@ void main()
         const RHI::ResourceHandle resource = RegisterTexture(texture);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -1348,6 +1493,105 @@ void main()
         RHI::ResourceRegistry::Get().Unregister(resource);
         OwnedHandles.erase(std::remove(OwnedHandles.begin(), OwnedHandles.end(), resource),
                            OwnedHandles.end());
+    }
+
+    // -------------------------------------------------------------------------
+    // THE SAME PROPERTY, BUT DRIVEN THROUGH THE REAL DESTRUCTOR.
+    //
+    // The test above proves `RetireResource` drops residency. It does NOT prove
+    // that the engine's texture types actually CALL it, and for two of them they
+    // did not: `~OpenGLTexture2DArray` and `~OpenGLTexture3D` minted an RHI
+    // handle in their constructors and retired nothing in their destructors,
+    // through two PRs and a full suite run.
+    //
+    // Both types are bound as STORAGE IMAGE descriptors through the heap in
+    // production — Texture3D is the wind field, the froxel fog scatter and
+    // integrated volumes, the cloud base/detail noise volumes and the terrain
+    // erosion heightmap; Texture2DArray is the ocean FFT ping-pong pair. So each
+    // destruction left an `ARB_bindless_texture` image handle resident on a
+    // texture the very next statement queued for deletion.
+    //
+    // WHY IT SURVIVED: the symptom is one `GL_INVALID_OPERATION: Not a valid
+    // texture` in the log at process shutdown, under `OLO_RHI_BINDLESS=1` only.
+    // It fails nothing, renders nothing wrong, and CI does not run that
+    // configuration. These tests exist because "check the log after a full
+    // bindless run" is not a thing anything does automatically.
+    //
+    // Constructed through the public factory on purpose: `Ref<OpenGLTexture3D>`
+    // would still test the destructor, but going through `Texture3D::Create`
+    // also pins that the factory hands back the type whose destructor was fixed.
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, DestroyingATexture3DRetiresItsStorageDescriptors)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        Texture3DSpecification spec;
+        spec.Width = 4u;
+        spec.Height = 4u;
+        spec.Depth = 4u;
+        spec.Format = Texture3DFormat::RGBA16F;
+
+        Ref<Texture3D> volume = Texture3D::Create(spec);
+        ASSERT_TRUE(volume) << "Texture3D::Create returned null — no GL context?";
+        const RHI::ResourceHandle resource = volume->GetRHIHandle();
+        ASSERT_TRUE(resource.IsValid()) << "Precondition: the type mints an RHI identity at all.";
+
+        // Exactly the binding VolumetricFogPass issues for m_ScatterVolume:
+        // layered, mip 0, write-only, RGBA16F.
+        const RHI::ViewDesc desc = RHI::MakeStorageViewDesc(resource, 0u, /*layered*/ true, 0u,
+                                                            RHI::Access::StorageWrite,
+                                                            RHI::Format::RGBA16Float);
+        const RHI::ViewHandle view = RHI::DescriptorHeap::Get().CreateStorageView(
+            resource, desc, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid()) << "Precondition: the heap accepted a storage view for it.";
+        // ResidentImageHandles, not ResidentHandles: glGetImageHandleARB has its
+        // own residency namespace, so a storage view never moves the sampler
+        // counter. Asserting the wrong one reads 0 both before and after the
+        // destructor and would pass whether or not the retire happened.
+        ASSERT_EQ(Backend.GetStats().ResidentImageHandles, 1u)
+            << "Precondition: the image handle is resident.";
+
+        volume = nullptr; // ~OpenGLTexture3D
+
+        EXPECT_EQ(Backend.GetStats().ResidentImageHandles, 0u)
+            << "~OpenGLTexture3D must retire its heap descriptors. The glDeleteTextures it queues "
+               "next would otherwise destroy an object with a resident bindless image handle — "
+               "undefined behaviour if anything samples it, and the shutdown "
+               "'GL_INVALID_OPERATION: Not a valid texture' if nothing does.";
+        EXPECT_FALSE(RHI::OffsetOf(view).IsValid()) << "…and the view must report stale.";
+    }
+
+    TEST_F(HeapGpuFixture, DestroyingATexture2DArrayRetiresItsStorageDescriptors)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        Texture2DArraySpecification spec;
+        spec.Width = 4u;
+        spec.Height = 4u;
+        spec.Layers = 2u;
+        spec.Format = Texture2DArrayFormat::RGBA32F;
+
+        Ref<Texture2DArray> pingPong = Texture2DArray::Create(spec);
+        ASSERT_TRUE(pingPong) << "Texture2DArray::Create returned null — no GL context?";
+        const RHI::ResourceHandle resource = pingPong->GetRHIHandle();
+        ASSERT_TRUE(resource.IsValid()) << "Precondition: the type mints an RHI identity at all.";
+
+        // Exactly the binding OceanFFTGpu issues for m_PingPong: layered, mip 0.
+        const RHI::ViewDesc desc = RHI::MakeStorageViewDesc(resource, 0u, /*layered*/ true, 0u,
+                                                            RHI::Access::StorageReadWrite,
+                                                            RHI::Format::RGBA32Float);
+        const RHI::ViewHandle view = RHI::DescriptorHeap::Get().CreateStorageView(
+            resource, desc, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid()) << "Precondition: the heap accepted a storage view for it.";
+        ASSERT_EQ(Backend.GetStats().ResidentImageHandles, 1u)
+            << "Precondition: the image handle is resident (the STORAGE namespace — see above).";
+
+        pingPong = nullptr; // ~OpenGLTexture2DArray
+
+        EXPECT_EQ(Backend.GetStats().ResidentImageHandles, 0u)
+            << "~OpenGLTexture2DArray must retire its heap descriptors — same reasoning as the "
+               "Texture3D case above.";
+        EXPECT_FALSE(RHI::OffsetOf(view).IsValid()) << "…and the view must report stale.";
     }
 
     // The image kind's reserved null slot holds an IMAGE descriptor. Pointing a

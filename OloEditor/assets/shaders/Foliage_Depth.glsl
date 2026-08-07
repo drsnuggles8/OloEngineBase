@@ -86,7 +86,12 @@ void main()
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 1) in float v_AlphaCutoff;
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_DiffuseTexture OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
+#else
 layout(binding = 0) uniform sampler2D u_DiffuseTexture;
+#endif
 
 // Foliage UBO (binding 12) — shared with vertex stage
 layout(std140, binding = 12) uniform FoliageParams

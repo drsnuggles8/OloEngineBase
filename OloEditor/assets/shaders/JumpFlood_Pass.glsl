@@ -64,7 +64,15 @@ layout(location = 8) in vec2 v_UV6;
 layout(location = 9) in vec2 v_UV7;
 layout(location = 10) in vec2 v_UV8;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// byte-identical between the two variants.
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)
+#else
 layout(binding = 0) uniform sampler2D u_Texture;
+#endif
 
 // Aspect-ratio-corrected squared distance
 float screenDistance(vec2 v)

@@ -159,7 +159,12 @@ layout(std140, binding = 12) uniform FoliageParams
 // mismatched layouts so the padding fields stay identical.
 #include "include/InstanceBlock.glsl"
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_DiffuseTexture OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
+#else
 layout(binding = 0) uniform sampler2D u_DiffuseTexture;
+#endif
 
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;

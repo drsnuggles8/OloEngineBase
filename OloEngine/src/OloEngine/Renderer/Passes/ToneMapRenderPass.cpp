@@ -157,11 +157,14 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
 
         m_HistogramShader->Bind();
-        context.BindTexture(0, hdrTextureID);
+        // FrameTransient: graph-resolved HDR colour (issue #691 Phase 3).
+        context.BindTextureOrHeapOffset(0, hdrTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_HistogramShader->SetFloat2("u_MeterSize", glm::vec2(static_cast<f32>(meterW), static_cast<f32>(meterH)));
         m_HistogramShader->SetFloat("u_MinLogLum", minLogLum);
         m_HistogramShader->SetFloat("u_InvLogLumRange", invLogLumRange);
         m_HistogramBuffer->Bind();
+        // Publish before the dispatch that reads it.
+        context.FlushHeapOffsets();
         RenderCommand::DispatchCompute((meterW + kLocalSize - 1u) / kLocalSize,
                                        (meterH + kLocalSize - 1u) / kLocalSize, 1u);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);

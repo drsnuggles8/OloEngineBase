@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -183,7 +184,10 @@ namespace OloEngine
             // cull runs at submission time on scratch GL texture state, so unit
             // 0 is safe to clobber — the real draws rebind their own textures at
             // graph-execute time.
-            RenderCommand::BindTexture(0, m_Occlusion.HZBTexture);
+            // Persistent: the HZB pyramid is owned by the culler's own generator,
+            // not acquired from the graph's transient pool (issue #691 Phase 3).
+            HeapBinding::BindTextureOrOffset(0, m_Occlusion.HZBTexture,
+                                             RHI::HeapSlotLifetime::Persistent);
             cullShader->SetInt("u_OcclusionEnabled", 1);
             cullShader->SetMat4("u_PrevViewProjection", m_Occlusion.PrevViewProjection);
             cullShader->SetFloat2("u_HZBSize", m_Occlusion.HZBSize);
@@ -193,7 +197,12 @@ namespace OloEngine
         }
 
         if (const u32 groups = (inputCount + kCullWorkgroupSize - 1) / kCullWorkgroupSize; groups > 0)
+        {
+            // Publish the HZB offset staged above before the dispatch reads it.
+            // Harmless on the frustum-only path, where nothing was staged.
+            HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(groups, 1, 1);
+        }
 
         // ── 4. Barrier — the draw must see the compacted output AND the
         // updated indirect command before it reads them. SHADER_STORAGE for
@@ -298,7 +307,9 @@ namespace OloEngine
         shader->SetFloat("u_RadiusExpansion", radiusExpansion);
         if (occlusionActive)
         {
-            RenderCommand::BindTexture(0, m_Occlusion.HZBTexture); // previous-frame HZB
+            // Persistent — culler-owned pyramid.
+            HeapBinding::BindTextureOrOffset(0, m_Occlusion.HZBTexture,
+                                             RHI::HeapSlotLifetime::Persistent); // previous-frame HZB
             shader->SetInt("u_OcclusionEnabled", 1);
             shader->SetMat4("u_PrevViewProjection", m_Occlusion.PrevViewProjection);
             shader->SetFloat2("u_HZBSize", m_Occlusion.HZBSize);
@@ -310,7 +321,12 @@ namespace OloEngine
         }
 
         if (const u32 groups = (inputCount + kCullWorkgroupSize - 1) / kCullWorkgroupSize; groups > 0)
+        {
+            // Publish the HZB offset staged above before the dispatch reads it.
+            // Harmless on the frustum-only path, where nothing was staged.
+            HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(groups, 1, 1);
+        }
 
         // The phase-1 draw reads survivors + indirect; phase 2 reads the reject
         // buffer + counter. Make all of them visible.
@@ -358,9 +374,19 @@ namespace OloEngine
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT,
                                          result.Phase2Indirect->GetRHIHandle());
         RenderCommand::BindStorageBuffer(kRejectedCountBinding, result.RejectedCounter->GetRHIHandle());
-        RenderCommand::BindTexture(0, currentHZB.HZBTexture); // current-frame HZB
 
+        // SHADER MOVED ABOVE THE TEXTURE BIND. The seam forks on
+        // Shader::IsBoundProgramBindless(), which describes the program in
+        // flight, so the HZB bound here first would have taken the slot-path
+        // fallback while InstanceOcclusionCull.comp — a bindless variant once its
+        // u_HZB is converted — read an offset nobody wrote. The two sibling call
+        // sites in this file already bound the shader first; only this one did
+        // not (issue #691 Phase 3). The storage-buffer binds above are unaffected:
+        // they do not go through the heap.
         m_OcclusionCullShader->Bind();
+        // Persistent — culler-owned pyramid.
+        HeapBinding::BindTextureOrOffset(0, currentHZB.HZBTexture,
+                                         RHI::HeapSlotLifetime::Persistent); // current-frame HZB
         // Dispatch the worst case (whole batch); the shader clamps to the live
         // reject count read from binding 19.
         m_OcclusionCullShader->SetUint("u_InstanceCount", result.InputCount);
@@ -378,7 +404,11 @@ namespace OloEngine
         m_OcclusionCullShader->SetInt("u_Phase2", 1);
 
         if (const u32 groups = (result.InputCount + kCullWorkgroupSize - 1) / kCullWorkgroupSize; groups > 0)
+        {
+            // Publish the HZB offset staged above before the dispatch reads it.
+            HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(groups, 1, 1);
+        }
 
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
     }

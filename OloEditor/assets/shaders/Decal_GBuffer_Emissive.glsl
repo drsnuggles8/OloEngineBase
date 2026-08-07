@@ -55,8 +55,14 @@ layout(std140, binding = 21) uniform DecalParams {
 // Reuses the TEX_USER_0 (=10) slot — the DrawDecalCommand::albedoTextureID
 // field carries the emissive texture for Emissive-mode decals, matching the
 // existing "primary texture" binding convention.
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_DecalEmissive OLO_HEAP_TEX_2D(10)  // TEX_USER_0
+#define u_SceneDepth OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 10) uniform sampler2D u_DecalEmissive;
 layout(binding = 19) uniform sampler2D u_SceneDepth;
+#endif
 
 void main()
 {

@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 // HeapSlotLifetime / SamplerDesc for BindTextureOrHeapOffset (issue #691 Phase 3).
 // RHITypes.h alone is not enough — those live with the resource descriptions.
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
@@ -98,9 +99,10 @@ namespace OloEngine
         // Call `FlushHeapOffsets()` once before the draw. The return value is
         // for a pass that wants to put the offset somewhere of its own (a
         // material struct, an SSBO); most callers can ignore it.
-        RHI::HeapOffset BindTextureOrHeapOffset(u32 slot, RHI::ResourceHandle texture,
-                                                RHI::HeapSlotLifetime lifetime,
-                                                const RHI::SamplerDesc& sampler = {}) const;
+        RHI::HeapOffset BindTextureOrHeapOffset(
+            u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
+            const RHI::SamplerDesc& sampler = {},
+            RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D) const;
 
         // Uploads the offsets recorded since the last flush. No-op when the heap
         // is disabled, so a converted pass costs nothing on the slot-based path.

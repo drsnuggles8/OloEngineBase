@@ -20,8 +20,18 @@ void main()
 
 layout(location = 0) out vec4 o_Color;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). This is a G-Buffer
+// CONSUMER (a debug viewer), not a producer — it declares no o_GBuffer*/gAlbedo
+// outputs, so CreateProgramFromRawGLSL's misroute guard does not apply.
+#ifdef OLO_BINDLESS
+#define u_GAlbedo OLO_HEAP_TEX_2D(43)   // TEX_GBUFFER_ALBEDO
+#define u_GNormal OLO_HEAP_TEX_2D(44)   // TEX_GBUFFER_NORMAL
+#else
 layout(binding = 43) uniform sampler2D u_GAlbedo;    // RT0: albedo.rgb + metallic.a
 layout(binding = 44) uniform sampler2D u_GNormal;    // RT1: octNormal.xy + roughness.z + AO.w
+#endif
 
 void main()
 {

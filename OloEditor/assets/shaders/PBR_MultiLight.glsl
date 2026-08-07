@@ -64,6 +64,11 @@ void main()
 #type fragment
 #version 460 core
 
+// FIRST, because the sampler declarations below expand its accessor macros on
+// the bindless build. The heap block itself is #ifdef-guarded internally, so on
+// the slot-based build this include contributes nothing.
+#include "include/BindlessHeap.glsl"
+
 #include "include/PBRCommon.glsl"
 #include "include/SnowCommon.glsl"
 #include "include/LightProbeSampling.glsl"
@@ -113,6 +118,15 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;       // Runtime IBL strength multiplier
     int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
     int _pbrPad2;
+#ifdef OLO_BINDLESS
+    // The per-material offset lanes, declared ONLY on the bindless build. The
+    // C++ PBRMaterialUBO always uploads them (sizeof == 144); a std140 block may
+    // declare a PREFIX of what the CPU writes, which is why the slot-based build
+    // can stop at _pbrPad2 and stay correct. Must be LAST — the lane layout in
+    // include/BindlessHeap.glsl and CommandDispatch::WriteMaterialHeapOffsets
+    // both assume it.
+    uvec4 u_MaterialHeapOffsets[3];
+#endif
 };
 
 // Snow UBO (binding 13)
@@ -128,6 +142,41 @@ layout(std140, binding = 13) uniform SnowParams {
 // TEXTURE BINDINGS
 // =============================================================================
 
+// CONVERTED WHOLE, and that is the rule rather than a preference (§5c). Taking
+// the bindless route is a property of the PROGRAM: it makes
+// Shader::IsBoundProgramBindless() true, so HeapBinding::BindTextureOrOffset
+// stages an offset and issues NO bind for EVERY input this shader declares. A
+// single sampler left as `layout(binding = N)` here would therefore read black
+// — which is exactly how the shadow maps were lost when only the material five
+// were converted, and how Terrain_Depth lost its snow depth map.
+//
+// TWO OFFSET SOURCES, split by WHO OWNS THE BINDING, not by convenience:
+//   * the five MATERIAL-LOCAL maps change per draw and ride in PBRMaterialUBO,
+//     which the draw path already uploads per material;
+//   * everything else is PUBLISHED frame state (the environment probe, the IBL
+//     trio, the shadow arrays) that most materials carry no handle for, so it
+//     comes from the shared g_OloHeapOffsets table. Routing those per-material
+//     resolves an invalid handle to the reserved null and the mesh loses all
+//     ambient light.
+#ifdef OLO_BINDLESS
+// The opt-in marker CreateProgramFromRawGLSL scans for to decide that this
+// program reads per-material offsets — and therefore that BindPBRTextures must
+// skip the five material binds. Deliberately an explicit token: keying on the
+// accessor macros or the UBO field would match every shader that merely
+// INCLUDES the header below.
+#define OLO_MATERIAL_HEAP_READER 1
+
+#define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
+#define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
+#define u_NormalMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET)
+#define u_AOMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET)
+#define u_EmissiveMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET)
+
+#define u_EnvironmentMap OLO_HEAP_TEX_CUBE(9)
+#define u_IrradianceMap OLO_HEAP_TEX_CUBE(10)
+#define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)
+#define u_BRDFLutMap OLO_HEAP_TEX_2D(12)
+#else
 // Texture bindings following ShaderBindingLayout
 layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap; // TEX_SPECULAR (repurposed)
@@ -140,14 +189,28 @@ layout(binding = 9) uniform samplerCube u_EnvironmentMap;   // TEX_ENVIRONMENT
 layout(binding = 10) uniform samplerCube u_IrradianceMap;   // TEX_USER_0
 layout(binding = 11) uniform samplerCube u_PrefilterMap;    // TEX_USER_1
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2
+#endif
 
 // Shadow map textures — CSM array + the budgeted local-light shadow atlas
 // (issue #435; the atlas replaced the spot array and the 4 point cubemaps).
+//
+// ONE DEPTH ARRAY REACHED AS TWO VIEWS. The comparison views below and the
+// comparison-OFF raw views are the same GL texture with different sampler state,
+// which under bindless means two DIFFERENT descriptors: sampler state is baked
+// into the handle. CommandDispatch::ShadowDepthSampler mints both, and the seam
+// derives ViewDesc::DepthCompare from SamplerDesc::Compare so they cannot drift.
+#ifdef OLO_BINDLESS
+#define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)
+#define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)
+#define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)
+#define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)
+#else
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM; // TEX_SHADOW (CSM)
 layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas; // TEX_SHADOW_ATLAS (1-layer)
 // Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
 layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw; // TEX_SHADOW_CSM_RAW
 layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;  // TEX_SHADOW_ATLAS_RAW
+#endif
 
 // Shadow UBO (binding 6)
 layout(std140, binding = 6) uniform ShadowData {

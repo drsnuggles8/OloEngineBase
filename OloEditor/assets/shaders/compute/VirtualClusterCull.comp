@@ -172,7 +172,18 @@ uniform float u_OrthoErrorScale;          // ortho mode: pixels per world-space 
 //     PrevTransform;
 //   * phase 2 — a pyramid rebuilt from THIS frame's depth (opaque scene + the
 //     phase-1 virtual-geometry draws), so the current VP and current transform.
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). This shader was
+// previously grouped with VirtualGeometryPass's 'deferrals'; it is not
+// blocked. The G-Buffer restriction applies to VirtualMeshGBuffer.glsl, not
+// to the cull compute, and the gl_BaseInstance this file mentions is in a
+// COMMENT — a grep on raw text said otherwise.
+#ifdef OLO_BINDLESS
+#define u_HZB OLO_HEAP_TEX_2D(0)
+#else
 layout(binding = 0) uniform sampler2D u_HZB; // max-reduction depth pyramid (device-Z, smaller = nearer)
+#endif
 uniform int   u_OcclusionEnabled;    // 0 = skip the Hi-Z test entirely
 uniform mat4  u_OcclusionViewProjection; // the VP the bound pyramid was rendered with
 uniform vec2  u_HZBSize;             // HZB texture size in texels (power-of-2)

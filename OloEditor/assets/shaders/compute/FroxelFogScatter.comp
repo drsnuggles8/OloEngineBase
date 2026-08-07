@@ -98,14 +98,46 @@ layout(std430, binding = 11) readonly buffer FogLightIndexBuf      { uint fogLig
 layout(std430, binding = 12) readonly buffer FogLightGridBuf       { uvec2 fogGrid[]; };
 layout(std430, binding = 18) readonly buffer FogSphereAreaLightBuf { FogSphereAreaLight fogSphereAreaLights[]; };
 
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion of the SAMPLER inputs (issue #691 Phase 3, bucket 1).
+//
+// THESE HAD TO MOVE WITH THE C++ SIDE, not after it. This shader already builds
+// as the bindless variant (its output image is converted below), so
+// Shader::IsBoundProgramBindless() is true while it is in flight — which means
+// VolumetricFogPass's seam calls record an offset and issue NO bind. A sampler
+// still declared `layout(binding = N)` here would then be left unbound and read
+// black. Converting one side without the other is not a partial conversion, it
+// is a broken one.
+//
+// (§5b's "a shader can be moved input by input" still holds — but the unit of
+// movement is the C++ bind AND its declaration together.)
+//
+// Names checked against this file's include tree first: DeferredLightingShared
+// and ForwardPlusCommon also declare u_ShadowMapCSM / u_ShadowAtlas, and a
+// `#define` would rewrite their declarations into garbage — but neither is
+// reachable from FogCommon / FogVolumeCommon / AtmosphereShading, so this file
+// owns both names outright (the DDGI_Relight trap, checked rather than assumed).
+#ifdef OLO_BINDLESS
+#define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(0)
+#define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(1)
+#define u_HistoryVolume OLO_HEAP_TEX_3D(2)
+#else
 // Shadow maps (compute-local sampler units)
 layout(binding = 0) uniform sampler2DArrayShadow u_ShadowMapCSM;
 layout(binding = 1) uniform sampler2DArrayShadow u_ShadowAtlas;
 // Previous frame's scatter volume for temporal accumulation
 layout(binding = 2) uniform sampler3D u_HistoryVolume;
+#endif
 
 // Output scatter volume: rgb = in-scattered radiance, a = extinction
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declarations move into main() as locals built from the heap descriptors at
+// these image units; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
 layout(binding = 0, rgba16f) writeonly uniform image3D u_ScatterVolume;
+#endif
 
 // ---------------------------------------------------------------------------
 // Helpers (mirror PostProcess_Fog.glsl's raymarch-era functions)
@@ -314,6 +346,9 @@ vec3 evaluateClusterLightsFog(vec3 relPos, vec3 viewDir, float viewDepth, vec2 s
 
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba16f, writeonly, image3D, u_ScatterVolume, 0);
+#endif
     ivec3 dims = ivec3(u_FroxelDims.xyz);
     ivec3 gid = ivec3(gl_GlobalInvocationID);
     if (gid.x >= dims.x || gid.y >= dims.y || gid.z >= dims.z)

@@ -152,6 +152,14 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;       // Runtime IBL strength multiplier
     int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
     int _pbrPad2;
+    // Per-material heap offsets (issue #691 Phase 3). MUST mirror
+    // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
+    // layouts disagree, and this block is the LAST member so a missing
+    // declaration reads garbage rather than failing to link.
+    //   [0] albedo, metallicRoughness, normal, ao
+    //   [1] emissive, environment, irradiance, prefilter
+    //   [2] brdfLut, diffuse(legacy), specular(legacy), unused
+    uvec4 u_MaterialHeapOffsets[3];
 };
 
 // Snow UBO (binding 13)
@@ -163,7 +171,31 @@ layout(std140, binding = 13) uniform SnowParams {
     vec4 u_SnowFlags;
 };
 
-// Texture bindings following ShaderBindingLayout
+// Texture bindings following ShaderBindingLayout.
+//
+// CONVERTED WHOLE, identical split to PBR_MultiLight (§5c): the five
+// material-local maps ride the per-material UBO lanes, the environment probe,
+// IBL trio and shadow arrays come from the shared published table. Skinning
+// changes only the vertex stage, so the fragment-side binding story is the same.
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define OLO_MATERIAL_HEAP_READER 1
+#define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
+#define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
+#define u_NormalMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET)
+#define u_AOMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET)
+#define u_EmissiveMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET)
+
+#define u_EnvironmentMap OLO_HEAP_TEX_CUBE(9)
+#define u_IrradianceMap OLO_HEAP_TEX_CUBE(10)
+#define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)
+#define u_BRDFLutMap OLO_HEAP_TEX_2D(12)
+
+#define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)
+#define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)
+#define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)
+#define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)
+#else
 layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap; // TEX_SPECULAR (repurposed)
 layout(binding = 2) uniform sampler2D u_NormalMap;          // TEX_NORMAL
@@ -183,6 +215,7 @@ layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas; // TEX_SHADOW_A
 // Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
 layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw; // TEX_SHADOW_CSM_RAW
 layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;  // TEX_SHADOW_ATLAS_RAW
+#endif
 
 // Shadow UBO (binding 6)
 layout(std140, binding = 6) uniform ShadowData {

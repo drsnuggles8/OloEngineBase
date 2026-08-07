@@ -86,8 +86,108 @@ namespace OloEngine::RHI
     // a descriptor the API says nothing about.
     inline constexpr u32 kNullStorageHeapOffset = 1u;
 
-    // The first slot the allocator may hand out. Both nulls sit below it.
-    inline constexpr u32 kFirstAllocatableHeapSlot = kNullStorageHeapOffset + 1u;
+    // The reserved null CUBE / ARRAY / ARRAY-SHADOW descriptors, and they exist
+    // because the argument above stops one level too shallow.
+    //
+    // "A null needs to exist per DESCRIPTOR KIND" was applied to sampler-vs-image
+    // and left there — but a SAMPLER TYPE is a kind too. `samplerCube(h)` where
+    // `h` names a 2D texture is undefined in exactly the way `image2D(h)` is, and
+    // §5d (heap handles carry no type) says nothing stops a shader from doing it.
+    // The null descriptor is then the one place the engine MANUFACTURES the
+    // mismatch itself: every unset material and IBL lane resolves to
+    // kNullHeapOffset, so a converted PBR shader with no environment probe built a
+    // samplerCube from the 1x1 2D null on every draw.
+    //
+    // It read as an ORDER-DEPENDENT visible pop (issue #691 Phase 3): the rebase
+    // evidence test passed alone and popped at boundaries 2 and 3 once a sibling
+    // test had run first, because undefined behaviour is free to depend on
+    // whatever the driver did previously. Four state-leak hypotheses died before
+    // this one, all of them looking for something that was being written wrongly
+    // rather than something being read as the wrong TYPE.
+    inline constexpr u32 kNullCubeHeapOffset = 2u;
+    inline constexpr u32 kNullArrayHeapOffset = 3u;
+    inline constexpr u32 kNullArrayShadowHeapOffset = 4u;
+
+    // AND ONE NULL IMAGE PER FORMAT, which is the same argument a third time.
+    //
+    // `glGetImageHandleARB` BAKES a format into the handle, and reading an image
+    // through a `layout(...)` qualifier that disagrees with it is undefined — not
+    // a reinterpretation. A single R32F null therefore served `r32ui`, `rgba8`,
+    // `rgba32f`, `r8` and `rgba16f` bindings undefined-ly, and the comment that
+    // used to sit beside it ("a uint image reading it sees the bit pattern 0")
+    // asserted a reinterpretation the spec does not offer.
+    //
+    // These are the formats the converted compute shaders actually declare —
+    // r32f (14 declarations), rgba32f (6), r8 (6), rgba16f (3), rgba8 (2),
+    // r32ui (2). Adding a format to a shader without adding it here leaves that
+    // shader's cleared bindings on the R32F fallback, which is why
+    // NullOffsetForStorageFormat is a switch with no silent default.
+    //
+    // kNullStorageHeapOffset stays at 1 (R32Float) so the existing reserved-block
+    // ordering and every test that names it keep their meaning.
+    inline constexpr u32 kNullStorageRGBA32FHeapOffset = 5u;
+    inline constexpr u32 kNullStorageR8HeapOffset = 6u;
+    inline constexpr u32 kNullStorageRGBA16FHeapOffset = 7u;
+    inline constexpr u32 kNullStorageRGBA8HeapOffset = 8u;
+    inline constexpr u32 kNullStorageR32UIHeapOffset = 9u;
+
+    // The first slot the allocator may hand out. Every null sits below it.
+    inline constexpr u32 kFirstAllocatableHeapSlot = kNullStorageR32UIHeapOffset + 1u;
+
+    // The reserved slot a CLEARED or FAILED image binding of `format` points at.
+    //
+    // Unknown and anything unlisted map to the R32Float null deliberately rather
+    // than asserting: an unrecognised format is a gap in this table, and pointing
+    // it at a real resident descriptor keeps the read defined-but-wrong instead of
+    // undefined, which is the same trade every other null here makes.
+    [[nodiscard]] constexpr auto NullOffsetForStorageFormat(Format format) -> u32
+    {
+        switch (format)
+        {
+            case Format::RGBA32Float:
+                return kNullStorageRGBA32FHeapOffset;
+            case Format::R8UNorm:
+                return kNullStorageR8HeapOffset;
+            case Format::RGBA16Float:
+                return kNullStorageRGBA16FHeapOffset;
+            case Format::RGBA8UNorm:
+            case Format::RGBA8SRGB:
+                return kNullStorageRGBA8HeapOffset;
+            case Format::R32UInt:
+                return kNullStorageR32UIHeapOffset;
+            default:
+                return kNullStorageHeapOffset;
+        }
+    }
+
+    // Which reserved null a given SAMPLER TYPE must fall back to. The shader knows
+    // this and the C++ mostly does not — a TEX_* slot does not imply a type, since
+    // TEX_USER_0..2 are generic slots that different shaders declare differently —
+    // which is why the shader-side accessors in include/BindlessHeap.glsl do the
+    // substitution and these constants are mirrored there.
+    enum class NullSamplerKind : u8
+    {
+        Texture2D = 0,
+        Cube,
+        Texture2DArray,
+        Texture2DArrayShadow,
+    };
+
+    [[nodiscard]] constexpr auto NullOffsetForSamplerKind(NullSamplerKind kind) -> u32
+    {
+        switch (kind)
+        {
+            case NullSamplerKind::Cube:
+                return kNullCubeHeapOffset;
+            case NullSamplerKind::Texture2DArray:
+                return kNullArrayHeapOffset;
+            case NullSamplerKind::Texture2DArrayShadow:
+                return kNullArrayShadowHeapOffset;
+            case NullSamplerKind::Texture2D:
+            default:
+                return kNullHeapOffset;
+        }
+    }
 
     // The null offset appropriate to a view's kind. Every "I am not using this
     // input" and every failed acquire must point at one of the two.
@@ -177,7 +277,25 @@ namespace OloEngine::RHI
         // interchangeable in a shader — `image2D(samplerHandle)` is undefined in
         // exactly the way `sampler2D(0)` is. One null per kind is the minimum
         // that keeps the determinism this model is built on.
-        [[nodiscard]] virtual auto NullDescriptor(ViewUsage usage) const -> u64 = 0;
+        // `kind` is consulted only for ViewUsage::Sampled — a storage image has no
+        // sampler type to mismatch.
+        //
+        // NO DEFAULT ARGUMENT, deliberately. A default on a VIRTUAL is bound to the
+        // STATIC type of the expression, not the dynamic one, so a base and an
+        // override that disagree about it silently change meaning with the pointer's
+        // declared type — and this one was duplicated in both. Every caller now says
+        // which null it wants, which is also the honest reading given that picking
+        // the wrong kind is undefined behaviour rather than a wrong colour.
+        [[nodiscard("the null descriptor is what a cleared binding samples — dropping it leaves the slot "
+                    "undefined")]] virtual auto
+        NullDescriptor(ViewUsage usage, NullSamplerKind kind) const -> u64 = 0;
+
+        // The null IMAGE descriptor for `format`. Separate from NullDescriptor
+        // because an image handle is typed by FORMAT where a sampler handle is
+        // typed by TARGET — two different axes that happen to need the same
+        // treatment, not one axis with more cases.
+        [[nodiscard("a cleared image binding reads this — dropping it leaves the slot undefined")]] virtual auto
+        NullStorageDescriptor(Format format) const -> u64 = 0;
     };
 
     // -------------------------------------------------------------------------
@@ -277,7 +395,8 @@ namespace OloEngine::RHI
         // slot-based path", never as a hard error, because the whole point of
         // the toggle is that both paths work.
         [[nodiscard]] auto CreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                      HeapSlotLifetime lifetime) -> ViewHandle;
+                                      HeapSlotLifetime lifetime,
+                                      NullSamplerKind kind = NullSamplerKind::Texture2D) -> ViewHandle;
 
         // The form a render pass calls, once per texture it would have bound.
         //
@@ -293,7 +412,8 @@ namespace OloEngine::RHI
         // of the ring: two acquisitions of one physical object in one frame must
         // get two offsets (see the aliasing note above).
         [[nodiscard]] auto GetOrCreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                           HeapSlotLifetime lifetime) -> ViewHandle;
+                                           HeapSlotLifetime lifetime,
+                                           NullSamplerKind kind = NullSamplerKind::Texture2D) -> ViewHandle;
 
         // ---------------------------------------------------------------------
         // Storage images — the SECOND descriptor kind (ADR 0011 amendment (26)).
@@ -456,7 +576,8 @@ namespace OloEngine::RHI
         // Per KIND: poisoning a released storage slot with a sampler handle would
         // put the shader back on undefined behaviour at exactly the moment the
         // instrument is supposed to be reporting.
-        [[nodiscard]] auto PoisonDescriptorLocked(ViewUsage usage) const -> u64;
+        [[nodiscard]] auto PoisonDescriptorLocked(ViewUsage usage, NullSamplerKind kind, Format storageFormat)
+            const -> u64;
 
         struct ViewSlot
         {
@@ -467,11 +588,20 @@ namespace OloEngine::RHI
             ViewDesc View;
             u32 SamplerSlot = HeapOffset::Invalid; ///< Invalid for a storage view — it consumes no sampler slot
             u64 Descriptor = 0u;                   ///< replaced by the backend's null descriptor on release
+            /// The GLSL sampler type this view is read through. METADATA, and
+            /// deliberately NOT a ViewDesc field: ViewDesc's defaulted operator== is
+            /// the memoisation key, so putting the kind there would split one
+            /// texture into two descriptors the moment two call sites disagreed.
+            /// Kept here it costs nothing and answers the only question that needs
+            /// it — which typed null to poison the slot with on release, so a
+            /// samplerCube reader cannot be handed a 2D descriptor (issue #691).
+            NullSamplerKind NullKind = NullSamplerKind::Texture2D;
         };
 
         // Caller must hold m_Mutex.
         [[nodiscard]] auto CreateViewLocked(ResourceHandle resource, const ViewDesc& view,
-                                            const SamplerDesc& sampler, HeapSlotLifetime lifetime) -> ViewHandle;
+                                            const SamplerDesc& sampler, HeapSlotLifetime lifetime,
+                                            NullSamplerKind kind) -> ViewHandle;
         [[nodiscard]] auto ValidateLocked(ViewHandle view) const -> const ViewSlot*;
         // Same check WITHOUT counting a rejection. For internal housekeeping —
         // evicting a stale cache entry is not a caller presenting a dead handle,

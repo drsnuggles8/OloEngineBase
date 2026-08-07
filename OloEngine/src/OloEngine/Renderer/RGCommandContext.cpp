@@ -107,14 +107,15 @@ namespace OloEngine
 
     RHI::HeapOffset RGCommandContext::BindTextureOrHeapOffset(const u32 slot, const RHI::ResourceHandle texture,
                                                               const RHI::HeapSlotLifetime lifetime,
-                                                              const RHI::SamplerDesc& sampler) const
+                                                              const RHI::SamplerDesc& sampler,
+                                                              RHI::NullSamplerKind kind) const
     {
         // Forwards to HeapBindingSeam, which owns the single shared offset table.
         // It lives there rather than here because most STORAGE-IMAGE bind sites
         // are compute systems with no render-graph context at all, and a second
         // table for them would mean two flushes, two binding points and two ways
         // for a pass and its shader to disagree about which one carries a slot.
-        return HeapBinding::BindTextureOrOffset(slot, texture, lifetime, sampler);
+        return HeapBinding::BindTextureOrOffset(slot, texture, lifetime, sampler, kind);
     }
 
     void RGCommandContext::FlushHeapOffsets() const

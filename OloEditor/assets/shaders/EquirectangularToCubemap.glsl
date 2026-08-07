@@ -31,7 +31,12 @@ void main()
 layout(location = 0) in vec3 v_LocalPos;
 layout(location = 0) out vec4 o_Color;
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_EquirectangularMap OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
+#else
 layout(binding = 0) uniform sampler2D u_EquirectangularMap;
+#endif
 
 const vec2 invAtan = vec2(0.1591, 0.3183);
 

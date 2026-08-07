@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+// For RHI::HeapSlotLifetime, named by GetHZBLifetime() below.
+#include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -79,6 +81,19 @@ namespace OloEngine
 
         // Access the HZB texture (for binding by GTAO / SSR).
         [[nodiscard]] RHI::ResourceHandle GetHZBTexture() const;
+
+        // THE LIFETIME FOLLOWS THE RESOURCE, NOT THE SLOT. GetHZBTexture may
+        // return this generator's own pyramid (Persistent, memoisable) or an
+        // EXTERNALLY supplied one, which comes from the render graph's transient
+        // pool — and a Persistent view of a pooled target memoises an offset onto
+        // an object the planner may reassign next frame, so the cached binding
+        // then points at whatever took its place. Every consumer must ask rather
+        // than assume (issue #691 Phase 3).
+        [[nodiscard]] auto GetHZBLifetime() const -> RHI::HeapSlotLifetime
+        {
+            return m_ExternalHZBTexture.IsValid() ? RHI::HeapSlotLifetime::FrameTransient
+                                                  : RHI::HeapSlotLifetime::Persistent;
+        }
         [[nodiscard]] u32 GetMipCount() const;
         [[nodiscard]] u32 GetHZBWidth() const
         {

@@ -289,12 +289,33 @@ GLSL preprocessors.
 
 `readonly` is the exception and it is a hard one: the macro **declares and
 initialises a local**, and initialising a `readonly` variable is a write, so the
-compiler rejects it (`error C7504`). A read-only storage image therefore **stays
-on the slot path** — keep the plain `layout(binding = N) readonly uniform
-image2D` and convert the rest of the shader around it. Four compute shaders
-silently fell back to the slot-based program before this was diagnosed; the
-bindless route declines quietly by design, so the only symptom was the absence of
-the "bindless route" log line.
+compiler rejects it (`error C7504`). Four compute shaders silently fell back to
+the slot-based program before this was diagnosed; the bindless route declines
+quietly by design, so the only symptom was the absence of the "bindless route"
+log line.
+
+**But that is a rule about the MACRO ARGUMENT, not about the conversion.** The
+fix is to widen the bindless arm to `OLO_HEAP_IMAGE_RW` while the slot arm keeps
+`readonly` — the two live in mutually exclusive `#ifdef` branches, so they may
+disagree about the qualifier as long as they agree about the image:
+
+```glsl
+#ifndef OLO_BINDLESS
+layout(rgba32f, binding = 0) readonly uniform image2DArray u_Spectra;
+#endif
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba32f, OLO_HEAP_IMAGE_RW, image2DArray, u_Spectra, 0);
+#endif
+```
+
+`Ocean_Assemble.comp` and `Ocean_FFTButterfly.comp` are the worked examples and
+both take the bindless route. What you give up is the compiler's read-only
+assumption, not the conversion; the backend's residency widening (amendment (28))
+already makes a read-write-resident handle safe to read. An earlier version of
+this section said a read-only image "stays on the slot path", which reads as
+"abandon the conversion" and left work on the table.
 
 **3. The number is an IMAGE UNIT, not a `TEX_*` slot.** GL image units and
 texture units are separate namespaces that both start at zero, so the offset
@@ -332,6 +353,160 @@ input on the slot path and convert the rest — §5a's "a shader can be moved in
 by input" is what makes this cheap, and `PostProcess_Fog.glsl` is the worked
 example (converted for depth + froxel, still binding `TEX_SHADOW` conventionally).
 
+Check the **transitive** tree, not the direct includes. `FroxelFogScatter.comp`
+declares `u_ShadowMapCSM` / `u_ShadowAtlas`, which `DeferredLightingShared.glsl`
+and `ForwardPlusCommon.glsl` also declare — the exact shape that broke
+`DDGI_Relight` — but neither header is reachable from its includes
+(`FogCommon`, `FogVolumeCommon`, `AtmosphereShading`, none of which include
+anything), so it owns both names outright. The answer was "safe", and it was only
+knowable by walking the tree.
+
+### 5c. Once a shader is PARTLY converted, the two sides can no longer move separately
+
+The rule above ("a shader can be moved input by input") is about the *shader*.
+This is the constraint it puts on the **C++**, and it is the easiest way to break
+a working pass:
+
+> **The unit of conversion is a C++ bind AND its declaration, together.**
+
+`WantsBindlessVariant()` is a property of the whole program, not of one input. So
+the moment a shader converts *any* input, it builds as the bindless variant and
+`Shader::IsBoundProgramBindless()` is **true** for every bind issued while it is
+in flight. A `BindTextureOrOffset` for an input whose declaration is still
+`layout(binding = N)` therefore records an offset and issues **no bind** — that
+sampler is left unbound and reads black.
+
+`FroxelFogScatter.comp` was exactly this: its output image had been converted
+(bucket 3) while its three shadow/history samplers had not, so converting
+`VolumetricFogPass`'s C++ binds alone would have silently unbound them. Both
+moved in the same change.
+
+The reverse pairing is the older, gentler failure: a converted *shader* whose C++
+still calls plain `BindTexture` reads offsets nobody wrote. That one is loud (a
+black or plainly wrong frame). The direction described here is the quiet one,
+because the pass keeps rendering and only the newly-unbound input goes dark.
+
+**This hazard did not exist while only 11 shaders were converted and each was
+converted whole.** It applies to every partly-converted file, and there are now
+~30 of them.
+
+#### It is now machine-checked, because the prose rule did not hold
+
+`BindlessShaderPipeline.NoBindlessRouteShaderKeepsASlotBasedSamplerDeclaration`
+scans every shader on the bindless route and fails on any sampler declaration
+that survives with `OLO_BINDLESS` defined. The one exception it allows is a slot
+bound through `PublishTextureOffsetAndBind`, which stages an offset **and**
+always binds — that is what the DDGI atlases use, so their slot-based readers
+keep working.
+
+The test exists because this section, worked example and all, was already
+written when `Terrain_Depth.glsl` was converted **one line at a time**:
+`u_TerrainHeightmap` got a correct `#ifdef`/`#else` pair and `u_SnowDepthMap`,
+declared on the very next line, did not. Snow deformation then read zero under
+`OLO_RHI_BINDLESS=1` — and the entire suite stayed green **in both
+configurations**, because the failure is invisible to anything that does not
+compare them.
+
+Two things generalise past this bug:
+
+- **A test that compares two frames in the SAME configuration cannot see a
+  defect that affects both frames equally.** `WorldOriginRebaseVisualEvidence`
+  moved 1.413 → 5.861 and that number was twice mis-diagnosed (as sampler state,
+  then as raw-GLSL float codegen) before anyone compared **across** configs and
+  found RMSE 78.8 with mean luminance halved. Bisect by probing values out
+  through `o_Color` and *reading the pixels*; the scalar the test reports is a
+  summary, not evidence.
+- **Whether a shader is on the route is decided by a text search**, so it must
+  measure code rather than prose. `WantsBindlessVariant` now blanks comments and
+  matches `OLO_BINDLESS` as a whole identifier — before, a comment saying "not
+  OLO_BINDLESS converted" would have rerouted the shader and silently unbound
+  every sampler it declares, and `include/BindlessHeap.glsl`'s own
+  `#ifndef OLO_BINDLESS_HEAP_GLSL` guard matched as a substring.
+
+### 5c-bis. Vulkan-only builtins — two are bridged, two are still blockers
+
+The bindless route feeds your original GLSL straight to `glShaderSource`,
+skipping shaderc **and SPIRV-Cross**. That is usually just a cache/reflection
+trade (§5a) — but SPIRV-Cross is also what *translates Vulkan spellings into GL
+ones*, and without it the Vulkan builtin reaches the GL compiler verbatim:
+
+```text
+error C7531: global variable gl_InstanceIndex requires
+             "#extension GL_KHR_vulkan_glsl : enable" before use
+```
+
+Renaming in the `.glsl` is not an option either way: the default path targets
+Vulkan, where the GL spellings do not exist. The shader genuinely needs both.
+
+**So `CreateProgramFromRawGLSL` now does the translation itself**, applying
+SPIRV-Cross's own substitutions as a text pass over the source before handing it
+to the driver:
+
+| Vulkan spelling | rewritten to | note |
+|---|---|---|
+| `gl_InstanceIndex` | `gl_InstanceID` | **not** `gl_InstanceID + gl_BaseInstanceARB` — see below |
+| `gl_VertexIndex` | `gl_VertexID` | |
+
+A shader naming only these two is therefore **convertible**.
+`Particle_Billboard_GPU.glsl` was the standing example of the old blocker and is
+converted today.
+
+**`gl_BaseInstance` and `gl_BaseVertex` are still blockers** — nothing rewrites
+them, so a shader naming either stays slot-based. Check before converting:
+
+```bash
+grep -nE "gl_BaseInstance|gl_BaseVertex" <shader>
+```
+
+**Why the base-instance term is deliberately dropped.** SPIRV-Cross literally
+prints `gl_InstanceID + SPIRV_Cross_BaseInstance`, and an earlier version of the
+shim copied that. But SPIRV-Cross guards the term:
+
+```text
+#ifdef GL_ARB_shader_draw_parameters
+#define SPIRV_Cross_BaseInstance gl_BaseInstanceARB
+#else
+uniform int SPIRV_Cross_BaseInstance;   // never set
+#endif
+```
+
+and the engine's SPIR-V → GL path does not enable that extension, so every
+existing draw effectively indexes with `gl_InstanceID + 0`. Adding the real base
+instance made this route disagree with the slot path about which instance a
+vertex belongs to, and every `u_Model` / `u_Normal` / `u_PrevModel` in
+`InstanceBlock_Vertex.glsl` reads `instances[gl_InstanceIndex]` — so transforms
+and normals came from the wrong entry.
+
+The rule: **match what the engine's other path actually COMPILES TO, not what the
+translator prints in the abstract.**
+
+**Leaving a shader unconverted stays safe and costs nothing else.** The seam
+forks per program, so a non-bindless program takes the fallback and gets a real
+bind — the same shape as `Skybox.glsl` and `DDGI_Relight.glsl`.
+
+**A failed bindless build fails silently, by design.** It degrades to the slot
+path with only an error log and a `.bindless.failed.glsl` dump, so the suite
+stayed green at 5419/1 in both configurations while one shader was quietly not
+converted. Counting those dumps is what caught it — see §4e of
+rhi-abstraction-boundary.md.
+
+### 5d. A heap handle carries no type — pick the matching sampler macro
+
+`g_OloResourceHeap[offset]` is a bare `uvec2`. `sampler2D(h)` and `isampler2D(h)`
+are two different *reinterpretations* of the same bits, so reading an `R32I`
+entity-ID target through the float macro compiles cleanly and returns garbage.
+There is no diagnostic for getting this wrong.
+
+`JumpFlood_Init.glsl` samples the entity-ID buffer and therefore needs
+`OLO_HEAP_TEX_2D_INT` (`isampler2D`), not `OLO_HEAP_TEX_2D`. Match the macro to
+the declaration you are replacing, exactly as you match `OLO_HEAP_IMAGE`'s format
+qualifier to the CPU side's `RHI::Format`.
+
+Only the macros actually used exist in `BindlessHeap.glsl`, deliberately: an
+unused macro there is dead code that can be wrong for years, which is exactly how
+`uvec4 g_OloHeapOffsets[16]` survived while the engine wrote 18. Add the sibling
+form when a shader needs it, not in anticipation.
+
 **Do NOT convert a G-Buffer shader's images.** The bindless route produces no
 SPIR-V and therefore never runs `Reflect()`, so `m_IsDeferredCapable` stays false
 and the shader is misrouted into the forward-overlay fallback.
@@ -342,6 +517,61 @@ The exact constructor spelling the macro uses is pinned against a live driver by
 `BindlessHeapGpuTest.TheImageConstructorSpellingTheHeaderUsesIsAcceptedByTheDriver`,
 which probes the alternatives and reports which ones work — so if it ever has to
 change, the test says what to change it to.
+
+### 5e. Every sampler-declaring shader is converted or a RECORDED decision
+
+`BindlessShaderPipeline.EveryShaderIsOnTheRouteOrExplicitlyExcluded` fails on a
+shader that declares a sampler or image, is not on the bindless route, and
+carries no reason. Adding one leaves you two options and no third:
+
+- convert it (§5a, moving its C++ bind in the **same** change per §5c), or
+- add it to `kSlotBasedByDesign` in that test with the reason it stays.
+
+**A slot-based shader is not a bug.** The seam forks per program, so an
+unconverted one gets a real bind and renders correctly — which is exactly the
+problem the test solves: "left slot-based on purpose" and "nobody got to it" look
+identical from outside, so without the table the sweep has no end condition.
+
+Four reasons are already recorded, and they are different enough that reusing one
+for the wrong case would be a mistake:
+
+| reason | what it looks like | the tell |
+|---|---|---|
+| shared `include/` header | `AtmosphereShading`, `CloudscapeCommon`, `DDGICommon`, `WindSampling`, `VirtualDebugViz` | its own `#ifdef OLO_BINDLESS` **is** the route opt-in token, so converting a declaration there drags every includer onto the raw-GLSL route and unbinds all of THEIR slot-based samplers |
+| no reserved null for the target | `DeferredLighting_MSAA` (`sampler2DMS`) | §5d's rule with no macro to satisfy it: an unset input has nowhere type-correct to land |
+| bindless replaces the mechanism | `Renderer2D_Quad` | a 32-element sampler array + a 32-case switch; the real conversion is a per-quad heap offset in the vertex format, not a declaration wrap. Its sibling `Renderer2D_Text` IS converted — same bind loop, ordinary samplers |
+| harness fixture | everything under `tests/` | driven outside the render graph inside `ScopedSlotBasedShaders`, whose comment explains why the heap's frame-scoped lifetimes have no frame here |
+
+The first row is the one to check before reaching for the others. A shared
+header's slot has to be **bound unconditionally** instead — through
+`HeapBinding::PublishTextureOffsetAndBind`, or a direct `Texture::Bind()` that
+never consults the seam — and that binding is what `SlotAlwaysReceivesARealBind`
+in the same test enumerates. An entry there without one of those two mechanisms
+turns the allowlist into a way to silence the test.
+
+**Before converting, check who binds the slot, not just what declares it.** A
+`Texture::Bind(slot)` call is the same act as `RendererAPI::BindTexture` and the
+seam never sees it, so a shader whose inputs arrive that way reads an offset
+nobody staged — a black frame with no diagnostic. That was true of seven shaders
+(the IBL bake set, `Impostor_Bake`, `MaterialPreview`) until their C++ moved onto
+the seam in the same change. `grep -nF -- "->Bind(" <the file that draws it>` is the
+check; the ratchet counter cannot make it for you (ADR 0011 amendment (36)).
+
+**You no longer have to think about wrap or filter — but know why.** A descriptor
+bakes the sampler in, so a converted shader could easily sample differently from
+an unconverted reader of the same texture. `RHI::SamplerDesc{}` therefore means
+*inherit the texture object's state*, and the heap backend mints those views with
+`glGetTextureHandleARB` so the two are identical by construction. Pass a real
+`SamplerDesc` only when your pass genuinely wants something the texture does not
+have — `HeapBinding::ShadowDepthSampler()` is the worked example, SSAO's
+`Nearest`+`Repeat` noise the other.
+
+It reads as trivia until you see the bill for getting it wrong: a struct default
+of `ClampToEdge` turned `Water.glsl`'s tiled FFT field into flat terraces, and
+"fix the default to `Repeat`" then broke the terrain arrays, which are
+`ClampToEdge`. An integer texture is worse than either — GL treats `LINEAR` on an
+integer format as *incomplete* and it samples as **zero**, on Mesa but not NVIDIA.
+See ADR 0011 amendment (38).
 
 ---
 
@@ -416,6 +646,49 @@ the two programs' `gl_Position` fails the depth test and punches pixel holes. So
 MASK materials use `DepthPrepass_Mask{,Skinned}.glsl`, which must keep the exact
 glTF alpha test from `PBR_MultiLight.glsl` (`baseColorFactor.a * albedo.a <
 cutoff → discard`) so the prepass depth coverage matches the color pass.
+
+### 7a-bis. `invariant` does not survive a change of COMPILE ROUTE
+
+Everything above assumes both programs are built by the same compiler. Once the
+heap-bindless route exists (§5a) that stops being automatic, and the failure is
+not a binding failure at all — it is a *depth* failure.
+
+`invariant gl_Position` constrains the optimizations of **one** compiler. It
+cannot make two different front-ends round the same expression identically, and
+the two routes are exactly that: shaderc → SPIR-V → SPIRV-Cross → driver for the
+slot path, the driver's own GLSL front-end for the bindless one. Split the
+contract group across the two and the color pass fails `GL_LEQUAL` against depth
+its own prepass wrote.
+
+**The trap is that a depth prepass has no samplers.** §5c is a rule about
+declarations and binds, so it has nothing to say here, and `DepthPrepass.glsl`
+would never mention `OLO_BINDLESS` on its own — it is precisely the file a
+sampler-driven conversion sweep walks straight past. Converting the material
+bucket moved `PBR_MultiLight` to the raw route and silently left the prepass
+behind.
+
+So: **every shader declaring `invariant gl_Position` must be on the same route,
+all or none.** A shader with nothing to convert opts in explicitly:
+
+```glsl
+#define OLO_BINDLESS_ROUTE_PARITY 1
+
+invariant gl_Position;
+```
+
+`OpenGLShader::WantsBindlessVariant` accepts that token alongside
+`OLO_BINDLESS`; `BindlessShaderPipeline.DepthInvariantShadersAgreeOnTheCompileRoute`
+fails if the group ever splits again.
+
+**Do not expect this to look like a depth bug.** Measured on
+`WorldOriginRebaseVisualEvidence`: 23340 dropout pixels on the sphere and **zero**
+on the ground plane in the same frame. A curved surface's steep per-pixel depth
+gradient turns a last-bit disagreement into a visible hole; a flat one absorbs it
+entirely. It presents as "that mesh renders with blotchy holes", which is why it
+survived a long hunt through shading, shadows, SSAO, TAA and post-processing —
+all of which were excluded by measurement before the prepass was even suspected.
+The tell, once looked at rather than averaged: the holes showed **sky**, not the
+ground *behind* the sphere, so something had written depth there without colour.
 
 ## 8. Common mistakes
 

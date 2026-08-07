@@ -419,13 +419,30 @@ namespace OloEngine
         HeapBinding::BindImageOrOffset(1, edgeTexID, 0, false, 0, RHI::Access::StorageWrite,
                                        RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
 
-        // Bind inputs
+        // Bind inputs. The lifetimes differ per input and are not interchangeable,
+        // and the HZB's is NOT a property of this pass — it must be asked for.
+        //
+        // GetHZBTexture() returns the generator's own pyramid only when nothing has
+        // called SetExternalHZBTexture. The GTAO path routinely supplies the
+        // graph-pooled Scratch.HZBDepth instead, and a Persistent view of a pooled
+        // target memoises an offset onto an object the planner may reassign next
+        // frame — so GetHZBLifetime() answers FrameTransient in exactly that case.
+        // An earlier version of this comment called the HZB "pass-owned
+        // (memoisable, Persistent)", which is true only for the generator-owned
+        // half and was the reasoning behind the wrong hard-coded lifetime here.
+        //
+        // The Hilbert LUT genuinely is pass-owned and stays Persistent; the view
+        // normals come from the transient pool and take a per-frame ring slot
+        // (issue #691 Phase 3).
         const RHI::ResourceHandle hzbID = m_HZBGenerator.GetHZBTexture();
-        RenderCommand::BindTexture(GTAO_HZB_TEXTURE_SLOT, hzbID);
+        HeapBinding::BindTextureOrOffset(GTAO_HZB_TEXTURE_SLOT, hzbID,
+                                         m_HZBGenerator.GetHZBLifetime());
 
-        RenderCommand::BindTexture(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID);
+        HeapBinding::BindTextureOrOffset(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID,
+                                         RHI::HeapSlotLifetime::FrameTransient);
 
-        RenderCommand::BindTexture(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRHIHandle());
+        HeapBinding::BindTextureOrOffset(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRHIHandle(),
+                                         RHI::HeapSlotLifetime::Persistent);
 
         // Dispatch 16×16 workgroups
         u32 groupsX = (m_Width + 15) / 16;

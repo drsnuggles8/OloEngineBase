@@ -94,21 +94,41 @@ layout(std140, binding = 6) uniform ShadowData {
 // DDGI atlases are deliberately NOT taken from the global slots 56-58 here
 // (no DDGI_GLOBAL_SAMPLERS): the bounce term must read the PREVIOUS
 // irradiance atlas, not the one being published this frame.
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_HitAlbedo OLO_HEAP_TEX_2D(0)  // rgb albedo, a flag — TEX_DIFFUSE
+#define u_HitGeo OLO_HEAP_TEX_2D(1)  // rg octN, b dist (<0 sky), a flag — TEX_SPECULAR
+#define u_PrevIrradiance OLO_HEAP_TEX_2D(2)  // previous frame's blended atlas — TEX_NORMAL
+#define u_CurrVisibility OLO_HEAP_TEX_2D(3)  // current (post-blend) Chebyshev atlas — TEX_HEIGHT
+#define u_ProbeData OLO_HEAP_TEX_2D(4)  // xyz offsetN, w state — TEX_AMBIENT
+#else
 layout(binding = 0) uniform sampler2D u_HitAlbedo;      // rgb albedo, a flag
 layout(binding = 1) uniform sampler2D u_HitGeo;         // rg octN, b dist (<0 sky), a flag
 layout(binding = 2) uniform sampler2D u_PrevIrradiance; // previous frame's blended atlas
 layout(binding = 3) uniform sampler2D u_CurrVisibility; // current (post-blend) Chebyshev atlas
 layout(binding = 4) uniform sampler2D u_ProbeData;      // xyz offsetN, w state
+#endif
 // Global environment cubemap for sky-miss texels, at the engine's canonical
 // samplerCube slot (TEX_ENVIRONMENT = 9) so the cross-shader sampler-type
 // consistency contract holds; black-cubemap fallback when no scene env exists.
+#ifdef OLO_BINDLESS
+#define u_EnvironmentCube OLO_HEAP_TEX_CUBE(9)  // TEX_ENVIRONMENT
+#else
 layout(binding = 9) uniform samplerCube u_EnvironmentCube;
+#endif
 
 // Shadow maps at the units the PBRCommon evaluators expect.
+#ifdef OLO_BINDLESS
+#define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)  // TEX_SHADOW
+#define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)  // TEX_SHADOW_ATLAS
+#define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)  // TEX_SHADOW_CSM_RAW
+#define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)  // TEX_SHADOW_ATLAS_RAW
+#else
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;
 layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;
 layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;
 layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
+#endif
 
 layout(location = 0) in vec2 v_TexCoord;
 

@@ -30,11 +30,28 @@ layout(std140, binding = 46) uniform FroxelFogData
     vec4 u_FroxelRenderOrigin;
 };
 
+#include "../include/BindlessHeap.glsl"
+
+// Sampler input converted alongside the C++ bind — see FroxelFogScatter.comp for
+// why the two cannot move separately (issue #691 Phase 3, bucket 1).
+#ifdef OLO_BINDLESS
+#define u_ScatterVolume OLO_HEAP_TEX_3D(0)
+#else
 layout(binding = 0) uniform sampler3D u_ScatterVolume;
+#endif
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declarations move into main() as locals built from the heap descriptors at
+// these image units; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
 layout(binding = 0, rgba16f) writeonly uniform image3D u_IntegratedVolume;
+#endif
 
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba16f, writeonly, image3D, u_IntegratedVolume, 0);
+#endif
     ivec3 dims = ivec3(u_FroxelDims.xyz);
     ivec2 column = ivec2(gl_GlobalInvocationID.xy);
     if (column.x >= dims.x || column.y >= dims.y)

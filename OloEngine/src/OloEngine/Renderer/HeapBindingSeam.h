@@ -30,6 +30,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
@@ -52,7 +53,8 @@ namespace OloEngine::HeapBinding
     // with the same `TEX_*` constant it used to declare `layout(binding = N)`
     // with, so the two variants cannot disagree about which texture is which.
     auto BindTextureOrOffset(u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
-                             const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
+                             const RHI::SamplerDesc& sampler = {},
+                             RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D) -> RHI::HeapOffset;
 
     // The same seam for a caller that already holds a `RendererAPI&`, i.e. the
     // command-bucket dispatch handlers.
@@ -68,8 +70,8 @@ namespace OloEngine::HeapBinding
     //
     // The heap path is identical either way — a heap write touches no backend.
     auto BindTextureOrOffset(RendererAPI& api, u32 slot, RHI::ResourceHandle texture,
-                             RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler = {})
-        -> RHI::HeapOffset;
+                             RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler = {},
+                             RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D) -> RHI::HeapOffset;
 
     // PUBLISHED-GLOBAL bindings: write the offset AND perform the bind.
     //
@@ -83,10 +85,10 @@ namespace OloEngine::HeapBinding
     // (docs/agent-rules/render-pass-published-state.md).
     //
     // A published slot can also have consumers of BOTH kinds at once, so there is
-    // no single right answer to fork to: TEX_DDGI_IRRADIANCE is read by the DDGI
-    // shaders and DeferredLighting (convertible) *and* by Skybox_GBuffer, which
-    // cannot take the bindless route at all because that route produces no SPIR-V
-    // and so never runs Reflect().
+    // no single right answer to fork to. TEX_WIND_FIELD is the standing example:
+    // include/WindSampling.glsl declares it, and its includers are Foliage_Instance
+    // (converted) and compute/Particle_Simulate.comp (slot-based). A shared header
+    // converts all-or-nothing, so one includer's route cannot decide the other's.
     //
     // Doing BOTH is therefore not belt-and-braces, it is the only correct answer
     // while a slot has mixed consumers: a bindless consumer reads the offset, a
@@ -97,7 +99,52 @@ namespace OloEngine::HeapBinding
     // Prefer `BindTextureOrOffset` whenever the consuming shader is bound at the
     // call site; reach for this only for genuinely published state.
     auto PublishTextureOffsetAndBind(u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
-                                     const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
+                                     const RHI::SamplerDesc& sampler = {},
+                                     RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D)
+        -> RHI::HeapOffset;
+
+    // THE SAMPLER STATE A SHADOW-MAP DESCRIPTOR MUST BE MINTED WITH, in one place
+    // because it has to be identical at every site that stages one.
+    //
+    // A slot bind samples with the TEXTURE's parameters, so every consumer of a
+    // shadow map got its comparison mode for free no matter who bound it. A heap
+    // descriptor samples with the SAMPLER OBJECT baked into the handle, so the
+    // state has to be supplied — and the seam's default SamplerDesc{} carries
+    // `Compare = Never`, which the backend turns into GL_TEXTURE_COMPARE_MODE =
+    // GL_NONE. Reading such a handle as `sampler2DArrayShadow` is UNDEFINED, and
+    // in practice reads as "unshadowed": shadows LEAK rather than disappear,
+    // which is far harder to notice.
+    //
+    // WORSE, IT IS A LAST-WRITER RACE ACROSS PASSES. Several passes stage an
+    // offset for TEX_SHADOW / TEX_SHADOW_ATLAS, and whichever ran last owns the
+    // published descriptor for every bindless reader that frame. One site
+    // defaulting the sampler therefore silently disables comparison for shaders
+    // that never asked it to — which is exactly how converting PBR_MultiLight's
+    // shadow samplers made DDGI's lit/dark bands collapse from 60/33 to 62/41
+    // (issue #691 Phase 3).
+    //
+    // `comparison == false` gives the raw-depth view the PCSS blocker search
+    // reads; the seam derives ViewDesc::DepthCompare from the Compare field, so
+    // the two views of one depth array cannot drift apart.
+    [[nodiscard]] auto ShadowDepthSampler(bool comparison) -> RHI::SamplerDesc;
+
+    // Resolve a texture to a heap offset WITHOUT staging it in the shared table.
+    //
+    // FOR PER-MATERIAL OFFSETS, which are the reason the shared table is not the
+    // whole answer. The table is indexed by `TEX_*` slot and published by
+    // `FlushOffsets()`; a MATERIAL's textures change per draw, so routing them
+    // through it would mean re-uploading the whole table for every draw — the
+    // per-draw cost bindless exists to remove. Their offsets instead ride in the
+    // material UBO, which the draw path already uploads per material, so carrying
+    // nine more integers there costs nothing extra (ADR 0011 §1.2, amendment (32)).
+    //
+    // Returns an invalid offset when the heap path is not live for the program in
+    // flight, so the caller keeps binding the old way — the same fork every other
+    // entry point here makes, just without the write.
+    [[nodiscard("the resolved offset is the only way the shader finds the texture")]] auto
+    ResolveTextureOffset(RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
+                         const RHI::SamplerDesc& sampler = {},
+                         RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D) -> RHI::HeapOffset;
 
     // True when the program in flight reads the offset table, i.e. when a bind
     // through this seam records an offset instead of touching the driver.

@@ -48,8 +48,14 @@ layout(location = 2) in flat vec4 v_BandTransform;
 layout(location = 3) in flat ivec4 v_GlyphData;
 layout(location = 4) in flat int v_EntityID;
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_CurveTexture OLO_HEAP_TEX_2D(0)  // RGBA16F curve control points — TEX_DIFFUSE
+#define u_BandTexture OLO_HEAP_TEX_2D_UINT(1)  // RG16UI band headers + curve lists — TEX_SPECULAR
+#else
 layout(binding = 0) uniform sampler2D u_CurveTexture;   // RGBA16F curve control points
 layout(binding = 1) uniform usampler2D u_BandTexture;   // RG16UI band headers + curve lists
+#endif
 
 const int kLogBandTextureWidth = 12;
 

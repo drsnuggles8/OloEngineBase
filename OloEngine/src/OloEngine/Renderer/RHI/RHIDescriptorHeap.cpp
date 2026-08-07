@@ -37,12 +37,20 @@ namespace OloEngine::RHI
         return *s_Instance;
     }
 
-    auto DescriptorHeap::PoisonDescriptorLocked(ViewUsage usage) const -> u64
+    auto DescriptorHeap::PoisonDescriptorLocked(ViewUsage usage, NullSamplerKind kind,
+                                                Format storageFormat) const -> u64
     {
         // The backend's real, resident, sampleable null descriptor. Zero is NOT
         // a safe substitute: sampling an invalid bindless handle is undefined
         // behaviour, so an instrument built on it would be reporting driver luck.
-        return m_Backend != nullptr ? m_Backend->NullDescriptor(usage) : 0u;
+        if (m_Backend == nullptr)
+        {
+            return 0u;
+        }
+        // An image handle carries a FORMAT, not a sampler target, so the two kinds
+        // of null are asked for differently.
+        return usage == ViewUsage::Storage ? m_Backend->NullStorageDescriptor(storageFormat)
+                                           : m_Backend->NullDescriptor(usage, kind);
     }
 
     void DescriptorHeap::Initialize(const HeapDesc& desc, IDescriptorHeapBackend* backend)
@@ -86,7 +94,7 @@ namespace OloEngine::RHI
             m_Slots[index].Generation = survivingGenerations[index];
         }
 
-        m_Mirror.assign(total, backend != nullptr ? backend->NullDescriptor(ViewUsage::Sampled) : 0u);
+        m_Mirror.assign(total, backend != nullptr ? backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2D) : 0u);
 
         // The two reserved nulls, written into the mirror and marked dirty so the
         // first Flush() publishes them. The backend prefills its whole buffer with
@@ -94,10 +102,51 @@ namespace OloEngine::RHI
         // not zero — the bug that passed alone and failed in the full suite), so
         // without this the storage null slot would hold a sampler handle and every
         // cleared image binding would be undefined behaviour rather than black.
-        if (backend != nullptr && total > kNullStorageHeapOffset)
+        // m_PersistentCapacity, NOT total. The reserved nulls live at the FRONT of
+        // the heap, and the transient ring starts at m_PersistentCapacity (see the
+        // cursor arithmetic in CreateViewLocked). A configuration whose persistent
+        // region is smaller than the reserved block would therefore hand the typed
+        // null slots out as transient allocations and overwrite them — `total` is
+        // large enough to pass the check while the slots are not actually reserved.
+        //
+        // AND IT COMPARES AGAINST kFirstAllocatableHeapSlot, not against the last
+        // named null. Testing `> kNullArrayShadowHeapOffset` was correct only while
+        // that was the final reserved slot; once the per-format storage nulls took
+        // 5..9 the same test admitted capacities 5-9, which reserve part of the
+        // block and hand the rest out. The floor constant is the block's size by
+        // definition, so comparing against it cannot fall out of date again.
+        //
+        // SKIPPING THE WRITES IS NOT ENOUGH ON ITS OWN — see the m_Initialized
+        // assignment below, which consumes this same flag. A heap that stayed
+        // ENABLED with the block unwritten would still hand every unset input a
+        // null OFFSET (RHI::NullOffsetForSamplerKind answers 0..9 unconditionally),
+        // and those indices would address either an ordinary persistent view or,
+        // past m_PersistentCapacity, the transient ring — so the "null" a shader
+        // samples would be whatever view landed there this frame. Refusing to
+        // enable is the only honest answer to a heap too small to hold its own
+        // invariants.
+        const bool reservedNullBlockFits = m_PersistentCapacity >= kFirstAllocatableHeapSlot;
+        if (backend != nullptr && reservedNullBlockFits)
         {
-            m_Mirror[kNullHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled);
-            m_Mirror[kNullStorageHeapOffset] = backend->NullDescriptor(ViewUsage::Storage);
+            m_Mirror[kNullHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2D);
+            m_Mirror[kNullStorageHeapOffset] = backend->NullStorageDescriptor(Format::R32Float);
+            // One per SAMPLER TYPE — a shader constructing samplerCube /
+            // sampler2DArray / sampler2DArrayShadow from a null offset must find a
+            // descriptor of that target, or the read is undefined rather than
+            // black (issue #691 Phase 3).
+            m_Mirror[kNullCubeHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Cube);
+            m_Mirror[kNullArrayHeapOffset] =
+                backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2DArray);
+            m_Mirror[kNullArrayShadowHeapOffset] =
+                backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2DArrayShadow);
+            // One reserved null image per declared format — the format axis of the
+            // same rule. A cleared r32ui binding pointing at the R32F null loads
+            // through a disagreeing layout qualifier, which is undefined.
+            m_Mirror[kNullStorageRGBA32FHeapOffset] = backend->NullStorageDescriptor(Format::RGBA32Float);
+            m_Mirror[kNullStorageR8HeapOffset] = backend->NullStorageDescriptor(Format::R8UNorm);
+            m_Mirror[kNullStorageRGBA16FHeapOffset] = backend->NullStorageDescriptor(Format::RGBA16Float);
+            m_Mirror[kNullStorageRGBA8HeapOffset] = backend->NullStorageDescriptor(Format::RGBA8UNorm);
+            m_Mirror[kNullStorageR32UIHeapOffset] = backend->NullStorageDescriptor(Format::R32UInt);
         }
 
         m_PersistentFreeList.clear();
@@ -133,7 +182,7 @@ namespace OloEngine::RHI
         m_PersistentViewCache.clear();
         m_DirtyFirst = 0u;
         m_DirtyLast = 0u;
-        if (backend != nullptr && total > kNullStorageHeapOffset)
+        if (backend != nullptr && m_PersistentCapacity >= kFirstAllocatableHeapSlot)
         {
             // Publish the two reserved nulls on the first Flush(). They are the
             // only slots the allocator never touches, so nothing else would ever
@@ -148,7 +197,15 @@ namespace OloEngine::RHI
         m_Stats.PersistentCapacity = m_PersistentCapacity;
         m_Stats.TransientCapacity = m_TransientCapacity;
 
-        m_Initialized = (backend != nullptr) && total > 0u;
+        m_Initialized = (backend != nullptr) && total > 0u && reservedNullBlockFits;
+
+        if ((backend != nullptr) && total > 0u && !reservedNullBlockFits)
+        {
+            OLO_CORE_ERROR("[RHI] Descriptor heap REFUSED: ResourceSlotCapacity {} is below the {} reserved null "
+                           "slots. A heap that cannot reserve its own nulls hands their offsets out as ordinary "
+                           "views, so every unset shader input would sample a live texture instead of black.",
+                           m_PersistentCapacity, kFirstAllocatableHeapSlot);
+        }
 
         // The toggle defaults from the environment so an A/B capture needs no
         // rebuild, and defaults OFF so that a machine without the extension —
@@ -280,14 +337,14 @@ namespace OloEngine::RHI
     // -------------------------------------------------------------------------
 
     auto DescriptorHeap::CreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                    HeapSlotLifetime lifetime) -> ViewHandle
+                                    HeapSlotLifetime lifetime, NullSamplerKind kind) -> ViewHandle
     {
         const std::lock_guard lock(m_Mutex);
-        return CreateViewLocked(resource, view, sampler, lifetime);
+        return CreateViewLocked(resource, view, sampler, lifetime, kind);
     }
 
     auto DescriptorHeap::CreateViewLocked(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                          HeapSlotLifetime lifetime) -> ViewHandle
+                                          HeapSlotLifetime lifetime, NullSamplerKind kind) -> ViewHandle
     {
         if (!m_Enabled)
         {
@@ -384,6 +441,7 @@ namespace OloEngine::RHI
         slot.SamplerSlot =
             view.Usage == ViewUsage::Storage ? HeapOffset::Invalid : AcquireSamplerSlotLocked(sampler);
         slot.Descriptor = descriptor;
+        slot.NullKind = kind;
 
         m_Mirror[index] = descriptor;
         MarkDirtyLocked(index);
@@ -400,7 +458,7 @@ namespace OloEngine::RHI
     }
 
     auto DescriptorHeap::GetOrCreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                         HeapSlotLifetime lifetime) -> ViewHandle
+                                         HeapSlotLifetime lifetime, NullSamplerKind kind) -> ViewHandle
     {
         const std::lock_guard lock(m_Mutex);
 
@@ -415,7 +473,7 @@ namespace OloEngine::RHI
             // object within a frame MUST get two offsets, because that is how an
             // alias becomes visible in the heap instead of needing a mid-frame
             // rewrite.
-            return CreateViewLocked(resource, view, sampler, lifetime);
+            return CreateViewLocked(resource, view, sampler, lifetime, kind);
         }
 
         // ONE lock across lookup, mint and insert. Splitting it let two callers
@@ -452,7 +510,7 @@ namespace OloEngine::RHI
             m_PersistentViewCache.erase(it);
         }
 
-        const ViewHandle created = CreateViewLocked(resource, view, sampler, lifetime);
+        const ViewHandle created = CreateViewLocked(resource, view, sampler, lifetime, kind);
         if (created.IsValid())
         {
             m_PersistentViewCache[key] = created;
@@ -472,7 +530,7 @@ namespace OloEngine::RHI
         // loud one.
         ViewDesc storage = view;
         storage.Usage = ViewUsage::Storage;
-        return CreateViewLocked(resource, storage, SamplerDesc{}, lifetime);
+        return CreateViewLocked(resource, storage, SamplerDesc{}, lifetime, NullSamplerKind::Texture2D);
     }
 
     auto DescriptorHeap::GetOrCreateStorageView(ResourceHandle resource, const ViewDesc& view,
@@ -724,7 +782,7 @@ namespace OloEngine::RHI
                 // resource died under a live view) — the worst moment for the
                 // instrument to become non-deterministic.
                 ++m_Stats.DescriptorFailures;
-                descriptor = PoisonDescriptorLocked(slot.View.Usage);
+                descriptor = PoisonDescriptorLocked(slot.View.Usage, slot.NullKind, slot.View.FormatOverride);
             }
 
             slot.Descriptor = descriptor;
@@ -805,12 +863,24 @@ namespace OloEngine::RHI
             }
         }
 
+        // CAPTURED BEFORE THE RESET, exactly as `usage` already is. Poisoning with
+        // the 2D null regardless of the view's type put a samplerCube reader that
+        // still held this offset — a cached material UBO, say — back onto an
+        // undefined read, which is the defect the typed nulls exist to remove
+        // (issue #691 Phase 3).
+        const NullSamplerKind releasedKind = slot.NullKind;
+        // Captured for the same reason and at the same moment: slot.View is about
+        // to be reset, and a storage view's format is the only thing that says
+        // which null image its readers can legally load through.
+        const Format releasedFormat = slot.View.FormatOverride;
+
         slot.Generation = generation;
         slot.Live = false;
         slot.Resource = {};
         slot.View = {};
         slot.SamplerSlot = HeapOffset::Invalid;
-        slot.Descriptor = PoisonDescriptorLocked(usage);
+        slot.NullKind = NullSamplerKind::Texture2D;
+        slot.Descriptor = PoisonDescriptorLocked(usage, releasedKind, releasedFormat);
 
         if (m_Desc.PoisonOnFree)
         {
@@ -820,7 +890,7 @@ namespace OloEngine::RHI
             // which is what LIFO slot reuse would otherwise hide in steady
             // state, exactly as the transient POOL hides it
             // (docs/agent-rules/render-graph-transient-aliasing.md).
-            m_Mirror[index] = PoisonDescriptorLocked(usage);
+            m_Mirror[index] = PoisonDescriptorLocked(usage, releasedKind, releasedFormat);
             MarkDirtyLocked(index);
             ++m_Stats.SlotsPoisoned;
         }

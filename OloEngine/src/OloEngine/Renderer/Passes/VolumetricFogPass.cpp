@@ -180,14 +180,32 @@ namespace OloEngine
         const RHI::ResourceHandle atlasID = shadowMap.GetAtlasHandle().IsValid()
                                                 ? shadowMap.GetAtlasHandle()
                                                 : ShadowMap::GetAtlasPlaceholderHandle();
-        RenderCommand::BindTexture(0, csmID);
-        RenderCommand::BindTexture(1, atlasID);
-
         const u32 historyIndex = 1u - m_CurrentScatter;
-        RenderCommand::BindTexture(2, m_ScatterVolume[historyIndex]->GetRHIHandle());
 
         // --- Scatter (inject + light scattering + temporal) ---
+        // SHADER FIRST. These three sampler binds used to precede it; the seam
+        // forks on the program in flight, so bound ahead of the shader they would
+        // take the slot-path fallback while the shader — a bindless variant
+        // because its output image is converted — read offsets nobody wrote
+        // (issue #691 Phase 3).
         m_ScatterShader->Bind();
+        // Persistent: the shadow maps are renderer-owned (or fixed placeholders)
+        // and the froxel volumes are pass-owned and double-buffered across frames,
+        // so none comes from the graph's transient pool.
+        // FroxelFogScatter.comp reads both of these as `sampler2DArrayShadow`, so
+        // the descriptor has to carry the comparison state — the seam's default
+        // SamplerDesc{} has Compare = Never and mints a compare-DISABLED handle,
+        // which makes that read undefined (it lands on "unshadowed" in practice,
+        // so the fog was silently unshadowed rather than visibly broken). Found
+        // while chasing the same defect in the material path; see
+        // HeapBinding::ShadowDepthSampler.
+        const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
+        HeapBinding::BindTextureOrOffset(0, csmID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                         RHI::NullSamplerKind::Texture2DArrayShadow);
+        HeapBinding::BindTextureOrOffset(1, atlasID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                         RHI::NullSamplerKind::Texture2DArrayShadow);
+        HeapBinding::BindTextureOrOffset(2, m_ScatterVolume[historyIndex]->GetRHIHandle(),
+                                         RHI::HeapSlotLifetime::Persistent);
         // Persistent: the froxel volumes are pass-owned and double-buffered across
         // frames for the temporal filter, not acquired from the transient pool.
         HeapBinding::BindImageOrOffset(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(), 0, true, 0,
@@ -199,7 +217,9 @@ namespace OloEngine
 
         // --- Integrate (front-to-back accumulation per column) ---
         m_IntegrateShader->Bind();
-        RenderCommand::BindTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle());
+        // Pass-owned froxel volume sampled as a texture — Persistent, same as above.
+        HeapBinding::BindTextureOrOffset(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(),
+                                         RHI::HeapSlotLifetime::Persistent);
         HeapBinding::BindImageOrOffset(0, m_IntegratedVolume->GetRHIHandle(), 0, true, 0,
                                        RHI::Access::StorageWrite, RHI::Format::RGBA16Float,
                                        RHI::HeapSlotLifetime::Persistent);

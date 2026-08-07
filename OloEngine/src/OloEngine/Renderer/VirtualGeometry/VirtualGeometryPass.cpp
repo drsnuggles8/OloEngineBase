@@ -276,9 +276,19 @@ namespace OloEngine
             m_CullShader->SetInt("u_OcclusionEnabled", hzb.IsUsable() ? 1 : 0);
             if (!hzb.IsUsable())
                 return;
-            RenderCommand::BindTexture(0, hzb.HZBTexture);
+            // Persistent: the retained occlusion pyramid is renderer-owned, not
+            // graph-pooled. The shader is bound by the caller before this lambda
+            // runs, so the seam's program fork is already correct
+            // (issue #691 Phase 3).
+            HeapBinding::BindTextureOrOffset(0, hzb.HZBTexture, RHI::HeapSlotLifetime::Persistent);
+            // Still needed on the SLOT path, and harmless on the heap path: the
+            // fallback issues a real bind behind CommandDispatch's redundant-bind
+            // cache, which would otherwise skip a later material bind that happens
+            // to reuse this GL id and leave the depth pyramid live in u_AlbedoMap.
             CommandDispatch::InvalidateTextureSlot(0);
-            m_CullShader->SetInt("u_HZB", 0);
+            // The SetInt('u_HZB', 0) companion is gone: redundant against the
+            // shader's own layout(binding = 0), and a per-frame 'uniform not found'
+            // warning under the bindless variant where the name is a #define.
             m_CullShader->SetMat4("u_OcclusionViewProjection", hzb.PrevViewProjection);
             m_CullShader->SetFloat2("u_HZBSize", hzb.HZBSize);
             m_CullShader->SetFloat2("u_HZBUVFactor", hzb.HZBUVFactor);
@@ -349,6 +359,10 @@ namespace OloEngine
         m_CullShader->SetUint("u_CommandSlotBase", 0u);
         m_CullShader->SetUint("u_ArgsSlotBase", 0u);
         bindOcclusionInputs(prevHZB);
+        // Once, before the loop. bindOcclusionInputs stages the HZB offset a
+        // single time above, so re-publishing it per instance uploaded the same
+        // unchanged table N times (issue #691 Phase 3).
+        HeapBinding::FlushOffsets();
         for (sizet i = 0; i < instances.size(); ++i)
         {
             m_CullShader->SetUint("u_InstanceIndex", static_cast<u32>(i));
@@ -526,8 +540,17 @@ namespace OloEngine
             u32 const rejectGroups = (frameClusterCount + 63u) / 64u;
             u32 const groupsX = std::min(rejectGroups, 4096u);
             u32 const groupsY = (rejectGroups + groupsX - 1u) / std::max(groupsX, 1u);
+            // BRACED, and it matters: unbraced, the guard covered only the flush
+            // and the dispatch below ran even with no clusters — groupsX = 0 and
+            // groupsY = (0 + 0 - 1u) / 1 = 4294967295, i.e. a 4-billion-group
+            // dispatch on an empty frame.
             if (rejectGroups > 0)
+            {
+                // Publish the HZB offset staged by bindOcclusionInputs before the
+                // dispatch reads it (issue #691 Phase 3).
+                HeapBinding::FlushOffsets();
                 RenderCommand::DispatchCompute(groupsX, groupsY, 1);
+            }
 
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
         }
@@ -614,6 +637,11 @@ namespace OloEngine
                     m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
 
                     fullscreen->Bind();
+                    // UploadMaterialForDirectDraw above writes this instance's
+                    // per-material heap offsets into the material UBO; publish
+                    // whatever it also staged on the shared table before the draw
+                    // reads it (issue #691 Phase 3).
+                    context.FlushHeapOffsets();
                     context.DrawIndexed(fullscreen);
                 }
                 RenderCommand::EnableCulling();

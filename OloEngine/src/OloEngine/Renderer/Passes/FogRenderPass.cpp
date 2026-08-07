@@ -213,6 +213,17 @@ namespace OloEngine
                                         RHI::HeapSlotLifetime::FrameTransient);
 
         // CSM shadow map for volumetric light shafts (slot TEX_SHADOW = 8).
+        //
+        // STAYS A REAL BIND, PERMANENTLY, and this is the seam's rule protecting
+        // the pass rather than tripping it. PostProcess_Fog.glsl is a bindless
+        // VARIANT (its depth and froxel inputs are converted), but the shadow
+        // array is declared in the shared DeferredLightingShared.glsl and cannot
+        // be `#define`d away without rewriting that header's declaration in every
+        // shader that includes it. A converted declaration is what makes a seam
+        // call correct; without one, BindTextureOrHeapOffset here would record an
+        // offset, skip the bind, and leave the sampler dark
+        // (glsl-shaders.md §5c). Convert this only when TEX_SHADOW moves in the
+        // shared header, and then in one step across every consumer.
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadowCSMTextureID);
 
         // Integrated froxel fog volume (issue #435): the shader's volumetric
@@ -265,21 +276,25 @@ namespace OloEngine
 
         m_FogUpsampleShader->Bind();
 
+        // All three SetInt sampler companions are gone with the binds: already
+        // redundant against the shader's own `layout(binding = N)`, and a
+        // "uniform not found" warning every frame under the bindless variant
+        // where each name is a #define (issue #691 Phase 3).
+
         // Scene colour at slot 0.
-        context.BindTexture(0, inputColorTextureID);
-        m_FogUpsampleShader->SetInt("u_SceneColor", 0);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         const RHI::ResourceHandle fogTexture = fogHalfResFramebuffer->GetColorAttachmentHandle(0);
-        context.BindTexture(1, fogTexture);
-        m_FogUpsampleShader->SetInt("u_FogTexture", 1);
+        context.BindTextureOrHeapOffset(1, fogTexture, RHI::HeapSlotLifetime::FrameTransient);
 
         // Full-res depth for bilateral edge detection.
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
-        m_FogUpsampleShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            context.FlushHeapOffsets();
             context.DrawIndexed(va);
         }
 

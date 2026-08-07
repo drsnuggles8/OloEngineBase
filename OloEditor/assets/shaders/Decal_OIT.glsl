@@ -54,8 +54,14 @@ layout(std140, binding = 21) uniform DecalParams {
     vec4 u_DecalParams; // x = fadeDistance, y = normalAngleThreshold, z/w = unused
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_DecalAlbedo OLO_HEAP_TEX_2D(10)  // TEX_USER_0
+#define u_SceneDepth OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 10) uniform sampler2D u_DecalAlbedo;
 layout(binding = 19) uniform sampler2D u_SceneDepth;
+#endif
 
 void main()
 {

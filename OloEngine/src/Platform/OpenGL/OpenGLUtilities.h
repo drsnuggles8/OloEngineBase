@@ -140,6 +140,34 @@ namespace OloEngine::Utils
             glUseProgram(0);
     }
 
+    // THE TWO CALLS EVERY TEXTURE DESTRUCTOR OWES, in one place so a new texture
+    // type cannot ship with only one of them (issue #691 Phase 3).
+    //
+    //   * `CommandDispatch::InvalidateTextureBinding` drops the slot path's
+    //     "this unit already has this texture" cache, so a future bind with a
+    //     recycled GL name is not skipped against stale tracking.
+    //   * `DescriptorHeap::RetireResource` drops the HEAP's descriptors, which
+    //     name the underlying GL OBJECT and so dangle the moment it is deleted.
+    //     Sampling a dead bindless handle is undefined behaviour, not a black
+    //     read (ADR 0011 amendment (22)).
+    //
+    // Both were already paid by `~OpenGLTexture2D` and `~OpenGLTextureCubemap`
+    // and by neither `~OpenGLTexture2DArray` nor `~OpenGLTexture3D` — which is
+    // exactly the drift a per-site rule produces, and it was live: both of those
+    // types mint an RHI handle and are bound as storage-image descriptors
+    // through the heap (the wind field, the fog scatter volumes, the cloud noise
+    // volumes, the ocean FFT ping-pong array). Destroying one left a resident
+    // image handle on a deleted texture, logged at shutdown as a single
+    // `GL_INVALID_OPERATION: Not a valid texture`.
+    //
+    // `noexcept` IS THE POINT, not decoration. A destructor is implicitly
+    // noexcept, so anything thrown out of it calls std::terminate;
+    // `RetireResource` takes the heap's mutex and touches containers, either of
+    // which can throw. Leaking a descriptor is recoverable, taking the process
+    // down during teardown is not — so this swallows and logs, exactly as
+    // `~OpenGLFramebuffer` already does by hand for its attachments.
+    void RetireTextureViews(RHI::ResourceHandle handle) noexcept;
+
     [[nodiscard("Store this!")]] constexpr GLenum TextureTarget(const bool multisampled) noexcept;
     void PrepareTexture(const u32 id, const int samples, const GLenum format, const int width, const int height);
     void CreateTextures(const bool multisampled, const int count, u32* const outID);

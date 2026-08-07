@@ -54,13 +54,33 @@ layout(std140, binding = 28) uniform GTAOParams
 // ---------------------------------------------------------------------------
 // Resources
 // ---------------------------------------------------------------------------
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declarations move into main() as locals built from the heap descriptors at
+// these image units; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
 layout(binding = 0, r8) writeonly uniform image2D o_AOTerm;
 layout(binding = 1, r8) writeonly uniform image2D o_Edges;
+#endif
 
+// Sampler inputs converted alongside GTAORenderPass's binds. They could not move
+// separately: this shader is already a bindless variant (its output images are
+// converted above), so IsBoundProgramBindless() is true and a seam call for a
+// still-slot-based declaration would record an offset and issue no bind — see
+// glsl-shaders.md §5c. Note the UNSIGNED sampler for the Hilbert LUT: a heap
+// handle carries no type, so reading an R16UI table through the float macro
+// would reinterpret the same uvec2 and silently return garbage (§5d).
+#ifdef OLO_BINDLESS
+#define u_HZBDepth OLO_HEAP_TEX_2D(3)
+#define u_ViewNormals OLO_HEAP_TEX_2D(4)
+#define u_HilbertLUT OLO_HEAP_TEX_2D_UINT(5)
+#else
 layout(binding = 3) uniform sampler2D u_HZBDepth;        // HZB depth pyramid
 layout(binding = 4) uniform sampler2D u_ViewNormals;     // Octahedral-encoded view normals
 
 layout(binding = 5) uniform usampler2D u_HilbertLUT;     // 64x64 R16UI Hilbert curve index
+#endif
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -165,6 +185,10 @@ float CalculateEdges(float centerZ, float leftZ, float rightZ, float topZ, float
 // ---------------------------------------------------------------------------
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r8, writeonly, image2D, o_AOTerm, 0);
+    OLO_HEAP_IMAGE(r8, writeonly, image2D, o_Edges, 1);
+#endif
     ivec2 pixCoord = ivec2(gl_GlobalInvocationID.xy);
 
     if (pixCoord.x >= u_ScreenWidth || pixCoord.y >= u_ScreenHeight)

@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include <array>
 
@@ -232,7 +233,14 @@ namespace OloEngine
             // Bind scene depth (for decal projection) — the OIT variant needs
             // the same `u_SceneDepth` at TEX_POSTPROCESS_DEPTH that the
             // forward variant uses.
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
+            // PUBLISH, not bind: this is pass-level state for whatever the
+            // command bucket dispatches below, and each of those draws binds its
+            // own program. BindTextureOrHeapOffset would fork on whatever program
+            // happens to be in flight here — never the decal shaders — so the seam
+            // must stage the offset AND issue the bind (issue #691 Phase 3).
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID,
+                                                     RHI::HeapSlotLifetime::FrameTransient);
+            HeapBinding::FlushOffsets();
 
             m_CommandBucket.SortCommands();
             if (capturing)
@@ -262,8 +270,11 @@ namespace OloEngine
 
         m_SceneFramebuffer->Bind();
 
-        // Bind scene depth texture for decal projection (before dispatching commands)
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
+        // Bind scene depth texture for decal projection (before dispatching commands).
+        // Published, not bound — see the OIT variant above.
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::FlushOffsets();
 
         // Sort and dispatch decal commands through the command bucket
         m_CommandBucket.SortCommands();
@@ -344,7 +355,10 @@ namespace OloEngine
         // Safe to sample the currently-bound depth since decal render state
         // disables depth writes.
         const RHI::ResourceHandle depthTexture = depthSamplingFB->GetDepthAttachmentHandle();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
+        // Published, not bound — see the OIT variant above.
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::FlushOffsets();
 
         m_CommandBucket.SortCommands();
 
