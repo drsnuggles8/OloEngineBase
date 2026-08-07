@@ -24,7 +24,14 @@ namespace OloEngine
         enum class API
         {
             None = 0,
-            OpenGL = 1
+            OpenGL = 1,
+            // Vulkan bring-up (#691 Phase 4): selectable via `--rhi=vulkan`, which routes
+            // window + context creation to Platform/Vulkan. The renderer proper does NOT
+            // run under it yet — every factory below the context switches to a loud
+            // "unsupported until Phase 5/6" assert, and Application skips Renderer::Init.
+            // The member exists even when OLO_WITH_VULKAN=0 so selection code can parse
+            // the flag and report "not compiled in" instead of "unknown backend".
+            Vulkan = 2
         };
 
         enum class RendererType
@@ -512,6 +519,21 @@ namespace OloEngine
         {
             return s_API;
         }
+
+        // Backend selection is a RUNTIME switch (ADR 0011 §2): parsed from `--rhi=` /
+        // the config fallback in Application's constructor. HARD ordering contract:
+        // this must run BEFORE Window::Create — WindowsWindow::Init reads GetAPI()
+        // ahead of glfwCreateWindow (client-API hint), so a late set selects the
+        // wrong window kind. Note RenderCommand::s_RendererAPI is ALSO created at
+        // static init from the default value; Phase 4 tolerates that because the
+        // Vulkan path never routes through RenderCommand (Renderer::Init is skipped
+        // entirely), but Phase 5 must re-create it after selection. Never call this
+        // after a window or context exists.
+        static void SetAPI(API api)
+        {
+            s_API = api;
+        }
+
         static Scope<RendererAPI> Create();
 
       private:

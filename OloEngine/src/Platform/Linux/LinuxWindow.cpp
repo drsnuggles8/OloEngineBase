@@ -74,6 +74,14 @@ namespace OloEngine
                 }
             }
 
+            // GLFW's client-API default is GLFW_OPENGL_API (it creates a GL context
+            // with the window). Vulkan presents through a swapchain instead, so the
+            // window must opt out BEFORE glfwCreateWindow — this read is why
+            // RendererAPI::SetAPI must run before Window::Create (ADR 0011 §2).
+            if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
+            {
+                GLFWAPI::glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            }
 #if defined(OLO_DEBUG)
             if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {
@@ -194,6 +202,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Destroy the graphics context BEFORE the window: the Vulkan context owns a
+        // VkSurfaceKHR created from this window, and GLFW requires the surface to be
+        // destroyed first. (The GL context is a trivial destructor — it dies with
+        // the window either way — so this is a no-op reorder on the GL path.)
+        m_Context.reset();
+
         if (m_Window)
         {
             GLFWAPI::glfwDestroyWindow(m_Window);
@@ -233,13 +247,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (enabled)
+        // glfwSwapInterval needs a current GL context; under Vulkan (GLFW_NO_API)
+        // it would only raise a GLFW error. Present pacing there is the swapchain's
+        // present mode — fixed at FIFO (vsync) for the Phase 4 bring-up.
+        if (Renderer::GetAPI() != RendererAPI::API::Vulkan)
         {
-            GLFWAPI::glfwSwapInterval(1);
-        }
-        else
-        {
-            GLFWAPI::glfwSwapInterval(0);
+            if (enabled)
+            {
+                GLFWAPI::glfwSwapInterval(1);
+            }
+            else
+            {
+                GLFWAPI::glfwSwapInterval(0);
+            }
         }
 
         m_Data.VSync = enabled;

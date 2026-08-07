@@ -163,6 +163,13 @@ target_include_directories(OloEngine PUBLIC
 	${recastnavigation_SOURCE_DIR}/DetourCrowd/Include
 	${recastnavigation_SOURCE_DIR}/DetourTileCache/Include
 	mono/include
+	# Vendored Vulkan 1.4.357 headers (#691 Phase 4) must come BEFORE the installed
+	# SDK's include dir on the next line — /I order decides which <vulkan/vulkan_core.h>
+	# the Vulkan backend compiles against, and an older installed SDK would otherwise
+	# break the pinned VK_EXT_descriptor_heap declarations (backstopped by the
+	# static_assert on VK_HEADER_VERSION in VulkanContext.cpp). Empty when
+	# OLO_WITH_VULKAN=OFF (the variable is only propagated when vendored).
+	$<$<BOOL:${OLO_WITH_VULKAN}>:${vulkan-headers_SOURCE_DIR}/include>
 	${Vulkan_INCLUDE_DIRS}
 	${GameNetworkingSockets_SOURCE_DIR}/include
 )
@@ -194,9 +201,19 @@ target_link_libraries(OloEngine
 	stb_image
 	yaml-cpp
 	GameNetworkingSockets_s
-	Vulkan::Vulkan
 	zlibstatic
 )
+
+# Deliberately NOT linked: Vulkan::Vulkan (vulkan-1.lib). volk's contract is that
+# vulkan-1 is never statically linked — the loader is dlopen'd at runtime. Worse
+# than redundant, the import lib is actively harmful here: its function THUNKS
+# share names with volk's function-pointer globals, and under this project's
+# /FORCE:MULTIPLE link (the assimp/MaterialX pugixml collision workaround) the
+# linker silently resolved volk-style data references to thunk code bytes —
+# every Vulkan call then jumped through garbage (#691 Phase 4). The SDK include
+# dir the shaderc toolchain needs still arrives via ${Vulkan_INCLUDE_DIRS} in
+# target_include_directories above; the glslang/SPIRV libs are linked separately
+# below. find_package(Vulkan) stays for exactly those two purposes.
 
 # FFmpeg video backend (optional). vendor/ffmpeg.cmake defines the `ffmpeg` INTERFACE
 # target (includes + import libs) and builds FFmpeg from source when OLO_VIDEO_FFMPEG=ON;
@@ -204,6 +221,21 @@ target_link_libraries(OloEngine
 if(TARGET ffmpeg)
 	target_link_libraries(OloEngine ffmpeg)
 	target_compile_definitions(OloEngine PUBLIC OLO_VIDEO_FFMPEG=1)
+endif()
+
+# Vulkan RHI backend (#691 Phase 4), gated on OLO_WITH_VULKAN (root CMakeLists).
+# The Platform/Vulkan/*.cpp sources are ALWAYS listed (src/CMakeLists.txt) and self-guard
+# on this macro, compiling to empty TUs when OFF — the same convention as the OLO_WITH_*
+# import formats. PUBLIC (both-branches form, like OLO_ENABLE_CSHARP_SCRIPTING): the
+# runtime backend-selection code and the test target's SKIP logic both branch on it, so
+# every TU must agree on its value. `volk` propagates the vendored 1.4.357 Vulkan-Headers
+# include dir (deliberately shadowing the installed SDK's — see vendor/CMakeLists.txt);
+# `vma` is the header-only VulkanMemoryAllocator.
+if(OLO_WITH_VULKAN)
+	target_link_libraries(OloEngine volk vma)
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_VULKAN=1)
+else()
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_VULKAN=0)
 endif()
 
 # Asset-import format dependencies (#655), gated on the OLO_WITH_* options (root CMakeLists).

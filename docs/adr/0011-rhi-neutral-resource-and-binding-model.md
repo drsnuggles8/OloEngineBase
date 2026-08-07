@@ -1890,6 +1890,134 @@ Four things generalise:
 
 ---
 
+## Amendments from Phase 4 (2026-08-07) — Vulkan bring-up
+
+### (39) §2's "nothing reads `GetAPI()` during static init" was wrong — `RenderCommand`'s backend is constructed before the flag is parsed
+
+`RenderCommand::s_RendererAPI` is initialised at static init by calling
+`RendererAPI::Create()` (`RenderCommand.cpp:6`), which switches on `s_API` —
+i.e. the one read this section said did not exist has been there all along.
+It is benign *today* for a narrow reason: `s_API` is constant-initialised to
+`OpenGL`, so the static-init read is well-defined and always sees the default —
+which means the constructed backend is **always the OpenGL one**, regardless of
+what `--rhi=` later selects. Phase 4 tolerates this deliberately: the Vulkan
+bring-up never routes through `RenderCommand` (`Renderer::Init` is skipped
+entirely under `--rhi=vulkan`), so the dormant `OpenGLRendererAPI` object is
+never `Init()`ed and makes no GL calls. **Phase 5 must not inherit this
+silently**: the moment Vulkan routes command execution, `s_RendererAPI` has to
+be (re)created *after* selection — either lazily on first use or explicitly
+from `Application`'s constructor after `SetAPI`. The setter's doc comment
+(`RendererAPI.h`) carries the same warning at the place the next reader will
+actually look.
+
+One visible symptom, benign but worth recognising: every `--rhi=vulkan` run
+ends with `[RHI/GL] OpenGLRendererAPI destroyed without ShutdownGpuResources()`
+in the log — that is this dormant object being destroyed at atexit, tripping a
+pre-existing guard that was written for a *real* GL run shutting down out of
+order. Under Vulkan it never held resources; the message goes away when Phase 5
+fixes the construction timing.
+
+### (40) The "config setting" fallback had no home — no engine-level config is readable before `Window::Create`
+
+§2's selection chain assumes a config setting exists to fall back to. It did
+not: the editor's preferences are **project-scoped** and load inside
+`EditorLayer`, long after `Window::Create` — unusable for a decision the window
+creation itself depends on. Phase 4 introduced the minimal honest form:
+`config/renderer.yaml` (relative to the process working directory, i.e.
+`OloEditor/config/renderer.yaml` for the editor), read by
+`SelectRendererBackend` (`Renderer/BackendSelection.{h,cpp}`) — a pure function
+(no logging, no static writes) so the chain is unit-testable headlessly
+(`BackendSelectionTest`). The editor dropdown, when it lands (Phase 7+), writes
+this file and applies on restart. Two degrade rules worth restating because
+they are asymmetric on purpose: an *unavailable* backend (unknown name, or
+`OLO_WITH_VULKAN=OFF`) degrades to OpenGL **with an error logged** — the binary
+genuinely cannot honour the request; an *incapable device* (below ADR 0010's
+contract) **refuses to initialise** inside `VulkanContext::Init` — degrading
+there is what ADR 0010 forbids.
+
+### (41) Vendored Vulkan headers must out-rank the installed SDK's, and TWO defaults do the opposite
+
+The engine already carries an SDK include dir on every TU's path — the shaderc
+toolchain's `find_package(Vulkan)` — so vendoring Vulkan-Headers 1.4.357 only
+pins the backend's compile if the vendored dir reliably *wins the include
+search*. Three traps, all hit:
+
+- **volk's `VOLK_PULL_IN_VULKAN` (default ON) prefers `find_package(Vulkan)` —
+  the installed SDK — over an existing vendored `Vulkan-Headers` target.** On a
+  machine with an older SDK installed, volk (and everything including `volk.h`)
+  would silently compile against that SDK's headers. It is OFF in
+  `vendor/CMakeLists.txt` and the vendored `Vulkan::Headers` is linked
+  explicitly instead.
+- **Link-propagated INTERFACE include dirs come AFTER the target's own.** The
+  vendored dir arriving "via the volk link" loses the /I order to
+  `${Vulkan_INCLUDE_DIRS}`, which sits in `OloEngine`'s own PUBLIC include list
+  — so the SDK's `vulkan_core.h` still won. The fix is explicit:
+  `${vulkan-headers_SOURCE_DIR}/include` is listed in that same include list
+  **before** `${Vulkan_INCLUDE_DIRS}` (and the vendor propagation loop exports
+  the variable). Both are plain `/I` paths; only order decides.
+- **`Vulkan::Headers` is an ALIAS resolved per directory scope.** The vendor
+  scope resolves it to the vendored target; `OloEngine/CMakeLists.txt`'s later
+  `find_package(Vulkan)` can mint its own, SDK-pointing `Vulkan::Headers` in
+  *its* scope. Engine code must therefore link `volk`/`vma` and never
+  `Vulkan::Headers` by name.
+
+The backstop for all three is a
+`static_assert(VK_HEADER_VERSION >= 357)` in `VulkanContext.cpp` — if the SDK's
+headers ever win the search on a below-floor SDK, the build fails naming the
+mechanism instead of failing to declare `VkPhysicalDeviceDescriptorHeapFeaturesEXT`.
+
+### (41a) `vulkan-1.lib` must not be linked at all — under `/FORCE:MULTIPLE` its thunks silently REPLACE volk's globals
+
+The engine had linked `Vulkan::Vulkan` (vulkan-1.lib) since the shaderc
+toolchain arrived, harmlessly: no engine code called a Vulkan function, so no
+import-library member was ever pulled. Phase 4's first run crashed with an AV
+one millisecond into instance creation, and the mechanism is worth recording
+because every ingredient was pre-existing and individually reasonable:
+
+- volk declares the core entry points as **data** (`PFN_vkCreateInstance
+  vkCreateInstance`) and populates them at `volkInitialize`; an import library
+  declares the same names as **function thunks** (`jmp [__imp_…]`).
+- The repo links with **`/FORCE:MULTIPLE`** (the assimp/MaterialX pugixml
+  collision workaround), so this duplicate did not fail the link — the linker
+  silently picked the import thunk for the backend's data references.
+- A load through that "pointer" reads the thunk's *instruction bytes* and calls
+  the result: instant `0xc0000005`, with a useless stack.
+
+Diagnosis that worked, in order: a standalone volk repro compiled clean and ran
+clean (→ not the loader/layers/headers); `dumpbin /imports:vulkan-1.dll` on the
+test exe showed **exactly the backend's own call list imported** (→ the
+references resolved to the import lib); `dumpbin /symbols` on
+`VulkanContext.obj` showed the references were correctly data-typed (→ the
+substitution happened at link, not compile). Fix: `Vulkan::Vulkan` is removed
+from the link entirely (volk's own contract — the loader is dlopen'd);
+`find_package(Vulkan)` stays for the SDK include dir + shaderc/glslang libs.
+Generalisable: **under `/FORCE:MULTIPLE`, a name collision between a data
+symbol and an import thunk is not a link error — it is a runtime AV** — so
+every new dependency that self-loads an API (volk-style) must audit the link
+line for that API's import library.
+
+### (42) What Phase 4 deliberately did NOT build, so Phase 5 doesn't go looking
+
+- **No `VulkanRendererAPI`.** ~100 no-op virtuals inviting silent fallthrough;
+  every factory switch instead carries a loud `case API::Vulkan:` assert naming
+  Phase 5/6. The `-Wswitch`-with-no-`default:` convention (amendment table in
+  `RHIEnumLoweringTest`) is what forced every switch to take an explicit
+  position — adding the enum member was self-enforcing.
+- **No ImGui under Vulkan.** `imgui_impl_opengl3` until Phase 8; `Application`
+  skips the ImGui layer + overlays and both apps skip their main layers, so
+  `--rhi=vulkan` shows exactly the cleared window the checkpoint asks for.
+- **No split graphics/present queue families** (refused at the gate, recorded
+  in ADR 0010's contract fill-in), **no swapchain-maintenance1 present fences**
+  (recreation uses `vkDeviceWaitIdle` — fine at bring-up frame rates), **no
+  `…PropertiesEXT` heap minima** (deferred to the phase that first allocates a
+  heap; pinning unallocated minima would be ADR 0010's "authoritative-looking
+  guess").
+- **Present-sync shape that Phase 5 should keep:** per-frame acquire semaphore
+  + fence, per-swapchain-IMAGE present semaphore (the
+  `VUID-vkQueueSubmit-pSignalSemaphores-00067` reuse rule), FIFO-only.
+
+---
+
 ## Consequences
 
 - The renderer carries **four** boundary concepts where it carries one today

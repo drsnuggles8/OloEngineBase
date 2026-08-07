@@ -15,6 +15,11 @@ namespace OloEngine
                 OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
                 return nullptr;
             }
+            case RendererAPI::API::Vulkan:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+                return nullptr;
+            }
             case RendererAPI::API::OpenGL:
             {
                 return Ref<VertexArray>(new OpenGLVertexArray());

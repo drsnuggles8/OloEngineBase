@@ -2124,8 +2124,19 @@ editor when you reorder the graphics-API list; Godot takes
 "interactive" is **choosable without recompiling, applied on restart** — a
 runtime switch, just not a live one.
 
-`RendererAPI::s_API` is today a static initialised to `OpenGL` and **never
-written by anything**. Giving it a real setter comes with a hard ordering
+**Phase 4 built this** (2026-08-07): `RendererAPI::SetAPI` exists and is called
+from `Application`'s constructor via `SelectRendererBackend`
+(`Renderer/BackendSelection.{h,cpp}`: `--rhi=` flag → `config/renderer.yaml` →
+OpenGL). One correction to the paragraph below — "never written by anything"
+was true, but "nothing reads `GetAPI()` during static init" was NOT:
+`RenderCommand::s_RendererAPI = RendererAPI::Create()` runs at static init and
+switches on `s_API`, so the constructed backend is always the default OpenGL
+one regardless of the flag. Harmless while Phase 4 never routes `RenderCommand`
+under Vulkan; Phase 5 must re-create `s_RendererAPI` after selection (ADR 0011
+amendment (39)).
+
+`RendererAPI::s_API` was, before Phase 4, a static initialised to `OpenGL` and
+never written by anything. Giving it a real setter comes with a hard ordering
 requirement:
 
 > `RendererAPI::s_API` must be set **before `Window::Create`**.

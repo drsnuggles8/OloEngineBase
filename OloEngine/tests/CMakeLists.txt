@@ -165,6 +165,12 @@ add_executable(OloEngine-Tests
 		Rendering/RHIResourceRegistryTest.cpp
 		Rendering/RHIDescriptorHeapTest.cpp
 		Rendering/RHIEnumLoweringTest.cpp
+		# #691 Phase 4: Vulkan device-selection gate (ADR 0010 capability contract).
+		# SKIPs cleanly without a loader/device; compiles to a single SKIP when
+		# OLO_WITH_VULKAN=OFF.
+		Rendering/VulkanBringUpTest.cpp
+		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
+		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
 		# argument (#607 native-resolution capture): the top-left-origin rect must
 		# land on exactly those texels through GL's bottom-up rows. Needs a GL
