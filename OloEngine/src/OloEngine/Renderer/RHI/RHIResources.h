@@ -353,6 +353,24 @@ namespace OloEngine::RHI
     // and CreateDepthArrayCompareOffView is Nearest+ClampToBorder — so a
     // two-bool sampler would have forced those call sites to keep a GL escape
     // hatch. See RHITypes.h's Filter/AddressMode note.
+    // Where a view's sampling state comes from. `SamplerDesc::Source` carries it,
+    // so "inherit" and "these exact values" stay distinct even when the values
+    // coincide (issue #691 Phase 3).
+    //
+    // WITHOUT THE DISCRIMINATOR the two are indistinguishable, because the test
+    // for inherit is "the desc equals a default-constructed one". A caller
+    // wanting Linear+Repeat EXPLICITLY — on a colour `Texture2DArray`, whose
+    // object is ClampToEdge — would silently get the object's state instead. No
+    // call site needs that today; the field exists so the one that eventually
+    // does can say so rather than discovering it the quiet way.
+    enum class SamplerSource : u8
+    {
+        /// Take the texture object's own state. Parity with the slot path.
+        InheritTexture = 0,
+        /// Use the fields below verbatim, even where they match the defaults.
+        Explicit
+    };
+
     // A DEFAULT-CONSTRUCTED SamplerDesc IS A REQUEST TO INHERIT, not a request for
     // these values (issue #691 Phase 3). The heap backend mints a view for
     // `SamplerDesc{}` with `glGetTextureHandleARB`, which bakes the TEXTURE
@@ -373,6 +391,10 @@ namespace OloEngine::RHI
     // `HeapBinding::ShadowDepthSampler` for the worked example.
     struct SamplerDesc
     {
+        /// Inherit unless the caller says otherwise. Part of `operator==`, so it
+        /// flows into the view memo key and the sampler-slot dedup automatically —
+        /// an inherited and an explicit view of one texture stay two views.
+        SamplerSource Source = SamplerSource::InheritTexture;
         // `Compare`, not `CompareOp` — a member sharing the enum's name hides it
         // and breaks the default member initializer (same trap as
         // TextureDesc::PixelFormat above).

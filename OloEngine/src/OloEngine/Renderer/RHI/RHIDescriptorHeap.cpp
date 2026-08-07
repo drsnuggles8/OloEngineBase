@@ -115,7 +115,18 @@ namespace OloEngine::RHI
         // 5..9 the same test admitted capacities 5-9, which reserve part of the
         // block and hand the rest out. The floor constant is the block's size by
         // definition, so comparing against it cannot fall out of date again.
-        if (backend != nullptr && m_PersistentCapacity >= kFirstAllocatableHeapSlot)
+        //
+        // SKIPPING THE WRITES IS NOT ENOUGH ON ITS OWN — see the m_Initialized
+        // assignment below, which consumes this same flag. A heap that stayed
+        // ENABLED with the block unwritten would still hand every unset input a
+        // null OFFSET (RHI::NullOffsetForSamplerKind answers 0..9 unconditionally),
+        // and those indices would address either an ordinary persistent view or,
+        // past m_PersistentCapacity, the transient ring — so the "null" a shader
+        // samples would be whatever view landed there this frame. Refusing to
+        // enable is the only honest answer to a heap too small to hold its own
+        // invariants.
+        const bool reservedNullBlockFits = m_PersistentCapacity >= kFirstAllocatableHeapSlot;
+        if (backend != nullptr && reservedNullBlockFits)
         {
             m_Mirror[kNullHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2D);
             m_Mirror[kNullStorageHeapOffset] = backend->NullStorageDescriptor(Format::R32Float);
@@ -186,7 +197,15 @@ namespace OloEngine::RHI
         m_Stats.PersistentCapacity = m_PersistentCapacity;
         m_Stats.TransientCapacity = m_TransientCapacity;
 
-        m_Initialized = (backend != nullptr) && total > 0u;
+        m_Initialized = (backend != nullptr) && total > 0u && reservedNullBlockFits;
+
+        if ((backend != nullptr) && total > 0u && !reservedNullBlockFits)
+        {
+            OLO_CORE_ERROR("[RHI] Descriptor heap REFUSED: ResourceSlotCapacity {} is below the {} reserved null "
+                           "slots. A heap that cannot reserve its own nulls hands their offsets out as ordinary "
+                           "views, so every unset shader input would sample a live texture instead of black.",
+                           m_PersistentCapacity, kFirstAllocatableHeapSlot);
+        }
 
         // The toggle defaults from the environment so an A/B capture needs no
         // rebuild, and defaults OFF so that a machine without the extension —

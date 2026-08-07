@@ -545,6 +545,7 @@ namespace OloEngine
         static const RHI::SamplerDesc k2DSampler = []
         {
             RHI::SamplerDesc desc;
+            desc.Source = RHI::SamplerSource::Explicit;
             desc.AddressU = RHI::AddressMode::Repeat;
             desc.AddressV = RHI::AddressMode::Repeat;
             desc.AddressW = RHI::AddressMode::Repeat;

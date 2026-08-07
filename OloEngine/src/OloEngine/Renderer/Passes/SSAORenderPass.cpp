@@ -239,6 +239,7 @@ namespace OloEngine
         // the heap this sampler state rides in the descriptor rather than on the
         // texture object, which is what a split sampler heap will need.
         RHI::SamplerDesc noiseSampler;
+        noiseSampler.Source = RHI::SamplerSource::Explicit;
         noiseSampler.MinFilter = RHI::Filter::Nearest;
         noiseSampler.MagFilter = RHI::Filter::Nearest;
         noiseSampler.LinearMipFilter = false;

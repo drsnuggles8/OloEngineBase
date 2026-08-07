@@ -97,6 +97,12 @@ namespace OloEngine
         [[nodiscard]] auto GetStats() const -> Stats;
 
       private:
+        // Retire every per-format null image: drop residency, delete the texture,
+        // empty the map. ONE definition because Initialize's failure paths and
+        // Shutdown had byte-identical copies of it, and a cleanup that exists twice
+        // is a cleanup that will eventually release different sets.
+        void ReleaseTypedNullImages() noexcept;
+
         [[nodiscard]] auto SamplerObjectFor(const RHI::SamplerDesc& sampler, bool depthCompare) -> GLuint;
         [[nodiscard]] auto AcquireSampledDescriptor(GLuint texture, const RHI::ViewDesc& view,
                                                     const RHI::SamplerDesc& sampler) -> u64;

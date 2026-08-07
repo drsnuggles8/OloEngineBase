@@ -293,6 +293,9 @@ namespace OloEngine::HeapBinding
         // reads "lit" instead of "fully shadowed"; and, when DepthComparisonMode is
         // set, COMPARE_REF_TO_TEXTURE with LEQUAL.
         RHI::SamplerDesc desc;
+        desc.Source = RHI::SamplerSource::Explicit;
+        // EXPLICIT, or the fields below are ignored and the descriptor inherits the
+        // texture object instead — which for the raw view would leave comparison ON.
         desc.AddressU = RHI::AddressMode::ClampToBorder;
         desc.AddressV = RHI::AddressMode::ClampToBorder;
         desc.AddressW = RHI::AddressMode::ClampToBorder;

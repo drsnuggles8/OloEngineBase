@@ -1760,12 +1760,16 @@ reassuring when it is *small*.
 >
 > **AND ONE CLAIM IS REINSTATED (2026-08-07).** The heading is not just sound in
 > principle — the mismatch it warns about was REAL and shipping, in the
-> `SamplerDesc` DEFAULT rather than at any call site. `OpenGLTexture2D` sets
-> `GL_REPEAT` and `OpenGLFramebuffer` sets nothing (GL's default is also
-> `GL_REPEAT`), while the struct defaulted to `ClampToEdge`. Converting
-> `Water.glsl` collapsed the tiled FFT displacement field into flat terraces:
-> 22.670 RMSE ON-vs-OFF against a **0.000** same-config floor, down to 2.783 once
-> the default became `Repeat`. See §4f and ADR 0011 amendment (38).
+> `SamplerDesc` DEFAULT rather than at any call site. Converting `Water.glsl`
+> collapsed its tiled FFT displacement field into flat terraces: 22.670 RMSE
+> ON-vs-OFF against a **0.000** same-config floor, down to 2.783 once fixed.
+>
+> **DO NOT READ THE FIX OUT OF THAT SENTENCE.** The first attempt was to make
+> `Repeat` the struct default, matching `OpenGLTexture2D`; it produced the 2.783
+> and BROKE the terrain arrays and cubemaps, which are `CLAMP_TO_EDGE`. What
+> shipped is `SamplerDesc{}` meaning *inherit the texture object's state*, minted
+> with `glGetTextureHandleARB`. Restoring a per-target default here would
+> reintroduce the array regression. See §4f and ADR 0011 amendment (38).
 >
 > So the retraction below applies to the DIAGNOSIS of the rebase pop, not to the
 > hazard. The experiment that "killed the sampler hypothesis" — a `Repeat`
@@ -1968,6 +1972,13 @@ construction. Stated intent -> `glGetTextureSamplerHandleARB`, which models a
 split heap and is what the two sites that genuinely differ from their texture use.
 `HeapBinding::CubeSampler()`, invented during the first attempt, was deleted.
 
+**`SamplerDesc::Source` carries which it is**, so "inherit" and "these exact
+values" stay distinct when the values coincide. And a desc that sets fields but
+forgets `Source = Explicit` still has its fields honoured — making `Source` the
+sole test would mean one forgotten line silently swaps a caller's sampler for the
+texture's state, which deleting it from `ShadowDepthSampler` proved reachable
+(136 tests passed with the shadow comparison sampler inheriting).
+
 **The debt this creates is counted, not hidden.** Vulkan has no inherit — a
 `VkSampler` must be described — so every default-desc site is Phase 4 work:
 **199 of 209** seam call sites, with `Stats::DefaultSamplerInherits` counting them
@@ -1998,6 +2009,7 @@ Four things generalise:
   passing test, in both configurations, before and after.
 - **A zero floor is what makes a small number readable.** 2.783 would be invisible
   against the live scene's floor of 9.74.
+
 ### "Done" needs an end condition, and it has to be a test
 
 A shader left slot-based renders correctly, so it is indistinguishable from one

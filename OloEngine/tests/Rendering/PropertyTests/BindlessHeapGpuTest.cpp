@@ -391,6 +391,7 @@ void main()
                 const RHI::ResourceHandle resource = RegisterTexture(texture);
 
                 RHI::SamplerDesc sampler;
+                sampler.Source = RHI::SamplerSource::Explicit;
                 sampler.MinFilter = RHI::Filter::Nearest;
                 sampler.MagFilter = RHI::Filter::Nearest;
                 sampler.LinearMipFilter = false;
@@ -668,6 +669,7 @@ void main()
         const RHI::ResourceHandle physical = RegisterTexture(texture);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -754,6 +756,7 @@ void main()
         const RHI::ResourceHandle blue = RegisterTexture(blueTex);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -826,6 +829,7 @@ void main()
         const RHI::ResourceHandle blue = RegisterTexture(blueTex);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -903,6 +907,7 @@ void main()
         // The other half, so this cannot pass by the backend simply never
         // building sampler objects any more.
         RHI::SamplerDesc stated;
+        stated.Source = RHI::SamplerSource::Explicit;
         stated.MinFilter = RHI::Filter::Nearest;
         stated.MagFilter = RHI::Filter::Nearest;
         stated.LinearMipFilter = false;
@@ -916,6 +921,70 @@ void main()
             << "A stated sampler must still mint a sampler object — that is what models a split heap.";
         EXPECT_NE(heap.SamplerOffsetOf(inherited).Value, heap.SamplerOffsetOf(explicitView).Value)
             << "Inherited and stated are two different descriptors of one texture.";
+    }
+
+    // -------------------------------------------------------------------------
+    // THE TWO HALVES OF SamplerDesc::Source, and the second one is a backstop
+    // against a trap the FIRST one creates.
+    //
+    // Half one: `Source = Explicit` with otherwise-default fields must mint a
+    // sampler object rather than inherit. That is the whole reason the
+    // discriminator exists — before it, "inherit" was inferred from equality with
+    // the defaults, so a caller wanting Linear+Repeat EXPLICITLY on a colour
+    // Texture2DArray (whose object is ClampToEdge) silently got the object.
+    //
+    // Half two: a desc that sets fields but forgets `Source` must still have its
+    // fields honoured. Making Source the sole test would mean forgetting one line
+    // silently replaces a caller's whole sampler with the texture's state —
+    // verified reachable by deleting it from HeapBinding::ShadowDepthSampler, at
+    // which point 136 tests passed with the shadow comparison sampler inheriting.
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, SamplerSourceDistinguishesInheritFromExplicitAndSurvivesAForgottenDiscriminator)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        const GLuint texture = MakeSolidTexture(10u, 20u, 30u, 255u);
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        auto& heap = RHI::DescriptorHeap::Get();
+        const u64 inheritsBefore = Backend.GetStats().DefaultSamplerInherits;
+        const u32 objectsBefore = Backend.GetStats().SamplerObjects;
+
+        // Half one: explicit, every field left at its default.
+        RHI::SamplerDesc explicitDefaults;
+        explicitDefaults.Source = RHI::SamplerSource::Explicit;
+        const RHI::ViewHandle stated =
+            heap.CreateView(resource, RHI::ViewDesc{}, explicitDefaults, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(stated.IsValid());
+
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, inheritsBefore)
+            << "Source = Explicit must NOT inherit, even when every other field matches the defaults.";
+        EXPECT_GT(Backend.GetStats().SamplerObjects, objectsBefore)
+            << "Explicit-with-default-values is exactly the case the discriminator was added to express.";
+
+        // Half two: fields stated, discriminator forgotten.
+        RHI::SamplerDesc forgotten;
+        forgotten.MinFilter = RHI::Filter::Nearest;
+        forgotten.MagFilter = RHI::Filter::Nearest;
+        forgotten.LinearMipFilter = false;
+        const u64 inheritsBeforeForgotten = Backend.GetStats().DefaultSamplerInherits;
+        const RHI::ViewHandle honoured =
+            heap.CreateView(resource, RHI::ViewDesc{}, forgotten, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(honoured.IsValid());
+
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, inheritsBeforeForgotten)
+            << "A desc that STATES fields must be honoured whatever its Source says — otherwise forgetting "
+               "one line silently swaps the caller's sampler for the texture object's state.";
+
+        // And a genuinely unstated desc still inherits, so neither branch above
+        // passes by the backend having stopped inheriting altogether.
+        const u64 beforeInherit = Backend.GetStats().DefaultSamplerInherits;
+        const RHI::ViewHandle inherited =
+            heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(inherited.IsValid());
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, beforeInherit + 1u)
+            << "A default-constructed desc must still take the inherit path.";
     }
 
     // -------------------------------------------------------------------------
@@ -933,6 +1002,7 @@ void main()
         const RHI::ResourceHandle resource = RegisterTexture(texture);
 
         RHI::SamplerDesc nearestClamp;
+        nearestClamp.Source = RHI::SamplerSource::Explicit;
         nearestClamp.MinFilter = RHI::Filter::Nearest;
         nearestClamp.MagFilter = RHI::Filter::Nearest;
         nearestClamp.LinearMipFilter = false;
@@ -946,6 +1016,7 @@ void main()
         // values and would have silently started measuring one object instead of
         // two. ClampToEdge is what makes it an intent rather than a shrug.
         RHI::SamplerDesc linearClamp;
+        linearClamp.Source = RHI::SamplerSource::Explicit;
         linearClamp.AddressU = RHI::AddressMode::ClampToEdge;
         linearClamp.AddressV = RHI::AddressMode::ClampToEdge;
 
@@ -1231,6 +1302,7 @@ void main()
         Shader::SetBoundProgramBindless(true);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
@@ -1393,6 +1465,7 @@ void main()
         const RHI::ResourceHandle resource = RegisterTexture(texture);
 
         RHI::SamplerDesc sampler;
+        sampler.Source = RHI::SamplerSource::Explicit;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;

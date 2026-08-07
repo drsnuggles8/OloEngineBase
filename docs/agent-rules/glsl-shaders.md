@@ -554,7 +554,7 @@ turns the allowlist into a way to silence the test.
 seam never sees it, so a shader whose inputs arrive that way reads an offset
 nobody staged — a black frame with no diagnostic. That was true of seven shaders
 (the IBL bake set, `Impostor_Bake`, `MaterialPreview`) until their C++ moved onto
-the seam in the same change. `grep -n "\->Bind(" <the file that draws it>` is the
+the seam in the same change. `grep -nF -- "->Bind(" <the file that draws it>` is the
 check; the ratchet counter cannot make it for you (ADR 0011 amendment (36)).
 
 **You no longer have to think about wrap or filter — but know why.** A descriptor
@@ -572,6 +572,7 @@ of `ClampToEdge` turned `Water.glsl`'s tiled FFT field into flat terraces, and
 `ClampToEdge`. An integer texture is worse than either — GL treats `LINEAR` on an
 integer format as *incomplete* and it samples as **zero**, on Mesa but not NVIDIA.
 See ADR 0011 amendment (38).
+
 ---
 
 ## 6. SSBO bindings (std430)

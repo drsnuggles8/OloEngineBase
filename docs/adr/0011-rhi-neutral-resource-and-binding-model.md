@@ -1829,6 +1829,24 @@ SSAO's `Nearest`+`Repeat` noise). All five faces close at once, and
 `HeapBinding::CubeSampler()` — invented during the first attempt — was deleted
 rather than kept, because dead vocabulary is worse than none.
 
+**"No stated intent" needed a discriminator, and the discriminator needed a
+backstop.** Inferring it from *equality with the defaults* leaves one thing
+inexpressible: a caller wanting `Linear`+`Repeat` **explicitly** on a colour
+`Texture2DArray` — whose object is `ClampToEdge` — would silently get the object.
+`SamplerDesc::Source` says which it is, and since it is part of the defaulted
+`operator==` it flows into the view memo key and the sampler-slot dedup for free.
+
+But making `Source` the *sole* test recreates the same class of bug one level
+over: set `MinFilter`, forget `Source = Explicit`, and your whole sampler is
+replaced by the texture's state. That is not hypothetical — deleting the line
+from `HeapBinding::ShadowDepthSampler` and running the suite gave **136 passing
+tests with the shadow comparison sampler quietly inheriting**. So a desc whose
+FIELDS say something is treated as explicit whatever its `Source` says, and the
+disagreement is warned about. The fallback is the pre-discriminator behaviour, so
+a forgotten line costs a log line rather than a frame. Both halves are pinned by
+`HeapGpuFixture.SamplerSourceDistinguishesInheritFromExplicitAndSurvivesAForgottenDiscriminator`,
+verified to fail when the backstop is removed.
+
 **What it costs, stated plainly.** The plain form re-admits the GL-ism the neutral
 `SamplerDesc` exists to keep out. Vulkan has no "inherit" — a `VkSampler` must be
 described — so every site passing a default desc today is a site Phase 4 has to

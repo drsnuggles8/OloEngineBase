@@ -176,23 +176,6 @@ namespace OloEngine
                 }
             }
         }
-        // ONE cleanup path for the typed images, so the two failure branches below
-        // cannot drift apart about what they release.
-        const auto releaseTypedNullImages = [this]
-        {
-            for (auto& [formatKey, entry] : m_NullImagesByFormat)
-            {
-                if (entry.Descriptor != 0u && glIsImageHandleResidentARB(entry.Descriptor) == GL_TRUE)
-                {
-                    glMakeImageHandleNonResidentARB(entry.Descriptor);
-                }
-                if (entry.Texture != 0u)
-                {
-                    glDeleteTextures(1, &entry.Texture);
-                }
-            }
-            m_NullImagesByFormat.clear();
-        };
 
         if (m_NullImageDescriptor == 0u || typedImageFailed)
         {
@@ -204,7 +187,7 @@ namespace OloEngine
                            "(base={}, typed-format failure={}). Disabling heap-bindless; "
                            "the slot-based binding path stays in use.",
                            m_NullImageDescriptor, typedImageFailed);
-            releaseTypedNullImages();
+            ReleaseTypedNullImages();
             glDeleteTextures(1, &m_NullImageTexture);
             m_NullImageTexture = 0u;
             if (glIsTextureHandleResidentARB(m_NullDescriptor) == GL_TRUE)
@@ -314,7 +297,7 @@ namespace OloEngine
                 }
                 descriptor = 0u;
             };
-            releaseTypedNullImages();
+            ReleaseTypedNullImages();
             retire(m_NullCubeDescriptor);
             retire(m_NullArrayDescriptor);
             retire(m_NullArrayShadowDescriptor);
@@ -430,18 +413,7 @@ namespace OloEngine
         }
         // The per-format nulls, same lifecycle. Leaving these resident across a
         // re-Initialize would leak a handle per format per device reset.
-        for (auto& [format, entry] : m_NullImagesByFormat)
-        {
-            if (entry.Descriptor != 0u && glIsImageHandleResidentARB(entry.Descriptor) == GL_TRUE)
-            {
-                glMakeImageHandleNonResidentARB(entry.Descriptor);
-            }
-            if (entry.Texture != 0u)
-            {
-                glDeleteTextures(1, &entry.Texture);
-            }
-        }
-        m_NullImagesByFormat.clear();
+        ReleaseTypedNullImages();
         if (m_NullSampler != 0u)
         {
             glDeleteSamplers(1, &m_NullSampler);
@@ -499,6 +471,22 @@ namespace OloEngine
     auto OpenGLDescriptorHeapBackend::IsBindlessSupported() const -> bool
     {
         return m_Supported;
+    }
+
+    void OpenGLDescriptorHeapBackend::ReleaseTypedNullImages() noexcept
+    {
+        for (auto& [formatKey, entry] : m_NullImagesByFormat)
+        {
+            if (entry.Descriptor != 0u && glIsImageHandleResidentARB(entry.Descriptor) == GL_TRUE)
+            {
+                glMakeImageHandleNonResidentARB(entry.Descriptor);
+            }
+            if (entry.Texture != 0u)
+            {
+                glDeleteTextures(1, &entry.Texture);
+            }
+        }
+        m_NullImagesByFormat.clear();
     }
 
     auto OpenGLDescriptorHeapBackend::SamplerObjectFor(const RHI::SamplerDesc& sampler, bool depthCompare) -> GLuint
@@ -662,18 +650,53 @@ namespace OloEngine
         // passing a default desc today is a site Phase 4 has to give real sampler
         // state. `DefaultSamplerInherits` counts them, so that work is measurable
         // instead of discovered.
-        // COMPARED AGAINST A DEFAULT-CONSTRUCTED ViewDesc, not against `false`.
-        // `ViewDesc::DepthCompare` DEFAULTS TO TRUE — true means "whatever the
-        // resource's own view would give", and `false` is the deliberate
-        // raw-depth override the PCSS blocker search asks for. Writing the guard
-        // as `!view.DepthCompare` therefore inverts it and disables inheriting for
+        // THE DISCRIMINATOR DECIDES, not a comparison against the defaults.
+        // `SamplerDesc::Source` exists so "inherit" and "these exact values" stay
+        // distinct when the values coincide, and reading it here is what makes
+        // that promise real rather than documentary.
+        //
+        // The ViewDesc half is COMPARED AGAINST A DEFAULT-CONSTRUCTED ONE, not
+        // against `false`. `ViewDesc::DepthCompare` DEFAULTS TO TRUE — true means
+        // "whatever the resource's own view would give", and `false` is the
+        // deliberate raw-depth override the PCSS blocker search asks for. Writing
+        // it as `!view.DepthCompare` inverts the guard and disables inheriting for
         // every ordinary view, which is exactly what
         // HeapGpuFixture.ADefaultSamplerDescInheritsTheTextureObjectRatherThanMintingOne
-        // caught on its first run. Spelling it this way also survives the default
-        // flipping.
+        // caught on its first run. Spelling it this way survives the default
+        // flipping too.
         static constexpr RHI::ViewDesc kUnstatedView;
-        const bool inheritsTextureState =
-            (sampler == RHI::SamplerDesc{}) && (view.DepthCompare == kUnstatedView.DepthCompare);
+
+        // FORGETTING THE DISCRIMINATOR MUST NOT DISCARD THE CALLER'S FIELDS.
+        //
+        // Making `Source` the sole test introduces a trap the field was added to
+        // remove: a caller who sets MinFilter/AddressU/Compare and forgets
+        // `Source = Explicit` would have all of it silently replaced by the
+        // texture object's state. That is not theoretical — deleting the line from
+        // `HeapBinding::ShadowDepthSampler` was tried here and 136 tests passed
+        // with the shadow comparison sampler quietly inheriting.
+        //
+        // So a desc whose FIELDS say something is treated as explicit whatever its
+        // Source says, and the disagreement is reported. The fallback is the
+        // pre-discriminator behaviour, so the failure mode is a warning rather
+        // than a wrong frame — and `Source` keeps its one real job: letting a
+        // caller demand these values even when they match the defaults.
+        RHI::SamplerDesc unstatedFields;
+        unstatedFields.Source = sampler.Source;
+        const bool fieldsAreDefault = (sampler == unstatedFields);
+
+        if (sampler.Source == RHI::SamplerSource::InheritTexture && !fieldsAreDefault)
+        {
+            if (static std::atomic<u64> s_Warned{ 0 };
+                s_Warned.fetch_add(1, std::memory_order_relaxed) < 4)
+            {
+                OLO_CORE_WARN("[RHI/GL] SamplerDesc sets fields but leaves Source = InheritTexture. Honouring the "
+                              "fields; set RHI::SamplerSource::Explicit to say so (issue #691 Phase 3).");
+            }
+        }
+
+        const bool inheritsTextureState = (sampler.Source == RHI::SamplerSource::InheritTexture) &&
+                                          fieldsAreDefault &&
+                                          (view.DepthCompare == kUnstatedView.DepthCompare);
 
         GLuint64 handle = 0u;
         if (inheritsTextureState)
