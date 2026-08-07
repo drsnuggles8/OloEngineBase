@@ -60,7 +60,12 @@ layout(location = 1) in vec3 v_ViewCenter;
 
 // Scene depth for behind-geometry rejection. Water-identical slot + uniform
 // name (binding 39, u_SceneDepth) so IsKnownTextureBinding passes.
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_SceneDepth OLO_HEAP_TEX_2D(39)  // TEX_WATER_DEPTH
+#else
 layout(binding = 39) uniform sampler2D u_SceneDepth;
+#endif
 
 layout(location = 0) out float o_ViewDepth; // positive metres in front of the camera
 

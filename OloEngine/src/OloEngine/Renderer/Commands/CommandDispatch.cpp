@@ -482,7 +482,8 @@ namespace OloEngine
     }
 
     static void BindTrackedTexture(RHI::ResourceHandle texture, u32 slot,
-                                   RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D)
+                                   RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D,
+                                   const RHI::SamplerDesc& sampler = {})
     {
         if (!texture.IsValid())
             return;
@@ -492,7 +493,7 @@ namespace OloEngine
         // Persistent: material and IBL textures are asset-owned and outlive the
         // frame, so their descriptors are memoised rather than drawn from the ring.
         const RHI::HeapOffset staged =
-            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, {}, kind);
+            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
 
         // ONLY CLAIM A GL BINDING WHEN ONE ACTUALLY HAPPENED. The cache's
         // invariant, stated above, is "this slot's GL BINDING is already
@@ -549,8 +550,8 @@ namespace OloEngine
             desc.AddressW = RHI::AddressMode::Repeat;
             return desc;
         }();
-        // Cubemaps keep the default ClampToEdge, matching OpenGLTextureCubemap.
-        static const RHI::SamplerDesc kCubeSampler{};
+        // Cubemaps are the one target that is NOT Repeat — see HeapBinding::CubeSampler.
+        static const RHI::SamplerDesc kCubeSampler = HeapBinding::CubeSampler();
 
         // TWO DIFFERENT NULLS, and only one of them is correct. A material with no
         // albedo map SHOULD resolve to the reserved null — the shader gates on
@@ -653,9 +654,11 @@ namespace OloEngine
         // other consumers — which is why the kind cannot be derived from the SLOT
         // and has to come from the call site that knows what it is binding.
         BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT,
-                           RHI::NullSamplerKind::Cube);
-        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, RHI::NullSamplerKind::Cube);
-        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, RHI::NullSamplerKind::Cube);
+                           RHI::NullSamplerKind::Cube, HeapBinding::CubeSampler());
+        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, RHI::NullSamplerKind::Cube,
+                           HeapBinding::CubeSampler());
+        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, RHI::NullSamplerKind::Cube,
+                           HeapBinding::CubeSampler());
         BindTrackedTexture(mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2);
     }
 
@@ -1535,8 +1538,26 @@ namespace OloEngine
             return;
         }
 
-        // Bind VAO (cached) and draw
+        // Bind VAO (cached) and draw.
+        //
+        // EVERY DRAW IN THIS FILE PUBLISHES THE STAGED OFFSETS, and the uniformity
+        // is the point (issue #691 Phase 3). Whether a handler owes a flush is a
+        // property of the SHADER it happens to be dispatching — which changes as
+        // shaders convert — not of the handler, so pairing them per site is a rule
+        // that has to be re-derived every time a `.glsl` gains an `#ifdef
+        // OLO_BINDLESS`. That is the §5c failure mode ("the unit of conversion is a
+        // C++ bind AND its declaration") one level up, and it fails the quiet way:
+        // the pass keeps rendering and reads last flush's offsets.
+        //
+        // ADR 0011 amendment (32) argued the opposite — that a per-draw flush gives
+        // back the win, since it re-uploads the table and re-binds the heap. Half of
+        // that is now false: `HeapBinding::StageOffset` ignores an identical write,
+        // so a bucket of draws sharing textures dirties nothing and the upload does
+        // not happen. What remains is `DescriptorHeap::Flush`'s heap rebind, which
+        // is deliberately unconditional for a reason of its own, and one
+        // glBindBufferBase per draw against the up-to-nine texture binds it removes.
         BindVAOIfNeeded(cmd->vertexArrayID);
+        HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, cmd->indexType, 0);
     }
 
@@ -1552,6 +1573,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw instanced
         BindVAOIfNeeded(cmd->vertexArrayID);
+        HeapBinding::FlushOffsets();
         api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, cmd->indexType,
                                       0, cmd->instanceCount);
     }
@@ -1568,6 +1590,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw arrays
         BindVAOIfNeeded(cmd->vertexArrayID);
+        HeapBinding::FlushOffsets();
         api.DrawBoundArrays(cmd->primitiveType, 0, cmd->vertexCount);
     }
 
@@ -1583,6 +1606,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw lines
         BindVAOIfNeeded(cmd->vertexArrayID);
+        HeapBinding::FlushOffsets();
         api.DrawBoundArrays(RHI::PrimitiveTopology::LineList, 0, cmd->vertexCount);
     }
 
@@ -2106,26 +2130,13 @@ namespace OloEngine
         if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->skyboxTextureID ||
             HeapBinding::WritesOffsetsForBoundProgram())
         {
-            const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
+            const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID, RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(), RHI::NullSamplerKind::Cube);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = CacheEntryAfterSeam(staged, cmd->skyboxTextureID);
             ++s_Data.Stats.TextureBinds;
         }
 
-        // Publish the staged offsets before the draw that reads them.
-        //
-        // ONLY HERE, and the absence elsewhere in this file is deliberate. A flush
-        // re-establishes the heap's SSBO binding, so one per DRAW gives back the
-        // exact cost heap-bindless exists to remove ("bound once per frame, never
-        // per draw" — include/BindlessHeap.glsl). The skybox draws once a frame, so
-        // it pays that once and the conversion is genuinely live.
-        //
-        // The per-draw MATERIAL path is why the rest of this file's binds are
-        // routed through the seam but their shaders are NOT converted: with no
-        // bindless material program in flight the seam falls back, no offsets are
-        // staged, and no flush is owed. Converting them properly means baking each
-        // material's offsets into its UBO (ADR 0011 §1.2's "stable for the object's
-        // life, so it can be baked once into material data") rather than restaging
-        // a shared table per draw — a different change from this one.
+        // See the note above the flush in DrawIndexed: every draw in this file
+        // publishes, because which handler owes one is a property of its SHADER.
         HeapBinding::FlushOffsets();
 
         // Bind VAO (cached) and draw
@@ -2194,6 +2205,7 @@ namespace OloEngine
         // Bind VAO (cached) and draw quad
         BindVAOIfNeeded(cmd->quadVAID);
         ++s_Data.Stats.DrawCalls;
+        HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, 6, RHI::IndexType::UInt32, 0);
     }
 
@@ -2239,6 +2251,7 @@ namespace OloEngine
 
         // Bind fullscreen quad VAO (cached) and draw
         BindVAOIfNeeded(cmd->quadVAOID);
+        HeapBinding::FlushOffsets();
         api.DrawBoundArrays(RHI::PrimitiveTopology::TriangleList, 0, 6);
 
         ++s_Data.Stats.DrawCalls;
@@ -2330,6 +2343,7 @@ namespace OloEngine
         // Bind VAO (cached) and draw with GL_PATCHES
         BindVAOIfNeeded(cmd->vertexArrayID);
         api.SetPatchVertexCount(cmd->patchVertexCount);
+        HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::PatchList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;
     }
@@ -2397,6 +2411,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
+        HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;
     }
@@ -2499,6 +2514,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw decal cube
         BindVAOIfNeeded(cmd->vertexArrayID);
+        HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;
     }
@@ -2579,6 +2595,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw instanced foliage
         BindVAOIfNeeded(cmd->vertexArrayID);
+        HeapBinding::FlushOffsets();
         api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
                                       RHI::IndexType::UInt32, 0, cmd->instanceCount);
         ++s_Data.Stats.DrawCalls;
@@ -2673,7 +2690,7 @@ namespace OloEngine
         }
         else if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT].IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(), RHI::NullSamplerKind::Cube);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = {};
         }
 
@@ -2688,6 +2705,7 @@ namespace OloEngine
         // so we can keep a single, valid primitive mode at draw time.
         BindVAOIfNeeded(cmd->vertexArrayID);
         api.SetPatchVertexCount(3);
+        HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::PatchList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;
     }

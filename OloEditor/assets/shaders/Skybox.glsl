@@ -53,7 +53,12 @@ layout(location = 2) out vec2 o_ViewNormal;
 // only (translation is irrelevant at infinity).
 layout(location = 3) out vec2 o_Velocity;
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_Skybox OLO_HEAP_TEX_CUBE(9)  // TEX_ENVIRONMENT
+#else
 layout(binding = 9) uniform samplerCube u_Skybox;
+#endif
 
 #include "include/SkyboxSampling.glsl"
 

@@ -96,9 +96,16 @@ layout(std140, binding = 34) uniform PreviewBlock
 // validator pattern — the engine uses "Metallic" everywhere; the API
 // data side still calls the parameter "Metalness" (per glTF 2.0's
 // metallic-roughness convention).
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_AlbedoMap OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
+#define u_RoughnessMap OLO_HEAP_TEX_2D(6)  // TEX_ROUGHNESS
+#define u_MetallicMap OLO_HEAP_TEX_2D(7)  // TEX_METALLIC
+#else
 layout(binding = 0) uniform sampler2D u_AlbedoMap;
 layout(binding = 6) uniform sampler2D u_RoughnessMap;
 layout(binding = 7) uniform sampler2D u_MetallicMap;
+#endif
 
 // Three-point rig for the preview turntable. Key is warm, fill is
 // cool and softer, rim hits from behind to give the silhouette a

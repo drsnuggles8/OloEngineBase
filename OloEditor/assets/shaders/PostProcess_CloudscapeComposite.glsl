@@ -30,9 +30,16 @@ void main()
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_SceneColor OLO_HEAP_TEX_2D(0)  // full-res upstream colour — TEX_DIFFUSE
+#define u_CloudResolved OLO_HEAP_TEX_2D(1)  // half-res resolved clouds — TEX_SPECULAR
+#define u_DepthTexture OLO_HEAP_TEX_2D(19)  // full-res scene depth — TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 0) uniform sampler2D u_SceneColor;   // full-res upstream colour
 layout(binding = 1) uniform sampler2D u_CloudResolved; // half-res resolved clouds
 layout(binding = 19) uniform sampler2D u_DepthTexture; // full-res scene depth
+#endif
 
 void main()
 {

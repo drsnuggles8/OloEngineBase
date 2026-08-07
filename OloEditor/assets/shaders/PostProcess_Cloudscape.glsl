@@ -37,7 +37,12 @@ layout(location = 0) out vec4 o_Cloud;
 #include "include/CloudscapeCommon.glsl"
 
 // Full-res scene depth (TEX_POSTPROCESS_DEPTH).
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_DepthTexture OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 19) uniform sampler2D u_DepthTexture;
+#endif
 
 // Shared 288-byte camera UBO (binding 0) — includes the render origin for
 // camera-relative rendering (#429): cloud math runs in ABSOLUTE world space.

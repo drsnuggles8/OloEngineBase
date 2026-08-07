@@ -3,6 +3,7 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -239,9 +240,12 @@ namespace OloEngine
         //   7 = TEX_METALLIC  (metallic)
         if (s_DefaultWhite)
         {
-            s_DefaultWhite->Bind(ShaderBindingLayout::TEX_DIFFUSE);
-            s_DefaultWhite->Bind(ShaderBindingLayout::TEX_ROUGHNESS);
-            s_DefaultWhite->Bind(ShaderBindingLayout::TEX_METALLIC);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DIFFUSE, s_DefaultWhite->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ROUGHNESS, s_DefaultWhite->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_METALLIC, s_DefaultWhite->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
         }
     }
 
@@ -302,25 +306,31 @@ namespace OloEngine
         const u32 roughSlot = ShaderBindingLayout::TEX_ROUGHNESS;
         const u32 metalSlot = ShaderBindingLayout::TEX_METALLIC;
         if (albedoMap)
-            albedoMap->Bind(albedoSlot);
+            HeapBinding::PublishTextureOffsetAndBind(albedoSlot, albedoMap->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
         else if (s_DefaultWhite)
-            s_DefaultWhite->Bind(albedoSlot);
+            HeapBinding::PublishTextureOffsetAndBind(albedoSlot, s_DefaultWhite->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
         else
         {
             // No additional handling required.
         }
         if (metalMap)
-            metalMap->Bind(metalSlot);
+            HeapBinding::PublishTextureOffsetAndBind(metalSlot, metalMap->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
         else if (s_DefaultWhite)
-            s_DefaultWhite->Bind(metalSlot);
+            HeapBinding::PublishTextureOffsetAndBind(metalSlot, s_DefaultWhite->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
         else
         {
             // No additional handling required.
         }
         if (roughMap)
-            roughMap->Bind(roughSlot);
+            HeapBinding::PublishTextureOffsetAndBind(roughSlot, roughMap->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
         else if (s_DefaultWhite)
-            s_DefaultWhite->Bind(roughSlot);
+            HeapBinding::PublishTextureOffsetAndBind(roughSlot, s_DefaultWhite->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
         else
         {
             // No additional handling required.
@@ -378,6 +388,7 @@ namespace OloEngine
             return nullptr;
         }
         vao->Bind();
+        HeapBinding::FlushOffsets();
         RenderCommand::DrawIndexed(vao);
 
         Ref<Texture2D> target = CreateTargetTexture();

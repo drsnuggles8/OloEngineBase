@@ -160,8 +160,14 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_LayerBlendSharpness1;
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_TerrainHeightmap OLO_HEAP_TEX_2D(23)  // TEX_TERRAIN_HEIGHTMAP
+#define u_SnowDepthMap OLO_HEAP_TEX_2D(30)  // TEX_SNOW_DEPTH
+#else
 layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
 layout(binding = 30) uniform sampler2D u_SnowDepthMap;
+#endif
 
 layout(std140, binding = 16) uniform SnowAccumulationParams {
     mat4 u_ClipmapViewProj[3];
@@ -328,12 +334,22 @@ layout(std140, binding = 16) uniform SnowAccumulationParamsFS {
     vec4 u_DisplacementParamsFS;
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_TerrainSplatmap0 OLO_HEAP_TEX_2D(24)  // TEX_TERRAIN_SPLATMAP
+#define u_TerrainAlbedoArray OLO_HEAP_TEX_2D_ARRAY(25)  // TEX_TERRAIN_ALBEDO_ARRAY
+#define u_TerrainNormalArray OLO_HEAP_TEX_2D_ARRAY(26)  // TEX_TERRAIN_NORMAL_ARRAY
+#define u_TerrainARMArray OLO_HEAP_TEX_2D_ARRAY(27)  // TEX_TERRAIN_ARM_ARRAY
+#define u_TerrainSplatmap1 OLO_HEAP_TEX_2D(28)  // TEX_TERRAIN_SPLATMAP_1
+#define u_SnowDepthMapFS OLO_HEAP_TEX_2D(30)  // TEX_SNOW_DEPTH
+#else
 layout(binding = 24) uniform sampler2D u_TerrainSplatmap0;
 layout(binding = 25) uniform sampler2DArray u_TerrainAlbedoArray;
 layout(binding = 26) uniform sampler2DArray u_TerrainNormalArray;
 layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
 layout(binding = 28) uniform sampler2D u_TerrainSplatmap1;
 layout(binding = 30) uniform sampler2D u_SnowDepthMapFS;
+#endif
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;

@@ -627,6 +627,11 @@ namespace OloEngine
                     m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
 
                     fullscreen->Bind();
+                    // UploadMaterialForDirectDraw above writes this instance's
+                    // per-material heap offsets into the material UBO; publish
+                    // whatever it also staged on the shared table before the draw
+                    // reads it (issue #691 Phase 3).
+                    context.FlushHeapOffsets();
                     context.DrawIndexed(fullscreen);
                 }
                 RenderCommand::EnableCulling();

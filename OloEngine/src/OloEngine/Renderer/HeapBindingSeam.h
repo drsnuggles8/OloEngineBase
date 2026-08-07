@@ -85,10 +85,10 @@ namespace OloEngine::HeapBinding
     // (docs/agent-rules/render-pass-published-state.md).
     //
     // A published slot can also have consumers of BOTH kinds at once, so there is
-    // no single right answer to fork to: TEX_DDGI_IRRADIANCE is read by the DDGI
-    // shaders and DeferredLighting (convertible) *and* by Skybox_GBuffer, which
-    // cannot take the bindless route at all because that route produces no SPIR-V
-    // and so never runs Reflect().
+    // no single right answer to fork to. TEX_WIND_FIELD is the standing example:
+    // include/WindSampling.glsl declares it, and its includers are Foliage_Instance
+    // (converted) and compute/Particle_Simulate.comp (slot-based). A shared header
+    // converts all-or-nothing, so one includer's route cannot decide the other's.
     //
     // Doing BOTH is therefore not belt-and-braces, it is the only correct answer
     // while a slot has mixed consumers: a bindless consumer reads the offset, a
@@ -127,6 +127,13 @@ namespace OloEngine::HeapBinding
     // reads; the seam derives ViewDesc::DepthCompare from the Compare field, so
     // the two views of one depth array cannot drift apart.
     [[nodiscard]] auto ShadowDepthSampler(bool comparison) -> RHI::SamplerDesc;
+
+    // THE SAMPLER STATE A CUBEMAP DESCRIPTOR MUST BE MINTED WITH — the one target
+    // whose texture object does not carry GL's default REPEAT. Pass it wherever
+    // NullSamplerKind::Cube is passed, for the same reason ShadowDepthSampler
+    // exists: the descriptor bakes the sampler in, so the converted and
+    // unconverted readers of one texture must be minted from the same state.
+    [[nodiscard]] auto CubeSampler() -> RHI::SamplerDesc;
 
     // Resolve a texture to a heap offset WITHOUT staging it in the shared table.
     //

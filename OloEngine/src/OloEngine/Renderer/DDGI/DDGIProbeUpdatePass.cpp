@@ -901,11 +901,11 @@ namespace OloEngine
         // still a pass-owned native texture.
         if (const RHI::ResourceHandle envMap = Renderer3D::GetGlobalEnvironmentMapHandle(); envMap.IsValid())
             HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, envMap,
-                                                     RHI::HeapSlotLifetime::Persistent, {},
+                                                     RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
                                                      RHI::NullSamplerKind::Cube);
         else
             HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, m_BlackCubemap,
-                                                     RHI::HeapSlotLifetime::Persistent, {},
+                                                     RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
                                                      RHI::NullSamplerKind::Cube);
 
         // CSM + shadow atlas at the binding units include/PBRCommon.glsl's

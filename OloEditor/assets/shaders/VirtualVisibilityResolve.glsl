@@ -140,11 +140,29 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     uvec4 u_MaterialHeapOffsets[3];
 };
 
+// Converted whole (§5c) — the material five are every sampler this shader has.
+//
+// THE PER-MATERIAL LANES, not the shared offset table, and the block above is
+// already the right shape for them. This pass issues one fullscreen draw PER
+// INSTANCE and each one re-uploads the material UBO through
+// CommandDispatch::UploadMaterialForDirectDraw, so the offsets ride in a buffer
+// the loop already writes — which is ADR 0011 §1.2's "stable for the object's
+// life, so it can be baked once into material data" (issue #691 Phase 3).
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define OLO_MATERIAL_HEAP_READER 1
+#define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
+#define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
+#define u_NormalMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET)
+#define u_AOMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET)
+#define u_EmissiveMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET)
+#else
 layout(binding = 0) uniform sampler2D u_AlbedoMap;
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap;
 layout(binding = 2) uniform sampler2D u_NormalMap;
 layout(binding = 4) uniform sampler2D u_AOMap;
 layout(binding = 5) uniform sampler2D u_EmissiveMap;
+#endif
 
 layout(location = 0) in vec2 v_TexCoord;
 

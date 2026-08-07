@@ -172,8 +172,14 @@ layout(std140, binding = 12) uniform FoliageParams
     vec4 u_ImpostorParams1; // x=enabled, y=meshRadius, z=parallaxScale, w=unused
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_AlbedoAtlas OLO_HEAP_TEX_2D(0)  // rgb=albedo, a=coverage — TEX_DIFFUSE
+#define u_NormalDepthAtlas OLO_HEAP_TEX_2D(10)  // rgb=obj normal, a=depth — TEX_USER_0
+#else
 layout(binding = 0) uniform sampler2D u_AlbedoAtlas;      // rgb=albedo, a=coverage
 layout(binding = 10) uniform sampler2D u_NormalDepthAtlas; // rgb=obj normal, a=depth
+#endif
 
 #include "include/OctahedralImpostor.glsl"
 

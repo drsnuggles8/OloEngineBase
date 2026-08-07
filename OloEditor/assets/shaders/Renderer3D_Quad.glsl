@@ -29,7 +29,12 @@ void main()
 
 layout(location = 0) in vec2 v_TexCoord;
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
+#else
 layout(binding = 0) uniform sampler2D u_Texture;
+#endif
 
 layout(location = 0) out vec4 color;
 

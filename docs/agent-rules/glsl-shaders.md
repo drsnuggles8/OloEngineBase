@@ -518,6 +518,56 @@ The exact constructor spelling the macro uses is pinned against a live driver by
 which probes the alternatives and reports which ones work — so if it ever has to
 change, the test says what to change it to.
 
+### 5e. Every sampler-declaring shader is converted or a RECORDED decision
+
+`BindlessShaderPipeline.EveryShaderIsOnTheRouteOrExplicitlyExcluded` fails on a
+shader that declares a sampler or image, is not on the bindless route, and
+carries no reason. Adding one leaves you two options and no third:
+
+- convert it (§5a, moving its C++ bind in the **same** change per §5c), or
+- add it to `kSlotBasedByDesign` in that test with the reason it stays.
+
+**A slot-based shader is not a bug.** The seam forks per program, so an
+unconverted one gets a real bind and renders correctly — which is exactly the
+problem the test solves: "left slot-based on purpose" and "nobody got to it" look
+identical from outside, so without the table the sweep has no end condition.
+
+Four reasons are already recorded, and they are different enough that reusing one
+for the wrong case would be a mistake:
+
+| reason | what it looks like | the tell |
+|---|---|---|
+| shared `include/` header | `AtmosphereShading`, `CloudscapeCommon`, `DDGICommon`, `WindSampling`, `VirtualDebugViz` | its own `#ifdef OLO_BINDLESS` **is** the route opt-in token, so converting a declaration there drags every includer onto the raw-GLSL route and unbinds all of THEIR slot-based samplers |
+| no reserved null for the target | `DeferredLighting_MSAA` (`sampler2DMS`) | §5d's rule with no macro to satisfy it: an unset input has nowhere type-correct to land |
+| bindless replaces the mechanism | `Renderer2D_Quad` | a 32-element sampler array + a 32-case switch; the real conversion is a per-quad heap offset in the vertex format, not a declaration wrap. Its sibling `Renderer2D_Text` IS converted — same bind loop, ordinary samplers |
+| harness fixture | everything under `tests/` | driven outside the render graph inside `ScopedSlotBasedShaders`, whose comment explains why the heap's frame-scoped lifetimes have no frame here |
+
+The first row is the one to check before reaching for the others. A shared
+header's slot has to be **bound unconditionally** instead — through
+`HeapBinding::PublishTextureOffsetAndBind`, or a direct `Texture::Bind()` that
+never consults the seam — and that binding is what `SlotAlwaysReceivesARealBind`
+in the same test enumerates. An entry there without one of those two mechanisms
+turns the allowlist into a way to silence the test.
+
+**Before converting, check who binds the slot, not just what declares it.** A
+`Texture::Bind(slot)` call is the same act as `RendererAPI::BindTexture` and the
+seam never sees it, so a shader whose inputs arrive that way reads an offset
+nobody staged — a black frame with no diagnostic. That was true of seven shaders
+(the IBL bake set, `Impostor_Bake`, `MaterialPreview`) until their C++ moved onto
+the seam in the same change. `grep -n "\->Bind(" <the file that draws it>` is the
+check; the ratchet counter cannot make it for you (ADR 0011 amendment (36)).
+
+**And check whether the input TILES.** A descriptor bakes the sampler in, so a
+converted shader samples with `SamplerDesc` while an unconverted reader of the
+same texture samples with the texture OBJECT's state. The default is `Repeat`
+now, matching every `OpenGLTexture2D` and GL's own default — but it was
+`ClampToEdge`, and `Water.glsl`'s tiled FFT displacement field turned into a
+handful of flat terraces the first frame it rendered under the heap. Anything
+whose UV leaves `[0, 1]` is where this shows; a full-screen pass never will,
+which is why a bucket of conversions can hide it. `HeapBinding::CubeSampler()`
+and `ShadowDepthSampler()` are the named exceptions — use one, or pass the state
+explicitly, whenever the target is not an ordinary 2D texture.
+
 ---
 
 ## 6. SSBO bindings (std430)

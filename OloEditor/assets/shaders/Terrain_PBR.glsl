@@ -161,8 +161,14 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_LayerBlendSharpness1;
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_TerrainHeightmap OLO_HEAP_TEX_2D(23)  // TEX_TERRAIN_HEIGHTMAP
+#define u_SnowDepthMap OLO_HEAP_TEX_2D(30)  // TEX_SNOW_DEPTH
+#else
 layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
 layout(binding = 30) uniform sampler2D u_SnowDepthMap;
+#endif
 
 // Snow Accumulation UBO (binding 16)
 layout(std140, binding = 16) uniform SnowAccumulationParams {
@@ -340,14 +346,29 @@ layout(std140, binding = 16) uniform SnowAccumulationParamsFS {
     vec4 u_DisplacementParamsFS;
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_SnowDepthMapFS OLO_HEAP_TEX_2D(30)  // TEX_SNOW_DEPTH
+#else
 layout(binding = 30) uniform sampler2D u_SnowDepthMapFS;
+#endif
 
 // Shadow maps — CSM array + the budgeted local-light shadow atlas (issue #435)
+#ifdef OLO_BINDLESS
+#define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)  // TEX_SHADOW
+#define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)  // TEX_SHADOW_ATLAS
+#else
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;
 layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;
+#endif
 // Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
+#ifdef OLO_BINDLESS
+#define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)  // TEX_SHADOW_CSM_RAW
+#define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)  // TEX_SHADOW_ATLAS_RAW
+#else
 layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;
 layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
+#endif
 
 // Clustered light lists (issue #435) — included after the ShadowData block +
 // atlas samplers so the evaluator can attenuate culled lights by their entry.
@@ -355,16 +376,30 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 #include "include/ForwardPlusCommon.glsl"
 
 // IBL textures
+#ifdef OLO_BINDLESS
+#define u_IrradianceMap OLO_HEAP_TEX_CUBE(10)  // TEX_USER_0
+#define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)  // TEX_USER_1
+#define u_BRDFLutMap OLO_HEAP_TEX_2D(12)  // TEX_USER_2
+#else
 layout(binding = 10) uniform samplerCube u_IrradianceMap;
 layout(binding = 11) uniform samplerCube u_PrefilterMap;
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;
+#endif
 
 // Terrain texture arrays
+#ifdef OLO_BINDLESS
+#define u_TerrainSplatmap0 OLO_HEAP_TEX_2D(24)  // Layers 0-3 weights — TEX_TERRAIN_SPLATMAP
+#define u_TerrainAlbedoArray OLO_HEAP_TEX_2D_ARRAY(25)  // TEX_TERRAIN_ALBEDO_ARRAY
+#define u_TerrainNormalArray OLO_HEAP_TEX_2D_ARRAY(26)  // TEX_TERRAIN_NORMAL_ARRAY
+#define u_TerrainARMArray OLO_HEAP_TEX_2D_ARRAY(27)  // TEX_TERRAIN_ARM_ARRAY
+#define u_TerrainSplatmap1 OLO_HEAP_TEX_2D(28)  // Layers 4-7 weights — TEX_TERRAIN_SPLATMAP_1
+#else
 layout(binding = 24) uniform sampler2D u_TerrainSplatmap0;     // Layers 0-3 weights
 layout(binding = 25) uniform sampler2DArray u_TerrainAlbedoArray;
 layout(binding = 26) uniform sampler2DArray u_TerrainNormalArray;
 layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
 layout(binding = 28) uniform sampler2D u_TerrainSplatmap1;     // Layers 4-7 weights
+#endif
 
 // =============================================================================
 // INPUT/OUTPUT

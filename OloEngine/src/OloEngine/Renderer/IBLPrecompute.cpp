@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -63,7 +64,10 @@ namespace OloEngine
         auto shader = shaderLibrary.Get("IrradianceConvolution");
 
         // Bind environment map
-        environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
+                                                 environmentMap->GetRHIHandle(),
+                                                 RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
+                                                 RHI::NullSamplerKind::Cube);
 
         // Use the render to cubemap helper
         RenderToCubemap(irradianceMap, shader, GetCubeMesh());
@@ -85,7 +89,10 @@ namespace OloEngine
         auto shader = shaderLibrary.Get("IBLPrefilter");
 
         // Bind environment map
-        environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
+                                                 environmentMap->GetRHIHandle(),
+                                                 RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
+                                                 RHI::NullSamplerKind::Cube);
 
         // Create IBL parameters uniform buffer
         auto iblParamsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
@@ -185,7 +192,9 @@ namespace OloEngine
         auto shader = shaderLibrary.Get("EquirectangularToCubemap");
 
         // Bind HDR texture
-        hdrTexture->Bind(0);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DIFFUSE,
+                                                 hdrTexture->GetRHIHandle(),
+                                                 RHI::HeapSlotLifetime::Persistent);
 
         // Render to cubemap (fills mip 0 of each face), then build the mip chain
         // for the advanced IBL passes' mip-biased sampling.
@@ -278,6 +287,7 @@ namespace OloEngine
             // Render cube to framebuffer
             auto vertexArray = cubeMesh->GetVertexArray();
             vertexArray->Bind();
+            HeapBinding::FlushOffsets();
             RenderCommand::DrawIndexed(vertexArray);
 
             // Now copy from framebuffer to cubemap face. Both operands are
@@ -327,6 +337,7 @@ namespace OloEngine
         shader->Bind();
         auto vertexArray = MeshPrimitives::GetFullscreenTriangle();
         vertexArray->Bind();
+        HeapBinding::FlushOffsets();
         RenderCommand::DrawIndexed(vertexArray);
 
         framebuffer->Unbind();
@@ -438,7 +449,10 @@ namespace OloEngine
         }
 
         // Bind environment map
-        environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
+                                                 environmentMap->GetRHIHandle(),
+                                                 RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
+                                                 RHI::NullSamplerKind::Cube);
 
         const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&irradianceMap, &shader]()
                                                              {
@@ -483,7 +497,10 @@ namespace OloEngine
         environmentMap->GenerateMipmaps();
 
         // Bind environment map
-        environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
+                                                 environmentMap->GetRHIHandle(),
+                                                 RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
+                                                 RHI::NullSamplerKind::Cube);
 
         // The advanced importance shader is driven by IBLAdvancedParams; the
         // legacy IBLPrefilter fallback by IBLParametersUBO. Both live at

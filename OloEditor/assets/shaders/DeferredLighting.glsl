@@ -92,6 +92,29 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     vec4 u_MSAAParams;       // x=SampleCount (float, >=1), yzw reserved
 };
 
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) every one of these
+// becomes a heap lookup keyed by the SAME slot number the bindful branch
+// declares, so the two variants cannot disagree about which texture is which,
+// and the shader BODY below is byte-identical between them.
+//
+// DeferredLightingPass stages all thirteen through the seam and calls
+// FlushHeapOffsets() before its fullscreen draw, so §5c's "a C++ bind and its
+// declaration move together" holds for the whole file — it converts whole or
+// not at all, which is why there is one #ifdef block and not three.
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+// IBL cubemaps.
+#define u_IrradianceMap  OLO_HEAP_TEX_CUBE(10)             // TEX_USER_0
+#define u_PrefilterMap   OLO_HEAP_TEX_CUBE(11)             // TEX_USER_1
+#define u_BRDFLutMap     OLO_HEAP_TEX_2D(12)               // TEX_USER_2
+// Shadow maps — identical slots to PBR_MultiLight (CSM + atlas, issue #435).
+#define u_ShadowMapCSM   OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)   // TEX_SHADOW
+#define u_ShadowAtlas    OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)  // TEX_SHADOW_ATLAS
+// Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
+#define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)        // TEX_SHADOW_CSM_RAW
+#define u_ShadowAtlasRaw  OLO_HEAP_TEX_2D_ARRAY(34)        // TEX_SHADOW_ATLAS_RAW
+#else
 // IBL cubemaps.
 layout(binding = 10) uniform samplerCube u_IrradianceMap;
 layout(binding = 11) uniform samplerCube u_PrefilterMap;
@@ -103,6 +126,7 @@ layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;
 // Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
 layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;
 layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
+#endif
 
 // Clustered light lists (issue #435) — included after the ShadowData block +
 // atlas samplers so the evaluator can attenuate culled lights by their entry.
@@ -110,11 +134,19 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 #include "include/ForwardPlusCommon.glsl"
 
 // G-Buffer samplers (non-MSAA variant).
+#ifdef OLO_BINDLESS
+#define u_GBufferAlbedo   OLO_HEAP_TEX_2D(43)  // TEX_GBUFFER_ALBEDO
+#define u_GBufferNormal   OLO_HEAP_TEX_2D(44)  // TEX_GBUFFER_NORMAL
+#define u_GBufferEmissive OLO_HEAP_TEX_2D(45)  // TEX_GBUFFER_EMISSIVE
+#define u_GBufferVelocity OLO_HEAP_TEX_2D(46)  // TEX_GBUFFER_VELOCITY
+#define u_GBufferDepth    OLO_HEAP_TEX_2D(47)  // TEX_GBUFFER_DEPTH
+#else
 layout(binding = 43) uniform sampler2D u_GBufferAlbedo;
 layout(binding = 44) uniform sampler2D u_GBufferNormal;
 layout(binding = 45) uniform sampler2D u_GBufferEmissive;
 layout(binding = 46) uniform sampler2D u_GBufferVelocity;
 layout(binding = 47) uniform sampler2D u_GBufferDepth;
+#endif
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;

@@ -43,8 +43,14 @@ layout(std140, binding = 21) uniform DecalParams {
     vec4 u_DecalParams;
 };
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_DecalRMA OLO_HEAP_TEX_2D(12)  // TEX_USER_2
+#define u_SceneDepth OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 12) uniform sampler2D u_DecalRMA;
 layout(binding = 19) uniform sampler2D u_SceneDepth;
+#endif
 
 void main()
 {

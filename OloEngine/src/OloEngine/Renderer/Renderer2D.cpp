@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Core/UTF8.h"
 
 #include "OloEngine/Math/Math.h"
@@ -479,11 +481,20 @@ namespace OloEngine
             drawCall.VertexArray->Bind();
             drawCall.Shader->Bind();
 
-            // Bind textures
+            // Bind textures. THROUGH THE SEAM, so a converted 2D shader can read
+            // offsets from the shared table — the shader above is already bound, so
+            // the fork on IsBoundProgramBindless() is answerable, and a slot-based
+            // draw (Renderer2D_Quad, which keeps its 32-sampler array) takes the
+            // fallback and gets its real bind (issue #691 Phase 3).
+            //
+            // Persistent: these are font atlases and asset textures that outlive
+            // the frame, so their descriptors are memoised rather than ringed.
             for (u32 i = 0; i < drawCall.Textures.size(); ++i)
             {
-                drawCall.Textures[i]->Bind(i);
+                HeapBinding::BindTextureOrOffset(i, drawCall.Textures[i]->GetRHIHandle(),
+                                                 RHI::HeapSlotLifetime::Persistent);
             }
+            HeapBinding::FlushOffsets();
 
             VertexData data = { drawCall.VertexBufferBase, drawCall.VertexBufferSize };
             for (auto vertexBuffer : drawCall.VertexArray->GetVertexBuffers())

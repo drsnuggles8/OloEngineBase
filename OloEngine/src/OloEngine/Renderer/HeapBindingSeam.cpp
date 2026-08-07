@@ -128,6 +128,24 @@ namespace OloEngine::HeapBinding
         {
             auto& table = OffsetTable();
             SyncEpoch(table);
+            // AN IDENTICAL WRITE IS NOT A CHANGE, and the distinction is what makes
+            // a per-draw flush affordable (issue #691 Phase 3). ADR 0011 amendment
+            // (32) rejected converting the per-draw paths because "a converted
+            // shader needs a flush per draw, which gives back exactly the cost
+            // bindless exists to remove" — but the cost it names is the TABLE
+            // UPLOAD, and consecutive draws in a bucket overwhelmingly restage the
+            // same offsets (the same terrain textures across every patch, the same
+            // atlas across every foliage layer). Guarding the dirty flag here turns
+            // those flushes into a bool test plus the heap rebind that
+            // DescriptorHeap::Flush owes anyway.
+            //
+            // SyncEpoch runs FIRST so this cannot swallow a re-base: it reseeds the
+            // scratch with the nulls of the NEW heap, after which an incoming offset
+            // differs and is written.
+            if (table.Scratch[tableIndex] == value)
+            {
+                return;
+            }
             table.Scratch[tableIndex] = value;
             table.Dirty = true;
         }
@@ -266,6 +284,26 @@ namespace OloEngine::HeapBinding
 
     } // namespace
 
+    auto CubeSampler() -> RHI::SamplerDesc
+    {
+        // The one target whose texture OBJECT does not carry GL's default REPEAT:
+        // OpenGLTextureCubemap sets CLAMP_TO_EDGE on all three axes. Same rule as
+        // ShadowDepthSampler — read the state off the backend rather than choosing
+        // one — and the same reason it matters: a descriptor bakes the sampler in,
+        // so a converted shader would sample a cube differently from an
+        // unconverted one reading the same texture.
+        //
+        // The visible stake is small (GL's cube filtering rules confine the wrap
+        // mode to the outermost half-texel of a face, and seamless filtering
+        // removes even that), which is exactly why it is worth a named helper: a
+        // difference this quiet does not get noticed, it gets inherited.
+        RHI::SamplerDesc desc;
+        desc.AddressU = RHI::AddressMode::ClampToEdge;
+        desc.AddressV = RHI::AddressMode::ClampToEdge;
+        desc.AddressW = RHI::AddressMode::ClampToEdge;
+        return desc;
+    }
+
     auto ShadowDepthSampler(const bool comparison) -> RHI::SamplerDesc
     {
         // Every field here is READ OFF THE BACKEND rather than chosen, because the
@@ -328,10 +366,12 @@ namespace OloEngine::HeapBinding
             }
         }
 
-        // ALWAYS bind as well. A slot-based consumer of this same slot — of which
-        // there is at least one for the DDGI atlases (Skybox_GBuffer) — reads the
-        // binding, not the offset, and cannot be converted while the bindless
-        // route produces no reflection.
+        // ALWAYS bind as well. A slot-based consumer of this same slot reads the
+        // BINDING, not the offset, and a slot declared in a shared include/ header
+        // is guaranteed to have one whenever any includer stays slot-based —
+        // TEX_WIND_FIELD's Particle_Simulate.comp today. This bind is what keeps
+        // those working, and it is the mechanism BindlessShaderPipeline's
+        // SlotAlwaysReceivesARealBind allowlist is allowed to point at.
         RenderCommand::BindTexture(slot, texture);
 
         return published;

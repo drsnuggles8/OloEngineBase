@@ -57,7 +57,12 @@ layout(location = 1) in vec3 v_ViewCenter;
 layout(location = 2) in float v_Speed;
 
 // Scene depth for behind-geometry rejection (binding 39, water-identical name).
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_SceneDepth OLO_HEAP_TEX_2D(39)  // TEX_WATER_DEPTH
+#else
 layout(binding = 39) uniform sampler2D u_SceneDepth;
+#endif
 
 layout(location = 0) out vec2 o_Thickness; // r = thickness, g = speed-weighted thickness
 

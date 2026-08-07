@@ -36,13 +36,16 @@
 #include <gtest/gtest.h>
 #include <shaderc/shaderc.hpp>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -637,6 +640,243 @@ void main()
                "unless something compares them. Convert the declaration (see §5c), or bind the slot\n"
                "through PublishTextureOffsetAndBind if a slot-based consumer of it also exists."
             << report;
+    }
+
+    // =========================================================================
+    // THE COMPLETENESS GUARD (issue #691 Phase 3, closing bucket 1).
+    //
+    // The test above asks "is a converted shader converted WHOLE". This one asks
+    // the other half: "is every shader that COULD be converted either converted
+    // or a decision". Without it the phase has no end condition — a shader left
+    // slot-based is indistinguishable from one nobody got to, and "39 remaining"
+    // stays true forever because nothing forces the number to mean anything.
+    //
+    // A slot-based shader is not a bug (the seam forks per program, so an
+    // unconverted one gets a real bind and renders correctly). What it is, is an
+    // unrecorded judgement — and the four reasons below are genuinely different
+    // from each other, which is why a single "not yet" bucket would have been
+    // worse than none.
+    //
+    // THE TABLE IS CHECKED IN BOTH DIRECTIONS. An entry naming a shader that is
+    // now converted, or that declares no samplers at all, fails too — otherwise
+    // the list rots into a permanent silencer, which is exactly what the
+    // §5c allowlist above says an exception list must not become.
+    // =========================================================================
+    namespace
+    {
+        struct SlotBasedByDesign
+        {
+            std::string_view File;
+            std::string_view Reason;
+        };
+
+        // Paths are relative to assets/shaders, with '/' separators.
+        //
+        // `to_array` rather than a sized `std::array`: a hand-written count that
+        // drifts leaves DEFAULT-CONSTRUCTED entries at the end, and an empty File
+        // matches no shader — so the list would quietly start reporting a phantom
+        // " is listed but does not exist". (It did, on the first run of this test,
+        // which is a small vote of confidence in checking the table both ways.)
+        constexpr auto kSlotBasedByDesign = std::to_array<SlotBasedByDesign>({
+            // ---- 1. A SHARED HEADER CONVERTS ALL-OR-NOTHING -----------------
+            // Its own `#ifdef OLO_BINDLESS` IS the route opt-in token, so a
+            // converted declaration here drags EVERY includer onto the raw-GLSL
+            // route — present and future, whether or not that shader wanted to
+            // give up SPIR-V reflection and the cache tiers. The slot is bound
+            // unconditionally instead: every binding named here appears in
+            // SlotAlwaysReceivesARealBind above, and that pairing is what makes
+            // this a mechanism rather than an excuse.
+            //
+            // WORTH KNOWING BEFORE ANYONE "FIXES" THIS: four of the five now have
+            // an all-converted includer set, so converting them would work today.
+            // The reason not to is that it would make the compile route a property
+            // of a HEADER rather than of a shader, after which `#include` becomes
+            // the one edit that silently changes where a shader compiles.
+            // WindSampling still has a slot-based includer
+            // (compute/Particle_Simulate.comp), so for that one the original
+            // argument also still applies literally.
+            { "include/AtmosphereShading.glsl",
+              "shared header; TEX_CLOUD_SHADOW is published+bound in BindShadowTextures" },
+            { "include/CloudscapeCommon.glsl",
+              "shared header; the three cloud-noise slots are published+bound in RenderPipeline" },
+            { "include/DDGICommon.glsl",
+              "shared header; the three DDGI atlases are published+bound in DDGIProbeUpdatePass" },
+            { "include/WindSampling.glsl",
+              "shared header; TEX_WIND_FIELD is bound directly by WindSystem::BindWindTexture" },
+            { "include/VirtualDebugViz.glsl",
+              "shared header, STORAGE IMAGES: bound directly by RenderCommand::BindImageTexture in "
+              "VirtualGeometryPass, which never consults the seam" },
+
+            // ---- 2. A SAMPLER TARGET WITH NO RESERVED NULL -------------------
+            // A heap handle is typed by TARGET, and every unset input lands on
+            // the reserved null for its target (BindlessHeap.glsl's
+            // OLO_HEAP_TYPED_NULL). There is no 1x1 MULTISAMPLE texture in that
+            // set and no OLO_HEAP_TEX_2D_MS to reach it with, so converting this
+            // shader would reintroduce by hand the exact wrongly-typed-null
+            // defect that cost four wrong diagnoses on the rebase pop. Adding the
+            // target is a bounded change; doing it for one shader on the MSAA
+            // deferred path is not what closes this bucket.
+            { "DeferredLighting_MSAA.glsl",
+              "sampler2DMS: no reserved multisample null and no OLO_HEAP_TEX_* form to reach one" },
+
+            // ---- 3. THE HEAP REPLACES THE MECHANISM, NOT THE DECLARATION -----
+            // `sampler2D u_Textures[32]` selected by a 32-case switch on a
+            // per-vertex index is a workaround for exactly the limit bindless
+            // removes. The right conversion carries a heap OFFSET per quad and
+            // indexes g_OloResourceHeap directly, deleting the array AND the
+            // switch — a vertex-format change, not a declaration wrap, and one
+            // that belongs with the Vulkan shader path (Phase 6) where the payoff
+            // is real.
+            //
+            // Its sibling Renderer2D_Text.glsl IS converted: it declares two
+            // ordinary samplers, and Renderer2D's bind loop now runs through the
+            // seam, so the quad shader takes the fallback in the same loop that
+            // stages offsets for the text one. That pairing is why this entry is
+            // about the ARRAY and not about the 2D path.
+            { "Renderer2D_Quad.glsl",
+              "2D batcher's 32-slot sampler array: bindless replaces the mechanism, so the conversion "
+              "is a vertex-format change (Phase 6)" },
+        });
+
+        // ---- 4. A HARNESS FIXTURE HAS NO SEAM TO STAGE THROUGH ---------------
+        // A PREFIX rule rather than nine entries, because it is a property of the
+        // directory: everything under tests/ is driven by a shader-MATH property
+        // test that binds its own textures outside the render graph, inside
+        // ScopedSlotBasedShaders. See its comment in RenderPropertyTest.h for why
+        // those harnesses opt out — the heap's lifetimes assume a frame boundary
+        // they never reach, and every attempt to make them participate produced a
+        // different order-dependent failure.
+        //
+        // Deliberately NOT staleness-checked the way the table above is: a new
+        // fixture should inherit the reason rather than need an entry, and a
+        // fixture that grows or loses a sampler is not a decision anyone owes.
+        [[nodiscard]] bool IsHarnessFixture(const std::string& relative)
+        {
+            return relative.starts_with("tests/");
+        }
+    } // namespace
+
+    TEST(BindlessShaderPipeline, EveryShaderIsOnTheRouteOrExplicitlyExcluded)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
+        ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
+
+        static const std::regex kAnySampler(
+            R"(uniform\s+(?:writeonly\s+|readonly\s+|coherent\s+|restrict\s+)*(?:i|u)?(?:sampler|image)\w*\s+\w+)");
+
+        std::map<std::string, std::string_view> excluded;
+        for (const SlotBasedByDesign& e : kSlotBasedByDesign)
+        {
+            excluded.emplace(std::string{ e.File }, e.Reason);
+        }
+
+        std::vector<std::string> undecided;    // declares samplers, not converted, no reason
+        std::vector<std::string> staleEntries; // has a reason it no longer needs
+        std::set<std::string> matchedEntries;
+        u32 converted = 0;
+
+        for (const auto& entry : fs::recursive_directory_iterator(shaderRoot))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            const fs::path& p = entry.path();
+            const std::string ext = p.extension().string();
+            if (ext != ".glsl" && ext != ".comp")
+            {
+                continue;
+            }
+
+            const std::string relative = fs::relative(p, shaderRoot).generic_string();
+
+            // The shader's OWN text, not the include-resolved one: a file is on
+            // the route because IT opts in, and resolving includes first would
+            // let a converted header make every includer look converted.
+            const std::string own = BlankComments(ReadWholeFile(p));
+            const bool onRoute = WantsBindlessVariant(own);
+            const bool declaresSampler = std::regex_search(own, kAnySampler);
+
+            const auto it = excluded.find(relative);
+            const bool listed = (it != excluded.end());
+            if (listed)
+            {
+                matchedEntries.insert(relative);
+            }
+
+            if (onRoute)
+            {
+                ++converted;
+                if (listed)
+                {
+                    staleEntries.push_back(relative + " is ON the bindless route but still listed as "
+                                                      "slot-based-by-design");
+                }
+                continue;
+            }
+
+            if (!declaresSampler)
+            {
+                if (listed)
+                {
+                    staleEntries.push_back(relative + " declares no sampler or image, so it has nothing "
+                                                      "to exclude");
+                }
+                continue;
+            }
+
+            if (!listed && !IsHarnessFixture(relative))
+            {
+                undecided.push_back(relative);
+            }
+        }
+
+        for (const SlotBasedByDesign& e : kSlotBasedByDesign)
+        {
+            if (!matchedEntries.contains(std::string{ e.File }))
+            {
+                staleEntries.push_back(std::string{ e.File } + " is listed but does not exist");
+            }
+        }
+
+        // Floor guard: a scan that found nothing would satisfy every assertion below.
+        EXPECT_GT(converted, 80u) << "only " << converted
+                                  << " shaders detected on the bindless route — the scan is broken, not the tree";
+
+        // Echo the standing decisions on every run. The reasons are the point of
+        // the table, and a reason nobody ever reads is a comment pretending to be
+        // data — this is what gives them a consumer.
+        std::string decisions;
+        for (const auto& [file, reason] : excluded)
+        {
+            decisions += std::string{ "\n    " } + file + " — " + std::string{ reason };
+        }
+        GTEST_LOG_(INFO) << converted << " shaders on the bindless route; slot-based by design:" << decisions;
+
+        std::string report;
+        for (const std::string& u : undecided)
+        {
+            report += "\n    " + u;
+        }
+        EXPECT_TRUE(undecided.empty())
+            << "These shaders declare a sampler or image, are NOT on the bindless route, and carry no\n"
+               "recorded reason. That is not a bug — an unconverted shader gets a real bind and renders\n"
+               "correctly — it is an unmade decision, and it is what keeps Phase 3 from having an end.\n"
+               "Either convert it (glsl-shaders.md §5a, and move its C++ bind in the SAME change per §5c),\n"
+               "or add it to kSlotBasedByDesign with the reason it stays."
+            << report;
+
+        std::string stale;
+        for (const std::string& s : staleEntries)
+        {
+            stale += "\n    " + s;
+        }
+        EXPECT_TRUE(staleEntries.empty())
+            << "kSlotBasedByDesign has drifted from the tree. An exception list that is not checked in\n"
+               "BOTH directions decays into a way to silence this test."
+            << stale;
     }
 
     // §7a-bis — THE COMPILE ROUTE IS OBSERVABLE THROUGH THE DEPTH BUFFER, not only

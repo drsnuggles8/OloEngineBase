@@ -362,9 +362,31 @@ namespace OloEngine::RHI
         Filter MinFilter = Filter::Linear;
         Filter MagFilter = Filter::Linear;
         bool LinearMipFilter = true;
-        AddressMode AddressU = AddressMode::ClampToEdge;
-        AddressMode AddressV = AddressMode::ClampToEdge;
-        AddressMode AddressW = AddressMode::ClampToEdge;
+        // REPEAT, because that is what a GL texture OBJECT carries and the slot
+        // path samples with the object's parameters (issue #691 Phase 3).
+        //
+        // A bindless descriptor bakes the sampler in, so the default here is not a
+        // style choice — it decides what a CONVERTED shader sees while the
+        // unconverted one keeps reading the object's state, and the two must
+        // agree. `OpenGLTexture2D` sets GL_REPEAT explicitly on every texture it
+        // creates, and `OpenGLFramebuffer` sets no wrap at all, which leaves GL's
+        // own default of GL_REPEAT. So ClampToEdge — the previous default — was
+        // the odd one out, and it survived because almost every early conversion
+        // was a full-screen pass whose UVs never leave [0, 1].
+        //
+        // Converting Water.glsl is what exposed it. The FFT displacement field is
+        // TILED across the ocean (uv = worldXZ / patchSize), so outside [0, 1]
+        // every sample clamped to the edge texel and the wave field collapsed into
+        // huge flat terraces — bit-identical between two runs of the same config,
+        // 20-22 RMSE between the configs, and invisible to a suite that only ever
+        // compares one config against itself.
+        //
+        // A target that genuinely wants something else says so at the call site,
+        // as HeapBinding::ShadowDepthSampler does for the ClampToBorder /
+        // opaque-white depth arrays.
+        AddressMode AddressU = AddressMode::Repeat;
+        AddressMode AddressV = AddressMode::Repeat;
+        AddressMode AddressW = AddressMode::Repeat;
         f32 MaxAnisotropy = 1.0f;
         /// Only consulted when an address mode is ClampToBorder. See BorderColor.
         BorderColor Border = BorderColor::TransparentBlack;

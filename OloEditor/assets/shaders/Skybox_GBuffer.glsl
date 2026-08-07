@@ -50,7 +50,12 @@ layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F — carries unlit f
 layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F
 layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER — skybox is not pickable
 
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_Skybox OLO_HEAP_TEX_CUBE(9)  // TEX_ENVIRONMENT
+#else
 layout(binding = 9) uniform samplerCube u_Skybox;
+#endif
 
 #include "include/SkyboxSampling.glsl"
 

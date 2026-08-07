@@ -1757,6 +1757,20 @@ reassuring when it is *small*.
 >   `VirtualMeshGBuffer` — the whole material bucket.
 > - **"the plumbing sits inert."** It is live and exercised by the suite in both
 >   configurations.
+>
+> **AND ONE CLAIM IS REINSTATED (2026-08-07).** The heading is not just sound in
+> principle — the mismatch it warns about was REAL and shipping, in the
+> `SamplerDesc` DEFAULT rather than at any call site. `OpenGLTexture2D` sets
+> `GL_REPEAT` and `OpenGLFramebuffer` sets nothing (GL's default is also
+> `GL_REPEAT`), while the struct defaulted to `ClampToEdge`. Converting
+> `Water.glsl` collapsed the tiled FFT displacement field into flat terraces:
+> 22.670 RMSE ON-vs-OFF against a **0.000** same-config floor, down to 2.783 once
+> the default became `Repeat`. See §4f and ADR 0011 amendment (38).
+>
+> So the retraction below applies to the DIAGNOSIS of the rebase pop, not to the
+> hazard. The experiment that "killed the sampler hypothesis" — a `Repeat`
+> sampler making the number worse — was measuring a test that cannot see a
+> systematic difference, which is exactly what the paragraph after it says.
 
 This is the one thing that stops the per-material conversion today, and it is a
 property of the model rather than a bug in the plumbing.
@@ -1851,6 +1865,124 @@ Two things that test taught, both worth keeping:
   loop over N attachment handles — a different shape, already correct. A guard
   demanding the helper would have been demanding a refactor rather than enforcing
   a property.
+
+## 4f. Closing bucket 1: the counter measured one spelling, and the blocker was four lines
+
+Three things came out of converting the remaining 36 shaders, and each is the
+kind that only shows up when you try to finish rather than to sample.
+
+### The bind-site counter is blind to `Texture::Bind(slot)`
+
+`sweep_bind_texture_sites` counts `BindTexture(` / `BindImageTexture(` — the
+`RendererAPI` facade's spelling. `Texture::Bind(slot)` is the same act through the
+resource object, and no text rule can catch it without also catching
+`SoundGraph`'s `ref.Bind(...)` and `Templates/Function.h`'s `Storage.Bind(...)`,
+which are unrelated methods that happen to share a name.
+
+That blind spot is not cosmetic: **seven shaders looked unconvertible purely
+because of it.** `IBLPrecompute`, `AssetPreviewRenderer`, `ImpostorBaker` and
+`FoliageRenderer` bound their inputs that way, so the seam never saw them and a
+converted shader would have read an offset nobody staged — a black frame with no
+diagnostic. Seventeen such sites moved onto the seam here.
+
+The eight that remain are deliberate, and three are **load-bearing**: `ShadowMap`
+(×2), `WindSystem` and `SnowAccumulationSystem` are the "a direct `Texture::Bind()`
+that never consults the seam" mechanism the §5c allowlist depends on, because a
+shared `include/` header's declaration cannot be converted per-includer.
+
+**No counter was added.** A ratchet whose rule is "the identifiers I could think
+of" is precisely the false confidence §1.3's survey exists to prevent. The
+artefact that replaces it measures the property instead of a proxy for it — see
+below.
+
+### Two orderings that decide whether a conversion works at all
+
+Both are per-call-site and neither is visible in the shader:
+
+- **The seam forks on the program in flight.** `BindTextureOrOffset` asks
+  `Shader::IsBoundProgramBindless()`, so a bind issued *before* `shader->Bind()`
+  always takes the fallback. `IBLPrecompute` binds its environment cube before the
+  shader every time, which is why those five sites became
+  `PublishTextureOffsetAndBind` (stage **and** bind) rather than the forking form.
+  Reach for the publish whenever the consuming program is not bound yet.
+- **A staged offset is CPU-side until the flush.** Every draw in
+  `CommandDispatch` now publishes unconditionally, because *which* handler owes a
+  flush is a property of the shader it dispatches — and that changes as shaders
+  convert. Pairing them per site is a rule that has to be re-derived on every
+  `.glsl` edit, and it fails quietly: the pass keeps rendering and reads the
+  previous flush's offsets.
+
+### The cost argument that blocked everything was measured on a different case
+
+ADR 0011 amendment (32) declined the per-draw paths because a converted shader
+"needs a flush per draw, which gives back exactly the cost bindless exists to
+remove." It was written about *materials*, where per-material offsets in the
+material UBO were and remain the right answer — then reused as a general reason,
+and nothing re-checked it.
+
+The cost it names is the table **upload**, and `HeapBinding::StageOffset` was
+marking the table dirty even when writing the value already there. Consecutive
+draws in a bucket overwhelmingly restage the same offsets (the same terrain
+textures across every patch), so one `if` turns those flushes into a bool test.
+The redundant-bind cache cannot suppress the writes — amendment (32)'s own second
+finding is that it must not — so the stage is the only place the distinction can
+be made.
+
+Generalisable: **when a cost argument starts blocking more than it was measured
+on, re-derive it.** This one cost roughly two thirds of the shader tree.
+
+### The sampler DEFAULT was the divergence, and the fixed-camera A/B is what found it
+
+A bindless descriptor bakes the sampler in; the slot path samples with the
+TEXTURE OBJECT's parameters. `RHI::SamplerDesc{}` therefore decides what a
+converted shader sees while an unconverted reader of the same texture keeps
+seeing the object's state — and the two defaults disagreed. Every
+`OpenGLTexture2D` carries `GL_REPEAT`, `OpenGLFramebuffer` sets no wrap at all
+(GL's own default is `GL_REPEAT`), and the struct said `ClampToEdge`.
+
+It survived a whole bucket because almost every early conversion was a
+full-screen pass whose UVs never leave `[0, 1]`. `Water.glsl` samples a TILED
+field (`uv = worldXZ / patchSize`), so the first frame it rendered under the heap
+had its wave field clamped into a few enormous flat terraces.
+
+**§4e retired the LIVE A/B as an instrument; this is the one that replaced it.**
+The suite's fixed-camera visual-evidence PNGs are bit-identical across
+consecutive runs of the same configuration — a noise floor of exactly 0.000 —
+so the cross-configuration number means something on its own:
+
+| | RMSE | pixels >8 |
+|---|---|---|
+| noise floor (ON, two consecutive runs) | **0.000** | **0.000%** |
+| OFF vs ON, before | 22.670 | 39.93% |
+| OFF vs ON, after `Repeat` | 2.783 | 1.76% |
+
+And the residual was characterised, not waved off: amplified 6x it is hairline
+contours around the FOAM boundaries, max 58 with nothing over 64 — a
+`smoothstep` crossing differently because the two compile routes round the last
+bit differently. §7a-bis's phenomenon on a threshold instead of on depth.
+
+Three things generalise:
+
+- **The right default for a neutral struct is what the backend already does**,
+  not what reads as conservative. `ClampToEdge` sounds like the safe pick; it was
+  the divergent one.
+- **A green suite is not evidence about pixels.** Every image above came from a
+  passing test, in both configurations, before and after.
+- **A zero floor is what makes a small number readable.** 2.783 would be
+  invisible against the live scene's floor of 9.74. Against 0.000 it is a
+  measurement — and it is what let the residual be identified rather than
+  assumed.
+
+### "Done" needs an end condition, and it has to be a test
+
+A shader left slot-based renders correctly, so it is indistinguishable from one
+nobody reached — which is why "39 remaining" survived three review rounds without
+ever meaning anything. `BindlessShaderPipeline.EveryShaderIsOnTheRouteOrExplicitlyExcluded`
+now fails on any sampler-declaring shader that is neither converted nor carries a
+recorded reason, and checks its exception table in **both** directions so the
+table cannot rot into a silencer. The four surviving reasons are tabulated in
+glsl-shaders.md §5e; they are genuinely different from each other, which is why a
+single "not yet" bucket would have been worse than none.
 
 ---
 
