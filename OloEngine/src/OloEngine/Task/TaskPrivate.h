@@ -1088,7 +1088,16 @@ namespace OloEngine::Tasks
 
               private:
                 TArray<FTaskBase*, AllocatorType> m_Subsequents;
-                std::atomic<bool> m_IsClosed{ false };
+                // Cache-line separated from m_Subsequents: PushIfNotClosed's unlocked
+                // fast-path read of m_IsClosed runs on every prerequisite->subsequent
+                // edge added anywhere in the task graph (FTaskBase::AddSubsequent),
+                // often from several worker threads racing to attach themselves to the
+                // same shared prerequisite. Without separation those reads keep
+                // dragging m_Subsequents' inline storage between Exclusive and Shared,
+                // so Close()'s m_Mutex.Lock() (an Exclusive-owning RMW on the same line)
+                // pays an extra invalidation round-trip it would not otherwise need
+                // (Pikus, "Lock-Free Programming is Dead", C++Now 2026).
+                alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<bool> m_IsClosed{ false };
                 FMutex m_Mutex;
             };
 
