@@ -99,6 +99,7 @@ namespace OloEngine
 
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;
+        void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) override;
 
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override;
@@ -314,5 +315,10 @@ namespace OloEngine
         OpenGLDescriptorHeapBackend m_DescriptorHeapBackend;
         // Guards the destructor against touching GL at atexit — see ~OpenGLRendererAPI.
         bool m_GpuResourcesReleased = false;
+        // Whether Init() ever ran — a never-initialised instance (the
+        // static-init one RecreateForSelectedBackend replaces, ADR 0011
+        // amendment (39)) held no GPU resources and must not warn at
+        // destruction.
+        bool m_Initialized = false;
     };
 } // namespace OloEngine

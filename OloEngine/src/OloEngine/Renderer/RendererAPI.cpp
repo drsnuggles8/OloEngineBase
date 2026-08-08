@@ -1,6 +1,9 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanRendererAPI.h"
+#endif
 
 namespace OloEngine
 {
@@ -17,11 +20,17 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                // Unreachable until Phase 5: this factory runs at static init (see
-                // RenderCommand.cpp), before --rhi= is parsed, so s_API is still the
-                // default here; and the Vulkan bring-up never routes RenderCommand.
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no RendererAPI implementation until #691 Phase 5!");
+                // Reachable since Phase 5 ONLY through
+                // RenderCommand::RecreateForSelectedBackend() — the static-init
+                // construction (RenderCommand.cpp) always runs before --rhi=
+                // parses and therefore always builds the OpenGL default
+                // (ADR 0011 amendment (39)).
+#if OLO_WITH_VULKAN
+                return CreateScope<VulkanRendererAPI>();
+#else
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan selected but OLO_WITH_VULKAN=OFF — the backend is not compiled in!");
                 return nullptr;
+#endif
             }
             case RendererAPI::API::OpenGL:
             {

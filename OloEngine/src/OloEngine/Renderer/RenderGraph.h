@@ -12,6 +12,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <span>
 #include <vector>
 #include <unordered_map>
 #include <string>
@@ -898,6 +899,16 @@ namespace OloEngine
             std::string Resource;
             MemoryBarrierFlags Flags = MemoryBarrierFlags::None;
             RGSubresourceRange Range; ///< subresource range from the consuming access declaration
+
+            // The consumer's access, captured AT EMISSION (ADR 0011 §1.5,
+            // Phase 5). For a read-after-write barrier this is the consumer's
+            // read access; for a write-after-write barrier it is the
+            // consumer's WRITE access — which is exactly what the old
+            // transition-building rescan could not recover (it looked only at
+            // read declarations and silently defaulted a WAW consumer to
+            // ShaderSample). Capturing it here kills that defect at the
+            // source instead of patching the rescan.
+            RHI::Access ToAccess = RHI::Access::Undefined;
         };
 
         struct ExecutionTiming
@@ -1136,6 +1147,63 @@ namespace OloEngine
         [[nodiscard]] std::vector<AsyncComputeBatch> GetAsyncComputeBatches() const;
 
         // -------------------------------------------------------------------
+        // Explicit resource transition records
+        // -------------------------------------------------------------------
+        // For each planned barrier, captures the before-state (producer's
+        // access) and after-state (consumer's access) so explicit-barrier
+        // backends can insert the correct image-layout transitions and
+        // pipeline-stage masks without re-querying the per-pass
+        // access-declaration tables.
+        //
+        // Each record corresponds one-to-one with an entry in
+        // GetPlannedBarriers(): same resource/consumerPass pairing, with the
+        // producer's and consumer's accesses added.
+        //
+        // Phase 5 (ADR 0011 §1.5): the pair is typed with the unified
+        // RHI::Access lattice, NOT the old RGWriteUsage -> RGReadUsage pair —
+        // that pair structurally could not express a write->write transition
+        // (the planner emits WAW barriers, and the old record silently
+        // defaulted their ToUsage to ShaderSample; harmless on GL where only
+        // Flags is read, wrong layout + wrong access mask on Vulkan).
+        // RGReadUsage / RGWriteUsage remain the BUILDER's declaration
+        // vocabulary; this record is where they unify.
+        //
+        // Backend mapping:
+        //   Vulkan  : (FromAccess, ToAccess, aspect, ReadWhileAttached) →
+        //             VkImageMemoryBarrier2 (stage/access masks + old/new
+        //             layout). FromAccess == Undefined means the contents may
+        //             be discarded (oldLayout UNDEFINED).
+        //   GL 4.6  : glMemoryBarrier(Flags) — Flags stays the GL lowering,
+        //             derived by the planner exactly as before Phase 5.
+        struct ResourceTransition
+        {
+            std::string ResourceName;                            ///< virtual resource in the graph
+            std::string ProducerPass;                            ///< last writer before this transition; "external" when only imported
+            std::string ConsumerPass;                            ///< pass whose access triggers the barrier (barrier inserted before it)
+            RHI::Access FromAccess = RHI::Access::Undefined;     ///< producer's access; Undefined for external/first-use (discardable)
+            RHI::Access ToAccess = RHI::Access::Undefined;       ///< consumer's access (read OR write — WAW is representable)
+            MemoryBarrierFlags Flags = MemoryBarrierFlags::None; ///< the GL lowering, from PlannedBarrier (ADR 0011 §1.5)
+            RGSubresourceRange Range;                            ///< subresource range from the consuming access declaration
+
+            // Set when the consuming pass ALSO has this resource declared as
+            // an attachment write while reading it (same-pass feedback, e.g.
+            // the PCSS blocker search sampling raw depth of the bound depth
+            // attachment). The third input of the backend's layout resolution
+            // (ADR 0011 §1.5): such a read lowers to
+            // DEPTH_STENCIL_READ_ONLY_OPTIMAL / GENERAL, not the plain
+            // read-only layout.
+            bool ReadWhileAttached = false;
+
+            // Cross-lane sync metadata (release/acquire intent).
+            // Set when ProducerPass and ConsumerPass reside on different queue lanes.
+            // On GL 4.6 this is informational only; on Vulkan/DX12 it drives
+            // ownership-transfer barriers and semaphore waits.
+            bool IsCrossLane = false;                     ///< true when producer and consumer are on different queue lanes
+            QueueLane ProducerLane = QueueLane::Graphics; ///< lane of the producing pass; Graphics for "external" producers
+            QueueLane ConsumerLane = QueueLane::Graphics; ///< lane of the consuming pass
+        };
+
+        // -------------------------------------------------------------------
         // Submission-plan IR
         // -------------------------------------------------------------------
         // A backend-portable linearised sequence of operations that a
@@ -1172,10 +1240,23 @@ namespace OloEngine
             Kind CommandKind = Kind::Pass;
             std::string NodeName;                                                 ///< non-empty for Pass commands
             RenderGraphNode* NodePointer = nullptr;                               ///< cached node pointer to avoid map lookups
-            MemoryBarrierFlags Barriers = MemoryBarrierFlags::None;               ///< for MemoryBarrier commands
+            MemoryBarrierFlags Barriers = MemoryBarrierFlags::None;               ///< for MemoryBarrier commands: the GL lowering
             u32 BatchIndex = 0;                                                   ///< for BatchBegin/BatchEnd: which async batch
             RenderGraphPassWorkType WorkType = RenderGraphPassWorkType::Graphics; ///< for Pass commands
             QueueLane Lane = QueueLane::Graphics;                                 ///< queue lane assignment for this command
+
+            // For MemoryBarrier commands: the per-resource transitions this
+            // barrier covers, deduplicated on (resource, range, from, to) —
+            // the planner emits one barrier per prior writer, but for layout
+            // purposes only the LAST writer's state matters (earlier writers
+            // are ordered transitively through the WAW barriers between the
+            // writers themselves). GL ignores this and executes `Barriers`;
+            // Vulkan lowers each entry to a VkImageMemoryBarrier2 /
+            // VkBufferMemoryBarrier2 batched into one vkCmdPipelineBarrier2.
+            // Name-keyed on purpose: physical handles change per frame under
+            // transient pooling, so handle resolution happens at execute
+            // time (RGCommandContext), never at plan-bake time.
+            std::vector<ResourceTransition> Transitions; ///< for MemoryBarrier commands
 
             // Self-contained batch-boundary metadata so
             // backends can map waits/signals/resource ownership transitions
@@ -1193,46 +1274,6 @@ namespace OloEngine
         // compute-hoist have already run.
         [[nodiscard]] std::vector<SubmissionCommand> GetSubmissionPlan() const;
 
-        // -------------------------------------------------------------------
-        // Explicit resource transition records
-        // -------------------------------------------------------------------
-        // For each planned barrier, captures the before-state (producer's
-        // write usage) and after-state (consumer's read usage) so
-        // explicit-barrier backends can insert the correct image-layout
-        // transitions and pipeline-stage masks without re-querying the
-        // per-pass access-declaration tables.
-        //
-        // Each record corresponds one-to-one with an entry in
-        // GetPlannedBarriers(): same resource/consumerPass pairing, with the
-        // producer's write-usage and the consumer's read-usage added.
-        //
-        // Backend mapping:
-        //   Vulkan  : FromUsage → VkImageLayout (e.g. RenderTarget →
-        //             COLOR_ATTACHMENT_OPTIMAL); ToUsage → SHADER_READ_ONLY.
-        //             Flags → VkAccessFlags / VkPipelineStageFlags.
-        //   DX12    : FromUsage → D3D12_RESOURCE_STATE_RENDER_TARGET;
-        //             ToUsage → D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE.
-        //   GL 4.6  : glMemoryBarrier(Flags) already inserted; transition
-        //             records are informational until explicit barriers land.
-        struct ResourceTransition
-        {
-            std::string ResourceName;                            ///< virtual resource in the graph
-            std::string ProducerPass;                            ///< last writer before this transition; "external" when only imported
-            std::string ConsumerPass;                            ///< pass that reads the resource (barrier inserted before it)
-            RGWriteUsage FromUsage = RGWriteUsage::RenderTarget; ///< write usage of ProducerPass
-            RGReadUsage ToUsage = RGReadUsage::ShaderSample;     ///< read usage of ConsumerPass
-            MemoryBarrierFlags Flags = MemoryBarrierFlags::None; ///< barrier flags from PlannedBarrier
-            RGSubresourceRange Range;                            ///< subresource range from the consuming access declaration
-
-            // Cross-lane sync metadata (release/acquire intent).
-            // Set when ProducerPass and ConsumerPass reside on different queue lanes.
-            // On GL 4.6 this is informational only; on Vulkan/DX12 it drives
-            // ownership-transfer barriers and semaphore waits.
-            bool IsCrossLane = false;                     ///< true when producer and consumer are on different queue lanes
-            QueueLane ProducerLane = QueueLane::Graphics; ///< lane of the producing pass; Graphics for "external" producers
-            QueueLane ConsumerLane = QueueLane::Graphics; ///< lane of the consuming pass
-        };
-
         // Derive all resource transition records from the current barrier plan
         // and access declarations. Returns an empty vector when no barriers are
         // planned (no declared reads/writes or passes not yet executed).
@@ -1240,6 +1281,22 @@ namespace OloEngine
         // ComputeBarrierPlan() have run so that m_PlannedBarriers and
         // m_PassAccessDeclarations are populated.
         [[nodiscard]] std::vector<ResourceTransition> GetResourceTransitions() const;
+
+        // Phase 5 (ADR 0011 §1.5): resolve name-keyed transition records into
+        // the handle-keyed RHI::Barrier form the facade's IssueBarrierBatch
+        // takes. Runs at EXECUTE time, never at plan-bake time — transient
+        // physicals change per frame under pooling, so a baked handle would
+        // be exactly the stale-pool-read archetype
+        // (render-graph-transient-aliasing.md). Version-aliased names resolve
+        // to their source physical; a framebuffer resource fans out to one
+        // barrier per attachment; entries that cannot answer in the identity
+        // currency (native-only imports) are skipped — the GL flags path
+        // still covers them, and a Vulkan graph must import by handle.
+        // Range.Aspect stays at its default: the backend derives the real
+        // aspect mask from the image's own format, which it knows
+        // authoritatively; the field is only meaningful for a declared
+        // aspect-split transition, which no pass performs today.
+        [[nodiscard]] std::vector<RHI::Barrier> ResolveTransitionsToBarriers(std::span<const ResourceTransition> transitions) const;
 
         // -------------------------------------------------------------------
         // Unified resource lifetime records
@@ -1507,6 +1564,13 @@ namespace OloEngine
         struct PhysicalBuffer
         {
             u32 BufferID = 0;
+            // Phase 5: the identity currency, set alongside BufferID wherever
+            // the graph itself does the setting (transient materialization —
+            // the planner holds the pooled Ref and reads both off one
+            // pointer, same contract as PhysicalTexture). A native-only
+            // import keeps a null handle and is skipped by
+            // ResolveTransitionsToBarriers until its chain migrates.
+            RHI::ResourceHandle Handle;
         };
 
         // Parallel arrays — index by handle.Index (same slot system as HandleSlots).

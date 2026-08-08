@@ -414,19 +414,19 @@ namespace OloEngine::RHI
     // -------------------------------------------------------------------------
     // Access — the unified barrier lattice.
     //
-    // ADR 0011 §1.5. RenderGraph::ResourceTransition currently types its
+    // ADR 0011 §1.5. Before Phase 5, RenderGraph::ResourceTransition typed its
     // transition as `RGWriteUsage FromUsage` -> `RGReadUsage ToUsage`, which
-    // structurally CANNOT express a write->write transition. The barrier planner
-    // does emit WAW barriers, but BuildResourceTransitions then finds no read
-    // declaration on the consumer and silently falls back to
-    // `ToUsage = RGReadUsage::ShaderSample`.
+    // structurally could NOT express a write->write transition: the barrier
+    // planner emitted WAW barriers, BuildResourceTransitions found no read
+    // declaration on the consumer, and silently fell back to
+    // `ToUsage = RGReadUsage::ShaderSample`. Harmless on GL (only the Flags
+    // bitmask is executed there); on Vulkan it would have lowered a
+    // storage-image WAW into SHADER_READ_ONLY_OPTIMAL with a read-only access
+    // mask — wrong layout, wrong access, silent.
     //
-    // On GL that is harmless — the flags come from PlannedBarrier::Flags, which
-    // the planner derived correctly from the *write* usage, so the bogus ToUsage
-    // is never read. On Vulkan, a backend deriving (dstStageMask, dstAccessMask,
-    // newLayout) from ToUsage would lower a storage-image WAW into
-    // SHADER_READ_ONLY_OPTIMAL with a read-only access mask: wrong layout, wrong
-    // access, and silent.
+    // Phase 5 fixed it at the source: PlannedBarrier captures the consumer's
+    // access (read OR write) AT EMISSION, and ResourceTransition carries this
+    // enum as `FromAccess` / `ToAccess`.
     //
     // This single enum covers reads, writes and the initial no-access state, so
     // a transition record can express any pair. RGReadUsage / RGWriteUsage stay
@@ -444,9 +444,9 @@ namespace OloEngine::RHI
     {
         // The resource has no defined contents. First use of a transient this
         // frame, and the state a Vulkan backend uses to discard rather than
-        // preserve. Today `ProducerPass == "external"` defaults FromUsage to
-        // RenderTarget instead, which is wrong for a genuine first use — see
-        // ADR 0011 §1.5.
+        // preserve. Since Phase 5, `ProducerPass == "external"` transitions
+        // carry this as FromAccess (the pre-Phase-5 record defaulted to
+        // RenderTarget, wrong for a genuine first use — ADR 0011 §1.5).
         Undefined = 0,
 
         IndirectArgsRead,
@@ -500,6 +500,71 @@ namespace OloEngine::RHI
         Graphics = 0,
         Compute,
         Transfer,
+    };
+
+    // -------------------------------------------------------------------------
+    // Barrier vocabulary. MOVED here from RHIResources.h in Phase 5, when
+    // `RendererAPI::IssueBarrierBatch` made these facade vocabulary and
+    // RendererAPI.h includes only this header — the same move-don't-duplicate
+    // rule as MemoryResidency below (Phase 2 step 2's amendment method).
+    // -------------------------------------------------------------------------
+
+    // Which plane(s) of a resource an access refers to. A depth-stencil format
+    // has two, and Vulkan can transition them independently
+    // (DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL and its mirror), so a range
+    // without an aspect is not a complete subresource identifier. The engine's
+    // existing RGSubresourceRange omits this; it is added here because
+    // CreateDepthArrayCompareOffView already produces a depth-only read of a
+    // resource that is elsewhere used as a depth-stencil attachment.
+    enum class TextureAspect : u8
+    {
+        Color = 0,
+        Depth,
+        Stencil,
+        DepthStencil,
+    };
+
+    struct SubresourceRange
+    {
+        static constexpr u32 AllRemaining = ~0u;
+
+        TextureAspect Aspect = TextureAspect::Color;
+        u32 BaseMip = 0;
+        u32 MipCount = AllRemaining;
+        u32 BaseLayer = 0;
+        u32 LayerCount = AllRemaining;
+
+        [[nodiscard]] auto operator==(const SubresourceRange& other) const -> bool = default;
+    };
+
+    // ADR 0011 §1.5: the handle-resolved form of one RenderGraph
+    // ResourceTransition, batched per consumer pass and handed to
+    // `RendererAPI::IssueBarrierBatch`. The GL backend ignores these (its
+    // lowering is the MemoryBarrierFlags bitmask the planner also derives);
+    // the Vulkan backend lowers each to a VkImageMemoryBarrier2 /
+    // VkBufferMemoryBarrier2.
+    //
+    // There is no image-layout member, deliberately: layout is a function of
+    // (Access, aspect, read-while-attached) that the Vulkan backend owns.
+    // `ReadWhileAttached` is the third input of that function — set when the
+    // consuming pass also has the resource bound as an attachment while
+    // reading it (the PCSS raw-depth-sample case), which lowers to
+    // DEPTH_STENCIL_READ_ONLY_OPTIMAL / GENERAL instead of the plain
+    // read-only layouts.
+    struct Barrier
+    {
+        ResourceHandle Resource;
+        SubresourceRange Range;
+        Access Before = Access::Undefined;
+        Access After = Access::Undefined;
+        bool ReadWhileAttached = false;
+
+        // Set when producer and consumer sit on different queues. On GL 4.6
+        // (one command stream) this is informational; on Vulkan it drives
+        // queue-family ownership transfer and semaphore waits.
+        bool IsCrossQueue = false;
+        QueueType SourceQueue = QueueType::Graphics;
+        QueueType DestQueue = QueueType::Graphics;
     };
 
     // -------------------------------------------------------------------------

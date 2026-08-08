@@ -41,6 +41,13 @@ namespace OloEngine::RenderGraphSubmissionPlan
     {
         std::span<const std::string> ExecutionOrder;
         std::span<const RenderGraph::PlannedBarrier> PlannedBarriers;
+        // Phase 5 (ADR 0011 §1.5): the per-resource transition records for
+        // the same barrier plan. Attached (deduplicated) to each emitted
+        // MemoryBarrier command so an explicit-barrier backend can lower
+        // per-resource layout transitions without re-querying the graph.
+        // May be empty (headless plan-shape tests) — GL execution never
+        // reads them.
+        std::span<const RenderGraph::ResourceTransition> Transitions;
         std::span<const RenderGraph::AsyncComputeBatch> Batches;
         std::function<RenderGraphPassWorkType(const std::string&)> GetPassWorkType;
         // Returns the node pointer for the named pass, or nullptr if the

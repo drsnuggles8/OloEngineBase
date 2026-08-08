@@ -42,7 +42,12 @@ namespace OloEngine::RenderGraphPlanExecutor
                 case SubmissionCommand::Kind::MemoryBarrier:
                 {
                     if (input.RuntimeBarrierExecutionEnabled)
-                        input.Context.MemoryBarrier(cmd.Barriers);
+                    {
+                        std::vector<RHI::Barrier> resolved;
+                        if (input.GraphForBarrierResolution && !cmd.Transitions.empty())
+                            resolved = input.GraphForBarrierResolution->ResolveTransitionsToBarriers(cmd.Transitions);
+                        input.Context.IssueBarrierBatch(cmd.Barriers, resolved);
+                    }
                     break;
                 }
                 case SubmissionCommand::Kind::Pass:

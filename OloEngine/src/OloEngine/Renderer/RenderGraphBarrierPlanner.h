@@ -30,9 +30,31 @@ namespace OloEngine::RenderGraphBarrierPlanner
 
     // ------------------------------------------------------------------------
     // Pure flag-resolution helpers (no state — usable from any caller).
+    //
+    // ADR 0011 §1.5: these two are the GL LOWERING — the MemoryBarrierFlags
+    // they produce feed glMemoryBarrier and nothing else. The neutral truth a
+    // transition carries is the RHI::Access pair below.
     // ------------------------------------------------------------------------
     [[nodiscard]] auto ResolveProducerBarrierFlags(RGWriteUsage usage) -> MemoryBarrierFlags;
     [[nodiscard]] auto ResolveConsumerBarrierFlags(RGReadUsage usage) -> MemoryBarrierFlags;
+
+    // ------------------------------------------------------------------------
+    // Builder-usage → unified-access mapping (ADR 0011 §1.5, Phase 5).
+    //
+    // RGWriteUsage / RGReadUsage stay the builder's declaration vocabulary;
+    // the transition record is typed with RHI::Access so a write→write pair
+    // is representable. Notes on the two deliberate collapses:
+    //   - ShaderImage and ShaderStorage both map to Storage{Read,Write}: the
+    //     image-vs-buffer distinction is recovered from the resource's kind
+    //     at lowering time (only images have layouts; the GL flag split is
+    //     preserved separately by the flag resolvers above).
+    //   - RGWriteUsage::Clear maps to ClearAsLoadOp: its only producer site
+    //     (OITPrepareRenderPass) is a load-op clear. An explicit
+    //     vkCmdClearColorImage-style clear must be declared TransferDest
+    //     (→ TransferWrite) instead — that is the §1.5 Clear split.
+    // ------------------------------------------------------------------------
+    [[nodiscard]] auto AccessForWriteUsage(RGWriteUsage usage) -> RHI::Access;
+    [[nodiscard]] auto AccessForReadUsage(RGReadUsage usage) -> RHI::Access;
 
     // ------------------------------------------------------------------------
     // ComputeBarrierPlan inputs/outputs.

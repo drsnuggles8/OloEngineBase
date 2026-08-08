@@ -1,0 +1,287 @@
+#pragma once
+
+// =============================================================================
+// VulkanRendererAPI — the Vulkan implementation of the RendererAPI facade
+// (issue #691 Phase 5).
+//
+// Phase 5 scope: the render graph's EXECUTION layer — barrier batches
+// (IssueBarrierBatch via VulkanBarrierLowering + the layout tracker),
+// transient clears (the poison instrument's ClearTexture*/ClearBuffer*),
+// dynamic viewport/scissor, device queries, and debug labels. Everything
+// pipeline-shaped (draws, shader binds, buffer lifecycle, queries, fences)
+// is a WARN-ONCE stub naming Phase 6 — deliberately loud, never silent,
+// which is what ADR 0011 amendment (42) demanded of the first
+// VulkanRendererAPI ("~100 no-op virtuals inviting silent fallthrough" was
+// the reason Phase 4 refused to build one; the stubs' warn-once counters are
+// the mitigation).
+//
+// Recording model: Vulkan has no GL-style implicit current context — every
+// vkCmd* needs a live VkCommandBuffer. Whoever drives execution (the
+// device-gated execution test now, VulkanContext's frame loop when the graph
+// is wired into it) brackets work in BeginRecording/EndRecording. A
+// recording-dependent entry point called outside a bracket warn-once skips.
+// =============================================================================
+
+#include "OloEngine/Core/Base.h"
+
+#if OLO_WITH_VULKAN
+
+#include "OloEngine/Renderer/RendererAPI.h"
+#include "Platform/Vulkan/VulkanImageLayoutTracker.h"
+
+#include <volk.h>
+
+#include <string>
+#include <unordered_set>
+
+namespace OloEngine
+{
+    // Pipeline-key state recorded from the facade's state-setter entry
+    // points. Vulkan bakes nearly all of this into the VkPipeline, so
+    // Phase 5 RECORDS it for Phase 6's pipeline-key derivation instead of
+    // stubbing the setters — a state packet is a real dispatch, not a
+    // Phase 6 loss (the execution test pins that state packets never touch
+    // the stub counter).
+    struct VulkanRecordedPipelineState
+    {
+        static constexpr u32 kMaxAttachments = 8;
+
+        glm::vec4 ClearColor{ 0.0f };
+        f32 ClearDepth = 1.0f;
+        bool DepthTest = true;
+        bool DepthWrite = true;
+        RHI::CompareOp DepthFunc = RHI::CompareOp::Less;
+        bool Blend = false;
+        RHI::BlendFactor BlendSrcRGB = RHI::BlendFactor::One;
+        RHI::BlendFactor BlendDstRGB = RHI::BlendFactor::Zero;
+        RHI::BlendFactor BlendSrcAlpha = RHI::BlendFactor::One;
+        RHI::BlendFactor BlendDstAlpha = RHI::BlendFactor::Zero;
+        RHI::BlendOp BlendEquation = RHI::BlendOp::Add;
+        bool StencilTest = false;
+        RHI::CompareOp StencilFunc = RHI::CompareOp::Always;
+        i32 StencilRef = 0;
+        u32 StencilReadMask = 0xFFFFFFFFu;
+        u32 StencilWriteMask = 0xFFFFFFFFu;
+        RHI::StencilOp StencilFail = RHI::StencilOp::Keep;
+        RHI::StencilOp StencilDepthFail = RHI::StencilOp::Keep;
+        RHI::StencilOp StencilPass = RHI::StencilOp::Keep;
+        bool Culling = false;
+        RHI::CullMode CullFace = RHI::CullMode::Back;
+        RHI::FrontFace FrontFaceWinding = RHI::FrontFace::CounterClockwise;
+        RHI::PolygonMode PolygonMode = RHI::PolygonMode::Fill;
+        bool PolygonOffsetEnabled = false;
+        f32 PolygonOffsetFactor = 0.0f;
+        f32 PolygonOffsetUnits = 0.0f;
+        bool ScissorTest = false;
+        bool Multisampling = true;
+        f32 LineWidth = 1.0f;
+        bool ColorMask[4] = { true, true, true, true };
+        u32 PatchVertexCount = 3;
+
+        bool AttachmentBlend[kMaxAttachments] = {};
+        RHI::BlendFactor AttachmentBlendSrc[kMaxAttachments] = {};
+        RHI::BlendFactor AttachmentBlendDst[kMaxAttachments] = {};
+        u8 AttachmentColorMask[kMaxAttachments] = { 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF };
+    };
+
+    class VulkanRendererAPI : public RendererAPI
+    {
+      public:
+        VulkanRendererAPI() = default;
+        ~VulkanRendererAPI() override = default;
+
+        [[nodiscard]] const VulkanRecordedPipelineState& RecordedState() const
+        {
+            return m_State;
+        }
+
+        // --- Phase 5 recording bracket (backend-internal, not facade) -----
+        void BeginRecording(VkCommandBuffer cmd);
+        void EndRecording();
+        [[nodiscard]] VkCommandBuffer CurrentCommandBuffer() const
+        {
+            return m_Cmd;
+        }
+        [[nodiscard]] VulkanImageLayoutTracker& LayoutTracker()
+        {
+            return m_LayoutTracker;
+        }
+
+        // Observability for the execution test: how many packets/entry points
+        // hit a Phase 6 stub (nothing may fall through silently).
+        [[nodiscard]] u64 GetPhase6StubHitCount() const
+        {
+            return m_Phase6StubHits;
+        }
+
+        // --- RendererAPI ---------------------------------------------------
+        void Init() override;
+        void SetViewport(u32 x, u32 y, u32 width, u32 height) override;
+        void SetClearColor(const glm::vec4& color) override;
+        void Clear() override;
+        void ClearDepthOnly() override;
+        void ClearColorAndDepth() override;
+        Viewport GetViewport() const override;
+        void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
+        void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount) override;
+        void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 instanceCount) override;
+        void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
+        void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) override;
+        void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount) override;
+        void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex) override;
+        void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex, u32 instanceCount) override;
+        void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices) override;
+        void SetLineWidth(f32 width) override;
+        void EnableCulling() override;
+        void DisableCulling() override;
+        void FrontCull() override;
+        void BackCull() override;
+        void SetCullFace(RHI::CullMode face) override;
+        void SetDepthMask(bool value) override;
+        void SetDepthTest(bool value) override;
+        void SetDepthFunc(RHI::CompareOp func) override;
+        void SetBlendState(bool value) override;
+        void SetBlendFunc(RHI::BlendFactor sfactor, RHI::BlendFactor dfactor) override;
+        void SetBlendEquation(RHI::BlendOp mode) override;
+        void EnableStencilTest() override;
+        void DisableStencilTest() override;
+        bool IsStencilTestEnabled() const override;
+        void SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask) override;
+        void SetStencilOp(RHI::StencilOp sfail, RHI::StencilOp dpfail, RHI::StencilOp dppass) override;
+        void SetStencilMask(u32 mask) override;
+        void ClearStencil() override;
+        void SetPolygonMode(RHI::PolygonMode mode) override;
+        void EnableScissorTest() override;
+        void DisableScissorTest() override;
+        void SetScissorBox(i32 x, i32 y, u32 width, u32 height) override;
+        void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override;
+        void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override;
+        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer) override;
+        void MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer, u32 indirectOffsetBytes, RHI::ResourceHandle parameterBuffer, u32 parameterOffsetBytes, u32 maxDrawCount, u32 strideBytes) override;
+        void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
+        void MemoryBarrier(MemoryBarrierFlags flags) override;
+        void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) override;
+        void BindDefaultFramebuffer() override;
+        void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override;
+        void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
+        void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered, u32 layer, RHI::Access access, RHI::Format format) override;
+        void SetPolygonOffset(f32 factor, f32 units) override;
+        void EnableMultisampling() override;
+        void DisableMultisampling() override;
+        void SetColorMask(bool red, bool green, bool blue, bool alpha) override;
+        void SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha) override;
+        void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
+        void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
+        void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget, RHI::ResourceHandle dst, TextureTargetType dstTarget, u32 width, u32 height) override;
+        void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ, u32 width, u32 height) override;
+        void CopyFramebufferToTexture(RHI::ResourceHandle texture, u32 width, u32 height) override;
+        void SetDrawBuffers(std::span<const u32> attachments) override;
+        void RestoreAllDrawBuffers(u32 colorAttachmentCount) override;
+        [[nodiscard]] RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture, u32 numLayers) override;
+        void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override;
+        void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override;
+        void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height, RHI::Format sourceFormat, const void* data) override;
+        void BeginConditionalRender(RHI::ResourceHandle query) override;
+        void EndConditionalRender() override;
+        void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
+        void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
+        void BindShaderProgram(RHI::ResourceHandle program) override;
+        void BindVertexArrayRaw(RHI::ResourceHandle vertexArray) override;
+        void BindFramebuffer(RHI::ResourceHandle framebuffer) override;
+        void DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount, RHI::IndexType indexType, u32 baseIndex) override;
+        void DrawBoundIndexedInstanced(RHI::PrimitiveTopology topology, u32 indexCount, RHI::IndexType indexType, u32 baseIndex, u32 instanceCount) override;
+        void DrawBoundArrays(RHI::PrimitiveTopology topology, u32 firstVertex, u32 vertexCount) override;
+        void SetPatchVertexCount(u32 patchVertices) override;
+        void SetFrontFace(RHI::FrontFace face) override;
+        void SetBlendFuncSeparate(RHI::BlendFactor srcRGB, RHI::BlendFactor dstRGB, RHI::BlendFactor srcAlpha, RHI::BlendFactor dstAlpha) override;
+        void SetClearDepth(f32 depth) override;
+        void AttachFramebufferColorTexture(RHI::ResourceHandle framebuffer, u32 attachmentIndex, RHI::ResourceHandle texture, u32 mipLevel) override;
+        void AttachFramebufferDepthTexture(RHI::ResourceHandle framebuffer, RHI::ResourceHandle texture, u32 mipLevel) override;
+        [[nodiscard("Store this!")]] bool IsFramebufferComplete(RHI::ResourceHandle framebuffer) override;
+        void SetFramebufferDrawAttachments(RHI::ResourceHandle framebuffer, std::span<const u32> attachmentIndices) override;
+        void RestoreAllFramebufferDrawAttachments(RHI::ResourceHandle framebuffer, u32 colorAttachmentCount) override;
+        void SetFramebufferReadAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex) override;
+        void ClearFramebufferColorAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex, const glm::vec4& color) override;
+        void ClearFramebufferDepth(RHI::ResourceHandle framebuffer, f32 depth) override;
+        void BlitFramebuffer(RHI::ResourceHandle srcFramebuffer, RHI::ResourceHandle dstFramebuffer, i32 srcX0, i32 srcY0, i32 srcX1, i32 srcY1, i32 dstX0, i32 dstY0, i32 dstX1, i32 dstY1, RHI::BlitAspect aspect, RHI::Filter filter) override;
+        void AllocateBufferStorage(RHI::ResourceHandle buffer, u64 sizeBytes, RHI::MemoryResidency residency) override;
+        void* AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes) override;
+        void UnmapBuffer(RHI::ResourceHandle buffer) override;
+        void UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data) override;
+        void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest) override;
+        void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer, u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes) override;
+        void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value) override;
+        void ClearBufferFloat(RHI::ResourceHandle buffer, f32 value) override;
+        [[nodiscard]] RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat) override;
+        [[nodiscard]] RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat) override;
+        [[nodiscard]] RHI::ResourceHandle CreateFramebufferHandle() override;
+        [[nodiscard]] RHI::ResourceHandle CreateBufferHandle() override;
+        [[nodiscard]] RHI::ResourceHandle CreateVertexArrayHandle() override;
+        void DeleteTexture(RHI::ResourceHandle texture) override;
+        void DeleteFramebuffer(RHI::ResourceHandle framebuffer) override;
+        void DeleteBuffer(RHI::ResourceHandle buffer) override;
+        void DeleteVertexArray(RHI::ResourceHandle vertexArray) override;
+        void SetVertexArrayIndexBuffer(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indexBuffer) override;
+        void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color) override;
+        void ClearTextureUInt(RHI::ResourceHandle texture, u32 mipLevel, u32 value) override;
+        void UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, u32 width, u32 height, RHI::Format sourceFormat, const void* data) override;
+        void UploadTextureSubImage3D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, i32 zOffset, u32 width, u32 height, u32 depth, RHI::Format sourceFormat, const void* data) override;
+        [[nodiscard("Store this!")]] bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel, RHI::Format destFormat, sizet destSizeBytes, void* dest) override;
+        [[nodiscard("Store this!")]] bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel, i32 x, i32 y, i32 z, u32 width, u32 height, u32 depth, RHI::Format destFormat, sizet destSizeBytes, void* dest) override;
+        void GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight) override;
+        void TextureBarrier() override;
+        void CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries) override;
+        void DeleteQueries(std::span<const RHI::ResourceHandle> queries) override;
+        void BeginQuery(RHI::QueryType type, RHI::ResourceHandle query) override;
+        void EndQuery(RHI::QueryType type) override;
+        [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle query) override;
+        [[nodiscard("Store this!")]] u32 GetQueryResultU32(RHI::ResourceHandle query) override;
+        [[nodiscard("Store this!")]] u64 GetQueryResultU64(RHI::ResourceHandle query) override;
+        [[nodiscard("Store this!")]] u64 CreateFence() override;
+        [[nodiscard("Store this!")]] RHI::FenceStatus ClientWaitFence(u64 fence, u64 timeoutNanoseconds) override;
+        [[nodiscard("Store this!")]] bool IsFenceSignaled(u64 fence) override;
+        void DestroyFence(u64 fence) override;
+        void PushDebugGroup(u32 id, std::string_view label) override;
+        void PopDebugGroup() override;
+        void WaitForDeviceIdle() override;
+        [[nodiscard("Store this!")]] u32 GetMaxFramebufferSamples() const override;
+        [[nodiscard("Store this!")]] u32 GetMaxColorTextureSamples() const override;
+        [[nodiscard("Store this!")]] u32 GetMaxDepthTextureSamples() const override;
+        void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value) override;
+        [[nodiscard("Store this!")]] bool IsDeviceAvailable() const override;
+        [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override;
+        [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override;
+
+      private:
+        // Const: several facade getters are const-qualified and still must
+        // count their stub hit (nothing may fall through silently).
+        void Phase6Stub(const char* entryPoint) const;
+
+        VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
+        VulkanImageLayoutTracker m_LayoutTracker;
+        Viewport m_Viewport{};
+
+        mutable u64 m_Phase6StubHits = 0;
+        mutable std::unordered_set<std::string> m_WarnedStubs;
+
+        VulkanRecordedPipelineState m_State;
+
+        // Cached at Init() from the physical device.
+        u32 m_MaxUniformBlockSize = 16384;
+        u32 m_MaxFramebufferSamples = 1;
+        u32 m_MaxColorTextureSamples = 1;
+        u32 m_MaxDepthTextureSamples = 1;
+        bool m_SupportsInt64Atomics = false;
+        bool m_LimitsCached = false;
+        // Barrier stage masks may only name stages whose device features are
+        // ENABLED (VUID-…-03929/-03930): all-ones minus the tessellation /
+        // geometry bits when VulkanDevice did not enable those features.
+        // ANDed onto every per-resource barrier's stage masks; the catch-all
+        // bits (ALL_COMMANDS / ALL_TRANSFER) are single distinct bits and
+        // pass through untouched.
+        VkPipelineStageFlags2 m_EnabledStageMask = ~VkPipelineStageFlags2{ 0 };
+        void CacheDeviceLimits();
+    };
+} // namespace OloEngine
+
+#endif // OLO_WITH_VULKAN

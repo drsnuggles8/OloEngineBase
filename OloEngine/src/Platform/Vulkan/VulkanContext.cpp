@@ -3,34 +3,23 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanContext.h"
-#include "Platform/Vulkan/VulkanCapabilities.h"
-
-// volk before both VMA and GLFW: vk_mem_alloc.h keys its volk import helper on
-// VOLK_HEADER_VERSION, and glfw3.h only declares its Vulkan entry points
-// (glfwCreateWindowSurface et al.) when VK_VERSION_1_0 is already visible.
-#include <volk.h>
-
-// Function-pointer config must match VulkanMemoryAllocator.cpp (the
-// VMA_IMPLEMENTATION TU) exactly — VMA is imported through volk's loaded
-// pointers, never linked statically (nothing links vulkan-1.lib).
-#define VMA_STATIC_VULKAN_FUNCTIONS 0
-#define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
-#include <vk_mem_alloc.h>
+// VulkanDevice.h pulls <volk.h> (and <vk_mem_alloc.h>) — volk must come before
+// GLFW: glfw3.h only declares its Vulkan entry points (glfwCreateWindowSurface
+// et al.) when VK_VERSION_1_0 is already visible.
+#include "Platform/Vulkan/VulkanDevice.h"
 
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
-#include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <vector>
 
 // The vendored Vulkan-Headers (SDK 1.4.357.0, the ADR 0010 tooling floor) must be
 // the ones this TU compiles against. An installed SDK's include dir is also on the
 // include path (via the shaderc toolchain's find_package(Vulkan)); if it ever wins
 // the include search, an older SDK would break the VK_EXT_descriptor_heap
-// declarations silently — fail the build instead.
+// declarations silently — fail the build instead. (Duplicated in VulkanDevice.cpp.)
 static_assert(VK_HEADER_VERSION >= 357,
               "Vulkan headers older than the vendored 1.4.357 floor — the installed SDK's include dir "
               "won the include search over OloEngine/vendor's Vulkan-Headers (see vendor/CMakeLists.txt)");
@@ -39,6 +28,8 @@ namespace OloEngine
 {
     namespace
     {
+        // Kept in sync with VulkanDevice.cpp's copy (both anonymous-namespace,
+        // trivially small — not worth a shared header).
         void VkCheck(VkResult result, const char* what)
         {
             if (result != VK_SUCCESS)
@@ -47,81 +38,20 @@ namespace OloEngine
                                          std::to_string(static_cast<int>(result)) + ")");
             }
         }
-
-#ifdef OLO_DEBUG
-        VKAPI_ATTR VkBool32 VKAPI_CALL DebugMessengerCallback(
-            VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-            VkDebugUtilsMessageTypeFlagsEXT /*types*/,
-            const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
-            void* /*userData*/)
-        {
-            const char* message = (callbackData != nullptr && callbackData->pMessage != nullptr)
-                                      ? callbackData->pMessage
-                                      : "(no message)";
-            if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0)
-            {
-                OLO_CORE_ERROR("[Vulkan] {}", message);
-            }
-            else if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
-            {
-                OLO_CORE_WARN("[Vulkan] {}", message);
-            }
-            else
-            {
-                OLO_CORE_TRACE("[Vulkan] {}", message);
-            }
-            return VK_FALSE;
-        }
-
-        VkDebugUtilsMessengerCreateInfoEXT MakeDebugMessengerCreateInfo()
-        {
-            VkDebugUtilsMessengerCreateInfoEXT info{};
-            info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-            info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-            info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-            info.pfnUserCallback = DebugMessengerCallback;
-            return info;
-        }
-
-        bool ValidationLayerAvailable()
-        {
-            u32 count = 0;
-            if (vkEnumerateInstanceLayerProperties(&count, nullptr) != VK_SUCCESS)
-            {
-                return false;
-            }
-            std::vector<VkLayerProperties> layers(count);
-            if (vkEnumerateInstanceLayerProperties(&count, layers.data()) != VK_SUCCESS)
-            {
-                return false;
-            }
-            for (const VkLayerProperties& layer : layers)
-            {
-                if (std::string_view(layer.layerName) == "VK_LAYER_KHRONOS_validation")
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-#endif
     } // namespace
 
     struct VulkanContextData
     {
         static constexpr u32 kFramesInFlight = 2;
 
-        VkInstance Instance = VK_NULL_HANDLE;
-        VkDebugUtilsMessengerEXT DebugMessenger = VK_NULL_HANDLE;
+        // The window-independent half (volk init, instance, debug messenger,
+        // physical-device pick, device, queue, VMA allocator, command pool)
+        // lives in VulkanDevice since Phase 5 — this struct keeps only the
+        // presentation / frame-loop state. The surface is created by this
+        // context (via the surfaceProvider callback) and OWNED by it;
+        // VulkanDevice only borrows the handle for the queue-family pick.
+        VulkanDevice Device;
         VkSurfaceKHR Surface = VK_NULL_HANDLE;
-        VkPhysicalDevice PhysicalDevice = VK_NULL_HANDLE;
-        VkDevice Device = VK_NULL_HANDLE;
-        u32 QueueFamily = 0;
-        VkQueue Queue = VK_NULL_HANDLE;
-        VmaAllocator Allocator = VK_NULL_HANDLE;
 
         VkSwapchainKHR Swapchain = VK_NULL_HANDLE;
         VkFormat SwapchainFormat = VK_FORMAT_UNDEFINED;
@@ -135,7 +65,6 @@ namespace OloEngine
         // per-frame ACQUIRE semaphore.
         std::vector<VkSemaphore> RenderFinished;
 
-        VkCommandPool CommandPool = VK_NULL_HANDLE;
         struct Frame
         {
             VkSemaphore ImageAvailable = VK_NULL_HANDLE;
@@ -155,46 +84,33 @@ namespace OloEngine
     VulkanContext::~VulkanContext()
     {
         VulkanContextData& d = *m_Data;
-        if (d.Device != VK_NULL_HANDLE)
+        const VkDevice device = d.Device.GetDevice();
+        if (device != VK_NULL_HANDLE)
         {
-            vkDeviceWaitIdle(d.Device);
+            vkDeviceWaitIdle(device);
 
             DestroySwapchain();
             for (VulkanContextData::Frame& frame : d.Frames)
             {
                 if (frame.ImageAvailable != VK_NULL_HANDLE)
                 {
-                    vkDestroySemaphore(d.Device, frame.ImageAvailable, nullptr);
+                    vkDestroySemaphore(device, frame.ImageAvailable, nullptr);
                 }
                 if (frame.InFlight != VK_NULL_HANDLE)
                 {
-                    vkDestroyFence(d.Device, frame.InFlight, nullptr);
+                    vkDestroyFence(device, frame.InFlight, nullptr);
                 }
             }
-            if (d.CommandPool != VK_NULL_HANDLE)
-            {
-                vkDestroyCommandPool(d.Device, d.CommandPool, nullptr);
-            }
-            if (d.Allocator != VK_NULL_HANDLE)
-            {
-                vmaDestroyAllocator(d.Allocator);
-            }
-            vkDestroyDevice(d.Device, nullptr);
         }
-        if (d.Instance != VK_NULL_HANDLE)
+        // The surface is this context's to destroy, and it must go BEFORE the
+        // instance — which Device.Shutdown() below is about to destroy (its
+        // order: command pool -> VMA -> device -> messenger -> instance).
+        if (d.Surface != VK_NULL_HANDLE && d.Device.GetInstance() != VK_NULL_HANDLE)
         {
-            if (d.Surface != VK_NULL_HANDLE)
-            {
-                vkDestroySurfaceKHR(d.Instance, d.Surface, nullptr);
-            }
-#ifdef OLO_DEBUG
-            if (d.DebugMessenger != VK_NULL_HANDLE)
-            {
-                vkDestroyDebugUtilsMessengerEXT(d.Instance, d.DebugMessenger, nullptr);
-            }
-#endif
-            vkDestroyInstance(d.Instance, nullptr);
+            vkDestroySurfaceKHR(d.Device.GetInstance(), d.Surface, nullptr);
+            d.Surface = VK_NULL_HANDLE;
         }
+        d.Device.Shutdown();
         OLO_CORE_INFO("[Vulkan] Context shut down cleanly");
     }
 
@@ -204,6 +120,10 @@ namespace OloEngine
         VulkanContextData& d = *m_Data;
 
         // --- Loader ---------------------------------------------------------
+        // VulkanDevice::Init runs volkInitialize itself (headless tests bring a
+        // device up without a window); it also runs here FIRST so the GLFW
+        // support probe below can fail fast — before any instance work — exactly
+        // as the Phase 4 bring-up did. volkInitialize is safe to run twice.
         if (volkInitialize() != VK_SUCCESS)
         {
             throw std::runtime_error(
@@ -218,223 +138,23 @@ namespace OloEngine
                 "Vulkan bring-up: GLFW reports no Vulkan surface support. Run with --rhi=opengl.");
         }
 
-        // --- Instance -------------------------------------------------------
-        u32 glfwExtensionCount = 0;
-        const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-        if (glfwExtensions == nullptr || glfwExtensionCount == 0)
-        {
-            throw std::runtime_error(
-                "Vulkan bring-up: glfwGetRequiredInstanceExtensions returned nothing. Run with --rhi=opengl.");
-        }
-        std::vector<const char*> instanceExtensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-        std::vector<const char*> instanceLayers;
+        // --- Instance + device (the window-independent half) -----------------
+        // The surface must exist AFTER the instance but BEFORE the physical-
+        // device pick (present support is per queue family, per surface) —
+        // hence the callback shape rather than create-then-pass. The surface
+        // handle lands in d.Surface and stays OWNED by this context.
+        d.Device.Init([this, &d](VkInstance instance) -> VkSurfaceKHR
+                      {
+            VkCheck(glfwCreateWindowSurface(instance, m_WindowHandle, nullptr, &d.Surface),
+                    "glfwCreateWindowSurface");
+            return d.Surface; });
 
-        VkApplicationInfo appInfo{};
-        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName = "OloEngine";
-        appInfo.pEngineName = "OloEngine";
-        appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
-
-        VkInstanceCreateInfo instanceInfo{};
-        instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        instanceInfo.pApplicationInfo = &appInfo;
-
-#ifdef OLO_DEBUG
-        // Chained into pNext so create/destroy of the instance itself is covered
-        // before/after the persistent messenger exists.
-        VkDebugUtilsMessengerCreateInfoEXT messengerInfo = MakeDebugMessengerCreateInfo();
-        const bool useValidation = ValidationLayerAvailable();
-        if (useValidation)
-        {
-            instanceLayers.push_back("VK_LAYER_KHRONOS_validation");
-            instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            instanceInfo.pNext = &messengerInfo;
-        }
-        else
-        {
-            OLO_CORE_WARN("[Vulkan] VK_LAYER_KHRONOS_validation not available — running unvalidated");
-        }
-#endif
-        instanceInfo.enabledExtensionCount = static_cast<u32>(instanceExtensions.size());
-        instanceInfo.ppEnabledExtensionNames = instanceExtensions.data();
-        instanceInfo.enabledLayerCount = static_cast<u32>(instanceLayers.size());
-        instanceInfo.ppEnabledLayerNames = instanceLayers.empty() ? nullptr : instanceLayers.data();
-
-        VkCheck(vkCreateInstance(&instanceInfo, nullptr, &d.Instance), "vkCreateInstance");
-        volkLoadInstance(d.Instance);
-
-#ifdef OLO_DEBUG
-        if (useValidation)
-        {
-            VkCheck(vkCreateDebugUtilsMessengerEXT(d.Instance, &messengerInfo, nullptr, &d.DebugMessenger),
-                    "vkCreateDebugUtilsMessengerEXT");
-        }
-#endif
-
-        // --- Surface --------------------------------------------------------
-        VkCheck(glfwCreateWindowSurface(d.Instance, m_WindowHandle, nullptr, &d.Surface),
-                "glfwCreateWindowSurface");
-
-        // --- Physical device: gate HARD on ADR 0010's capability contract ----
-        u32 deviceCount = 0;
-        VkCheck(vkEnumeratePhysicalDevices(d.Instance, &deviceCount, nullptr), "vkEnumeratePhysicalDevices");
-        if (deviceCount == 0)
-        {
-            throw std::runtime_error("Vulkan bring-up: no Vulkan devices present. Run with --rhi=opengl.");
-        }
-        std::vector<VkPhysicalDevice> devices(deviceCount);
-        VkCheck(vkEnumeratePhysicalDevices(d.Instance, &deviceCount, devices.data()), "vkEnumeratePhysicalDevices");
-
-        // Find a queue family doing BOTH graphics and present. Split-family
-        // hardware is refused for bring-up — every desktop GPU this backend's
-        // hardware floor admits has a combined family, and supporting the split
-        // doubles the sync/sharing surface for no Phase 4 gain.
-        auto findCombinedQueueFamily = [&d](VkPhysicalDevice device) -> std::optional<u32>
-        {
-            u32 familyCount = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, nullptr);
-            std::vector<VkQueueFamilyProperties> families(familyCount);
-            vkGetPhysicalDeviceQueueFamilyProperties(device, &familyCount, families.data());
-            for (u32 i = 0; i < familyCount; ++i)
-            {
-                if ((families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)
-                {
-                    continue;
-                }
-                VkBool32 presentSupport = VK_FALSE;
-                vkGetPhysicalDeviceSurfaceSupportKHR(device, i, d.Surface, &presentSupport);
-                if (presentSupport == VK_TRUE)
-                {
-                    return i;
-                }
-            }
-            return std::nullopt;
-        };
-
-        VulkanCapabilityReport bestRejected;
-        for (VkPhysicalDevice candidate : devices)
-        {
-            VulkanCapabilityReport report = VulkanCapabilities::Evaluate(candidate);
-            const std::optional<u32> family = findCombinedQueueFamily(candidate);
-            if (!family.has_value())
-            {
-                report.Missing.emplace_back("a combined graphics+present queue family");
-                report.Satisfied = false;
-            }
-            if (report.Satisfied)
-            {
-                VkPhysicalDeviceProperties properties{};
-                vkGetPhysicalDeviceProperties(candidate, &properties);
-                // First satisfying discrete GPU wins; a satisfying integrated one is
-                // kept only until a discrete appears.
-                if (d.PhysicalDevice == VK_NULL_HANDLE ||
-                    properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-                {
-                    d.PhysicalDevice = candidate;
-                    d.QueueFamily = *family;
-                    if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-                    {
-                        break;
-                    }
-                }
-            }
-            else if (bestRejected.Missing.empty() || report.Missing.size() < bestRejected.Missing.size())
-            {
-                bestRejected = report;
-            }
-        }
-
-        if (d.PhysicalDevice == VK_NULL_HANDLE)
-        {
-            // Refuse to initialise, naming the missing capability — never degrade
-            // (ADR 0010; the OpenGL fallback is a USER decision, not an engine one).
-            std::string missing;
-            for (const std::string& item : bestRejected.Missing)
-            {
-                missing += (missing.empty() ? "" : ", ") + item;
-            }
-            throw std::runtime_error(
-                "Vulkan bring-up: no device satisfies the capability contract (ADR 0010). Closest device '" +
-                bestRejected.DeviceName + "' is missing: " + missing + ". Run with --rhi=opengl.");
-        }
-
-        {
-            VkPhysicalDeviceProperties properties{};
-            vkGetPhysicalDeviceProperties(d.PhysicalDevice, &properties);
-            OLO_CORE_INFO("[Vulkan] Device: {} (driver {}.{}.{}, API {}.{}.{})", properties.deviceName,
-                          VK_API_VERSION_MAJOR(properties.driverVersion), VK_API_VERSION_MINOR(properties.driverVersion),
-                          VK_API_VERSION_PATCH(properties.driverVersion), VK_API_VERSION_MAJOR(properties.apiVersion),
-                          VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion));
-        }
-
-        // --- Logical device + queue -----------------------------------------
-        const f32 queuePriority = 1.0f;
-        VkDeviceQueueCreateInfo queueInfo{};
-        queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueInfo.queueFamilyIndex = d.QueueFamily;
-        queueInfo.queueCount = 1;
-        queueInfo.pQueuePriorities = &queuePriority;
-
-        // Enable the contract's feature bits now, not in Phase 5: a driver that
-        // advertises the features but rejects enabling them should fail HERE, at
-        // the gate, not later at first descriptor-heap use.
-        VkPhysicalDeviceDescriptorHeapFeaturesEXT heapFeatures{};
-        heapFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT;
-        heapFeatures.descriptorHeap = VK_TRUE;
-        VkPhysicalDeviceShaderUntypedPointersFeaturesKHR untypedFeatures{};
-        untypedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR;
-        untypedFeatures.shaderUntypedPointers = VK_TRUE;
-        untypedFeatures.pNext = &heapFeatures;
-
-        // synchronization2 backs the vkCmdPipelineBarrier2/vkQueueSubmit2 calls in
-        // SwapBuffers. Core in 1.3 and MANDATORY for 1.3+ devices, so it needs no
-        // capability-gate entry — but core-promoted features still default OFF at
-        // device creation, and validation flags every sync2 call without this bit
-        // (the NVIDIA driver happens to tolerate it, which is exactly the kind of
-        // works-by-accident the validation layers exist to catch).
-        VkPhysicalDeviceVulkan13Features vulkan13Features{};
-        vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-        vulkan13Features.synchronization2 = VK_TRUE;
-        vulkan13Features.pNext = &untypedFeatures;
-
-        const std::vector<const char*> deviceExtensions = VulkanCapabilities::RequiredDeviceExtensions();
-
-        VkDeviceCreateInfo deviceInfo{};
-        deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceInfo.pNext = &vulkan13Features;
-        deviceInfo.queueCreateInfoCount = 1;
-        deviceInfo.pQueueCreateInfos = &queueInfo;
-        deviceInfo.enabledExtensionCount = static_cast<u32>(deviceExtensions.size());
-        deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
-
-        VkCheck(vkCreateDevice(d.PhysicalDevice, &deviceInfo, nullptr, &d.Device), "vkCreateDevice");
-        volkLoadDevice(d.Device);
-        vkGetDeviceQueue(d.Device, d.QueueFamily, 0, &d.Queue);
-
-        // --- VMA (vendoring proof + the allocator Phase 5 inherits) ----------
-        {
-            VmaVulkanFunctions vulkanFunctions{};
-            VmaAllocatorCreateInfo allocatorInfo{};
-            allocatorInfo.physicalDevice = d.PhysicalDevice;
-            allocatorInfo.device = d.Device;
-            allocatorInfo.instance = d.Instance;
-            allocatorInfo.vulkanApiVersion = VulkanCapabilities::kMinApiVersion;
-            VkCheck(vmaImportVulkanFunctionsFromVolk(&allocatorInfo, &vulkanFunctions),
-                    "vmaImportVulkanFunctionsFromVolk");
-            allocatorInfo.pVulkanFunctions = &vulkanFunctions;
-            VkCheck(vmaCreateAllocator(&allocatorInfo, &d.Allocator), "vmaCreateAllocator");
-        }
+        const VkDevice device = d.Device.GetDevice();
 
         // --- Commands + per-frame sync ---------------------------------------
-        VkCommandPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        poolInfo.queueFamilyIndex = d.QueueFamily;
-        VkCheck(vkCreateCommandPool(d.Device, &poolInfo, nullptr, &d.CommandPool), "vkCreateCommandPool");
-
         VkCommandBufferAllocateInfo cmdInfo{};
         cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmdInfo.commandPool = d.CommandPool;
+        cmdInfo.commandPool = d.Device.GetCommandPool();
         cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         cmdInfo.commandBufferCount = 1;
 
@@ -446,9 +166,9 @@ namespace OloEngine
 
         for (VulkanContextData::Frame& frame : d.Frames)
         {
-            VkCheck(vkAllocateCommandBuffers(d.Device, &cmdInfo, &frame.Cmd), "vkAllocateCommandBuffers");
-            VkCheck(vkCreateSemaphore(d.Device, &semaphoreInfo, nullptr, &frame.ImageAvailable), "vkCreateSemaphore");
-            VkCheck(vkCreateFence(d.Device, &fenceInfo, nullptr, &frame.InFlight), "vkCreateFence");
+            VkCheck(vkAllocateCommandBuffers(device, &cmdInfo, &frame.Cmd), "vkAllocateCommandBuffers");
+            VkCheck(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &frame.ImageAvailable), "vkCreateSemaphore");
+            VkCheck(vkCreateFence(device, &fenceInfo, nullptr, &frame.InFlight), "vkCreateFence");
         }
 
         // --- Swapchain (+ its per-image semaphores) ---------------------------
@@ -461,9 +181,11 @@ namespace OloEngine
     void VulkanContext::CreateSwapchain()
     {
         VulkanContextData& d = *m_Data;
+        const VkPhysicalDevice physicalDevice = d.Device.GetPhysicalDevice();
+        const VkDevice device = d.Device.GetDevice();
 
         VkSurfaceCapabilitiesKHR caps{};
-        VkCheck(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(d.PhysicalDevice, d.Surface, &caps),
+        VkCheck(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, d.Surface, &caps),
                 "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
 
         // The bring-up clear uses vkCmdClearColorImage, which needs TRANSFER_DST on
@@ -476,9 +198,9 @@ namespace OloEngine
         }
 
         u32 formatCount = 0;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(d.PhysicalDevice, d.Surface, &formatCount, nullptr);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, d.Surface, &formatCount, nullptr);
         std::vector<VkSurfaceFormatKHR> formats(formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(d.PhysicalDevice, d.Surface, &formatCount, formats.data());
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, d.Surface, &formatCount, formats.data());
         VkSurfaceFormatKHR surfaceFormat = formats.at(0);
         for (const VkSurfaceFormatKHR& format : formats)
         {
@@ -534,39 +256,40 @@ namespace OloEngine
         swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
         swapchainInfo.clipped = VK_TRUE;
 
-        VkCheck(vkCreateSwapchainKHR(d.Device, &swapchainInfo, nullptr, &d.Swapchain), "vkCreateSwapchainKHR");
+        VkCheck(vkCreateSwapchainKHR(device, &swapchainInfo, nullptr, &d.Swapchain), "vkCreateSwapchainKHR");
         d.SwapchainFormat = surfaceFormat.format;
         d.SwapchainExtent = extent;
 
         u32 actualImageCount = 0;
-        vkGetSwapchainImagesKHR(d.Device, d.Swapchain, &actualImageCount, nullptr);
+        vkGetSwapchainImagesKHR(device, d.Swapchain, &actualImageCount, nullptr);
         d.SwapchainImages.resize(actualImageCount);
-        vkGetSwapchainImagesKHR(d.Device, d.Swapchain, &actualImageCount, d.SwapchainImages.data());
+        vkGetSwapchainImagesKHR(device, d.Swapchain, &actualImageCount, d.SwapchainImages.data());
 
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         d.RenderFinished.resize(actualImageCount, VK_NULL_HANDLE);
         for (VkSemaphore& semaphore : d.RenderFinished)
         {
-            VkCheck(vkCreateSemaphore(d.Device, &semaphoreInfo, nullptr, &semaphore), "vkCreateSemaphore");
+            VkCheck(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &semaphore), "vkCreateSemaphore");
         }
     }
 
     void VulkanContext::DestroySwapchain()
     {
         VulkanContextData& d = *m_Data;
+        const VkDevice device = d.Device.GetDevice();
         for (VkSemaphore semaphore : d.RenderFinished)
         {
             if (semaphore != VK_NULL_HANDLE)
             {
-                vkDestroySemaphore(d.Device, semaphore, nullptr);
+                vkDestroySemaphore(device, semaphore, nullptr);
             }
         }
         d.RenderFinished.clear();
         d.SwapchainImages.clear();
         if (d.Swapchain != VK_NULL_HANDLE)
         {
-            vkDestroySwapchainKHR(d.Device, d.Swapchain, nullptr);
+            vkDestroySwapchainKHR(device, d.Swapchain, nullptr);
             d.Swapchain = VK_NULL_HANDLE;
         }
     }
@@ -576,7 +299,7 @@ namespace OloEngine
         VulkanContextData& d = *m_Data;
         // Blunt but correct without VK_KHR_swapchain_maintenance1: nothing may
         // reference the old swapchain or its per-image semaphores afterwards.
-        vkDeviceWaitIdle(d.Device);
+        vkDeviceWaitIdle(d.Device.GetDevice());
         DestroySwapchain();
         CreateSwapchain();
         OLO_CORE_INFO("[Vulkan] Swapchain recreated ({}x{})", d.SwapchainExtent.width, d.SwapchainExtent.height);
@@ -586,6 +309,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         VulkanContextData& d = *m_Data;
+        const VkDevice device = d.Device.GetDevice();
 
         // Minimised: a 0-sized framebuffer cannot host a swapchain — skip frames
         // until the window has area again.
@@ -610,10 +334,10 @@ namespace OloEngine
         }
 
         VulkanContextData::Frame& frame = d.Frames[d.FrameIndex];
-        VkCheck(vkWaitForFences(d.Device, 1, &frame.InFlight, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+        VkCheck(vkWaitForFences(device, 1, &frame.InFlight, VK_TRUE, UINT64_MAX), "vkWaitForFences");
 
         u32 imageIndex = 0;
-        const VkResult acquireResult = vkAcquireNextImageKHR(d.Device, d.Swapchain, UINT64_MAX,
+        const VkResult acquireResult = vkAcquireNextImageKHR(device, d.Swapchain, UINT64_MAX,
                                                              frame.ImageAvailable, VK_NULL_HANDLE, &imageIndex);
         if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
         {
@@ -627,7 +351,7 @@ namespace OloEngine
 
         // Only reset the fence once this frame will actually submit (a reset
         // without a submit would deadlock the next wait).
-        VkCheck(vkResetFences(d.Device, 1, &frame.InFlight), "vkResetFences");
+        VkCheck(vkResetFences(device, 1, &frame.InFlight), "vkResetFences");
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -644,7 +368,15 @@ namespace OloEngine
         // UNDEFINED -> TRANSFER_DST: previous contents are irrelevant (we clear).
         VkImageMemoryBarrier2 toTransfer{};
         toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        // srcStageMask must be the ACQUIRE SEMAPHORE'S WAIT STAGE (CLEAR, see
+        // waitInfo.stageMask below), not TOP_OF_PIPE: the semaphore orders
+        // this submission against the presentation engine's read only at the
+        // wait stage, and a layout transition whose srcStage is earlier than
+        // that can begin before the wait — a WRITE_AFTER_READ hazard against
+        // vkAcquireNextImageKHR. Phase 4 shipped TOP_OF_PIPE here and passed,
+        // because only core validation ran; Phase 5's synchronization
+        // validation flagged it on its first live run (issue #691).
+        toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
         toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
         toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
         toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -705,7 +437,7 @@ namespace OloEngine
         submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
         submitInfo.signalSemaphoreInfoCount = 1;
         submitInfo.pSignalSemaphoreInfos = &signalInfo;
-        VkCheck(vkQueueSubmit2(d.Queue, 1, &submitInfo, frame.InFlight), "vkQueueSubmit2");
+        VkCheck(vkQueueSubmit2(d.Device.GetQueue(), 1, &submitInfo, frame.InFlight), "vkQueueSubmit2");
 
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -714,7 +446,7 @@ namespace OloEngine
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &d.Swapchain;
         presentInfo.pImageIndices = &imageIndex;
-        const VkResult presentResult = vkQueuePresentKHR(d.Queue, &presentInfo);
+        const VkResult presentResult = vkQueuePresentKHR(d.Device.GetQueue(), &presentInfo);
         if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
         {
             RecreateSwapchain();

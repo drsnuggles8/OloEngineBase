@@ -79,6 +79,11 @@ namespace OloEngine
         u32 BaseSlice = 0;
         u32 SliceCount = ~0u; // ~0u means "all slices from BaseSlice"
 
+        // Phase 5: the submission plan dedupes per-consumer transitions on
+        // (resource, range, from, to). Trailing-return form for MSVC (see
+        // cpp-coding-quality.md §7).
+        [[nodiscard]] auto operator==(const RGSubresourceRange& other) const -> bool = default;
+
         static RGSubresourceRange Full()
         {
             return {};
