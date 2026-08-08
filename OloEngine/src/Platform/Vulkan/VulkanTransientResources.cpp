@@ -396,15 +396,32 @@ namespace OloEngine
     {
         // Retire the identity first (outstanding handles go stale), then hand
         // the native object to the deferred queue — NEVER vmaDestroyImage
-        // inline, prior frames may still be executing.
-        m_RHIHandle.Reset();
-        ReleaseImage();
+        // inline, prior frames may still be executing. Destructors must not
+        // let an exception escape (the reclaim enqueue can allocate): a
+        // failed enqueue leaks one image until process exit, which beats
+        // std::terminate.
+        try
+        {
+            m_RHIHandle.Reset();
+            ReleaseImage();
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("~VulkanTexture2D: release failed ({}) — leaking the image until process exit", e.what());
+        }
     }
 
     void VulkanTexture2D::CreateImage()
     {
         auto* device = VulkanDevice::Get();
         OLO_CORE_ASSERT(device != nullptr, "VulkanTexture2D::CreateImage requires a live VulkanDevice");
+        if (device == nullptr)
+        {
+            // The assert compiles out in Release; the factory arm guards this
+            // path, but a Resize on a device that has since shut down must
+            // fail loudly rather than dereference null.
+            throw std::runtime_error("VulkanTexture2D::CreateImage: no live VulkanDevice");
+        }
 
         const VkFormat format = ImageFormatToVkFormat(m_Specification.Format, m_Specification.SRGB);
         const bool isDepth = IsDepthImageFormat(m_Specification.Format);
@@ -740,15 +757,28 @@ namespace OloEngine
     VulkanStorageBuffer::~VulkanStorageBuffer()
     {
         // Identity first, then the deferred queue — never vmaDestroyBuffer
-        // inline (prior frames may still be executing).
-        m_RHIHandle.Reset();
-        ReleaseBuffer();
+        // inline (prior frames may still be executing). No exception may
+        // escape a destructor: a failed enqueue leaks one buffer until
+        // process exit, which beats std::terminate.
+        try
+        {
+            m_RHIHandle.Reset();
+            ReleaseBuffer();
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("~VulkanStorageBuffer: release failed ({}) — leaking the buffer until process exit", e.what());
+        }
     }
 
     void VulkanStorageBuffer::CreateBuffer()
     {
         auto* device = VulkanDevice::Get();
         OLO_CORE_ASSERT(device != nullptr, "VulkanStorageBuffer::CreateBuffer requires a live VulkanDevice");
+        if (device == nullptr)
+        {
+            throw std::runtime_error("VulkanStorageBuffer::CreateBuffer: no live VulkanDevice");
+        }
 
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;

@@ -446,11 +446,10 @@ namespace OloEngine
         vkCmdPipelineBarrier2(m_Cmd, &dep);
         m_LayoutTracker.SetLayout(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-        VkClearColorValue clear{};
-        clear.uint32[0] = value;
-        clear.uint32[1] = value;
-        clear.uint32[2] = value;
-        clear.uint32[3] = value;
+        // Designated init ACTIVATES the union's uint32 member — value-init
+        // (`{}`) would activate float32 (the first member) and make these
+        // writes inactive-member accesses.
+        const VkClearColorValue clear{ .uint32 = { value, value, value, value } };
         vkCmdClearColorImage(m_Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
     }
 
