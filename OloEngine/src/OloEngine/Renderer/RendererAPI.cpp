@@ -15,6 +15,14 @@ namespace OloEngine
                 OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
                 return nullptr;
             }
+            case RendererAPI::API::Vulkan:
+            {
+                // Unreachable until Phase 5: this factory runs at static init (see
+                // RenderCommand.cpp), before --rhi= is parsed, so s_API is still the
+                // default here; and the Vulkan bring-up never routes RenderCommand.
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no RendererAPI implementation until #691 Phase 5!");
+                return nullptr;
+            }
             case RendererAPI::API::OpenGL:
             {
                 return CreateScope<OpenGLRendererAPI>();

@@ -850,11 +850,87 @@ if(OLO_WITH_MATERIALX)
 endif()
 
 #======================================
+# Vulkan RHI backend dependencies (#691 Phase 4). Gated on OLO_WITH_VULKAN (root CMakeLists).
+#======================================
+# All three are pinned at the SDK-1.4.357.0 tag family — ADR 0010's tooling floor: the first
+# SDK whose validation layers can GPU-validate VK_EXT_descriptor_heap, and the version whose
+# vulkan_core.h the backend's device-selection gate compiles against. The vendored headers
+# deliberately shadow whatever SDK happens to be installed: the engine's find_package(Vulkan)
+# (OloEngine/CMakeLists.txt, for the shaderc toolchain) contributes the SDK's include dir too,
+# so OloEngine/CMakeLists.txt lists ${vulkan-headers_SOURCE_DIR}/include explicitly BEFORE
+# ${Vulkan_INCLUDE_DIRS} — /I order is what decides, and both are plain /I paths. The backend
+# then compiles against 1.4.357 regardless of the installed SDK's age; VulkanContext.cpp pins
+# this with a static_assert on VK_HEADER_VERSION.
+if(OLO_WITH_VULKAN)
+	FetchContent_Declare(
+		vulkan-headers
+		GIT_REPOSITORY	https://github.com/KhronosGroup/Vulkan-Headers.git
+		GIT_TAG			e3b1eec08173d6b825cd3ac88c885a63b621504a  # vulkan-sdk-1.4.357.0
+		GIT_SHALLOW		FALSE
+	)
+	FetchContent_Declare(
+		volk
+		GIT_REPOSITORY	https://github.com/zeux/volk.git
+		GIT_TAG			776893306c5d3b22b6185b5d4a258b81d94572bf  # vulkan-sdk-1.4.357.0
+		GIT_SHALLOW		FALSE
+	)
+	# VOLK_PULL_IN_VULKAN must be OFF: its default resolution order prefers
+	# find_package(Vulkan) — i.e. the INSTALLED SDK's headers — over the vendored
+	# Vulkan-Headers target, which would silently compile volk against whatever SDK
+	# version the machine happens to have. Link the vendored headers explicitly instead.
+	set(VOLK_PULL_IN_VULKAN OFF CACHE BOOL "" FORCE)
+	set(VOLK_INSTALL OFF CACHE BOOL "" FORCE)
+
+	# ORDER MATTERS: vulkan-headers before volk, so the Vulkan::Headers alias exists when
+	# the link below resolves. The alias is resolved HERE, in vendor scope, to the vendored
+	# target — so consumers of `volk`/`vma` get the 1.4.357 headers by propagation even
+	# though OloEngine/CMakeLists.txt's later find_package(Vulkan) may mint its own,
+	# SDK-pointing Vulkan::Headers in its own directory scope. Nothing engine-side may link
+	# Vulkan::Headers by name for that reason; link `volk` or `vma` instead.
+	FetchContent_MakeAvailable(vulkan-headers volk)
+	target_link_libraries(volk PUBLIC Vulkan::Headers)
+
+	# VMA: header-only (vk_mem_alloc.h); the implementation TU is
+	# Platform/Vulkan/VulkanMemoryAllocator.cpp (VMA_IMPLEMENTATION + volk import).
+	# DOWNLOAD_ONLY + hand-rolled INTERFACE target, mirroring the bcdec/cpp_httplib pattern —
+	# VMA's own CMakeLists would work, but the interface target is two lines and avoids
+	# coupling to its install/export machinery.
+	CPMAddPackage(NAME vma
+	  GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+	  GIT_TAG 3aa921224c154a0d2c43912bc88e1c42ce1f7607  # v3.4.0
+	  GIT_SHALLOW FALSE
+	  DOWNLOAD_ONLY YES)
+	if(vma_ADDED)
+		add_library(vma INTERFACE)
+		# SYSTEM so the VMA_IMPLEMENTATION expansion doesn't count against OloEngine's
+		# warning level, exactly as bcdec's IMPLEMENTATION is handled.
+		target_include_directories(vma SYSTEM INTERFACE "${vma_SOURCE_DIR}/include")
+		target_link_libraries(vma INTERFACE Vulkan::Headers)
+	else()
+		# OloEngine links `vma` unconditionally under OLO_WITH_VULKAN, via the
+		# plain target_link_libraries signature — an undefined target there is
+		# silently treated as an external library name and only fails at LINK
+		# time with a baffling "cannot open vma.lib". Fail at configure instead.
+		message(FATAL_ERROR "OLO_WITH_VULKAN=ON but CPM did not add VulkanMemoryAllocator (vma_ADDED is false) — the vma target would be undefined.")
+	endif()
+
+	set_target_properties(volk PROPERTIES FOLDER "Utilities/Vulkan")
+	if(TARGET Vulkan-Headers)
+		set_target_properties(Vulkan-Headers PROPERTIES FOLDER "Utilities/Vulkan")
+	endif()
+	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		target_compile_options(volk PRIVATE -Wno-error -Wno-everything)
+	endif()
+	message(STATUS "OLO_WITH_VULKAN: Vulkan backend deps enabled (Vulkan-Headers + volk @ vulkan-sdk-1.4.357.0, VMA v3.4.0)")
+endif()
+
+#======================================
 # Propagate FetchContent _SOURCE_DIR / _BINARY_DIR variables to parent scope
 # so OloEngine/CMakeLists.txt can use them in target_include_directories.
 foreach(_dep assimp atomic_queue box2d entt filewatch glad glfw glm googletest
              joltphysics meshoptimizer miniaudio pl_mpeg recastnavigation spdlog tracy yaml-cpp
-             zlib stb_image imgui imguizmo lua GameNetworkingSockets Imath alembic materialx)
+             zlib stb_image imgui imguizmo lua GameNetworkingSockets Imath alembic materialx
+             vulkan-headers)
 	if(DEFINED ${_dep}_SOURCE_DIR)
 		set(${_dep}_SOURCE_DIR "${${_dep}_SOURCE_DIR}" PARENT_SCOPE)
 	endif()

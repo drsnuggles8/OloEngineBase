@@ -603,6 +603,9 @@
 		"OloEngine/Renderer/PlanarReflection.cpp"
 		"OloEngine/Renderer/RendererAPI.cpp"
 		"OloEngine/Renderer/RendererAPI.h"
+		# Runtime backend selection (--rhi= / config fallback, ADR 0011 §2, #691 Phase 4)
+		"OloEngine/Renderer/BackendSelection.cpp"
+		"OloEngine/Renderer/BackendSelection.h"
 		# RHI vocabulary (issue #691 Phases 1-2, ADR 0011). No longer
 		# declaration-only: RHIResourceRegistry.{h,cpp} mints the generation-checked
 		# RHI::ResourceHandle (defined in RHITypes.h) that the Platform/OpenGL
@@ -1459,6 +1462,15 @@
 		"Platform/OpenGL/OpenGLVertexArray.h"
 		"Platform/OpenGL/OpenGLVertexBuffer.cpp"
 		"Platform/OpenGL/OpenGLVertexBuffer.h"
+
+		# Vulkan backend bring-up (#691 Phase 4). Always listed; each .cpp self-guards
+		# on OLO_WITH_VULKAN and compiles to an empty TU when the backend is off —
+		# the same convention as the OLO_WITH_* import-format translators.
+		"Platform/Vulkan/VulkanCapabilities.cpp"
+		"Platform/Vulkan/VulkanCapabilities.h"
+		"Platform/Vulkan/VulkanContext.cpp"
+		"Platform/Vulkan/VulkanContext.h"
+		"Platform/Vulkan/VulkanMemoryAllocator.cpp"
 )
 
 # Platform-specific sources

@@ -40,6 +40,16 @@ option(OLO_WITH_ALEMBIC "Import Alembic (.abc) geometry caches (vendors Imath + 
 option(OLO_WITH_MATERIALX "Import MaterialX (.mtlx) materials (vendors MaterialX)" ON)
 option(OLO_WITH_USD "Import OpenUSD stages (.usd/.usda/.usdc/.usdz); builds USD from source unless OLO_USD_INSTALL_DIR is set" ON)
 
+# Vulkan RHI backend (#691 Phase 4, ADR 0011 §2). This is the AVAILABILITY axis only —
+# "is the backend compiled in at all" — deliberately separate from the runtime SELECTION
+# axis (`--rhi=opengl|vulkan` at process start; default OpenGL). There is no `vulkan`
+# CMake preset and must never be one: one binary carries every compiled-in backend, so a
+# machine below Vulkan's hardware floor (ADR 0010) can fall back to GL at runtime.
+# The backend vendors Vulkan-Headers + volk + VMA pinned at SDK 1.4.357.0 (the ADR 0010
+# tooling floor) and volk dlopens the loader, so turning this ON adds no link-time
+# dependency on an installed Vulkan SDK beyond what the shaderc toolchain already needs.
+option(OLO_WITH_VULKAN "Compile the Vulkan RHI backend (vendors Vulkan-Headers + volk + VMA; runtime selection stays --rhi=)" ON)
+
 # Includes
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)

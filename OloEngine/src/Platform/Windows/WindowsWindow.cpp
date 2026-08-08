@@ -11,6 +11,8 @@
 #include <GLFW/glfw3native.h>
 #include <dwmapi.h>
 
+#include <stdexcept>
+
 namespace OloEngine
 {
 
@@ -70,6 +72,14 @@ namespace OloEngine
                 GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
             }
 
+            // GLFW's client-API default is GLFW_OPENGL_API (it creates a GL context
+            // with the window). Vulkan presents through a swapchain instead, so the
+            // window must opt out BEFORE glfwCreateWindow — this read is why
+            // RendererAPI::SetAPI must run before Window::Create (ADR 0011 §2).
+            if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
+            {
+                GLFWAPI::glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            }
 #if defined(OLO_DEBUG)
             if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {
@@ -78,6 +88,14 @@ namespace OloEngine
 #endif
 
             m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
+            if (!m_Window)
+            {
+                if (0 == s_GLFWWindowCount)
+                {
+                    GLFWAPI::glfwTerminate();
+                }
+                throw std::runtime_error("glfwCreateWindow failed!");
+            }
             ++s_GLFWWindowCount;
         }
 
@@ -98,8 +116,38 @@ namespace OloEngine
             }
         }
 
+        // Context creation/init can legitimately fail — the Vulkan bring-up REFUSES
+        // to initialise (throws) when the device is below ADR 0010's capability
+        // contract. The constructor must not leak the GLFW window or its refcount
+        // on that path: ~WindowsWindow never runs when Init throws.
         m_Context = GraphicsContext::Create(m_Window);
-        m_Context->Init();
+        if (!m_Context)
+        {
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+            if (0 == s_GLFWWindowCount)
+            {
+                GLFWAPI::glfwTerminate();
+            }
+            throw std::runtime_error("Failed to create graphics context!");
+        }
+        try
+        {
+            m_Context->Init();
+        }
+        catch (...)
+        {
+            m_Context.reset();
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+            if (0 == s_GLFWWindowCount)
+            {
+                GLFWAPI::glfwTerminate();
+            }
+            throw;
+        }
 
         GLFWAPI::glfwSetWindowUserPointer(m_Window, &m_Data);
         SetVSync(false);
@@ -196,8 +244,18 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        GLFWAPI::glfwDestroyWindow(m_Window);
-        --s_GLFWWindowCount;
+        // Destroy the graphics context BEFORE the window: the Vulkan context owns a
+        // VkSurfaceKHR created from this window, and GLFW requires the surface to be
+        // destroyed first. (The GL context is a trivial destructor — it dies with
+        // the window either way — so this is a no-op reorder on the GL path.)
+        m_Context.reset();
+
+        if (m_Window)
+        {
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+        }
 
         if (0 == s_GLFWWindowCount)
         {
@@ -231,13 +289,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (enabled)
+        // glfwSwapInterval needs a current GL context; under Vulkan (GLFW_NO_API)
+        // it would only raise a GLFW error. Present pacing there is the swapchain's
+        // present mode — fixed at FIFO (vsync) for the Phase 4 bring-up.
+        if (Renderer::GetAPI() != RendererAPI::API::Vulkan)
         {
-            GLFWAPI::glfwSwapInterval(1);
-        }
-        else
-        {
-            GLFWAPI::glfwSwapInterval(0);
+            if (enabled)
+            {
+                GLFWAPI::glfwSwapInterval(1);
+            }
+            else
+            {
+                GLFWAPI::glfwSwapInterval(0);
+            }
         }
 
         m_Data.VSync = enabled;

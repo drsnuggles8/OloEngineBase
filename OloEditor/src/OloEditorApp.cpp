@@ -18,9 +18,20 @@ namespace OloEngine
             // In `--smoke-test` mode the EditorLayer is skipped: it drives the
             // GL/ImGui editor UI which needs a real OpenGL 4.6 context, and the
             // app runs window-less there. See CreateApplication below.
-            if (pushEditorLayer)
+            //
+            // Under `--rhi=vulkan` (#691 Phase 4 bring-up) it is skipped too — the
+            // editor UI is imgui_impl_opengl3-bound until Phase 8, so the editor
+            // legitimately shows only the Vulkan-cleared window. Checked here, not
+            // in CreateApplication: selection (flag + config fallback) resolves in
+            // the Application base constructor, which has run by this point.
+            if (pushEditorLayer && Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {
                 PushLayer(std::make_unique<EditorLayer>());
+            }
+            else if (pushEditorLayer)
+            {
+                OLO_CORE_INFO("[RHI] EditorLayer skipped under --rhi=vulkan (Phase 4 bring-up: "
+                              "expect only a cleared window; editor UI returns with Phase 8)");
             }
         }
 

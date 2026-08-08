@@ -62,6 +62,34 @@ would be guessing, and a wrong constant here is worse than an absent one because
 it looks authoritative. Phase 4 fills this table in and **must not** widen the
 runtime check without amending this section.
 
+**Phase 4 fill-in (2026-08-07).** The single reader is
+`VulkanCapabilities::Evaluate` (`Platform/Vulkan/VulkanCapabilities.{h,cpp}`);
+`VulkanContext`'s device pick and `VulkanBringUpTest` both call it, per the
+one-list rule above. What the gate now checks, verified against the vendored
+1.4.357 headers and the NVIDIA 610.88 driver:
+
+| Requirement | Pinned value |
+| --- | --- |
+| API version | `VK_API_VERSION_1_4` (`VulkanCapabilities::kMinApiVersion`) — also what satisfies `VK_EXT_descriptor_heap`'s whole vk.xml `depends` chain, so no companion extensions need enabling below it. |
+| `VK_EXT_descriptor_heap` | Listed **and** `VkPhysicalDeviceDescriptorHeapFeaturesEXT::descriptorHeap == VK_TRUE`. `descriptorHeapCaptureReplay` is NOT required (tooling-only). `specVersion` floor stays 1 (the only revision that exists). |
+| `VK_KHR_shader_untyped_pointers` | Listed **and** `VkPhysicalDeviceShaderUntypedPointersFeaturesKHR::shaderUntypedPointers == VK_TRUE`. |
+| `VK_KHR_swapchain` | Listed (the backend must present at all). |
+| Queue topology | One family with graphics **and** present. Split-family hardware is refused for now — nothing on the driver floor above lacks a combined family, and supporting the split doubles the sync surface for no gain. Widening this later is a narrowing-free change (it accepts *more* devices) but still belongs here first. |
+
+The gate **enables** the two feature bits at `vkCreateDevice` (not just queries
+them), so a driver that advertises the contract but rejects enabling it fails at
+the gate rather than at Phase 5/6's first heap use. (It also enables
+`VkPhysicalDeviceVulkan13Features::synchronization2` for the bring-up's
+barrier/submit calls — deliberately NOT a contract row: sync2 support is
+mandatory on every 1.3+ device, so the API-version row already covers it, but
+the enable bit still defaults off and validation flags every sync2 call without
+it.) —
+`VulkanBringUpTest.SatisfyingDeviceAcceptsTheContractEnabledLogicalDevice` pins
+that property in the suite. **Still deferred, now owned by Phase 5/6:** the
+`…PropertiesEXT` heap size / alignment / descriptor-size minima — Phase 4
+creates no heap, so pinning minima it never allocates against would be the same
+authoritative-looking guess this section warned about.
+
 **The check is all-or-nothing.** A device satisfying some but not all of the
 above is refused, with a message naming the missing capability — not degraded,
 not partially enabled. That is the same "no silent fallback" rule the binding

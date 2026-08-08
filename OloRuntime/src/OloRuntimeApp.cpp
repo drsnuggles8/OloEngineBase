@@ -647,13 +647,22 @@ namespace OloEngine
             // needs a real OpenGL 4.6 context. ImGui isn't initialized in that
             // window-less path either, so GetIO() must not be touched. See
             // CreateApplication below.
-            if (pushRuntimeLayer)
+            //
+            // Under `--rhi=vulkan` (#691 Phase 4 bring-up) it is skipped for the
+            // same two reasons — the layer renders through GL and no ImGui context
+            // exists (the ImGui layer is not pushed in that mode).
+            if (pushRuntimeLayer && Renderer::GetAPI() == RendererAPI::API::OpenGL)
             {
                 // Disable ImGui ini persistence — the runtime doesn't need it and
                 // loading the editor's imgui.ini from CWD would cause stale state.
                 ImGui::GetIO().IniFilename = nullptr;
 
                 PushLayer(std::make_unique<RuntimeLayer>());
+            }
+            else if (pushRuntimeLayer)
+            {
+                OLO_CORE_INFO("[RHI] RuntimeLayer skipped under --rhi=vulkan (Phase 4 bring-up: "
+                              "expect only a cleared window)");
             }
         }
 

@@ -10,6 +10,7 @@
 #include "OloEngine/Debug/DebugOverlayLayer.h"
 #include "OloEngine/Debug/PerformanceLayer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
+#include "OloEngine/Renderer/BackendSelection.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -51,6 +52,30 @@ namespace OloEngine
         // Start the task scheduler workers
         LowLevelTasks::FScheduler::Get().StartWorkers();
 
+        // RHI backend selection (ADR 0011 §2, #691 Phase 4). HARD ordering
+        // contract: this must run BEFORE the Window::Create below — WindowsWindow /
+        // LinuxWindow read Renderer::GetAPI() ahead of glfwCreateWindow to pick the
+        // window's client API. Parsed after the working-directory switch above so
+        // the config-file fallback resolves against the app's real cwd.
+        if (!m_Specification.IsHeadless)
+        {
+            const BackendSelection backend = SelectRendererBackend(
+                m_Specification.CommandLineArgs.Count, m_Specification.CommandLineArgs.Args,
+                DefaultRendererConfigPath());
+            if (!backend.Diagnostic.empty())
+            {
+                OLO_CORE_ERROR("[RHI] {}", backend.Diagnostic);
+            }
+            RendererAPI::SetAPI(backend.Api);
+            OLO_CORE_INFO("[RHI] Backend: {} (source: {})",
+                          backend.Api == RendererAPI::API::Vulkan ? "Vulkan" : "OpenGL", backend.Source);
+        }
+
+        // Phase 4 bring-up scope: under --rhi=vulkan the window clears + presents
+        // and NOTHING else — Renderer::Init, the GL debug tools and the ImGui
+        // layer (imgui_impl_opengl3, GL-bound until Phase 8) are all skipped.
+        const bool vulkanBringUp = RendererAPI::GetAPI() == RendererAPI::API::Vulkan;
+
         // Register the application name with the crash reporter
         CrashReporter::SetApplicationInfo(m_Specification.Name, OLO_ENGINE_VERSION);
         CrashReporter::SetHeadless(m_Specification.IsHeadless);
@@ -61,16 +86,25 @@ namespace OloEngine
             {
                 m_Window = Window::Create(WindowProps(m_Specification.Name));
                 m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
+
+                if (!vulkanBringUp)
+                {
 // Initialize debug tools before Renderer to catch all resource creation
 #ifdef OLO_DEBUG
-                GPUResourceInspector::GetInstance().Initialize();
-                ShaderDebugger::GetInstance().Initialize();
-                OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
+                    GPUResourceInspector::GetInstance().Initialize();
+                    ShaderDebugger::GetInstance().Initialize();
+                    OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
 #endif
 
-                m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
-                Renderer::Init(m_Specification.PreferredRenderer, m_Window.get());
-                m_Window->SetTitle(m_Specification.Name);
+                    m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
+                    Renderer::Init(m_Specification.PreferredRenderer, m_Window.get());
+                    m_Window->SetTitle(m_Specification.Name);
+                }
+                else
+                {
+                    OLO_CORE_INFO("[RHI] Vulkan bring-up (#691 Phase 4): Renderer::Init, GL debug tools "
+                                  "and the ImGui layer are skipped — the window clears + presents only");
+                }
 
                 if (!AudioEngine::Init())
                 {
@@ -81,14 +115,17 @@ namespace OloEngine
                 GamepadManager::Initialize();
                 InputActionManager::Init();
 
-                // Non-owning pointer — ownership is transferred to LayerStack
-                // via PushOverlay; kept here for convenient access.
-                m_ImGuiLayer = new ImGuiLayer();
-                PushOverlay(std::unique_ptr<Layer>(m_ImGuiLayer));
+                if (!vulkanBringUp)
+                {
+                    // Non-owning pointer — ownership is transferred to LayerStack
+                    // via PushOverlay; kept here for convenient access.
+                    m_ImGuiLayer = new ImGuiLayer();
+                    PushOverlay(std::unique_ptr<Layer>(m_ImGuiLayer));
 
-                // Debug/performance overlay layers (toggle with F3/F4)
-                PushOverlay(std::make_unique<DebugOverlayLayer>());
-                PushOverlay(std::make_unique<PerformanceLayer>());
+                    // Debug/performance overlay layers (toggle with F3/F4)
+                    PushOverlay(std::make_unique<DebugOverlayLayer>());
+                    PushOverlay(std::make_unique<PerformanceLayer>());
+                }
             }
             else
             {
@@ -124,12 +161,18 @@ namespace OloEngine
             if (!m_Specification.IsHeadless)
             {
                 AudioEngine::Shutdown();
-                Renderer::Shutdown();
+                // Under Vulkan bring-up neither the renderer nor the GL debug tools
+                // ever initialized — and Renderer::Shutdown routes through the
+                // never-Init'ed GL RendererAPI (null glad pointers, no context).
+                if (!vulkanBringUp)
+                {
+                    Renderer::Shutdown();
 
 #ifdef OLO_DEBUG
-                ShaderDebugger::GetInstance().Shutdown();
-                GPUResourceInspector::GetInstance().Shutdown();
+                    ShaderDebugger::GetInstance().Shutdown();
+                    GPUResourceInspector::GetInstance().Shutdown();
 #endif
+                }
 
                 m_Window.reset();
             }
@@ -161,14 +204,20 @@ namespace OloEngine
         if (!m_Specification.IsHeadless)
         {
             AudioEngine::Shutdown();
-            // Shutdown debug tools before Renderer
+            // Under Vulkan bring-up (#691 Phase 4) neither the renderer nor the GL
+            // debug tools ever initialized; Renderer::Shutdown would route through
+            // the never-Init'ed GL RendererAPI (null glad pointers, no context).
+            if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
+            {
+                // Shutdown debug tools before Renderer
 #ifdef OLO_DEBUG
-            ShaderDebugger::GetInstance().Shutdown();
-            GPUResourceInspector::GetInstance().Shutdown();
-            OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
+                ShaderDebugger::GetInstance().Shutdown();
+                GPUResourceInspector::GetInstance().Shutdown();
+                OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
 #endif
 
-            Renderer::Shutdown();
+                Renderer::Shutdown();
+            }
         }
 
         // Shutdown task scheduler
@@ -325,16 +374,22 @@ namespace OloEngine
                     OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
                 }
 
-                OloEngine::ImGuiLayer::Begin();
+                // Null under Vulkan bring-up (#691 Phase 4): the ImGui layer was
+                // never pushed (its backend is imgui_impl_opengl3 until Phase 8),
+                // so no ImGui context exists to Begin()/End() against.
+                if (m_ImGuiLayer != nullptr)
                 {
-                    OLO_PROFILE_FRAMEMARK_START("LayerStack OnImGuiRender");
-                    for (Layer* const layer : m_LayerStack)
+                    OloEngine::ImGuiLayer::Begin();
                     {
-                        layer->OnImGuiRender();
+                        OLO_PROFILE_FRAMEMARK_START("LayerStack OnImGuiRender");
+                        for (Layer* const layer : m_LayerStack)
+                        {
+                            layer->OnImGuiRender();
+                        }
+                        OLO_PROFILE_FRAMEMARK_END("LayerStack OnImGuiRender");
                     }
-                    OLO_PROFILE_FRAMEMARK_END("LayerStack OnImGuiRender");
+                    OloEngine::ImGuiLayer::End();
                 }
-                OloEngine::ImGuiLayer::End();
             }
 
             // Timed separately from the FRAMEMARK scope: SwapBuffers is the
@@ -480,8 +535,14 @@ namespace OloEngine
         OLO_CORE_INFO("Application::OnWindowResize - Window: {}x{}, Framebuffer: {}x{}",
                       e.GetWidth(), e.GetHeight(), fbWidth, fbHeight);
 
-        // Use framebuffer size for renderer
-        Renderer::OnWindowResize(fbWidth, fbHeight);
+        // Under Vulkan bring-up (#691 Phase 4) the renderer never initialized;
+        // the swapchain recreates itself inside VulkanContext::SwapBuffers on
+        // VK_ERROR_OUT_OF_DATE_KHR, so resize needs no engine-side plumbing yet.
+        if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
+        {
+            // Use framebuffer size for renderer
+            Renderer::OnWindowResize(fbWidth, fbHeight);
+        }
 
         return false;
     }
