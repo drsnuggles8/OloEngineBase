@@ -157,6 +157,18 @@ namespace OloEngine
         virtual void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) = 0;
         virtual void MemoryBarrier(MemoryBarrierFlags flags) = 0;
 
+        // The render graph's pre-pass barrier batch, carrying BOTH barrier
+        // currencies (ADR 0011 §1.5, Phase 5). `flags` is the GL lowering —
+        // the glMemoryBarrier bitmask the planner derives; `barriers` is the
+        // neutral truth — the handle-resolved per-resource transitions for
+        // the same batch. The GL backend executes `flags` and ignores
+        // `barriers`; an explicit-barrier backend (Vulkan) lowers each
+        // RHI::Barrier to a VkImageMemoryBarrier2 / VkBufferMemoryBarrier2
+        // in one vkCmdPipelineBarrier2 and ignores `flags`. Exactly one of
+        // the two is authoritative per backend — neither backend may consult
+        // both.
+        virtual void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) = 0;
+
         // New methods for render graph
         virtual void BindDefaultFramebuffer() = 0;
         virtual void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) = 0;

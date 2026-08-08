@@ -2018,6 +2018,163 @@ line for that API's import library.
 
 ---
 
+## Amendments from Phase 5 (2026-08-08) — the render graph's execution layer
+
+Phase 5 landed the three §1.8 deliverables (the unified access enum, the Clear
+split, external→Undefined) plus the barrier translation, the VMA-backed
+transient pool, and the command dispatcher on Vulkan. Seven findings correct
+or sharpen what earlier phases predicted.
+
+### (43) The WAW fix belongs at barrier EMISSION, not in the transition build
+
+§1.5's plan was "unify the transition record's enum pair". Implementing it
+showed the record was downstream of the defect: `BuildResourceTransitions`
+re-derived the consumer's access by scanning its READ declarations, and no
+record type can recover what that scan already dropped. The fix that works is
+one line earlier — `PlannedBarrier` now captures `ToAccess` AT EMISSION, where
+the planner is holding the exact consuming declaration (a read for RAW, a
+WRITE for WAW). The rescan is deleted, not patched. Everything else landed as
+designed: `ResourceTransition` carries `RHI::Access FromAccess/ToAccess`,
+`ProducerPass == "external"` yields `Access::Undefined` (Vulkan discards),
+`RGWriteUsage::Clear` maps to `ClearAsLoadOp` (its only engine producer,
+OITPrepare, is a load-op clear — an explicit transfer clear must be declared
+`TransferDest`), and the §1.5 read-while-attached input is a computed
+`ReadWhileAttached` flag (consumer also declares an overlapping attachment
+write). Pinned by `RenderGraphResourceTransitions.WriteAfterWriteTransition
+CarriesTheConsumersWriteAccess` and siblings.
+
+*Generalisable:* when a derivation is lossy, fix the producer to carry the
+fact, not the consumer to guess better — the guess was the bug.
+
+### (44) The barrier facade is ONE virtual carrying BOTH currencies
+
+`RendererAPI::IssueBarrierBatch(MemoryBarrierFlags, span<RHI::Barrier>)` is
+the §1.5 demotion made literal: the flags are the GL lowering, the barrier
+span is the neutral truth, and each backend consults exactly one. The GL
+implementation delegates to the pre-existing `MemoryBarrier(flags)` —
+byte-identical behaviour, which is what kept the goldens out of play. The
+planner still derives the flags (`Resolve*BarrierFlags` did NOT physically
+relocate to `Platform/OpenGL/`; they are now labelled as the GL lowering and
+feed only the flags field — the §1.8 table never listed the move, and doing
+it would have rebuilt the proven GL path for zero behaviour change).
+`TextureAspect` / `SubresourceRange` / `Barrier` moved `RHIResources.h` →
+`RHITypes.h` for the facade's include set — the amendment-(5) MemoryResidency
+move-don't-duplicate precedent, third use.
+
+### (45) Handle resolution is an EXECUTE-time act; the plan stays name-keyed
+
+The submission IR's `MemoryBarrier` commands carry the per-consumer
+transitions (deduplicated on (resource, range, from, to)), but resolution to
+`RHI::Barrier` happens per frame in `RenderGraph::ResolveTransitionsToBarriers`
+— a transient's physical changes across frames under pooling, so a handle
+baked into the cached plan would be the stale-pool-read archetype
+(render-graph-transient-aliasing.md) built into the IR. Dedup keeps
+LAST-writer semantics: earlier writers are ordered transitively through the
+WAW barriers between the writers themselves. **Recorded caveat (Phase 7
+hardening item):** two prior writers touching DISJOINT subresources of one
+resource collapse to the last writer's source masks — no WAW barrier chains
+them (their ranges don't overlap), so the earlier writer's pipe is
+under-synchronised. No current graph hits it; sync validation is the
+instrument that will name the pass that first does. This closed a second
+identity gap on the way: `PhysicalBuffer` now carries `Handle` alongside
+`BufferID` (set by materialization/alias fan-out, CLEARED by native imports —
+the item-4 grep-every-assignment rule found one more site-class).
+
+### (46) The layout state machine: the tracker owns oldLayout, exactness per run
+
+GL has no image layouts, so this state machine is new, and its two rules are
+the phase's core correctness claims. (1) The TRACKER is authoritative for
+`oldLayout`, never the transition's `FromAccess` — a pooled transient
+re-acquired this frame is in whatever layout its previous tenant left, and
+first use is UNDEFINED (which also forces the source masks to NONE: discarded
+contents have nothing to make available). `FromAccess` contributes only
+source stage/access masks. (2) A range whose subresources sit in DIFFERENT
+layouts (HZB: mip 0 attachment-written, mips 1..N storage-written) is split
+into maximal equal-layout runs, one `VkImageMemoryBarrier2` per run — one
+guessed layout for a mixed range is a validation error at best and a silent
+hazard at worst. Granularity is per (mip, layer) with registered extents.
+Pinned headlessly by `VulkanBarrierLoweringTest` (fabricated handles) and
+on-device by `VulkanRenderGraphExecutionTest`'s two-frame sequence (frame 2
+must transition FROM tracked layouts, not UNDEFINED).
+
+### (47) The "Vulkan-side dispatcher" is the backend BEHIND the existing table
+
+The Molecular-Matters dispatch table was already backend-neutral — its
+functions take `RendererAPI&` — so Phase 5 added no second table:
+`VulkanRendererAPI` behind the same packets is the dispatcher. Amendment
+(42)'s "~100 no-op virtuals inviting silent fallthrough" objection is met
+with three tiers, none silent: REAL implementations (barriers, transient
+clears, viewport/scissor dynamic state, device queries, debug labels);
+RECORDED pipeline-key state for the ~33 state setters
+(`VulkanRecordedPipelineState` — Vulkan bakes this into the PSO, so recording
+IS the correct Phase 5 semantics and hands Phase 6 its pipeline-key material);
+and warn-once + counted stubs for everything pipeline-shaped
+(`GetPhase6StubHitCount` — the execution test pins that state packets never
+touch it). Recording context: `BeginRecording(VkCommandBuffer)`/`EndRecording`
+brackets, because Vulkan has no implicit current context. The two
+`RenderCommand::` calls inside CommandDispatch's bind-cache helpers were NOT
+rerouted: post-(48) they reach the same selected backend as the injected
+`api`, and re-plumbing ~30 call sites for identity's sake is churn — recorded
+as a known quirk instead.
+
+### (48) Amendment (39) closed — and the first live run caught a feature-gate rule
+
+`RenderCommand::RecreateForSelectedBackend()` runs in `Application`'s
+constructor immediately after `SetAPI`, before `Window::Create` — the only
+moment the swap is legal (nothing has routed, nothing holds a captured
+reference). The dormant-OpenGL-object atexit warning under `--rhi=vulkan`
+dies with it. The finding the validation gate then produced on its FIRST
+device run: **a barrier stage mask may only name stages whose device
+features are ENABLED** (VUID-VkImageMemoryBarrier2-dstStageMask-03929/-03930)
+— the graphics shader-stage union named tessellation/geometry stages the
+bring-up device never enabled. Resolution: `VulkanDevice` enables
+`tessellationShader`/`geometryShader` WHEN SUPPORTED (never required — they
+are not ADR 0010 contract rows, and requiring them would silently widen the
+gate), and `VulkanRendererAPI` ANDs every per-resource barrier's stage masks
+with the enabled-stage mask (a disabled stage can hold no work, so narrowing
+loses no synchronisation; the catch-all ALL_COMMANDS/ALL_TRANSFER bits pass
+through). Sync validation is now always on in debug builds
+(`VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT` chained at
+instance create), and the debug messenger counts ERROR-severity messages —
+`VulkanDevice::GetValidationErrorCount() == 0` is an ASSERTABLE property, not
+a log to eyeball. Its second catch, minutes later, was in PHASE 4'S OWN
+frame loop: the swapchain UNDEFINED→TRANSFER_DST transition used
+`srcStageMask = TOP_OF_PIPE`, which does not order the layout transition
+against the acquire semaphore's wait at the CLEAR stage — a WRITE_AFTER_READ
+hazard against `vkAcquireNextImageKHR` that core validation cannot see (the
+structure is legal; only the timeline is wrong). The rule, now in the code
+comment: **the first barrier that writes an acquired swapchain image must
+carry the acquire-wait stage in its srcStageMask.** Phase 4's "zero
+validation errors" bar was real but ran without the sync layer; Phase 5's
+bar includes it.
+
+### (49) VMA resource notes a later phase will otherwise rediscover
+
+- `DEPTH24STENCIL8` resolves to `VK_FORMAT_D32_SFLOAT_S8_UINT`, not
+  `D24_UNORM_S8_UINT` — Vulkan mandates only one of the two and AMD ships
+  only the D32 variant. 3-channel formats widen to RGBA (no mandated
+  optimal-tiling support). STORAGE usage is dropped for sRGB-resolved and
+  multisampled images (guaranteed format-feature validation errors
+  otherwise).
+- Deferred reclaim is generation-counted (destroy at ≥ 2
+  `NotifyFrameCompleted`s, tied to `kFramesInFlight = 2`) because
+  `TransientPool::Clear()/Trim()` destroy pooled objects while prior frames
+  may still execute — on GL the driver refcounts; on Vulkan inline
+  destruction is UB. `FlushAll()` is the device-idle path.
+- A Vulkan resource's `GetRendererID()` is 0 — the diagnostics-only field has
+  no native GL name to report, and `olo_render_transient_plan`'s `glId` shows
+  0 until Phase 8's capture parity (the identity fields beside it answer the
+  alias question).
+- Full-frame graph execution through the `RenderCommand` facade inside a
+  real window loop is deliberately NOT wired this phase: pass `Execute()`
+  bodies need PSOs, so the editor's `--rhi=vulkan` path still ends at the
+  Phase 4 clear+present. The execution layer's on-device proof is the
+  device-gated test (headless `VulkanDevice`, real queue submits, zero
+  validation errors) — Phase 6 owns moving it into the frame loop with the
+  first rendered pass.
+
+---
+
 ## Consequences
 
 - The renderer carries **four** boundary concepts where it carries one today

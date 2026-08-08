@@ -2023,41 +2023,42 @@ single "not yet" bucket would have been worse than none.
 
 ---
 
-## 5. `ResourceTransition` looks backend-neutral and is neutral only by accident
+## 5. `ResourceTransition` looked backend-neutral by accident — FIXED in Phase 5
 
-`RenderGraph::ResourceTransition` carries `ResourceName`, `ProducerPass`,
-`ConsumerPass`, `FromUsage`, `ToUsage`, `Range`, and cross-queue metadata. That
-is very nearly a Vulkan barrier, and the barrier planner is genuinely
-backend-agnostic — real RHI-shaped thinking.
+**Status: the defect below was fixed in Phase 5 (2026-08-08); kept because the
+lesson generalises.** `ResourceTransition` now carries the unified
+`RHI::Access FromAccess/ToAccess` pair, `PlannedBarrier` captures the
+consumer's access AT EMISSION (a read for RAW, a WRITE for WAW — the lossy
+read-declaration rescan is deleted, not patched), `"external"` producers carry
+`Access::Undefined`, and `ReadWhileAttached` marks same-pass feedback reads.
+The two-currency contract is literal in the facade:
+`RendererAPI::IssueBarrierBatch(MemoryBarrierFlags, span<RHI::Barrier>)` — GL
+executes the flags (byte-identical to the old `glMemoryBarrier` path), Vulkan
+lowers the barrier span (`Platform/Vulkan/VulkanBarrierLowering` +
+`VulkanImageLayoutTracker`), and neither backend may consult both. See ADR
+0011 amendments (43)–(48).
 
-But the transition is typed `RGWriteUsage FromUsage` → `RGReadUsage ToUsage`, so
-it **structurally cannot express a write → write transition.** The planner *does*
-emit WAW barriers. `BuildResourceTransitions` then looks for a matching **read**
-declaration on the consumer, finds none, and silently defaults to
-`t.ToUsage = RGReadUsage::ShaderSample`.
-
-On GL this is invisible, because the actual synchronisation comes from
-`barrier.Flags` (a `glMemoryBarrier` bitmask the planner derived correctly from
-the *write* usage) and the bogus `ToUsage` is never read. On Vulkan, a backend
-deriving `(dstStageMask, dstAccessMask, newLayout)` from `ToUsage` would lower a
-storage-image WAW into `SHADER_READ_ONLY_OPTIMAL` with a read-only access mask —
-wrong layout, wrong access, silent.
+The original finding, for the pattern: the transition was typed
+`RGWriteUsage FromUsage` → `RGReadUsage ToUsage`, so it **structurally could
+not express a write → write transition.** The planner *did* emit WAW barriers;
+`BuildResourceTransitions` then looked for a matching **read** declaration on
+the consumer, found none, and silently defaulted to `ShaderSample`. On GL
+invisible (only `Flags` was executed); on Vulkan it would have lowered a
+storage-image WAW into `SHADER_READ_ONLY_OPTIMAL` with a read-only access mask
+— wrong layout, wrong access, silent.
 
 **Generalisable lesson: a record is not backend-neutral just because its field
-types are.** This one is held up by a GL-specific field sitting next to it. When
+types are.** It was held up by a GL-specific field sitting next to it. When
 auditing an abstraction for a second backend, ask what each field is *actually
-read for today* — a field nothing reads is a field nothing keeps correct.
+read for today* — a field nothing reads is a field nothing keeps correct. And
+when the derivation of a field is lossy, fix the PRODUCER to carry the fact
+rather than the consumer to guess better — the guess was the bug.
 
-Related, same audit: `MemoryBarrierFlags` is a `glMemoryBarrier` bitmask that has
-been promoted to the neutral currency (`PlannedBarrier::Flags`,
-`RGCommandContext::MemoryBarrier`, `RendererAPI::MemoryBarrier`). The usage pair
-is the truth; the flags are a GL lowering and belong in the GL backend.
-
-And a non-gap worth recording so nobody adds it: **the neutral model deliberately
-carries no image layout.** Layout is a pure function of usage
-(`ShaderSample → SHADER_READ_ONLY_OPTIMAL`, `RenderTarget → COLOR_ATTACHMENT_OPTIMAL`,
-`ShaderImage → GENERAL`, …), so the Vulkan backend derives it. Hoisting a layout
-enum into the render graph leaks Vulkan upward for zero gain.
+Layout stays out of the neutral model, as designed — but it is a function of
+**(Access, aspect, read-while-attached)**, not of access alone (ADR 0011
+§1.5's three exception cases), and the barrier's `oldLayout` comes from the
+backend's layout TRACKER, never from `FromAccess`: a pooled transient is in
+whatever layout its previous tenant left, and first use is UNDEFINED.
 
 ---
 

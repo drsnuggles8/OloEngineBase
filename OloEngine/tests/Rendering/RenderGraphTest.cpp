@@ -9920,8 +9920,9 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
     EXPECT_EQ(tr.ResourceName, "ColorTex");
     EXPECT_EQ(tr.ProducerPass, "Producer");
     EXPECT_EQ(tr.ConsumerPass, "Consumer");
-    EXPECT_EQ(tr.FromUsage, RGWriteUsage::RenderTarget);
-    EXPECT_EQ(tr.ToUsage, RGReadUsage::ShaderSample);
+    EXPECT_EQ(tr.FromAccess, RHI::Access::ColorAttachmentWrite);
+    EXPECT_EQ(tr.ToAccess, RHI::Access::ShaderSampleRead);
+    EXPECT_FALSE(tr.ReadWhileAttached);
     EXPECT_NE(tr.Flags, MemoryBarrierFlags::None)
         << "Barrier flags must be non-zero for a RenderTarget->ShaderSample transition";
 }
@@ -10019,8 +10020,214 @@ TEST(RenderGraphResourceTransitions, ExternalImportHasNoProducerPass)
         {
             EXPECT_EQ(tr.ProducerPass, "external")
                 << "Imported resource has no pass producer";
+            EXPECT_EQ(tr.FromAccess, RHI::Access::Undefined)
+                << "An external producer means no graph-known contents — Undefined lets Vulkan discard "
+                   "(ADR 0011 §1.5; the pre-Phase-5 RenderTarget default was wrong for a first use)";
         }
     }
+}
+
+TEST(RenderGraphResourceTransitions, WriteAfterWriteTransitionCarriesTheConsumersWriteAccess)
+{
+    // THE ADR 0011 §1.5 defect pin: two storage writers in sequence. The
+    // planner emits a WAW barrier before Writer2; the transition record for
+    // it must carry ToAccess == StorageWrite. The pre-Phase-5 record
+    // structurally could not express this and silently fell back to
+    // ShaderSample — harmless on GL, wrong layout + wrong access on Vulkan.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "Writer1",
+        [](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTexture(
+                "StorageTex",
+                7,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "StorageTex"));
+            builder.Write(tex, RGWriteUsage::ShaderImage);
+        });
+
+    AddSetupNode(
+        graph,
+        "Writer2",
+        [](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTexture(
+                "StorageTex",
+                7,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "StorageTex"));
+            builder.Write(tex, RGWriteUsage::ShaderImage);
+        });
+
+    graph.AddExecutionDependency("Writer1", "Writer2");
+    graph.SetFinalPass("Writer2");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto transitions = graph.GetResourceTransitions();
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& t)
+                                         { return t.ResourceName == "StorageTex" && t.ConsumerPass == "Writer2"; });
+    ASSERT_NE(it, transitions.end()) << "Expected a WAW transition record for StorageTex->Writer2";
+    EXPECT_EQ(it->ToAccess, RHI::Access::StorageWrite)
+        << "A WAW consumer's access is its WRITE — never the pre-Phase-5 ShaderSample fallback";
+    EXPECT_EQ(it->FromAccess, RHI::Access::StorageWrite);
+    EXPECT_EQ(it->ProducerPass, "Writer1");
+}
+
+TEST(RenderGraphResourceTransitions, ClearWriteUsageMapsToClearAsLoadOp)
+{
+    // ADR 0011 §1.5's Clear split: RGWriteUsage::Clear means the load-op
+    // clear (its only engine producer, OITPrepareRenderPass, is one); an
+    // explicit vkCmdClearColorImage-style clear must be declared
+    // TransferDest instead. Pin the mapping through a real transition.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "ClearPass",
+        [](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTexture(
+                "Accum",
+                9,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "Accum"));
+            builder.Write(tex, RGWriteUsage::Clear);
+        });
+
+    AddSetupNode(
+        graph,
+        "Consumer",
+        [](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTexture(
+                "Accum",
+                9,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "Accum"));
+            [[maybe_unused]] const auto sampled = builder.Read(tex, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("ClearPass", "Consumer");
+    graph.SetFinalPass("Consumer");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto transitions = graph.GetResourceTransitions();
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& t)
+                                         { return t.ResourceName == "Accum" && t.ConsumerPass == "Consumer"; });
+    ASSERT_NE(it, transitions.end());
+    EXPECT_EQ(it->FromAccess, RHI::Access::ClearAsLoadOp);
+    EXPECT_EQ(it->ToAccess, RHI::Access::ShaderSampleRead);
+}
+
+TEST(RenderGraphResourceTransitions, ReadWhileAttachedIsFlaggedOnSamePassFeedback)
+{
+    // The third input of the backend's layout resolution (ADR 0011 §1.5):
+    // a pass that samples a resource while ALSO holding it declared as an
+    // attachment write (PCSS raw-depth shape) must flag the read, or the
+    // backend lowers it to a plain read-only layout while the attachment
+    // half is still live.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "DepthProducer",
+        [](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTexture(
+                "SceneDepth",
+                11,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneDepth"));
+            builder.Write(tex, RGWriteUsage::DepthStencil);
+        });
+
+    AddSetupNode(
+        graph,
+        "FeedbackPass",
+        [](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTexture(
+                "SceneDepth",
+                11,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneDepth"));
+            builder.AllowSamePassReadWrite(tex);
+            builder.Write(tex, RGWriteUsage::DepthStencil);
+            [[maybe_unused]] const auto sampled = builder.Read(tex, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("DepthProducer", "FeedbackPass");
+    graph.SetFinalPass("FeedbackPass");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto transitions = graph.GetResourceTransitions();
+    const auto it = std::ranges::find_if(transitions,
+                                         [](const RenderGraph::ResourceTransition& t)
+                                         {
+                                             return t.ResourceName == "SceneDepth" &&
+                                                    t.ConsumerPass == "FeedbackPass" &&
+                                                    t.ToAccess == RHI::Access::ShaderSampleRead;
+                                         });
+    ASSERT_NE(it, transitions.end()) << "Expected a sampled-read transition into the feedback pass";
+    EXPECT_TRUE(it->ReadWhileAttached)
+        << "A read whose pass also writes the resource as an attachment must carry the flag";
+}
+
+TEST(RenderGraphSubmissionPlan, MemoryBarrierCommandsCarryDedupedTransitions)
+{
+    // Phase 5: the submission IR's MemoryBarrier commands carry the
+    // per-resource transitions (deduplicated) so an explicit-barrier backend
+    // lowers layouts without re-querying the graph. GL ignores them; this
+    // pins that they ARRIVE.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    AddSetupNode(
+        graph,
+        "Producer",
+        [](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTexture(
+                "ColorTex",
+                21,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "ColorTex"));
+            builder.Write(tex, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "Consumer",
+        [](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTexture(
+                "ColorTex",
+                21,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "ColorTex"));
+            [[maybe_unused]] const auto sampled = builder.Read(tex, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("Producer", "Consumer");
+    graph.SetFinalPass("Consumer");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto plan = graph.GetSubmissionPlan();
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::SubmissionCommand& cmd)
+                                         { return cmd.CommandKind == RenderGraph::SubmissionCommand::Kind::MemoryBarrier; });
+    ASSERT_NE(it, plan.end()) << "Expected a MemoryBarrier command in the plan";
+    ASSERT_EQ(it->Transitions.size(), 1u)
+        << "The barrier command carries exactly the deduped transitions for its consumer pass";
+    EXPECT_EQ(it->Transitions[0].ResourceName, "ColorTex");
+    EXPECT_EQ(it->Transitions[0].FromAccess, RHI::Access::ColorAttachmentWrite);
+    EXPECT_EQ(it->Transitions[0].ToAccess, RHI::Access::ShaderSampleRead);
+    EXPECT_NE(it->Barriers, MemoryBarrierFlags::None)
+        << "The GL flags currency travels alongside, unchanged";
 }
 
 TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
@@ -10077,10 +10284,10 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
         << "Transition record must name the producer pass";
     EXPECT_NE(json.find("\"consumerPass\": \"PostPass\""), std::string::npos)
         << "Transition record must name the consumer pass";
-    EXPECT_NE(json.find("\"fromUsage\": \"RenderTarget\""), std::string::npos)
-        << "From-usage must be serialised as RenderTarget";
-    EXPECT_NE(json.find("\"toUsage\": \"ShaderSample\""), std::string::npos)
-        << "To-usage must be serialised as ShaderSample";
+    EXPECT_NE(json.find("\"fromAccess\": \"ColorAttachmentWrite\""), std::string::npos)
+        << "From-access must be serialised as ColorAttachmentWrite";
+    EXPECT_NE(json.find("\"toAccess\": \"ShaderSampleRead\""), std::string::npos)
+        << "To-access must be serialised as ShaderSampleRead";
     EXPECT_NE(json.find(";transitions=1"), std::string::npos)
         << "graphDigest must contain the transition count";
 

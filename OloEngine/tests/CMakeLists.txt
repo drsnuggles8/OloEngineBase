@@ -169,6 +169,15 @@ add_executable(OloEngine-Tests
 		# SKIPs cleanly without a loader/device; compiles to a single SKIP when
 		# OLO_WITH_VULKAN=OFF.
 		Rendering/VulkanBringUpTest.cpp
+		# #691 Phase 5: the pure Access -> (stage2, access2, layout) lowering
+		# tables + the image-layout tracker. Headless (no device — fabricated
+		# handles); compiles to a single SKIP when OLO_WITH_VULKAN=OFF.
+		Rendering/VulkanBarrierLoweringTest.cpp
+		# #691 Phase 5: the render graph's execution layer on a REAL device —
+		# VMA transients, vkCmdPipelineBarrier2 batches, CommandBucket dispatch
+		# through VulkanRendererAPI, asserted validation-error count == 0.
+		# Same SKIP ladder as VulkanBringUpTest.
+		Rendering/VulkanRenderGraphExecutionTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`

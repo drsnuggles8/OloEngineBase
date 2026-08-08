@@ -33,6 +33,14 @@ namespace OloEngine::RenderGraphPlanExecutor
         // debug-tooling use (e.g. `RenderGraphFrameCapture`).
         RenderGraph::PostPassHook PostPassHook;
         RenderGraph* GraphForPostPassHook = nullptr;
+
+        // Phase 5 (ADR 0011 §1.5): when set, each MemoryBarrier command's
+        // name-keyed transitions are resolved to handle-keyed RHI::Barriers
+        // at execute time (transient physicals change per frame, so this
+        // cannot be baked into the plan) and passed to the context alongside
+        // the GL flags. When null — headless plan-shape tests — the barrier
+        // batch carries flags only, which is the complete GL behaviour.
+        RenderGraph* GraphForBarrierResolution = nullptr;
     };
 
     // Runs the IR walk and returns per-pass CPU timings (one entry per

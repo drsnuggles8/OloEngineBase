@@ -76,6 +76,48 @@ namespace OloEngine::RenderGraphBarrierPlanner
         }
     }
 
+    auto AccessForWriteUsage(const RGWriteUsage usage) -> RHI::Access
+    {
+        switch (usage)
+        {
+            case RGWriteUsage::RenderTarget:
+                return RHI::Access::ColorAttachmentWrite;
+            case RGWriteUsage::DepthStencil:
+                return RHI::Access::DepthStencilAttachmentWrite;
+            case RGWriteUsage::ShaderImage:
+            case RGWriteUsage::ShaderStorage:
+                return RHI::Access::StorageWrite;
+            case RGWriteUsage::TransferDest:
+                return RHI::Access::TransferWrite;
+            case RGWriteUsage::Clear:
+                return RHI::Access::ClearAsLoadOp;
+        }
+
+        return RHI::Access::Undefined;
+    }
+
+    auto AccessForReadUsage(const RGReadUsage usage) -> RHI::Access
+    {
+        switch (usage)
+        {
+            case RGReadUsage::ShaderSample:
+                return RHI::Access::ShaderSampleRead;
+            case RGReadUsage::ShaderImage:
+            case RGReadUsage::ShaderStorage:
+                return RHI::Access::StorageRead;
+            case RGReadUsage::RenderTargetRead:
+                return RHI::Access::ColorAttachmentRead;
+            case RGReadUsage::ComputeIndirectArgs:
+                return RHI::Access::IndirectArgsRead;
+            case RGReadUsage::TransferSource:
+                return RHI::Access::TransferRead;
+            case RGReadUsage::InputAttachment:
+                return RHI::Access::InputAttachmentRead;
+        }
+
+        return RHI::Access::Undefined;
+    }
+
     auto ComputePlan(const PlanInput& input) -> PlanResult
     {
         OLO_PROFILE_FUNCTION();
@@ -181,6 +223,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                             .Resource = access.ResourceName,
                             .Flags = flags,
                             .Range = access.Range,
+                            .ToAccess = AccessForReadUsage(access.ReadUsage),
                         });
                     }
                 }
@@ -214,6 +257,10 @@ namespace OloEngine::RenderGraphBarrierPlanner
                                 .Resource = access.ResourceName,
                                 .Flags = flags,
                                 .Range = access.Range,
+                                // The consumer's WRITE access — the WAW case
+                                // the old read-only rescan could not see
+                                // (ADR 0011 §1.5).
+                                .ToAccess = AccessForWriteUsage(access.WriteUsage),
                             });
                         }
                     }
@@ -312,20 +359,34 @@ namespace OloEngine::RenderGraphBarrierPlanner
             t.Flags = barrier.Flags;
             t.Range = barrier.Range;
 
-            // Determine the consumer's read usage from its declared accesses.
-            // Default to ShaderSample when no frame-setup declaration is present
-            // (for example nodes that expose only static declaration metadata
-            // instead of per-frame builder reads).
-            t.ToUsage = RGReadUsage::ShaderSample;
-            if (const auto dit = input.PassAccessDeclarations.find(barrier.BeforePass);
-                dit != input.PassAccessDeclarations.end())
+            // The consumer's access was captured AT EMISSION (a read access
+            // for RAW barriers, a WRITE access for WAW barriers) — the old
+            // rescan of read declarations here silently defaulted every WAW
+            // consumer to ShaderSample (ADR 0011 §1.5, fixed in Phase 5).
+            t.ToAccess = barrier.ToAccess;
+
+            // Read-while-attached: the consuming pass reads the resource
+            // while ALSO holding it declared as an attachment write with an
+            // overlapping range (same-pass feedback, PCSS raw-depth style).
+            // Third input of the backend's layout resolution — such a read
+            // must not lower to a plain read-only layout.
+            if (!RHI::IsWriteAccess(t.ToAccess))
             {
-                for (const auto& decl : dit->second)
+                if (const auto dit = input.PassAccessDeclarations.find(barrier.BeforePass);
+                    dit != input.PassAccessDeclarations.end())
                 {
-                    if (decl.ResourceName == barrier.Resource && !decl.IsWrite)
+                    for (const auto& decl : dit->second)
                     {
-                        t.ToUsage = decl.ReadUsage;
-                        break;
+                        if (decl.ResourceName != barrier.Resource || !decl.IsWrite)
+                            continue;
+                        const bool isAttachmentWrite = decl.WriteUsage == RGWriteUsage::RenderTarget ||
+                                                       decl.WriteUsage == RGWriteUsage::DepthStencil ||
+                                                       decl.WriteUsage == RGWriteUsage::Clear;
+                        if (isAttachmentWrite && SubresourceRangesOverlap(decl.Range, barrier.Range))
+                        {
+                            t.ReadWhileAttached = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -336,9 +397,12 @@ namespace OloEngine::RenderGraphBarrierPlanner
             // hits the LAST writer in O(W_resource) instead of O(N·D). For
             // graphs where each resource has few writers this is essentially
             // O(1). External producers (no prior writer) keep ProducerPass =
-            // "external" with RenderTarget as the default from-usage.
+            // "external" with Access::Undefined — the resource has no
+            // graph-known contents-producing access, so a Vulkan backend may
+            // transition from UNDEFINED and discard (ADR 0011 §1.5; the old
+            // RenderTarget default was wrong for a genuine first use).
             t.ProducerPass = "external";
-            t.FromUsage = RGWriteUsage::RenderTarget;
+            t.FromAccess = RHI::Access::Undefined;
 
             if (const auto consumerIdxIt = passOrderIdx.find(barrier.BeforePass); consumerIdxIt != passOrderIdx.end())
             {
@@ -352,7 +416,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
                         if (it->PassIndex < consumerIdx)
                         {
                             t.ProducerPass = *it->PassName;
-                            t.FromUsage = it->Usage;
+                            t.FromAccess = AccessForWriteUsage(it->Usage);
                             break;
                         }
                     }

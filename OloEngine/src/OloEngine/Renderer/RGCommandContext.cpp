@@ -130,6 +130,16 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(flags);
     }
 
+    void RGCommandContext::IssueBarrierBatch(const MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) const
+    {
+        // Same early-out contract as MemoryBarrier(): a batch with nothing in
+        // either currency issues nothing, so GL behaviour is byte-identical
+        // to the pre-Phase-5 MemoryBarrier(flags) path.
+        if (flags == MemoryBarrierFlags::None && barriers.empty())
+            return;
+        RenderCommand::IssueBarrierBatch(flags, barriers);
+    }
+
     void RGCommandContext::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount) const
     {
         RenderCommand::DrawIndexed(vertexArray, indexCount);

@@ -11,6 +11,7 @@
 #include "OloEngine/Debug/PerformanceLayer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/BackendSelection.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -67,6 +68,12 @@ namespace OloEngine
                 OLO_CORE_ERROR("[RHI] {}", backend.Diagnostic);
             }
             RendererAPI::SetAPI(backend.Api);
+            // ADR 0011 amendment (39): RenderCommand::s_RendererAPI was built
+            // at static init, BEFORE the selection above — always the OpenGL
+            // default. Re-create it now so the facade matches the selection;
+            // nothing has routed through it yet (no window, no context), which
+            // is the only moment this swap is legal.
+            RenderCommand::RecreateForSelectedBackend();
             OLO_CORE_INFO("[RHI] Backend: {} (source: {})",
                           backend.Api == RendererAPI::API::Vulkan ? "Vulkan" : "OpenGL", backend.Source);
         }

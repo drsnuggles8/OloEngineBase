@@ -16,6 +16,9 @@ namespace OloEngine
 
     // #691 Phase 4 bring-up: instance / device / swapchain / per-frame sync, and a
     // SwapBuffers() that clears the backbuffer to a fixed colour and presents.
+    // Since Phase 5 the window-independent half (instance, physical-device pick,
+    // device, queue, VMA allocator, command pool) lives in VulkanDevice — this
+    // class keeps the surface, swapchain, and frame-loop state.
     // Nothing else — no rendering, no descriptor heaps in use (device selection
     // gates on VK_EXT_descriptor_heap per ADR 0010, but Phase 5/6 are the first
     // consumers). Init() throws std::runtime_error to REFUSE initialisation when

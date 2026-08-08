@@ -35,7 +35,12 @@ namespace OloEngine
         // teardown happens in ShutdownGpuResources(), called while the context is
         // still current, and this destructor does nothing if that already ran.
         // If it did NOT run we deliberately leak rather than touch dead GL.
-        if (!m_GpuResourcesReleased)
+        // A never-Init()ed instance held no GPU resources, so there is
+        // nothing to warn about: since Phase 5, RenderCommand's static-init
+        // instance is deliberately replaced by RecreateForSelectedBackend()
+        // before any use (ADR 0011 amendment (39)), and warning on THAT
+        // destruction was pure noise.
+        if (!m_GpuResourcesReleased && m_Initialized)
         {
             OLO_CORE_WARN("[RHI/GL] OpenGLRendererAPI destroyed without ShutdownGpuResources(); "
                           "skipping descriptor-heap teardown because the GL context is likely gone. "
@@ -59,6 +64,8 @@ namespace OloEngine
     void OpenGLRendererAPI::Init()
     {
         OLO_PROFILE_FUNCTION();
+
+        m_Initialized = true;
 
 #ifdef OLO_DEBUG
         glEnable(GL_DEBUG_OUTPUT);
@@ -874,6 +881,15 @@ namespace OloEngine
             glBarrier |= GL_QUERY_BUFFER_BARRIER_BIT;
 
         glMemoryBarrier(glBarrier);
+    }
+
+    void OpenGLRendererAPI::IssueBarrierBatch(const MemoryBarrierFlags flags, std::span<const RHI::Barrier> /*barriers*/)
+    {
+        // ADR 0011 §1.5: on GL the flags bitmask IS the lowering — the
+        // per-resource transitions are the explicit-barrier backends'
+        // currency and are deliberately ignored here. Delegating keeps the
+        // pre-Phase-5 glMemoryBarrier behaviour byte-identical.
+        MemoryBarrier(flags);
     }
 
     void OpenGLRendererAPI::SetPolygonOffset(f32 factor, f32 units)
