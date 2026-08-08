@@ -293,9 +293,14 @@ namespace OloEngine
         // barriers (execution+memory coverage for the unresolved remainder;
         // layout transitions for them stay impossible without a native image,
         // which is exactly why a Vulkan graph must import by handle).
+        // `anyUnresolved` forces the fallback INDEPENDENTLY of the flags:
+        // today a None-flags barrier is always an external no-producer
+        // transition (nothing to order), but that is an invariant of the
+        // planner, not of this function — a future None-flags barrier kind
+        // with a real producer must degrade to over-sync, never to a race.
         const bool needsGlobalFallback =
-            flags != MemoryBarrierFlags::None &&
-            (anyUnresolved || (imageBarriers.empty() && bufferBarriers.empty()));
+            anyUnresolved ||
+            (flags != MemoryBarrierFlags::None && imageBarriers.empty() && bufferBarriers.empty());
 
         if (!needsGlobalFallback && imageBarriers.empty() && bufferBarriers.empty())
             return;
