@@ -57,27 +57,29 @@ namespace OloEngine
         vkGetPhysicalDeviceProperties(device->GetPhysicalDevice(), &props);
         m_MaxUniformBlockSize = props.limits.maxUniformBufferRange;
 
-        const VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts &
-                                          props.limits.framebufferDepthSampleCounts;
-        m_MaxSamples = 1;
-        for (const VkSampleCountFlagBits bit : { VK_SAMPLE_COUNT_64_BIT, VK_SAMPLE_COUNT_32_BIT,
-                                                 VK_SAMPLE_COUNT_16_BIT, VK_SAMPLE_COUNT_8_BIT,
-                                                 VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_2_BIT })
+        // Three DISTINCT caps, mirroring the GL getters they implement:
+        // framebuffer = the color∩depth attachment intersection (a framebuffer
+        // carries both), while the per-kind texture caps come from the
+        // sampled-image limits.
+        const auto highestBit = [](const VkSampleCountFlags counts) -> u32
         {
-            if (counts & bit)
+            for (const VkSampleCountFlagBits bit : { VK_SAMPLE_COUNT_64_BIT, VK_SAMPLE_COUNT_32_BIT,
+                                                     VK_SAMPLE_COUNT_16_BIT, VK_SAMPLE_COUNT_8_BIT,
+                                                     VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_2_BIT })
             {
-                m_MaxSamples = static_cast<u32>(bit);
-                break;
+                if (counts & bit)
+                    return static_cast<u32>(bit);
             }
-        }
+            return 1u;
+        };
+        m_MaxFramebufferSamples = highestBit(props.limits.framebufferColorSampleCounts &
+                                             props.limits.framebufferDepthSampleCounts);
+        m_MaxColorTextureSamples = highestBit(props.limits.sampledImageColorSampleCounts);
+        m_MaxDepthTextureSamples = highestBit(props.limits.sampledImageDepthSampleCounts);
 
-        VkPhysicalDeviceShaderAtomicInt64Features atomics{};
-        atomics.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
-        VkPhysicalDeviceFeatures2 features2{};
-        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-        features2.pNext = &atomics;
-        vkGetPhysicalDeviceFeatures2(device->GetPhysicalDevice(), &features2);
-        m_SupportsInt64Atomics = atomics.shaderBufferInt64Atomics == VK_TRUE;
+        // ENABLED on the logical device, not merely supported by the physical
+        // one — a shader can only use what vkCreateDevice turned on.
+        m_SupportsInt64Atomics = device->IsShaderBufferInt64AtomicsEnabled();
 
         // VUID-…-03929/-03930: a barrier stage mask may only name stages
         // whose device features are enabled.
@@ -122,6 +124,10 @@ namespace OloEngine
 
         // Negative-height flip is a Phase 6 (pipeline/pass) concern; Phase 5
         // records the plain rect so state packets replay without error.
+        // Deliberately does NOT touch the scissor: glViewport never did, and
+        // deriving one here would clobber an explicit SetScissorBox. A draw
+        // with dynamic scissor state and no scissor set is Phase 6's pipeline
+        // setup to default.
         VkViewport vp{};
         vp.x = static_cast<f32>(x);
         vp.y = static_cast<f32>(y);
@@ -130,11 +136,6 @@ namespace OloEngine
         vp.minDepth = 0.0f;
         vp.maxDepth = 1.0f;
         vkCmdSetViewport(m_Cmd, 0, 1, &vp);
-
-        VkRect2D scissor{};
-        scissor.offset = { static_cast<i32>(x), static_cast<i32>(y) };
-        scissor.extent = { width, height };
-        vkCmdSetScissor(m_Cmd, 0, 1, &scissor);
     }
 
     Viewport VulkanRendererAPI::GetViewport() const
@@ -244,7 +245,12 @@ namespace OloEngine
             }
 
             const auto aspect = AspectFromInfo(*info);
-            m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers, info->RegistrationId);
+            // Normalized extents: a registry entry with 0 mips/layers (no
+            // producer writes one today, but the struct cannot forbid it)
+            // would underflow every `- 1u`/`- base` below.
+            const u32 mipCount = std::max(info->MipLevels, 1u);
+            const u32 layerCount = std::max(info->ArrayLayers, 1u);
+            m_LayoutTracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId);
 
             // The neutral range, clamped into Vk terms once; the tracker then
             // splits it into runs of equal current layout so oldLayout is
@@ -252,21 +258,21 @@ namespace OloEngine
             // range is precisely the class of bug sync validation exists for.
             VkImageSubresourceRange queryRange{};
             queryRange.aspectMask = VulkanBarrierLowering::AspectMaskFor(aspect);
-            queryRange.baseMipLevel = std::min(barrier.Range.BaseMip, info->MipLevels - 1u);
+            queryRange.baseMipLevel = std::min(barrier.Range.BaseMip, mipCount - 1u);
             queryRange.levelCount = (barrier.Range.MipCount == RHI::SubresourceRange::AllRemaining)
                                         ? VK_REMAINING_MIP_LEVELS
-                                        : std::min(barrier.Range.MipCount, info->MipLevels - queryRange.baseMipLevel);
-            queryRange.baseArrayLayer = std::min(barrier.Range.BaseLayer, info->ArrayLayers - 1u);
+                                        : std::min(barrier.Range.MipCount, mipCount - queryRange.baseMipLevel);
+            queryRange.baseArrayLayer = std::min(barrier.Range.BaseLayer, layerCount - 1u);
             queryRange.layerCount = (barrier.Range.LayerCount == RHI::SubresourceRange::AllRemaining)
                                         ? VK_REMAINING_ARRAY_LAYERS
-                                        : std::min(barrier.Range.LayerCount, info->ArrayLayers - queryRange.baseArrayLayer);
+                                        : std::min(barrier.Range.LayerCount, layerCount - queryRange.baseArrayLayer);
 
             m_LayoutTracker.ForEachLayoutRun(
                 image, queryRange,
                 [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
                 {
                     auto vkBarrier = VulkanBarrierLowering::BuildImageBarrier(barrier, image, aspect, trackedLayout,
-                                                                              info->MipLevels, info->ArrayLayers);
+                                                                              mipCount, layerCount);
                     vkBarrier.subresourceRange = run;
                     // The pure lowering emits the full shader-stage union;
                     // the device knows which stage features are ENABLED
@@ -343,11 +349,12 @@ namespace OloEngine
             return;
 
         const auto aspect = AspectFromInfo(*info);
-        m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers, info->RegistrationId);
+        const u32 mipCount = std::max(info->MipLevels, 1u); // 0-extent guard, see IssueBarrierBatch
+        m_LayoutTracker.RegisterImage(image, mipCount, std::max(info->ArrayLayers, 1u), info->RegistrationId);
 
         VkImageSubresourceRange range{};
         range.aspectMask = VulkanBarrierLowering::AspectMaskFor(aspect);
-        range.baseMipLevel = std::min(mipLevel, info->MipLevels - 1u);
+        range.baseMipLevel = std::min(mipLevel, mipCount - 1u);
         range.levelCount = 1;
         range.baseArrayLayer = 0;
         range.layerCount = VK_REMAINING_ARRAY_LAYERS;
@@ -416,11 +423,12 @@ namespace OloEngine
         if (!info || info->HasDepth || info->HasStencil)
             return; // a uint clear of a depth image has no meaning
 
-        m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers, info->RegistrationId);
+        const u32 mipCount = std::max(info->MipLevels, 1u); // 0-extent guard, see IssueBarrierBatch
+        m_LayoutTracker.RegisterImage(image, mipCount, std::max(info->ArrayLayers, 1u), info->RegistrationId);
 
         VkImageSubresourceRange range{};
         range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        range.baseMipLevel = std::min(mipLevel, info->MipLevels - 1u);
+        range.baseMipLevel = std::min(mipLevel, mipCount - 1u);
         range.levelCount = 1;
         range.baseArrayLayer = 0;
         range.layerCount = VK_REMAINING_ARRAY_LAYERS;
@@ -564,19 +572,19 @@ namespace OloEngine
     u32 VulkanRendererAPI::GetMaxFramebufferSamples() const
     {
         const_cast<VulkanRendererAPI*>(this)->CacheDeviceLimits();
-        return m_MaxSamples;
+        return m_MaxFramebufferSamples;
     }
 
     u32 VulkanRendererAPI::GetMaxColorTextureSamples() const
     {
         const_cast<VulkanRendererAPI*>(this)->CacheDeviceLimits();
-        return m_MaxSamples;
+        return m_MaxColorTextureSamples;
     }
 
     u32 VulkanRendererAPI::GetMaxDepthTextureSamples() const
     {
         const_cast<VulkanRendererAPI*>(this)->CacheDeviceLimits();
-        return m_MaxSamples;
+        return m_MaxDepthTextureSamples;
     }
 
     // --- Recorded pipeline-key state (see VulkanRecordedPipelineState) -----
@@ -1158,7 +1166,10 @@ namespace OloEngine
     RHI::FenceStatus VulkanRendererAPI::ClientWaitFence(u64 /*fence*/, u64 /*timeoutNanoseconds*/)
     {
         Phase6Stub("ClientWaitFence");
-        return RHI::FenceStatus::ConditionSatisfied;
+        // Failed, not ConditionSatisfied: a stub must not claim GPU work
+        // completed (consistent with IsFenceSignaled() returning false — a
+        // caller gating a readback on this would consume garbage).
+        return RHI::FenceStatus::Failed;
     }
 
     bool VulkanRendererAPI::IsFenceSignaled(u64 /*fence*/)

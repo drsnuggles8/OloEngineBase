@@ -385,9 +385,27 @@ namespace OloEngine
         m_TessellationShaderEnabled = supported.tessellationShader == VK_TRUE;
         m_GeometryShaderEnabled = supported.geometryShader == VK_TRUE;
 
+        // shaderBufferInt64Atomics: the facade REPORTS this capability
+        // (SupportsInt64ShaderAtomics feeds the virtual-geometry software
+        // rasterizer's path choice), and a queried-but-not-enabled feature is
+        // a Phase 6 shader crash waiting to happen. Enabled when supported,
+        // never required.
+        VkPhysicalDeviceShaderAtomicInt64Features supportedAtomics{};
+        supportedAtomics.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
+        VkPhysicalDeviceFeatures2 supportedFeatures2{};
+        supportedFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        supportedFeatures2.pNext = &supportedAtomics;
+        vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supportedFeatures2);
+
+        VkPhysicalDeviceShaderAtomicInt64Features atomicFeatures{};
+        atomicFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
+        atomicFeatures.shaderBufferInt64Atomics = supportedAtomics.shaderBufferInt64Atomics;
+        atomicFeatures.pNext = &vulkan13Features;
+        m_ShaderBufferInt64AtomicsEnabled = supportedAtomics.shaderBufferInt64Atomics == VK_TRUE;
+
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceInfo.pNext = &vulkan13Features;
+        deviceInfo.pNext = &atomicFeatures;
         deviceInfo.queueCreateInfoCount = 1;
         deviceInfo.pQueueCreateInfos = &queueInfo;
         deviceInfo.enabledExtensionCount = static_cast<u32>(deviceExtensions.size());

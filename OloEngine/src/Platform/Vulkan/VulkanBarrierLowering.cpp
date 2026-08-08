@@ -199,7 +199,20 @@ namespace OloEngine::VulkanBarrierLowering
         // the contents are discarded, so there is nothing to make available —
         // source masks drop to NONE regardless of what FromAccess claimed.
         if (trackedOldLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+        {
             src = { VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE };
+        }
+        else if (barrier.Before == RHI::Access::Undefined)
+        {
+            // The INVERSE mismatch: the transition claims no producer, yet
+            // the image is demonstrably in a defined layout — something
+            // outside the graph's knowledge wrote it (the poison clear is
+            // the live case: it leaves TRANSFER_DST recorded, and the
+            // external first-use barrier that follows carries Undefined).
+            // NONE source masks would race that writer; over-sync instead.
+            src = { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                    VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT };
+        }
 
         VkImageMemoryBarrier2 out{};
         out.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;

@@ -191,6 +191,22 @@ TEST(VulkanBarrierLowering, TrackedUndefinedOldLayoutForcesSourceMasksToNone)
     EXPECT_EQ(out.srcAccessMask, VK_ACCESS_2_NONE);
 }
 
+TEST(VulkanBarrierLowering, UndefinedBeforeWithDefinedTrackedLayoutOverSyncs)
+{
+    // The inverse mismatch: the transition claims no producer (Undefined) but
+    // the tracker says the image IS in a defined layout — an out-of-graph
+    // writer (the poison clear leaves TRANSFER_DST) produced it. NONE source
+    // masks would race that writer; the lowering must go conservative.
+    RHI::Barrier b;
+    b.Before = RHI::Access::Undefined;
+    b.After = RHI::Access::ShaderSampleRead;
+
+    const auto out = VBL::BuildImageBarrier(b, FakeImage(0x13), kColor, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, 1);
+    EXPECT_EQ(out.oldLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    EXPECT_EQ(out.srcStageMask, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+    EXPECT_NE(out.srcAccessMask & VK_ACCESS_2_MEMORY_WRITE_BIT, 0u);
+}
+
 TEST(VulkanBarrierLowering, StorageWawBarrierGetsGeneralAndWriteAccess)
 {
     // End-to-end §1.5 pin at the assembly level: a WAW transition

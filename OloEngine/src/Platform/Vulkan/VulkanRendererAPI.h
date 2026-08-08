@@ -268,7 +268,9 @@ namespace OloEngine
 
         // Cached at Init() from the physical device.
         u32 m_MaxUniformBlockSize = 16384;
-        u32 m_MaxSamples = 1;
+        u32 m_MaxFramebufferSamples = 1;
+        u32 m_MaxColorTextureSamples = 1;
+        u32 m_MaxDepthTextureSamples = 1;
         bool m_SupportsInt64Atomics = false;
         bool m_LimitsCached = false;
         // Barrier stage masks may only name stages whose device features are

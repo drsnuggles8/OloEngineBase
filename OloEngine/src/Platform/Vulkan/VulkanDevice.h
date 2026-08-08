@@ -106,6 +106,13 @@ namespace OloEngine
         {
             return m_GeometryShaderEnabled;
         }
+        // ENABLED on the logical device (not merely supported by the physical
+        // one) — the facade's SupportsInt64ShaderAtomics must report what a
+        // shader can actually use.
+        [[nodiscard]] bool IsShaderBufferInt64AtomicsEnabled() const
+        {
+            return m_ShaderBufferInt64AtomicsEnabled;
+        }
 
         // Validation-error counter: the debug messenger increments this on
         // every ERROR-severity validation message. Tests assert it stays 0.
@@ -130,6 +137,7 @@ namespace OloEngine
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         bool m_TessellationShaderEnabled = false;
         bool m_GeometryShaderEnabled = false;
+        bool m_ShaderBufferInt64AtomicsEnabled = false;
     };
 } // namespace OloEngine
 
