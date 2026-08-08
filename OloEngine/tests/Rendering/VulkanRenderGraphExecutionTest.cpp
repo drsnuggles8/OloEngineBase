@@ -53,6 +53,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TransientPool.h"
+#include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
@@ -126,6 +127,46 @@ class VulkanRenderGraphExecution : public ::testing::Test
         if (volkInitialize() != VK_SUCCESS)
             GTEST_SKIP() << "No Vulkan loader on this machine.";
 
+        // Probe with VulkanBringUpTest's EXACT ladder (bare instance, no
+        // layers/extensions, enumerate, Evaluate) BEFORE constructing
+        // VulkanDevice: a loader-without-ICD CI runner survives this probe
+        // path provably (VulkanBringUp skips cleanly there), while the full
+        // bring-up's extra loader calls SEH-faulted on the Windows ASan
+        // runner. Skip decisions belong on the proven path.
+        {
+            VkApplicationInfo appInfo{};
+            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+            appInfo.pApplicationName = "OloEngine-Tests";
+            appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
+            VkInstanceCreateInfo instanceInfo{};
+            instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+            instanceInfo.pApplicationInfo = &appInfo;
+            VkInstance probe = VK_NULL_HANDLE;
+            if (vkCreateInstance(&instanceInfo, nullptr, &probe) != VK_SUCCESS)
+                GTEST_SKIP() << "vkCreateInstance failed (driver below Vulkan 1.4?).";
+            volkLoadInstance(probe);
+
+            u32 deviceCount = 0;
+            vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr);
+            std::vector<VkPhysicalDevice> devices(deviceCount);
+            if (deviceCount > 0)
+                vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
+            const bool anySatisfies = std::ranges::any_of(
+                devices,
+                [](VkPhysicalDevice device)
+                { return VulkanCapabilities::Evaluate(device).Satisfied; });
+            vkDestroyInstance(probe, nullptr);
+            if (!anySatisfies)
+            {
+                GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract here — the gate would "
+                                "refuse --rhi=vulkan.";
+            }
+            // The probe's volkLoadInstance left instance-scoped pointers
+            // behind; restore loader-scoped ones for the real bring-up.
+            if (volkInitialize() != VK_SUCCESS)
+                GTEST_SKIP() << "Vulkan loader re-initialisation failed.";
+        }
+
         m_Device = std::make_unique<VulkanDevice>();
         try
         {
@@ -136,9 +177,7 @@ class VulkanRenderGraphExecution : public ::testing::Test
         catch (const std::exception& e)
         {
             m_Device.reset();
-            GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract here — the gate would refuse "
-                            "--rhi=vulkan ("
-                         << e.what() << ")";
+            GTEST_SKIP() << "Vulkan bring-up refused on a contract-satisfying machine: " << e.what();
         }
 
         VulkanDevice::ResetValidationErrorCount();
