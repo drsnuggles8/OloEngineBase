@@ -70,7 +70,7 @@ The bar that separated it from the rest:
 ```cpp
 TArray<FTaskBase*, AllocatorType> m_Subsequents;   // payload
 std::atomic<bool> m_IsClosed{ false };             // read unlocked, every AddSubsequent()
-FMutex m_Mutex;                                    // guards m_Subsequents
+FMutex m_Mutex;                                    // guards m_Subsequents, paired with m_IsClosed
 ```
 
 `PushIfNotClosed()` — called via `FTaskBase::AddSubsequent()` for **every**
@@ -85,8 +85,31 @@ inline-allocator `TArray` plus a `bool` plus a 1-byte `FMutex` — comfortably
 fits on one 64-byte line by default, so the adjacency needed no
 `offsetof` archaeology to confirm.
 
-Fix: `alignas(OLO_PLATFORM_CACHE_LINE_SIZE)` on `m_IsClosed`, separating it
-(and everything declared after it) from `m_Subsequents`'s inline storage.
+Fix: `m_IsClosed` and `m_Mutex` are the two members that must land on the
+*same* line as each other — every access to one happens alongside the other,
+in `PushIfNotClosed()`/`Close()` — while staying off `m_Subsequents`'s line.
+`alignas(OLO_PLATFORM_CACHE_LINE_SIZE)` on `m_IsClosed` alone achieves that
+by relying on `m_Mutex` (1 byte, natural alignment 1) landing immediately
+after it in the same padded region — correct today, but implicit: a member
+inserted between them, or a reorder, would silently break the guarantee with
+no compiler diagnostic. The actual fix groups both into one `alignas`'d
+nested struct instead:
+
+```cpp
+struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) FCloseState
+{
+    std::atomic<bool> IsClosed{ false };
+    FMutex Mutex;
+};
+FCloseState m_Close;
+```
+
+— the pairing is then structural, not incidental to declaration order.
+This is the same shape as the existing `FPaddedSharedTask` wrapper in
+`Task/TaskConcurrencyLimiter.h`: when more than one member needs to share a
+line *with each other* while staying separated from something else, wrap
+them together rather than `alignas`-ing the first and trusting the rest to
+follow.
 
 ## Outcome of the audit
 

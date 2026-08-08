@@ -1061,12 +1061,12 @@ namespace OloEngine::Tasks
               public:
                 bool PushIfNotClosed(FTaskBase* NewItem)
                 {
-                    if (m_IsClosed.load(std::memory_order_acquire))
+                    if (m_Close.IsClosed.load(std::memory_order_acquire))
                     {
                         return false;
                     }
-                    TUniqueLock<FMutex> Lock(m_Mutex);
-                    if (m_IsClosed.load(std::memory_order_relaxed))
+                    TUniqueLock<FMutex> Lock(m_Close.Mutex);
+                    if (m_Close.IsClosed.load(std::memory_order_relaxed))
                     {
                         return false;
                     }
@@ -1076,29 +1076,37 @@ namespace OloEngine::Tasks
 
                 TArray<FTaskBase*, AllocatorType> Close()
                 {
-                    TUniqueLock<FMutex> Lock(m_Mutex);
-                    m_IsClosed.store(true, std::memory_order_release);
+                    TUniqueLock<FMutex> Lock(m_Close.Mutex);
+                    m_Close.IsClosed.store(true, std::memory_order_release);
                     return MoveTemp(m_Subsequents);
                 }
 
                 bool IsClosed() const
                 {
-                    return m_IsClosed.load(std::memory_order_acquire);
+                    return m_Close.IsClosed.load(std::memory_order_acquire);
                 }
 
               private:
                 TArray<FTaskBase*, AllocatorType> m_Subsequents;
                 // Cache-line separated from m_Subsequents: PushIfNotClosed's unlocked
-                // fast-path read of m_IsClosed runs on every prerequisite->subsequent
+                // fast-path read of IsClosed runs on every prerequisite->subsequent
                 // edge added anywhere in the task graph (FTaskBase::AddSubsequent),
                 // often from several worker threads racing to attach themselves to the
                 // same shared prerequisite. Without separation those reads keep
                 // dragging m_Subsequents' inline storage between Exclusive and Shared,
-                // so Close()'s m_Mutex.Lock() (an Exclusive-owning RMW on the same line)
+                // so Close()'s Mutex.Lock() (an Exclusive-owning RMW on the same line)
                 // pays an extra invalidation round-trip it would not otherwise need
-                // (Pikus, "Lock-Free Programming is Dead", C++Now 2026).
-                alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<bool> m_IsClosed{ false };
-                FMutex m_Mutex;
+                // (Pikus, "Lock-Free Programming is Dead", C++Now 2026). IsClosed and
+                // Mutex are grouped into one alignas'd struct — rather than alignas on
+                // IsClosed alone — so the pairing (both must share a line WITH each
+                // other, just not with m_Subsequents) survives a future member reorder
+                // or insertion instead of relying on incidental declaration order.
+                struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) FCloseState
+                {
+                    std::atomic<bool> IsClosed{ false };
+                    FMutex Mutex;
+                };
+                FCloseState m_Close;
             };
 
             TSubsequents<TInlineAllocator<1>> m_Subsequents;
