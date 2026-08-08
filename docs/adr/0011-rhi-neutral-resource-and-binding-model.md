@@ -11,6 +11,19 @@ constrain each other: the resource/binding model (§1), backend selection (§2),
 and the PSO-cache + hot-reload story (§3). They are kept in separate sections so
 a future revisit can target one without reopening the others.
 
+**§4, §5, and §6 were added later (2026-08-08, ahead of Phase 6), not part of
+the original Phase 1 output.** They decide the root-data model (§4, including
+its GPU-driven-indirect consequence in §4.2), PSO permutation minimization
+(§5), and split-barrier/timeline-semaphore signaling (§6) the same way §1–§3
+decided Phase 2/3's shape before those phases started — pre-deciding a later
+phase from this ADR is the established pattern, not a new one. All three were
+prompted by cross-referencing Sebastian Aaltonen's *Reducing Graphics API
+Complexity* (2026) against this document. §4/§4.2 close a gap: §1.2 already
+assumed heap-bindless *texture* binding, but left buffer binding (UBO/SSBO)
+and indirect-args staging on the conventional, CPU-round-tripping path. §6
+closes a different gap: §1.5 designed same-submission barriers but never
+addressed cross-pass/cross-frame latency hiding.
+
 **No code motion.** This ADR ships alongside declaration-only headers under
 `OloEngine/src/OloEngine/Renderer/RHI/` (the vocabulary, no implementations) and
 a coverage ratchet (`OloEngine/tests/Rendering/RHIBoundaryRatchetTest.cpp`).
@@ -734,6 +747,226 @@ principle and would also fix the "touch a file, recompile the world" case — bu
 it is an orthogonal improvement that would change GL behaviour for a Vulkan
 reason, and this ADR's whole posture is to avoid that. Recorded as a possible
 follow-up, not a Phase 6 dependency.
+
+---
+
+## 4. Decision — root data is one GPU pointer per draw/dispatch, not per-draw bound buffers
+
+§1.2 said a persistent view's heap offset "goes into a UBO/SSBO field," which
+quietly assumed conventional buffer *binding* survives for everything that
+isn't a texture. It shouldn't: amendment (5)'s sweep found "buffer binding
+points (`glBindBufferBase`)" was **the single biggest gap category** — 26 call
+sites, UBO and SSBO — and a Vulkan backend that lowers each of those to its own
+`vkCmdBindDescriptorSets`-shaped call per draw reopens, for buffers, exactly
+the per-draw CPU binding cost ADR 0010 rejected for textures. The heap made
+texture binding free; nothing in the model so far makes buffer binding free.
+
+**Decision: every draw/dispatch's per-object data — transforms, material
+scalars, texture-heap base indices, and pointers to vertex/index/other GPU
+buffers — is packed into one POD struct, allocated from a per-command-buffer
+GPU-visible bump allocator, and reaches the shader as a single 64-bit pointer.
+No other binding call happens per draw.** This is the direct engine-side
+adoption of the "root data = one pointer" model Sebastian Aaltonen describes in
+*Reducing Graphics API Complexity* (2026) — the outside corroboration is
+recorded here on the same basis §1.9 records Philip Rebohle's account: it
+independently reaches the same shape ADR 0010's heap-bindless commitment was
+already pointed at, and the shader-side dependency it needs
+(`VK_KHR_shader_untyped_pointers`) was *already* pinned in ADR 0010's
+capability contract — for the narrower reason of heap-offset dereferencing.
+Widening its use to carry the whole root struct is a design decision, not a
+new dependency.
+
+**Buffers become pointers, not heap slots.** Vertex, index, and storage data
+are addressed by buffer device address embedded directly in the root struct,
+mirroring how a texture is addressed via `HeapOffset` (§1.1). The resource heap
+therefore continues to hold only texture descriptors, exactly as §1.2a already
+decided for the unrelated reason that texture and buffer descriptors aren't
+the same size — no analogous "buffer heap" is ever built, and the two
+decisions reinforce rather than duplicate each other.
+
+**Per-frame/per-view globals do not get a special case.** Camera and lighting
+data change once per frame, not per draw, so binding them the old way is not
+where the 26-site cost lives. They are threaded through the model anyway — as
+a pointer field on the root struct, or on whatever root struct a pass's own
+per-draw structs chain to — so there is exactly **one** binding operation per
+draw/dispatch (pushing the root pointer) with no second, "important enough to
+bind conventionally" tier. Uniformity is the point: a special case here is
+where the next 26-site regrowth would start.
+
+**The Vulkan-specific wrinkle the talk's slides gloss over: push constants are
+small.** The guaranteed minimum is 128 bytes (desktop drivers on the ADR 0010
+floor typically expose 256), which is nowhere near enough to hold a root
+struct with several matrices and pointers inline. The push constant therefore
+carries **only the 8-byte GPU pointer** to the bump-allocated struct — never
+the struct's fields directly. This matches the talk's own CUDA-kernel-launch
+framing (the "argument" is the pointer, not the payload) but is worth stating
+explicitly because a first implementation reaching for `vkCmdPushConstants`
+with an inline struct will silently truncate past 128/256 bytes rather than
+fail loudly.
+
+**The GPU temp/bump allocator does not exist yet and is new work, not a
+reuse of `TransientPool`.** `TransientPool` (§1.2) allocates and aliases
+*physical resources* (textures, buffers as objects); this allocator hands out
+byte ranges *within* a resource for CPU-written, GPU-read scratch data — closer
+to Vulkan's per-command-buffer push-data pattern or Metal's `setBytes` than to
+anything in the render graph today. Backed by VMA (already vendored, Phase 4)
+with a linear/ring strategy, reset at the same frame boundary
+`TransientPool::ReleaseAll()` already uses, so the two lifetimes stay aligned
+without inventing a third one (§1.2's "do not invent a third lifetime class"
+rule applies here too). Because the allocation is persistently mapped
+(ReBAR/UMA, per the driver floor), the CPU writes the struct's fields directly
+into GPU memory — no staging buffer, no copy command. This is the one part of
+the model that is *easier* than the texture-upload path (§1's texture-upload
+discussion), not harder: root data has no tiling or compression to preserve.
+
+### 4.1 What this replaces, and what stays
+
+The two new virtuals amendment (5) added for `glBindBufferBase` (the "buffer
+binding points" row, 2 virtuals) stay in the facade **for GL**, unchanged —
+this is a Vulkan-side simplification, not a neutral-layer one, following the
+same pattern §1.6 used for `Renderer/Debug/`: a backend-specific improvement
+does not have to be expressed as a shared abstraction change. The Vulkan
+backend simply never calls them; per-draw data reaches its shaders exclusively
+through the root-pointer path above.
+
+**Owner: Phase 6**, and it should land *before* Phase 6's "one already-golden-
+tested pass renders correctly" checkpoint — a pass converted to bound-UBO
+Vulkan first and to root-data-pointer Vulkan second is strictly more work than
+doing it once, and the checkpoint pass is what every later pass in Phase 7
+will be copied from.
+
+### 4.2 GPU-driven indirect root data: no separate shape for a compute-written draw
+
+Because root data is just a GPU pointer, the struct an ordinary draw call
+points to and the struct an *indirect* draw call points to are the same kind
+of thing — the only difference is who writes it. **Decision: indirect
+draw/dispatch takes the identical single-pointer root-data contract as a
+direct call.** There is no separate "indirect root data" shape, no CPU-side
+indirect-args staging step, and no driver-managed command-signature object
+(the DX12-shaped `ID3D12CommandSignature` has nothing to abstract here,
+because the pointer *is* the argument list already). A GPU-driven pass —
+visibility/occlusion culling, LOD selection, virtual-geometry cluster culling
+(`VirtualClusterCull.comp`, per `docs/agent-rules/cluster-lod-simplification.md`)
+— writes its output root-data structs directly into GPU memory and issues the
+indirect draw pointing at them; nothing round-trips through the CPU. This
+codebase already has prior art for "a GPU-written buffer is the argument list,"
+in the two-counter overflow contract issue #725's GPU debug draws use — the
+same shape, applied here to indirect draw/dispatch arguments instead of debug
+primitives.
+
+The only new requirement is the ordinary one: a barrier between the writing
+compute dispatch and the consuming indirect draw, using §1.5's existing
+hazard-flag model (an indirect-args hazard, the same category §1.5 already
+names for descriptor writes). No new barrier machinery — this is an
+application of §1.5, not an extension of it.
+
+**The failure mode worth naming for Phase 7:** a converted GPU-driven pass
+that still stages its indirect args through the CPU is not incorrect, but it
+is leaving §4's investment on the table — the same category of regression as
+converting a pass to bindless textures while leaving one sampler on the slot
+path (Phase 3's finding, ADR amendments (32)-(38)). Treat a CPU-staged
+indirect-args path in a newly-ported GPU-driven pass as a defect to fix, not
+a style choice, once §4 exists to make the alternative free.
+
+**Owner:** the mechanism is established in Phase 6 alongside the rest of §4;
+individual GPU-driven passes (culling, LOD, virtual geometry) adopt it
+pass-by-pass as Phase 7 ports them.
+
+---
+
+## 5. Decision — minimize PSO permutation axes before Phase 6's first `VkPipeline`
+
+§3 designs the PSO *cache* — invalidation, hot reload, the shader→pipeline
+reverse index — but not what varies a `VkPipeline` in the first place. Left
+undecided, Phase 6 will bake whatever is convenient into
+`VkGraphicsPipelineCreateInfo` (the GL-shaped default: vertex layout, depth,
+blend, and raster state all monolithic), and Phase 7's 35+-pass port
+multiplies that decision by every state permutation each pass happens to use.
+This is the same permutation-explosion mechanism ADR 0010/0011 already
+diagnose as the cause of DX12/Vulkan's real-world PSO-hitch problems — the
+difference is that this codebase gets to decide it *before* the first
+pipeline exists, not retrofit it after 35 passes have already baked their own
+assumptions in.
+
+**Decision, per state axis, following Aaltonen's thin-PSO argument:**
+
+| Axis | Decision | Why it's safe on this ADR's driver floor |
+| --- | --- | --- |
+| Vertex input layout | **Not baked at all.** Extend Phase 3's bindless-texture pulling pattern to vertex data: vertex shaders fetch through a buffer-device-address pointer with manual indexing, not `VkPipelineVertexInputStateCreateInfo`. | Removes the axis entirely rather than making it cheaper — the same move §4 makes for buffers generally, applied to the one buffer type (vertex) that still has a dedicated binding mechanism. |
+| Depth/stencil state | Dynamic, via `VK_EXT_extended_dynamic_state` / `…state2` (core-promoted). | Universal on desktop; Metal has proven the same split safe across Nvidia/AMD/Intel/Apple since its first version (talk, §4.8). |
+| Blend state | Dynamic where `VK_EXT_extended_dynamic_state3`'s blend-enable/equation states are available; baked into the PSO only where they aren't. | The talk's finding is that *only* Apple/PowerVR mobile GPUs genuinely require blend baked into the shader — irrelevant to this ADR's Vulkan desktop floor (NVIDIA/AMD), so the fallback path should never actually trigger here. Verify at Phase 6's device-capability audit rather than assume — same discipline ADR 0010 used for the heap extension's feature bits. |
+| Rasterizer/render-target description | Stays minimal: target formats/count, depth/stencil format, sample count, dual-source blending flag. Nothing else. | This is already the shape §1's survey implies; stating it here makes it a decision instead of an accident. |
+
+**Sequencing note:** vertex-pulling is comparable in size to Phase 3's
+bindless-texture rehearsal (a real conversion across every draw call, not a
+config flag), so it should be an explicit Phase 6 sub-step completed before
+the "one pass renders correctly" checkpoint — not deferred to Phase 7, where
+retrofitting it after 35 passes have been ported against a baked vertex-input
+PSO would cost far more than doing it once, up front, on the one pilot pass.
+
+**What is deliberately not pinned here:** the exact
+`VkPhysicalDeviceExtendedDynamicState3PropertiesEXT` / feature bits Phase 6
+should require. As with ADR 0010's capability contract, writing specific bit
+names into an ADR with no Vulkan device code to validate them against would be
+guessing; Phase 6 fills this in against the real driver floor, the same way
+Phase 4 filled in ADR 0010's table.
+
+**Owner: Phase 6**, alongside §4 and ahead of the same checkpoint.
+
+---
+
+## 6. Decision — split barriers are a GPU-pointer signal/wait pair, the same mechanism as timeline semaphores
+
+§1.5 designs the *same-command-buffer* barrier: a producer/consumer pair
+inside one recorded submission, expressed as `(FromUsage, ToUsage, Range,
+hazard)`. It says nothing about hiding latency across a *longer* span — the
+case DX12's split barriers and Vulkan's events each address today with their
+own persistent, ceremony-heavy driver object, which is a large part of why,
+per Aaltonen's talk, almost nobody actually uses either.
+
+**Decision: a split barrier is a plain GPU-memory location plus two
+operations — `Signal(pointer, value, op)` and `Wait(pointer, value,
+compareOp)` — with `op`/`compareOp` covering at minimum `{Set/Equal,
+AtomicMax/GreaterEqual}`.** The max/greater-equal pair is what generalizes
+this from a one-shot flag into a monotonically increasing counter, i.e. a
+timeline. This is deliberately not new Vulkan machinery: it is the existing
+**timeline semaphore** primitive (core since Vulkan 1.2, well inside the ADR
+0010 1.4 floor), promoted to the render graph's one mechanism for any
+cross-pass or cross-frame dependency, rather than inventing a second,
+Vulkan-events-shaped abstraction alongside it the way DX12 keeps both split
+barriers and fences as separate concepts.
+
+**How this plugs into the existing model.** `RenderGraphBarrierPlanner`
+(§1.5) keeps computing ordinary same-submission dependencies unchanged — nothing
+here replaces that. A dependency that spans further — a compute culling pass
+whose tail latency can be hidden behind independent work later in the same
+frame, or a cross-frame dependency the render graph currently expresses as an
+ad hoc CPU/GPU fence — becomes an `RHI::GpuFence`: one GPU pointer, allocated
+from the same per-frame lifetime discipline §4's temp allocator already
+established, with `Signal` attached to the producing render-graph node and
+`Wait` attached to the consuming one (or to nothing, if the wait is a CPU-side
+frame-pacing check instead).
+
+**One primitive, both sides of the API.** The same `Signal`/`Wait` pair
+replaces ad hoc CPU-side fence chains too — a single persistently-mapped
+counter, incremented by `Signal`, observed via a CPU `WaitGreaterEqual` — so
+the render graph's existing CPU/GPU frame-pacing mechanism and its future
+GPU-side split-barrier mechanism are the same code, not two.
+
+**What this does not change:** §1.5's ordinary same-command-buffer barrier
+model stays exactly as decided. This is additive, for the specific case where
+a blocking barrier would leave the GPU idle because there is genuine
+independent work available to fill the gap.
+
+**Deferred to Phase 7:** which specific render-graph passes are worth
+splitting rather than barriered inline is a per-pass profiling decision, not
+one this ADR can make abstractly — §6 only decides that the primitive exists
+and what shape it has. Applying it is opportunistic, not a requirement every
+ported pass must satisfy.
+
+**Owner: Phase 6** (the primitive, alongside §4/§5 — all three are the same
+family of low-ceremony, pointer-shaped mechanism), **consumed pass-by-pass in
+Phase 7** wherever profiling shows a real latency-hiding opportunity.
 
 ---
 
