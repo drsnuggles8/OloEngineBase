@@ -7,7 +7,7 @@
 
 namespace OloEngine
 {
-    void VulkanImageLayoutTracker::RegisterImage(const VkImage image, const u32 mipCount, const u32 layerCount)
+    void VulkanImageLayoutTracker::RegisterImage(const VkImage image, const u32 mipCount, const u32 layerCount, const u64 registrationId)
     {
         if (image == VK_NULL_HANDLE)
             return;
@@ -16,14 +16,18 @@ namespace OloEngine
         const u32 layers = std::max(layerCount, 1u);
 
         if (const auto it = m_Images.find(image);
-            it != m_Images.end() && it->second.MipCount == mips && it->second.LayerCount == layers)
+            it != m_Images.end() && it->second.MipCount == mips && it->second.LayerCount == layers &&
+            it->second.RegistrationId == registrationId)
         {
-            return; // idempotent re-registration
+            return; // idempotent re-registration of the SAME image
         }
 
+        // New image, changed extents, or a recycled handle value carrying a
+        // fresh registry stamp — all reset to UNDEFINED.
         ImageState state;
         state.MipCount = mips;
         state.LayerCount = layers;
+        state.RegistrationId = registrationId;
         state.Layouts.assign(static_cast<sizet>(mips) * layers, VK_IMAGE_LAYOUT_UNDEFINED);
         m_Images[image] = std::move(state);
     }

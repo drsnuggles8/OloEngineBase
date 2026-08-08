@@ -1028,7 +1028,14 @@ namespace OloEngine
             // Bump generation only when the backing resource or placeholder
             // state actually changes. A no-op re-import keeps prior handle
             // copies valid for callers caching handles across frames.
-            const bool resourceChanged = (phys.BufferID != bufferID);
+            // A slot whose previous occupant carried the IDENTITY currency (a
+            // materialized transient sets BOTH — Phase 5) changes occupants
+            // even when the native id happens to match: the native import
+            // below clears phys.Handle, so cached RGBufferHandles must fail
+            // their generation check rather than silently resolve to the new
+            // native-only occupant (AllocateTextureHandle's identity
+            // comparison, mirrored).
+            const bool resourceChanged = (phys.BufferID != bufferID) || phys.Handle.IsValid();
             const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
                                             (slot.PlaceholderReason != placeholderReason);
             const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
@@ -4265,7 +4272,7 @@ namespace OloEngine
         const auto canonicalName = [this](const std::string& name) -> const std::string&
         {
             const std::string* current = &name;
-            for (u32 depth = 0; depth < 16u; ++depth)
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
                 const auto it = m_VersionAliasTargets.find(*current);
                 if (it == m_VersionAliasTargets.end() || it->second.empty())

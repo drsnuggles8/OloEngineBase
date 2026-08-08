@@ -17,9 +17,14 @@
 
 // Function-pointer config must match VulkanMemoryAllocator.cpp (the
 // VMA_IMPLEMENTATION TU) exactly — VMA is imported through volk's loaded
-// pointers, never linked statically (nothing links vulkan-1.lib).
+// pointers, never linked statically (nothing links vulkan-1.lib). Guarded so
+// a TU that already defined them (with the same value) doesn't warn.
+#ifndef VMA_STATIC_VULKAN_FUNCTIONS
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
+#endif
+#ifndef VMA_DYNAMIC_VULKAN_FUNCTIONS
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
+#endif
 #include <vk_mem_alloc.h>
 
 #include <functional>

@@ -303,28 +303,71 @@ TEST_F(VulkanRenderGraphExecution, GraphTransitionsLowerToValidationCleanBarrier
     graph.BuildFrameGraph();
     graph.Execute();
 
+    // EVERY MemoryBarrier command in the plan gets lowered and executed —
+    // the graph plans one batch per consuming pass (the WAW before
+    // VkRewriter AND the RAW before VkConsumer), and exercising only the
+    // first would leave the second lowering untested on-device.
     const auto plan = graph.GetSubmissionPlan();
-    const auto barrierIt = std::ranges::find_if(plan,
-                                                [](const RenderGraph::SubmissionCommand& cmd)
-                                                { return cmd.CommandKind == RenderGraph::SubmissionCommand::Kind::MemoryBarrier; });
-    ASSERT_NE(barrierIt, plan.end());
-    ASSERT_FALSE(barrierIt->Transitions.empty());
-
-    const auto resolved = graph.ResolveTransitionsToBarriers(barrierIt->Transitions);
-    ASSERT_FALSE(resolved.empty()) << "A handle-imported resource must resolve to an RHI::Barrier";
+    struct BarrierBatch
+    {
+        MemoryBarrierFlags Flags = MemoryBarrierFlags::None;
+        std::vector<RHI::Barrier> Resolved;
+    };
+    std::vector<BarrierBatch> batches;
+    bool sawWaw = false;
+    bool sawRaw = false;
+    for (const auto& cmd : plan)
+    {
+        if (cmd.CommandKind != RenderGraph::SubmissionCommand::Kind::MemoryBarrier)
+            continue;
+        for (const auto& transition : cmd.Transitions)
+        {
+            sawWaw |= transition.ToAccess == RHI::Access::StorageWrite;
+            sawRaw |= transition.ToAccess == RHI::Access::ShaderSampleRead;
+        }
+        BarrierBatch batch;
+        batch.Flags = cmd.Barriers;
+        batch.Resolved = graph.ResolveTransitionsToBarriers(cmd.Transitions);
+        batches.push_back(std::move(batch));
+    }
+    ASSERT_GE(batches.size(), 2u) << "Expected a WAW batch (before VkRewriter) and a RAW batch (before VkConsumer)";
+    EXPECT_TRUE(sawWaw) << "The plan must carry the write->write transition (ADR 0011 §1.5)";
+    EXPECT_TRUE(sawRaw) << "The plan must carry the read-after-write transition";
+    for (const auto& batch : batches)
+        ASSERT_FALSE(batch.Resolved.empty()) << "A handle-imported resource must resolve to RHI::Barriers";
 
     VulkanRendererAPI api;
     api.Init();
 
     // Frame 1: first-use transitions (tracker answers UNDEFINED — discard).
     SubmitFrame(api, [&]
-                { api.IssueBarrierBatch(barrierIt->Barriers, resolved); });
+                {
+                    for (const auto& batch : batches)
+                        api.IssueBarrierBatch(batch.Flags, batch.Resolved); });
 
-    // Frame 2: the tracker now knows the layouts — the same batch must
-    // transition FROM the tracked layout, not UNDEFINED, and still validate
+    // Frame 2: the tracker now knows the layouts — the same batches must
+    // transition FROM the tracked layouts, not UNDEFINED, and still validate
     // clean (this is the state machine the phase exists to get right).
     SubmitFrame(api, [&]
-                { api.IssueBarrierBatch(barrierIt->Barriers, resolved); });
+                {
+                    for (const auto& batch : batches)
+                        api.IssueBarrierBatch(batch.Flags, batch.Resolved); });
+
+    // A MIXED batch — one resolvable barrier plus one whose handle cannot
+    // resolve — must keep the synchronisation the flags promised for the
+    // unresolved remainder (the conservative global fallback) instead of
+    // silently ordering only the resolved half. Validation-clean is the
+    // observable contract.
+    {
+        std::vector<RHI::Barrier> mixed = batches.front().Resolved;
+        RHI::Barrier unresolvable;
+        unresolvable.Resource = RHI::ResourceHandle{}; // null handle — never resolves
+        unresolvable.Before = RHI::Access::StorageWrite;
+        unresolvable.After = RHI::Access::ShaderSampleRead;
+        mixed.push_back(unresolvable);
+        SubmitFrame(api, [&]
+                    { api.IssueBarrierBatch(MemoryBarrierFlags::ShaderStorage, mixed); });
+    }
 
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
     pool.ReleaseAll();

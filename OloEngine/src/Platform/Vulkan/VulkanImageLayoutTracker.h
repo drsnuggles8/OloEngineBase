@@ -40,9 +40,12 @@ namespace OloEngine
     {
       public:
         // Declare an image's extents. Idempotent; re-registering with
-        // different extents resets that image's state to UNDEFINED (it is a
-        // different allocation reusing the handle value).
-        void RegisterImage(VkImage image, u32 mipCount, u32 layerCount);
+        // different extents — or a different `registrationId`
+        // (VulkanImageInfo::RegistrationId: the stamp that distinguishes a
+        // driver-recycled handle VALUE from the image previously tracked,
+        // even at identical extents) — resets that image's state to
+        // UNDEFINED. Callers without a registry stamp may pass 0.
+        void RegisterImage(VkImage image, u32 mipCount, u32 layerCount, u64 registrationId = 0);
 
         // Drop all state for an image (call at destroy — a recycled handle
         // value must not inherit the dead image's layouts).
@@ -73,6 +76,7 @@ namespace OloEngine
         {
             u32 MipCount = 1;
             u32 LayerCount = 1;
+            u64 RegistrationId = 0;
             // Indexed [layer * MipCount + mip].
             std::vector<VkImageLayout> Layouts;
         };

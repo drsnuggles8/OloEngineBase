@@ -185,6 +185,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // The enabled-stage narrowing below depends on the device's feature
+        // set, and this instance may have been constructed before the device
+        // existed (RecreateForSelectedBackend runs pre-window, and Init() is
+        // skipped while Renderer::Init is). CacheDeviceLimits early-outs once
+        // cached, so this is a no-op on the steady path.
+        CacheDeviceLimits();
+
         if (m_Cmd == VK_NULL_HANDLE)
         {
             if (flags != MemoryBarrierFlags::None || !barriers.empty())
@@ -196,13 +203,23 @@ namespace OloEngine
         std::vector<VkBufferMemoryBarrier2> bufferBarriers;
         imageBarriers.reserve(barriers.size());
 
+        // Barriers that cannot resolve to a native object (stale/dead/foreign
+        // handles, non-Vulkan images in a mixed-currency graph) must not
+        // silently drop the synchronisation the batch promised for them — a
+        // resolved-only batch would order SOME of the pass's inputs and race
+        // the rest. They fall back to the conservative global barrier below.
+        bool anyUnresolved = false;
+
         auto& registry = RHI::ResourceRegistry::Get();
         for (const auto& barrier : barriers)
         {
             const auto kind = registry.KindOf(barrier.Resource);
             const u64 native = registry.ResolveNativeForBackend(barrier.Resource);
             if (native == 0u)
-                continue; // stale/dead/foreign handle — degrades to "no barrier", never to garbage
+            {
+                anyUnresolved = true; // degrades to the global fallback, never to garbage
+                continue;
+            }
 
             if (kind == RHI::ResourceKind::Buffer)
             {
@@ -213,15 +230,21 @@ namespace OloEngine
                 continue;
             }
             if (kind != RHI::ResourceKind::Texture)
+            {
+                anyUnresolved = true;
                 continue;
+            }
 
             const auto image = reinterpret_cast<VkImage>(native);
             const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
             if (!info)
-                continue; // not a Vulkan-backend image (mixed-currency graph)
+            {
+                anyUnresolved = true; // not a Vulkan-backend image (mixed-currency graph)
+                continue;
+            }
 
             const auto aspect = AspectFromInfo(*info);
-            m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers);
+            m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers, info->RegistrationId);
 
             // The neutral range, clamped into Vk terms once; the tracker then
             // splits it into runs of equal current layout so oldLayout is
@@ -262,14 +285,23 @@ namespace OloEngine
         VkDependencyInfo dep{};
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
 
-        if (imageBarriers.empty() && bufferBarriers.empty())
+        // The conservative global barrier fires whenever the per-resource set
+        // is INCOMPLETE: a flags-only batch (no transitions at all), or a
+        // MIXED batch where some operands could not resolve — the flags
+        // promised synchronisation for those too, and one dependency info can
+        // carry the global barrier alongside the resolved image/buffer
+        // barriers (execution+memory coverage for the unresolved remainder;
+        // layout transitions for them stay impossible without a native image,
+        // which is exactly why a Vulkan graph must import by handle).
+        const bool needsGlobalFallback =
+            flags != MemoryBarrierFlags::None &&
+            (anyUnresolved || (imageBarriers.empty() && bufferBarriers.empty()));
+
+        if (!needsGlobalFallback && imageBarriers.empty() && bufferBarriers.empty())
+            return;
+
+        if (needsGlobalFallback)
         {
-            // Nothing resolved to a per-resource barrier (flags-only batch,
-            // or every operand was a native-only import). The synchronisation
-            // the GL flags promised must still happen: one conservative
-            // global barrier.
-            if (flags == MemoryBarrierFlags::None)
-                return;
             globalBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
             globalBarrier.srcStageMask = kAllStages;
             globalBarrier.srcAccessMask = kAllAccess;
@@ -278,13 +310,10 @@ namespace OloEngine
             dep.memoryBarrierCount = 1;
             dep.pMemoryBarriers = &globalBarrier;
         }
-        else
-        {
-            dep.imageMemoryBarrierCount = static_cast<u32>(imageBarriers.size());
-            dep.pImageMemoryBarriers = imageBarriers.data();
-            dep.bufferMemoryBarrierCount = static_cast<u32>(bufferBarriers.size());
-            dep.pBufferMemoryBarriers = bufferBarriers.data();
-        }
+        dep.imageMemoryBarrierCount = static_cast<u32>(imageBarriers.size());
+        dep.pImageMemoryBarriers = imageBarriers.empty() ? nullptr : imageBarriers.data();
+        dep.bufferMemoryBarrierCount = static_cast<u32>(bufferBarriers.size());
+        dep.pBufferMemoryBarriers = bufferBarriers.empty() ? nullptr : bufferBarriers.data();
 
         vkCmdPipelineBarrier2(m_Cmd, &dep);
     }
@@ -309,7 +338,7 @@ namespace OloEngine
             return;
 
         const auto aspect = AspectFromInfo(*info);
-        m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers);
+        m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers, info->RegistrationId);
 
         VkImageSubresourceRange range{};
         range.aspectMask = VulkanBarrierLowering::AspectMaskFor(aspect);
@@ -382,7 +411,7 @@ namespace OloEngine
         if (!info || info->HasDepth || info->HasStencil)
             return; // a uint clear of a depth image has no meaning
 
-        m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers);
+        m_LayoutTracker.RegisterImage(image, info->MipLevels, info->ArrayLayers, info->RegistrationId);
 
         VkImageSubresourceRange range{};
         range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;

@@ -219,13 +219,17 @@ namespace OloEngine::VulkanBarrierLowering
         auto& range = out.subresourceRange;
         range.aspectMask = AspectMaskFor(aspect);
         range.baseMipLevel = std::min(barrier.Range.BaseMip, imageMipCount > 0u ? imageMipCount - 1u : 0u);
+        // Resolved counts clamp to AT LEAST 1: a zero levelCount/layerCount is
+        // a VUID violation, and the degenerate inputs that could produce one
+        // (a zero-extent image record, a base at the image's last slot with a
+        // zero span) should degrade to a 1-wide range, not an invalid barrier.
         range.levelCount = (barrier.Range.MipCount == RHI::SubresourceRange::AllRemaining)
                                ? VK_REMAINING_MIP_LEVELS
-                               : std::min(barrier.Range.MipCount, imageMipCount - range.baseMipLevel);
+                               : std::max(std::min(barrier.Range.MipCount, imageMipCount - range.baseMipLevel), 1u);
         range.baseArrayLayer = std::min(barrier.Range.BaseLayer, imageLayerCount > 0u ? imageLayerCount - 1u : 0u);
         range.layerCount = (barrier.Range.LayerCount == RHI::SubresourceRange::AllRemaining)
                                ? VK_REMAINING_ARRAY_LAYERS
-                               : std::min(barrier.Range.LayerCount, imageLayerCount - range.baseArrayLayer);
+                               : std::max(std::min(barrier.Range.LayerCount, imageLayerCount - range.baseArrayLayer), 1u);
 
         return out;
     }

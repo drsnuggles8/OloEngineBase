@@ -157,7 +157,13 @@ namespace OloEngine
             }
             if (spec.MipLevels > 0u)
             {
-                return spec.MipLevels;
+                // Clamp an authored level count to the full chain the extents
+                // support — Vulkan refuses mipLevels beyond
+                // floor(log2(max(w,h)))+1 (VUID-VkImageCreateInfo-mipLevels-02255),
+                // where GL silently tolerated the over-ask. Resize re-derives
+                // through this same path, so a persisted over-large spec stays
+                // bounded there too.
+                return std::min(spec.MipLevels, CalculateFullMipCount(width, height));
             }
             if (spec.GenerateMips)
             {
@@ -249,7 +255,12 @@ namespace OloEngine
         {
             return;
         }
+        // Stamp every registration uniquely so a layout tracker can tell a
+        // driver-recycled handle VALUE apart from the image it tracked — see
+        // VulkanImageInfo::RegistrationId.
+        static u64 s_NextRegistrationId = 0;
         m_Infos[image] = info;
+        m_Infos[image].RegistrationId = ++s_NextRegistrationId;
     }
 
     const VulkanImageInfo* VulkanImageInfoRegistry::Lookup(VkImage image) const

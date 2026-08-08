@@ -59,6 +59,15 @@ namespace OloEngine
         u32 ArrayLayers = 1;
         bool HasDepth = false;
         bool HasStencil = false;
+
+        // Stamped by Register() from a process-wide monotonic counter. A
+        // destroyed VkImage's handle VALUE can be recycled by the driver for
+        // a later image with identical extents; layout trackers key on the
+        // handle and would otherwise inherit the dead image's layouts (a
+        // wrong oldLayout, i.e. a validation error at best). Comparing this
+        // stamp is how a tracker detects "same handle value, different
+        // image" — the same recycled-name lesson as RHI handle generations.
+        u64 RegistrationId = 0;
     };
 
     class VulkanImageInfoRegistry

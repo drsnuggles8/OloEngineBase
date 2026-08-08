@@ -192,6 +192,28 @@ namespace OloEngine::RenderGraphBarrierPlanner
                                 });
                             }
                         }
+
+                        // A first-use read with no prior in-frame writer still
+                        // needs a barrier on an explicit-layout backend: the
+                        // image must transition OUT of its initial state
+                        // before the first sample (the transition's oldLayout
+                        // comes from the backend's tracker — UNDEFINED on
+                        // frame 1, the real prior layout afterwards, so an
+                        // imported history texture keeps its contents). Flags
+                        // stay None — GL needs no barrier for an external
+                        // producer, and a None-flags batch is a no-op on the
+                        // GL path — while the transition record built from
+                        // this barrier carries ("external", Undefined ->
+                        // read access) for the Vulkan lowering. The
+                        // diagnostics above still fire; this is a barrier, not
+                        // an exoneration.
+                        result.PlannedBarriers.push_back(RenderGraph::PlannedBarrier{
+                            .BeforePass = passName,
+                            .Resource = access.ResourceName,
+                            .Flags = MemoryBarrierFlags::None,
+                            .Range = access.Range,
+                            .ToAccess = AccessForReadUsage(access.ReadUsage),
+                        });
                         continue;
                     }
 
