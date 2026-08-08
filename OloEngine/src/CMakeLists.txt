@@ -1463,14 +1463,25 @@
 		"Platform/OpenGL/OpenGLVertexBuffer.cpp"
 		"Platform/OpenGL/OpenGLVertexBuffer.h"
 
-		# Vulkan backend bring-up (#691 Phase 4). Always listed; each .cpp self-guards
-		# on OLO_WITH_VULKAN and compiles to an empty TU when the backend is off —
-		# the same convention as the OLO_WITH_* import-format translators.
+		# Vulkan backend bring-up (#691 Phase 4) + render-graph execution layer
+		# (#691 Phase 5). Always listed; each .cpp self-guards on OLO_WITH_VULKAN
+		# and compiles to an empty TU when the backend is off — the same
+		# convention as the OLO_WITH_* import-format translators.
+		"Platform/Vulkan/VulkanBarrierLowering.cpp"
+		"Platform/Vulkan/VulkanBarrierLowering.h"
 		"Platform/Vulkan/VulkanCapabilities.cpp"
 		"Platform/Vulkan/VulkanCapabilities.h"
 		"Platform/Vulkan/VulkanContext.cpp"
 		"Platform/Vulkan/VulkanContext.h"
+		"Platform/Vulkan/VulkanDevice.cpp"
+		"Platform/Vulkan/VulkanDevice.h"
+		"Platform/Vulkan/VulkanImageLayoutTracker.cpp"
+		"Platform/Vulkan/VulkanImageLayoutTracker.h"
 		"Platform/Vulkan/VulkanMemoryAllocator.cpp"
+		"Platform/Vulkan/VulkanRendererAPI.cpp"
+		"Platform/Vulkan/VulkanRendererAPI.h"
+		"Platform/Vulkan/VulkanTransientResources.cpp"
+		"Platform/Vulkan/VulkanTransientResources.h"
 )
 
 # Platform-specific sources

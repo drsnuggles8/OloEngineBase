@@ -142,33 +142,10 @@ namespace OloEngine::RHI
     // second view, and under this model a second heap slot.
     // =========================================================================
 
-    // Which plane(s) of a resource an access refers to. A depth-stencil format
-    // has two, and Vulkan can transition them independently
-    // (DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL and its mirror), so a range
-    // without an aspect is not a complete subresource identifier. The engine's
-    // existing RGSubresourceRange omits this; it is added here because
-    // CreateDepthArrayCompareOffView already produces a depth-only read of a
-    // resource that is elsewhere used as a depth-stencil attachment.
-    enum class TextureAspect : u8
-    {
-        Color = 0,
-        Depth,
-        Stencil,
-        DepthStencil,
-    };
-
-    struct SubresourceRange
-    {
-        static constexpr u32 AllRemaining = ~0u;
-
-        TextureAspect Aspect = TextureAspect::Color;
-        u32 BaseMip = 0;
-        u32 MipCount = AllRemaining;
-        u32 BaseLayer = 0;
-        u32 LayerCount = AllRemaining;
-
-        [[nodiscard]] auto operator==(const SubresourceRange& other) const -> bool = default;
-    };
+    // TextureAspect and SubresourceRange MOVED to RHITypes.h in Phase 5: the
+    // barrier facade entry point (RendererAPI::IssueBarrierBatch) takes
+    // RHI::Barrier, and RendererAPI.h includes only RHITypes.h — same
+    // move-don't-duplicate precedent as MemoryResidency (Phase 2 step 2).
 
     // WHICH KIND OF DESCRIPTOR a view produces (issue #691 Phase 3, ADR 0011
     // amendment (26)).
@@ -497,30 +474,10 @@ namespace OloEngine::RHI
     };
 
     // =========================================================================
-    // Barriers
-    //
-    // ADR 0011 §1.5. This is what RenderGraph::ResourceTransition should carry
-    // once Phase 5 unifies its RGWriteUsage -> RGReadUsage pair, which today
-    // structurally cannot express a write -> write transition.
-    //
-    // There is no image-layout member, deliberately: layout is a pure function
-    // of Access, so the Vulkan backend derives it. See RHITypes.h.
+    // Barriers — struct Barrier MOVED to RHITypes.h in Phase 5, when
+    // RendererAPI::IssueBarrierBatch made it facade vocabulary (RendererAPI.h
+    // includes only RHITypes.h). See the note at TextureAspect above.
     // =========================================================================
-
-    struct Barrier
-    {
-        ResourceHandle Resource;
-        SubresourceRange Range;
-        Access Before = Access::Undefined;
-        Access After = Access::Undefined;
-
-        // Set when producer and consumer sit on different queues. On GL 4.6
-        // (one command stream) this is informational; on Vulkan it drives
-        // queue-family ownership transfer and semaphore waits.
-        bool IsCrossQueue = false;
-        QueueType SourceQueue = QueueType::Graphics;
-        QueueType DestQueue = QueueType::Graphics;
-    };
 
     // =========================================================================
     // The debug escape hatch.

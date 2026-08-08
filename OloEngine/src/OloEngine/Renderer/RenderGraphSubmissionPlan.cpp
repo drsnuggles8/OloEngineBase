@@ -251,6 +251,33 @@ namespace OloEngine::RenderGraphSubmissionPlan
             flags = flags | planned.Flags;
         }
 
+        // Map: passName → deduplicated transition records (Phase 5, the
+        // explicit-barrier currency). The planner emits one barrier per prior
+        // writer, but for layout purposes only the LAST writer's state
+        // matters — earlier writers are ordered transitively through the WAW
+        // barriers between the writers themselves — so per-writer duplicates
+        // collapse on (resource, range, from, to). Known caveat, recorded in
+        // ADR 0011's Phase 5 amendments: two prior writers touching DISJOINT
+        // subresources of one resource collapse to the last writer's stage
+        // and access masks; sync validation is the instrument that would
+        // surface a real graph relying on that (Phase 7 hardening item).
+        std::unordered_map<std::string, std::vector<RenderGraph::ResourceTransition>> transitionsForPass;
+        for (const auto& transition : input.Transitions)
+        {
+            auto& list = transitionsForPass[transition.ConsumerPass];
+            const bool duplicate = std::ranges::any_of(
+                list,
+                [&transition](const RenderGraph::ResourceTransition& existing)
+                {
+                    return existing.ResourceName == transition.ResourceName &&
+                           existing.Range == transition.Range &&
+                           existing.FromAccess == transition.FromAccess &&
+                           existing.ToAccess == transition.ToAccess;
+                });
+            if (!duplicate)
+                list.push_back(transition);
+        }
+
         // Walk the execution order and emit commands.
         u32 currentBatch = std::numeric_limits<u32>::max();
 
@@ -311,6 +338,8 @@ namespace OloEngine::RenderGraphSubmissionPlan
                 barrier.CommandKind = SubmissionCommand::Kind::MemoryBarrier;
                 barrier.Barriers = barIt->second;
                 barrier.Lane = passLane;
+                if (const auto trIt = transitionsForPass.find(passName); trIt != transitionsForPass.end())
+                    barrier.Transitions = trIt->second;
                 plan.push_back(std::move(barrier));
             }
 

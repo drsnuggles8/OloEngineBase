@@ -336,6 +336,16 @@ namespace OloEngine::Testing
         {
             Record("MemoryBarrier");
         }
+        void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) override
+        {
+            // ParamU32_0 = the GL-lowered flag bits, ParamU32_1 = how many
+            // per-resource transitions the batch carried — lets a headless
+            // test assert both currencies arrived without a real backend.
+            RecordedCall c{ "IssueBarrierBatch" };
+            c.ParamU32_0 = static_cast<u32>(std::to_underlying(flags));
+            c.ParamU32_1 = static_cast<u32>(barriers.size());
+            m_Calls.push_back(std::move(c));
+        }
 
         void BindDefaultFramebuffer() override
         {

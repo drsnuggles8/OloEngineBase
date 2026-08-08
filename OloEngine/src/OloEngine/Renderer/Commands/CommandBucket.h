@@ -11,6 +11,10 @@
 #include <functional>
 
 #include "OloEngine/Threading/Mutex.h"
+// TUniqueLock — used by the parallel-submission paths below. Not transitively
+// provided by Mutex.h: a non-PCH TU including this header (the Vulkan
+// execution test was the first) fails on Linux/Clang without it.
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <optional>
 

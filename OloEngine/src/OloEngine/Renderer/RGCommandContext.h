@@ -108,6 +108,12 @@ namespace OloEngine
         // is disabled, so a converted pass costs nothing on the slot-based path.
         void FlushHeapOffsets() const;
         void MemoryBarrier(MemoryBarrierFlags flags) const;
+        // Phase 5 (ADR 0011 §1.5): the pre-pass barrier batch carrying both
+        // currencies — the GL flags bitmask AND the handle-resolved
+        // per-resource transitions. Forwards to RendererAPI::IssueBarrierBatch;
+        // GL executes the flags exactly as MemoryBarrier() did, an
+        // explicit-barrier backend lowers the RHI::Barrier span instead.
+        void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) const;
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) const;
         // Async-compute batch boundaries.
         // In GL 4.6 (single command stream) these insert KHR_debug group labels

@@ -1028,7 +1028,14 @@ namespace OloEngine
             // Bump generation only when the backing resource or placeholder
             // state actually changes. A no-op re-import keeps prior handle
             // copies valid for callers caching handles across frames.
-            const bool resourceChanged = (phys.BufferID != bufferID);
+            // A slot whose previous occupant carried the IDENTITY currency (a
+            // materialized transient sets BOTH — Phase 5) changes occupants
+            // even when the native id happens to match: the native import
+            // below clears phys.Handle, so cached RGBufferHandles must fail
+            // their generation check rather than silently resolve to the new
+            // native-only occupant (AllocateTextureHandle's identity
+            // comparison, mirrored).
+            const bool resourceChanged = (phys.BufferID != bufferID) || phys.Handle.IsValid();
             const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
                                             (slot.PlaceholderReason != placeholderReason);
             const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
@@ -1046,6 +1053,10 @@ namespace OloEngine
             handle.Generation = slot.Generation;
 
             phys.BufferID = bufferID;
+            // A native import holds ONE currency — clear any stale identity a
+            // prior transient occupant left ("alternatives, never both", and
+            // the native path clears the identity for free).
+            phys.Handle = RHI::ResourceHandle{};
             m_BufferHandlesByName[std::string(name)] = handle;
             return handle;
         }
@@ -1073,6 +1084,7 @@ namespace OloEngine
                 m_PhysicalBuffers.resize(static_cast<sizet>(handle.Index) + 1u);
 
             m_PhysicalBuffers[handle.Index].BufferID = bufferID;
+            m_PhysicalBuffers[handle.Index].Handle = RHI::ResourceHandle{};
         }
         else
         {
@@ -3304,6 +3316,7 @@ namespace OloEngine
             .BatchEventHook = m_BatchEventHook,
             .PostPassHook = composedPostPassHook,
             .GraphForPostPassHook = this,
+            .GraphForBarrierResolution = this,
         });
         commandContext.SetRenderGraph(nullptr);
 
@@ -3630,7 +3643,11 @@ namespace OloEngine
                         bufferHandleIt != m_BufferHandlesByName.end() &&
                         bufferHandleIt->second.Index < m_PhysicalBuffers.size())
                     {
+                        // The graph holds the pooled Ref itself, so it sets BOTH
+                        // currencies off one pointer — the PhysicalTexture
+                        // slice-7 contract, extended to buffers in Phase 5.
                         m_PhysicalBuffers[bufferHandleIt->second.Index].BufferID = bufferIt->second ? bufferIt->second->GetRendererID() : 0;
+                        m_PhysicalBuffers[bufferHandleIt->second.Index].Handle = bufferIt->second ? bufferIt->second->GetRHIHandle() : RHI::ResourceHandle{};
                     }
                     break;
                 }
@@ -3716,7 +3733,12 @@ namespace OloEngine
                         bufferHandleIt != m_BufferHandlesByName.end() &&
                         bufferHandleIt->second.Index < m_PhysicalBuffers.size())
                     {
+                        // Alias fan-out sets BOTH currencies too — item 4 of
+                        // the boundary doc found exactly this site-class
+                        // setting only the native id (silent null identity on
+                        // the aliased half of a plan).
                         m_PhysicalBuffers[bufferHandleIt->second.Index].BufferID = sibling ? sibling->GetRendererID() : 0;
+                        m_PhysicalBuffers[bufferHandleIt->second.Index].Handle = sibling ? sibling->GetRHIHandle() : RHI::ResourceHandle{};
                     }
                     break;
                 }
@@ -4202,9 +4224,14 @@ namespace OloEngine
         // GetAsyncComputeBatches itself delegates; here we just plumb the
         // results into the IR builder.
         const auto batches = GetAsyncComputeBatches();
+        // Phase 5: derive the transition records once so every emitted
+        // MemoryBarrier command carries its per-resource transitions for the
+        // explicit-barrier backend (GL ignores them; ADR 0011 §1.5).
+        const auto transitions = GetResourceTransitions();
         return RenderGraphSubmissionPlan::BuildPlan({
             .ExecutionOrder = m_ExecutionOrder,
             .PlannedBarriers = m_PlannedBarriers,
+            .Transitions = transitions,
             .Batches = batches,
             .GetPassWorkType = [this](const std::string& passName)
             { return GetGraphEntryWorkType(passName); },
@@ -4230,6 +4257,144 @@ namespace OloEngine
             .GetPassWorkType = [this](const std::string& passName)
             { return GetGraphEntryWorkType(passName); },
         });
+    }
+
+    std::vector<RHI::Barrier> RenderGraph::ResolveTransitionsToBarriers(std::span<const ResourceTransition> transitions) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<RHI::Barrier> barriers;
+        barriers.reserve(transitions.size());
+
+        // Version-aliased names (SceneColor@Pass) refer to the SAME physical
+        // resource as their source — follow the chain with the same depth
+        // guard the transient planner uses.
+        const auto canonicalName = [this](const std::string& name) -> const std::string&
+        {
+            const std::string* current = &name;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto it = m_VersionAliasTargets.find(*current);
+                if (it == m_VersionAliasTargets.end() || it->second.empty())
+                    break;
+                current = &it->second;
+            }
+            return *current;
+        };
+
+        const auto toQueueType = [](const QueueLane lane) -> RHI::QueueType
+        {
+            switch (lane)
+            {
+                case QueueLane::Compute:
+                    return RHI::QueueType::Compute;
+                case QueueLane::Copy:
+                    return RHI::QueueType::Transfer;
+                case QueueLane::Graphics:
+                    return RHI::QueueType::Graphics;
+            }
+
+            return RHI::QueueType::Graphics;
+        };
+
+        const auto toRHIRange = [](const RGSubresourceRange& range) -> RHI::SubresourceRange
+        {
+            // Slices are dropped: VkImageSubresourceRange has no slice
+            // granularity (a 3D image transitions per-mip at most), so the
+            // RHI form is API-faithful without them. Aspect stays at the
+            // default — see the header comment.
+            RHI::SubresourceRange out;
+            out.BaseMip = range.BaseMip;
+            out.MipCount = (range.MipCount == ~0u) ? RHI::SubresourceRange::AllRemaining : range.MipCount;
+            out.BaseLayer = range.BaseLayer;
+            out.LayerCount = (range.LayerCount == ~0u) ? RHI::SubresourceRange::AllRemaining : range.LayerCount;
+            return out;
+        };
+
+        for (const auto& transition : transitions)
+        {
+            const auto& name = canonicalName(transition.ResourceName);
+
+            RHI::Barrier prototype;
+            prototype.Range = toRHIRange(transition.Range);
+            prototype.Before = transition.FromAccess;
+            prototype.After = transition.ToAccess;
+            prototype.ReadWhileAttached = transition.ReadWhileAttached;
+            prototype.IsCrossQueue = transition.IsCrossLane;
+            prototype.SourceQueue = toQueueType(transition.ProducerLane);
+            prototype.DestQueue = toQueueType(transition.ConsumerLane);
+
+            // Texture?
+            if (const auto texIt = m_TextureHandlesByName.find(name); texIt != m_TextureHandlesByName.end())
+            {
+                const u32 slot = texIt->second.Index;
+                if (slot < m_PhysicalTextures.size() && m_PhysicalTextures[slot].Handle.IsValid())
+                {
+                    prototype.Resource = m_PhysicalTextures[slot].Handle;
+                    barriers.push_back(prototype);
+                }
+                // A native-only import cannot answer in the identity currency;
+                // the GL flags path still synchronises it. Skipped, not an
+                // error (see the header comment).
+                continue;
+            }
+
+            // Framebuffer? One barrier per attachment that can answer in the
+            // identity currency — the backend derives each attachment's
+            // aspect/layout from its own image format.
+            if (const auto fbIt = m_FramebufferHandlesByName.find(name); fbIt != m_FramebufferHandlesByName.end())
+            {
+                const u32 slot = fbIt->second.Index;
+                if (slot < m_PhysicalFramebuffers.size() && m_PhysicalFramebuffers[slot].FB)
+                {
+                    const auto& fb = m_PhysicalFramebuffers[slot].FB;
+                    const auto& spec = fb->GetSpecification();
+                    u32 colorIndex = 0;
+                    bool hasDepth = false;
+                    for (const auto& attachment : spec.Attachments.Attachments)
+                    {
+                        const bool isDepth = attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                             attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F;
+                        if (isDepth)
+                        {
+                            hasDepth = true;
+                            continue;
+                        }
+                        if (const auto handle = fb->GetColorAttachmentHandle(colorIndex); handle.IsValid())
+                        {
+                            auto barrier = prototype;
+                            barrier.Resource = handle;
+                            barriers.push_back(barrier);
+                        }
+                        ++colorIndex;
+                    }
+                    if (hasDepth)
+                    {
+                        if (const auto handle = fb->GetDepthAttachmentHandle(); handle.IsValid())
+                        {
+                            auto barrier = prototype;
+                            barrier.Resource = handle;
+                            barriers.push_back(barrier);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // Buffer?
+            if (const auto bufIt = m_BufferHandlesByName.find(name); bufIt != m_BufferHandlesByName.end())
+            {
+                const u32 slot = bufIt->second.Index;
+                if (slot < m_PhysicalBuffers.size() && m_PhysicalBuffers[slot].Handle.IsValid())
+                {
+                    prototype.Resource = m_PhysicalBuffers[slot].Handle;
+                    barriers.push_back(prototype);
+                }
+                continue;
+            }
+        }
+
+        return barriers;
     }
 
     std::vector<RenderGraph::ResourceLifetime> RenderGraph::GetResourceLifetimes() const
@@ -5245,6 +5410,55 @@ namespace OloEngine
             }
         };
 
+        // Phase 5: transitions carry the unified RHI::Access pair
+        // (ADR 0011 §1.5) instead of the read/write usage split above.
+        const auto accessToString = [](const RHI::Access access)
+        {
+            switch (access)
+            {
+                case RHI::Access::Undefined:
+                    return "Undefined";
+                case RHI::Access::IndirectArgsRead:
+                    return "IndirectArgsRead";
+                case RHI::Access::IndexRead:
+                    return "IndexRead";
+                case RHI::Access::VertexAttributeRead:
+                    return "VertexAttributeRead";
+                case RHI::Access::UniformRead:
+                    return "UniformRead";
+                case RHI::Access::ShaderSampleRead:
+                    return "ShaderSampleRead";
+                case RHI::Access::StorageRead:
+                    return "StorageRead";
+                case RHI::Access::StorageWrite:
+                    return "StorageWrite";
+                case RHI::Access::StorageReadWrite:
+                    return "StorageReadWrite";
+                case RHI::Access::ColorAttachmentRead:
+                    return "ColorAttachmentRead";
+                case RHI::Access::ColorAttachmentWrite:
+                    return "ColorAttachmentWrite";
+                case RHI::Access::DepthStencilAttachmentRead:
+                    return "DepthStencilAttachmentRead";
+                case RHI::Access::DepthStencilAttachmentWrite:
+                    return "DepthStencilAttachmentWrite";
+                case RHI::Access::InputAttachmentRead:
+                    return "InputAttachmentRead";
+                case RHI::Access::TransferRead:
+                    return "TransferRead";
+                case RHI::Access::TransferWrite:
+                    return "TransferWrite";
+                case RHI::Access::ClearAsLoadOp:
+                    return "ClearAsLoadOp";
+                case RHI::Access::ClearAsTransfer:
+                    return "ClearAsTransfer";
+                case RHI::Access::Present:
+                    return "Present";
+            }
+
+            return "Unknown";
+        };
+
         // Helper to serialise RGSubresourceRange as a compact
         // JSON object.  ~0u (= all mips/layers/slices) is written as -1 so that
         // consumers can distinguish "full range" from an explicit 1-element range.
@@ -6239,10 +6453,11 @@ namespace OloEngine
             out << "    { \"resource\": \"" << jsonEscape(tr.ResourceName)
                 << "\", \"producerPass\": \"" << jsonEscape(tr.ProducerPass)
                 << "\", \"consumerPass\": \"" << jsonEscape(tr.ConsumerPass)
-                << "\", \"fromUsage\": \"" << writeUsageToString(tr.FromUsage)
-                << "\", \"toUsage\": \"" << readUsageToString(tr.ToUsage)
+                << "\", \"fromAccess\": \"" << accessToString(tr.FromAccess)
+                << "\", \"toAccess\": \"" << accessToString(tr.ToAccess)
                 << "\", \"flags\": " << std::to_underlying(tr.Flags)
                 << ", \"range\": " << subresourceRangeToJson(tr.Range)
+                << ", \"readWhileAttached\": " << (tr.ReadWhileAttached ? "true" : "false")
                 << ", \"isCrossLane\": " << (tr.IsCrossLane ? "true" : "false")
                 << ", \"producerLane\": \"" << queueLaneToString(tr.ProducerLane)
                 << "\", \"consumerLane\": \"" << queueLaneToString(tr.ConsumerLane)

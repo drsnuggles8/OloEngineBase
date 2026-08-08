@@ -12,6 +12,19 @@ namespace OloEngine
             s_RendererAPI->Init();
         }
 
+        // ADR 0011 amendment (39), Phase 5. `s_RendererAPI` is constructed at
+        // STATIC INIT (RenderCommand.cpp), before `--rhi=` parses — so the
+        // static-init instance is always the OpenGL default regardless of the
+        // selected backend. Application's constructor calls this immediately
+        // after `RendererAPI::SetAPI` (and before `Window::Create`) so the
+        // facade matches the selection the moment anything can route through
+        // it. Must never be called once a window/context exists or any code
+        // has captured `GetRendererAPI()` by reference.
+        static void RecreateForSelectedBackend()
+        {
+            s_RendererAPI = RendererAPI::Create();
+        }
+
         static void SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
         {
             s_RendererAPI->SetViewport(x, y, width, height);
@@ -308,6 +321,14 @@ namespace OloEngine
         static void MemoryBarrier(MemoryBarrierFlags flags)
         {
             s_RendererAPI->MemoryBarrier(flags);
+        }
+
+        // Phase 5 (ADR 0011 §1.5): the render graph's pre-pass barrier batch
+        // carrying both currencies — GL executes `flags`, explicit-barrier
+        // backends lower `barriers`.
+        static void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers)
+        {
+            s_RendererAPI->IssueBarrierBatch(flags, barriers);
         }
 
         // Per-attachment blend control
