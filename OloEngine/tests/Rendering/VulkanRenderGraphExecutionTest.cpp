@@ -147,10 +147,27 @@ class VulkanRenderGraphExecution : public ::testing::Test
             volkLoadInstance(probe);
 
             u32 deviceCount = 0;
-            vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr);
+            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
+            {
+                vkDestroyInstance(probe, nullptr);
+                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
+            }
             std::vector<VkPhysicalDevice> devices(deviceCount);
             if (deviceCount > 0)
-                vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
+            {
+                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
+                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
+                {
+                    // The second call rewrites deviceCount with how many it
+                    // actually returned (fewer on VK_INCOMPLETE).
+                    devices.resize(deviceCount);
+                }
+                else
+                {
+                    vkDestroyInstance(probe, nullptr);
+                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
+                }
+            }
             const bool anySatisfies = std::ranges::any_of(
                 devices,
                 [](VkPhysicalDevice device)

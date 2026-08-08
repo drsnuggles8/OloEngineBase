@@ -256,16 +256,20 @@ namespace OloEngine
             // splits it into runs of equal current layout so oldLayout is
             // EXACT per emitted barrier — one guessed layout for a mixed
             // range is precisely the class of bug sync validation exists for.
+            // Finite counts clamp to [1, remaining] — an explicit zero count
+            // is a malformed declaration, and BuildImageBarrier already
+            // treats it as 1-wide; the tracker query must agree or the two
+            // silently disagree about whether a barrier exists at all.
             VkImageSubresourceRange queryRange{};
             queryRange.aspectMask = VulkanBarrierLowering::AspectMaskFor(aspect);
             queryRange.baseMipLevel = std::min(barrier.Range.BaseMip, mipCount - 1u);
             queryRange.levelCount = (barrier.Range.MipCount == RHI::SubresourceRange::AllRemaining)
                                         ? VK_REMAINING_MIP_LEVELS
-                                        : std::min(barrier.Range.MipCount, mipCount - queryRange.baseMipLevel);
+                                        : std::max(std::min(barrier.Range.MipCount, mipCount - queryRange.baseMipLevel), 1u);
             queryRange.baseArrayLayer = std::min(barrier.Range.BaseLayer, layerCount - 1u);
             queryRange.layerCount = (barrier.Range.LayerCount == RHI::SubresourceRange::AllRemaining)
                                         ? VK_REMAINING_ARRAY_LAYERS
-                                        : std::min(barrier.Range.LayerCount, layerCount - queryRange.baseArrayLayer);
+                                        : std::max(std::min(barrier.Range.LayerCount, layerCount - queryRange.baseArrayLayer), 1u);
 
             m_LayoutTracker.ForEachLayoutRun(
                 image, queryRange,
