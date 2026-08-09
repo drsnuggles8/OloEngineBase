@@ -6,6 +6,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include <limits>
 #include <stdexcept>
 
 namespace OloEngine
@@ -93,6 +94,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(value > CompletedValue(),
                         "VulkanGpuFence::QueueSignal: timeline values must strictly increase");
         (void)op;
+        // Reserve the value with the dispenser: a staged-but-unsubmitted
+        // signal is invisible to the live counter, and NextValue() must not
+        // hand out anything at or below it.
+        NoteSignalValue(value);
         PendingOps().push_back({ .Semaphore = m_Semaphore, .Value = value, .IsSignal = true });
     }
 
@@ -111,6 +116,8 @@ namespace OloEngine
         const VkDevice device = RequireDevice("HostSignal");
         OLO_CORE_ASSERT(value > CompletedValue(),
                         "VulkanGpuFence::HostSignal: timeline values must strictly increase");
+
+        NoteSignalValue(value); // same reservation rule as QueueSignal
 
         VkSemaphoreSignalInfo signalInfo{};
         signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
@@ -142,7 +149,15 @@ namespace OloEngine
         u64 value = 0;
         if (vkGetSemaphoreCounterValue(device, m_Semaphore, &value) != VK_SUCCESS)
         {
-            OLO_CORE_ERROR("VulkanGpuFence: vkGetSemaphoreCounterValue failed");
+            // A failed read must be DISTINCT from a valid zero counter:
+            // returning 0 here would let NextValue() dispense below the real
+            // timeline. UINT64_MAX is the dispenser's exhaustion/poison
+            // sentinel — NextValue() saturates on it, so the fence becomes
+            // unusable for further dispensing instead of silently wrong
+            // (a counter read only fails on device loss, where every later
+            // submit is dead anyway).
+            OLO_CORE_ERROR("VulkanGpuFence: vkGetSemaphoreCounterValue failed — poisoning the fence");
+            return std::numeric_limits<u64>::max();
         }
         return value;
     }

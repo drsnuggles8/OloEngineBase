@@ -93,30 +93,36 @@ namespace OloEngine::RHI
 
         // Monotonic value dispenser for callers that treat the fence as a
         // frame/step timeline: each call returns the next value to signal.
-        // Anchored on max(dispensed, completed): a caller that signalled a
-        // hand-picked value directly must still receive a dispensable value
-        // STRICTLY above the live counter (the timeline contract).
+        // Anchored on max(reservation floor, completed): the floor covers
+        // every value this object has dispensed OR seen pass through a signal
+        // call (NoteSignalValue below — a QueueSignal(100) that has not
+        // submitted yet is invisible to the live counter but must still
+        // reserve 100), so the returned value is STRICTLY above both the live
+        // counter and every staged signal (the timeline contract).
         //
-        // UINT64_MAX is RESERVED as the exhaustion sentinel, never dispensed
-        // as an incremented result: a wrap to 0 would silently violate
-        // monotonicity, so the dispenser saturates instead (unreachable by
-        // counting — 2^64 increments — but reachable by a caller hand-
-        // signalling a huge value first).
+        // UINT64_MAX is RESERVED as the exhaustion/poison sentinel, never
+        // dispensed as an incremented result: a wrap to 0 would silently
+        // violate monotonicity, so the dispenser saturates instead
+        // (unreachable by counting — 2^64 increments — but reachable by a
+        // caller hand-signalling a huge value first, and deliberately
+        // produced by a backend whose counter READ failed — see
+        // VulkanGpuFence::CompletedValue).
         [[nodiscard]] u64 NextValue()
         {
-            const u64 base = std::max(m_LastDispensedValue, CompletedValue());
+            const u64 base = std::max(m_ReservedValueFloor, CompletedValue());
             if (base >= std::numeric_limits<u64>::max() - 1)
             {
-                OLO_CORE_ERROR("RHI::GpuFence: timeline value space exhausted — saturating at UINT64_MAX");
-                m_LastDispensedValue = std::numeric_limits<u64>::max();
-                return m_LastDispensedValue;
+                OLO_CORE_ERROR("RHI::GpuFence: timeline value space exhausted (or the counter read failed) — "
+                               "saturating at UINT64_MAX");
+                m_ReservedValueFloor = std::numeric_limits<u64>::max();
+                return m_ReservedValueFloor;
             }
-            m_LastDispensedValue = base + 1;
-            return m_LastDispensedValue;
+            m_ReservedValueFloor = base + 1;
+            return m_ReservedValueFloor;
         }
         [[nodiscard]] u64 LastDispensedValue() const
         {
-            return m_LastDispensedValue;
+            return m_ReservedValueFloor;
         }
 
         // Null on backends without an implementation (currently everything but
@@ -124,11 +130,22 @@ namespace OloEngine::RHI
         [[nodiscard]] static Ref<GpuFence> Create(u64 initialValue = 0);
 
       protected:
-        explicit GpuFence(u64 initialValue) : m_LastDispensedValue(initialValue)
+        explicit GpuFence(u64 initialValue) : m_ReservedValueFloor(initialValue)
         {
         }
 
+        // Backends call this from EVERY signal path (queue-staged and host)
+        // so a hand-picked signal value raises the dispenser's reservation
+        // floor — a staged-but-unsubmitted QueueSignal(100) must prevent
+        // NextValue() from dispensing anything at or below 100.
+        void NoteSignalValue(u64 value)
+        {
+            m_ReservedValueFloor = std::max(m_ReservedValueFloor, value);
+        }
+
       private:
-        u64 m_LastDispensedValue = 0;
+        // Doubles as the dispenser state and the reservation floor for
+        // hand-picked signal values (see NoteSignalValue).
+        u64 m_ReservedValueFloor = 0;
     };
 } // namespace OloEngine::RHI

@@ -567,10 +567,17 @@ TEST(GpuFenceValueDispenser, AnchorsAboveTheCounterAndSaturatesInsteadOfWrapping
     {
       public:
         explicit StubFence(u64 initial) : RHI::GpuFence(initial) {}
-        void QueueSignal(u64, RHI::FenceSignalOp) override {}
+        void QueueSignal(u64 value, RHI::FenceSignalOp) override
+        {
+            // The backend contract: every signal path reserves its value with
+            // the dispenser (VulkanGpuFence does the same) — a staged signal
+            // does NOT advance the counter until "submit".
+            NoteSignalValue(value);
+        }
         void QueueWait(u64, RHI::FenceCompareOp) override {}
         void HostSignal(u64 value, RHI::FenceSignalOp) override
         {
+            NoteSignalValue(value);
             m_Counter = value;
         }
         [[nodiscard]] bool HostWait(u64, u64, RHI::FenceCompareOp) override
@@ -593,6 +600,13 @@ TEST(GpuFenceValueDispenser, AnchorsAboveTheCounterAndSaturatesInsteadOfWrapping
     // never below it.
     fence.m_Counter = 100;
     EXPECT_EQ(fence.NextValue(), 101u);
+
+    // A STAGED signal that has not submitted yet is invisible to the live
+    // counter but must still reserve its value — dispensing 101..199 here
+    // would become an invalid (non-increasing) signal once 200 lands.
+    fence.QueueSignal(200, RHI::FenceSignalOp::AtomicMax);
+    EXPECT_EQ(fence.CompletedValue(), 100u) << "Staging must not advance the counter";
+    EXPECT_EQ(fence.NextValue(), 201u) << "The dispenser must respect the staged reservation";
 
     // Exhaustion: saturate at UINT64_MAX, never wrap to 0.
     fence.m_Counter = std::numeric_limits<u64>::max() - 1;
