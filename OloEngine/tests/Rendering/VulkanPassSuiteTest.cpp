@@ -34,13 +34,20 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
 #include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
+#include "OloEngine/Renderer/Passes/ContactShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/DOFRenderPass.h"
 #include "OloEngine/Renderer/Passes/EASURenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
+#include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
+#include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
+#include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
+#include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -61,6 +68,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/glm.hpp>
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 #include <volk.h>
@@ -162,6 +171,39 @@ namespace
                 pixels[i + 1] = v;
                 pixels[i + 2] = v;
                 pixels[i + 3] = 255;
+            }
+        }
+        TextureSpecification spec;
+        spec.Width = size;
+        spec.Height = size;
+        spec.Format = ImageFormat::RGBA8;
+        spec.GenerateMips = false;
+        auto texture = Texture2D::Create(spec);
+        if (texture)
+            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+        return texture;
+    }
+
+    // Two horizontal bands split at buffer row `splitY`: rows < splitY get
+    // `low`, rows >= splitY get `high`. Buffer row r samples at v=(r+0.5)/size
+    // — the harness is row-identity end to end (the FXAA golden pins it), so
+    // band membership is plain row math. Used as depth / radiance stand-ins
+    // for the screen-space marchers (a nearer wall in the upper band).
+    Ref<Texture2D> MakeHorizontalSplitTexture(u32 size, u32 splitY,
+                                              const std::array<u8, 4>& low,
+                                              const std::array<u8, 4>& high)
+    {
+        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4);
+        for (u32 y = 0; y < size; ++y)
+        {
+            const auto& rgba = y < splitY ? low : high;
+            for (u32 x = 0; x < size; ++x)
+            {
+                const sizet i = (static_cast<sizet>(y) * size + x) * 4;
+                pixels[i + 0] = rgba[0];
+                pixels[i + 1] = rgba[1];
+                pixels[i + 2] = rgba[2];
+                pixels[i + 3] = rgba[3];
             }
         }
         TextureSpecification spec;
@@ -1071,6 +1113,583 @@ TEST_F(VulkanPassSuite, DofFocusGatesTheBlurThroughAnImportedDepth)
     EXPECT_LT(blurred, 225) << "out of focus: the hard edge must have softened";
 
     m_ExtraSetup = nullptr;
+}
+
+TEST_F(VulkanPassSuite, SssBlurSoftensTheEdgeOnlyWhenTheUboFlagEnablesIt)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // SSS reads the DIRECT blackboard pair (Scene.SceneColor + the canonical
+    // Scene.SceneColorTexture attachment view), not the versioned-name
+    // ladder — so besides redirecting the producer to the SceneColor family
+    // (the EASU shape), m_ExtraSetup declares the canonical view production
+    // creates in RenderPipeline. Depth (bilateral weight) comes from
+    // Scene.SceneDepthAttachment; a uniform stand-in + BlurFalloff 0 makes
+    // every depth weight exactly 1, leaving a pure normalized Gaussian.
+    //
+    // Two-sided lever: SSSParams.Flags.x. 0 => the shader's passthrough
+    // branch (edge intact, alpha forced 1); 1 with an 8-texel radius => the
+    // +x kernel taps (x+8..x+32) cross the edge at x=96 from pixel 94, so
+    // sum(gauss[1..4]) / totalWeight = 0.218 of white leaks in (~56/255).
+    auto edgeInput = MakeVerticalEdgeTexture(kSize, 96);
+    ASSERT_NE(edgeInput, nullptr);
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto sssUbo = UniformBuffer::Create(sizeof(SSSUBOData), 14);
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        blackboard.Scene.SceneColorTexture = graph.CreateFramebufferAttachmentView(
+            ResourceNames::SceneColorTexture, blackboard.Scene.SceneColor, 0u);
+        RGResourceDesc depthDesc;
+        depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        depthDesc.Format = RGResourceFormat::RGBA8UNorm;
+        depthDesc.Width = kSize;
+        depthDesc.Height = kSize;
+        blackboard.Scene.SceneDepthAttachment = graph.ImportTextureHandle(
+            ResourceNames::SceneDepthAttachment, depthTexture->GetRHIHandle(), depthDesc);
+    };
+
+    const auto runChain = [&](f32 enabledFlag) -> std::vector<u8>
+    {
+        SSSUBOData sssData{};
+        sssData.BlurParams = glm::vec4(8.0f, 0.0f, static_cast<f32>(kSize), static_cast<f32>(kSize));
+        sssData.Flags = glm::vec4(enabledFlag, 0.0f, 0.0f, 0.0f);
+        sssUbo->SetData(&sssData, sizeof(sssData));
+
+        auto sss = Ref<SSSRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        sss->Init(initSpec);
+        // Pass-level gates (Setup declares + GetTarget non-null) stay ON in
+        // both chains — the contract's on/off lever is the UBO flag alone.
+        SnowSettings snow;
+        snow.Enabled = true;
+        snow.SSSBlurEnabled = true;
+        sss->SetSettings(snow);
+        sss->SetSSSUBO(sssUbo, nullptr); // exercises the pass's own rebind path
+
+        auto producer = Ref<PatternProducerPass>::Create(
+            edgeInput, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
+            { return blackboard.Scene.SceneColor; });
+        return RunSinglePassChain(kSize, producer, sss, "SSSPass", ResourceNames::SSSColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.SSSColor = handle; });
+    };
+
+    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    const auto disabled = runChain(0.0f);
+    ASSERT_EQ(disabled.size(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_LE(redAt(disabled, 94, 64), 5) << "Flags.x=0: passthrough must keep the black side";
+    EXPECT_GE(redAt(disabled, 98, 64), 250) << "Flags.x=0: passthrough must keep the white side";
+    EXPECT_EQ(static_cast<int>(disabled[((static_cast<sizet>(64) * kSize + 94) * 4) + 3]), 255)
+        << "SSS must reset alpha to 1 (the produce-consume-reset contract)";
+
+    const auto enabled = runChain(1.0f);
+    ASSERT_EQ(enabled.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const int softened = redAt(enabled, 94, 64);
+    EXPECT_GT(softened, 25) << "enabled SSS blur must leak white across the edge (~56 expected)";
+    EXPECT_LT(softened, 120) << "the leak must stay a partial mix, not full white";
+    // All of (34,64)'s taps stay left of the edge and interior — deep field
+    // must remain black, proving the blur is a local kernel, not a wash.
+    EXPECT_LE(redAt(enabled, 34, 64), 5) << "far field must stay black under the enabled blur";
+
+    m_ExtraSetup = nullptr;
+}
+
+TEST_F(VulkanPassSuite, AoApplyModulatesSceneColorByTheAoBuffer)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // The apply formula is sceneColor * mix(1, ao, intensity): with a
+    // UNIFORM AO stand-in the bilateral upsample's weights cancel and ao is
+    // the stand-in value itself, so the contract is exact arithmetic.
+    // Two-sided: white AO (1.0) => passthrough; mid-gray AO (0.502) at
+    // intensity 1 => the gray input halves. Real projection matrices keep
+    // linearizeDepth finite (uniform depth 0 => CameraNear).
+    auto grayInput = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(grayInput, nullptr);
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto aoWhite = MakeSolidTexture(kSize, 255, 255, 255, 255);
+    ASSERT_NE(aoWhite, nullptr);
+    auto aoGray = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(aoGray, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto ssaoUbo = UniformBuffer::Create(sizeof(SSAOUBOData), 9);
+    SSAOUBOData ssaoData{};
+    ssaoData.Intensity = 1.0f;
+    ssaoData.DebugView = 0;
+    ssaoData.ScreenWidth = static_cast<i32>(kSize);
+    ssaoData.ScreenHeight = static_cast<i32>(kSize);
+    ssaoData.Projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    ssaoData.InverseProjection = glm::inverse(ssaoData.Projection);
+    ssaoUbo->SetData(&ssaoData, sizeof(ssaoData));
+
+    Ref<Texture2D> currentAO; // per-chain AO stand-in, read by m_ExtraSetup
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.AO.AOBuffer =
+            graph.ImportTextureHandle(ResourceNames::AOBuffer, currentAO->GetRHIHandle(), auxDesc);
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+    };
+
+    const auto runChain = [&](const Ref<Texture2D>& aoTexture) -> std::vector<u8>
+    {
+        currentAO = aoTexture;
+
+        auto aoApply = Ref<AOApplyRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        aoApply->Init(initSpec);
+        aoApply->SetEnabled(true);
+        aoApply->SetSSAOUBO(ssaoUbo); // exercises the pass's own rebind path
+
+        // AOApply's candidate ladder is SSSColor -> SceneColor; only the
+        // SceneColor family exists here, so redirect the producer there.
+        auto producer = Ref<PatternProducerPass>::Create(
+            grayInput, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
+            { return blackboard.Scene.SceneColor; });
+        return RunSinglePassChain(kSize, producer, aoApply, "AOApplyPass", ResourceNames::AOApplyColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.AOApplyColor = handle; });
+    };
+
+    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    const auto unoccluded = runChain(aoWhite);
+    ASSERT_EQ(unoccluded.size(), static_cast<sizet>(kSize) * kSize * 4);
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 64, 64 }, { 8, 120 } })
+    {
+        const int v = redAt(unoccluded, x, y);
+        EXPECT_GE(v, 124) << "white AO must pass the gray input through at (" << x << "," << y << ")";
+        EXPECT_LE(v, 132) << "white AO must pass the gray input through at (" << x << "," << y << ")";
+    }
+
+    const auto occluded = runChain(aoGray);
+    ASSERT_EQ(occluded.size(), static_cast<sizet>(kSize) * kSize * 4);
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 64, 64 }, { 8, 120 } })
+    {
+        const int v = redAt(occluded, x, y);
+        EXPECT_GE(v, 56) << "mid-gray AO must darken proportionally (~64) at (" << x << "," << y << ")";
+        EXPECT_LE(v, 72) << "mid-gray AO must darken proportionally (~64) at (" << x << "," << y << ")";
+    }
+
+    m_ExtraSetup = nullptr;
+}
+
+TEST_F(VulkanPassSuite, ContactShadowDarkensTheContactRegionOnlyWithIntensity)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // A genuine occluder, in buffer space (row 0 = uv.y 0 — the harness is
+    // row-identity end to end, pinned by the FXAA golden): a FAR wall on
+    // rows < 64 (depth byte 128 -> view z -0.2006 under the 90-degree
+    // perspective below) and a NEARER wall on rows >= 64 (byte 64 -> view z
+    // -0.1335), frontal oct(0,0)=+Z normals everywhere, and a toward-light
+    // direction tilted up (0, .707, .707) so NdotL = 0.707 passes the
+    // form-shadow gate. A receiver just below the boundary (row 58) marches
+    // up toward the light and crosses the near wall's screen region while
+    // still ~0.02-0.05 view units BEHIND it (< thickness 0.2) => occluded
+    // at traveled ~0.026 of maxDist 0.5 => occlusion = distFade^2 ~ 0.90.
+    // A receiver far below (row 8) rises toward the camera (light Z) faster
+    // than its projected point enters the near band, so by the crossing its
+    // ray is well IN FRONT of the wall (delta < 0) => never occluded. The
+    // shadow is therefore local to the contact — the pass's defining
+    // property — and the intensity lever makes the contract two-sided.
+    auto grayInput = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(grayInput, nullptr);
+    auto depthTexture = MakeHorizontalSplitTexture(kSize, 64, { 128, 128, 128, 255 }, { 64, 64, 64, 255 });
+    ASSERT_NE(depthTexture, nullptr);
+    auto normalTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // oct(0,0) -> +Z world normal
+    ASSERT_NE(normalTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto csUbo = UniformBuffer::Create(sizeof(ContactShadowUBOData), 41);
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.GBufferNormal =
+            graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
+    };
+
+    const auto runChain = [&](f32 intensity) -> std::vector<u8>
+    {
+        ContactShadowUBOData csData{};
+        csData.Projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+        csData.InverseProjection = glm::inverse(csData.Projection);
+        csData.View = glm::mat4(1.0f);
+        csData.LightDirection = glm::vec4(0.0f, 0.70710678f, 0.70710678f, 1.0f);
+        // maxSteps 64 x stride 0.004 = 0.256 view-units reach; thickness 0.2
+        // comfortably brackets the 0.067 wall separation.
+        csData.RayParams = glm::vec4(64.0f, 0.5f, 0.2f, 0.004f);
+        csData.ShadeParams = glm::vec4(intensity, 0.0f, 0.0f, 0.0f); // no edge fade, no bias
+        csData.ScreenParams = glm::vec4(static_cast<f32>(kSize), static_cast<f32>(kSize),
+                                        1.0f / static_cast<f32>(kSize), 1.0f / static_cast<f32>(kSize));
+        csData.Flags = glm::vec4(0.0f);
+        csUbo->SetData(&csData, sizeof(csData));
+
+        auto contactShadow = Ref<ContactShadowRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        contactShadow->Init(initSpec);
+        contactShadow->SetEnabled(true);
+        contactShadow->SetContactShadowUBO(csUbo);
+
+        auto producer = Ref<PatternProducerPass>::Create(
+            grayInput, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
+            { return blackboard.Scene.SceneColor; });
+        return RunSinglePassChain(kSize, producer, contactShadow, "ContactShadowPass",
+                                  ResourceNames::ContactShadowColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.ContactShadowColor = handle; });
+    };
+
+    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    // Intensity 0: the march still finds the occluder, but the shadow factor
+    // is 1 everywhere — full passthrough.
+    const auto zeroIntensity = runChain(0.0f);
+    ASSERT_EQ(zeroIntensity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_GE(redAt(zeroIntensity, 64, 58), 120) << "intensity 0 must pass the contact pixel through";
+    EXPECT_LE(redAt(zeroIntensity, 64, 58), 136);
+    EXPECT_GE(redAt(zeroIntensity, 64, 8), 120) << "intensity 0 must pass the far receiver through";
+    EXPECT_LE(redAt(zeroIntensity, 64, 8), 136);
+
+    // Intensity 1: occlusion ~0.90 -> factor ~0.10 -> the contact pixel
+    // drops to ~13, while the far receiver keeps its full lighting.
+    const auto fullIntensity = runChain(1.0f);
+    ASSERT_EQ(fullIntensity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_LE(redAt(fullIntensity, 64, 58), 70) << "the contact pixel must darken under the near wall";
+    EXPECT_GE(redAt(fullIntensity, 64, 8), 120) << "the far receiver must stay lit (no occluder crossing)";
+    EXPECT_LE(redAt(fullIntensity, 64, 8), 136);
+
+    m_ExtraSetup = nullptr;
+}
+
+TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // Same two-wall geometry as the contact-shadow tenant (near wall on
+    // rows >= 64), but the light transport runs the other way: the receiver
+    // at row 58 casts a cosine hemisphere around its +Z view normal, and
+    // the rays whose azimuth points up cross into the near wall's screen
+    // band ~0.05-0.07 view units behind it (< thickness) => hits that
+    // gather the upstream colour THERE. The colour split is deliberately at
+    // row 60 (below the depth split at 64) so every gather lands on solid
+    // white radiance while the receiver's own base stays dark gray — the
+    // added bounce is then unambiguous: base 32 + albedo * mean(hits) with
+    // several of the 16 rays hitting. Intensity is the two-sided lever
+    // (0 => base exactly; 1 => the contact region visibly brightens).
+    auto radianceInput = MakeHorizontalSplitTexture(kSize, 60, { 32, 32, 32, 255 }, { 255, 255, 255, 255 });
+    ASSERT_NE(radianceInput, nullptr);
+    auto depthTexture = MakeHorizontalSplitTexture(kSize, 64, { 128, 128, 128, 255 }, { 64, 64, 64, 255 });
+    ASSERT_NE(depthTexture, nullptr);
+    auto normalTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // oct(0,0) -> +Z world normal
+    ASSERT_NE(normalTexture, nullptr);
+    auto albedoTexture = MakeSolidTexture(kSize, 255, 255, 255, 255);
+    ASSERT_NE(albedoTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto ssgiUbo = UniformBuffer::Create(sizeof(SSGIUBOData), 40);
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.GBufferNormal =
+            graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.GBufferAlbedo =
+            graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), auxDesc);
+    };
+
+    const auto runChain = [&](f32 intensity) -> std::vector<u8>
+    {
+        SSGIUBOData ssgiData{};
+        ssgiData.Projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+        ssgiData.InverseProjection = glm::inverse(ssgiData.Projection);
+        ssgiData.View = glm::mat4(1.0f);
+        ssgiData.RayParams = glm::vec4(64.0f, 1.0f, 0.2f, 0.004f);      // generous maxDist keeps distFade ~1
+        ssgiData.ShadeParams = glm::vec4(intensity, 16.0f, 0.0f, 0.0f); // 16 rays, no edge fade
+        ssgiData.ScreenParams = glm::vec4(static_cast<f32>(kSize), static_cast<f32>(kSize),
+                                          1.0f / static_cast<f32>(kSize), 1.0f / static_cast<f32>(kSize));
+        ssgiData.Flags = glm::vec4(0.0f);
+        ssgiUbo->SetData(&ssgiData, sizeof(ssgiData));
+
+        auto ssgi = Ref<SSGIRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        ssgi->Init(initSpec);
+        ssgi->SetEnabled(true);
+        ssgi->SetSSGIUBO(ssgiUbo);
+
+        auto producer = Ref<PatternProducerPass>::Create(
+            radianceInput, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
+            { return blackboard.Scene.SceneColor; });
+        return RunSinglePassChain(kSize, producer, ssgi, "SSGIPass", ResourceNames::SSGIColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.SSGIColor = handle; });
+    };
+
+    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    const auto zeroIntensity = runChain(0.0f);
+    ASSERT_EQ(zeroIntensity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const int base = redAt(zeroIntensity, 64, 58);
+    EXPECT_GE(base, 29) << "intensity 0 must reduce to the passthrough base colour";
+    EXPECT_LE(base, 35) << "intensity 0 must reduce to the passthrough base colour";
+
+    const auto fullIntensity = runChain(1.0f);
+    ASSERT_EQ(fullIntensity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const int lit = redAt(fullIntensity, 64, 58);
+    EXPECT_GE(lit, base + 25) << "hemisphere rays crossing into the near wall must gather its white radiance";
+
+    m_ExtraSetup = nullptr;
+}
+
+TEST_F(VulkanPassSuite, MotionBlurSmearsAlongTheVelocityAndPassesThroughAtZero)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // The shader reads velocity as RAW .rg floats (per-pixel path taken
+    // because the params UBO's hasVelocity flag is 1 and depth < 1), so an
+    // RGBA8 stand-in can express it: byte 51 = 0.2 uv, scaled by
+    // MotionBlurStrength 0.5 => a 0.1-uv (12.8 px) sample spread along +x,
+    // t in [-0.5, 0.5]. Two-sided: zero velocity => every tap lands on the
+    // same texel => the hard edge at x=96 survives; 0.2 velocity => pixel
+    // 94's 8 taps span x~90..101, mixing both sides (~3/8 white ~ 96).
+    // The camera-only matrices at binding 8 are bound but unused on this
+    // path (identity); binding them anyway follows the fixture rule of
+    // binding every UBO the shader declares.
+    auto edgeInput = MakeVerticalEdgeTexture(kSize, 96);
+    ASSERT_NE(edgeInput, nullptr);
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // depth 0 < 1 -> velocity path
+    ASSERT_NE(depthTexture, nullptr);
+    auto velocityZero = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(velocityZero, nullptr);
+    auto velocityRight = MakeSolidTexture(kSize, 51, 0, 0, 255); // .r = 0.2 uv toward +x
+    ASSERT_NE(velocityRight, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    PostProcessUBOData uboData{};
+    uboData.MotionBlurStrength = 0.5f;
+    uboData.MotionBlurSamples = 8;
+    uboData.InverseScreenWidth = 1.0f / static_cast<f32>(kSize);
+    uboData.InverseScreenHeight = 1.0f / static_cast<f32>(kSize);
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+    postProcessUbo->SetData(&uboData, sizeof(uboData));
+    MotionBlurUBOData matricesData{}; // identity — unused on the velocity path
+    auto motionBlurUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    motionBlurUbo->SetData(&matricesData, sizeof(matricesData));
+
+    Ref<Texture2D> currentVelocity; // per-chain stand-in, read by m_ExtraSetup
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.Velocity =
+            graph.ImportTextureHandle(ResourceNames::Velocity, currentVelocity->GetRHIHandle(), auxDesc);
+    };
+
+    const auto runChain = [&](const Ref<Texture2D>& velocityTexture) -> std::vector<u8>
+    {
+        currentVelocity = velocityTexture;
+
+        auto motionBlur = Ref<MotionBlurRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        motionBlur->Init(initSpec); // creates the pass-owned params UBO (binding 42)
+        motionBlur->SetEnabled(true);
+        motionBlur->SetPostProcessUBO(postProcessUbo);
+        motionBlur->SetMotionBlurUBO(motionBlurUbo);
+
+        // MotionBlur's ladder ends at PostProcessColor — the producer default.
+        auto producer = Ref<PatternProducerPass>::Create(edgeInput, blitShader);
+        return RunSinglePassChain(kSize, producer, motionBlur, "MotionBlurPass",
+                                  ResourceNames::MotionBlurColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.MotionBlurColor = handle; });
+    };
+
+    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    const auto still = runChain(velocityZero);
+    ASSERT_EQ(still.size(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_LE(redAt(still, 94, 64), 5) << "zero velocity: the black side must stay black";
+    EXPECT_GE(redAt(still, 98, 64), 250) << "zero velocity: the white side must stay white";
+
+    const auto moving = runChain(velocityRight);
+    ASSERT_EQ(moving.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const int smearedBlackSide = redAt(moving, 94, 64);
+    EXPECT_GT(smearedBlackSide, 40) << "moving: taps across the edge must brighten the black side (~96)";
+    EXPECT_LT(smearedBlackSide, 170) << "moving: the mix must stay partial";
+    const int smearedWhiteSide = redAt(moving, 98, 64);
+    EXPECT_GT(smearedWhiteSide, 140) << "moving: the white side keeps a white majority (~200)";
+    EXPECT_LT(smearedWhiteSide, 240) << "moving: the white side must have softened";
+    EXPECT_LE(redAt(moving, 32, 64), 5) << "far field: all taps stay on the black side";
+
+    m_ExtraSetup = nullptr;
+}
+
+TEST_F(VulkanPassSuite, PrecipitationPassesThePatternThroughAtZeroIntensity)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // Passthrough floor, documented: the pass's two visual levers both sit
+    // outside the graph. (a) The engine-global PrecipitationUBO (binding
+    // 18) is owned by PrecipitationSystem, which is never initialised
+    // headlessly — Execute null-checks the global and merely SKIPS the bind,
+    // so this test binds its own all-zero UBO@18 to make the streak gate a
+    // deterministic 0 rather than a null-address read. (b) The pass-owned
+    // screen UBO (binding 19) is refilled inside Execute from
+    // ScreenSpacePrecipitation statics — zero streak intensity and inactive
+    // lens impacts headlessly, not overridable from outside without driving
+    // the CPU weather sim (spawning lens impacts / gust streaks through
+    // ScreenSpacePrecipitation::Update). With both zero the shader adds
+    // nothing and forces alpha to 1, so the hard-edge pattern must survive
+    // exactly; the shared harness contracts (2 draws, zero resolve
+    // failures, zero validation errors) carry the machinery proof.
+    ScreenSpacePrecipitation::Reset(); // full-suite hygiene: drop any stale lens impacts
+
+    const std::vector<f32> pattern = MakeHardEdgePattern(kSize);
+    std::vector<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
+    for (sizet i = 0; i < patternRgba8.size(); ++i)
+        patternRgba8[i] = static_cast<u8>(std::lround(std::clamp(pattern[i], 0.0f, 1.0f) * 255.0f));
+    TextureSpecification patternSpec;
+    patternSpec.Width = kSize;
+    patternSpec.Height = kSize;
+    patternSpec.Format = ImageFormat::RGBA8;
+    patternSpec.GenerateMips = false;
+    auto patternTexture = Texture2D::Create(patternSpec);
+    ASSERT_NE(patternTexture, nullptr);
+    patternTexture->SetData(patternRgba8.data(), static_cast<u32>(patternRgba8.size()));
+
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    PrecipitationUBOData precipData{};
+    precipData.IntensityAndScreenFX = glm::vec4(0.0f);
+    precipData.LensParams = glm::vec4(0.0f);        // .w = enabled -> off
+    precipData.ScreenWindAndTime = glm::vec4(0.0f); // .w = streaksEnabled -> off
+    precipData.ParticleColor = glm::vec4(0.0f);
+    precipData.TypeParams = glm::vec4(0.0f);
+    auto precipUbo = UniformBuffer::Create(sizeof(PrecipitationUBOData), 18);
+    precipUbo->SetData(&precipData, sizeof(precipData));
+
+    auto precipitation = Ref<PrecipitationRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    precipitation->Init(initSpec); // creates the pass-owned screen UBO (binding 19)
+    precipitation->SetEnabled(true);
+
+    // Precipitation's ladder ends at PostProcessColor — the producer default.
+    auto producer = Ref<PatternProducerPass>::Create(patternTexture, blitShader);
+    const auto rendered = RunSinglePassChain(kSize, producer, precipitation, "PrecipitationPass",
+                                             ResourceNames::PrecipitationColor,
+                                             [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                             { blackboard.Post.PrecipitationColor = handle; });
+    ASSERT_EQ(rendered.size(), patternRgba8.size());
+
+    u32 maxDiff = 0;
+    for (sizet i = 0; i < rendered.size(); i += 4)
+    {
+        for (sizet c = 0; c < 3; ++c)
+        {
+            const u32 diff = static_cast<u32>(
+                std::abs(static_cast<int>(rendered[i + c]) - static_cast<int>(patternRgba8[i + c])));
+            maxDiff = std::max(maxDiff, diff);
+        }
+    }
+    EXPECT_LE(maxDiff, 2u) << "zero-intensity precipitation must pass the pattern through";
+    EXPECT_EQ(static_cast<int>(rendered[3]), 255) << "the pass writes alpha 1";
 }
 
 #endif // OLO_WITH_VULKAN
