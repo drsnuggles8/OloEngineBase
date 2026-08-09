@@ -6,11 +6,21 @@
 // VulkanDevice.h pulls <volk.h> (and <vk_mem_alloc.h>) — volk must come before
 // GLFW: glfw3.h only declares its Vulkan entry points (glfwCreateWindowSurface
 // et al.) when VK_VERSION_1_0 is already visible.
+#include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanGpuFence.h"
+#include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "Platform/Vulkan/VulkanPipelineCache.h"
+#include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanShader.h"
+#include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -57,6 +67,9 @@ namespace OloEngine
         VkFormat SwapchainFormat = VK_FORMAT_UNDEFINED;
         VkExtent2D SwapchainExtent{};
         std::vector<VkImage> SwapchainImages;
+        // Attachment views for dynamic rendering (#691 Phase 6 — the frame
+        // loop renders now, it no longer only clears).
+        std::vector<VkImageView> SwapchainViews;
         // Present-wait semaphores are PER SWAPCHAIN IMAGE, not per frame in flight:
         // vkQueuePresentKHR gives no way to know when its wait semaphore is done, so
         // re-signalling a per-frame one from a later submit trips
@@ -73,6 +86,29 @@ namespace OloEngine
         };
         Frame Frames[kFramesInFlight]{};
         u32 FrameIndex = 0;
+
+        // --- #691 Phase 6 pilot pass -----------------------------------------
+        // The first REAL rendered content in the Vulkan frame loop: the
+        // golden-tested FXAA pass over an uploaded hard-edge pattern, drawn
+        // fullscreen into the swapchain through the root-data-pointer +
+        // thin-PSO + vertex-pulling path (the same path the device-gated
+        // VulkanShaderPipelineTest holds to the GL golden). Deliberately
+        // scaffolding: Phase 7 replaces this with render-graph execution; the
+        // clear-only Phase 4 path remains the fallback when the pilot cannot
+        // come up (missing assets when cwd isn't OloEditor/, shader failure).
+        struct Phase6Pilot
+        {
+            bool Attempted = false;
+            bool Ready = false;
+            bool PatternUploaded = false;
+            Ref<Shader> FxaaShader;
+            VkImage Pattern = VK_NULL_HANDLE;
+            VmaAllocation PatternAlloc = VK_NULL_HANDLE;
+            u32 HeapSlot = 0;
+            VulkanRootDataLayout Layout;
+            static constexpr u32 kPatternSize = 128;
+        };
+        Phase6Pilot Pilot;
     };
 
     VulkanContext::VulkanContext(GLFWwindow* windowHandle)
@@ -88,6 +124,29 @@ namespace OloEngine
         if (device != VK_NULL_HANDLE)
         {
             vkDeviceWaitIdle(device);
+
+            // The frame arena's slot buffers enqueue into the deferred-reclaim
+            // queue; drain it NOW, while the device is provably idle — nothing
+            // else flushes the queue at shutdown (Phase 5 built it without a
+            // production drain), and entries surviving past Device.Shutdown()
+            // are dropped with a leak warning instead of destroyed.
+            // Pilot teardown first: dropping the shader Ref invalidates its
+            // pipelines (erase + enqueue, exactly once — the builder owns
+            // both maps); the pattern image joins the reclaim queue.
+            d.Pilot.FxaaShader = nullptr;
+            if (d.Pilot.Pattern != VK_NULL_HANDLE)
+            {
+                VulkanDeferredReclaim::Get().Enqueue(d.Pilot.Pattern, d.Pilot.PatternAlloc);
+                d.Pilot.Pattern = VK_NULL_HANDLE;
+                d.Pilot.PatternAlloc = VK_NULL_HANDLE;
+            }
+            VulkanPipelineBuilder::Get().ReleaseAll();
+            VulkanResourceHeap::Get().Release();
+            VulkanFrameArena::Get().ReleaseBuffers();
+            VulkanDeferredReclaim::Get().FlushAll();
+            // Serialise + destroy the process-wide pipeline cache while the
+            // device is still alive (§3(c): a failed save is a log line).
+            VulkanPipelineCache::Get().SaveAndDestroy();
 
             DestroySwapchain();
             for (VulkanContextData::Frame& frame : d.Frames)
@@ -265,6 +324,19 @@ namespace OloEngine
         d.SwapchainImages.resize(actualImageCount);
         vkGetSwapchainImagesKHR(device, d.Swapchain, &actualImageCount, d.SwapchainImages.data());
 
+        // Attachment views for dynamic rendering (#691 Phase 6).
+        d.SwapchainViews.resize(actualImageCount, VK_NULL_HANDLE);
+        for (u32 i = 0; i < actualImageCount; ++i)
+        {
+            VkImageViewCreateInfo viewInfo{};
+            viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            viewInfo.image = d.SwapchainImages[i];
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.format = d.SwapchainFormat;
+            viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            VkCheck(vkCreateImageView(device, &viewInfo, nullptr, &d.SwapchainViews[i]), "vkCreateImageView (swapchain)");
+        }
+
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         d.RenderFinished.resize(actualImageCount, VK_NULL_HANDLE);
@@ -286,6 +358,14 @@ namespace OloEngine
             }
         }
         d.RenderFinished.clear();
+        for (VkImageView view : d.SwapchainViews)
+        {
+            if (view != VK_NULL_HANDLE)
+            {
+                vkDestroyImageView(device, view, nullptr);
+            }
+        }
+        d.SwapchainViews.clear();
         d.SwapchainImages.clear();
         if (d.Swapchain != VK_NULL_HANDLE)
         {
@@ -304,6 +384,271 @@ namespace OloEngine
         CreateSwapchain();
         OLO_CORE_INFO("[Vulkan] Swapchain recreated ({}x{})", d.SwapchainExtent.width, d.SwapchainExtent.height);
     }
+
+    namespace
+    {
+        // --- #691 Phase 6 pilot pass (see VulkanContextData::Phase6Pilot) ----
+
+        void EnsurePhase6Pilot(VulkanContextData& d)
+        {
+            auto& pilot = d.Pilot;
+            if (pilot.Attempted)
+            {
+                return;
+            }
+            pilot.Attempted = true;
+
+            Ref<Shader> shader = Shader::Create("assets/shaders/PostProcess_FXAA.glsl");
+            if (!shader || shader->GetCompilationStatus() != ShaderCompilationStatus::Ready)
+            {
+                OLO_CORE_WARN("[Vulkan] Phase 6 pilot: FXAA shader unavailable — staying on the clear-only frame");
+                return;
+            }
+            auto* vkShader = static_cast<VulkanShader*>(shader.get());
+            pilot.Layout = VulkanRootDataLayout::Build(vkShader->GetBindings());
+            if (pilot.Layout.Find(0, 7) == nullptr || pilot.Layout.Find(0, 0) == nullptr ||
+                pilot.Layout.Find(0, 57) == nullptr)
+            {
+                OLO_CORE_WARN("[Vulkan] Phase 6 pilot: FXAA reflection missing expected bindings — clear-only frame");
+                return;
+            }
+
+            // The hard-edge input pattern the FXAA golden pins.
+            VkImageCreateInfo imageInfo{};
+            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+            imageInfo.extent = { VulkanContextData::Phase6Pilot::kPatternSize,
+                                 VulkanContextData::Phase6Pilot::kPatternSize, 1 };
+            imageInfo.mipLevels = 1;
+            imageInfo.arrayLayers = 1;
+            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            VmaAllocationCreateInfo allocInfo{};
+            allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+            if (vmaCreateImage(d.Device.GetAllocator(), &imageInfo, &allocInfo, &pilot.Pattern, &pilot.PatternAlloc,
+                               nullptr) != VK_SUCCESS)
+            {
+                OLO_CORE_WARN("[Vulkan] Phase 6 pilot: pattern image creation failed — clear-only frame");
+                return;
+            }
+
+            if (!VulkanResourceHeap::Get().EnsureCreated())
+            {
+                return;
+            }
+            pilot.HeapSlot = VulkanResourceHeap::Get().AllocateSlot();
+            VkImageViewCreateInfo viewInfo{};
+            viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            viewInfo.image = pilot.Pattern;
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+            viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            if (pilot.HeapSlot == VulkanResourceHeap::InvalidSlot ||
+                !VulkanResourceHeap::Get().WriteSampledImage(pilot.HeapSlot, viewInfo,
+                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+            {
+                OLO_CORE_WARN("[Vulkan] Phase 6 pilot: heap descriptor write failed — clear-only frame");
+                return;
+            }
+
+            pilot.FxaaShader = shader;
+            pilot.Ready = true;
+            OLO_CORE_INFO("[Vulkan] Phase 6 pilot pass up: FXAA over the golden hard-edge pattern "
+                          "(root-data pointer + thin PSO + vertex pulling)");
+        }
+
+        // Records the pilot frame. Returns false when the pilot is not
+        // available (caller keeps the Phase 4 clear path).
+        bool TryRecordPhase6Pilot(VulkanContextData& d, VkCommandBuffer cmd, u32 imageIndex)
+        {
+            EnsurePhase6Pilot(d);
+            auto& pilot = d.Pilot;
+            if (!pilot.Ready)
+            {
+                return false;
+            }
+            constexpr u32 kSize = VulkanContextData::Phase6Pilot::kPatternSize;
+            auto& arena = VulkanFrameArena::Get();
+
+            VulkanResourceHeap::Get().CmdBind(cmd);
+
+            // One-time pattern upload, staged through the frame arena.
+            if (!pilot.PatternUploaded)
+            {
+                std::vector<u8> rgba8(static_cast<sizet>(kSize) * kSize * 4);
+                for (u32 y = 0; y < kSize; ++y)
+                {
+                    for (u32 x = 0; x < kSize; ++x)
+                    {
+                        const bool bright = (x + (y % 8)) >= (kSize / 2 + ((y / 8) % 2) * 4);
+                        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+                        rgba8[i + 0] = bright ? 255 : 0;
+                        rgba8[i + 1] = bright ? 255 : 0;
+                        rgba8[i + 2] = bright ? 255 : 0;
+                        rgba8[i + 3] = 255;
+                    }
+                }
+                const auto staging = arena.Push(rgba8.data(), rgba8.size(), 16);
+                if (!staging.IsValid())
+                {
+                    return false;
+                }
+                VkImageMemoryBarrier2 toDst{};
+                toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                toDst.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                toDst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                toDst.image = pilot.Pattern;
+                toDst.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                VkDependencyInfo dep{};
+                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dep.imageMemoryBarrierCount = 1;
+                dep.pImageMemoryBarriers = &toDst;
+                vkCmdPipelineBarrier2(cmd, &dep);
+
+                VkBufferImageCopy region{};
+                region.bufferOffset = staging.Offset;
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                region.imageExtent = { kSize, kSize, 1 };
+                vkCmdCopyBufferToImage(cmd, arena.GetSlotBuffer(arena.GetCurrentSlot()), pilot.Pattern,
+                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+                VkImageMemoryBarrier2 toRead = toDst;
+                toRead.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                toRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                toRead.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                toRead.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+                toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                dep.pImageMemoryBarriers = &toRead;
+                vkCmdPipelineBarrier2(cmd, &dep);
+                pilot.PatternUploaded = true;
+            }
+
+            // Per-frame root data: UBO payload, pulled vertices, root struct.
+            auto* vkShader = static_cast<VulkanShader*>(pilot.FxaaShader.get());
+            PostProcessUBOData ubo{};
+            ubo.TexelSizeX = 1.0f / static_cast<f32>(kSize);
+            ubo.TexelSizeY = 1.0f / static_cast<f32>(kSize);
+            ubo.InverseScreenWidth = 1.0f / static_cast<f32>(d.SwapchainExtent.width);
+            ubo.InverseScreenHeight = 1.0f / static_cast<f32>(d.SwapchainExtent.height);
+            const auto uboAlloc = arena.Push(&ubo, sizeof(ubo), 256);
+            const f32 fullscreenTriangle[] = {
+                -1.0f,
+                -1.0f,
+                0.0f,
+                0.0f,
+                0.0f, //
+                3.0f,
+                -1.0f,
+                0.0f,
+                2.0f,
+                0.0f, //
+                -1.0f,
+                3.0f,
+                0.0f,
+                0.0f,
+                2.0f, //
+            };
+            const auto pullAlloc = arena.Push(fullscreenTriangle, sizeof(fullscreenTriangle), 16);
+            std::vector<u8> rootData(pilot.Layout.SizeBytes, 0);
+            if (!uboAlloc.IsValid() || !pullAlloc.IsValid())
+            {
+                return false;
+            }
+            const u64 uboAddress = uboAlloc.Gpu;
+            const u64 pullAddress = pullAlloc.Gpu;
+            std::memcpy(rootData.data() + pilot.Layout.Find(0, 7)->Offset, &uboAddress, sizeof(u64));
+            std::memcpy(rootData.data() + pilot.Layout.Find(0, 57)->Offset, &pullAddress, sizeof(u64));
+            std::memcpy(rootData.data() + pilot.Layout.Find(0, 0)->Offset, &pilot.HeapSlot, sizeof(u32));
+            const auto rootAlloc = arena.Push(rootData.data(), rootData.size(), 16);
+            if (!rootAlloc.IsValid())
+            {
+                return false;
+            }
+
+            VulkanRenderTargetDesc targets;
+            targets.ColorCount = 1;
+            targets.ColorFormats[0] = d.SwapchainFormat;
+            VulkanRecordedPipelineState state{};
+            state.DepthTest = false;
+            state.DepthWrite = false;
+            const VkPipeline pipeline =
+                VulkanPipelineBuilder::Get().GetOrCreateGraphics(*vkShader, pilot.Layout, state, targets);
+            if (pipeline == VK_NULL_HANDLE)
+            {
+                return false;
+            }
+
+            // Acquire wait stage is COLOR_ATTACHMENT_OUTPUT on this path —
+            // the barrier's srcStage must match it (the Phase 5 sync-
+            // validation rule, same reasoning as the clear path's CLEAR).
+            VkImageMemoryBarrier2 toColor{};
+            toColor.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toColor.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toColor.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toColor.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toColor.image = d.SwapchainImages[imageIndex];
+            toColor.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers = &toColor;
+            vkCmdPipelineBarrier2(cmd, &dep);
+
+            VkRenderingAttachmentInfo color{};
+            color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            color.imageView = d.SwapchainViews[imageIndex];
+            color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            color.clearValue.color = { { VulkanContext::kClearColor[0], VulkanContext::kClearColor[1],
+                                         VulkanContext::kClearColor[2], VulkanContext::kClearColor[3] } };
+            VkRenderingInfo rendering{};
+            rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            rendering.renderArea = { { 0, 0 }, d.SwapchainExtent };
+            rendering.layerCount = 1;
+            rendering.colorAttachmentCount = 1;
+            rendering.pColorAttachments = &color;
+            vkCmdBeginRendering(cmd, &rendering);
+
+            const VkViewport viewport{ 0.0f, 0.0f, static_cast<f32>(d.SwapchainExtent.width),
+                                       static_cast<f32>(d.SwapchainExtent.height), 0.0f, 1.0f };
+            vkCmdSetViewportWithCount(cmd, 1, &viewport);
+            const VkRect2D scissor{ { 0, 0 }, d.SwapchainExtent };
+            vkCmdSetScissorWithCount(cmd, 1, &scissor);
+
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            VulkanPipelineBuilder::FlushDynamicState(cmd, state, targets);
+            VkPushDataInfoEXT pushInfo{};
+            pushInfo.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            pushInfo.offset = 0;
+            VkDeviceAddress rootAddress = rootAlloc.Gpu;
+            pushInfo.data = { .address = &rootAddress, .size = sizeof(rootAddress) };
+            vkCmdPushDataEXT(cmd, &pushInfo);
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+            vkCmdEndRendering(cmd);
+
+            VkImageMemoryBarrier2 toPresent{};
+            toPresent.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toPresent.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toPresent.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toPresent.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+            toPresent.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            toPresent.image = d.SwapchainImages[imageIndex];
+            toPresent.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            dep.pImageMemoryBarriers = &toPresent;
+            vkCmdPipelineBarrier2(cmd, &dep);
+            return true;
+        }
+    } // namespace
 
     void VulkanContext::SwapBuffers()
     {
@@ -336,6 +681,16 @@ namespace OloEngine
         VulkanContextData::Frame& frame = d.Frames[d.FrameIndex];
         VkCheck(vkWaitForFences(device, 1, &frame.InFlight, VK_TRUE, UINT64_MAX), "vkWaitForFences");
 
+        // This fence wait is the one point in the frame that PROVES the GPU is
+        // done with frame slot FrameIndex (kFramesInFlight ago). It is therefore
+        // the only correct place to advance the deferred-reclaim generation —
+        // Phase 5 built the queue but nothing in production drained it, so a
+        // --rhi=vulkan session leaked every enqueued resource until exit.
+        VulkanDeferredReclaim::Get().NotifyFrameCompleted();
+        // Same gate for the root-data arena: slot FrameIndex's bump cursor may
+        // only rewind once the GPU can no longer read the slot's memory.
+        VulkanFrameArena::Get().BeginFrame(d.FrameIndex);
+
         u32 imageIndex = 0;
         const VkResult acquireResult = vkAcquireNextImageKHR(device, d.Swapchain, UINT64_MAX,
                                                              frame.ImageAvailable, VK_NULL_HANDLE, &imageIndex);
@@ -365,78 +720,99 @@ namespace OloEngine
         fullColor.levelCount = 1;
         fullColor.layerCount = 1;
 
-        // UNDEFINED -> TRANSFER_DST: previous contents are irrelevant (we clear).
-        VkImageMemoryBarrier2 toTransfer{};
-        toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        // srcStageMask must be the ACQUIRE SEMAPHORE'S WAIT STAGE (CLEAR, see
-        // waitInfo.stageMask below), not TOP_OF_PIPE: the semaphore orders
-        // this submission against the presentation engine's read only at the
-        // wait stage, and a layout transition whose srcStage is earlier than
-        // that can begin before the wait — a WRITE_AFTER_READ hazard against
-        // vkAcquireNextImageKHR. Phase 4 shipped TOP_OF_PIPE here and passed,
-        // because only core validation ran; Phase 5's synchronization
-        // validation flagged it on its first live run (issue #691).
-        toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-        toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-        toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toTransfer.image = image;
-        toTransfer.subresourceRange = fullColor;
+        // #691 Phase 6: the pilot pass renders (FXAA over the golden pattern,
+        // root-data pointer + thin PSO + vertex pulling); the Phase 4 clear
+        // path stays as the fallback when the pilot cannot come up.
+        const bool pilotActive = TryRecordPhase6Pilot(d, frame.Cmd, imageIndex);
+        if (!pilotActive)
+        {
+            // UNDEFINED -> TRANSFER_DST: previous contents are irrelevant (we clear).
+            VkImageMemoryBarrier2 toTransfer{};
+            toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            // srcStageMask must be the ACQUIRE SEMAPHORE'S WAIT STAGE (CLEAR, see
+            // waitInfo.stageMask below), not TOP_OF_PIPE: the semaphore orders
+            // this submission against the presentation engine's read only at the
+            // wait stage, and a layout transition whose srcStage is earlier than
+            // that can begin before the wait — a WRITE_AFTER_READ hazard against
+            // vkAcquireNextImageKHR. Phase 4 shipped TOP_OF_PIPE here and passed,
+            // because only core validation ran; Phase 5's synchronization
+            // validation flagged it on its first live run (issue #691).
+            toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+            toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+            toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toTransfer.image = image;
+            toTransfer.subresourceRange = fullColor;
 
-        VkDependencyInfo depInfo{};
-        depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        depInfo.imageMemoryBarrierCount = 1;
-        depInfo.pImageMemoryBarriers = &toTransfer;
-        vkCmdPipelineBarrier2(frame.Cmd, &depInfo);
+            VkDependencyInfo depInfo{};
+            depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            depInfo.imageMemoryBarrierCount = 1;
+            depInfo.pImageMemoryBarriers = &toTransfer;
+            vkCmdPipelineBarrier2(frame.Cmd, &depInfo);
 
-        VkClearColorValue clearColor{};
-        clearColor.float32[0] = kClearColor[0];
-        clearColor.float32[1] = kClearColor[1];
-        clearColor.float32[2] = kClearColor[2];
-        clearColor.float32[3] = kClearColor[3];
-        vkCmdClearColorImage(frame.Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &fullColor);
+            VkClearColorValue clearColor{};
+            clearColor.float32[0] = kClearColor[0];
+            clearColor.float32[1] = kClearColor[1];
+            clearColor.float32[2] = kClearColor[2];
+            clearColor.float32[3] = kClearColor[3];
+            vkCmdClearColorImage(frame.Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &fullColor);
 
-        // TRANSFER_DST -> PRESENT_SRC.
-        VkImageMemoryBarrier2 toPresent{};
-        toPresent.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        toPresent.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-        toPresent.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        toPresent.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
-        toPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        toPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toPresent.image = image;
-        toPresent.subresourceRange = fullColor;
+            // TRANSFER_DST -> PRESENT_SRC.
+            VkImageMemoryBarrier2 toPresent{};
+            toPresent.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toPresent.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+            toPresent.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            toPresent.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+            toPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            toPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toPresent.image = image;
+            toPresent.subresourceRange = fullColor;
 
-        depInfo.pImageMemoryBarriers = &toPresent;
-        vkCmdPipelineBarrier2(frame.Cmd, &depInfo);
+            depInfo.pImageMemoryBarriers = &toPresent;
+            vkCmdPipelineBarrier2(frame.Cmd, &depInfo);
+        }
 
         VkCheck(vkEndCommandBuffer(frame.Cmd), "vkEndCommandBuffer");
+
+        // Wait/signal lists: the swapchain's own binary pair plus any staged
+        // RHI::GpuFence queue ops (ADR 0011 §6 — a split-barrier Signal/Wait
+        // attaches to the frame's one submission; this drain is what makes
+        // GpuFence live in the real loop, not just the device-gated test).
+        std::vector<VkSemaphoreSubmitInfo> waitInfos;
+        std::vector<VkSemaphoreSubmitInfo> signalInfos;
+        VulkanGpuFence::DrainPendingSubmitOps(waitInfos, signalInfos);
 
         VkSemaphoreSubmitInfo waitInfo{};
         waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         waitInfo.semaphore = frame.ImageAvailable;
-        waitInfo.stageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+        // The wait stage must equal the first swapchain-image barrier's
+        // srcStageMask (see the comment there): CLEAR on the fallback path,
+        // COLOR_ATTACHMENT_OUTPUT when the pilot renders.
+        waitInfo.stageMask = pilotActive ? VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+                                         : VK_PIPELINE_STAGE_2_CLEAR_BIT;
+        waitInfos.push_back(waitInfo);
         VkSemaphoreSubmitInfo signalInfo{};
         signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         signalInfo.semaphore = d.RenderFinished[imageIndex];
         signalInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        signalInfos.push_back(signalInfo);
         VkCommandBufferSubmitInfo cmdSubmitInfo{};
         cmdSubmitInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
         cmdSubmitInfo.commandBuffer = frame.Cmd;
 
         VkSubmitInfo2 submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submitInfo.waitSemaphoreInfoCount = 1;
-        submitInfo.pWaitSemaphoreInfos = &waitInfo;
+        submitInfo.waitSemaphoreInfoCount = static_cast<u32>(waitInfos.size());
+        submitInfo.pWaitSemaphoreInfos = waitInfos.data();
         submitInfo.commandBufferInfoCount = 1;
         submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
-        submitInfo.signalSemaphoreInfoCount = 1;
-        submitInfo.pSignalSemaphoreInfos = &signalInfo;
+        submitInfo.signalSemaphoreInfoCount = static_cast<u32>(signalInfos.size());
+        submitInfo.pSignalSemaphoreInfos = signalInfos.data();
         VkCheck(vkQueueSubmit2(d.Device.GetQueue(), 1, &submitInfo, frame.InFlight), "vkQueueSubmit2");
 
         VkPresentInfoKHR presentInfo{};

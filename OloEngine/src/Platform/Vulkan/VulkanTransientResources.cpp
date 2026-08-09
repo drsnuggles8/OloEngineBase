@@ -290,7 +290,7 @@ namespace OloEngine
         {
             return;
         }
-        m_Entries.push_back({ image, VK_NULL_HANDLE, allocation, m_Generation });
+        m_Entries.push_back({ .Image = image, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation });
     }
 
     void VulkanDeferredReclaim::Enqueue(VkBuffer buffer, VmaAllocation allocation)
@@ -299,7 +299,25 @@ namespace OloEngine
         {
             return;
         }
-        m_Entries.push_back({ VK_NULL_HANDLE, buffer, allocation, m_Generation });
+        m_Entries.push_back({ .Buffer = buffer, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation });
+    }
+
+    void VulkanDeferredReclaim::Enqueue(VkSemaphore semaphore)
+    {
+        if (semaphore == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        m_Entries.push_back({ .Semaphore = semaphore, .EnqueuedAtGeneration = m_Generation });
+    }
+
+    void VulkanDeferredReclaim::Enqueue(VkPipeline pipeline)
+    {
+        if (pipeline == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        m_Entries.push_back({ .Pipeline = pipeline, .EnqueuedAtGeneration = m_Generation });
     }
 
     void VulkanDeferredReclaim::DestroyEntry(const Entry& entry)
@@ -328,6 +346,14 @@ namespace OloEngine
         else if (entry.Buffer != VK_NULL_HANDLE)
         {
             vmaDestroyBuffer(device->GetAllocator(), entry.Buffer, entry.Allocation);
+        }
+        else if (entry.Semaphore != VK_NULL_HANDLE)
+        {
+            vkDestroySemaphore(device->GetDevice(), entry.Semaphore, nullptr);
+        }
+        else if (entry.Pipeline != VK_NULL_HANDLE)
+        {
+            vkDestroyPipeline(device->GetDevice(), entry.Pipeline, nullptr);
         }
         else if (entry.Allocation != VK_NULL_HANDLE)
         {
@@ -785,8 +811,13 @@ namespace OloEngine
         // Vulkan refuses a zero-sized buffer; clamp defensively (GetSize keeps
         // reporting the authored size).
         bufferInfo.size = std::max<VkDeviceSize>(m_Size, 1u);
+        // SHADER_DEVICE_ADDRESS: Phase 6's root-data model (ADR 0011 §4)
+        // addresses buffers by VkDeviceAddress embedded in the root struct, so
+        // every storage buffer must be addressable. bufferDeviceAddress is
+        // enabled at device creation and the VMA allocator carries
+        // VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT.
         bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                           VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                           VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         VmaAllocationCreateInfo allocInfo{};

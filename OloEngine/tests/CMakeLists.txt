@@ -178,6 +178,11 @@ add_executable(OloEngine-Tests
 		# through VulkanRendererAPI, asserted validation-error count == 0.
 		# Same SKIP ladder as VulkanBringUpTest.
 		Rendering/VulkanRenderGraphExecutionTest.cpp
+		# #691 Phase 6: the shader path on a REAL device — VulkanShader
+		# (vulkan_1_4 SPIR-V tier), descriptor-heap sampling, thin PSOs with
+		# root-data binding mappings, vertex pulling, and the FXAA golden-pass
+		# checkpoint (ADR 0011 §4/§5). Same SKIP ladder + zero-validation bar.
+		Rendering/VulkanShaderPipelineTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`

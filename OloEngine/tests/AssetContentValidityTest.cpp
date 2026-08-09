@@ -1403,9 +1403,17 @@ namespace OloEngine::Tests
             // binary loaded into a slot-based run would link cleanly and sample
             // nothing. This test caught the new filename the first time it was
             // written, which is the whitelist working as intended.
+            // #691 Phase 6 (ADR 0011 §3(b)): the SPIR-V tier's shaderc target
+            // env joined the filename — the GL path's shared tier is
+            // `.cached_vulkan12.*`, the Vulkan backend's own tier is
+            // `.cached_vulkan14.*`. Bare `vulkan` stays admitted so stale
+            // pre-rename files on existing checkouts don't turn this test red;
+            // they are dead weight, not a hazard (nothing constructs the old
+            // name any more). `pipeline_cache.vkpc` is the process-wide
+            // VkPipelineCache blob (shader/vulkan/, §3(c)).
             { "shader",
-              std::regex(R"((?:.+?(\.glsl)?\.cached_(opengl|vulkan)(\.bindless)?\.(vert|frag|comp|tesc|tese|geom|pgr))|(?:program_binary_driver_stamp\.txt))"),
-              "<name>[.glsl].cached_{opengl|vulkan}[.bindless].{stage|pgr}, or program_binary_driver_stamp.txt" },
+              std::regex(R"((?:.+?(\.glsl)?\.cached_(opengl|vulkan(12|14)?)(\.bindless)?\.(vert|frag|comp|tesc|tese|geom|pgr))|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc))"),
+              "<name>[.glsl].cached_{opengl|vulkan12|vulkan14}[.bindless].{stage|pgr}, program_binary_driver_stamp.txt, or pipeline_cache.vkpc" },
             { "ibl",
               std::regex(R"([0-9a-fA-F]+_(irradiance|prefilter|brdf)\.iblcache)"),
               "<hash>_{irradiance|prefilter|brdf}.iblcache" },

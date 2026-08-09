@@ -2408,6 +2408,155 @@ bar includes it.
 
 ---
 
+## Amendments from Phase 6 (2026-08-09) — the shader path
+
+Phase 6 landed §3 (the `VkPipelineCache` + target-env-keyed SPIR-V tier), §4
+(root data as one pushed pointer, the frame arena), §5 (thin PSOs, vertex
+pulling, EDS3 dynamic blend) and §6 (`RHI::GpuFence` on timeline semaphores),
+and moved the frame loop from clear-only to its first rendered pass. The
+checkpoint held: `PostProcess_FXAA.glsl` — the golden-tested pass — renders on
+Vulkan **bit-identical to the GL golden (RMSE = 0)** through the full
+root-pointer + thin-PSO + vertex-pulling shape
+(`VulkanShaderPipelineTest.FxaaGoldenPassRendersCorrectlyOnVulkan`), with zero
+validation errors, sync validation included. Seven findings.
+
+### (50) The MAPPING model: classic binding declarations survive — §4 is a pipeline-creation contract, not a GLSL rewrite
+
+The part of §4 this ADR could not know before implementation:
+`VK_EXT_descriptor_heap`'s `VkDescriptorSetAndBindingMappingEXT` (chained per
+`VkPipelineShaderStageCreateInfo`) maps a shader's EXISTING `layout(set,
+binding)` declarations onto root-data sources — `INDIRECT_ADDRESS` reads a
+buffer block's GPU address from `rootPtr + offset`, `HEAP_WITH_INDIRECT_INDEX`
+reads a texture's heap slot index the same way and scales it by the heap's
+descriptor stride. The push carries exactly 8 bytes (`vkCmdPushDataEXT`, the
+root struct's address), per §4's budget warning.
+
+Consequence: **UBO and sampler declarations need NO per-backend GLSL branch.**
+The same SPIR-V serves slot-based GL and heap-bindless Vulkan; which bytes
+feed binding 7 is decided at pipeline creation. This is amendment (25)'s
+"both variants name the same constant" property promoted one level: the
+`VulkanRootDataLayout` builder assigns field offsets AND emits the mapping
+array, so the draw-time writer and the pipeline cannot disagree. The one
+authoring-side change left is vertex pulling (§5): a vertex stage grows an
+`#ifdef OLO_VULKAN` branch reading an SSBO at the reserved binding 57 (the
+root struct carries its address), because removing
+`VkPipelineVertexInputStateCreateInfo` removes the attribute path. Samplers
+are EMBEDDED per pipeline for now (`pEmbeddedSampler`); the §1.2a sampler
+heap composes in when the engine heap runs on this backend (see (56)).
+
+Also learned here: descriptors are written from **view descriptions**
+(`VkImageDescriptorInfoEXT::pView` is a `VkImageViewCreateInfo*`), not view
+objects — `VkImageView`s exist on this backend only as dynamic-rendering
+attachment views.
+
+### (51) Once `VkPhysicalDeviceVulkan12Features` exists, promoted-feature structs must fold into it
+
+Enabling `timelineSemaphore` (§6) and `bufferDeviceAddress` (§4) added the
+1.2 aggregate struct to the device chain — and validation immediately flagged
+Phase 5's standalone `VkPhysicalDeviceShaderAtomicInt64Features`
+(VUID-VkDeviceCreateInfo-pNext-02830: a feature promoted into an aggregate
+may not be chained alongside it). `shaderBufferInt64Atomics` moved into the
+aggregate. The rule for every later phase: the FIRST time a
+`VkPhysicalDeviceVulkanXYFeatures` struct joins the chain, sweep the chain
+for standalone structs of features that version promoted. Also enabled here,
+same defaults-OFF class as amendment (48)'s `synchronization2`:
+`dynamicRendering` (required-in-1.3, backs `VkPipelineRenderingCreateInfo` —
+no `VkRenderPass` objects exist in this backend), and VMA gained
+`VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT` (without it,
+`vkGetBufferDeviceAddress` on a VMA buffer is undefined).
+
+### (52) Pipeline destruction has ONE owner — and §3(d)'s "InflightFrameManager" was a stale name
+
+The first device run double-destroyed every pipeline: §3(d)'s shader→pipeline
+reverse index (in `VulkanPipelineCache`) and the builder's key→pipeline cache
+map each enqueued the same `VkPipeline` for reclaim — and worse, after a
+reverse-index invalidation the builder's map still held the dead pipeline and
+would have handed it straight back to the next draw. The fix is structural,
+not a flag: **the reverse index and the lookup map must be one data
+structure** (`VulkanPipelineBuilder::InvalidateShader` erases and enqueues in
+the same act; `VulkanPipelineCache` is the disk blob only). Relatedly, §3(d)
+names `InflightFrameManager` as the deferred-destruction vehicle — that class
+is dead GL-era code (`MAX_FRAMES_IN_FLIGHT = 3`, no Vulkan wiring); the real
+machinery is `VulkanDeferredReclaim` (`kFramesInFlight = 2`), which Phase 6
+generalised beyond VMA pairs to `VkPipeline` and `VkSemaphore` entries.
+
+### (53) Phase 5's reclaim queue had NO production drain — the fence wait is the only legal drain point
+
+`VulkanDeferredReclaim::NotifyFrameCompleted()` had exactly one caller: the
+test fixture. A live `--rhi=vulkan` session enqueued forever and leaked until
+exit. It is now called at the ONE point that proves the GPU finished a frame
+slot — immediately after `vkWaitForFences` in `VulkanContext::SwapBuffers` —
+alongside `VulkanFrameArena::BeginFrame(slot)` (the root-data arena's cursor
+rewind is gated on the same proof). `FlushAll()` is likewise now wired at
+context teardown (nothing called it either). *Generalisable:* a
+generation-counted queue is only as real as its production tick; a queue the
+tests tick and the frame loop doesn't is a leak with green tests.
+
+### (54) Measured on the first live run
+
+- **FXAA parity is exact** (RMSE = 0 vs the GL golden, 128×128): the same
+  GPU's compiler consuming shaderc SPIR-V from the same source produces
+  identical arithmetic on both routes. The #734 property invariants
+  (blend fraction, complementary pairing) pass on the Vulkan output too.
+- **The pipeline cache works across processes**: cold FXAA pipeline ~1.4 s
+  (driver compile), warm ~150 ms with `pipeline_cache.vkpc` loaded (37 KB
+  after two pipelines). §3(c)'s soft-fail load was exercised by design, not
+  yet by corruption.
+- The 4090/610.88 floor has **all 31 EDS3 feature bits**; the three blend
+  states are enabled and blend is fully dynamic (`BakedBlendHash` stays 0 —
+  §5's fallback column is compiled, branch-tested via
+  `IsDynamicBlendStateEnabled()`, and expected to stay cold on desktop).
+- NVIDIA's image descriptor stride is **32 bytes**; the resource heap's
+  reserved range is ~94 KiB (`minResourceHeapReservedRange`) — heap layout
+  cannot be assumed, always derive from
+  `VkPhysicalDeviceDescriptorHeapPropertiesEXT`.
+- The SPIR-V tier renames landed: the GL path's shared tier is
+  `.cached_vulkan12.<stage>` and the Vulkan backend's own tier is
+  `.cached_vulkan14.<stage>` (§3(b)); existing caches invalidate once.
+
+### (55) The live frame loop renders through Phase 6 scaffolding, NOT through the dispatch table — deliberately
+
+Amendment (49) said "full-frame graph execution moves into the window loop
+with the first rendered pass." What Phase 6 wired is narrower on purpose: a
+pilot block in `VulkanContext::SwapBuffers` renders the FXAA checkpoint pass
+(uploaded golden hard-edge pattern → dynamic rendering into the swapchain,
+with per-frame root data from the arena), falling back to the Phase 4 clear
+when assets are unavailable. `CommandDispatch`'s draw packets still hit
+Phase 6 stubs — converting the POD dispatch path is Phase 7's pass-by-pass
+port, which now has a proven template to copy (the pilot + the device-gated
+test are line-for-line the target shape). The acquire-semaphore wait stage
+rule from amendment (48) recurred here: the render path waits at
+`COLOR_ATTACHMENT_OUTPUT`, the clear path at `CLEAR`, and the first
+swapchain barrier's `srcStageMask` must match whichever ran.
+
+### (56) What Phase 6 deliberately did NOT build, so Phase 7 doesn't go looking
+
+- **`RHI::DescriptorHeap` does not run on Vulkan yet.** The engine-side heap
+  singleton (slot lifetime, generations, poisoning, the offset-table seam)
+  initialises with the GL renderer, which `--rhi=vulkan` skips.
+  `VulkanResourceHeap` is the backend primitive (heap buffer, descriptor
+  writes, `vkCmdBindResourceHeapEXT`); a `VulkanDescriptorHeapBackend :
+  RHI::IDescriptorHeapBackend` composes over it when render-graph execution
+  arrives — the interface was audited for fit (`AcquireDescriptor` → write,
+  `UploadSlots` → slot-region memcpy, `BindHeap` → `CmdBind`).
+- **`RHI::GpuFence`'s render-graph attachment point** is
+  `SubmissionCommand`'s `BatchBegin`/`BatchEnd` (whose backend-mapping
+  comment has promised exactly this semaphore lowering since Phase 5) — the
+  primitive is live (staged ops drain into the frame submit; device-gated
+  test), the graph wiring is §6's stated Phase 7 profiling work.
+- **Compute shaders still have no SPIR-V route** (`OpenGLComputeShader` goes
+  straight to `glShaderSource`; §3(a)'s "tier 1 is shared" holds for graphics
+  stages only). The Vulkan compute path is Phase 7 work alongside the first
+  compute pass, on the `VulkanShader` pattern.
+- **The Y-flip decision** (negative viewport height vs. projection flip) is
+  still open — a fullscreen pass is orientation-symmetric end-to-end, so the
+  pilot could not force it. It must be decided with the first 3D pass.
+- The frame arena's capacity is a fixed 16 MiB per slot with counted
+  overflow; growth/chaining policy is deferred until Phase 7 has real
+  per-frame numbers.
+
+---
+
 ## Consequences
 
 - The renderer carries **four** boundary concepts where it carries one today

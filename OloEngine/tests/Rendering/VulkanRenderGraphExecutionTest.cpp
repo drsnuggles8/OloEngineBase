@@ -53,8 +53,11 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TransientPool.h"
+#include "OloEngine/Renderer/RHI/RHIGpuFence.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
@@ -63,6 +66,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include <volk.h>
 
 #include <algorithm>
+#include <cstring>
 #include <functional>
 #include <memory>
 
@@ -216,6 +220,9 @@ class VulkanRenderGraphExecution : public ::testing::Test
         if (!m_Device)
             return;
         vkDeviceWaitIdle(m_Device->GetDevice());
+        // The frame arena is a leaked process-wide singleton; its slot buffers
+        // belong to THIS test's device and must not survive it.
+        VulkanFrameArena::Get().ReleaseBuffers();
         VulkanDeferredReclaim::Get().FlushAll();
         if (m_Fence != VK_NULL_HANDLE)
             vkDestroyFence(m_Device->GetDevice(), m_Fence, nullptr);
@@ -495,6 +502,144 @@ TEST_F(VulkanRenderGraphExecution, PoisonClearsAndBucketDispatchRunOnVulkan)
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
     pool.ReleaseAll();
     pool.Clear();
+}
+
+// -----------------------------------------------------------------------------
+// #691 Phase 6, ADR 0011 §4: the frame arena hands out persistently-mapped,
+// device-addressable byte ranges — the memory every root-data struct lives in.
+// This is also the test that proves bufferDeviceAddress is genuinely ENABLED
+// (vkGetBufferDeviceAddress on a feature-disabled device is a validation
+// error, caught by the fixture's zero-errors bar).
+// -----------------------------------------------------------------------------
+TEST_F(VulkanRenderGraphExecution, FrameArenaAllocatesMappedDeviceAddressableRanges)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+
+    auto& arena = VulkanFrameArena::Get();
+    arena.BeginFrame(0);
+
+    const auto a = arena.Allocate(64);
+    ASSERT_TRUE(a.IsValid()) << "A live device must yield a real allocation";
+    EXPECT_NE(a.Gpu, 0u);
+    EXPECT_EQ(a.Offset % 16, 0u);
+
+    // Writes land in mapped memory without any map/unmap ceremony.
+    std::memset(a.Cpu, 0xAB, 64);
+
+    const auto b = arena.Allocate(40, 64);
+    ASSERT_TRUE(b.IsValid());
+    EXPECT_EQ(b.Offset % 64, 0u);
+    EXPECT_GT(b.Offset, a.Offset);
+    EXPECT_EQ(b.Gpu - a.Gpu, b.Offset - a.Offset) << "GPU addresses and offsets must move in lockstep";
+
+    // The cursor rewinds per slot, and slots are independent.
+    const u64 usedSlot0 = arena.GetCurrentSlotUsedBytes();
+    EXPECT_GE(usedSlot0, 104u);
+    arena.BeginFrame(1);
+    EXPECT_EQ(arena.GetCurrentSlotUsedBytes(), 0u);
+    const auto c = arena.Allocate(16);
+    ASSERT_TRUE(c.IsValid());
+    EXPECT_NE(c.Gpu, a.Gpu) << "Different slots are different buffers";
+    arena.BeginFrame(0);
+    EXPECT_EQ(arena.GetCurrentSlotUsedBytes(), 0u) << "BeginFrame(slot) resets that slot's cursor";
+
+    // Overflow is a counted sentinel, not UB.
+    const auto tooBig = arena.Allocate(arena.GetSlotCapacityBytes() + 1);
+    EXPECT_FALSE(tooBig.IsValid());
+    EXPECT_GE(arena.GetOverflowCount(), 1u);
+
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+// -----------------------------------------------------------------------------
+// #691 Phase 6, ADR 0011 §6: RHI::GpuFence is a timeline semaphore — one
+// monotonic counter serving the GPU queue side (staged Signal/Wait drained
+// into a submit) and the CPU side (HostSignal / HostWait / CompletedValue).
+// -----------------------------------------------------------------------------
+TEST_F(VulkanRenderGraphExecution, GpuFenceSignalsAndWaitsAcrossHostAndQueue)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+
+    Ref<RHI::GpuFence> fence = RHI::GpuFence::Create(/*initialValue=*/0);
+    ASSERT_TRUE(fence) << "A live VulkanDevice must yield a real GpuFence";
+
+    // --- CPU side: signal, observe, wait -------------------------------------
+    EXPECT_EQ(fence->CompletedValue(), 0u);
+    fence->HostSignal(1);
+    EXPECT_EQ(fence->CompletedValue(), 1u);
+    EXPECT_TRUE(fence->HostWait(1, /*timeoutNanoseconds=*/0))
+        << "An already-satisfied wait must return immediately";
+    EXPECT_FALSE(fence->HostWait(2, /*timeoutNanoseconds=*/1'000'000))
+        << "A wait on an unsignaled value must time out, not succeed";
+
+    // --- GPU side: staged queue ops drain into a submit ----------------------
+    // Producer submission signals value 2; the host observes it. This is the
+    // §6 shape: Signal attaches to the producing submission, the consumer (here
+    // the CPU, standing in for a later submission's QueueWait) observes the
+    // counter.
+    fence->QueueSignal(2);
+    EXPECT_EQ(VulkanGpuFence::GetPendingSubmitOpCount(), 1u);
+
+    std::vector<VkSemaphoreSubmitInfo> waits;
+    std::vector<VkSemaphoreSubmitInfo> signals;
+    VulkanGpuFence::DrainPendingSubmitOps(waits, signals);
+    EXPECT_EQ(VulkanGpuFence::GetPendingSubmitOpCount(), 0u);
+    ASSERT_EQ(signals.size(), 1u);
+    EXPECT_TRUE(waits.empty());
+
+    ASSERT_EQ(vkResetCommandBuffer(m_Cmd, 0), VK_SUCCESS);
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &beginInfo), VK_SUCCESS);
+    ASSERT_EQ(vkEndCommandBuffer(m_Cmd), VK_SUCCESS);
+
+    VkCommandBufferSubmitInfo cmdInfo{};
+    cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmdInfo.commandBuffer = m_Cmd;
+    VkSubmitInfo2 submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit.commandBufferInfoCount = 1;
+    submit.pCommandBufferInfos = &cmdInfo;
+    submit.signalSemaphoreInfoCount = static_cast<u32>(signals.size());
+    submit.pSignalSemaphoreInfos = signals.data();
+    ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
+    ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+
+    EXPECT_TRUE(fence->HostWait(2, /*timeoutNanoseconds=*/UINT64_MAX))
+        << "The queue-attached signal must satisfy a host wait";
+    EXPECT_EQ(fence->CompletedValue(), 2u);
+
+    // --- Consumer submission waits on the counter ----------------------------
+    fence->QueueWait(2);
+    waits.clear();
+    signals.clear();
+    VulkanGpuFence::DrainPendingSubmitOps(waits, signals);
+    ASSERT_EQ(waits.size(), 1u);
+    EXPECT_TRUE(signals.empty());
+
+    ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+    ASSERT_EQ(vkResetCommandBuffer(m_Cmd, 0), VK_SUCCESS);
+    ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &beginInfo), VK_SUCCESS);
+    ASSERT_EQ(vkEndCommandBuffer(m_Cmd), VK_SUCCESS);
+    submit.waitSemaphoreInfoCount = static_cast<u32>(waits.size());
+    submit.pWaitSemaphoreInfos = waits.data();
+    submit.signalSemaphoreInfoCount = 0;
+    submit.pSignalSemaphoreInfos = nullptr;
+    ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
+    ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+    ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+
+    // The value dispenser is monotonic and CPU-side only.
+    EXPECT_EQ(fence->NextValue(), 1u);
+    EXPECT_EQ(fence->NextValue(), 2u);
+
+    // Destruction goes through deferred reclaim — provoke it and drain.
+    fence = nullptr;
+    VulkanDeferredReclaim::Get().NotifyFrameCompleted();
+    VulkanDeferredReclaim::Get().NotifyFrameCompleted();
+
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
 #endif // OLO_WITH_VULKAN

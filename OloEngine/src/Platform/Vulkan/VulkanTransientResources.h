@@ -123,6 +123,12 @@ namespace OloEngine
 
         void Enqueue(VkImage image, VmaAllocation allocation);
         void Enqueue(VkBuffer buffer, VmaAllocation allocation);
+        // Phase 6: non-VMA device objects share the same generation discipline.
+        // A semaphore may be referenced by an in-flight submit's wait/signal
+        // list; a pipeline by an in-flight command buffer (ADR 0011 §3(d) —
+        // hot-reload destruction is deferred, never inline).
+        void Enqueue(VkSemaphore semaphore);
+        void Enqueue(VkPipeline pipeline);
 
         // Called by the frame loop once per completed frame. Destroys every
         // entry enqueued >= 2 notifications ago; also unregisters images from
@@ -144,9 +150,11 @@ namespace OloEngine
 
         struct Entry
         {
-            VkImage Image = VK_NULL_HANDLE; // exactly one of Image/Buffer is set
+            VkImage Image = VK_NULL_HANDLE; // exactly one of Image/Buffer/Semaphore/Pipeline is set
             VkBuffer Buffer = VK_NULL_HANDLE;
-            VmaAllocation Allocation = VK_NULL_HANDLE;
+            VkSemaphore Semaphore = VK_NULL_HANDLE;
+            VkPipeline Pipeline = VK_NULL_HANDLE;
+            VmaAllocation Allocation = VK_NULL_HANDLE; // set only for Image/Buffer entries
             u64 EnqueuedAtGeneration = 0;
         };
 
