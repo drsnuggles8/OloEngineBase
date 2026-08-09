@@ -37,6 +37,9 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
+#include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
+#include "OloEngine/Renderer/Passes/DOFRenderPass.h"
+#include "OloEngine/Renderer/Passes/EASURenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -198,8 +201,14 @@ namespace
     class PatternProducerPass : public RenderGraphNode
     {
       public:
-        PatternProducerPass(Ref<Texture2D> pattern, Ref<Shader> blitShader)
-            : m_Pattern(std::move(pattern)), m_BlitShader(std::move(blitShader))
+        // The producer's target defaults to the post-chain input; tenants
+        // whose candidate ladder ends elsewhere (EASU reads the SceneColor
+        // family) redirect it via the slot accessor + names.
+        using TargetSlotAccessor = std::function<RGFramebufferHandle&(FrameBlackboard&)>;
+
+        PatternProducerPass(Ref<Texture2D> pattern, Ref<Shader> blitShader, std::string targetResource = std::string(ResourceNames::PostProcessColor), std::string targetTextureView = std::string(ResourceNames::PostProcessColorTexture), TargetSlotAccessor targetSlot = [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
+                            { return blackboard.Post.PostProcessColor; })
+            : m_Pattern(std::move(pattern)), m_BlitShader(std::move(blitShader)), m_TargetResource(std::move(targetResource)), m_TargetTextureView(std::move(targetTextureView)), m_TargetSlot(std::move(targetSlot))
         {
             SetName("TestPatternProducer");
         }
@@ -211,16 +220,16 @@ namespace
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override
         {
             RenderGraphNode::Setup(builder, blackboard);
-            if (!blackboard.Post.PostProcessColor.IsValid())
+            auto& slot = m_TargetSlot(blackboard);
+            if (!slot.IsValid())
             {
                 return;
             }
             constexpr std::string_view versionTag = "TestPatternProducer";
-            const auto output =
-                builder.WriteNewVersion(blackboard.Post.PostProcessColor, RGWriteUsage::RenderTarget, versionTag);
+            const auto output = builder.WriteNewVersion(slot, RGWriteUsage::RenderTarget, versionTag);
             SetPrimaryOutputFramebufferHandle(output);
             SetPrimaryOutputTextureHandle(builder.CreateFramebufferAttachmentView(
-                std::string(ResourceNames::PostProcessColorTexture) + "@" + std::string(versionTag), output, 0u));
+                m_TargetTextureView + "@" + std::string(versionTag), output, 0u));
         }
 
         void Execute(RGCommandContext& context) override
@@ -258,9 +267,21 @@ namespace
         // early-returned and nothing recorded.
         bool DidDraw = false;
 
+        [[nodiscard]] const std::string& GetTargetResource() const
+        {
+            return m_TargetResource;
+        }
+        [[nodiscard]] const TargetSlotAccessor& GetTargetSlot() const
+        {
+            return m_TargetSlot;
+        }
+
       private:
         Ref<Texture2D> m_Pattern;
         Ref<Shader> m_BlitShader;
+        std::string m_TargetResource;
+        std::string m_TargetTextureView;
+        TargetSlotAccessor m_TargetSlot;
     };
 } // namespace
 
@@ -400,8 +421,7 @@ class VulkanPassSuite : public ::testing::Test
     // The FXAA test predates this helper and keeps its deeper diagnostics
     // (plan dump, intermediate bisect, golden compare) inline.
     std::vector<u8> RunSinglePassChain(u32 size,
-                                       const Ref<Texture2D>& inputTexture,
-                                       const Ref<Shader>& blitShader,
+                                       const Ref<PatternProducerPass>& producer,
                                        const Ref<RenderGraphNode>& passNode,
                                        const char* finalPassName,
                                        std::string_view outputResourceName,
@@ -422,8 +442,14 @@ class VulkanPassSuite : public ::testing::Test
         fbDesc.Height = size;
 
         auto& blackboard = graph.GetBlackboard();
-        blackboard.Post.PostProcessColor =
-            graph.DeclareTransientFramebuffer(ResourceNames::PostProcessColor, fbDesc);
+        producer->GetTargetSlot()(blackboard) =
+            graph.DeclareTransientFramebuffer(producer->GetTargetResource(), fbDesc);
+
+        // Auxiliary inputs (depth, G-buffer planes, …): tenants import
+        // uploaded stand-in textures under the blackboard names their pass's
+        // Setup reads.
+        if (m_ExtraSetup)
+            m_ExtraSetup(graph, blackboard);
 
         FramebufferSpecification outputSpec;
         outputSpec.Width = size;
@@ -437,7 +463,6 @@ class VulkanPassSuite : public ::testing::Test
         }
         assignOutput(blackboard, graph.DeclareTransientFramebuffer(outputResourceName, fbDesc, outputFramebuffer));
 
-        auto producer = Ref<PatternProducerPass>::Create(inputTexture, blitShader);
         graph.AddNode(producer);
         graph.AddNode(passNode);
         graph.SetFinalPass(finalPassName);
@@ -508,6 +533,8 @@ class VulkanPassSuite : public ::testing::Test
     std::optional<ScopedVulkanApiSelection> m_Selection;
     VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
     VkFence m_Fence = VK_NULL_HANDLE;
+    // Per-chain auxiliary-resource hook; reset it between chains.
+    std::function<void(RenderGraph&, FrameBlackboard&)> m_ExtraSetup;
 };
 
 TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
@@ -762,7 +789,8 @@ TEST_F(VulkanPassSuite, VignettePassDarkensCornersThroughTheRenderGraph)
     vignette->Init(initSpec);
     vignette->SetEnabled(true);
 
-    const auto rendered = RunSinglePassChain(kSize, whiteInput, blitShader, vignette, "VignettePass",
+    auto producer = Ref<PatternProducerPass>::Create(whiteInput, blitShader);
+    const auto rendered = RunSinglePassChain(kSize, producer, vignette, "VignettePass",
                                              ResourceNames::VignetteColor,
                                              [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                              { blackboard.Post.VignetteColor = handle; });
@@ -815,7 +843,8 @@ TEST_F(VulkanPassSuite, ChromaticAberrationSplitsChannelsAcrossAnOffCentreEdge)
     chromAb->Init(initSpec);
     chromAb->SetEnabled(true);
 
-    const auto rendered = RunSinglePassChain(kSize, edgeInput, blitShader, chromAb, "ChromAberrationPass",
+    auto producer = Ref<PatternProducerPass>::Create(edgeInput, blitShader);
+    const auto rendered = RunSinglePassChain(kSize, producer, chromAb, "ChromAberrationPass",
                                              ResourceNames::ChromAbColor,
                                              [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                              { blackboard.Post.ChromAbColor = handle; });
@@ -849,6 +878,199 @@ TEST_F(VulkanPassSuite, ChromaticAberrationSplitsChannelsAcrossAnOffCentreEdge)
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+TEST_F(VulkanPassSuite, ColorGradingIdentityLutPassesThePatternThrough)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // The pass imports its own identity LUT at creation — with it, grading
+    // is a passthrough, so the hard-edge pattern must survive byte-for-byte
+    // (small tolerance for the 256x16 strip's bilinear fetch).
+    const std::vector<f32> pattern = MakeHardEdgePattern(kSize);
+    std::vector<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
+    for (sizet i = 0; i < patternRgba8.size(); ++i)
+        patternRgba8[i] = static_cast<u8>(std::lround(std::clamp(pattern[i], 0.0f, 1.0f) * 255.0f));
+    TextureSpecification patternSpec;
+    patternSpec.Width = kSize;
+    patternSpec.Height = kSize;
+    patternSpec.Format = ImageFormat::RGBA8;
+    patternSpec.GenerateMips = false;
+    auto patternTexture = Texture2D::Create(patternSpec);
+    ASSERT_NE(patternTexture, nullptr);
+    patternTexture->SetData(patternRgba8.data(), static_cast<u32>(patternRgba8.size()));
+
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // The pass binds a PostProcessUBO its shader never declares (a known
+    // dead bind — zero-address warn-once on this backend); the DRS UBO
+    // feeds the producer's blit.
+    PostProcessUBOData uboData{};
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+    postProcessUbo->SetData(&uboData, sizeof(uboData));
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    auto grading = Ref<ColorGradingRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    grading->Init(initSpec);
+    grading->SetEnabled(true);
+
+    auto producer = Ref<PatternProducerPass>::Create(patternTexture, blitShader);
+    const auto rendered = RunSinglePassChain(kSize, producer, grading, "ColorGradingPass",
+                                             ResourceNames::ColorGradingColor,
+                                             [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                             { blackboard.Post.ColorGradingColor = handle; });
+    ASSERT_EQ(rendered.size(), patternRgba8.size());
+
+    u32 maxDiff = 0;
+    for (sizet i = 0; i < rendered.size(); i += 4)
+    {
+        for (sizet c = 0; c < 3; ++c)
+        {
+            const u32 diff = static_cast<u32>(
+                std::abs(static_cast<int>(rendered[i + c]) - static_cast<int>(patternRgba8[i + c])));
+            maxDiff = std::max(maxDiff, diff);
+        }
+    }
+    EXPECT_LE(maxDiff, 2u) << "identity LUT must pass the pattern through (bilinear strip tolerance)";
+}
+
+TEST_F(VulkanPassSuite, EasuPreservesAConstantFieldAtIdentityScale)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // EASU is a convolution with normalised weights: a constant field must
+    // come out constant regardless of the kernel's edge adaptation. The pass
+    // owns its EASUParams UBO (binding 45) and reads the SceneColor family —
+    // the producer is redirected there.
+    auto grayInput = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(grayInput, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    auto easu = Ref<EASURenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    easu->Init(initSpec);
+    easu->SetEnabled(true);
+
+    auto producer = Ref<PatternProducerPass>::Create(
+        grayInput, blitShader, std::string(ResourceNames::SceneColor),
+        std::string(ResourceNames::SceneColorTexture),
+        [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
+        { return blackboard.Scene.SceneColor; });
+    const auto rendered = RunSinglePassChain(kSize, producer, easu, "EASUPass", ResourceNames::EASUColor,
+                                             [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                             { blackboard.Post.EASUColor = handle; });
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    for (const auto& [x, y] :
+         { std::pair<u32, u32>{ 8, 8 }, { 120, 8 }, { 64, 64 }, { 8, 120 }, { 120, 120 } })
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        for (sizet c = 0; c < 3; ++c)
+        {
+            EXPECT_NEAR(static_cast<int>(rendered[i + c]), 128, 2)
+                << "EASU of a constant field must stay constant at (" << x << "," << y << ") channel " << c;
+        }
+    }
+}
+
+TEST_F(VulkanPassSuite, DofFocusGatesTheBlurThroughAnImportedDepth)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // Two chains over the same edge input with an imported uniform depth of
+    // 0.0 (linearises to CameraNear): focus AT the near plane must pass the
+    // hard edge through untouched; focus pushed far away must soften it.
+    // Two-sided so a DOF that never blurs — or always blurs — fails.
+    auto edgeInput = MakeVerticalEdgeTexture(kSize, 96);
+    ASSERT_NE(edgeInput, nullptr);
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc depthDesc;
+        depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        depthDesc.Format = RGResourceFormat::RGBA8UNorm;
+        depthDesc.Width = kSize;
+        depthDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), depthDesc);
+    };
+
+    const auto runChain = [&](f32 focusDistance) -> std::vector<u8>
+    {
+        PostProcessUBOData uboData{};
+        uboData.DOFFocusDistance = focusDistance;
+        uboData.DOFFocusRange = 1.0f;
+        uboData.DOFBokehRadius = 8.0f;
+        uboData.CameraNear = 0.1f;
+        uboData.CameraFar = 100.0f;
+        uboData.InverseScreenWidth = 1.0f / static_cast<f32>(kSize);
+        uboData.InverseScreenHeight = 1.0f / static_cast<f32>(kSize);
+        uboData.TexelSizeX = 1.0f / static_cast<f32>(kSize);
+        uboData.TexelSizeY = 1.0f / static_cast<f32>(kSize);
+        postProcessUbo->SetData(&uboData, sizeof(uboData));
+
+        auto dof = Ref<DOFRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        dof->Init(initSpec);
+        dof->SetEnabled(true);
+
+        auto producer = Ref<PatternProducerPass>::Create(edgeInput, blitShader);
+        return RunSinglePassChain(kSize, producer, dof, "DOFPass", ResourceNames::DOFColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.DOFColor = handle; });
+    };
+
+    // Focus at the near plane (depth 0 linearises to 0.1): coc 0, passthrough.
+    const auto inFocus = runChain(0.1f);
+    ASSERT_EQ(inFocus.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+    EXPECT_LE(redAt(inFocus, 94, 64), 5) << "in focus: the black side must stay black";
+    EXPECT_GE(redAt(inFocus, 98, 64), 250) << "in focus: the white side must stay white";
+
+    // Focus at 50 (coc saturates to 1): the 8px bokeh disc must mix both
+    // sides of the edge — the pixel two texels into the white side reads a
+    // blend, not pure white.
+    const auto outOfFocus = runChain(50.0f);
+    ASSERT_EQ(outOfFocus.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const int blurred = redAt(outOfFocus, 98, 64);
+    EXPECT_GT(blurred, 30) << "out of focus: not black — the disc still covers white texels";
+    EXPECT_LT(blurred, 225) << "out of focus: the hard edge must have softened";
+
+    m_ExtraSetup = nullptr;
 }
 
 #endif // OLO_WITH_VULKAN
