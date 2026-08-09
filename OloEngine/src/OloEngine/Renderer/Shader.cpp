@@ -4,6 +4,13 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
+#if OLO_WITH_VULKAN
+// Sanctioned factory-include pattern (rhi-abstraction-boundary.md): this
+// OLO_WITH_VULKAN-guarded factory TU may see Platform/Vulkan/ headers.
+#include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanShader.h"
+#endif
+
 #include <unordered_set>
 
 namespace OloEngine
@@ -131,7 +138,15 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+#if OLO_WITH_VULKAN
+                // #691 Phase 6: direct SPIR-V consumption, no cross-compile
+                // hop. A Vulkan shader cannot exist without a device.
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<Shader>(new VulkanShader(filepath));
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out) — cannot create a Vulkan shader!");
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:
@@ -161,7 +176,13 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+#if OLO_WITH_VULKAN
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<Shader>(new VulkanShader(name, vertexSrc, fragmentSrc));
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out) — cannot create a Vulkan shader!");
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:

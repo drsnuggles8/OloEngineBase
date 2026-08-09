@@ -34,6 +34,7 @@
 // (that is the point — Phase 1 is "no code motion"), so without this they would
 // never be parsed by a compiler and could rot into non-compiling code before
 // Phase 2 picks them up.
+#include "OloEngine/Renderer/RHI/RHIGpuFence.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"

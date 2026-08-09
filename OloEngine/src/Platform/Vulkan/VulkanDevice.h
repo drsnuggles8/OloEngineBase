@@ -113,6 +113,17 @@ namespace OloEngine
         {
             return m_ShaderBufferInt64AtomicsEnabled;
         }
+        // Phase 6 (#691, ADR 0011 §5): VK_EXT_extended_dynamic_state3's three
+        // blend states (enable/equation/write-mask) are enabled when the driver
+        // has them. TRUE → the pipeline builder makes blend state dynamic;
+        // FALSE → blend is baked into the PSO key (the fallback path the ADR
+        // predicts never triggers on the NVIDIA/AMD desktop floor, but the
+        // builder must still take the other branch — same rule as
+        // IsBindlessSupported()).
+        [[nodiscard]] bool IsDynamicBlendStateEnabled() const
+        {
+            return m_DynamicBlendStateEnabled;
+        }
 
         // Validation-error counter: the debug messenger increments this on
         // every ERROR-severity validation message. Tests assert it stays 0.
@@ -138,6 +149,7 @@ namespace OloEngine
         bool m_TessellationShaderEnabled = false;
         bool m_GeometryShaderEnabled = false;
         bool m_ShaderBufferInt64AtomicsEnabled = false;
+        bool m_DynamicBlendStateEnabled = false;
     };
 } // namespace OloEngine
 

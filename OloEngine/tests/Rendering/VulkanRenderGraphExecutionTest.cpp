@@ -53,9 +53,13 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TransientPool.h"
+#include "OloEngine/Renderer/RHI/RHIGpuFence.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include "RenderingTestUtils.h"
@@ -63,7 +67,9 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include <volk.h>
 
 #include <algorithm>
+#include <cstring>
 #include <functional>
+#include <limits>
 #include <memory>
 
 namespace
@@ -216,6 +222,11 @@ class VulkanRenderGraphExecution : public ::testing::Test
         if (!m_Device)
             return;
         vkDeviceWaitIdle(m_Device->GetDevice());
+        // The frame arena and resource heap are leaked process-wide
+        // singletons; their buffers belong to THIS test's device and must
+        // not survive it.
+        VulkanFrameArena::Get().ReleaseBuffers();
+        VulkanResourceHeap::Get().Release();
         VulkanDeferredReclaim::Get().FlushAll();
         if (m_Fence != VK_NULL_HANDLE)
             vkDestroyFence(m_Device->GetDevice(), m_Fence, nullptr);
@@ -495,6 +506,219 @@ TEST_F(VulkanRenderGraphExecution, PoisonClearsAndBucketDispatchRunOnVulkan)
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
     pool.ReleaseAll();
     pool.Clear();
+}
+
+// -----------------------------------------------------------------------------
+// #691 Phase 6, ADR 0011 §4: the frame arena hands out persistently-mapped,
+// device-addressable byte ranges — the memory every root-data struct lives in.
+// This is also the test that proves bufferDeviceAddress is genuinely ENABLED
+// (vkGetBufferDeviceAddress on a feature-disabled device is a validation
+// error, caught by the fixture's zero-errors bar).
+// -----------------------------------------------------------------------------
+TEST_F(VulkanRenderGraphExecution, FrameArenaAllocatesMappedDeviceAddressableRanges)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+
+    auto& arena = VulkanFrameArena::Get();
+    arena.BeginFrame(0);
+
+    const auto a = arena.Allocate(64);
+    ASSERT_TRUE(a.IsValid()) << "A live device must yield a real allocation";
+    EXPECT_NE(a.Gpu, 0u);
+    EXPECT_EQ(a.Offset % 16, 0u);
+
+    // Writes land in mapped memory without any map/unmap ceremony.
+    std::memset(a.Cpu, 0xAB, 64);
+
+    const auto b = arena.Allocate(40, 64);
+    ASSERT_TRUE(b.IsValid());
+    EXPECT_EQ(b.Offset % 64, 0u);
+    EXPECT_GT(b.Offset, a.Offset);
+    EXPECT_EQ(b.Gpu - a.Gpu, b.Offset - a.Offset) << "GPU addresses and offsets must move in lockstep";
+
+    // The cursor rewinds per slot, and slots are independent.
+    const u64 usedSlot0 = arena.GetCurrentSlotUsedBytes();
+    EXPECT_GE(usedSlot0, 104u);
+    arena.BeginFrame(1);
+    EXPECT_EQ(arena.GetCurrentSlotUsedBytes(), 0u);
+    const auto c = arena.Allocate(16);
+    ASSERT_TRUE(c.IsValid());
+    EXPECT_NE(c.Gpu, a.Gpu) << "Different slots are different buffers";
+    arena.BeginFrame(0);
+    EXPECT_EQ(arena.GetCurrentSlotUsedBytes(), 0u) << "BeginFrame(slot) resets that slot's cursor";
+
+    // Overflow is a counted sentinel, not UB.
+    const auto tooBig = arena.Allocate(arena.GetSlotCapacityBytes() + 1);
+    EXPECT_FALSE(tooBig.IsValid());
+    EXPECT_GE(arena.GetOverflowCount(), 1u);
+
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+// -----------------------------------------------------------------------------
+// Headless (no device): NextValue()'s monotonic contract at the edges — it
+// anchors above the LIVE counter and saturates at UINT64_MAX instead of
+// wrapping to 0 (a wrap would be an invalid timeline signal much later, far
+// from the caller). Uses a stub so the counter is controllable.
+// -----------------------------------------------------------------------------
+TEST(GpuFenceValueDispenser, AnchorsAboveTheCounterAndSaturatesInsteadOfWrapping)
+{
+    class StubFence final : public RHI::GpuFence
+    {
+      public:
+        explicit StubFence(u64 initial) : RHI::GpuFence(initial) {}
+        void QueueSignal(u64 value, RHI::FenceSignalOp) override
+        {
+            // The backend contract: every signal path reserves its value with
+            // the dispenser (VulkanGpuFence does the same) — a staged signal
+            // does NOT advance the counter until "submit".
+            NoteSignalValue(value);
+        }
+        void QueueWait(u64, RHI::FenceCompareOp) override {}
+        void HostSignal(u64 value, RHI::FenceSignalOp) override
+        {
+            NoteSignalValue(value);
+            m_Counter = value;
+        }
+        [[nodiscard]] bool HostWait(u64, u64, RHI::FenceCompareOp) override
+        {
+            return true;
+        }
+        [[nodiscard]] u64 CompletedValue() const override
+        {
+            return m_Counter;
+        }
+
+        u64 m_Counter = 0;
+    };
+
+    StubFence fence(0);
+    EXPECT_EQ(fence.NextValue(), 1u);
+    EXPECT_EQ(fence.NextValue(), 2u);
+
+    // A hand-signalled jump: the dispenser must climb above the live counter,
+    // never below it.
+    fence.m_Counter = 100;
+    EXPECT_EQ(fence.NextValue(), 101u);
+
+    // A STAGED signal that has not submitted yet is invisible to the live
+    // counter but must still reserve its value — dispensing 101..199 here
+    // would become an invalid (non-increasing) signal once 200 lands.
+    fence.QueueSignal(200, RHI::FenceSignalOp::AtomicMax);
+    EXPECT_EQ(fence.CompletedValue(), 100u) << "Staging must not advance the counter";
+    EXPECT_EQ(fence.NextValue(), 201u) << "The dispenser must respect the staged reservation";
+
+    // Exhaustion: saturate at UINT64_MAX, never wrap to 0.
+    fence.m_Counter = std::numeric_limits<u64>::max() - 1;
+    EXPECT_EQ(fence.NextValue(), std::numeric_limits<u64>::max());
+    EXPECT_EQ(fence.NextValue(), std::numeric_limits<u64>::max()) << "Repeat calls stay saturated";
+    fence.m_Counter = std::numeric_limits<u64>::max();
+    EXPECT_EQ(fence.NextValue(), std::numeric_limits<u64>::max()) << "A maxed counter must not wrap";
+}
+
+// -----------------------------------------------------------------------------
+// #691 Phase 6, ADR 0011 §6: RHI::GpuFence is a timeline semaphore — one
+// monotonic counter serving the GPU queue side (staged Signal/Wait drained
+// into a submit) and the CPU side (HostSignal / HostWait / CompletedValue).
+// -----------------------------------------------------------------------------
+TEST_F(VulkanRenderGraphExecution, GpuFenceSignalsAndWaitsAcrossHostAndQueue)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+
+    Ref<RHI::GpuFence> fence = RHI::GpuFence::Create(/*initialValue=*/0);
+    ASSERT_TRUE(fence) << "A live VulkanDevice must yield a real GpuFence";
+
+    // --- CPU side: signal, observe, wait -------------------------------------
+    EXPECT_EQ(fence->CompletedValue(), 0u);
+    fence->HostSignal(1);
+    EXPECT_EQ(fence->CompletedValue(), 1u);
+    EXPECT_TRUE(fence->HostWait(1, /*timeoutNanoseconds=*/0))
+        << "An already-satisfied wait must return immediately";
+    EXPECT_FALSE(fence->HostWait(2, /*timeoutNanoseconds=*/1'000'000))
+        << "A wait on an unsignaled value must time out, not succeed";
+
+    // --- GPU side: staged queue ops drain into a submit ----------------------
+    // Producer submission signals value 2; the host observes it. This is the
+    // §6 shape: Signal attaches to the producing submission, the consumer (here
+    // the CPU, standing in for a later submission's QueueWait) observes the
+    // counter.
+    fence->QueueSignal(2);
+    EXPECT_EQ(VulkanGpuFence::GetPendingSubmitOpCount(), 1u);
+
+    // Ordering guards on the staging seam: a second queued signal at or
+    // below the staged 2 is rejected at the CALL SITE (staging it would be
+    // guaranteed-invalid at submit), and a host signal that would advance
+    // the counter past the staged 2 is rejected too (it would invalidate
+    // the staged signal when it drains).
+    fence->QueueSignal(2);
+    EXPECT_EQ(VulkanGpuFence::GetPendingSubmitOpCount(), 1u)
+        << "A queued signal at or below an already-staged one must be rejected";
+    fence->HostSignal(3);
+    EXPECT_EQ(fence->CompletedValue(), 1u)
+        << "A host signal leapfrogging a staged queue signal must be rejected";
+
+    std::vector<VkSemaphoreSubmitInfo> waits;
+    std::vector<VkSemaphoreSubmitInfo> signals;
+    VulkanGpuFence::DrainPendingSubmitOps(waits, signals);
+    EXPECT_EQ(VulkanGpuFence::GetPendingSubmitOpCount(), 0u);
+    ASSERT_EQ(signals.size(), 1u);
+    EXPECT_TRUE(waits.empty());
+
+    ASSERT_EQ(vkResetCommandBuffer(m_Cmd, 0), VK_SUCCESS);
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &beginInfo), VK_SUCCESS);
+    ASSERT_EQ(vkEndCommandBuffer(m_Cmd), VK_SUCCESS);
+
+    VkCommandBufferSubmitInfo cmdInfo{};
+    cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmdInfo.commandBuffer = m_Cmd;
+    VkSubmitInfo2 submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit.commandBufferInfoCount = 1;
+    submit.pCommandBufferInfos = &cmdInfo;
+    submit.signalSemaphoreInfoCount = static_cast<u32>(signals.size());
+    submit.pSignalSemaphoreInfos = signals.data();
+    ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
+    ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+
+    EXPECT_TRUE(fence->HostWait(2, /*timeoutNanoseconds=*/UINT64_MAX))
+        << "The queue-attached signal must satisfy a host wait";
+    EXPECT_EQ(fence->CompletedValue(), 2u);
+
+    // --- Consumer submission waits on the counter ----------------------------
+    fence->QueueWait(2);
+    waits.clear();
+    signals.clear();
+    VulkanGpuFence::DrainPendingSubmitOps(waits, signals);
+    ASSERT_EQ(waits.size(), 1u);
+    EXPECT_TRUE(signals.empty());
+
+    ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+    ASSERT_EQ(vkResetCommandBuffer(m_Cmd, 0), VK_SUCCESS);
+    ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &beginInfo), VK_SUCCESS);
+    ASSERT_EQ(vkEndCommandBuffer(m_Cmd), VK_SUCCESS);
+    submit.waitSemaphoreInfoCount = static_cast<u32>(waits.size());
+    submit.pWaitSemaphoreInfos = waits.data();
+    submit.signalSemaphoreInfoCount = 0;
+    submit.pSignalSemaphoreInfos = nullptr;
+    ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
+    ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+    ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+
+    // The value dispenser is monotonic AND anchored above the live counter:
+    // the counter reached 2 via the signals above, so the next dispensable
+    // values are 3, 4 — never a value a signal already used.
+    EXPECT_EQ(fence->NextValue(), 3u);
+    EXPECT_EQ(fence->NextValue(), 4u);
+
+    // Destruction goes through deferred reclaim — provoke it and drain.
+    fence = nullptr;
+    VulkanDeferredReclaim::Get().NotifyFrameCompleted();
+    VulkanDeferredReclaim::Get().NotifyFrameCompleted();
+
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
 #endif // OLO_WITH_VULKAN

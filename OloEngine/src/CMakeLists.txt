@@ -626,6 +626,11 @@
 		# ARB_bindless_texture half lives in Platform/OpenGL/.
 		"OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 		"OloEngine/Renderer/RHI/RHIDescriptorHeap.cpp"
+		# Phase 6 (ADR 0011 §6): the split-barrier / timeline signal-wait
+		# primitive. Neutral declaration + backend-switched factory; the
+		# timeline-semaphore implementation lives in Platform/Vulkan/.
+		"OloEngine/Renderer/RHI/RHIGpuFence.h"
+		"OloEngine/Renderer/RHI/RHIGpuFence.cpp"
 		"OloEngine/Renderer/HeapBindingSeam.cpp"
 		"OloEngine/Renderer/HeapBindingSeam.h"
 		"OloEngine/Renderer/RGCommandContext.cpp"
@@ -1475,11 +1480,23 @@
 		"Platform/Vulkan/VulkanContext.h"
 		"Platform/Vulkan/VulkanDevice.cpp"
 		"Platform/Vulkan/VulkanDevice.h"
+		"Platform/Vulkan/VulkanFrameArena.cpp"
+		"Platform/Vulkan/VulkanFrameArena.h"
+		"Platform/Vulkan/VulkanGpuFence.cpp"
+		"Platform/Vulkan/VulkanGpuFence.h"
 		"Platform/Vulkan/VulkanImageLayoutTracker.cpp"
 		"Platform/Vulkan/VulkanImageLayoutTracker.h"
 		"Platform/Vulkan/VulkanMemoryAllocator.cpp"
+		"Platform/Vulkan/VulkanPipelineBuilder.cpp"
+		"Platform/Vulkan/VulkanPipelineBuilder.h"
+		"Platform/Vulkan/VulkanPipelineCache.cpp"
+		"Platform/Vulkan/VulkanPipelineCache.h"
 		"Platform/Vulkan/VulkanRendererAPI.cpp"
+		"Platform/Vulkan/VulkanResourceHeap.cpp"
+		"Platform/Vulkan/VulkanResourceHeap.h"
 		"Platform/Vulkan/VulkanRendererAPI.h"
+		"Platform/Vulkan/VulkanShader.cpp"
+		"Platform/Vulkan/VulkanShader.h"
 		"Platform/Vulkan/VulkanTransientResources.cpp"
 		"Platform/Vulkan/VulkanTransientResources.h"
 )

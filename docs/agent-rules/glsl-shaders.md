@@ -573,6 +573,58 @@ of `ClampToEdge` turned `Water.glsl`'s tiled FFT field into flat terraces, and
 integer format as *incomplete* and it samples as **zero**, on Mesa but not NVIDIA.
 See ADR 0011 amendment (38).
 
+### 5f. The Vulkan backend (#691 Phase 6): your declarations survive; only a vertex stage changes
+
+The Vulkan backend consumes the same `.glsl` files through its own shaderc
+tier (`vulkan_1_4`, compiled with **`OLO_VULKAN=1`** defined — a different
+macro from `OLO_BINDLESS`, which belongs to the GL raw-GLSL route and is never
+set here). The rules, in decreasing order of how often you'll need them:
+
+1. **Do NOT rewrite UBO, SSBO or sampler declarations for Vulkan.** The
+   root-data model (ADR 0011 §4, amendment (50)) maps your existing
+   `layout(binding = N)` declarations at PIPELINE creation:
+   a buffer block's GPU address and a texture's heap-slot index travel in a
+   per-draw root struct, and the driver-side binding mappings read them from
+   there. Which bytes feed binding 7 is C++'s decision; the shader is
+   backend-neutral. (This is §5a's "both variants name the same constant"
+   property with the fork moved out of GLSL entirely.)
+
+2. **A vertex stage that consumes attributes needs an `OLO_VULKAN`
+   vertex-pulling branch.** The Vulkan pipeline has no vertex-input state
+   (ADR 0011 §5) — attributes don't exist. Wrap the stage:
+
+   ```glsl
+   #ifdef OLO_VULKAN
+   layout(std430, binding = 57) readonly buffer OloVertexPull { float v[]; } b_Vertices;
+   layout(location = 0) out vec2 v_TexCoord;
+   void main()
+   {
+       int base = gl_VertexIndex * 5;             // floats per vertex = your stride / 4
+       vec3 position = vec3(b_Vertices.v[base + 0], b_Vertices.v[base + 1], b_Vertices.v[base + 2]);
+       v_TexCoord = vec2(b_Vertices.v[base + 3], b_Vertices.v[base + 4]);
+       gl_Position = vec4(position, 1.0);
+   }
+   #else
+   /* the attribute version, unchanged */
+   #endif
+   ```
+
+   **Binding 57 is reserved engine-wide for the vertex-pull buffer** — the
+   root struct carries its device address. Read the same interleaved stream
+   the attribute path consumes (same stride, same field order), indexed by
+   `gl_VertexIndex`. `PostProcess_FXAA.glsl` is the worked example, pinned
+   end-to-end by `VulkanShaderPipeline.FxaaGoldenPassRendersCorrectlyOnVulkan`
+   (bit-identical to the GL golden).
+
+3. The fragment/compute **body never changes**, and heap access needs no GLSL
+   at all on this backend — no `BindlessHeap.glsl`, no `#extension`. Sampler
+   state is embedded per pipeline C++-side for now (linear/clamp-to-edge
+   default for post-process reads).
+
+4. The Vulkan SPIR-V caches under `.cached_vulkan14.<stage>`; the GL path's
+   shared tier is `.cached_vulkan12.<stage>` (ADR 0011 §3(b) — the target env
+   is part of the filename so the two tiers can't cross-load).
+
 ---
 
 ## 6. SSBO bindings (std430)

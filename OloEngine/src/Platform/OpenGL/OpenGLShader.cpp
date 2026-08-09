@@ -314,25 +314,36 @@ namespace OloEngine
             return "";
         }
 
+        // The shaderc TARGET ENV is part of the filename (ADR 0011 §3(b),
+        // #691 Phase 6): tier 1 is a SHARED artefact — the GL path
+        // cross-compiles this SPIR-V through SPIRV-Cross, while the Vulkan
+        // backend consumes its own tier compiled against a newer env
+        // (".cached_vulkan14.*", VulkanShader). Encoding the env makes the two
+        // consumers independent: bumping either is a local decision, and a
+        // vulkan_1_2 blob can never be mistaken for a vulkan_1_4 one. The GL
+        // path keeps vulkan_1_2 (the env the SPIRV-Cross round-trip is
+        // validated against — see tests/Fuzzing/FuzzSpirvCross.cpp).
+        // Renaming from ".cached_vulkan.*" invalidates existing caches once;
+        // that cold start is an accepted §3 consequence.
         [[nodiscard("Store this!")]] static const char* GLShaderStageCachedVulkanFileExtension(const u32 stage)
         {
             switch (stage)
             {
                 case GL_VERTEX_SHADER:
                 {
-                    return ".cached_vulkan.vert";
+                    return ".cached_vulkan12.vert";
                 }
                 case GL_FRAGMENT_SHADER:
                 {
-                    return ".cached_vulkan.frag";
+                    return ".cached_vulkan12.frag";
                 }
                 case GL_TESS_CONTROL_SHADER:
                 {
-                    return ".cached_vulkan.tesc";
+                    return ".cached_vulkan12.tesc";
                 }
                 case GL_TESS_EVALUATION_SHADER:
                 {
-                    return ".cached_vulkan.tese";
+                    return ".cached_vulkan12.tese";
                 }
             }
             OLO_CORE_ASSERT(false);

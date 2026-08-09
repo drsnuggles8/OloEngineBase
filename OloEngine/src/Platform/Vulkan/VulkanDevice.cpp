@@ -5,6 +5,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 
+#include <algorithm>
 #include <atomic>
 #include <optional>
 #include <stdexcept>
@@ -365,9 +366,76 @@ namespace OloEngine
         VkPhysicalDeviceVulkan13Features vulkan13Features{};
         vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         vulkan13Features.synchronization2 = VK_TRUE;
+        // dynamicRendering backs Phase 6's VkPipelineRenderingCreateInfo pipelines
+        // (no VkRenderPass objects anywhere in the backend). Same class as
+        // synchronization2: core in 1.3 and MANDATORY for 1.3+ devices, so no
+        // capability-gate entry — but it still defaults OFF at device creation.
+        vulkan13Features.dynamicRendering = VK_TRUE;
         vulkan13Features.pNext = &untypedFeatures;
 
-        const std::vector<const char*> deviceExtensions = VulkanCapabilities::RequiredDeviceExtensions();
+        // Phase 6 (#691): two more core-promoted-but-default-OFF features, both
+        // MANDATORY at the 1.3+ floor so neither is a capability-gate row:
+        //  - timelineSemaphore backs RHI::GpuFence (ADR 0011 §6 — the split-barrier
+        //    signal/wait primitive IS a timeline semaphore).
+        //  - bufferDeviceAddress backs the root-data pointer model (ADR 0011 §4):
+        //    the frame arena hands out VkDeviceAddress values the shader-side
+        //    binding mappings dereference, and VK_EXT_descriptor_heap itself
+        //    depends on it (the heap is addressed as a plain BDA range).
+        // shaderBufferInt64Atomics lives HERE, not in a standalone
+        // VkPhysicalDeviceShaderAtomicInt64Features: the feature was promoted
+        // in 1.2 and VUID-VkDeviceCreateInfo-pNext-02830 forbids chaining both
+        // structs (caught by validation on Phase 6's first device run — the
+        // standalone struct was fine only while no Vulkan12Features existed).
+        VkPhysicalDeviceVulkan12Features vulkan12Features{};
+        vulkan12Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        vulkan12Features.timelineSemaphore = VK_TRUE;
+        vulkan12Features.bufferDeviceAddress = VK_TRUE;
+        vulkan12Features.pNext = &vulkan13Features;
+
+        std::vector<const char*> deviceExtensions = VulkanCapabilities::RequiredDeviceExtensions();
+
+        // VK_EXT_extended_dynamic_state3: OPTIONAL (ADR 0011 §5 — dynamic blend
+        // state when available, blend baked into the PSO when not). Never a gate
+        // row; requiring it would silently widen the ADR 0010 contract. Only the
+        // three blend states Phase 6 uses are enabled — enabling feature bits a
+        // pipeline never sets dynamic would be dead weight the validation layer
+        // still has to reason about.
+        VkPhysicalDeviceExtendedDynamicState3FeaturesEXT supportedEds3{};
+        supportedEds3.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
+        bool hasEds3Extension = false;
+        {
+            u32 extCount = 0;
+            vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, nullptr);
+            std::vector<VkExtensionProperties> available(extCount);
+            vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, available.data());
+            hasEds3Extension = std::ranges::any_of(available, [](const VkExtensionProperties& p)
+                                                   { return std::string_view(p.extensionName) == VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME; });
+            if (hasEds3Extension)
+            {
+                VkPhysicalDeviceFeatures2 probe{};
+                probe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                probe.pNext = &supportedEds3;
+                vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probe);
+            }
+        }
+        const bool wantDynamicBlend = hasEds3Extension &&
+                                      supportedEds3.extendedDynamicState3ColorBlendEnable == VK_TRUE &&
+                                      supportedEds3.extendedDynamicState3ColorBlendEquation == VK_TRUE &&
+                                      supportedEds3.extendedDynamicState3ColorWriteMask == VK_TRUE;
+        VkPhysicalDeviceExtendedDynamicState3FeaturesEXT eds3Features{};
+        eds3Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
+        if (wantDynamicBlend)
+        {
+            deviceExtensions.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
+            eds3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
+            eds3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
+            eds3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
+            eds3Features.pNext = &vulkan12Features;
+        }
+        // m_DynamicBlendStateEnabled is committed AFTER vkCreateDevice
+        // succeeds (below): the flag must describe the LOGICAL device's
+        // enabled features, and until the create returns, nothing has been
+        // enabled anywhere.
 
         // Core VkPhysicalDeviceFeatures the engine's shader stages need:
         // tessellation (terrain patches) and geometry shaders. Enabled WHEN
@@ -389,23 +457,20 @@ namespace OloEngine
         // (SupportsInt64ShaderAtomics feeds the virtual-geometry software
         // rasterizer's path choice), and a queried-but-not-enabled feature is
         // a Phase 6 shader crash waiting to happen. Enabled when supported,
-        // never required.
+        // never required — set on vulkan12Features (see the comment there).
         VkPhysicalDeviceShaderAtomicInt64Features supportedAtomics{};
         supportedAtomics.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
         VkPhysicalDeviceFeatures2 supportedFeatures2{};
         supportedFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
         supportedFeatures2.pNext = &supportedAtomics;
         vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supportedFeatures2);
-
-        VkPhysicalDeviceShaderAtomicInt64Features atomicFeatures{};
-        atomicFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
-        atomicFeatures.shaderBufferInt64Atomics = supportedAtomics.shaderBufferInt64Atomics;
-        atomicFeatures.pNext = &vulkan13Features;
+        vulkan12Features.shaderBufferInt64Atomics = supportedAtomics.shaderBufferInt64Atomics;
         m_ShaderBufferInt64AtomicsEnabled = supportedAtomics.shaderBufferInt64Atomics == VK_TRUE;
 
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceInfo.pNext = &atomicFeatures;
+        deviceInfo.pNext = wantDynamicBlend ? static_cast<void*>(&eds3Features)
+                                            : static_cast<void*>(&vulkan12Features);
         deviceInfo.queueCreateInfoCount = 1;
         deviceInfo.pQueueCreateInfos = &queueInfo;
         deviceInfo.enabledExtensionCount = static_cast<u32>(deviceExtensions.size());
@@ -413,6 +478,10 @@ namespace OloEngine
         deviceInfo.pEnabledFeatures = &enabledFeatures;
 
         VkCheck(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_Device), "vkCreateDevice");
+        // The create succeeded with the EDS3 chain (when requested), so the
+        // three blend feature bits are now enabled facts of the logical
+        // device — commit the flag the pipeline builder branches on.
+        m_DynamicBlendStateEnabled = wantDynamicBlend;
         volkLoadDevice(m_Device);
         vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
 
@@ -425,6 +494,11 @@ namespace OloEngine
             allocatorInfo.device = m_Device;
             allocatorInfo.instance = m_Instance;
             allocatorInfo.vulkanApiVersion = VulkanCapabilities::kMinApiVersion;
+            // bufferDeviceAddress is enabled above (Phase 6); without this flag
+            // VMA refuses to pass VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+            // through to its pooled allocations and vkGetBufferDeviceAddress
+            // on a VMA buffer is undefined.
+            allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
             VkCheck(vmaImportVulkanFunctionsFromVolk(&allocatorInfo, &vulkanFunctions),
                     "vmaImportVulkanFunctionsFromVolk");
             allocatorInfo.pVulkanFunctions = &vulkanFunctions;
