@@ -298,12 +298,26 @@ namespace OloEngine
             mapping.descriptorSet = field.Binding.Set;
             mapping.firstBinding = field.Binding.Binding;
             mapping.bindingCount = 1;
-            mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+            // The mask is PER RESOURCE KIND, never ALL. GL keeps texture
+            // slots, image units, UBO and SSBO binding points in four
+            // disjoint namespaces (amendment (29)), so a shader may declare
+            // a sampler and a storage image — or a UBO and an SSBO — at the
+            // SAME numeric binding. Two ALL-masked mappings at one
+            // (set, binding) violate VUID-11244 and fail pipeline creation
+            // outright; kind-scoped masks are exactly how the extension
+            // expresses coexisting namespaces. First tripped by
+            // FroxelFogScatter.comp (sampler2DArrayShadow @0 + image3D @0)
+            // — every earlier shader happened to use disjoint numbers.
             switch (field.Binding.BindingKind)
             {
                 case VulkanShaderBinding::Kind::UniformBuffer:
                 case VulkanShaderBinding::Kind::StorageBuffer:
                 {
+                    mapping.resourceMask =
+                        field.Binding.BindingKind == VulkanShaderBinding::Kind::UniformBuffer
+                            ? VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT
+                            : (VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT |
+                               VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT);
                     // Block address lives in the root struct at Field.Offset;
                     // the root struct's own address is push data offset 0.
                     mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT;
@@ -316,6 +330,11 @@ namespace OloEngine
                 case VulkanShaderBinding::Kind::CombinedImageSampler:
                 case VulkanShaderBinding::Kind::StorageImage:
                 {
+                    mapping.resourceMask =
+                        field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler
+                            ? VK_SPIRV_RESOURCE_TYPE_COMBINED_SAMPLED_IMAGE_BIT_EXT
+                            : (VK_SPIRV_RESOURCE_TYPE_READ_ONLY_IMAGE_BIT_EXT |
+                               VK_SPIRV_RESOURCE_TYPE_READ_WRITE_IMAGE_BIT_EXT);
                     // Heap slot index lives in the root struct at Field.Offset;
                     // the sampler half is embedded (see header).
                     mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;

@@ -44,19 +44,28 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/DOFRenderPass.h"
 #include "OloEngine/Renderer/Passes/EASURenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
+#include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
+#include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
+#include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ResourceHandle.h" // ResourceNames::*
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
@@ -79,6 +88,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -235,6 +245,45 @@ namespace
             }
         }
         return pixels;
+    }
+
+    // IEEE 754 binary16 -> f32 for RGBA16F volume readbacks (the froxel fog
+    // tenant reads the integrated volume back raw; no engine 3D readback
+    // exists and none is added for a test).
+    f32 HalfToFloat(u16 h)
+    {
+        const u32 sign = (static_cast<u32>(h) >> 15) & 0x1u;
+        const u32 exponent = (static_cast<u32>(h) >> 10) & 0x1Fu;
+        const u32 mantissa = static_cast<u32>(h) & 0x3FFu;
+        u32 bits;
+        if (exponent == 0u)
+        {
+            if (mantissa == 0u)
+            {
+                bits = sign << 31;
+            }
+            else
+            {
+                // Subnormal: normalise into f32.
+                u32 e = 0;
+                u32 m = mantissa;
+                while ((m & 0x400u) == 0u)
+                {
+                    m <<= 1u;
+                    ++e;
+                }
+                bits = (sign << 31) | ((127u - 15u - e + 1u) << 23) | ((m & 0x3FFu) << 13);
+            }
+        }
+        else if (exponent == 0x1Fu)
+        {
+            bits = (sign << 31) | 0x7F800000u | (mantissa << 13); // inf / NaN
+        }
+        else
+        {
+            bits = (sign << 31) | ((exponent - 15u + 127u) << 23) | (mantissa << 13);
+        }
+        return std::bit_cast<f32>(bits);
     }
 
     // A producer that draws a preloaded texture into the canonical
@@ -1690,6 +1739,850 @@ TEST_F(VulkanPassSuite, PrecipitationPassesThePatternThroughAtZeroIntensity)
     }
     EXPECT_LE(maxDiff, 2u) << "zero-intensity precipitation must pass the pattern through";
     EXPECT_EQ(static_cast<int>(rendered[3]), 255) << "the pass writes alpha 1";
+}
+
+// =============================================================================
+// Wave B tenants — the compute-centric passes (#691 Phase 7 Wave B).
+// =============================================================================
+
+// ToneMap: the mixed pass — auto-exposure metering computes (histogram +
+// average) feeding a persistent ExposureState SSBO@20 the fullscreen draw
+// reads. Three chains over the same producer shape:
+//   A) manual identity: operator 0 (clamp) x Exposure 1 x Gamma 1 x Dither 0
+//      must pass mid-gray through byte-exact;
+//   B) manual Exposure 2 doubles a quarter-gray to mid-gray — exact
+//      arithmetic, so a tone map that ignores exposure fails;
+//   C) auto-exposure ON runs BOTH compute dispatches (histogram bins the
+//      128x128 metered grid, average reduces + writes the exposure) and the
+//      draw must consume the METERED exposure: for a uniform 0.502 field the
+//      Lagarde EV100 chain gives exposure = 1/(9.6 * ~0.502) ~ 0.21, so the
+//      output lands at ~27/255 — far from both the manual-1.0 result (128,
+//      the "metering never ran / sentinel still -1" failure mode) and from
+//      black. Dt = 0 makes the adaptation snap (state[1] starts 0), so the
+//      value is deterministic up to one histogram bin of quantisation.
+// =============================================================================
+TEST_F(VulkanPassSuite, ToneMapAppliesManualExposureAndMetersAutoExposure)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto midGray = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(midGray, nullptr);
+    auto quarterGray = MakeSolidTexture(kSize, 64, 64, 64, 255);
+    ASSERT_NE(quarterGray, nullptr);
+    // Depth stand-in: the underwater fog stage is disabled (Flags.x = 0), but
+    // binding the declared slot keeps the fixture on the bind-everything rule
+    // and exercises the pass's depth bind + slot-clear path.
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+    // Underwater fog block (binding 37): zeroed Flags disable the stage.
+    UnderwaterFogUBOData underwaterData{};
+    underwaterData.Flags = glm::vec4(0.0f);
+    auto underwaterUbo = UniformBuffer::Create(sizeof(UnderwaterFogUBOData), 37);
+    underwaterUbo->SetData(&underwaterData, sizeof(underwaterData));
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc depthDesc;
+        depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        depthDesc.Format = RGResourceFormat::RGBA8UNorm;
+        depthDesc.Width = kSize;
+        depthDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), depthDesc);
+    };
+
+    const auto runChain = [&](const Ref<Texture2D>& input, f32 exposure, bool autoExposure) -> std::vector<u8>
+    {
+        PostProcessUBOData uboData{};
+        uboData.TonemapOperator = 0; // TONEMAP_NONE: clamp only
+        uboData.Exposure = exposure;
+        uboData.Gamma = 1.0f;
+        uboData.DitherAmplitude = 0.0f;
+        uboData.InverseScreenWidth = 1.0f / static_cast<f32>(kSize);
+        uboData.InverseScreenHeight = 1.0f / static_cast<f32>(kSize);
+        postProcessUbo->SetData(&uboData, sizeof(uboData));
+
+        auto toneMap = Ref<ToneMapRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        toneMap->Init(initSpec); // creates the persistent ExposureState SSBO@20 (sentinel -1 => manual)
+        toneMap->SetPostProcessUBO(postProcessUbo);
+        toneMap->SetUnderwaterFogUBO(underwaterUbo);
+
+        AutoExposureFrameParams aeParams{};
+        aeParams.Enabled = autoExposure;
+        aeParams.DeltaTime = 0.0f; // adaptation snaps to the metered target (state[1] starts 0)
+        aeParams.Compensation = 0.0f;
+        aeParams.MinExposure = 0.05f;
+        aeParams.MaxExposure = 16.0f;
+        aeParams.LowPercentile = 0.0f; // untrimmed mean — the whole field sits in one bin anyway
+        aeParams.HighPercentile = 1.0f;
+        toneMap->SetAutoExposure(aeParams);
+
+        auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
+        return RunSinglePassChain(kSize, producer, toneMap, "ToneMapPass", ResourceNames::ToneMapColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.ToneMapColor = handle; });
+    };
+
+    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    // A) identity: operator 0 / exposure 1 / gamma 1 passes mid-gray through.
+    const auto identity = runChain(midGray, 1.0f, false);
+    ASSERT_EQ(identity.size(), static_cast<sizet>(kSize) * kSize * 4);
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
+    {
+        EXPECT_NEAR(redAt(identity, x, y), 128, 2) << "identity tone map must pass mid-gray through at ("
+                                                   << x << "," << y << ")";
+    }
+    EXPECT_EQ(static_cast<int>(identity[3]), 255) << "the pass writes alpha 1";
+
+    // B) manual exposure multiplies: 0.251 x 2 = 0.502.
+    const auto doubled = runChain(quarterGray, 2.0f, false);
+    ASSERT_EQ(doubled.size(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_NEAR(redAt(doubled, 64, 64), 128, 3) << "exposure 2 must double quarter-gray to mid-gray";
+
+    // C) auto-exposure: the metered exposure (~0.21 for a uniform 0.502
+    // field) must replace the manual 1.0 — the two dispatches actually ran
+    // and the fragment consumed the SSBO they wrote.
+    const auto metered = runChain(midGray, 1.0f, true);
+    ASSERT_EQ(metered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const int meteredValue = redAt(metered, 64, 64);
+    EXPECT_GE(meteredValue, 21) << "metered exposure must not crush to black";
+    EXPECT_LE(meteredValue, 33) << "metered exposure ~1/(9.6 x 0.502) must dim mid-gray to ~27 "
+                                   "(128 here means the metering computes never wrote the exposure SSBO)";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    m_ExtraSetup = nullptr;
+}
+
+// =============================================================================
+// VolumetricFog: two compute dispatches (scatter 4x4x4 locals, integrate
+// 8x8x1) over pass-owned RGBA16F Texture3D volumes, run TWICE so the
+// cross-frame scatter ping-pong + temporal-history path execute too.
+//
+// Contract — analytic, on the raw readback of the integrated volume's centre
+// column: for a UNIFORM medium with albedo-1 fog colour the Hillaire
+// integration telescopes, so per slice  accumulated + transmittance == 1
+// exactly, transmittance decays monotonically along z, and the near slices
+// carry less accumulated fog than the far slices (total optical depth
+// D=0.05 x ~60m => far transmittance ~ exp(-3) ~ 0.05). A dead scatter
+// (density 0) pins a=1/r=0 and fails the far-slice bounds; a dead integrate
+// leaves zeros and fails the identity.
+//
+// The volumes are 3D images with no engine readback (by design); the test
+// reads the integrated volume back RAW: an engine barrier moves it
+// StorageWrite -> TransferRead (tracker-true), then vkCmdCopyImageToBuffer
+// into a host-visible buffer created here.
+//
+// Fixture-supplied inputs (bind-everything rule): FogData@17 (uniform
+// medium), FogVolumes@20 / ShadowData@6 / ForwardPlus@25 / Atmosphere@54 all
+// zeroed (=> local volumes off, CSM tap unshadowed, cluster loop off, cloud
+// shadow off), zeroed cluster-list SSBOs @9/10/11/12/18 (never dereferenced
+// with the cluster loop off, bound to keep every declared binding fed). The
+// pass itself binds the CSM/atlas placeholder handles and the froxel UBO@46.
+// Camera matrices come from Renderer3D's statics — set through the getters'
+// storage since production writes them in RenderPipeline::PrepareFrame, which
+// never runs headlessly.
+//
+// Layout note (#691 Phase 7 Wave B, reported in the plan): the pass's
+// volumes are import-only graph resources, so the planner emits no barriers
+// for them — the fixture pre-transitions each volume to its FIRST use's
+// descriptor-baked layout per frame (storage => GENERAL, sampled =>
+// SHADER_READ_ONLY). The one boundary the fixture cannot reach is
+// INSIDE Execute: integrate samples the volume scatter just image-stored,
+// where the pass's GL-shaped MemoryBarrier orders memory but cannot
+// transition GENERAL -> SHADER_READ_ONLY. Content is well-defined on
+// desktop implementations and the validation layers cannot observe
+// heap-descriptor accesses; the principled fix (a layout-aware mid-pass
+// barrier seam) is engine work outside this tenant.
+// =============================================================================
+TEST_F(VulkanPassSuite, VolumetricFogIntegratesAUniformMediumMonotonically)
+{
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kVolW = VolumetricFogPass::kVolumeWidth;
+    constexpr u32 kVolH = VolumetricFogPass::kVolumeHeight;
+    constexpr u32 kVolD = VolumetricFogPass::kVolumeDepth;
+
+    // The compile gate comes FIRST, before any process-global state is
+    // touched: today the froxel chain is BLOCKED on the Vulkan compute
+    // includer, which resolves relative includes against the fixed shader
+    // root ("assets/shaders" + "../include/..." = assets/include/, which
+    // does not exist) instead of the including FILE's directory — so
+    // FroxelFogScatter.comp's load-bearing includes (FogCommon.glsl,
+    // FogVolumeCommon.glsl, AtmosphereShading.glsl) never expand and the
+    // shader fails glslang with hundreds of undeclared identifiers. Every
+    // .comp that compiled so far (HZB/GTAO/Denoise/AutoExposure) only
+    // includes BindlessHeap.glsl, whose entire content is OLO_BINDLESS-
+    // guarded — a silently-tolerated failed include, which is why the gap
+    // stayed invisible until this pass. Fix belongs in the compute shaderc
+    // includer (file-relative resolution), not in this tenant.
+    {
+        auto compileProbe = Ref<VolumetricFogPass>::Create();
+        FramebufferSpecification probeSpec;
+        probeSpec.Width = 128;
+        probeSpec.Height = 128;
+        compileProbe->Init(probeSpec);
+        if (!compileProbe->IsReadyForExecution())
+        {
+            GTEST_SKIP() << "FroxelFogScatter/Integrate .comp failed to compile on Vulkan — check the compute "
+                            "route's include resolution (VulkanComputeShader must pass the .comp file's own "
+                            "directory to ProcessIncludes) and the device-feature set; this gate exists because "
+                            "exactly that includer bug once silently blocked this tenant.";
+        }
+    }
+
+    // --- Renderer3D statics the pass reads (restored at test end) ----------
+    const glm::mat4 savedView = Renderer3D::GetViewMatrix();
+    const glm::mat4 savedProjection = Renderer3D::GetProjectionMatrix();
+    const FogSettings savedFog = Renderer3D::GetFogSettings();
+    const glm::mat4 projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    const_cast<glm::mat4&>(Renderer3D::GetViewMatrix()) = glm::mat4(1.0f);
+    const_cast<glm::mat4&>(Renderer3D::GetProjectionMatrix()) = projection;
+    Renderer3D::GetFogSettings().End = 60.0f; // fog volume spans [0.1, 60]
+
+    // --- every UBO/SSBO the two .comp shaders declare -----------------------
+    constexpr f32 kDensity = 0.05f;
+    FogUBOData fogData{};
+    fogData.ColorAndDensity = glm::vec4(1.0f, 1.0f, 1.0f, kDensity); // albedo-1 white fog
+    fogData.DistanceParams = glm::vec4(0.0f, 60.0f, 0.0f, 0.0f);     // heightFalloff 0 => uniform
+    fogData.ScatterParams = glm::vec4(0.0f);
+    fogData.RayleighColorAndMaxOpacity = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    fogData.SunDirection = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f);
+    fogData.Flags = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // scatteringEnabled (z) OFF
+    fogData.NoiseParams = glm::vec4(0.0f);             // noiseIntensity 0 => uniform
+    fogData.VolumetricParams = glm::vec4(0.0f);        // absorption 0, light shafts OFF
+    auto fogUbo = UniformBuffer::Create(sizeof(FogUBOData), ShaderBindingLayout::UBO_FOG);
+    fogUbo->SetData(&fogData, sizeof(fogData));
+
+    FogVolumesUBOData fogVolumes{}; // count 0 — no local volumes
+    auto fogVolumesUbo = UniformBuffer::Create(sizeof(FogVolumesUBOData), ShaderBindingLayout::UBO_FOG_VOLUMES);
+    fogVolumesUbo->SetData(&fogVolumes, sizeof(fogVolumes));
+
+    auto shadowData = std::make_unique<UBOStructures::ShadowUBO>(); // zeroed => DirectionalShadowEnabled 0
+    std::memset(shadowData.get(), 0, sizeof(UBOStructures::ShadowUBO));
+    auto shadowUbo = UniformBuffer::Create(UBOStructures::ShadowUBO::GetSize(), ShaderBindingLayout::UBO_SHADOW);
+    shadowUbo->SetData(shadowData.get(), UBOStructures::ShadowUBO::GetSize());
+
+    UBOStructures::ForwardPlusUBO forwardPlusData{}; // Enabled 0 => cluster loop self-gates
+    auto forwardPlusUbo =
+        UniformBuffer::Create(UBOStructures::ForwardPlusUBO::GetSize(), ShaderBindingLayout::UBO_FORWARD_PLUS);
+    forwardPlusUbo->SetData(&forwardPlusData, sizeof(forwardPlusData));
+
+    UBOStructures::AtmosphereShadingUBO atmosphereData{}; // cloud shadow disabled
+    auto atmosphereUbo = UniformBuffer::Create(UBOStructures::AtmosphereShadingUBO::GetSize(),
+                                               ShaderBindingLayout::UBO_ATMOSPHERE_SHADING);
+    atmosphereUbo->SetData(&atmosphereData, sizeof(atmosphereData));
+
+    // Cluster light lists (SSBOs 9/10/11/12/18): never dereferenced with the
+    // cluster loop off; small zeroed buffers keep the declared bindings fed.
+    const std::array<f32, 16> zeros{};
+    std::array<Ref<StorageBuffer>, 5> clusterBuffers;
+    const std::array<u32, 5> clusterBindings = { 9u, 10u, 11u, 12u, 18u };
+    for (sizet i = 0; i < clusterBindings.size(); ++i)
+    {
+        clusterBuffers[i] = StorageBuffer::Create(static_cast<u32>(zeros.size() * sizeof(f32)), clusterBindings[i]);
+        clusterBuffers[i]->SetData(zeros.data(), static_cast<u32>(zeros.size() * sizeof(f32)));
+        clusterBuffers[i]->Bind();
+    }
+
+    // --- the pass, through the real graph -----------------------------------
+    auto fogPass = Ref<VolumetricFogPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = 128;
+    initSpec.Height = 128;
+    fogPass->Init(initSpec);
+    ASSERT_TRUE(fogPass->IsReadyForExecution())
+        << "FroxelFogScatter.comp / FroxelFogIntegrate.comp must compile through shaderc(vulkan_1_4)";
+    fogPass->SetEnabled(true);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const auto transitionVolume = [&api](RHI::ResourceHandle volume, RHI::Access before, RHI::Access after)
+    {
+        RHI::Barrier barrier{};
+        barrier.Resource = volume;
+        barrier.Before = before;
+        barrier.After = after;
+        api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &barrier, 1 });
+    };
+
+    RHI::ResourceHandle scatter0{};
+    RHI::ResourceHandle scatter1{};
+    const RHI::ResourceHandle integrated = fogPass->GetIntegratedVolumeID();
+    ASSERT_TRUE(integrated.IsValid());
+
+    // The pass binds the CSM/atlas placeholder array (no real shadow maps
+    // headlessly). Materialise it EAGERLY — a VulkanTexture2DArray since the
+    // factory grew its Vulkan arm — so frame 1 can pre-transition it out of
+    // UNDEFINED to the sampled layout its descriptor bakes (the shadow taps
+    // are gated off, so its garbage content is never read).
+    const RHI::ResourceHandle shadowPlaceholder = ShadowMap::GetCSMPlaceholderHandle();
+    ASSERT_TRUE(shadowPlaceholder.IsValid())
+        << "the CSM placeholder must construct on the Vulkan backend (VulkanTexture2DArray)";
+
+    // Frame 1: fresh history (weight 0). The imports registered by Setup give
+    // the fixture the scatter handles for the pre-transitions.
+    {
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        graph.AddNode(fogPass);
+        graph.SetFinalPass("VolumetricFogPass");
+        graph.BuildFrameGraph();
+
+        scatter0 = graph.ResolveTextureHandle(graph.GetTextureHandle("FroxelFogScatter0"));
+        scatter1 = graph.ResolveTextureHandle(graph.GetTextureHandle("FroxelFogScatter1"));
+        ASSERT_TRUE(scatter0.IsValid()) << "Setup must import the scatter ping volume";
+        ASSERT_TRUE(scatter1.IsValid()) << "Setup must import the scatter pong volume";
+
+        SubmitFrame(
+            [&]()
+            {
+                // First use per volume this frame: scatter[0] is image-stored
+                // (GENERAL), scatter[1] is the sampled history, integrate
+                // image-stores the integrated volume. The shadow placeholder
+                // is sampled (never actually read — the taps are gated off).
+                transitionVolume(scatter0, RHI::Access::Undefined, RHI::Access::StorageWrite);
+                transitionVolume(scatter1, RHI::Access::Undefined, RHI::Access::ShaderSampleRead);
+                transitionVolume(integrated, RHI::Access::Undefined, RHI::Access::StorageWrite);
+                transitionVolume(shadowPlaceholder, RHI::Access::Undefined, RHI::Access::ShaderSampleRead);
+                graph.Execute();
+            });
+
+        EXPECT_TRUE(fogPass->RanThisFrame()) << "frame 1: the compute chain must have dispatched";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "frame 1 resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                          << "' x" << failure.Count;
+        }
+    }
+
+    // Frame 2: the ping-pong swaps (scatter[1] becomes the write target,
+    // scatter[0] the history) and the temporal path blends at weight 0.9.
+    // The readback rides this frame's tail.
+    constexpr sizet kTexelCount = static_cast<sizet>(kVolW) * kVolH * kVolD;
+    constexpr VkDeviceSize kReadbackBytes = kTexelCount * 8u; // RGBA16F
+    VkBuffer readbackBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory readbackMemory = VK_NULL_HANDLE;
+    {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = kReadbackBytes;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        ASSERT_EQ(vkCreateBuffer(m_Device->GetDevice(), &bufferInfo, nullptr, &readbackBuffer), VK_SUCCESS);
+
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements(m_Device->GetDevice(), readbackBuffer, &requirements);
+        VkPhysicalDeviceMemoryProperties memoryProperties{};
+        vkGetPhysicalDeviceMemoryProperties(m_Device->GetPhysicalDevice(), &memoryProperties);
+        u32 memoryType = UINT32_MAX;
+        constexpr VkMemoryPropertyFlags kHostFlags =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        for (u32 i = 0; i < memoryProperties.memoryTypeCount; ++i)
+        {
+            if ((requirements.memoryTypeBits & (1u << i)) != 0u &&
+                (memoryProperties.memoryTypes[i].propertyFlags & kHostFlags) == kHostFlags)
+            {
+                memoryType = i;
+                break;
+            }
+        }
+        ASSERT_NE(memoryType, UINT32_MAX) << "no host-visible coherent memory type for the volume readback";
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = requirements.size;
+        allocInfo.memoryTypeIndex = memoryType;
+        ASSERT_EQ(vkAllocateMemory(m_Device->GetDevice(), &allocInfo, nullptr, &readbackMemory), VK_SUCCESS);
+        ASSERT_EQ(vkBindBufferMemory(m_Device->GetDevice(), readbackBuffer, readbackMemory, 0), VK_SUCCESS);
+    }
+
+    {
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        graph.AddNode(fogPass);
+        graph.SetFinalPass("VolumetricFogPass");
+        graph.BuildFrameGraph();
+
+        // Resolved OUTSIDE the lambda: no gtest fatals inside the recording
+        // bracket (a fatal there skips EndRecording and cascades).
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(integrated);
+        ASSERT_NE(native, 0u);
+
+        SubmitFrame(
+            [&]()
+            {
+                transitionVolume(scatter1, RHI::Access::ShaderSampleRead, RHI::Access::StorageWrite);
+                transitionVolume(scatter0, RHI::Access::StorageWrite, RHI::Access::ShaderSampleRead);
+                graph.Execute();
+
+                // Readback tail: integrated volume -> host buffer, through the
+                // engine barrier so the layout tracker stays true.
+                transitionVolume(integrated, RHI::Access::StorageWrite, RHI::Access::TransferRead);
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+                region.imageExtent = { kVolW, kVolH, kVolD };
+                vkCmdCopyImageToBuffer(m_Cmd, reinterpret_cast<VkImage>(native),
+                                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1, &region);
+
+                VkMemoryBarrier2 toHost{};
+                toHost.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+                toHost.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                toHost.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                toHost.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+                toHost.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+                VkDependencyInfo dep{};
+                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dep.memoryBarrierCount = 1;
+                dep.pMemoryBarriers = &toHost;
+                vkCmdPipelineBarrier2(m_Cmd, &dep);
+            });
+
+        EXPECT_TRUE(fogPass->RanThisFrame()) << "frame 2: the compute chain must have dispatched";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "frame 2 resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                          << "' x" << failure.Count;
+        }
+        const auto& state = fogPass->GetFroxelVolumeState();
+        EXPECT_TRUE(state.Valid);
+        EXPECT_EQ(state.ScatterTextureID, scatter1) << "frame 2 must have written the OTHER scatter ping";
+    }
+
+    // --- decode + contract --------------------------------------------------
+    {
+        void* mapped = nullptr;
+        ASSERT_EQ(vkMapMemory(m_Device->GetDevice(), readbackMemory, 0, VK_WHOLE_SIZE, 0, &mapped), VK_SUCCESS);
+        const auto* halves = static_cast<const u16*>(mapped);
+
+        const auto texel = [&](u32 x, u32 y, u32 z) -> glm::vec4
+        {
+            const sizet idx = ((static_cast<sizet>(z) * kVolH + y) * kVolW + x) * 4u;
+            return { HalfToFloat(halves[idx + 0]), HalfToFloat(halves[idx + 1]), HalfToFloat(halves[idx + 2]),
+                     HalfToFloat(halves[idx + 3]) };
+        };
+
+        const u32 cx = kVolW / 2u;
+        const u32 cy = kVolH / 2u;
+        f32 prevTransmittance = 1.0f + 1e-3f;
+        f32 prevAccumulated = -1e-3f;
+        for (u32 z = 0; z < kVolD; ++z)
+        {
+            const glm::vec4 v = texel(cx, cy, z);
+            // Monotone: transmittance decays, in-scatter accumulates.
+            EXPECT_LE(v.a, prevTransmittance + 2e-3f) << "transmittance must be non-increasing at slice " << z;
+            EXPECT_GE(v.r, prevAccumulated - 2e-3f) << "accumulated fog must be non-decreasing at slice " << z;
+            // Albedo-1 identity: accumulated + transmittance == 1 per slice.
+            EXPECT_NEAR(v.r + v.a, 1.0f, 0.02f) << "energy identity broke at slice " << z;
+            // Uniform white medium: channels agree.
+            EXPECT_NEAR(v.r, v.g, 0.01f) << "channel divergence at slice " << z;
+            EXPECT_NEAR(v.r, v.b, 0.01f) << "channel divergence at slice " << z;
+            prevTransmittance = v.a;
+            prevAccumulated = v.r;
+        }
+
+        const glm::vec4 nearSlice = texel(cx, cy, 0);
+        const glm::vec4 farSlice = texel(cx, cy, kVolD - 1u);
+        EXPECT_GT(nearSlice.a, 0.99f) << "the first exponential slice is ~1cm of fog";
+        EXPECT_LT(nearSlice.r, 0.01f) << "near slices must carry almost no accumulated fog";
+        EXPECT_GT(farSlice.r, 0.85f) << "far slices must have accumulated most of the in-scatter (1 - exp(-3))";
+        EXPECT_LT(farSlice.a, 0.10f) << "optical depth 3 leaves ~5% transmittance at the far slice";
+        EXPECT_GT(farSlice.a, 0.02f) << "transmittance must not collapse to zero (density over-count)";
+
+        vkUnmapMemory(m_Device->GetDevice(), readbackMemory);
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the froxel chain must not fall through to a stub";
+
+    // --- restore what the tenant displaced ----------------------------------
+    vkDeviceWaitIdle(m_Device->GetDevice());
+    vkDestroyBuffer(m_Device->GetDevice(), readbackBuffer, nullptr);
+    vkFreeMemory(m_Device->GetDevice(), readbackMemory, nullptr);
+    // The pass's Execute lazily created the CSM/atlas placeholder array — a
+    // process-static Ref that must die before this device tears down.
+    ShadowMap::ShutdownPlaceholders();
+    const_cast<glm::mat4&>(Renderer3D::GetViewMatrix()) = savedView;
+    const_cast<glm::mat4&>(Renderer3D::GetProjectionMatrix()) = savedProjection;
+    Renderer3D::GetFogSettings() = savedFog;
+}
+
+// =============================================================================
+// GTAO: the hardest Wave B tenant — HZB mip-chain reduction (4 storage-image
+// mips per dispatch batch, per-dispatch HZBParams UBO@59), the XeGTAO main
+// dispatch (UBO@28, R8 storage outputs, HZB/normals/Hilbert samplers), one
+// edge-aware denoise ping-pong pass (UBO@60), and the final CopyImageSubData
+// into the graph-imported AO buffer — the call this suite's sibling
+// VulkanRendererAPI::CopyImageSubData implementation exists for.
+//
+// Contracts, two-sided by construction:
+//   A) UNIFORM depth => a flat wall head-on. Every horizon sample lies in the
+//      receiver's tangent plane (horizonCos <= 0), the arc integral is exactly
+//      the open hemisphere, and AO == 1 everywhere (GTAOPower 1 keeps the
+//      curve linear). Bytes >= 250 across the whole buffer — this also proves
+//      the copy landed, since the AO import is pre-seeded with zeros.
+//   B) TWO-PLANE depth (far band above, near band below, the ContactShadow
+//      stand-in): far-side receivers near the crease see the near wall raise
+//      their horizon => visibly darker than receivers far from it, which stay
+//      unoccluded. Denoise is edge-aware (the 33% depth step is far over its
+//      2% threshold), so one blur pass cannot wash the crease out.
+//
+// Normals: the forward path's view-space shape (SceneNormalsAreViewSpace =
+// true, identity view in the UBO), oct(0,0) = +Z encoded as byte (0,0).
+// =============================================================================
+TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto normalTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // oct(0,0) -> +Z view normal
+    ASSERT_NE(normalTexture, nullptr);
+    auto depthUniform = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(depthUniform, nullptr);
+    // Rows < 64 far wall (byte 128 -> view 0.2006 under the 90-degree
+    // projection), rows >= 64 near wall (byte 64 -> view 0.1335) — the same
+    // stand-in geometry the ContactShadow tenant marches against.
+    auto depthCrease = MakeHorizontalSplitTexture(kSize, 64, { 128, 128, 128, 255 }, { 64, 64, 64, 255 });
+    ASSERT_NE(depthCrease, nullptr);
+
+    const glm::mat4 projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+
+    const auto runChain = [&](const Ref<Texture2D>& depthTexture) -> std::vector<u8>
+    {
+        std::vector<u8> aoBytes;
+
+        // Caller-owned AO output, imported under the blackboard slot GTAO's
+        // Setup declares TransferDest on. Pre-seeded ZEROS: the readback can
+        // only pass if the pass's final image copy actually wrote it.
+        TextureSpecification aoSpec;
+        aoSpec.Width = kSize;
+        aoSpec.Height = kSize;
+        aoSpec.Format = ImageFormat::R8;
+        aoSpec.GenerateMips = false;
+        auto aoOutput = Texture2D::Create(aoSpec);
+        if (!aoOutput)
+        {
+            ADD_FAILURE() << "R8 AO output texture creation failed";
+            return aoBytes;
+        }
+        std::vector<u8> aoZeros(static_cast<sizet>(kSize) * kSize, 0u);
+        aoOutput->SetData(aoZeros.data(), static_cast<u32>(aoZeros.size()));
+
+        auto gtao = Ref<GTAORenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        gtao->Init(initSpec); // HZB.comp + GTAO.comp + GTAO_Denoise.comp + Hilbert LUT (R16UI upload)
+        if (!gtao->IsReadyForExecution())
+        {
+            ADD_FAILURE() << "GTAO compute shaders must compile through shaderc(vulkan_1_4)";
+            return aoBytes;
+        }
+
+        PostProcessSettings settings{};
+        settings.GTAOEnabled = true;
+        settings.ActiveAOTechnique = AOTechnique::GTAO;
+        settings.GTAORadius = 0.3f;
+        settings.GTAOPower = 1.0f; // linear visibility — the analytic bounds below assume no contrast curve
+        settings.GTAOFalloffRange = 0.2f;
+        settings.GTAOSampleDistribution = 1.0f;
+        settings.GTAOThinCompensation = 0.0f;
+        settings.GTAODenoiseEnabled = true;
+        settings.GTAODenoisePasses = 1; // odd => the final copy sources the PONG target
+        settings.TAAEnabled = false;    // fixed noise phase — deterministic across the two chains
+        gtao->SetSettings(settings);
+
+        auto gtaoData = std::make_unique<UBOStructures::GTAOUBO>();
+        auto gtaoUbo = UniformBuffer::Create(UBOStructures::GTAOUBO::GetSize(), ShaderBindingLayout::UBO_GTAO);
+        gtao->SetGTAOUBO(gtaoUbo, gtaoData.get());
+        gtao->SetProjectionMatrix(projection);
+        gtao->SetViewMatrix(glm::mat4(1.0f)); // unused: the normals are already view-space
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc importDesc;
+        importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        importDesc.Format = RGResourceFormat::RGBA8UNorm;
+        importDesc.Width = kSize;
+        importDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
+        blackboard.Scene.SceneNormals =
+            graph.ImportTextureHandle(ResourceNames::SceneNormals, normalTexture->GetRHIHandle(), importDesc);
+        blackboard.Scene.SceneNormalsAreViewSpace = true;
+
+        RGResourceDesc aoDesc;
+        aoDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        aoDesc.Format = RGResourceFormat::R8UNorm;
+        aoDesc.Width = kSize;
+        aoDesc.Height = kSize;
+        blackboard.AO.AOBuffer = graph.ImportTextureHandle(ResourceNames::AOBuffer, aoOutput->GetRHIHandle(), aoDesc);
+
+        // The GTAO scratch set, declared with the production recipe
+        // (RenderPipeline's scene-band block): a pow2 R32F HZB with a full mip
+        // chain + per-mip views, and three R8 storage scratch planes.
+        u32 mipCount = 1u;
+        for (u32 mipW = kSize, mipH = kSize; mipW > 1u || mipH > 1u; ++mipCount)
+        {
+            mipW = mipW > 1u ? (mipW / 2u) : 1u;
+            mipH = mipH > 1u ? (mipH / 2u) : 1u;
+        }
+        RGResourceDesc hzbDesc;
+        hzbDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        hzbDesc.Format = RGResourceFormat::R32Float;
+        hzbDesc.Width = kSize; // 128 is already pow2
+        hzbDesc.Height = kSize;
+        hzbDesc.MipLevels = mipCount;
+        hzbDesc.DebugName = std::string(ResourceNames::HZBDepth);
+        blackboard.Scratch.HZBDepth = graph.AllocateTransientTextureHandle(ResourceNames::HZBDepth, hzbDesc);
+        for (u32 mip = 0u; mip < std::min<u32>(mipCount, FrameBlackboard::MaxHZBMipViews); ++mip)
+        {
+            const auto mipViewName = std::string(ResourceNames::HZBDepth) + "Mip" + std::to_string(mip);
+            blackboard.Scratch.HZBDepthMipViews[mip] =
+                graph.CreateTextureMipView(mipViewName, blackboard.Scratch.HZBDepth, mip);
+        }
+
+        RGResourceDesc scratchDesc;
+        scratchDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        scratchDesc.Format = RGResourceFormat::R8UNorm;
+        scratchDesc.Width = kSize;
+        scratchDesc.Height = kSize;
+        scratchDesc.DebugName = "GTAOEdge";
+        blackboard.Scratch.GTAOEdge = graph.AllocateTransientTextureHandle("GTAOEdge", scratchDesc);
+        scratchDesc.DebugName = std::string(ResourceNames::GTAODenoisePing);
+        blackboard.Scratch.GTAODenoisePing =
+            graph.AllocateTransientTextureHandle(ResourceNames::GTAODenoisePing, scratchDesc);
+        scratchDesc.DebugName = std::string(ResourceNames::GTAODenoisePong);
+        blackboard.Scratch.GTAODenoisePong =
+            graph.AllocateTransientTextureHandle(ResourceNames::GTAODenoisePong, scratchDesc);
+
+        graph.AddNode(gtao);
+        graph.SetFinalPass("GTAOPass");
+        graph.BuildFrameGraph();
+
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                // TRANSFER_DST after the pass's final copy; GetData's one-shot
+                // readback assumes the SHADER_READ_ONLY steady state.
+                RHI::Barrier toSampled{};
+                toSampled.Resource = aoOutput->GetRHIHandle();
+                toSampled.Before = RHI::Access::TransferWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "GTAO resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                          << "' x" << failure.Count;
+        }
+        EXPECT_EQ(api.GetPhase6StubHitCount(), 0u)
+            << "the GTAO chain (incl. CopyImageSubData) must not fall through to a stub";
+
+        if (!aoOutput->GetData(aoBytes, 0))
+        {
+            ADD_FAILURE() << "AO readback failed";
+        }
+        return aoBytes;
+    };
+
+    const auto aoAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[static_cast<sizet>(y) * kSize + x]); };
+    const auto rowMean = [&](const std::vector<u8>& img, u32 y)
+    {
+        int sum = 0;
+        int count = 0;
+        for (u32 x = 24; x <= 104; x += 8)
+        {
+            sum += aoAt(img, x, y);
+            ++count;
+        }
+        return sum / count;
+    };
+
+    // A) uniform depth — the CONTROL image. Centre pixels view the wall
+    // nearly along their normals and integrate the open hemisphere (~1);
+    // toward the corners the per-pixel view vector tilts up to ~54 degrees
+    // at this 90-degree FOV and the slice integral legitimately dips (the
+    // XeGTAO projected-normal weighting; observed floor ~188 at the extreme
+    // corners). The floor catches the classic collapses — the 0.03
+    // visibility clamp (byte 8), garbage normals (~0), or a dead final copy
+    // (the AO import is pre-seeded ZEROS).
+    const auto open = runChain(depthUniform);
+    ASSERT_EQ(open.size(), static_cast<sizet>(kSize) * kSize);
+    int minAO = 255;
+    for (const u8 v : open)
+        minAO = std::min(minAO, static_cast<int>(v));
+    EXPECT_GE(minAO, 180) << "uniform depth must stay near-open everywhere (collapse floor)";
+    {
+        int centerSum = 0;
+        int centerCount = 0;
+        for (u32 y = 44; y <= 84; y += 4)
+        {
+            for (u32 x = 44; x <= 84; x += 4)
+            {
+                centerSum += aoAt(open, x, y);
+                ++centerCount;
+            }
+        }
+        EXPECT_GE(centerSum / centerCount, 240)
+            << "near-axial pixels of a flat wall must integrate the open hemisphere (AO ~ 1)";
+    }
+
+    // B) crease vs the paired control — every claim is a same-row differential
+    // so the radial baseline above cancels out. Observed field (deterministic:
+    // fixed noise phase): far-side rows darken progressively toward the crease
+    // (row8 192, row56 180, row62 163 vs control 246), the near-side rows stay
+    // OPEN (row66 249 — their depth step goes AWAY from the camera, an
+    // occluder must be in FRONT), and the deep near side matches the control.
+    const auto crease = runChain(depthCrease);
+    ASSERT_EQ(crease.size(), static_cast<sizet>(kSize) * kSize);
+    const int open62 = rowMean(open, 62);
+    const int crease62 = rowMean(crease, 62);
+    EXPECT_GE(open62 - crease62, 40) << "the near wall must darken the far-side crease row vs the control";
+    EXPECT_LE(rowMean(crease, 62) + 5, rowMean(crease, 56))
+        << "occlusion must weaken with distance from the crease (62 -> 56)";
+    EXPECT_LE(rowMean(crease, 56) + 5, rowMean(crease, 8))
+        << "occlusion must keep weakening with distance from the crease (56 -> 8)";
+    EXPECT_GE(rowMean(crease, 66), 240)
+        << "near-side receivers see the depth step BEHIND them — no occlusion (sign correctness)";
+    EXPECT_LE(std::abs(rowMean(crease, 120) - rowMean(open, 120)), 10)
+        << "the deep near side must match the uniform control (the crease is local)";
+}
+
+// =============================================================================
+// FluidIntermediates: DOCUMENTED FLOOR, not a full-body tenant. Three
+// independent engine gaps keep the splat + smooth body off Vulkan today —
+// each named here so none is silently worked around:
+//
+//   1. The pass's render targets are raw-handle objects created through the
+//      RendererAPI raw-resource family (CreateTexture2DHandle,
+//      CreateFramebufferHandle, AttachFramebufferColor/DepthTexture,
+//      SetFramebufferDrawAttachments, IsFramebufferComplete,
+//      ClearFramebufferColorAttachment/Depth, SetTextureFilter/Wrap,
+//      DeleteTexture/DeleteFramebuffer) — ALL still Phase6Stub on Vulkan,
+//      so CreateTargets() cannot produce the splat FBOs (shared with the
+//      WaterRenderPass raw-FBO work in Wave C).
+//   2. FluidSmooth.comp cannot compile: the Vulkan compute includer resolves
+//      "../include/FluidRenderCommon.glsl" against the shader root instead
+//      of the including file's directory (the same gap that blocks
+//      VolumetricFog — see that tenant).
+//   3. FluidDepthSplat/FluidThickness DO compile (their vec2 a_QuadPos
+//      vertex-pull branches are shaderc-clean) but vkCreateShaderModule
+//      rejects the fragment SPIR-V: glslang lowers `discard` to
+//      OpDemoteToHelperInvocation under vulkan1.4, and VulkanDevice does not
+//      enable VkPhysicalDeviceVulkan13Features::shaderDemoteToHelperInvocation
+//      — a validation error per module (VUID-VkShaderModuleCreateInfo-pCode-
+//      08740) that every discard-carrying shader (water, foliage, decals)
+//      will hit in Wave C. One device-init line, outside this tenant's remit.
+//
+// Because gap 3 fires INSIDE Init(), this tenant never calls Init — the
+// contracts it pins are the ones that hold independent of pass resources:
+//   a. The no-draw early-out through the REAL graph: with an empty draw list
+//      Setup declares NOTHING (the issue #530 fingerprint gate) and Execute
+//      returns before touching any raw handle — graph green, zero stubs.
+//   b. The one-shot draw-list contract: a submitted draw (real particle
+//      SSBOs — constructing them headlessly is NOT the blocker) is CONSUMED
+//      by the very next Execute even when the target guard then rejects the
+//      frame — a skipped frame can never replay stale draws.
+// =============================================================================
+TEST_F(VulkanPassSuite, FluidIntermediatesPinsTheNoDrawEarlyOutThroughTheGraph)
+{
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto fluid = Ref<FluidIntermediatesPass>::Create();
+    // Deliberately NO Init() and NO SetupFramebuffer(): the shader loads trip
+    // the shaderDemoteToHelperInvocation validation error (gap 3) and target
+    // creation walks into the stubbed raw-handle family (gap 1). The gates
+    // this tenant pins sit in front of both.
+    fluid->SetEnabled(true);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    // (a) empty draw list: Setup declares nothing, Execute early-returns.
+    {
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        graph.AddNode(fluid);
+        graph.SetFinalPass("FluidIntermediatesPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame([&]()
+                    { graph.Execute(); });
+
+        EXPECT_FALSE(fluid->RanThisFrame()) << "no draws => the pass must not run";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "fluid resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                          << "' x" << failure.Count;
+        }
+    }
+
+    // (b) a real submitted draw is consumed even though the guard chain then
+    // rejects the frame (no Init => not ready, and no targets exist).
+    {
+        constexpr u32 kParticleCount = 4;
+        const std::array<glm::vec4, kParticleCount> positions = {
+            glm::vec4(0.0f, 0.0f, -1.0f, 1.0f), glm::vec4(0.2f, 0.0f, -1.2f, 1.0f),
+            glm::vec4(-0.2f, 0.1f, -0.9f, 1.0f), glm::vec4(0.0f, -0.1f, -1.1f, 1.0f)
+        };
+        const std::array<glm::vec4, kParticleCount> velocities{};
+        const std::array<u32, 8> counters = { kParticleCount, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
+
+        auto positionsBuffer = StorageBuffer::Create(static_cast<u32>(sizeof(positions)),
+                                                     ShaderBindingLayout::SSBO_FLUID_POSITIONS);
+        positionsBuffer->SetData(positions.data(), static_cast<u32>(sizeof(positions)));
+        auto velocitiesBuffer = StorageBuffer::Create(static_cast<u32>(sizeof(velocities)),
+                                                      ShaderBindingLayout::SSBO_FLUID_VELOCITIES);
+        velocitiesBuffer->SetData(velocities.data(), static_cast<u32>(sizeof(velocities)));
+        auto countersBuffer = StorageBuffer::Create(static_cast<u32>(sizeof(counters)),
+                                                    ShaderBindingLayout::SSBO_FLUID_COUNTERS);
+        countersBuffer->SetData(counters.data(), static_cast<u32>(sizeof(counters)));
+
+        FluidRenderData draw{};
+        draw.PositionsSSBOId = positionsBuffer->GetRHIHandle();
+        draw.VelocitiesSSBOId = velocitiesBuffer->GetRHIHandle();
+        draw.CountersSSBOId = countersBuffer->GetRHIHandle();
+        draw.ParticleUpperBound = kParticleCount;
+        draw.ParticleRadius = 0.1f;
+        fluid->SetFrameDraws({ draw });
+        ASSERT_TRUE(fluid->HasPendingDraws());
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        graph.AddNode(fluid);
+        graph.SetFinalPass("FluidIntermediatesPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame([&]()
+                    { graph.Execute(); });
+
+        EXPECT_FALSE(fluid->HasPendingDraws()) << "Execute must CONSUME the draw list (one-shot contract)";
+        EXPECT_FALSE(fluid->RanThisFrame()) << "without raw-FBO targets the body must reject the frame";
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "both gated paths must return before touching the stubbed raw-handle family";
 }
 
 #endif // OLO_WITH_VULKAN

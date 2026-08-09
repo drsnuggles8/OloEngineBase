@@ -1257,6 +1257,132 @@ namespace OloEngine
         RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
     }
 
+    namespace
+    {
+        [[nodiscard]] VkFormat Texture2DArrayFormatToVk(const Texture2DArrayFormat format)
+        {
+            switch (format)
+            {
+                case Texture2DArrayFormat::DEPTH_COMPONENT32F:
+                    return VK_FORMAT_D32_SFLOAT;
+                case Texture2DArrayFormat::RGBA8:
+                    return VK_FORMAT_R8G8B8A8_UNORM;
+                case Texture2DArrayFormat::RGBA16F:
+                    return VK_FORMAT_R16G16B16A16_SFLOAT;
+                case Texture2DArrayFormat::RGBA32F:
+                    return VK_FORMAT_R32G32B32A32_SFLOAT;
+            }
+            return VK_FORMAT_UNDEFINED;
+        }
+    } // namespace
+
+    VulkanTexture2DArray::VulkanTexture2DArray(const Texture2DArraySpecification& spec)
+        : m_Specification(spec)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto* device = VulkanDevice::Get();
+        OLO_CORE_ASSERT(device != nullptr, "VulkanTexture2DArray requires a live VulkanDevice");
+
+        const VkFormat format = Texture2DArrayFormatToVk(spec.Format);
+        const bool isDepth = spec.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F;
+        const u32 width = std::max(spec.Width, 1u);
+        const u32 height = std::max(spec.Height, 1u);
+        m_MipLevels = 1u;
+        if (spec.GenerateMipmaps)
+        {
+            m_MipLevels = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height)))));
+        }
+
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = format;
+        imageInfo.extent = { width, height, 1u };
+        imageInfo.mipLevels = m_MipLevels;
+        imageInfo.arrayLayers = std::max(spec.Layers, 1u);
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        // Sampled everywhere (shadow arrays feed sampler2DArrayShadow);
+        // depth formats render as layered depth attachments (the CSM/atlas
+        // passes), colour formats copy in/out for uploads and debug reads.
+        imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                          (isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                                   : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
+            VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray: image creation failed ({}x{}x{} layers)", spec.Width, spec.Height,
+                           spec.Layers);
+            m_Image = VK_NULL_HANDLE;
+            m_Allocation = VK_NULL_HANDLE;
+            return;
+        }
+
+        VulkanImageInfo registryInfo{};
+        registryInfo.Format = imageInfo.format;
+        registryInfo.MipLevels = m_MipLevels;
+        registryInfo.ArrayLayers = imageInfo.arrayLayers;
+        registryInfo.HasDepth = isDepth;
+        registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
+
+        m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);
+    }
+
+    VulkanTexture2DArray::~VulkanTexture2DArray()
+    {
+        try
+        {
+            RHI::DescriptorHeap::Get().RetireResource(m_RHIHandle.Get());
+            m_RHIHandle.Reset();
+            if (m_Image != VK_NULL_HANDLE || m_Allocation != VK_NULL_HANDLE)
+            {
+                VulkanDescriptorSlotCache::Get().ReleaseSlotsForImage(m_Image);
+                VulkanDeferredReclaim::Get().Enqueue(m_Image, m_Allocation);
+                m_Image = VK_NULL_HANDLE;
+                m_Allocation = VK_NULL_HANDLE;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray dtor: reclaim enqueue threw ({}); the array leaks", e.what());
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray dtor: reclaim enqueue threw; the array leaks");
+        }
+    }
+
+    void VulkanTexture2DArray::Bind(u32 slot) const
+    {
+        // The facade's slot path — same acquire the handle form performs.
+        RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
+    }
+
+    void VulkanTexture2DArray::SetLayerData(u32 /*layer*/, const void* /*data*/, u32 /*width*/, u32 /*height*/)
+    {
+        static bool s_Warned = false;
+        if (!s_Warned)
+        {
+            s_Warned = true;
+            OLO_CORE_WARN("[RHI/Vulkan] Texture2DArray::SetLayerData is a Wave C concern (#691) — no-op");
+        }
+    }
+
+    void VulkanTexture2DArray::GenerateMipmaps()
+    {
+        static bool s_Warned = false;
+        if (!s_Warned)
+        {
+            s_Warned = true;
+            OLO_CORE_WARN("[RHI/Vulkan] Texture2DArray::GenerateMipmaps is a Wave C concern (#691) — no-op");
+        }
+    }
+
     VulkanFramebuffer::VulkanFramebuffer(const FramebufferSpecification& spec)
         : m_Specification(spec)
     {

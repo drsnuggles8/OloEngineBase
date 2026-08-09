@@ -366,6 +366,10 @@ namespace OloEngine
         VkPhysicalDeviceVulkan13Features vulkan13Features{};
         vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         vulkan13Features.synchronization2 = VK_TRUE;
+        // glslang at vulkan1.4 lowers `discard` to OpDemoteToHelperInvocation
+        // — without the feature every discard shader fails module creation
+        // (VUID 08740; found by the fluid splat shaders, issue #691 Phase 7).
+        vulkan13Features.shaderDemoteToHelperInvocation = VK_TRUE;
         // dynamicRendering backs Phase 6's VkPipelineRenderingCreateInfo pipelines
         // (no VkRenderPass objects anywhere in the backend). Same class as
         // synchronization2: core in 1.3 and MANDATORY for 1.3+ devices, so no

@@ -57,8 +57,14 @@ namespace OloEngine
             return;
         }
 
+        // Resolve #include against the .comp file's own directory (the GL
+        // twin's rule, OpenGLComputeShader.cpp) — "" made `../include/*.glsl`
+        // resolve against assets/shaders/ and miss (found by the Wave B
+        // VolumetricFog tenant, issue #691 Phase 7).
+        const auto dirEnd = filepath.find_last_of("/\\");
+        const std::string directory = (dirEnd != std::string::npos) ? filepath.substr(0, dirEnd) : "";
         std::vector<std::string> includes;
-        const std::string source = OpenGLShader::ProcessIncludes(raw, "", includes);
+        const std::string source = OpenGLShader::ProcessIncludes(raw, directory, includes);
         m_IncludedFilePaths = std::move(includes);
         std::sort(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end());
         m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()),
@@ -270,8 +276,10 @@ namespace OloEngine
             OLO_CORE_ERROR("VulkanComputeShader '{}': reload cannot read '{}'", m_Name, m_FilePath);
             return;
         }
+        const auto dirEnd = m_FilePath.find_last_of("/\\");
+        const std::string directory = (dirEnd != std::string::npos) ? m_FilePath.substr(0, dirEnd) : "";
         std::vector<std::string> includes;
-        const std::string source = OpenGLShader::ProcessIncludes(raw, "", includes);
+        const std::string source = OpenGLShader::ProcessIncludes(raw, directory, includes);
         m_IncludedFilePaths = std::move(includes);
 
         if (BuildFromSource(source, /*useCache=*/true))

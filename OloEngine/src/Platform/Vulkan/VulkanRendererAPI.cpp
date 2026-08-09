@@ -1551,9 +1551,89 @@ namespace OloEngine
             unit, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
     }
 
-    void VulkanRendererAPI::CopyImageSubData(RHI::ResourceHandle /*src*/, TextureTargetType /*srcTarget*/, RHI::ResourceHandle /*dst*/, TextureTargetType /*dstTarget*/, u32 /*width*/, u32 /*height*/)
+    void VulkanRendererAPI::CopyImageSubData(RHI::ResourceHandle src, TextureTargetType /*srcTarget*/, RHI::ResourceHandle dst, TextureTargetType /*dstTarget*/, u32 width, u32 height)
     {
-        Phase6Stub("CopyImageSubData");
+        // The facade contract is glCopyImageSubData's no-offset form: mip 0,
+        // origin 0, one layer, width x height texels (GTAO's final AO copy,
+        // SSAO's blur copy). Lowered as vkCmdCopyImage with exact-oldLayout
+        // transitions into the transfer layouts, per layout run — the
+        // ClearTextureFloat shape (#691 Phase 7 Wave B).
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("CopyImageSubData(outside recording bracket)");
+            return;
+        }
+        if (width == 0u || height == 0u || !src.IsValid() || !dst.IsValid())
+            return;
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        auto& registry = RHI::ResourceRegistry::Get();
+        const u64 srcNative = registry.ResolveNativeForBackend(src);
+        const u64 dstNative = registry.ResolveNativeForBackend(dst);
+        if (srcNative == 0u || dstNative == 0u)
+            return;
+        const auto srcImage = reinterpret_cast<VkImage>(srcNative);
+        const auto dstImage = reinterpret_cast<VkImage>(dstNative);
+        const auto* srcInfo = VulkanImageInfoRegistry::Get().Lookup(srcImage);
+        const auto* dstInfo = VulkanImageInfoRegistry::Get().Lookup(dstImage);
+        if (srcInfo == nullptr || dstInfo == nullptr)
+            return;
+
+        const VkImageAspectFlags srcAspect = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
+        const VkImageAspectFlags dstAspect = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*dstInfo));
+        m_LayoutTracker.RegisterImage(srcImage, std::max(srcInfo->MipLevels, 1u), std::max(srcInfo->ArrayLayers, 1u),
+                                      srcInfo->RegistrationId, srcInfo->InitialLayout);
+        m_LayoutTracker.RegisterImage(dstImage, std::max(dstInfo->MipLevels, 1u), std::max(dstInfo->ArrayLayers, 1u),
+                                      dstInfo->RegistrationId, dstInfo->InitialLayout);
+
+        VkImageSubresourceRange srcRange{ srcAspect, 0u, 1u, 0u, 1u };
+        VkImageSubresourceRange dstRange{ dstAspect, 0u, 1u, 0u, 1u };
+
+        // Both transitions ride one dependency info. A run whose tracked layout
+        // already equals the transfer layout still emits (same-layout barriers
+        // are legal) so the execution+memory dependency between the producer
+        // and this copy never silently disappears.
+        std::vector<VkImageMemoryBarrier2> toTransfer;
+        const auto stageTransition = [&](const VkImage image, const VkImageSubresourceRange& range,
+                                         const VkImageLayout newLayout, const VkAccessFlags2 dstAccess)
+        {
+            m_LayoutTracker.ForEachLayoutRun(
+                image, range,
+                [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
+                {
+                    VkImageMemoryBarrier2 b{};
+                    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                    b.srcStageMask = (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED) ? VK_PIPELINE_STAGE_2_NONE : kAllStages;
+                    b.srcAccessMask = (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED) ? VK_ACCESS_2_NONE : kAllAccess;
+                    b.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                    b.dstAccessMask = dstAccess;
+                    b.oldLayout = trackedLayout;
+                    b.newLayout = newLayout;
+                    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    b.image = image;
+                    b.subresourceRange = run;
+                    toTransfer.push_back(b);
+                });
+            m_LayoutTracker.SetLayout(image, range, newLayout);
+        };
+        stageTransition(srcImage, srcRange, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_2_TRANSFER_READ_BIT);
+        stageTransition(dstImage, dstRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
+        dep.pImageMemoryBarriers = toTransfer.data();
+        vkCmdPipelineBarrier2(m_Cmd, &dep);
+
+        VkImageCopy region{};
+        region.srcSubresource = { srcAspect, 0u, 0u, 1u };
+        region.dstSubresource = { dstAspect, 0u, 0u, 1u };
+        region.extent = { width, height, 1u };
+        vkCmdCopyImage(m_Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
     }
 
     void VulkanRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle /*src*/, TextureTargetType /*srcTarget*/, i32 /*srcLevel*/, i32 /*srcZ*/, RHI::ResourceHandle /*dst*/, TextureTargetType /*dstTarget*/, i32 /*dstLevel*/, i32 /*dstZ*/, u32 /*width*/, u32 /*height*/)
