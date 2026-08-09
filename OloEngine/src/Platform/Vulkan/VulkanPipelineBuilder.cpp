@@ -316,13 +316,28 @@ namespace OloEngine
         if (!dynamicBlend)
         {
             // Blend is a baked axis only where EDS3 is absent (§5's fallback
-            // column — expected never to trigger on the desktop floor).
+            // column — expected never to trigger on the desktop floor). The
+            // hash must cover EVERY recorded field the baked attachment
+            // state below consumes — including the color masks and the
+            // per-attachment overrides — or two states differing only in an
+            // unhashed field silently share one pipeline.
             u64 blendHash = state.Blend ? 1 : 0;
             blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendSrcRGB));
             blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendDstRGB));
             blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendSrcAlpha));
             blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendDstAlpha));
             blendHash = HashCombine(blendHash, static_cast<u64>(state.BlendEquation));
+            for (u32 i = 0; i < 4; ++i)
+            {
+                blendHash = HashCombine(blendHash, state.ColorMask[i] ? 1u : 0u);
+            }
+            for (u32 i = 0; i < safeTargets.ColorCount; ++i)
+            {
+                blendHash = HashCombine(blendHash, state.AttachmentBlend[i] ? 1u : 0u);
+                blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendSrc[i]));
+                blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendDst[i]));
+                blendHash = HashCombine(blendHash, state.AttachmentColorMask[i]);
+            }
             key.BakedBlendHash = blendHash == 0 ? 1 : blendHash;
         }
 
@@ -459,17 +474,25 @@ namespace OloEngine
             }
             else
             {
-                attachment.blendEnable = state.Blend ? VK_TRUE : VK_FALSE;
-                attachment.srcColorBlendFactor = ToVk(state.BlendSrcRGB);
-                attachment.dstColorBlendFactor = ToVk(state.BlendDstRGB);
+                // Same per-attachment selection + global-mask AND as the
+                // dynamic path in FlushDynamicState — the two lowering routes
+                // must produce identical blend behaviour for one recorded
+                // state, and every field read here is in BakedBlendHash.
+                const bool useAttachment = state.AttachmentBlend[i];
+                attachment.blendEnable = (useAttachment || state.Blend) ? VK_TRUE : VK_FALSE;
+                attachment.srcColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
+                attachment.dstColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstRGB);
                 attachment.colorBlendOp = ToVk(state.BlendEquation);
-                attachment.srcAlphaBlendFactor = ToVk(state.BlendSrcAlpha);
-                attachment.dstAlphaBlendFactor = ToVk(state.BlendDstAlpha);
+                attachment.srcAlphaBlendFactor =
+                    ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha);
+                attachment.dstAlphaBlendFactor =
+                    ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstAlpha);
                 attachment.alphaBlendOp = ToVk(state.BlendEquation);
-                attachment.colorWriteMask = (state.ColorMask[0] ? VK_COLOR_COMPONENT_R_BIT : 0u) |
-                                            (state.ColorMask[1] ? VK_COLOR_COMPONENT_G_BIT : 0u) |
-                                            (state.ColorMask[2] ? VK_COLOR_COMPONENT_B_BIT : 0u) |
-                                            (state.ColorMask[3] ? VK_COLOR_COMPONENT_A_BIT : 0u);
+                const VkColorComponentFlags globalMask = (state.ColorMask[0] ? VK_COLOR_COMPONENT_R_BIT : 0u) |
+                                                         (state.ColorMask[1] ? VK_COLOR_COMPONENT_G_BIT : 0u) |
+                                                         (state.ColorMask[2] ? VK_COLOR_COMPONENT_B_BIT : 0u) |
+                                                         (state.ColorMask[3] ? VK_COLOR_COMPONENT_A_BIT : 0u);
+                attachment.colorWriteMask = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]) & globalMask;
             }
         }
 

@@ -48,6 +48,7 @@
 #include "OloEngine/Core/Ref.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace OloEngine::RHI
 {
@@ -95,9 +96,22 @@ namespace OloEngine::RHI
         // Anchored on max(dispensed, completed): a caller that signalled a
         // hand-picked value directly must still receive a dispensable value
         // STRICTLY above the live counter (the timeline contract).
+        //
+        // UINT64_MAX is RESERVED as the exhaustion sentinel, never dispensed
+        // as an incremented result: a wrap to 0 would silently violate
+        // monotonicity, so the dispenser saturates instead (unreachable by
+        // counting — 2^64 increments — but reachable by a caller hand-
+        // signalling a huge value first).
         [[nodiscard]] u64 NextValue()
         {
-            m_LastDispensedValue = std::max(m_LastDispensedValue, CompletedValue()) + 1;
+            const u64 base = std::max(m_LastDispensedValue, CompletedValue());
+            if (base >= std::numeric_limits<u64>::max() - 1)
+            {
+                OLO_CORE_ERROR("RHI::GpuFence: timeline value space exhausted — saturating at UINT64_MAX");
+                m_LastDispensedValue = std::numeric_limits<u64>::max();
+                return m_LastDispensedValue;
+            }
+            m_LastDispensedValue = base + 1;
             return m_LastDispensedValue;
         }
         [[nodiscard]] u64 LastDispensedValue() const

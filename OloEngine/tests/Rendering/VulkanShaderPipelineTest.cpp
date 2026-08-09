@@ -565,8 +565,9 @@ namespace
 
         // HOST_ACCESS_RANDOM prefers HOST_CACHED memory, which may be
         // non-coherent — device writes need an explicit invalidate before the
-        // host read (no-op on coherent memory).
-        vmaInvalidateAllocation(device.GetAllocator(), allocation, 0, byteSize);
+        // host read (no-op on coherent memory). A failed invalidate means the
+        // read below could be stale — stop rather than compare garbage.
+        ASSERT_EQ(vmaInvalidateAllocation(device.GetAllocator(), allocation, 0, byteSize), VK_SUCCESS);
 
         outRgba8.resize(static_cast<sizet>(byteSize));
         std::memcpy(outRgba8.data(), mapInfo.pMappedData, static_cast<sizet>(byteSize));

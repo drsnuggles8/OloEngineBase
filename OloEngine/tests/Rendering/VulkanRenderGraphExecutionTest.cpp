@@ -69,6 +69,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include <algorithm>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <memory>
 
 namespace
@@ -552,6 +553,53 @@ TEST_F(VulkanRenderGraphExecution, FrameArenaAllocatesMappedDeviceAddressableRan
     EXPECT_GE(arena.GetOverflowCount(), 1u);
 
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+// -----------------------------------------------------------------------------
+// Headless (no device): NextValue()'s monotonic contract at the edges — it
+// anchors above the LIVE counter and saturates at UINT64_MAX instead of
+// wrapping to 0 (a wrap would be an invalid timeline signal much later, far
+// from the caller). Uses a stub so the counter is controllable.
+// -----------------------------------------------------------------------------
+TEST(GpuFenceValueDispenser, AnchorsAboveTheCounterAndSaturatesInsteadOfWrapping)
+{
+    class StubFence final : public RHI::GpuFence
+    {
+      public:
+        explicit StubFence(u64 initial) : RHI::GpuFence(initial) {}
+        void QueueSignal(u64, RHI::FenceSignalOp) override {}
+        void QueueWait(u64, RHI::FenceCompareOp) override {}
+        void HostSignal(u64 value, RHI::FenceSignalOp) override
+        {
+            m_Counter = value;
+        }
+        [[nodiscard]] bool HostWait(u64, u64, RHI::FenceCompareOp) override
+        {
+            return true;
+        }
+        [[nodiscard]] u64 CompletedValue() const override
+        {
+            return m_Counter;
+        }
+
+        u64 m_Counter = 0;
+    };
+
+    StubFence fence(0);
+    EXPECT_EQ(fence.NextValue(), 1u);
+    EXPECT_EQ(fence.NextValue(), 2u);
+
+    // A hand-signalled jump: the dispenser must climb above the live counter,
+    // never below it.
+    fence.m_Counter = 100;
+    EXPECT_EQ(fence.NextValue(), 101u);
+
+    // Exhaustion: saturate at UINT64_MAX, never wrap to 0.
+    fence.m_Counter = std::numeric_limits<u64>::max() - 1;
+    EXPECT_EQ(fence.NextValue(), std::numeric_limits<u64>::max());
+    EXPECT_EQ(fence.NextValue(), std::numeric_limits<u64>::max()) << "Repeat calls stay saturated";
+    fence.m_Counter = std::numeric_limits<u64>::max();
+    EXPECT_EQ(fence.NextValue(), std::numeric_limits<u64>::max()) << "A maxed counter must not wrap";
 }
 
 // -----------------------------------------------------------------------------

@@ -334,7 +334,17 @@ namespace OloEngine
             // one authoring-side switch, used by vertex-pulling stages).
             shaderc::Compiler compiler;
             shaderc::CompileOptions options;
-            options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_4);
+            // The vulkan_1_4 enumerator exists only in SDK-current shaderc
+            // (the Windows toolchain floor); an older system shaderc (Linux
+            // CI) lacks the NAME but the encoding is fixed — env versions are
+            // VK_MAKE_API_VERSION(0, major, minor, 0), i.e. (1<<22)|(4<<12)
+            // for 1.4 (see shaderc/env.h). Runtime behaviour on an old
+            // shaderc is moot: no ADR 0010 contract device exists on a box
+            // whose toolchain predates the 1.4 SDK, so those builds only need
+            // to COMPILE (the device-gated tests SKIP).
+            constexpr auto kShadercEnvVulkan14 = static_cast<shaderc_env_version>((1u << 22) | (4u << 12));
+            static_assert(kShadercEnvVulkan14 == ((1u << 22) | (4u << 12)));
+            options.SetTargetEnvironment(shaderc_target_env_vulkan, kShadercEnvVulkan14);
             options.SetPreserveBindings(true);
             options.SetAutoBindUniforms(false);
             options.SetGenerateDebugInfo();
