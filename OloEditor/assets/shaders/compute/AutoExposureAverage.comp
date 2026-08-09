@@ -30,22 +30,31 @@ layout(std430, binding = 20) buffer ExposureState
     float state[]; // [0] = exposure multiplier, [1] = adapted luminance (persists)
 };
 
-uniform float u_MinLogLum;
-uniform float u_LogLumRange; // maxLogLum - minLogLum
-uniform float u_Dt;          // frame delta time (seconds)
-uniform float u_SpeedUp;     // adaptation rate when brightening
-uniform float u_SpeedDown;   // adaptation rate when darkening
-uniform float u_ExposureCompensation;
-uniform float u_MinExposure;
-uniform float u_MaxExposure;
-// Percentile band of the non-black population that contributes to the
-// metered average (UE EyeAdaptation Low/HighPercent style). Keying the
-// exposure on the brightest coherent region makes it robust against
-// composition shifts (tilting toward the horizon adding a broad dark
-// far-water population) AND compact glints (excluded above the high bound).
-// (0, 1) reproduces the plain weighted mean.
-uniform float u_LowPercentile;
-uniform float u_HighPercentile;
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7): the
+// Vulkan SPIR-V route cannot express non-block uniforms and its
+// ComputeShader::Set* calls are deliberate no-ops. The block is shared
+// VERBATIM with AutoExposureHistogram.comp (one C++ struct fills both).
+// The percentile band: only the non-black population inside
+// (u_LowPercentile, u_HighPercentile] contributes to the metered average
+// (UE EyeAdaptation Low/HighPercent style) — robust against composition
+// shifts AND compact glints; (0, 1) reproduces the plain weighted mean.
+layout(std140, binding = 58) uniform AutoExposureParams
+{
+    vec2  u_MeterSize;              // metering grid dimensions (unused here)
+    float u_MinLogLum;              // histogram lower bound (log2 luminance)
+    float u_InvLogLumRange;         // 1.0 / (maxLogLum - minLogLum) (unused here)
+    float u_LogLumRange;            // maxLogLum - minLogLum
+    float u_Dt;                     // frame delta time (seconds)
+    float u_SpeedUp;                // adaptation rate when brightening
+    float u_SpeedDown;              // adaptation rate when darkening
+    float u_ExposureCompensation;
+    float u_MinExposure;
+    float u_MaxExposure;
+    float u_LowPercentile;
+    float u_HighPercentile;
+    float _aePad0;
+    vec2  _aePad1;
+};
 
 const float BLACK_THRESHOLD = 0.0001;
 

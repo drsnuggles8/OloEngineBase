@@ -505,6 +505,40 @@ namespace OloEngine
         static_assert(sizeof(FroxelFogUBO) % 16 == 0, "FroxelFogUBO must be 16-byte aligned for std140");
         static_assert(sizeof(FroxelFogUBO) == 240, "FroxelFogUBO std140 size drifted from GLSL expectation (240 B)");
 
+        // @brief Auto-exposure metering/adaptation parameters (issue #691
+        // Phase 7), uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
+        // AutoExposureParams block shared verbatim by
+        // compute/AutoExposureHistogram.comp and compute/AutoExposureAverage.comp
+        // — these values were bare uniforms fed by ComputeShader::Set*, which
+        // the Vulkan SPIR-V route cannot express (Set* is a deliberate no-op
+        // there). Every member is written once per frame before the histogram
+        // dispatch; members a given shader ignores are simply unread.
+        struct AutoExposureUBO
+        {
+            glm::vec2 MeterSize; // metering grid dimensions (capped)
+            f32 MinLogLum;       // histogram lower bound (log2 luminance)
+            f32 InvLogLumRange;  // 1 / (maxLogLum - minLogLum)
+            f32 LogLumRange;     // maxLogLum - minLogLum
+            f32 Dt;              // frame delta time (seconds)
+            f32 SpeedUp;         // adaptation rate when brightening
+            f32 SpeedDown;       // adaptation rate when darkening
+            f32 ExposureCompensation;
+            f32 MinExposure;
+            f32 MaxExposure;
+            f32 LowPercentile;  // metered-population band, low bound
+            f32 HighPercentile; // metered-population band, high bound
+            f32 _pad0;
+            glm::vec2 _pad1;
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(AutoExposureUBO));
+            }
+        };
+
+        static_assert(sizeof(AutoExposureUBO) % 16 == 0, "AutoExposureUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(AutoExposureUBO) == 64, "AutoExposureUBO std140 size drifted from GLSL expectation (64 B)");
+
         // @brief Volumetric cloudscape raymarch parameters (issue #633),
         // uploaded at UBO_CLOUDSCAPE (53). GLSL twin: the CloudscapeData block
         // in include/CloudscapeCommon.glsl — shared by the raymarch pass, the
@@ -908,6 +942,7 @@ namespace OloEngine
         static constexpr u32 UBO_CLOUDSCAPE = 53;           // Volumetric cloudscape raymarch params (CloudscapeUBO — issue #633)
         static constexpr u32 UBO_ATMOSPHERE_SHADING = 54;   // Surface weather response: wetness + cloud-shadow map transform + enables (AtmosphereShadingUBO — issue #633)
         static constexpr u32 UBO_IMPOSTOR_BAKE = 55;        // Octahedral impostor atlas bake params (view-proj + center/radius/cutoff/tint — issue #433)
+        static constexpr u32 UBO_AUTO_EXPOSURE = 58;        // Auto-exposure metering/adaptation params (AutoExposureUBO — issue #691 Phase 7: the histogram/average computes' former bare uniforms, which the Vulkan SPIR-V route cannot express)
         // The heap-offset table (issue #691 Phase 3). std140 uvec4[] of
         // RHI::HeapOffset values, indexed by the SAME TEX_* constant a slot-based
         // shader would have used in `layout(binding = N)`. That reuse is the
@@ -1326,6 +1361,8 @@ namespace OloEngine
                     return name.contains("ImpostorBake") || name.contains("impostorBake");
                 case UBO_DEBUG_DRAW:
                     return name.contains("DebugDraw") || name.contains("debugDraw");
+                case UBO_AUTO_EXPOSURE:
+                    return name.contains("AutoExposure") || name.contains("autoExposure");
                 default:
                     return false;
             }
