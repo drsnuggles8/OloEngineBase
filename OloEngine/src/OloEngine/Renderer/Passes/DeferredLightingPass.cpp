@@ -223,6 +223,13 @@ namespace OloEngine
         if (clusteredActive)
             forwardPlus.BindForShading();
 
+        // Distance-impostor reflection probes (issue #705): re-publish the
+        // probe arrays + UBO + cluster-mask SSBO for the fullscreen lighting
+        // draw — the same re-bind rationale as the Forward+ lists above
+        // (BindSceneResources / intermediate passes may have disturbed the
+        // binding points since ScenePass published them).
+        Renderer3D::GetReflectionProbes().BindForShading();
+
         // Upload per-frame controls — IBL enable + intensity + cascade-debug
         // flag. Light-probe toggle mirrors RendererSettings::Deferred
         // .EnableLightProbes: Scene::OnUpdateRender always uploads the

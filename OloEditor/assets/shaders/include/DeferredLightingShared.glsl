@@ -16,6 +16,9 @@
 //   - include/PBRCommon.glsl, include/LightProbeSampling.glsl,
 //     include/ForwardPlusCommon.glsl (with FPLUS_ATLAS_SHADOWS defined, AFTER
 //     the ShadowData block + atlas samplers)
+//   - include/ReflectionProbes.glsl with OLO_REFLECTION_PROBE_SAMPLERS
+//     defined (distance-impostor probe arrays at bindings 14/15, probe UBO
+//     58, probe grid SSBO 53 — issue #705)
 //
 // G-Buffer sampling is done by the caller (sampler2D vs sampler2DMS); this
 // file consumes only the already-unpacked per-pixel values.
@@ -188,6 +191,28 @@ vec3 ComputeDeferredLit(
         Lo += lightContrib;
     }
 
+    // Specular reflection source (issue #705): the global prefilter map at
+    // the mirror direction, parallax-corrected per pixel by the distance-
+    // impostor probes wherever one covers the shading point. SSR composites
+    // LATER over the lit colour (PostProcess_SSR lerps by its confidence),
+    // so this term is exactly what SSR misses fall back to — the intended
+    // ladder is SSR (on-screen) -> probe raymarch -> global sky prefilter.
+    //
+    // Guarded: this shared body is also compiled into consumers that never
+    // declare the probe arrays (DDGI_Relight, the G-Buffer overlay shaders)
+    // — those keep the plain global-prefilter source.
+    vec3 R = reflect(-V, N);
+    vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+#ifdef OLO_REFLECTION_PROBE_SAMPLERS
+    if (enableIBL)
+    {
+        float probeViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
+        vec4 probeSpecular = oloSampleReflectionProbes(worldPos, N, R,
+                                                       roughness * MAX_REFLECTION_LOD, probeViewDepth);
+        prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
+    }
+#endif
+
     vec3 ambient = vec3(0.0);
     if (enableProbes && enableIBL)
     {
@@ -196,14 +221,14 @@ vec3 ComputeDeferredLit(
         vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
         {
-            ambient = calculateCombinedAmbient(probeIrradiance, N, V, albedo, metallic, roughness,
-                                               u_PrefilterMap, u_BRDFLutMap);
+            ambient = calculateCombinedAmbientPrefiltered(probeIrradiance, N, V, albedo, metallic, roughness,
+                                                          u_BRDFLutMap, prefilteredColor);
             ambient *= iblIntensity;
         }
         else
         {
-            ambient = calculateIBL(N, V, albedo, metallic, roughness,
-                                   u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
+            ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
+                                              u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
             ambient *= iblIntensity;
         }
     }
@@ -217,8 +242,8 @@ vec3 ComputeDeferredLit(
     }
     else if (enableIBL)
     {
-        ambient = calculateIBL(N, V, albedo, metallic, roughness,
-                               u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
+        ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
+                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
         ambient *= iblIntensity;
     }
     else

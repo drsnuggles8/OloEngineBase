@@ -235,6 +235,13 @@ layout(std140, binding = 6) uniform ShadowData {
 #define FPLUS_ATLAS_SHADOWS 1
 #include "include/ForwardPlusCommon.glsl"
 
+// Distance-impostor reflection probes (issue #705). The cube-array slots
+// (14/15) stay slot-based in BOTH variants: ReflectionProbeArray publishes
+// them via PublishTextureOffsetAndBind (offset staged AND real bind issued),
+// the DDGI-atlas pattern the bindless pipeline test allowlists.
+#define OLO_REFLECTION_PROBE_SAMPLERS
+#include "include/ReflectionProbes.glsl"
+
 // =============================================================================
 // INPUT/OUTPUT
 // =============================================================================
@@ -407,6 +414,20 @@ void main()
         Lo += lightContrib;
     }
 
+    // Specular reflection source (issue #705): global prefilter at the mirror
+    // direction, parallax-corrected per pixel by the distance-impostor probes
+    // wherever one covers the shading point. Keeps photometric parity with
+    // the deferred path (DeferredLightingShared.glsl does the same).
+    vec3 R = reflect(-V, N);
+    vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+    if (u_EnableIBL == 1)
+    {
+        float probeViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
+        vec4 probeSpecular = oloSampleReflectionProbes(v_WorldPos, N, R,
+                                                       roughness * MAX_REFLECTION_LOD, probeViewDepth);
+        prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
+    }
+
     // Calculate ambient lighting
     vec3 ambient = vec3(0.0);
     if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
@@ -417,15 +438,16 @@ void main()
         vec3 probeIrradiance = sampleProbeVolumeIrradiance(v_WorldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
         {
-            ambient = calculateCombinedAmbient(probeIrradiance, N, V, albedo,
-                                               metallic, roughness,
-                                               u_PrefilterMap, u_BRDFLutMap);
+            ambient = calculateCombinedAmbientPrefiltered(probeIrradiance, N, V, albedo,
+                                                          metallic, roughness,
+                                                          u_BRDFLutMap, prefilteredColor);
             ambient *= u_IBLIntensity;
         }
         else
         {
             // Outside probe volume — fall back to IBL
-            ambient = calculateIBL(N, V, albedo, metallic, roughness, u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
+            ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
+                                              u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
             ambient *= u_IBLIntensity;
         }
     }
@@ -444,7 +466,8 @@ void main()
     }
     else if (u_EnableIBL == 1)
     {
-        ambient = calculateIBL(N, V, albedo, metallic, roughness, u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
+        ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
+                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
         ambient *= u_IBLIntensity;
     }
     else

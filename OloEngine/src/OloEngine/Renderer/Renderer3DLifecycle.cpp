@@ -457,6 +457,9 @@ namespace OloEngine
         // Initialize Forward+ light culling system
         s_Data.ForwardPlus.Initialize(fbWidth, fbHeight);
 
+        // Distance-impostor reflection probe arrays (issue #705)
+        s_Data.ReflectionProbes.Init();
+
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -540,6 +543,9 @@ namespace OloEngine
 
         // Shutdown Forward+ system
         s_Data.ForwardPlus.Shutdown();
+
+        // Shutdown the reflection-probe arrays (issue #705)
+        s_Data.ReflectionProbes.Shutdown();
 
         // Shutdown shadow mapping
         s_Data.Shadow.Shutdown();

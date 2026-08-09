@@ -1,0 +1,165 @@
+Scene: ReflectionProbeCorridor.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Distance-impostor reflection probes (issue #705) — the acceptance-criteria
+# corridor: a mirror floor between a RED (-X) and a GREEN (+X) wall, a BLUE
+# far end (-Z) and a YELLOW near end (+Z), lit by two white point lights.
+#
+# To exercise the feature: select "Corridor Probe" and press "Bake Reflection
+# Probe" in the inspector. The mirror floor then reflects each wall in the
+# correct PLACE (red on the left strip, green on the right, yellow visible in
+# the floor when looking toward +Z with the wall itself off-screen — the
+# SSR-failure case). Deactivating the probe falls back to the sky/neutral.
+# ─────────────────────────────────────────────────────────────────────────────
+Entities:
+  - Entity: 705000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1.8, 9]
+      Rotation: [-0.35, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 1.0472
+        PerspectiveNear: 0.05
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 705000000000002
+    TagComponent:
+      Tag: Corridor Probe
+    TransformComponent:
+      Translation: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ReflectionProbeComponent:
+      InfluenceRadius: 40
+      BlendDistance: 4
+      Resolution: 256
+      Intensity: 1
+      Active: true
+  - Entity: 705000000000003
+    TagComponent:
+      Tag: Mirror Floor
+    TransformComponent:
+      Translation: [0, -0.25, 0]
+      Rotation: [0, 0, 0]
+      Scale: [7, 0.25, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 1
+      Roughness: 0.08
+  - Entity: 705000000000004
+    TagComponent:
+      Tag: Red Wall (-X)
+    TransformComponent:
+      Translation: [-3.25, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.25, 5, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.05, 0.05]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 705000000000005
+    TagComponent:
+      Tag: Green Wall (+X)
+    TransformComponent:
+      Translation: [3.25, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.25, 5, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.9, 0.05]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 705000000000006
+    TagComponent:
+      Tag: Blue Wall (-Z)
+    TransformComponent:
+      Translation: [0, 2, -12.25]
+      Rotation: [0, 0, 0]
+      Scale: [7, 5, 0.25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.05, 0.9]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 705000000000007
+    TagComponent:
+      Tag: Yellow Wall (+Z)
+    TransformComponent:
+      Translation: [0, 2, 12.25]
+      Rotation: [0, 0, 0]
+      Scale: [7, 5, 0.25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.05]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 705000000000008
+    TagComponent:
+      Tag: Ceiling
+    TransformComponent:
+      Translation: [0, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [7, 0.25, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.35, 0.35]
+      Metallic: 0
+      Roughness: 0.95
+  - Entity: 705000000000009
+    TagComponent:
+      Tag: Pillar (occluder)
+    TransformComponent:
+      Translation: [1.4, 1, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 2, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.5, 0.1]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 705000000000010
+    TagComponent:
+      Tag: Point Light A
+    TransformComponent:
+      Translation: [0, 3.6, 5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 3
+      Range: 25
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 705000000000011
+    TagComponent:
+      Tag: Point Light B
+    TransformComponent:
+      Translation: [0, 3.6, -5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 3
+      Range: 25
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/ReflectionProbeDistanceField.h"
 #include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -117,6 +118,23 @@ namespace OloEngine
             return m_IrradianceMap && m_PrefilterMap && m_BRDFLutMap;
         }
 
+        // Radial-distance field captured alongside a reflection-probe bake
+        // (issue #705). Null for every non-probe environment (skies, HDR
+        // files) — deliberately NOT part of HasIBL(), which gates plain
+        // IBL consumers that have no use for distance.
+        void SetProbeDistanceField(const Ref<ReflectionProbeDistanceField>& field)
+        {
+            m_ProbeDistanceField = field;
+        }
+        const Ref<ReflectionProbeDistanceField>& GetProbeDistanceField() const
+        {
+            return m_ProbeDistanceField;
+        }
+        bool HasProbeDistanceField() const
+        {
+            return m_ProbeDistanceField != nullptr;
+        }
+
         // Get specification
         const EnvironmentMapSpecification& GetSpecification() const
         {
@@ -165,6 +183,7 @@ namespace OloEngine
         Ref<TextureCubemap> m_IrradianceMap;
         Ref<TextureCubemap> m_PrefilterMap;
         Ref<Texture2D> m_BRDFLutMap;
+        Ref<ReflectionProbeDistanceField> m_ProbeDistanceField; // probe bakes only (issue #705)
 
         // Static shader library for IBL operations
         static ShaderLibrary* s_ShaderLibrary;

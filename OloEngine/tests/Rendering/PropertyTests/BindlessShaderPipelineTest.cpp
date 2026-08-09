@@ -248,6 +248,13 @@ void main()
                 binding == ShaderBindingLayout::TEX_CLOUD_BASE_NOISE ||
                 binding == ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE ||
                 binding == ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP ||
+                // include/ReflectionProbes.glsl — the distance-impostor probe
+                // arrays (issue #705), published every frame by
+                // ReflectionProbeArray::BindForShading via
+                // PublishTextureOffsetAndBind for the bindless-route deferred /
+                // forward PBR shaders and the slot-based MSAA variant alike.
+                binding == ShaderBindingLayout::TEX_REFLECTION_PROBE_RADIANCE ||
+                binding == ShaderBindingLayout::TEX_REFLECTION_PROBE_DISTANCE ||
                 // include/WindSampling.glsl; WindSystem::BindWindTexture binds it
                 // directly every frame, bypassing the seam entirely.
                 binding == ShaderBindingLayout::TEX_WIND_FIELD;
@@ -706,6 +713,9 @@ void main()
             { "include/VirtualDebugViz.glsl",
               "shared header, STORAGE IMAGES: bound directly by RenderCommand::BindImageTexture in "
               "VirtualGeometryPass, which never consults the seam" },
+            { "include/ReflectionProbes.glsl",
+              "shared header; the two probe cube arrays are published+bound in "
+              "ReflectionProbeArray::BindForShading (issue #705)" },
 
             // ---- 2. A SAMPLER TARGET WITH NO RESERVED NULL -------------------
             // A heap handle is typed by TARGET, and every unset input lands on

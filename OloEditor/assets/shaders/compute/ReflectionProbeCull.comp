@@ -1,0 +1,133 @@
+#version 460 core
+
+// =============================================================================
+// ReflectionProbeCull.comp — per-cluster reflection-probe assignment
+// (issue #705).
+//
+// One workgroup per froxel cluster on the SAME fixed 32x18x24 grid and
+// exponential slice mapping as the Forward+ light cull (dispatch dimensions =
+// cluster counts, so gl_NumWorkGroups carries the grid size — the
+// LightCulling.comp convention). Each of the 32 threads tests one probe's
+// influence sphere against the cluster frustum and OR's its bit into the
+// cluster's mask; probeGrid[cluster] bit i set == probe i overlaps.
+//
+// The frustum construction and sphere test mirror LightCulling.comp (and via
+// it ClusteredLighting.h / ForwardPlusCommon.glsl / FroxelFogScatter.comp —
+// the cluster-math mirror list in ClusteredLighting.h's header comment).
+// Probe positions in the UBO are render-origin-relative, so u_ViewMatrix must
+// be the RELATIVE view (issue #429), exactly like the light cull.
+// =============================================================================
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 53) writeonly buffer ReflectionProbeGridBuf
+{
+    uint probeGrid[];
+};
+
+// Mirrors UBOStructures::ReflectionProbeUBO and the ReflectionProbeData block
+// in include/ReflectionProbes.glsl.
+struct ReflectionProbe
+{
+    vec4 PositionRadius; // xyz = render-relative position, w = influence radius
+    vec4 Params;         // x = blend distance, y = intensity, z = dMax, w = layer
+};
+
+layout(std140, binding = 58) uniform ReflectionProbeData
+{
+    uvec4 u_ProbeCounts;      // x = probe count, y = grid valid, z = clusterCountX, w = clusterCountY
+    vec4 u_ProbeTileScale;    // xy = clusterCount / screenSize, z = clusterCountZ, w = unused
+    vec4 u_ProbeDepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
+    ReflectionProbe u_Probes[32];
+};
+
+uniform mat4 u_ViewMatrix; // RELATIVE world -> view
+uniform mat4 u_InverseProjectionMatrix;
+uniform float u_NearPlane;
+uniform float u_FarPlane;
+
+shared uint s_Mask;
+
+// Unproject an NDC xy coordinate on the near plane into view space.
+vec3 ndcNearToView(vec2 ndc)
+{
+    vec4 view = u_InverseProjectionMatrix * vec4(ndc, -1.0, 1.0);
+    return view.xyz / view.w;
+}
+
+// Sphere (view space) vs cluster frustum: 4 side planes through the origin
+// plus the slice's near/far z bounds. Mirrors LightCulling.comp.
+bool sphereInClusterFrustum(vec3 center, float radius,
+                            vec4 planes[4], float nearZ, float farZ)
+{
+    if (center.z + radius < farZ || center.z - radius > nearZ)
+        return false;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        float d = dot(planes[i].xyz, center) + planes[i].w;
+        if (d < -radius)
+            return false;
+    }
+    return true;
+}
+
+void buildTileFrustumPlanes(vec2 ndcMin, vec2 ndcMax, out vec4 planes[4])
+{
+    vec3 topLeft     = ndcNearToView(vec2(ndcMin.x, ndcMax.y));
+    vec3 topRight    = ndcNearToView(vec2(ndcMax.x, ndcMax.y));
+    vec3 bottomLeft  = ndcNearToView(vec2(ndcMin.x, ndcMin.y));
+    vec3 bottomRight = ndcNearToView(vec2(ndcMax.x, ndcMin.y));
+
+    vec3 n = cross(bottomLeft, topLeft);
+    planes[0] = vec4(normalize(n), 0.0); // left
+    n = cross(topRight, bottomRight);
+    planes[1] = vec4(normalize(n), 0.0); // right
+    n = cross(bottomRight, bottomLeft);
+    planes[2] = vec4(normalize(n), 0.0); // bottom
+    n = cross(topLeft, topRight);
+    planes[3] = vec4(normalize(n), 0.0); // top
+}
+
+void main()
+{
+    uvec3 clusterID = gl_WorkGroupID;
+    uvec3 clusterCounts = gl_NumWorkGroups; // dispatch = (countX, countY, countZ)
+    uint clusterIndex = (clusterID.z * clusterCounts.y + clusterID.y) * clusterCounts.x + clusterID.x;
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        s_Mask = 0u;
+    }
+    barrier();
+
+    vec2 ndcMin = vec2(clusterID.xy) / vec2(clusterCounts.xy) * 2.0 - 1.0;
+    vec2 ndcMax = vec2(clusterID.xy + uvec2(1u)) / vec2(clusterCounts.xy) * 2.0 - 1.0;
+
+    vec4 frustumPlanes[4];
+    buildTileFrustumPlanes(ndcMin, ndcMax, frustumPlanes);
+
+    float sliceCount = float(clusterCounts.z);
+    float logFOverN = log2(u_FarPlane / u_NearPlane);
+    float sliceNearDist = u_NearPlane * exp2(logFOverN * (float(clusterID.z) / sliceCount));
+    float sliceFarDist  = u_NearPlane * exp2(logFOverN * (float(clusterID.z + 1u) / sliceCount));
+    float nearZ = -sliceNearDist;
+    float farZ  = -sliceFarDist;
+
+    uint i = gl_LocalInvocationIndex;
+    if (i < u_ProbeCounts.x)
+    {
+        vec3 viewPos = (u_ViewMatrix * vec4(u_Probes[i].PositionRadius.xyz, 1.0)).xyz;
+        float radius = u_Probes[i].PositionRadius.w;
+        if (sphereInClusterFrustum(viewPos, radius, frustumPlanes, nearZ, farZ))
+        {
+            atomicOr(s_Mask, 1u << i);
+        }
+    }
+    barrier();
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        probeGrid[clusterIndex] = s_Mask;
+    }
+}
