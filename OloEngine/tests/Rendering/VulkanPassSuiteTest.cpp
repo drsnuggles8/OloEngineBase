@@ -36,7 +36,9 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
+#include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -64,6 +66,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -114,6 +117,59 @@ namespace
             current = current.parent_path();
         }
         return false;
+    }
+
+    // Solid-colour input for analytic-contract tenants (a vignette's
+    // darkening, a chromatic aberration's channel split, … are all cleanest
+    // to assert against a uniform field).
+    Ref<Texture2D> MakeSolidTexture(u32 size, u8 r, u8 g, u8 b, u8 a)
+    {
+        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4);
+        for (sizet i = 0; i < pixels.size(); i += 4)
+        {
+            pixels[i + 0] = r;
+            pixels[i + 1] = g;
+            pixels[i + 2] = b;
+            pixels[i + 3] = a;
+        }
+        TextureSpecification spec;
+        spec.Width = size;
+        spec.Height = size;
+        spec.Format = ImageFormat::RGBA8;
+        spec.GenerateMips = false;
+        auto texture = Texture2D::Create(spec);
+        if (texture)
+            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+        return texture;
+    }
+
+    // A clean vertical black|white edge at pixel column `edgeX` — for
+    // contracts that need a step response away from the screen centre (a
+    // radial effect like chromatic aberration is zero AT the centre).
+    Ref<Texture2D> MakeVerticalEdgeTexture(u32 size, u32 edgeX)
+    {
+        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4);
+        for (u32 y = 0; y < size; ++y)
+        {
+            for (u32 x = 0; x < size; ++x)
+            {
+                const u8 v = x >= edgeX ? 255 : 0;
+                const sizet i = (static_cast<sizet>(y) * size + x) * 4;
+                pixels[i + 0] = v;
+                pixels[i + 1] = v;
+                pixels[i + 2] = v;
+                pixels[i + 3] = 255;
+            }
+        }
+        TextureSpecification spec;
+        spec.Width = size;
+        spec.Height = size;
+        spec.Format = ImageFormat::RGBA8;
+        spec.GenerateMips = false;
+        auto texture = Texture2D::Create(spec);
+        if (texture)
+            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+        return texture;
     }
 
     // The pilot's golden input (VulkanShaderPipelineTest::MakeHardEdgePattern,
@@ -334,6 +390,92 @@ class VulkanPassSuite : public ::testing::Test
         {
             RenderCommand::Init();
         }
+    }
+
+    // The Wave A tenant harness: producer(input) -> passNode -> caller-backed
+    // output, through the real graph on the process-global Vulkan backend.
+    // Asserts the shared execute contracts (both draws prepared, none
+    // dropped, zero resolve failures, the pass's GetTarget() non-null) and
+    // returns the output readback for the tenant's own pixel assertions.
+    // The FXAA test predates this helper and keeps its deeper diagnostics
+    // (plan dump, intermediate bisect, golden compare) inline.
+    std::vector<u8> RunSinglePassChain(u32 size,
+                                       const Ref<Texture2D>& inputTexture,
+                                       const Ref<Shader>& blitShader,
+                                       const Ref<RenderGraphNode>& passNode,
+                                       const char* finalPassName,
+                                       std::string_view outputResourceName,
+                                       const std::function<void(FrameBlackboard&, RGFramebufferHandle)>& assignOutput)
+    {
+        std::vector<u8> rendered;
+
+        RenderGraph graph;
+        // Pool materialization is opt-in; production enables it in
+        // Renderer3DRenderGraphSetup (the fixture-contract list in this
+        // file's header).
+        graph.SetTransientMaterializationEnabled(true);
+
+        RGResourceDesc fbDesc;
+        fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+        fbDesc.Width = size;
+        fbDesc.Height = size;
+
+        auto& blackboard = graph.GetBlackboard();
+        blackboard.Post.PostProcessColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::PostProcessColor, fbDesc);
+
+        FramebufferSpecification outputSpec;
+        outputSpec.Width = size;
+        outputSpec.Height = size;
+        outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
+        if (!outputFramebuffer)
+        {
+            ADD_FAILURE() << "backed output framebuffer creation failed";
+            return rendered;
+        }
+        assignOutput(blackboard, graph.DeclareTransientFramebuffer(outputResourceName, fbDesc, outputFramebuffer));
+
+        auto producer = Ref<PatternProducerPass>::Create(inputTexture, blitShader);
+        graph.AddNode(producer);
+        graph.AddNode(passNode);
+        graph.SetFinalPass(finalPassName);
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+                RHI::Barrier toSampled{};
+                toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_TRUE(producer->DidDraw) << finalPassName << ": the producer pass early-returned";
+        EXPECT_TRUE(passNode->GetTarget()) << finalPassName << ": the pass early-returned (input/output/shader guard)";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << finalPassName << ": resolve failure pass='" << failure.PassName << "' reason='"
+                          << failure.Reason << "' x" << failure.Count;
+        }
+        {
+            auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+            EXPECT_EQ(vkApi.GetPreparedDrawsThisRecording(), 2u) << finalPassName << ": expected exactly two draws";
+            EXPECT_EQ(vkApi.GetDroppedDrawsThisRecording(), 0u) << finalPassName << ": a draw dropped silently";
+        }
+
+        auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+        if (vkOutput->GetColorAttachmentImage(0) == nullptr ||
+            !vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0))
+        {
+            ADD_FAILURE() << finalPassName << ": output readback failed";
+        }
+        return rendered;
     }
 
     // One simulated frame through the GLOBAL backend's recording bracket.
@@ -578,6 +720,135 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the graph execution must not fall through to a stub";
+}
+
+// =============================================================================
+// Wave A tenants — one test per ported pass, on the RunSinglePassChain
+// harness. Contract style: analytic (the pass's defining property asserted on
+// pixels), not golden — self-contained, no GL-side generation step.
+// =============================================================================
+
+TEST_F(VulkanPassSuite, VignettePassDarkensCornersThroughTheRenderGraph)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto whiteInput = MakeSolidTexture(kSize, 255, 255, 255, 255);
+    ASSERT_NE(whiteInput, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // vignette = smoothstep(0.5, 0.5 - smoothness, dist * (1 + intensity)):
+    // at intensity 1.0 / smoothness 0.15 the centre keeps factor 1.0 while
+    // every probe corner's scaled distance sits far past the outer edge —
+    // factor 0. White input therefore reads white centre, black corners.
+    PostProcessUBOData uboData{};
+    uboData.VignetteIntensity = 1.0f;
+    uboData.VignetteSmoothness = 0.15f;
+    uboData.InverseScreenWidth = 1.0f / static_cast<f32>(kSize);
+    uboData.InverseScreenHeight = 1.0f / static_cast<f32>(kSize);
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+    postProcessUbo->SetData(&uboData, sizeof(uboData));
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    auto vignette = Ref<VignetteRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    vignette->Init(initSpec);
+    vignette->SetEnabled(true);
+
+    const auto rendered = RunSinglePassChain(kSize, whiteInput, blitShader, vignette, "VignettePass",
+                                             ResourceNames::VignetteColor,
+                                             [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                             { blackboard.Post.VignetteColor = handle; });
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const auto luma = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return static_cast<int>(rendered[i]);
+    };
+    EXPECT_GE(luma(64, 64), 250) << "the vignette factor at the centre must be ~1 (white survives)";
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 120, 8 }, { 8, 120 }, { 120, 120 } })
+    {
+        EXPECT_LE(luma(x, y), 10) << "corner (" << x << "," << y << ") must be fully vignetted to black";
+    }
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+TEST_F(VulkanPassSuite, ChromaticAberrationSplitsChannelsAcrossAnOffCentreEdge)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // Edge at x=96 (uv 0.75) — well off-centre, where dir is large. The
+    // shader samples R at uv + dir*offset (outward), B at uv - dir*offset
+    // (inward), G centred.
+    auto edgeInput = MakeVerticalEdgeTexture(kSize, 96);
+    ASSERT_NE(edgeInput, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    PostProcessUBOData uboData{};
+    uboData.ChromaticAberrationIntensity = 0.2f;
+    uboData.InverseScreenWidth = 1.0f / static_cast<f32>(kSize);
+    uboData.InverseScreenHeight = 1.0f / static_cast<f32>(kSize);
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+    postProcessUbo->SetData(&uboData, sizeof(uboData));
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    auto chromAb = Ref<ChromaticAberrationRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    chromAb->Init(initSpec);
+    chromAb->SetEnabled(true);
+
+    const auto rendered = RunSinglePassChain(kSize, edgeInput, blitShader, chromAb, "ChromAberrationPass",
+                                             ResourceNames::ChromAbColor,
+                                             [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                             { blackboard.Post.ChromAbColor = handle; });
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const auto px = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
+    };
+
+    // x=94, y=64: uv.x 0.7383, dir.x 0.2383, shift 0.0477 — R's sample lands
+    // RIGHT of the edge (white), B's lands LEFT (black), G centred (black):
+    // a pure red fringe. All sample points sit > 4 texels from the edge, so
+    // bilinear filtering cannot soften the contract.
+    const auto fringe = px(94, 64);
+    EXPECT_GT(fringe[0], 200) << "R must have sampled the white side (outward shift)";
+    EXPECT_LT(fringe[1], 50) << "G stays centred on the black side";
+    EXPECT_LT(fringe[2], 50) << "B must have sampled the black side (inward shift)";
+
+    // Far field: deep black (all three shifted samples stay black) and deep
+    // white (all stay white) must pass through unsplit.
+    const auto deepBlack = px(32, 64);
+    EXPECT_LT(deepBlack[0], 10);
+    EXPECT_LT(deepBlack[1], 10);
+    EXPECT_LT(deepBlack[2], 10);
+    const auto deepWhite = px(120, 64);
+    EXPECT_GT(deepWhite[0], 245);
+    EXPECT_GT(deepWhite[1], 245);
+    EXPECT_GT(deepWhite[2], 245);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
 }
 
 #endif // OLO_WITH_VULKAN

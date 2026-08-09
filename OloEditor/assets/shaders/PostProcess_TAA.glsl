@@ -21,6 +21,27 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): vertex pulling from the engine-wide binding 57.
+// The stream is the standard 20-byte {vec3 position, vec2 uv}; this shader's
+// GL branch consumes only the position and DERIVES its UV — the pull branch
+// reproduces that derivation exactly rather than reading floats 3–4, so the
+// two routes cannot disagree.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+
+layout(location = 0) out vec2 v_TexCoord;
+
+void main()
+{
+    int base = gl_VertexIndex * 5;
+    vec2 position = vec2(b_Vertices.v[base + 0], b_Vertices.v[base + 1]);
+    v_TexCoord = position * 0.5 + 0.5;
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 0) out vec2 v_TexCoord;
 
@@ -29,6 +50,7 @@ void main()
     v_TexCoord = a_Position.xy * 0.5 + 0.5;
     gl_Position = vec4(a_Position.xy, 0.0, 1.0);
 }
+#endif
 
 #type fragment
 #version 460 core
