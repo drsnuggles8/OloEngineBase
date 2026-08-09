@@ -102,7 +102,14 @@ namespace OloEngine
                     OLO_CORE_ERROR("VulkanShader: #type line has no newline");
                     break;
                 }
-                const sizet begin = pos + tokenLength + 1;
+                // Tolerate any run of spaces/tabs after #type (the GL
+                // preprocessor accepts "#type  vertex"; acceptance must not
+                // be backend-dependent).
+                sizet begin = pos + tokenLength;
+                while (begin < eol && (source[begin] == ' ' || source[begin] == '\t'))
+                {
+                    ++begin;
+                }
                 std::string type = source.substr(begin, eol - begin);
                 // Trim trailing whitespace/CR.
                 while (!type.empty() && (type.back() == ' ' || type.back() == '\r' || type.back() == '\t'))
@@ -126,6 +133,14 @@ namespace OloEngine
                 }
 
                 const sizet nextLinePos = source.find_first_not_of("\r\n", eol);
+                if (nextLinePos == std::string::npos)
+                {
+                    // A trailing #type with no body: record an empty stage —
+                    // shaderc rejects it with a proper diagnostic instead of
+                    // substr(npos) throwing out of the constructor.
+                    stages[stage] = {};
+                    break;
+                }
                 pos = source.find(kToken, nextLinePos);
                 stages[stage] = (pos == std::string::npos)
                                     ? source.substr(nextLinePos)
@@ -143,7 +158,13 @@ namespace OloEngine
                 return {};
             }
             in.seekg(0, std::ios::end);
-            std::string result(static_cast<sizet>(in.tellg()), '\0');
+            const auto size = in.tellg();
+            if (size < 0)
+            {
+                OLO_CORE_ERROR("VulkanShader: could not size '{}'", filepath);
+                return {};
+            }
+            std::string result(static_cast<sizet>(size), '\0');
             in.seekg(0, std::ios::beg);
             in.read(result.data(), static_cast<std::streamsize>(result.size()));
             return result;
@@ -346,14 +367,25 @@ namespace OloEngine
             }
         }
 
-        // Reflection + module creation only after every stage compiled.
-        m_SPIRV = std::move(spirv);
-        m_Bindings.clear();
-        m_IsDeferredCapable = false;
-        for (const auto& [stage, data] : m_SPIRV)
+        // Modules and reflection are built into LOCALS and committed only
+        // when everything succeeded: a partial failure on a Reload must leave
+        // m_Bindings describing the modules still in use — the root-data
+        // layout is derived from GetBindings(), and a mismatch writes offsets
+        // the executing SPIR-V does not read (silently, via memcpy).
+        std::unordered_map<VkShaderStageFlagBits, VkShaderModule> newModules;
+        const auto destroyNewModules = [&]
         {
-            ReflectStage(stage, data);
-
+            for (auto& [stage, module] : newModules)
+            {
+                if (module != VK_NULL_HANDLE)
+                {
+                    vkDestroyShaderModule(device->GetDevice(), module, nullptr);
+                }
+            }
+            newModules.clear();
+        };
+        for (const auto& [stage, data] : spirv)
+        {
             VkShaderModuleCreateInfo moduleInfo{};
             moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
             moduleInfo.codeSize = data.size() * sizeof(u32);
@@ -362,12 +394,39 @@ namespace OloEngine
             if (vkCreateShaderModule(device->GetDevice(), &moduleInfo, nullptr, &module) != VK_SUCCESS)
             {
                 OLO_CORE_ERROR("VulkanShader '{}': vkCreateShaderModule failed ({} stage)", m_Name, StageName(stage));
-                DestroyModules();
+                destroyNewModules();
                 m_Status = ShaderCompilationStatus::Failed;
                 return false;
             }
-            m_Modules[stage] = module;
+            newModules[stage] = module;
         }
+
+        // Reflection (spirv_cross can throw on a corrupt cached blob — that
+        // too must not tear the committed state).
+        auto oldBindings = std::move(m_Bindings);
+        const bool oldDeferredCapable = m_IsDeferredCapable;
+        m_Bindings.clear();
+        m_IsDeferredCapable = false;
+        try
+        {
+            for (const auto& [stage, data] : spirv)
+            {
+                ReflectStage(stage, data);
+            }
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("VulkanShader '{}': reflection failed ({})", m_Name, e.what());
+            destroyNewModules();
+            m_Bindings = std::move(oldBindings);
+            m_IsDeferredCapable = oldDeferredCapable;
+            m_Status = ShaderCompilationStatus::Failed;
+            return false;
+        }
+
+        // Commit — nothing below can fail.
+        m_SPIRV = std::move(spirv);
+        m_Modules = std::move(newModules);
 
         // Identity: minted once, survives Reload (amendment (12) — the
         // reverse-index key and every cached reference stay valid while the
@@ -502,17 +561,20 @@ namespace OloEngine
         m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()),
                                   m_IncludedFilePaths.end());
 
-        // Old pipelines invalidate FIRST (deferred destruction, §3(d)); the
-        // old modules keep the failed-reload path safe — only on success do
-        // they get replaced.
+        // Dependent pipelines are invalidated only AFTER a successful rebuild
+        // (deferred destruction, §3(d)); the old modules keep the
+        // failed-reload path safe — only on success do they get replaced.
+        const ShaderCompilationStatus previousStatus = m_Status;
         auto oldModules = std::move(m_Modules);
         m_Modules.clear();
         if (!BuildFromSources(stages, /*useCache=*/true))
         {
             // Failed reload: keep the old modules and pipelines working (the
-            // GL path's restore rule).
+            // GL path's restore rule) — and the old STATUS: forcing Ready on
+            // a shader that never built would let the pilot accept a
+            // zero-module shader.
             m_Modules = std::move(oldModules);
-            m_Status = ShaderCompilationStatus::Ready;
+            m_Status = previousStatus;
             OLO_CORE_ERROR("VulkanShader '{}': reload failed — keeping the previous modules", m_Name);
             return;
         }

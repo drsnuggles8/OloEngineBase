@@ -47,6 +47,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 
+#include <algorithm>
+
 namespace OloEngine::RHI
 {
     // §6's minimum op set. On a timeline-semaphore backend `Set` still obeys
@@ -90,9 +92,13 @@ namespace OloEngine::RHI
 
         // Monotonic value dispenser for callers that treat the fence as a
         // frame/step timeline: each call returns the next value to signal.
+        // Anchored on max(dispensed, completed): a caller that signalled a
+        // hand-picked value directly must still receive a dispensable value
+        // STRICTLY above the live counter (the timeline contract).
         [[nodiscard]] u64 NextValue()
         {
-            return ++m_LastDispensedValue;
+            m_LastDispensedValue = std::max(m_LastDispensedValue, CompletedValue()) + 1;
+            return m_LastDispensedValue;
         }
         [[nodiscard]] u64 LastDispensedValue() const
         {

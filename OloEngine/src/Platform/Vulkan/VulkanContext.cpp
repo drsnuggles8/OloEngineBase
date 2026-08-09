@@ -437,6 +437,7 @@ namespace OloEngine
 
             if (!VulkanResourceHeap::Get().EnsureCreated())
             {
+                OLO_CORE_WARN("[Vulkan] Phase 6 pilot: resource heap unavailable — clear-only frame");
                 return;
             }
             pilot.HeapSlot = VulkanResourceHeap::Get().AllocateSlot();
@@ -686,6 +687,13 @@ namespace OloEngine
         // the only correct place to advance the deferred-reclaim generation —
         // Phase 5 built the queue but nothing in production drained it, so a
         // --rhi=vulkan session leaked every enqueued resource until exit.
+        // NOTE: the acquire below can abort this frame without a submit
+        // (OUT_OF_DATE), so this slot's generation advance can happen twice
+        // against one submission. That is safe ONLY because the abort path
+        // goes through RecreateSwapchain, whose vkDeviceWaitIdle drains every
+        // in-flight submission first — if RecreateSwapchain ever loses that
+        // wait (VK_KHR_swapchain_maintenance1 migration), this advance must
+        // move to after a successful vkQueueSubmit2 instead.
         VulkanDeferredReclaim::Get().NotifyFrameCompleted();
         // Same gate for the root-data arena: slot FrameIndex's bump cursor may
         // only rewind once the GPU can no longer read the slot's memory.

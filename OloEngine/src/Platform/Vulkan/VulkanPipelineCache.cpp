@@ -23,8 +23,11 @@ namespace OloEngine
 
     VkPipelineCache VulkanPipelineCache::Handle()
     {
-        if (m_Cache != VK_NULL_HANDLE)
+        if (m_Cache != VK_NULL_HANDLE || m_CreateFailed)
         {
+            // A hard create failure is recorded once — Handle() runs per
+            // pipeline creation, and retrying a persistently failing driver
+            // call would emit one failed call + one warn per pipeline.
             return m_Cache;
         }
 
@@ -85,6 +88,7 @@ namespace OloEngine
             OLO_CORE_WARN("[Vulkan] vkCreatePipelineCache failed outright (VkResult {}) — pipelines will be uncached",
                           static_cast<int>(result));
             m_Cache = VK_NULL_HANDLE;
+            m_CreateFailed = true;
         }
         else if (!blob.empty())
         {
@@ -100,6 +104,7 @@ namespace OloEngine
         {
             m_Cache = VK_NULL_HANDLE;
             m_LoadAttempted = false;
+            m_CreateFailed = false;
             return;
         }
 
@@ -139,6 +144,7 @@ namespace OloEngine
         vkDestroyPipelineCache(device->GetDevice(), m_Cache, nullptr);
         m_Cache = VK_NULL_HANDLE;
         m_LoadAttempted = false;
+        m_CreateFailed = false;
     }
 } // namespace OloEngine
 

@@ -87,6 +87,11 @@ namespace OloEngine
         // Timeline semaphores are monotonic regardless of the requested op —
         // Set and AtomicMax coincide as long as values increase, which the
         // NextValue() dispenser guarantees and mixed callers must respect.
+        // Best-effort staging-time check: the violation would otherwise only
+        // surface as a validation error (or device loss) at submit time, far
+        // from the caller that staged the bad value.
+        OLO_CORE_ASSERT(value > CompletedValue(),
+                        "VulkanGpuFence::QueueSignal: timeline values must strictly increase");
         (void)op;
         PendingOps().push_back({ .Semaphore = m_Semaphore, .Value = value, .IsSignal = true });
     }

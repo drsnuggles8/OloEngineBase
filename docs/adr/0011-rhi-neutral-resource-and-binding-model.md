@@ -2417,7 +2417,7 @@ and moved the frame loop from clear-only to its first rendered pass. The
 checkpoint held: `PostProcess_FXAA.glsl` — the golden-tested pass — renders on
 Vulkan **bit-identical to the GL golden (RMSE = 0)** through the full
 root-pointer + thin-PSO + vertex-pulling shape
-(`VulkanShaderPipelineTest.FxaaGoldenPassRendersCorrectlyOnVulkan`), with zero
+(`VulkanShaderPipeline.FxaaGoldenPassRendersCorrectlyOnVulkan`), with zero
 validation errors, sync validation included. Seven findings.
 
 ### (50) The MAPPING model: classic binding declarations survive — §4 is a pipeline-creation contract, not a GLSL rewrite

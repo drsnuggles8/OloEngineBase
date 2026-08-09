@@ -16,15 +16,10 @@
 // failed save at shutdown is logged and ignored. This mirrors the GL path's
 // rejected-glProgramBinary fallback.
 //
-// REVERSE INDEX (§3(d)). On Vulkan one shader is the source of N pipelines
-// (state permutation × attachment formats), so Shader::Reload() cannot stay a
-// per-object operation: RegisterPipeline records shader→pipeline at creation
-// time, and InvalidateShader destroys every dependent pipeline — DEFERRED
-// through VulkanDeferredReclaim (an in-flight command buffer may still
-// reference them) and LAZILY recreated on next use (eager recreation of every
-// permutation per save would stall the iteration loop hot reload exists to
-// serve; the recreated pipeline hits this cache for everything that did not
-// change).
+// §3(d)'s shader→pipeline reverse index does NOT live here — it lives in
+// VulkanPipelineBuilder, fused with the key→pipeline lookup map (see the note
+// on the class below). This class is the disk blob only; the lazily-recreated
+// pipelines after an invalidation hit it for everything that did not change.
 //
 // Thread-safety: NONE, deliberately — render thread only.
 
@@ -73,6 +68,7 @@ namespace OloEngine
 
         VkPipelineCache m_Cache = VK_NULL_HANDLE;
         bool m_LoadAttempted = false;
+        bool m_CreateFailed = false; ///< Hard vkCreatePipelineCache failure — do not retry per Handle() call.
     };
 } // namespace OloEngine
 

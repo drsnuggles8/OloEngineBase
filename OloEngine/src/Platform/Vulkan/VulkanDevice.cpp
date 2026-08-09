@@ -432,7 +432,10 @@ namespace OloEngine
             eds3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
             eds3Features.pNext = &vulkan12Features;
         }
-        m_DynamicBlendStateEnabled = wantDynamicBlend;
+        // m_DynamicBlendStateEnabled is committed AFTER vkCreateDevice
+        // succeeds (below): the flag must describe the LOGICAL device's
+        // enabled features, and until the create returns, nothing has been
+        // enabled anywhere.
 
         // Core VkPhysicalDeviceFeatures the engine's shader stages need:
         // tessellation (terrain patches) and geometry shaders. Enabled WHEN
@@ -475,6 +478,10 @@ namespace OloEngine
         deviceInfo.pEnabledFeatures = &enabledFeatures;
 
         VkCheck(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_Device), "vkCreateDevice");
+        // The create succeeded with the EDS3 chain (when requested), so the
+        // three blend feature bits are now enabled facts of the logical
+        // device — commit the flag the pipeline builder branches on.
+        m_DynamicBlendStateEnabled = wantDynamicBlend;
         volkLoadDevice(m_Device);
         vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
 

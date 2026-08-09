@@ -58,23 +58,33 @@ namespace
     // device-gated fixture.
     bool ChangeToOloEditorDir()
     {
+        // Non-throwing overloads throughout: a filesystem failure must skip
+        // the fixture, not abort SetUp with an unhandled exception (the
+        // RenderPropertyTest helper's rule).
         namespace fs = std::filesystem;
-        fs::path candidate = fs::current_path();
+        std::error_code ec;
+        fs::path candidate = fs::current_path(ec);
+        if (ec)
+        {
+            return false;
+        }
         for (int i = 0; i < 6; ++i)
         {
             const fs::path editorDir = candidate / "OloEditor";
-            if (fs::exists(editorDir / "assets" / "shaders"))
+            if (fs::exists(editorDir / "assets" / "shaders", ec) && !ec)
             {
-                fs::current_path(editorDir);
-                return true;
+                fs::current_path(editorDir, ec);
+                return !ec;
             }
+            ec.clear();
             if (!candidate.has_parent_path() || candidate.parent_path() == candidate)
             {
                 break;
             }
             candidate = candidate.parent_path();
         }
-        return fs::exists(fs::path("assets") / "shaders");
+        const bool alreadyThere = fs::exists(fs::path("assets") / "shaders", ec) && !ec;
+        return alreadyThere;
     }
 
     // Restores the process-wide API selection (these tests run inside the GL
@@ -117,12 +127,28 @@ namespace
             }
             volkLoadInstance(probe);
 
+            // Both results checked + the VK_INCOMPLETE resize (the exec-test
+            // ladder): trailing VK_NULL_HANDLE entries must never reach
+            // VulkanCapabilities::Evaluate.
             u32 deviceCount = 0;
-            vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr);
+            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
+            {
+                vkDestroyInstance(probe, nullptr);
+                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
+            }
             std::vector<VkPhysicalDevice> devices(deviceCount);
             if (deviceCount > 0)
             {
-                vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
+                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
+                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
+                {
+                    devices.resize(deviceCount);
+                }
+                else
+                {
+                    vkDestroyInstance(probe, nullptr);
+                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
+                }
             }
             const bool anySatisfying = std::ranges::any_of(devices, [](VkPhysicalDevice d)
                                                            { return VulkanCapabilities::Evaluate(d).Satisfied; });
@@ -537,6 +563,11 @@ namespace
         ASSERT_EQ(vkQueueSubmit(device.GetQueue(), 1, &submit, VK_NULL_HANDLE), VK_SUCCESS);
         ASSERT_EQ(vkQueueWaitIdle(device.GetQueue()), VK_SUCCESS);
 
+        // HOST_ACCESS_RANDOM prefers HOST_CACHED memory, which may be
+        // non-coherent — device writes need an explicit invalidate before the
+        // host read (no-op on coherent memory).
+        vmaInvalidateAllocation(device.GetAllocator(), allocation, 0, byteSize);
+
         outRgba8.resize(static_cast<sizet>(byteSize));
         std::memcpy(outRgba8.data(), mapInfo.pMappedData, static_cast<sizet>(byteSize));
 
@@ -741,6 +772,8 @@ TEST_F(VulkanShaderPipeline, FxaaGoldenPassRendersCorrectlyOnVulkan)
     std::ranges::sort(darkBlends);
     std::ranges::sort(brightBlends, std::greater<>());
     const sizet pairs = std::min(darkBlends.size(), brightBlends.size());
+    ASSERT_GT(pairs, 0u) << "FXAA produced blends in only one direction (dark=" << darkBlends.size()
+                         << ", bright=" << brightBlends.size() << ") — the complementary invariant is untestable";
     u32 mismatched = 0;
     for (sizet i = 0; i < pairs; ++i)
     {

@@ -59,6 +59,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include "RenderingTestUtils.h"
@@ -220,9 +221,11 @@ class VulkanRenderGraphExecution : public ::testing::Test
         if (!m_Device)
             return;
         vkDeviceWaitIdle(m_Device->GetDevice());
-        // The frame arena is a leaked process-wide singleton; its slot buffers
-        // belong to THIS test's device and must not survive it.
+        // The frame arena and resource heap are leaked process-wide
+        // singletons; their buffers belong to THIS test's device and must
+        // not survive it.
         VulkanFrameArena::Get().ReleaseBuffers();
+        VulkanResourceHeap::Get().Release();
         VulkanDeferredReclaim::Get().FlushAll();
         if (m_Fence != VK_NULL_HANDLE)
             vkDestroyFence(m_Device->GetDevice(), m_Fence, nullptr);
@@ -630,9 +633,11 @@ TEST_F(VulkanRenderGraphExecution, GpuFenceSignalsAndWaitsAcrossHostAndQueue)
     ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
     ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
 
-    // The value dispenser is monotonic and CPU-side only.
-    EXPECT_EQ(fence->NextValue(), 1u);
-    EXPECT_EQ(fence->NextValue(), 2u);
+    // The value dispenser is monotonic AND anchored above the live counter:
+    // the counter reached 2 via the signals above, so the next dispensable
+    // values are 3, 4 — never a value a signal already used.
+    EXPECT_EQ(fence->NextValue(), 3u);
+    EXPECT_EQ(fence->NextValue(), 4u);
 
     // Destruction goes through deferred reclaim — provoke it and drain.
     fence = nullptr;

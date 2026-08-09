@@ -15,14 +15,34 @@ namespace OloEngine
 
     bool VulkanResourceHeap::EnsureCreated()
     {
-        if (m_Buffer != VK_NULL_HANDLE)
-        {
-            return true;
-        }
+        // Device liveness FIRST: this is a leaked process-wide singleton, and
+        // cached state must never outrank the question "is there a device,
+        // and is it the one that created my buffer?" (the caught failure:
+        // teardown without Release() left a dead device's handles cached, and
+        // the next call dereferenced a null device).
         auto* device = VulkanDevice::Get();
         if (device == nullptr)
         {
             return false;
+        }
+        if (m_Buffer != VK_NULL_HANDLE)
+        {
+            if (m_OwningDevice == device->GetDevice())
+            {
+                return true;
+            }
+            // A different device is live: the cached buffer belongs to a
+            // device that shut down without our Release(). Its objects died
+            // with that device — freeing them through the NEW allocator would
+            // be UB, so drop the state and warn (the leak already happened at
+            // the missed Release()).
+            OLO_CORE_WARN("VulkanResourceHeap: cached heap belongs to a dead device (missed Release()) — "
+                          "dropping stale state and recreating");
+            m_Buffer = VK_NULL_HANDLE;
+            m_Allocation = VK_NULL_HANDLE;
+            m_Mapped = nullptr;
+            m_BaseAddress = 0;
+            m_NextSlot = 0;
         }
 
         // Device heap properties decide every size in the layout.
@@ -71,7 +91,21 @@ namespace OloEngine
         addressInfo.buffer = m_Buffer;
         m_BaseAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
 
-        OLO_CORE_ASSERT(m_Mapped != nullptr, "VulkanResourceHeap: mapped pointer missing");
+        // Real failure checks, not assert-only (asserts compile out in
+        // release): a null mapping would flow into pointer arithmetic in
+        // WriteSampledImage, a zero address into CmdBind's heap range.
+        if (m_Mapped == nullptr || m_BaseAddress == 0)
+        {
+            OLO_CORE_ERROR("VulkanResourceHeap: heap came up unusable (mapped={}, address={:#x}) — releasing",
+                           m_Mapped != nullptr, m_BaseAddress);
+            vmaDestroyBuffer(device->GetAllocator(), m_Buffer, m_Allocation);
+            m_Buffer = VK_NULL_HANDLE;
+            m_Allocation = VK_NULL_HANDLE;
+            m_Mapped = nullptr;
+            m_BaseAddress = 0;
+            return false;
+        }
+        m_OwningDevice = device->GetDevice();
         OLO_CORE_INFO("[Vulkan] Resource heap created: {} slots x {} B stride (+{} B reserved)", kSlotCapacity,
                       m_DescriptorStride, m_SlotRegionOffset);
         return true;
@@ -152,6 +186,7 @@ namespace OloEngine
         m_Mapped = nullptr;
         m_BaseAddress = 0;
         m_NextSlot = 0;
+        m_OwningDevice = VK_NULL_HANDLE;
     }
 } // namespace OloEngine
 

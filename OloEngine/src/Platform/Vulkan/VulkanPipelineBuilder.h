@@ -118,6 +118,7 @@ namespace OloEngine
             u32 Samples = 1;
             u64 BakedBlendHash = 0; ///< 0 when blend is dynamic (EDS3 present).
             u64 SamplerHash = 0;
+            u64 LayoutHash = 0; ///< Root-data layout — drives the baked binding mappings.
 
             bool operator==(const Key&) const = default;
         };

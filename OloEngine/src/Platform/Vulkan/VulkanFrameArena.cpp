@@ -78,8 +78,23 @@ namespace OloEngine
             slot.BaseAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
             slot.Cursor = 0;
 
-            OLO_CORE_ASSERT(slot.Mapped != nullptr, "VulkanFrameArena: VMA_ALLOCATION_CREATE_MAPPED_BIT yielded no mapping");
-            OLO_CORE_ASSERT(slot.BaseAddress != 0, "VulkanFrameArena: vkGetBufferDeviceAddress returned 0");
+            // Real failure checks, not assert-only: a null mapping or a zero
+            // device address in a release build would otherwise flow into
+            // pointer arithmetic and root structs (asserts compile out).
+            if (slot.Mapped == nullptr || slot.BaseAddress == 0)
+            {
+                OLO_CORE_ERROR("VulkanFrameArena: slot came up unusable (mapped={}, address={:#x}) — releasing",
+                               slot.Mapped != nullptr, slot.BaseAddress);
+                ReleaseBuffers();
+                return false;
+            }
+
+            // AUTO + SEQUENTIAL_WRITE may land on non-coherent host-visible
+            // memory (not on the desktop ReBAR floor, but correctness must not
+            // depend on that): record whether writes need an explicit flush.
+            VkMemoryPropertyFlags memoryFlags = 0;
+            vmaGetAllocationMemoryProperties(device->GetAllocator(), slot.Allocation, &memoryFlags);
+            slot.NeedsFlush = (memoryFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0;
         }
         return true;
     }
@@ -94,16 +109,20 @@ namespace OloEngine
 
     VulkanFrameArenaAllocation VulkanFrameArena::Allocate(u64 sizeBytes, u64 alignment)
     {
+        // Runtime checks, not assert-only: alignment == 0 wraps the mask and
+        // aligned becomes 0, silently overwriting root data already handed
+        // out this frame. Overflow test by subtraction so a huge sizeBytes
+        // cannot wrap aligned + sizeBytes past the capacity.
         OLO_CORE_ASSERT(alignment != 0 && (alignment & (alignment - 1)) == 0,
                         "VulkanFrameArena: alignment must be a power of two");
-        if (!EnsureBuffers() || sizeBytes == 0)
+        if (alignment == 0 || (alignment & (alignment - 1)) != 0 || !EnsureBuffers() || sizeBytes == 0)
         {
             return {};
         }
 
         Slot& slot = m_Slots[m_CurrentSlot];
         const u64 aligned = (slot.Cursor + (alignment - 1)) & ~(alignment - 1);
-        if (aligned + sizeBytes > kSlotCapacityBytes)
+        if (aligned > kSlotCapacityBytes || sizeBytes > kSlotCapacityBytes - aligned)
         {
             ++m_OverflowCount;
             if (!m_OverflowWarned)
@@ -131,8 +150,27 @@ namespace OloEngine
         if (allocation.IsValid() && data != nullptr)
         {
             std::memcpy(allocation.Cpu, data, sizeBytes);
+            FlushWrite(allocation, sizeBytes);
         }
         return allocation;
+    }
+
+    void VulkanFrameArena::FlushWrite(const VulkanFrameArenaAllocation& allocation, u64 sizeBytes)
+    {
+        // No-op on coherent memory (the desktop ReBAR expectation). On a
+        // non-coherent placement, host writes are invisible to the GPU until
+        // flushed — Push() calls this itself; direct writers through
+        // Allocate() own the call.
+        const Slot& slot = m_Slots[m_CurrentSlot];
+        if (!slot.NeedsFlush || !allocation.IsValid())
+        {
+            return;
+        }
+        auto* device = VulkanDevice::Get();
+        if (device != nullptr)
+        {
+            vmaFlushAllocation(device->GetAllocator(), slot.Allocation, allocation.Offset, sizeBytes);
+        }
     }
 
     void VulkanFrameArena::ReleaseBuffers()

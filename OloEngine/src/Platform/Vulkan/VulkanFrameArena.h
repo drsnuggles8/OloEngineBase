@@ -75,9 +75,16 @@ namespace OloEngine
         // two; 16 is std430-safe for any root struct the model produces.
         [[nodiscard]] VulkanFrameArenaAllocation Allocate(u64 sizeBytes, u64 alignment = 16);
 
-        // Convenience: allocate + memcpy + return. The common "one root
-        // struct per draw" shape.
+        // Convenience: allocate + memcpy + return (and flush when the
+        // placement is non-coherent). The common "one root struct per draw"
+        // shape.
         [[nodiscard]] VulkanFrameArenaAllocation Push(const void* data, u64 sizeBytes, u64 alignment = 16);
+
+        // Make host writes visible to the GPU on a non-coherent placement
+        // (no-op on coherent memory). Push() calls it itself; a caller that
+        // writes through Allocate()'s Cpu pointer directly owes this call
+        // before the range is read on-device.
+        void FlushWrite(const VulkanFrameArenaAllocation& allocation, u64 sizeBytes);
 
         // Enqueue every slot buffer for deferred reclaim and forget them —
         // shutdown / device-teardown path (test TearDown, context shutdown).
@@ -131,6 +138,7 @@ namespace OloEngine
             void* Mapped = nullptr;
             VkDeviceAddress BaseAddress = 0;
             u64 Cursor = 0;
+            bool NeedsFlush = false; ///< Placement lacks HOST_COHERENT.
         };
 
         std::array<Slot, kFramesInFlight> m_Slots{};

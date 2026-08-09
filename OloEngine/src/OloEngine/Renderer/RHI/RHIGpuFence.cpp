@@ -20,7 +20,18 @@ namespace OloEngine::RHI
 #if OLO_WITH_VULKAN
                 if (VulkanDevice::Get() != nullptr)
                 {
-                    return Ref<GpuFence>(new VulkanGpuFence(initialValue));
+                    // The factory's contract is "null on failure" — every
+                    // failure mode, including a vkCreateSemaphore throw from
+                    // the backend constructor, must reach callers the same way.
+                    try
+                    {
+                        return Ref<GpuFence>(new VulkanGpuFence(initialValue));
+                    }
+                    catch (const std::exception& e)
+                    {
+                        OLO_CORE_ERROR("RHI::GpuFence::Create: {} — returning null", e.what());
+                        return nullptr;
+                    }
                 }
 #endif
                 OLO_CORE_WARN("RHI::GpuFence::Create: RendererAPI::Vulkan but no live VulkanDevice "

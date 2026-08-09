@@ -613,7 +613,7 @@ set here). The rules, in decreasing order of how often you'll need them:
    root struct carries its device address. Read the same interleaved stream
    the attribute path consumes (same stride, same field order), indexed by
    `gl_VertexIndex`. `PostProcess_FXAA.glsl` is the worked example, pinned
-   end-to-end by `VulkanShaderPipelineTest.FxaaGoldenPassRendersCorrectlyOnVulkan`
+   end-to-end by `VulkanShaderPipeline.FxaaGoldenPassRendersCorrectlyOnVulkan`
    (bit-identical to the GL golden).
 
 3. The fragment/compute **body never changes**, and heap access needs no GLSL

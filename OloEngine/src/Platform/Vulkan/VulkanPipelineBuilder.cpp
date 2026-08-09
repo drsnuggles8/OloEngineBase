@@ -9,6 +9,7 @@
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <algorithm>
+#include <bit>
 #include <tuple>
 
 namespace OloEngine
@@ -143,16 +144,43 @@ namespace OloEngine
 
         [[nodiscard]] u64 HashSampler(const VkSamplerCreateInfo& info)
         {
+            // Every field that vkCreateSampler consumes is key material — a
+            // sampler differing only in an unhashed field (maxLod was the
+            // caught case: DefaultEmbeddedSampler sets VK_LOD_CLAMP_NONE)
+            // must not collide. Floats enter via bit_cast, never operator==.
             u64 hash = 0;
+            hash = HashCombine(hash, static_cast<u64>(info.flags));
             hash = HashCombine(hash, static_cast<u64>(info.magFilter));
             hash = HashCombine(hash, static_cast<u64>(info.minFilter));
             hash = HashCombine(hash, static_cast<u64>(info.mipmapMode));
             hash = HashCombine(hash, static_cast<u64>(info.addressModeU));
             hash = HashCombine(hash, static_cast<u64>(info.addressModeV));
             hash = HashCombine(hash, static_cast<u64>(info.addressModeW));
-            hash = HashCombine(hash, static_cast<u64>(info.borderColor));
+            hash = HashCombine(hash, std::bit_cast<u32>(info.mipLodBias));
+            hash = HashCombine(hash, static_cast<u64>(info.anisotropyEnable));
+            hash = HashCombine(hash, std::bit_cast<u32>(info.maxAnisotropy));
             hash = HashCombine(hash, static_cast<u64>(info.compareEnable));
             hash = HashCombine(hash, static_cast<u64>(info.compareOp));
+            hash = HashCombine(hash, std::bit_cast<u32>(info.minLod));
+            hash = HashCombine(hash, std::bit_cast<u32>(info.maxLod));
+            hash = HashCombine(hash, static_cast<u64>(info.borderColor));
+            hash = HashCombine(hash, static_cast<u64>(info.unnormalizedCoordinates));
+            return hash == 0 ? 1 : hash;
+        }
+
+        // [398] The root layout drives every binding mapping baked into the
+        // pipeline; it is derived from the shader's reflection today, but the
+        // key must stand on its own inputs, not on that invariant.
+        [[nodiscard]] u64 HashLayout(const VulkanRootDataLayout& layout)
+        {
+            u64 hash = layout.SizeBytes;
+            for (const auto& field : layout.Fields)
+            {
+                hash = HashCombine(hash, field.Offset);
+                hash = HashCombine(hash, field.Binding.Set);
+                hash = HashCombine(hash, field.Binding.Binding);
+                hash = HashCombine(hash, static_cast<u64>(field.Binding.BindingKind));
+            }
             return hash == 0 ? 1 : hash;
         }
 
@@ -253,6 +281,7 @@ namespace OloEngine
         hash = HashCombine(hash, key.Samples);
         hash = HashCombine(hash, key.BakedBlendHash);
         hash = HashCombine(hash, key.SamplerHash);
+        hash = HashCombine(hash, key.LayoutHash);
         return static_cast<sizet>(hash);
     }
 
@@ -266,16 +295,24 @@ namespace OloEngine
         {
             return VK_NULL_HANDLE;
         }
+        // [400] ColorCount indexes fixed 8-wide arrays here, in the blend
+        // state, and in FlushDynamicState — clamp once, loudly.
+        OLO_CORE_ASSERT(targets.ColorCount <= 8, "VulkanRenderTargetDesc: at most 8 color attachments");
+        VulkanRenderTargetDesc clamped = targets;
+        clamped.ColorCount = std::min(clamped.ColorCount, 8u);
+        const VulkanRenderTargetDesc& safeTargets = clamped;
+
         const bool dynamicBlend = device->IsDynamicBlendStateEnabled();
         const VkSamplerCreateInfo sampler = embeddedSampler != nullptr ? *embeddedSampler : DefaultEmbeddedSampler();
 
         Key key;
         key.ShaderKey = shader.GetPipelineIndexKey();
-        key.ColorFormats = targets.ColorFormats;
-        key.DepthFormat = targets.DepthFormat;
-        key.ColorCount = targets.ColorCount;
-        key.Samples = targets.Samples;
+        key.ColorFormats = safeTargets.ColorFormats;
+        key.DepthFormat = safeTargets.DepthFormat;
+        key.ColorCount = safeTargets.ColorCount;
+        key.Samples = safeTargets.Samples;
         key.SamplerHash = HashSampler(sampler);
+        key.LayoutHash = HashLayout(layout);
         if (!dynamicBlend)
         {
             // Blend is a baked axis only where EDS3 is absent (§5's fallback
@@ -401,7 +438,7 @@ namespace OloEngine
 
         VkPipelineMultisampleStateCreateInfo multisample{};
         multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(targets.Samples);
+        multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(safeTargets.Samples);
 
         VkPipelineDepthStencilStateCreateInfo depthStencil{};
         depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -410,9 +447,9 @@ namespace OloEngine
         std::array<VkPipelineColorBlendAttachmentState, 8> blendAttachments{};
         VkPipelineColorBlendStateCreateInfo blend{};
         blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        blend.attachmentCount = targets.ColorCount;
+        blend.attachmentCount = safeTargets.ColorCount;
         blend.pAttachments = blendAttachments.data();
-        for (u32 i = 0; i < targets.ColorCount; ++i)
+        for (u32 i = 0; i < safeTargets.ColorCount; ++i)
         {
             auto& attachment = blendAttachments[i];
             if (dynamicBlend)
@@ -471,9 +508,9 @@ namespace OloEngine
         // --- Dynamic rendering + heap-mode create flags ----------------------
         VkPipelineRenderingCreateInfo rendering{};
         rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-        rendering.colorAttachmentCount = targets.ColorCount;
-        rendering.pColorAttachmentFormats = targets.ColorFormats.data();
-        rendering.depthAttachmentFormat = targets.DepthFormat;
+        rendering.colorAttachmentCount = safeTargets.ColorCount;
+        rendering.pColorAttachmentFormats = safeTargets.ColorFormats.data();
+        rendering.depthAttachmentFormat = safeTargets.DepthFormat;
 
         VkPipelineCreateFlags2CreateInfo createFlags{};
         createFlags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
@@ -549,12 +586,21 @@ namespace OloEngine
         vkCmdSetPrimitiveRestartEnable(cmd, VK_FALSE);
 
         auto* device = VulkanDevice::Get();
-        if (device != nullptr && device->IsDynamicBlendStateEnabled() && targets.ColorCount > 0)
+        const u32 colorCount = std::min(targets.ColorCount, 8u); // same 8-wide bound as the create path
+        if (device != nullptr && device->IsDynamicBlendStateEnabled() && colorCount > 0)
         {
+            // [401] The GLOBAL color mask (SetColorMask) must reach the
+            // dynamic write masks too — a pass that narrows the global mask
+            // and never touches the per-attachment API would otherwise
+            // render with the per-attachment default (all channels).
+            const VkColorComponentFlags globalMask = (state.ColorMask[0] ? VK_COLOR_COMPONENT_R_BIT : 0u) |
+                                                     (state.ColorMask[1] ? VK_COLOR_COMPONENT_G_BIT : 0u) |
+                                                     (state.ColorMask[2] ? VK_COLOR_COMPONENT_B_BIT : 0u) |
+                                                     (state.ColorMask[3] ? VK_COLOR_COMPONENT_A_BIT : 0u);
             std::array<VkBool32, 8> enables{};
             std::array<VkColorBlendEquationEXT, 8> equations{};
             std::array<VkColorComponentFlags, 8> writeMasks{};
-            for (u32 i = 0; i < targets.ColorCount; ++i)
+            for (u32 i = 0; i < colorCount; ++i)
             {
                 // Per-attachment state where the pass set it, the global
                 // recorded state otherwise (AttachmentBlendSrc/Dst default to
@@ -570,11 +616,11 @@ namespace OloEngine
                     .dstAlphaBlendFactor = ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstAlpha),
                     .alphaBlendOp = ToVk(state.BlendEquation),
                 };
-                writeMasks[i] = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]);
+                writeMasks[i] = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]) & globalMask;
             }
-            vkCmdSetColorBlendEnableEXT(cmd, 0, targets.ColorCount, enables.data());
-            vkCmdSetColorBlendEquationEXT(cmd, 0, targets.ColorCount, equations.data());
-            vkCmdSetColorWriteMaskEXT(cmd, 0, targets.ColorCount, writeMasks.data());
+            vkCmdSetColorBlendEnableEXT(cmd, 0, colorCount, enables.data());
+            vkCmdSetColorBlendEquationEXT(cmd, 0, colorCount, equations.data());
+            vkCmdSetColorWriteMaskEXT(cmd, 0, colorCount, writeMasks.data());
         }
     }
 

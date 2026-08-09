@@ -92,6 +92,7 @@ namespace OloEngine
         VkDeviceSize m_ReservedRangeSize = 0;
         VkDeviceSize m_TotalSize = 0;
         u32 m_NextSlot = 0;
+        VkDevice m_OwningDevice = VK_NULL_HANDLE; ///< The device the cached buffer belongs to.
     };
 } // namespace OloEngine
 
