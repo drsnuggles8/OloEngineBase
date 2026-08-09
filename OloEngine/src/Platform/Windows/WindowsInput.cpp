@@ -140,18 +140,33 @@ namespace OloEngine
         // A synthetic cursor override wins outright (it is only ever set while an
         // injected input plan is in flight): the physical cursor is somewhere else
         // entirely, and every consumer here wants the position the editor is being
-        // driven from.
+        // driven from. Deliberately BEFORE the relative offset below and returning
+        // immediately — an absolute injection names an exact pixel and must resolve
+        // to it, or an injected click would land somewhere the tool never asked for.
         if (glm::vec2 synthetic{ 0.0f }; SyntheticInput::TryGetMousePosition(synthetic))
             return synthetic;
 
         auto* const window = TryGetGlfwWindow();
-        if (!window)
-            return { 0.0f, 0.0f };
-        f64 xpos{};
-        f64 ypos{};
-        GLFWAPI::glfwGetCursorPos(window, &xpos, &ypos);
+        glm::vec2 position{ 0.0f, 0.0f };
+        if (window)
+        {
+            f64 xpos{};
+            f64 ypos{};
+            GLFWAPI::glfwGetCursorPos(window, &xpos, &ypos);
+            position = { static_cast<f32>(xpos), static_cast<f32>(ypos) };
+        }
 
-        return { static_cast<f32>(xpos), static_cast<f32>(ypos) };
+        // The accumulated RELATIVE displacement injected by olo_input_inject's
+        // "mouseDelta" action (issue #607). Unlike the override above this persists
+        // past the plan, which is the whole point: a consumer that integrates
+        // `mouse - lastMousePos` across frames only registers a displacement that is
+        // never taken back. Hardware motion still passes through unchanged — the
+        // reported cursor is simply shifted, exactly as a real mouse movement would
+        // have left it. Zero (and one relaxed load) whenever nothing was injected.
+        if (glm::vec2 offset{ 0.0f }; SyntheticInput::TryGetMouseOffset(offset))
+            position += offset;
+
+        return position;
     }
 
     f32 Input::GetMouseX()

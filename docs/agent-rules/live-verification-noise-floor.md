@@ -107,3 +107,40 @@ different render scale (measured: 1411×942 SceneColor vs a 941×628 viewport).
 They are legitimately different images of the same scene; a crop that "looks
 wrong" against the screenshot is usually just the wrong reference. Compare a
 target against **itself**.
+
+## Corollary: check the editor is running frames BEFORE you interpret anything
+
+Everything above assumes the frame you are looking at is *this* frame. A minimized
+editor breaks that assumption while leaving every symptom intact (issue #607).
+
+`Application::Run` guards the entire layer-update / ImGui / render block with
+`if (!m_Minimized)`, so an iconified window never reaches `EditorLayer::OnUpdate`:
+the frame counter stops, the synthetic-input queue never drains, and the viewport
+framebuffer keeps whatever was last drawn. But `MarshalRead` still works — game-thread
+tasks are pumped *before* that guard — so **every read tool answers normally**, HTTP
+200, no error, plausible numbers. Two `olo_screenshot` calls either side of a 10 m
+walk came back byte-identical, which reads as "the camera didn't move": the exact
+opposite of the truth. It took an out-of-band `IsIconic()` P/Invoke and a CPU-time
+delta (0.17 s vs 0.69 s per 3 s) to see it, because nothing in the MCP surface
+exposed window state.
+
+This is the general shape worth remembering: **when a subsystem's read path and its
+refresh path are gated by different conditions, the read path will confidently
+report stale state.** Look for the asymmetry rather than for an error.
+
+The in-band signals now exist, so use them:
+
+- `olo_perf_snapshot` carries a `liveness` block (`ticking`, `frameIndex`,
+  `msSinceLastFrame`, `iconified`, `focused`). One call, and it distinguishes
+  *stalled* from *slow* — a frame index alone cannot, without a second sample.
+- `olo_screenshot` sets `stale: true` and emits a leading `STALE FRAME:` text block
+  ahead of the image, and reports the `frameIndex` the capture came from. Two
+  captures with the same `frameIndex` are the same frame.
+- `olo_input_inject` refuses up front instead of queueing a plan that can never
+  drain (which used to leave the queue occupied, so every later call blamed the
+  earlier one).
+- `driver.ps1 -Action attach` un-minimizes the editor it launches.
+
+Note `focused` is reported but gates nothing: injection feeds the editor's own
+GLFW/ImGui stream, not the OS input queue, so an unfocused editor is perfectly
+drivable. Only iconify (and a genuinely stalled frame clock) stop things working.

@@ -109,6 +109,36 @@ lerp factor: exponential smoothing composes exactly
 land in the same place — and that identity is directly assertable, which the
 naive version fails.
 
+### A delta consumer cannot be driven by an absolute override that gets reverted
+
+This is the same asymmetry seen from the *other* side, and it cost a full round of
+"is the rig broken?" before anyone suspected the instrument (issue #607). Driving
+this rig over MCP with `olo_input_inject`'s absolute `move` action produced
+`dYaw = 0.000` on four equal horizontal moves, with pitch pinned at exactly
+`MaxPitchDeg` — which reads like a saturating rig, and is not.
+
+`Input::GetMousePosition()` returns the synthetic cursor **only while an injected
+plan is in flight**, then falls back to the hardware cursor. A consumer that
+integrates `mouse - lastMousePos` across frames therefore sees the override arrive
+as a one-frame spike and, the frame the plan drains, that spike's exact mirror.
+They cancel. The pinned pitch is the first spike hitting the limit before the
+mirror arrives, not rig behaviour.
+
+The important part is the fix that does **not** work: holding the override for more
+frames. The mirror is produced by *reverting* the override, not by its brevity, so
+the integral over the plan is exactly zero however long it is latched — a
+`holdFrames` parameter would have looked plausible, shipped, and changed nothing.
+The only faithful model is the one a real mouse implements: a displacement leaves
+the cursor **permanently** moved. Hence `SyntheticInput`'s accumulated cursor
+offset, which deliberately outlives the plan, and the `mouseDelta` action on top of
+it.
+
+Generalise it: **any injected value that a consumer integrates must be applied as a
+delta that is never taken back, never as a temporary override.** An override is
+only correct for a consumer that reads the value absolutely (ImGui widgets, gizmo
+drags — which is why the two paths are kept strictly separate rather than one
+replacing the other).
+
 ## 4. Prefer a parameter over a mode enum — and check whether one already subsumes the other
 
 The issue asked for a first-person rig and a third-person follow rig. Modelled
