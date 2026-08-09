@@ -180,6 +180,19 @@ namespace OloEngine
         {
             return false;
         }
+
+        // Same rule as the distance chain below: a prefilter with FEWER mips
+        // than the array would leave the upper array mips holding a previous
+        // occupant's radiance (CopyLayerFromCubemap copies min(mips)), so a
+        // mismatch is a hard skip, not a partial upload. EnsureArrays sizes
+        // the array from a probe prefilter, so every same-config bake agrees.
+        if (prefilter->GetMipLevelCount() != m_RadianceArray->GetMipLevelCount())
+        {
+            OLO_CORE_ERROR("ReflectionProbeArray::UploadLayer: prefilter has {} mips, radiance array has {} — probe skipped",
+                           prefilter->GetMipLevelCount(), m_RadianceArray->GetMipLevelCount());
+            return false;
+        }
+
         if (!m_RadianceArray->CopyLayerFromCubemap(layer, *prefilter))
         {
             return false;

@@ -478,6 +478,17 @@ namespace OloEngine::Tests
         // (direction-only lookups cannot vary with surface position).
         const BandStats leftLeg = SampleBand(legacyAhead, lx0, lx1, sy0, sy1);
         const BandStats rightLeg = SampleBand(legacyAhead, rx0, rx1, sy0, sy1);
+        // The improvement claim needs a WORKING baseline: a black legacy
+        // floor would make splitLeg ~0 and pass the comparison vacuously
+        // (the whole-frame luma check cannot see it — the emissive walls
+        // dominate the mean). The legacy floor renders the direction-only
+        // probe reflection, ~(104,100,100) grey in practice.
+        EXPECT_GT(leftLeg.R + leftLeg.G + leftLeg.B, 60.0)
+            << "Legacy left floor strip is (near-)black — the legacy baseline did not render. "
+            << "See ReflectionProbeParallax_Legacy_FloorAhead.png";
+        EXPECT_GT(rightLeg.R + rightLeg.G + rightLeg.B, 60.0)
+            << "Legacy right floor strip is (near-)black — the legacy baseline did not render. "
+            << "See ReflectionProbeParallax_Legacy_FloorAhead.png";
         const f64 splitPar = (leftPar.R - leftPar.G) + (rightPar.G - rightPar.R);
         const f64 splitLeg = (leftLeg.R - leftLeg.G) + (rightLeg.G - rightLeg.R);
         ::testing::Test::RecordProperty("ParallaxSplit", static_cast<int>(splitPar));
