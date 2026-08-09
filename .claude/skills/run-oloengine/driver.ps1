@@ -68,6 +68,7 @@ public static class WinShot {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
@@ -100,6 +101,32 @@ public static class WinShot {
 $DWMWA_EXTENDED_FRAME_BOUNDS = 9
 $SW_RESTORE = 9
 $rectSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type]'WinShot+RECT')
+
+# Un-minimize a window, but ONLY if it is actually iconified (issue #607).
+#
+# Why this matters far beyond cosmetics: while the editor window is iconified
+# Application::Run skips the whole `if (!m_Minimized)` block, so EditorLayer::OnUpdate
+# never runs. Nothing increments the frame counter, and DrainMcpInputQueue never
+# drains — every olo_input_inject then returns "still in flight (N frame(s) left)"
+# forever, and olo_screenshot keeps returning HTTP 200 with the LAST frame drawn
+# before the minimize, which reads as "the camera didn't move" rather than "the
+# editor is asleep". MarshalRead still works (game-thread tasks are pumped before
+# that guard), so every read tool answers normally — which is exactly what makes the
+# failure look like a renderer bug instead of a window-state one.
+#
+# SW_RESTORE rather than SW_SHOWNOACTIVATE: SW_RESTORE returns a minimized window to
+# its PREVIOUS state (a maximized editor comes back maximized), whereas
+# SW_SHOWNOACTIVATE would silently un-maximize it. The guard keeps this a no-op for
+# an already-visible window, so an attach never steals foreground from the user
+# unless the window genuinely needed rescuing.
+function Restore-WindowIfIconified {
+    param($hwnd)
+    if ($null -eq $hwnd -or $hwnd -eq [IntPtr]::Zero) { return $false }
+    if (-not [WinShot]::IsIconic($hwnd)) { return $false }
+    [WinShot]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
+    [WinShot]::SetForegroundWindow($hwnd) | Out-Null
+    return $true
+}
 
 function Resolve-RepoRoot {
     (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
@@ -450,11 +477,22 @@ switch ($Action) {
         Set-Content -Path $pidFile -Value $proc.Id
         Write-Output "LAUNCHED $Target pid=$($proc.Id) hwnd=$hwnd (MCP port $port)"
 
+        # An attached session that lands against an iconified window is the failure
+        # mode described above Restore-WindowIfIconified: every read tool answers, but
+        # input injection never drains and screenshots go stale. Rescue it here, before
+        # the long discovery wait, so the session starts against a ticking editor.
+        if (Restore-WindowIfIconified $hwnd) { Write-Output "Restored the editor window (it was minimized; injection cannot drain while iconified)." }
+
         # The window appears early, but MCP autostart runs at the END of editor init
         # (after project load: asset scan, quest DB, save games + the ~10-25s shader
         # warmup), so give the discovery file a generous window beyond -WaitSeconds.
         $discovery = Wait-Discovery $discoveryPath ([Math]::Max(120, $WaitSeconds))
         Write-Output "MCP discovery: $discoveryPath -> $($discovery.url)"
+
+        # Re-check after the wait: the editor spends 10-25s in shader warmup here, and a
+        # window minimized (by the user, or by whatever had foreground) during it would
+        # leave the freshly attached session in exactly the state above.
+        if (Restore-WindowIfIconified $hwnd) { Write-Output "Restored the editor window again after MCP startup (it had been minimized)." }
         $registered = Register-Mcp $name $discovery.url $discovery.token
         Set-Content -Path $mcpFile -Value @($name, $discoveryPath)
         if ($registered) {

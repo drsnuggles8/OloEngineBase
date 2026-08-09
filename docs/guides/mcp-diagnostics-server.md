@@ -198,7 +198,8 @@ and for what to do when adding a tool.
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
 | `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_entity_set_field` | **(consented write)** set one component field by (`component`, `field`, `value`) — undoable (a single Ctrl-Z), UUID-keyed. The registry is **generated from every component definition** (issue #607), so it spans the whole ECS surface (meshes/materials/VirtualMesh, lights, fog/probes, physics bodies + colliders, text/UI, nav, water, terrain, …), not a curated handful. Out-of-range values are **clamped** to the serializer's own range (`clamped:true` + `requestedValue`); the result echoes `value` **read back from the component** plus `changed:true/false`. Gated behind **Agent writes**. See [Component field writes](#component-field-writes-olo_entity_set_field) |
-| `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings |
+| `olo_scheduler_graph` | the gameplay `SystemScheduler`'s **derived** dependency DAG as JSON / Mermaid / DOT: execution order, the full derived edge set (including the read/write hazard edges no source file shows), every named channel with its readers and writers, and — per `Parallelizable` system — `mayOverlapWith`, the other marked systems it can genuinely race. Sibling of `olo_render_graph_topology_export`. See [Looking at the two DAGs](#looking-at-the-two-dags-olo_scheduler_graph--olo_render_graph_topology_export) |
+| `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings. **Also the liveness probe**: the `liveness` block (`ticking`, `frameIndex`, `msSinceLastFrame`, `iconified`, `focused`) answers "is the editor actually running frames?" in one call — see [Editor liveness](#editor-liveness-is-it-actually-running-frames) |
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations (uses real cpu/gpu/gpuWait numbers) |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
 | `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time (per-draw times resolve via a deferred commit one-plus frames after the capture; draws carry their submesh debug names) |
@@ -249,7 +250,7 @@ and for what to do when adding a tool.
 | `olo_physics_overlap` | bodies overlapping a sphere (`radius`) or box (`halfExtents`) at `origin`; requires Play mode |
 | `olo_physics_why_no_collision` | explain why two entities (`a`, `b`) are NOT colliding — the "player falls through the floor" debugger: root-cause `reasonCode`, summary, ordered checks, and per-entity facts |
 | `olo_set_collision_layer` | **(consented write)** set an entity's rigidbody collision layer (`entity`, `layer`). The counterpart to `olo_physics_why_no_collision`: that one explains why two bodies do not collide, this one fixes the common cause. Routed through the editor's undo stack, so an applied change is a single Ctrl-Z |
-| `olo_input_inject` | **(consented write)** inject synthetic mouse/keyboard input — `click` / `move` / `drag` / `key` / `text` — into the editor's own input stream, so you can verify that an interactive handler actually FIRES (a viewport click selects the right entity; a panel button does what it claims), not merely that the editor renders. Synchronous: returns once the injected frames have been rendered, with the resulting selected/hovered entity in `after`. Gated behind **Agent writes**. See [Interactive UI verification](#interactive-ui-verification-olo_input_inject) |
+| `olo_input_inject` | **(consented write)** inject synthetic mouse/keyboard input — `click` / `move` / `drag` / `mouseDelta` / `key` / `text` — into the editor's own input stream, so you can verify that an interactive handler actually FIRES (a viewport click selects the right entity; a panel button does what it claims), not merely that the editor renders. Synchronous: returns once the injected frames have been rendered, with the resulting selected/hovered entity in `after`. `mouseDelta` drives **delta-integrating** consumers (mouse-look rigs) that absolute injection provably cannot — see [Relative mouse movement](#relative-mouse-movement-mousedelta). Refuses loudly when the editor's loop is parked. Gated behind **Agent writes**. See [Interactive UI verification](#interactive-ui-verification-olo_input_inject) |
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306 item C)
 
@@ -430,7 +431,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | Toolset | Tools |
 |---|---|
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
-| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity` |
+| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity`, `olo_scheduler_graph` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_material_get`, `olo_shader_debug_draw` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
@@ -831,6 +832,131 @@ read the pixel off a full-window screenshot from the `run-oloengine` driver
   the next thing you do runs with that key down.
 - The synthetic cursor override is dropped when a plan finishes, handing the mouse back
   to the human. Synthetic key/button state never masks a real physical press.
+- A minimized editor never drains the queue at all — the call is now **refused up
+  front** with an explanation instead of timing out and leaving the queue occupied. See
+  [Editor liveness](#editor-liveness-is-it-actually-running-frames).
+
+### Relative mouse movement (`mouseDelta`)
+
+`click` / `move` / `drag` inject an **absolute** cursor position, held only while the
+call is in flight. That is exactly right for ImGui widgets, menus and gizmo drags — and
+provably useless for anything that integrates `mouse - lastMousePos` **across** frames,
+which is how every mouse-look rig works. Such a consumer sees the override arrive as a
+one-frame spike and, the frame the plan drains, that spike's exact **mirror**; the two
+cancel. Measured while driving the #645 player rig: four equal horizontal moves each
+produced `dYaw = 0.000`, with pitch pinned at exactly `MaxPitchDeg`.
+
+Holding the override longer cannot fix that. The mirror comes from **reverting** the
+override, not from its brevity, so the integral over the plan is still exactly zero
+however many frames it is latched for. `mouseDelta` models a displacement the way a real
+mouse does instead: `SyntheticInput` accumulates a persistent cursor **offset** that
+deliberately outlives the call, so the consumer registers the movement once and never
+sees it taken back.
+
+```jsonc
+// Four 40 px look-right steps, each spread over 4 frames. Every one produces a real
+// dYaw — and they accumulate, instead of cancelling as absolute moves would.
+// olo_input_inject { "action": "mouseDelta", "dx": 40, "dy": 0, "frames": 4 }   x4
+//
+// Put the virtual cursor back on the hardware one when you are done:
+// olo_input_inject { "action": "mouseDelta", "resetOffset": true }
+```
+
+| argument | meaning |
+|---|---|
+| `dx` / `dy` | the displacement, in `space` units (`window` is 1:1 with what `Input::GetMousePosition` reports, which is what a rig's look sensitivity is calibrated in; `viewport` divides by the DPI scale; `viewportNorm` is a fraction of the viewport) |
+| `frames` | spread the displacement over N consecutive frames (default 1). A consumer may **reject** an implausibly large single-frame jump as a discontinuity — `PlayerRigSystem` drops any look sample worth over 180° — so deliver a big movement the way a real mouse does |
+| `resetOffset` | zero the accumulated offset first (valid on its own, without `dx`/`dy`). Note this is itself a jump, and a delta consumer sees it as one |
+
+Two things to know:
+
+- **It does not move the ImGui cursor.** `mouseDelta` targets the engine's poll-based
+  `Input::` API — game/rig code — and deliberately feeds nothing to ImGui, so relative
+  injection is strictly additive and changes no widget or gizmo behaviour. Keep using
+  `move` / `drag` for anything ImGui-facing.
+- **The offset persists.** That is the entire point, but it means a session can leave it
+  non-zero. Every injection reply reports it as `after.mouseOffset`, and
+  `resetOffset: true` clears it (as does editor teardown). An absolute `click` / `move`
+  still resolves to exactly the pixel it names — the override wins outright while set.
+
+### Editor liveness — "is it actually running frames?"
+
+A minimized editor is a **silent wrong-answer generator**. While the window is
+iconified, `Application::Run` skips its whole `if (!m_Minimized)` block, so
+`EditorLayer::OnUpdate` never runs: the frame counter stops, the synthetic-input queue
+is never drained, and every capture keeps returning the last frame drawn before the
+minimize. But `MarshalRead` still works — game-thread tasks are pumped *before* that
+guard — so every read tool answers normally, HTTP 200, no error. Two screenshots either
+side of a 10 m walk came back byte-identical, which reads as "the camera didn't move":
+the exact opposite of the truth. Diagnosing it the first time took an out-of-band
+`IsIconic()` P/Invoke and a CPU-time delta.
+
+Three things now make that visible in-band:
+
+- **`olo_perf_snapshot` carries a `liveness` block** — `ticking`, `frameIndex`,
+  `msSinceLastFrame`, `iconified`, `focused`, `visible`, `captureUnready`, plus a
+  `stallReason` when something is wrong. It is a **one-call** answer on purpose: a frame
+  index alone cannot separate "stalled" from "slow" without a second sample, whereas a
+  wall-clock gap since the last completed frame can. (`null` means the host cannot
+  report it — *unknown*, not stalled.)
+- **`olo_screenshot` flags a stale frame** — `stale: true` plus `frameIndex` in the meta,
+  and a leading `STALE FRAME:` text block ahead of the image, because a flag buried in
+  `structuredContent` would be read after the image had already been believed. Two
+  captures reporting the same `frameIndex` came from the same frame, whatever you
+  changed in between.
+- **Every capture/probe `meta` block carries `stale` + `liveness`** — the shared
+  capture stamp on `olo_render_capture_target`, `olo_render_probe_pixel`,
+  `olo_render_target_stats` and friends already reported `frameIndex`; it now says
+  *why* the frame stopped advancing rather than leaving that a separate question.
+- **`olo_input_inject` refuses up front** rather than queueing a plan that can never
+  drain. That matters more than the wasted wait: the old behaviour left the queue
+  occupied, so every *later* call reported `"an injected input sequence is still in
+  flight"` with no hint of the real cause.
+
+Note `focused` is reported but never gates anything — injection feeds the editor's own
+GLFW/ImGui stream, not the OS input queue, so an unfocused editor is perfectly drivable.
+Only `iconified` (and a stalled frame clock) actually stop things working.
+
+The `run-oloengine` skill's `driver.ps1 -Action attach` now un-minimizes the editor it
+launches (before *and* after the MCP startup wait), so an attached session starts against
+a ticking editor rather than landing in this state.
+
+### Looking at the two DAGs (`olo_scheduler_graph` / `olo_render_graph_topology_export`)
+
+The engine has two directed acyclic graphs whose **derived** structure is the thing you
+actually have to reason about: the per-tick gameplay system schedule
+(`Scene::GetGameplayScheduler`) and the render graph topology. Both export as structured
+JSON, Mermaid, or Graphviz DOT (`format`).
+
+`olo_scheduler_graph` exists because the schedule is *derived*, not written down. Systems
+declare the named channels they read/write plus optional `after`/`before` ordering, and
+the execution order falls out of a topological sort — so no source file shows the graph,
+and until this tool it could only be interrogated one yes/no question at a time via
+`SystemScheduler::DependsOn` (i.e. one test per hypothesis). The export reports:
+
+- `executionOrder` — the order actually run (registration order is the tie-break);
+- `edges` — the **full derived** edge set, including the read/write hazard edges
+  (RAW/WAW/WAR) that are the majority and that no source file shows;
+- `channels` — every named channel with its readers and writers. A channel with writers
+  and no readers (or vice versa) is almost always a misspelling in one declaration, and
+  a typo'd channel silently drops its edges;
+- `mayOverlapWith`, per `Parallelizable` system — the other marked systems it is **not**
+  transitively ordered against, i.e. exactly what its thread-safety audit must cover.
+
+That last field is the reason the tool exists. Per `CLAUDE.md`, a **missing edge is
+invisible in the sequential order** — the registration-order tie-break supplies it
+anyway — and only becomes a data race once systems run concurrently. An export that
+showed edges but not parallelism would omit the interesting half.
+
+```jsonc
+// Did the edge I just declared actually land, and what am I now racing?
+// olo_scheduler_graph {}                      -> check edges + mayOverlapWith
+// olo_scheduler_graph { "format": "mermaid" } -> paste into a Markdown viewer
+// olo_scheduler_graph { "format": "dot" }     -> pipe through Graphviz
+```
+
+An invalid schedule (duplicate name, dangling `after`/`before`, cycle) is reported with
+the scheduler's own error message — that case is exactly when you reach for this tool.
 
 ### Render override A/B (`olo_render_toggle_pass` / `olo_render_set_debug_view`)
 

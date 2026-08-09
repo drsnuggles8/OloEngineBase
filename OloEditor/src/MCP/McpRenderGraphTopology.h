@@ -292,4 +292,59 @@ namespace OloEngine::MCP::RenderGraphTopology
 
         return out;
     }
+
+    // Shape the snapshot as Graphviz DOT (issue #607) — the sibling format of the
+    // Mermaid renderer above, added so both of the engine's DAGs (this and the
+    // gameplay SystemScheduler, see McpSchedulerGraph.h) can be exported in the same
+    // two drawable formats. Same synthetic-id and quoted-label treatment; only the
+    // quote escape differs (DOT takes a backslash escape, Mermaid an HTML entity).
+    [[nodiscard]] inline std::string BuildDot(const Snapshot& snap)
+    {
+        std::unordered_map<std::string, std::string> idByName;
+        const auto idOf = [&idByName](const std::string& name) -> std::string
+        {
+            if (const auto it = idByName.find(name); it != idByName.end())
+                return it->second;
+            std::string id = "n" + std::to_string(idByName.size());
+            idByName.emplace(name, id);
+            return id;
+        };
+
+        const auto escapeLabel = [](const std::string& s) -> std::string
+        {
+            std::string r;
+            r.reserve(s.size());
+            for (const char c : s)
+            {
+                if (c == '"')
+                    r += "\\\"";
+                else
+                    r.push_back(c);
+            }
+            return r;
+        };
+
+        std::string out = "digraph RenderGraph {\n";
+        out += "    rankdir=LR;\n";
+        out += "    node [shape=box, style=rounded, fontname=\"sans-serif\"];\n";
+
+        for (const auto& p : snap.Passes)
+        {
+            std::string label = p.Name;
+            if (p.WorkType != "Graphics")
+                label += " [" + p.WorkType + "]";
+            out += "    " + idOf(p.Name) + " [label=\"" + escapeLabel(label) + "\"";
+            if (p.IsFinalPass)
+                out += ", style=\"rounded,filled\", fillcolor=\"#d4edda\", color=\"#2e7d32\"";
+            else if (p.Culled)
+                out += ", style=\"rounded,dashed,filled\", fillcolor=\"#f2f2f2\", color=\"#9e9e9e\"";
+            out += "];\n";
+        }
+
+        for (const auto& edge : snap.Edges)
+            out += "    " + idOf(edge.From) + " -> " + idOf(edge.To) + ";\n";
+
+        out += "}\n";
+        return out;
+    }
 } // namespace OloEngine::MCP::RenderGraphTopology

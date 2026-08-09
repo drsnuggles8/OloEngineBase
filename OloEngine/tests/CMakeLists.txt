@@ -329,6 +329,12 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TextureInPlaceReloadTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
+		# The synthetic-input overlay behind olo_input_inject, and specifically the
+		# absolute-vs-relative distinction (#607): an ABSOLUTE override integrates to
+		# exactly zero for a delta-consuming mouse-look rig however long it is held
+		# (the spike and its mirror cancel), which is why the fix had to be a
+		# persistent cursor OFFSET rather than a longer-held override.
+		SyntheticInputTest.cpp
 		InputRebindControllerTest.cpp
 		UI/RuntimeInputRebindMenuTest.cpp
 		GamepadTest.cpp
@@ -538,6 +544,17 @@ add_executable(OloEngine-Tests
 		# so the test injects a fake and never opens a window. Header-only on the
 		# editor side, so no extra editor TU is pulled in.
 		MCP/McpInputInjectTest.cpp
+		# The editor-liveness predicate every capture/injection tool now consults
+		# (#607): a MINIMIZED editor parks its update loop, so injection never drains
+		# and captures silently go stale — with HTTP 200 and no clue, because
+		# MarshalRead keeps working. Header-only (MCP/McpEditorLiveness.h).
+		MCP/McpEditorLivenessTest.cpp
+		# Pure JSON / Mermaid / DOT shaping behind olo_scheduler_graph (#607): the
+		# gameplay SystemScheduler's DERIVED dependency graph, including which
+		# Parallelizable systems may actually overlap (a missing edge is invisible in
+		# the sequential order and only becomes a race under the parallel executor).
+		# Header-only (MCP/McpSchedulerGraph.h), no extra editor TU pulled in.
+		MCP/McpSchedulerGraphTest.cpp
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.
 		MCP/McpPhysicsExplainTest.cpp

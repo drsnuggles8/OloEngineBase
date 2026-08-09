@@ -3,12 +3,14 @@
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpGenericFieldWrite.h"
 #include "MCP/McpSceneControl.h"
+#include "MCP/McpSchedulerGraph.h"
 #include "MCP/McpSelectEntity.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/SystemScheduler.h"
 
 #include <algorithm>
 #include <sstream>
@@ -467,6 +469,67 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // ---- olo_scheduler_graph (main-marshaled) ------------------------------
+        // Scene::GetGameplayScheduler() is a process-global function-local static
+        // shared by every Scene, and ExportGraph() calls Build() (which mutates the
+        // cached derivation) — so this is marshaled onto the game thread rather than
+        // read from the HTTP worker, exactly like the scene readers above. The tool
+        // needs no active scene: the schedule is authored once at build time.
+        ToolResult Handle_SchedulerGraph(McpServer& server, const Json& args)
+        {
+            const std::string format = args.value("format", std::string{ "json" });
+
+            Json snapshotJson;
+            try
+            {
+                // `format` is captured BY VALUE: MarshalRead can throw on a timeout
+                // while its enqueued job still runs later on the game thread, and a
+                // reference to this frame's local would be dangling by then.
+                snapshotJson = server.MarshalRead(
+                    [format]() -> Json
+                    {
+                        const SystemScheduler::GraphSnapshot graph = Scene::GetGameplayScheduler().ExportGraph();
+
+                        SchedulerGraph::Snapshot snap;
+                        snap.ParallelExecutionEnabled = graph.ParallelExecutionEnabled;
+                        snap.Nodes.reserve(graph.Nodes.size());
+                        for (const auto& node : graph.Nodes)
+                        {
+                            snap.Nodes.push_back(SchedulerGraph::NodeInfo{ node.Name, node.Reads, node.Writes,
+                                                                           node.After, node.Before, node.Parallel,
+                                                                           node.OrderIndex });
+                        }
+                        snap.Edges.reserve(graph.Edges.size());
+                        for (const auto& edge : graph.Edges)
+                            snap.Edges.push_back(SchedulerGraph::EdgeInfo{ edge.From, edge.To });
+
+                        // Shape it here, inside the job: the Snapshot borrows nothing
+                        // from the scheduler, but keeping the whole conversion in one
+                        // marshaled step means the graph cannot be re-derived under us
+                        // between the copy and the render. Only the REQUESTED format is
+                        // built — this runs on the game thread, so the two unused
+                        // renderings would be pure per-call frame-time cost.
+                        if (format == "mermaid")
+                            return Json{ { "text", SchedulerGraph::BuildMermaid(snap) } };
+                        if (format == "dot")
+                            return Json{ { "text", SchedulerGraph::BuildDot(snap) } };
+                        return Json{ { "json", SchedulerGraph::BuildJson(snap) } };
+                    });
+            }
+            catch (const SystemSchedulerError& error)
+            {
+                // A duplicate name / dangling reference / cycle. Build() throws in
+                // every config by design, and a schedule that cannot be derived is
+                // exactly the case an agent reaches for this tool to understand, so
+                // report the scheduler's own message rather than a generic failure.
+                return ToolResult::Error(std::string("The gameplay system schedule is invalid: ") + error.what());
+            }
+
+            if (snapshotJson.contains("text"))
+                return ToolResult::Text(snapshotJson.value("text", std::string{}));
+            return ToolResult::Structured(snapshotJson.value("json", Json::object()));
+        }
+
     } // namespace
 
     void RegisterSceneTools(McpServer& server)
@@ -773,6 +836,65 @@ namespace OloEngine::MCP
                                     .Required({ "available", "ok", "changed", "selected", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SelectEntity;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scheduler_graph";
+            tool.Toolset = "scene";
+            tool.Title = "Gameplay system schedule";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Export the DERIVED dependency graph of the per-tick gameplay systems (Scene::"
+                "GetGameplayScheduler) as structured JSON, a Mermaid flowchart, or Graphviz DOT. Systems declare "
+                "the named channels they read/write plus optional after/before ordering, and the execution order "
+                "is derived by a topological sort — so the graph you have to reason about is written down in no "
+                "source file, and until now could only be interrogated one yes/no question at a time via "
+                "SystemScheduler::DependsOn.\n\n"
+                "Reports the full derived edge set (including the read/write hazard edges — RAW/WAW/WAR — which "
+                "are the majority and the ones no source file shows), the execution order, every channel with "
+                "its readers and writers, and, for each Parallelizable system, 'mayOverlapWith': the other "
+                "marked systems it is NOT ordered against and can therefore genuinely race. That last field is "
+                "the point of the tool — a MISSING edge is invisible in the sequential order (the "
+                "registration-order tie-break supplies it anyway) and only becomes a data race under the "
+                "parallel executor. Use it to check a new edge landed, to see what a system you just marked "
+                "Parallelizable must be audited against, or to spot a misspelled channel (it appears with "
+                "writers and no readers). Sibling of olo_render_graph_topology_export for the other DAG.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("format", Schema::String()
+                                                       .Enum({ "json", "mermaid", "dot" })
+                                                       .Desc("'json' (default) for the full structured document; "
+                                                             "'mermaid' for a flowchart LR DAG; 'dot' for Graphviz."))
+                                   .NoAdditional();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("systemCount", Schema::Int().Min(0))
+                    .Prop("parallelSystemCount", Schema::Int().Min(0).Desc("Systems marked Parallelizable."))
+                    .Prop("parallelExecutionEnabled", Schema::Bool().Desc("False when the process-wide kill-switch is off (OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL=1) or nothing is marked — every system then runs on the calling thread in the same derived order."))
+                    .Prop("executionOrder", Schema::Array(Schema::String()).Desc("System names in derived run order."))
+                    .Prop("systems", Schema::Array(Schema::Object()
+                                                       .Prop("name", Schema::String())
+                                                       .Prop("orderIndex", Schema::Int().Min(0))
+                                                       .Prop("parallel", Schema::Bool())
+                                                       .Prop("reads", Schema::Array(Schema::String()))
+                                                       .Prop("writes", Schema::Array(Schema::String()))
+                                                       .Prop("after", Schema::Array(Schema::String()).Desc("Explicit After() declarations; omitted when none."))
+                                                       .Prop("before", Schema::Array(Schema::String()).Desc("Explicit Before() declarations; omitted when none."))
+                                                       .Prop("mayOverlapWith", Schema::Array(Schema::String()).Desc("Parallel systems only: the other marked systems this one is NOT transitively ordered against, i.e. exactly what its thread-safety audit must cover."))))
+                    .Prop("edgeCount", Schema::Int().Min(0))
+                    .Prop("edges", Schema::Array(Schema::Object().Prop("from", Schema::String()).Prop("to", Schema::String()))
+                                       .Desc("Derived ordering constraints: 'from' must finish before 'to' may start."))
+                    .Prop("channelCount", Schema::Int().Min(0))
+                    .Prop("channels", Schema::Array(Schema::Object()
+                                                        .Prop("name", Schema::String())
+                                                        .Prop("readers", Schema::Array(Schema::String()))
+                                                        .Prop("writers", Schema::Array(Schema::String())))
+                                          .Desc("Every named channel with its readers and writers — the inverse index. A channel with writers and no readers (or vice versa) is usually a typo in one declaration."))
+                    .Prop("note", Schema::String())
+                    .Required({ "systemCount", "parallelSystemCount", "executionOrder", "systems", "edgeCount", "edges" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SchedulerGraph;
             server.RegisterTool(std::move(tool));
         }
     }

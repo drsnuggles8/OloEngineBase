@@ -446,15 +446,21 @@ namespace OloEngine::MCP
     {
         enum class Kind
         {
-            MousePos,    // move the cursor to (X, Y)
-            MouseButton, // press/release mouse button `Code`
-            Key,         // press/release GLFW key `Code`
-            Char         // type unicode codepoint `Code`
+            MousePos,         // move the cursor to (X, Y) — ABSOLUTE, plan-scoped
+            MouseDelta,       // displace the synthetic cursor by (X, Y) — RELATIVE, persistent
+            MouseOffsetReset, // zero the accumulated relative displacement
+            MouseButton,      // press/release mouse button `Code`
+            Key,              // press/release GLFW key `Code`
+            Char              // type unicode codepoint `Code`
         };
 
         Kind Type = Kind::MousePos;
-        // MousePos only: OS window CLIENT coordinates, logical pixels, origin
-        // top-left — exactly what GLFW's cursor-pos callback receives.
+        // MousePos: OS window CLIENT coordinates, logical pixels, origin top-left —
+        // exactly what GLFW's cursor-pos callback receives.
+        // MouseDelta: a DISPLACEMENT in the same units, accumulated into
+        // SyntheticInput's persistent cursor offset (issue #607; see the
+        // "mouseDelta" section of McpInputInject.h for why relative injection
+        // cannot be expressed as a sequence of absolute positions).
         f32 X = 0.0f;
         f32 Y = 0.0f;
         // MouseButton: GLFW mouse-button index. Key: GLFW key code (== OloEngine
@@ -528,6 +534,40 @@ namespace OloEngine::MCP
         // Cursor position ImGui currently believes in, in window-client logical pixels.
         f32 MouseX = 0.0f;
         f32 MouseY = 0.0f;
+        // The accumulated RELATIVE displacement the "mouseDelta" action has applied to
+        // SyntheticInput's persistent cursor offset (issue #607), in the same units.
+        // Unlike the absolute override this survives the plan draining, so it is
+        // reported back on every call: it is the one piece of injection state an agent
+        // can leave behind, and a drifting value is how you notice you did.
+        f32 MouseOffsetX = 0.0f;
+        f32 MouseOffsetY = 0.0f;
+    };
+
+    // Editor liveness + window state (issue #607) — the answer to "is the editor
+    // actually running frames?", which nothing in the MCP surface used to expose.
+    //
+    // The motivating bug: while the window is ICONIFIED, Application::Run skips its
+    // whole `if (!m_Minimized)` block, so EditorLayer::OnUpdate never runs. The frame
+    // counter stops, DrainMcpInputQueue never drains an injected plan (every
+    // olo_input_inject then reports "still in flight (N frame(s) left)" forever), and
+    // every capture keeps returning the last frame drawn before the minimize — with
+    // HTTP 200 and no clue. MarshalRead itself keeps working, because game-thread
+    // tasks are pumped BEFORE that guard; that is precisely why every read tool
+    // answers normally and the failure reads as a renderer or camera bug. Diagnosing
+    // it the first time took an out-of-band IsIconic() P/Invoke and a CPU-time delta.
+    //
+    // MsSinceLastFrame is what makes this a ONE-CALL question: a frame index alone
+    // needs two samples to tell "stalled" from "slow", whereas a wall-clock gap since
+    // the last completed frame answers it outright.
+    struct McpEditorLiveness
+    {
+        bool Available = false;
+        u64 FrameIndex = 0;         // monotonic; only advances while OnUpdate runs
+        f64 MsSinceLastFrame = 0.0; // wall clock since the last completed editor frame
+        bool Iconified = false;     // window minimized => the update/render loop is parked
+        bool Focused = false;       // OS keyboard focus (injection does NOT require it)
+        bool Visible = true;
+        bool CaptureUnready = false; // throttle-skipped, or mid viewport-resize transient
     };
 
     // Editor state the main-marshaled tools read. EditorLayer fills these in; the
@@ -575,6 +615,14 @@ namespace OloEngine::MCP
         // rendered before capturing.
         std::function<u64()> GetFrameIndex;
         std::function<bool()> IsCaptureUnready;
+
+        // Everything the two hooks above report, PLUS the window state and the
+        // wall-clock gap since the last completed frame (issue #607) — see
+        // McpEditorLiveness for why an iconified editor is a silent-wrong-answer
+        // generator and why one call has to be able to say so. Null in a headless
+        // host; tools then fall back to GetFrameIndex/IsCaptureUnready and simply
+        // report nothing about liveness rather than guessing.
+        std::function<McpEditorLiveness()> GetEditorLiveness;
 
         // ---- Consented, undoable project writes (issue #306 item C) ------------
         // The editor's undo/redo stack, so a write tool can apply its mutation as a

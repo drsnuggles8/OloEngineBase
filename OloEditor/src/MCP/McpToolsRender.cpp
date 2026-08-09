@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "MCP/McpEditorLiveness.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpCaptureRegion.h"
 #include "MCP/McpPostProcessSettings.h"
@@ -361,8 +362,8 @@ namespace OloEngine::MCP
             if (args.contains("format") && args["format"].is_string())
             {
                 format = args["format"].get<std::string>();
-                if (format != "json" && format != "mermaid")
-                    return ToolResult::Error("format must be \"json\" or \"mermaid\".");
+                if (format != "json" && format != "mermaid" && format != "dot")
+                    return ToolResult::Error("format must be \"json\", \"mermaid\", or \"dot\".");
             }
 
             Json transport = server.MarshalRead([format]() -> Json
@@ -451,11 +452,13 @@ namespace OloEngine::MCP
                     snap.Resources.push_back(std::move(info));
                 }
 
-                // Mermaid is a pure transform of the snapshot, but the snapshot can
-                // only be gathered on the main thread, so build the text here and
+                // Mermaid / DOT are pure transforms of the snapshot, but the snapshot
+                // can only be gathered on the main thread, so build the text here and
                 // ferry it out under a sentinel key.
                 if (format == "mermaid")
                     return Json{ { "__text", RenderGraphTopology::BuildMermaid(snap) } };
+                if (format == "dot")
+                    return Json{ { "__text", RenderGraphTopology::BuildDot(snap) } };
                 return RenderGraphTopology::BuildJson(snap); });
 
             if (transport.is_object() && transport.contains("__error"))
@@ -513,13 +516,24 @@ namespace OloEngine::MCP
         // texture had not been redrawn yet and nothing in the response said so.
         // With the frame index in the meta, an agent can see two captures came
         // from the SAME frame; with `forceFrame` it can demand a fresh one.
-        Json CaptureStampJson(u64 frameIndex)
+        Json CaptureStampJson(u64 frameIndex, const EditorMcpContext& context)
         {
             const auto now = std::chrono::system_clock::now().time_since_epoch();
             Json j;
             j["frameIndex"] = frameIndex;
             j["timestampMs"] = static_cast<u64>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+            // The frame index above tells you two captures came from the same frame,
+            // but not WHY the frame stopped advancing. A parked editor (minimized ⇒
+            // Application::Run skips the whole layer/render block) keeps answering
+            // every read tool normally, so the liveness verdict has to travel with
+            // the capture rather than being a separate question (issue #607).
+            if (context.GetEditorLiveness)
+            {
+                const McpEditorLiveness liveness = context.GetEditorLiveness();
+                j["stale"] = EditorLiveness::IsStale(liveness);
+                j["liveness"] = EditorLiveness::ToJson(liveness);
+            }
             return j;
         }
 
@@ -656,7 +670,7 @@ namespace OloEngine::MCP
                 if (!capture.Error.empty())
                     return Json{ { "__error", "Capture of '" + name + "' failed: " + capture.Error } };
 
-                Json meta = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
+                Json meta = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0, server.Context());
                 meta["name"] = name;
                 if (!afterPass.empty())
                 {
@@ -3185,7 +3199,7 @@ namespace OloEngine::MCP
                         j["afterPassNote"] = "meta.frameIndex is the collect-time frame; the snapshot was cloned "
                                              "mid-frame during the immediately preceding rendered frame.";
                     }
-                    j["meta"] = CaptureStampJson(frameIndex);
+                    j["meta"] = CaptureStampJson(frameIndex, server.Context());
                     return j;
                 }
 
@@ -3237,7 +3251,7 @@ namespace OloEngine::MCP
                 }
 
                 Json j = ProbePixel::BuildGBufferProbe(in);
-                j["meta"] = CaptureStampJson(frameIndex);
+                j["meta"] = CaptureStampJson(frameIndex, server.Context());
                 return j; });
 
             if (result.is_object() && result.contains("__error"))
@@ -3462,7 +3476,7 @@ namespace OloEngine::MCP
                 }
                 if (!selection.Note.empty())
                     j["layerNote"] = selection.Note;
-                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
+                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0, server.Context());
                 return j; });
 
             if (result.is_object() && result.contains("__error"))
@@ -3854,7 +3868,7 @@ namespace OloEngine::MCP
                         j["ok"] = false;
                 }
 
-                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
+                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0, server.Context());
                 return j; });
 
             if (result.is_object() && result.contains("__error"))
@@ -4801,7 +4815,7 @@ namespace OloEngine::MCP
                 j["fog"] = Json{ { "enabled", fog.Enabled },
                                  { "volumetric", fog.EnableVolumetric },
                                  { "ranThisFrame", pass->RanThisFrame() } };
-                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
+                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0, server.Context());
                 if (!pass->RanThisFrame())
                     j["staleness"] = "The froxel chain did NOT run on the last frame (fog or volumetric fog was "
                                      "turned off); these are the values from the last frame it did run.";
@@ -4946,14 +4960,16 @@ namespace OloEngine::MCP
                 "'accesses' — every resource it reads/writes WITH the resolved physical GL object id, so 'do "
                 "these two passes touch the same physical texture this frame' is a single lookup (each "
                 "resource also carries a 'gl' block: texture/framebuffer/attachment/buffer ids as of the last "
-                "executed frame; texture views resolve to their parent object). Use format:\"mermaid\" for a "
-                "flowchart DAG of the pass graph instead of JSON. Read-only; requires the editor to be "
-                "rendering in 3D mode.";
+                "executed frame; texture views resolve to their parent object). Use format:\"mermaid\" or "
+                "format:\"dot\" for a drawable DAG of the pass graph instead of JSON. Read-only; requires the "
+                "editor to be rendering in 3D mode. See olo_scheduler_graph for the engine's OTHER derived DAG, "
+                "the per-tick gameplay system schedule.";
             tool.InputSchema = Schema::Object()
                                    .Prop("format", Schema::String()
-                                                       .Enum({ "json", "mermaid" })
+                                                       .Enum({ "json", "mermaid", "dot" })
                                                        .Desc("'json' (default): full structured topology (passes, executionOrder, edges, resources). "
-                                                             "'mermaid': a flowchart-LR DAG of the pass dependency graph."))
+                                                             "'mermaid': a flowchart-LR DAG of the pass dependency graph. "
+                                                             "'dot': the same DAG as Graphviz DOT."))
                                    .NoAdditional();
             // outputSchema describes the json format only; mermaid returns
             // free text, which an outputSchema cannot constrain.

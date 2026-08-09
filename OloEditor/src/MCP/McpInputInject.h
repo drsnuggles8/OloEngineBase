@@ -14,6 +14,27 @@
 // not having it. BuildPlan owns that timing and is unit-tested here rather than being
 // re-derived by eye in EditorLayer.
 //
+// ABSOLUTE vs RELATIVE (the "mouseDelta" action, issue #607). Every action above
+// injects an ABSOLUTE cursor position, held only while the plan is in flight and
+// dropped when it drains. That is exactly right for ImGui widgets, menus and gizmo
+// drags, which read a position — and provably useless for a consumer that integrates
+// `Input::GetMousePosition() - lastPos` ACROSS frames, such as a mouse-look rig. Such
+// a consumer sees the override arrive as a one-frame spike and, the frame the plan
+// drains, that spike's exact mirror; the two cancel to zero net rotation. Measured on
+// the #645 player rig (PR #748): four equal horizontal moves each produced
+// dYaw = 0.000, with pitch pinned at exactly MaxPitchDeg.
+//
+// Holding the override for LONGER cannot fix that. The mirror is produced by
+// REVERTING the override, not by its brevity, so the integral over any plan is still
+// exactly zero however many frames it is latched for — which is why this shipped as a
+// relative action rather than the `holdFrames` parameter the gap report also floated.
+// A displacement is modelled the way a real mouse implements one: SyntheticInput
+// accumulates a persistent cursor OFFSET that deliberately outlives the plan, so the
+// consumer registers the movement once and never sees it taken back. Absolute
+// injection is untouched (the override still wins outright while set), and hardware
+// motion still passes through — the reported cursor is simply shifted, exactly as a
+// real movement would have left it. `resetOffset` is how you put it back.
+//
 // The ACTIONS cannot live in this header — feeding ImGuiIO / the GLFW callbacks and
 // reading the ECS selection are editor + window bound, and a unit test must not need a
 // window. So they are routed through the EditorMcpContext hooks (GetInputViewportInfo /
@@ -67,6 +88,7 @@ namespace OloEngine::MCP::InputInject
         Click,
         Move,
         Drag,
+        MouseDelta,
         Key,
         Text
     };
@@ -118,6 +140,15 @@ namespace OloEngine::MCP::InputInject
         i32 Button = Mouse::ButtonLeft;
         bool DoubleClick = false;
         int Steps = 8; // drag interpolation steps
+
+        // mouseDelta: a RELATIVE displacement, in `CoordSpace`'s units, and how many
+        // consecutive frames to spread it over. ResetOffset zeroes the accumulated
+        // displacement first (the "put the virtual cursor back on the hardware one"
+        // operation).
+        f32 Dx = 0.0f;
+        f32 Dy = 0.0f;
+        int DeltaFrames = 1;
+        bool ResetOffset = false;
 
         i32 KeyCode = 0; // GLFW key code (== OloEngine KeyCode)
         std::string KeyName;
@@ -295,6 +326,8 @@ namespace OloEngine::MCP::InputInject
             out.Act = Action::Move;
         else if (action == "drag")
             out.Act = Action::Drag;
+        else if (action == "mousedelta")
+            out.Act = Action::MouseDelta;
         else if (action == "key")
             out.Act = Action::Key;
         else if (action == "text")
@@ -366,6 +399,24 @@ namespace OloEngine::MCP::InputInject
                     return error;
                 if (args.contains("steps"))
                     out.Steps = static_cast<int>(std::clamp<i64>(args["steps"].get<i64>(), 1, 64));
+                break;
+            }
+            case Action::MouseDelta:
+            {
+                out.ResetOffset = args.value("resetOffset", false);
+                // dx/dy are required UNLESS this is a pure reset — "put the virtual
+                // cursor back" is a meaningful call on its own, and demanding
+                // dx:0, dy:0 to express it would be noise.
+                const bool hasDx = args.contains("dx");
+                const bool hasDy = args.contains("dy");
+                if (!hasDx && !hasDy && out.ResetOffset)
+                    break;
+                if (auto error = readFinite("dx", out.Dx))
+                    return error;
+                if (auto error = readFinite("dy", out.Dy))
+                    return error;
+                if (args.contains("frames"))
+                    out.DeltaFrames = static_cast<int>(std::clamp<i64>(args["frames"].get<i64>(), 1, 64));
                 break;
             }
             case Action::Key:
@@ -530,6 +581,47 @@ namespace OloEngine::MCP::InputInject
         return std::nullopt;
     }
 
+    // Convert a RELATIVE displacement in `space` into the window-client logical
+    // pixels the poll-based Input:: API reports — the units a delta-integrating
+    // consumer's sensitivity is expressed in.
+    //
+    // No bounds check, unlike ResolvePoint: a displacement names no position, so
+    // "outside the viewport" is not a thing it can be. The scale factors mirror
+    // ResolvePoint exactly so the two spaces mean the same thing for both actions:
+    //   viewport      native viewport pixels -> logical, i.e. / DpiScale
+    //   viewportNorm  fraction of the viewport -> logical, i.e. * logical extent
+    //   window        already logical window pixels
+    [[nodiscard]] inline std::optional<std::string> ResolveDelta(const McpInputViewportInfo& info, Space space,
+                                                                 f32 dx, f32 dy, f32& outDx, f32& outDy)
+    {
+        switch (space)
+        {
+            case Space::Viewport:
+            {
+                if (!(info.DpiScale > 0.0f))
+                    return "The editor viewport has no DPI scale yet (is the Viewport panel open?).";
+                outDx = dx / info.DpiScale;
+                outDy = dy / info.DpiScale;
+                break;
+            }
+            case Space::ViewportNormalized:
+            {
+                if (info.LogicalWidth < 1.0f || info.LogicalHeight < 1.0f)
+                    return "The editor viewport has no size yet (is the Viewport panel open?).";
+                outDx = dx * info.LogicalWidth;
+                outDy = dy * info.LogicalHeight;
+                break;
+            }
+            case Space::Window:
+            {
+                outDx = dx;
+                outDy = dy;
+                break;
+            }
+        }
+        return std::nullopt;
+    }
+
     // ---- plan building --------------------------------------------------------------
 
     namespace Detail
@@ -540,6 +632,20 @@ namespace OloEngine::MCP::InputInject
             e.Type = McpInputEvent::Kind::MousePos;
             e.X = x;
             e.Y = y;
+            return e;
+        }
+        inline McpInputEvent MouseDeltaEvent(f32 dx, f32 dy)
+        {
+            McpInputEvent e;
+            e.Type = McpInputEvent::Kind::MouseDelta;
+            e.X = dx;
+            e.Y = dy;
+            return e;
+        }
+        inline McpInputEvent MouseOffsetResetEvent()
+        {
+            McpInputEvent e;
+            e.Type = McpInputEvent::Kind::MouseOffsetReset;
             return e;
         }
         inline McpInputEvent MouseButton(i32 button, bool down)
@@ -584,13 +690,24 @@ namespace OloEngine::MCP::InputInject
         }
     } // namespace Detail
 
+    // The resolved form of a "mouseDelta" request: the total displacement in
+    // window-client logical pixels, and how it was quantized into frames.
+    struct ResolvedDelta
+    {
+        f32 WindowDx = 0.0f;
+        f32 WindowDy = 0.0f;
+        int Frames = 1;
+        bool Reset = false;
+    };
+
     // Turn a parsed Request into the frame-by-frame plan the editor drains.
     // `info` is only consulted for the mouse actions (to resolve coordinates); pass a
     // default-constructed one for key/text. `outStart` / `outEnd` receive the resolved
-    // points (for the result JSON) when the action is coordinate-bearing.
+    // points (for the result JSON) when the action is coordinate-bearing; `outDelta`
+    // (optional) receives the resolved displacement for Action::MouseDelta.
     [[nodiscard]] inline std::optional<std::string> BuildPlan(const Request& request, const McpInputViewportInfo& info,
                                                               McpInputPlan& plan, ResolvedPoint& outStart,
-                                                              ResolvedPoint& outEnd)
+                                                              ResolvedPoint& outEnd, ResolvedDelta* outDelta = nullptr)
     {
         using namespace Detail;
         plan.Frames.clear();
@@ -682,6 +799,50 @@ namespace OloEngine::MCP::InputInject
                 AppendIdleFrames(plan, s_TrailingSettleFrames);
                 break;
             }
+            case Action::MouseDelta:
+            {
+                ResolvedDelta delta;
+                delta.Frames = std::max(1, request.DeltaFrames);
+                delta.Reset = request.ResetOffset;
+                if (auto error = ResolveDelta(info, request.CoordSpace, request.Dx, request.Dy, delta.WindowDx,
+                                              delta.WindowDy))
+                    return error;
+
+                // The reset gets a frame of its own: it is a genuine discontinuity
+                // (the virtual cursor jumps back onto the hardware one) and folding it
+                // into the same frame as a following displacement would hand a delta
+                // consumer their algebraic sum, hiding both.
+                if (delta.Reset)
+                    plan.Frames.push_back({ MouseOffsetResetEvent() });
+
+                // Spread the displacement over `Frames` consecutive frames, walking
+                // the running TOTAL rather than adding a rounded per-frame step, so
+                // the frames sum to exactly the requested displacement with no drift.
+                //
+                // Why spreading matters: a delta consumer is entitled to reject an
+                // implausible single-frame jump as a discontinuity, and several do —
+                // PlayerRigSystem::SampleLookDelta drops any sample worth more than
+                // kMaxLookDegreesPerSample (180°) of rotation, precisely so a window
+                // move / minimize-restore cannot fling the camera. A real mouse
+                // delivers a large movement as many small per-frame deltas, and
+                // `frames` is how this tool does the same.
+                f32 appliedX = 0.0f;
+                f32 appliedY = 0.0f;
+                for (int frame = 1; frame <= delta.Frames; ++frame)
+                {
+                    const f32 t = static_cast<f32>(frame) / static_cast<f32>(delta.Frames);
+                    const f32 targetX = (frame == delta.Frames) ? delta.WindowDx : delta.WindowDx * t;
+                    const f32 targetY = (frame == delta.Frames) ? delta.WindowDy : delta.WindowDy * t;
+                    plan.Frames.push_back({ MouseDeltaEvent(targetX - appliedX, targetY - appliedY) });
+                    appliedX = targetX;
+                    appliedY = targetY;
+                }
+
+                AppendIdleFrames(plan, s_TrailingSettleFrames);
+                if (outDelta)
+                    *outDelta = delta;
+                break;
+            }
             case Action::Key:
             {
                 if (request.KeyAct != KeyAction::Release)
@@ -746,9 +907,11 @@ namespace OloEngine::MCP::InputInject
     {
         return Schema::Object()
             .Prop("action", Schema::String()
-                                .Enum({ "click", "move", "drag", "key", "text" })
+                                .Enum({ "click", "move", "drag", "mouseDelta", "key", "text" })
                                 .Desc("click = press+release at (x, y). move = just move the cursor. "
                                       "drag = press at (fromX, fromY), move in steps, release at (toX, toY). "
+                                      "mouseDelta = displace the cursor by (dx, dy) RELATIVELY, for mouse-look rigs "
+                                      "and other consumers that integrate movement across frames. "
                                       "key = press/release/tap a key. text = type characters into the focused widget."))
             .Prop("x", Schema::Number().Desc("click/move: horizontal coordinate in 'space'."))
             .Prop("y", Schema::Number().Desc("click/move: vertical coordinate in 'space' (origin top-left, +Y down)."))
@@ -764,10 +927,23 @@ namespace OloEngine::MCP::InputInject
                                      "its pixels. \"viewportNorm\" = fractional [0,1] across the viewport — "
                                      "downscale-proof, and the safest choice after a screenshot. \"window\" = OS window "
                                      "client pixels (origin top-left) — use this to click ImGui panels, menus, and "
-                                     "buttons OUTSIDE the 3D viewport."))
+                                     "buttons OUTSIDE the 3D viewport. For mouseDelta the same three spaces scale the "
+                                     "DISPLACEMENT: \"window\" is 1:1 with the units Input::GetMousePosition reports, "
+                                     "which is what a rig's look sensitivity is calibrated in."))
             .Prop("button", Schema::String().Enum({ "left", "right", "middle" }).Desc("click/drag: mouse button (default left)."))
             .Prop("doubleClick", Schema::Bool().Desc("click: send two clicks in quick succession (default false)."))
             .Prop("steps", Schema::Int().Min(1).Max(64).Desc("drag: interpolation steps between the endpoints, one per frame (default 8)."))
+            .Prop("dx", Schema::Number().Desc("mouseDelta: horizontal displacement in 'space' units (+ = right)."))
+            .Prop("dy", Schema::Number().Desc("mouseDelta: vertical displacement in 'space' units (+ = down)."))
+            .Prop("frames", Schema::Int().Min(1).Max(64).Desc("mouseDelta: spread the displacement over this many consecutive frames "
+                                                              "(default 1). A consumer may reject an implausibly large single-frame jump as "
+                                                              "a discontinuity — PlayerRigSystem drops any look sample worth over 180 deg — "
+                                                              "so deliver a big movement the way a real mouse does, as several small deltas."))
+            .Prop("resetOffset", Schema::Bool()
+                                     .Desc("mouseDelta: zero the accumulated relative displacement first, putting the "
+                                           "virtual cursor back onto the hardware one (default false). Valid on its "
+                                           "own, without dx/dy. NOTE this is itself a jump, and a delta consumer sees "
+                                           "it as one."))
             .Prop("modifiers", Schema::Array(Schema::String().Enum({ "ctrl", "shift", "alt" }))
                                    .Desc("Modifier keys held for the duration of the action (e.g. [\"ctrl\"] for "
                                          "ctrl-click multi-select)."))
@@ -788,7 +964,9 @@ namespace OloEngine::MCP::InputInject
 
     [[nodiscard]] inline Json ToJson(const McpInputInjectResult& result, const McpInputStateSnapshot& state,
                                      const McpInputViewportInfo& info, const Request& request,
-                                     const ResolvedPoint& start, const ResolvedPoint& end, bool timedOut)
+                                     const ResolvedPoint& start, const ResolvedPoint& end, bool timedOut,
+                                     const ResolvedDelta* delta = nullptr,
+                                     const std::string& stallReason = {})
     {
         Json j;
         j["available"] = result.Available;
@@ -797,8 +975,23 @@ namespace OloEngine::MCP::InputInject
         j["message"] = result.Message;
         if (timedOut)
         {
-            j["message"] = "Injected, but timed out waiting for the editor to finish processing the input "
-                           "(is it responsive?). The state below may be stale.";
+            // Name the CAUSE when the editor could tell us one. A bare "timed out" is
+            // what made the iconified-window failure take an out-of-band IsIconic()
+            // P/Invoke to diagnose (issue #607): the tool knew the loop was parked and
+            // said nothing.
+            j["message"] = stallReason.empty()
+                               ? std::string("Injected, but timed out waiting for the editor to finish processing "
+                                             "the input (is it responsive?). The state below may be stale.")
+                               : "Injected, but the editor never processed it. " + stallReason +
+                                     " The state below is from before the injection.";
+        }
+
+        if (request.Act == Action::MouseDelta && delta != nullptr)
+        {
+            j["resolvedDelta"] = Json{ { "windowDx", delta->WindowDx },
+                                       { "windowDy", delta->WindowDy },
+                                       { "frames", delta->Frames },
+                                       { "reset", delta->Reset } };
         }
 
         if (request.Act == Action::Click || request.Act == Action::Move || request.Act == Action::Drag)
@@ -825,6 +1018,10 @@ namespace OloEngine::MCP::InputInject
         after["viewportHovered"] = state.ViewportHovered;
         after["mouseX"] = state.MouseX;
         after["mouseY"] = state.MouseY;
+        // Always reported, not only for mouseDelta: the accumulated offset is the one
+        // piece of injection state that OUTLIVES a call, so a session that has left it
+        // non-zero should be able to see that from any injection reply.
+        after["mouseOffset"] = Json{ { "x", state.MouseOffsetX }, { "y", state.MouseOffsetY } };
         after["selectedEntity"] = state.SelectedEntityId == 0
                                       ? Json(nullptr)
                                       : Json{ { "id", std::to_string(state.SelectedEntityId) },

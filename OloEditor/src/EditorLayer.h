@@ -38,6 +38,7 @@
 #include "OloEngine/Scene/SceneMeshRaycast.h"
 
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <future>
 #include <mutex>
@@ -220,6 +221,13 @@ namespace OloEngine
         [[nodiscard]] MCP::McpInputViewportInfo GetMcpInputViewportInfo() const;
         [[nodiscard]] MCP::McpInputStateSnapshot GetMcpInputState() const;
 
+        // ---- MCP editor liveness (issue #607) ----------------------------------
+        // Frame counter + wall-clock gap since the last completed frame + window
+        // state, so a tool can say "the editor is asleep" instead of quietly
+        // returning a stale frame. Main-thread-only (queries GLFW), called from
+        // inside a MarshalRead job.
+        [[nodiscard]] MCP::McpEditorLiveness GetMcpEditorLiveness() const;
+
         // ---- MCP editor selection (olo_editor_select_entity, issue #607) --------
         // Select/clear the Scene Hierarchy panel's selection so the Properties
         // inspector draws the requested entity's components — the write
@@ -359,6 +367,13 @@ namespace OloEngine
         // m_LastViewportResizeFrame) to the MCP tools so a camera change can be
         // confirmed rendered before a capture is taken.
         u64 m_FrameIndex = 0;
+        // Wall clock at the top of the most recent OnUpdate. The frame counter alone
+        // cannot distinguish "stalled" from "slow" without two samples, so an agent
+        // would have to poll twice and reason about the interval; a timestamp turns
+        // "is the loop actually ticking?" into ONE call (issue #607). Zero until the
+        // first frame runs, which GetMcpEditorLiveness reports as "not stalled"
+        // rather than inventing a stall during startup.
+        std::chrono::steady_clock::time_point m_LastFrameTick{};
         // Frame at which the viewport framebuffer was last resized. Freshly
         // resized render-graph framebuffers render black for a couple of
         // frames, so captures must not trust the first frames after a resize.
