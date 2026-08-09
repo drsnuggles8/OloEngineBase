@@ -17,13 +17,28 @@
 #include "include/CameraCommon.glsl"
 #include "include/FluidSplatCommon.glsl"
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): vertex pulling from the engine-wide binding 57.
+// This stream is NOT the standard 20-byte one — the quad VB is a bare
+// {vec2 a_QuadPos} at 8-byte stride (everything else rides the particle
+// SSBOs); the pulled local under the attribute name keeps the body shared.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec2 a_QuadPos; // unit quad corner in [-0.5, 0.5]
+#endif
 
 layout(location = 0) out vec2 v_UV;         // [-1, 1] across the splat
 layout(location = 1) out vec3 v_ViewCenter; // particle centre, view space
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    vec2 a_QuadPos = vec2(b_Vertices.v[gl_VertexIndex * 2 + 0], b_Vertices.v[gl_VertexIndex * 2 + 1]);
+#endif
     // Vulkan GLSL builtin (shaderc pipeline); equals gl_InstanceID here since
     // the pass draws with a zero base instance.
     uint instanceIndex = uint(gl_InstanceIndex);
