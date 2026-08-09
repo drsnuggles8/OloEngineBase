@@ -132,6 +132,19 @@ namespace OloEngine
             return m_Phase6StubHits;
         }
 
+        // Draw observability (issue #691 Phase 7): PrepareDraw's failure
+        // paths drop the draw with at most a warn-once — a fixture asserting
+        // "N draws prepared, 0 dropped" turns a silently black frame into a
+        // named failure. Reset by BeginRecording.
+        [[nodiscard]] u32 GetPreparedDrawsThisRecording() const
+        {
+            return m_PreparedDrawsThisRecording;
+        }
+        [[nodiscard]] u32 GetDroppedDrawsThisRecording() const
+        {
+            return m_DroppedDrawsThisRecording;
+        }
+
         // --- RendererAPI ---------------------------------------------------
         void Init() override;
         void SetViewport(u32 x, u32 y, u32 width, u32 height) override;
@@ -328,6 +341,8 @@ namespace OloEngine
         VulkanRenderTargetDesc m_ScopeTargets; ///< Valid while m_Scope.Active.
         VkBuffer m_BoundIndexBuffer = VK_NULL_HANDLE;
         bool m_HeapBoundThisRecording = false;
+        u32 m_PreparedDrawsThisRecording = 0;
+        u32 m_DroppedDrawsThisRecording = 0;
         VulkanVertexArray* m_BoundVertexArray = nullptr; ///< BindVertexArrayRaw's publication.
         std::vector<u8> m_RootScratch;
         // Recorded scissor box (the WITH_COUNT dynamic state is emitted by

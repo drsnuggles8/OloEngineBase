@@ -74,11 +74,22 @@ namespace OloEngine::VulkanBarrierLowering
             case RHI::Access::ColorAttachmentRead:
                 return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT };
             case RHI::Access::ColorAttachmentWrite:
-                return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
+                // READ|WRITE, not WRITE alone: an attachment-write access
+                // carries the loadOp/blend READ half with it — a transition
+                // INTO the attachment scope must make the image visible to
+                // loadOp LOAD's ATTACHMENT_READ or sync validation flags the
+                // begin-rendering read (found by VulkanPassSuiteTest). As a
+                // SOURCE scope the extra read bit is ignored by the
+                // availability rules, so one spelling serves both directions.
+                return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
             case RHI::Access::DepthStencilAttachmentRead:
                 return { kDepthStencilTestStages, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT };
             case RHI::Access::DepthStencilAttachmentWrite:
-                return { kDepthStencilTestStages, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
+                // READ|WRITE for the same reason as ColorAttachmentWrite: the
+                // depth test's read half rides along with the write access.
+                return { kDepthStencilTestStages,
+                         VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
             case RHI::Access::InputAttachmentRead:
                 return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT };
 

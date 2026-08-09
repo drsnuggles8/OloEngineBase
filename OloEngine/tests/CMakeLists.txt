@@ -195,6 +195,11 @@ add_executable(OloEngine-Tests
 		# root-data assembly, the thin-PSO fetch and the lazy dynamic-
 		# rendering scope. Same SKIP ladder + zero-validation bar.
 		Rendering/VulkanDrawPathTest.cpp
+		# #691 Phase 7 Stage 1.6b: REAL passes through the REAL render graph on
+		# a device — transients, planner barriers, pass bodies recording via
+		# the process-global backend; first tenant is the golden-gated FXAA
+		# pass. Same SKIP ladder + zero-validation bar.
+		Rendering/VulkanPassSuiteTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`

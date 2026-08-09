@@ -37,10 +37,19 @@ namespace OloEngine
 
         void Init() override;
 
-        // Acquire → clear (vkCmdClearColorImage) → present. Handles swapchain
-        // recreation on resize (VK_ERROR_OUT_OF_DATE_KHR / suboptimal) and skips
-        // the frame entirely while the framebuffer is 0-sized (minimised).
+        // Acquire → record (frame callback when set, clear fallback otherwise)
+        // → present. Handles swapchain recreation on resize
+        // (VK_ERROR_OUT_OF_DATE_KHR / suboptimal) and skips the frame entirely
+        // while the framebuffer is 0-sized (minimised).
         void SwapBuffers() override;
+
+        // The Stage 1.6b render seam (see GraphicsContext). The callback runs
+        // inside the global VulkanRendererAPI recording bracket with the
+        // acquired swapchain image published as an RHI::ResourceHandle.
+        void SetFrameRenderCallback(FrameRenderCallback callback) override
+        {
+            m_FrameRenderCallback = std::move(callback);
+        }
 
         // The fixed bring-up clear colour (classic XNA cornflower blue — instantly
         // recognisable as "a cleared backbuffer", and nothing the GL editor draws).
@@ -53,6 +62,7 @@ namespace OloEngine
 
         GLFWwindow* m_WindowHandle;
         Scope<VulkanContextData> m_Data;
+        FrameRenderCallback m_FrameRenderCallback;
     };
 } // namespace OloEngine
 

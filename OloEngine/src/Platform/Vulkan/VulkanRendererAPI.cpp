@@ -121,6 +121,8 @@ namespace OloEngine
         m_HeapBoundThisRecording = false;
         m_Scope = RenderingScope{};
         m_ScissorRectSet = false;
+        m_PreparedDrawsThisRecording = 0;
+        m_DroppedDrawsThisRecording = 0;
     }
 
     void VulkanRendererAPI::EndRecording()
@@ -824,6 +826,37 @@ namespace OloEngine
         // next scope begin re-reads them. Target/DrawList stay published.
     }
 
+    // Conservative source access for a scope-open attachment transition. The
+    // graph's planner orders passes but never lowers a FRAMEBUFFER-kind write
+    // to an image barrier — the attachment-layout transition is the draw
+    // front-end's job. The true prior access isn't known here, so it is
+    // guessed from the tracker's current layout: exact for UNDEFINED (first
+    // use) and attachment-to-attachment; conservative otherwise.
+    static RHI::Access AccessGuessForLayout(const VkImageLayout layout)
+    {
+        switch (layout)
+        {
+            case VK_IMAGE_LAYOUT_UNDEFINED:
+                return RHI::Access::Undefined;
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                return RHI::Access::ColorAttachmentWrite;
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                return RHI::Access::DepthStencilAttachmentWrite;
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                return RHI::Access::DepthStencilAttachmentRead;
+            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                return RHI::Access::ShaderSampleRead;
+            case VK_IMAGE_LAYOUT_GENERAL:
+                return RHI::Access::StorageReadWrite;
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                return RHI::Access::TransferWrite;
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                return RHI::Access::TransferRead;
+            default:
+                return RHI::Access::StorageReadWrite;
+        }
+    }
+
     bool VulkanRendererAPI::EnsureRenderingScopeForDraw()
     {
         auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
@@ -855,6 +888,17 @@ namespace OloEngine
         std::array<VkRenderingAttachmentInfo, 8> colorInfos{};
         m_ScopeTargets = VulkanRenderTargetDesc{};
         m_ScopeTargets.Samples = std::max(spec.Samples, 1u);
+
+        // Attachment transitions collected while building the infos below and
+        // recorded through IssueBarrierBatch BEFORE vkCmdBeginRendering: the
+        // rendering infos declare (COLOR/DEPTH)_ATTACHMENT_OPTIMAL, and
+        // nothing else transitions the images there — the graph's planner
+        // cannot see framebuffer attachments (an FB-kind write never lowers
+        // to an image barrier), so without this every first use renders into
+        // an UNDEFINED-layout image and later sample barriers lower with an
+        // empty source scope (both are validation errors; found by
+        // VulkanPassSuiteTest's first full-graph frame).
+        std::vector<RHI::Barrier> scopeBarriers;
 
         const bool identity = m_Scope.DrawListCount == 0;
         const u32 outputCount =
@@ -894,6 +938,17 @@ namespace OloEngine
 
             const auto* imageInfo = VulkanImageInfoRegistry::Get().Lookup(image->GetVkImage());
             m_ScopeTargets.ColorFormats[i] = imageInfo != nullptr ? imageInfo->Format : VK_FORMAT_UNDEFINED;
+
+            RHI::Barrier toAttachment{};
+            toAttachment.Resource = image->GetRHIHandle();
+            toAttachment.Range.BaseMip = 0u;
+            toAttachment.Range.MipCount = 1u;
+            toAttachment.Range.BaseLayer = 0u;
+            toAttachment.Range.LayerCount = 1u;
+            const VkImageSubresourceRange probe{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+            toAttachment.Before = AccessGuessForLayout(m_LayoutTracker.CurrentLayout(image->GetVkImage(), probe));
+            toAttachment.After = RHI::Access::ColorAttachmentWrite;
+            scopeBarriers.push_back(toAttachment);
         }
         m_ScopeTargets.ColorCount = outputCount;
 
@@ -916,7 +971,28 @@ namespace OloEngine
 
             const auto* depthImageInfo = VulkanImageInfoRegistry::Get().Lookup(depthImage->GetVkImage());
             m_ScopeTargets.DepthFormat = depthImageInfo != nullptr ? depthImageInfo->Format : VK_FORMAT_UNDEFINED;
+
+            RHI::Barrier toDepth{};
+            toDepth.Resource = depthImage->GetRHIHandle();
+            toDepth.Range.BaseMip = 0u;
+            toDepth.Range.MipCount = 1u;
+            toDepth.Range.BaseLayer = 0u;
+            toDepth.Range.LayerCount = 1u;
+            // The tracker resolves runs by (mip, layer) only; the aspect mask
+            // merely echoes into the emitted runs, so DEPTH is safe for the
+            // query even on a combined depth-stencil format.
+            const VkImageSubresourceRange depthProbe{ VK_IMAGE_ASPECT_DEPTH_BIT, 0u, 1u, 0u, 1u };
+            toDepth.Before = AccessGuessForLayout(m_LayoutTracker.CurrentLayout(depthImage->GetVkImage(), depthProbe));
+            toDepth.After = RHI::Access::DepthStencilAttachmentWrite;
+            scopeBarriers.push_back(toDepth);
         }
+
+        // A rendering scope cannot contain vkCmdPipelineBarrier2 — record the
+        // collected transitions first (no scope is active here; the batch
+        // also keeps the layout tracker's state true, which is what gives the
+        // NEXT barrier on these images its correct source scope).
+        if (!scopeBarriers.empty())
+            IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ scopeBarriers });
 
         VkRenderingInfo rendering{};
         rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -957,11 +1033,13 @@ namespace OloEngine
                 s_Warned = true;
                 OLO_CORE_WARN("[RHI/Vulkan] draw with no ready shader bound — dropped");
             }
+            ++m_DroppedDrawsThisRecording;
             return false;
         }
 
         if (!EnsureRenderingScopeForDraw())
         {
+            ++m_DroppedDrawsThisRecording;
             return false;
         }
 
@@ -970,6 +1048,15 @@ namespace OloEngine
             VulkanPipelineBuilder::Get().GetOrCreateGraphics(*shader, layout, m_State, m_ScopeTargets);
         if (pipeline == VK_NULL_HANDLE)
         {
+            // This was the ONE fully silent drop in the chain — a PSO
+            // creation failure must name its shader.
+            static std::unordered_set<std::string> s_WarnedPipelines;
+            if (s_WarnedPipelines.insert(shader->GetName()).second)
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] graphics pipeline creation failed for '{}' — draw dropped",
+                               shader->GetName());
+            }
+            ++m_DroppedDrawsThisRecording;
             return false;
         }
 
@@ -1006,7 +1093,12 @@ namespace OloEngine
             m_HeapBoundThisRecording = true;
         }
 
-        return AssembleAndPushRootData(layout, shader->GetName().c_str(), vao);
+        const bool assembled = AssembleAndPushRootData(layout, shader->GetName().c_str(), vao);
+        if (assembled)
+            ++m_PreparedDrawsThisRecording;
+        else
+            ++m_DroppedDrawsThisRecording;
+        return assembled;
     }
 
     bool VulkanRendererAPI::AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
@@ -1209,7 +1301,14 @@ namespace OloEngine
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexed(m_Cmd, indexCount, 1, 0, 0, 0);
+            // GL-facade contract: indexCount 0 means "the whole index buffer"
+            // (the GL twin derives identically). Passed through raw it is a
+            // LEGAL zero-index draw that renders nothing — every
+            // context.DrawIndexed(va) pass-body call uses the no-count form,
+            // so the whole pass suite silently drew nothing (found by
+            // VulkanPassSuiteTest's first full-graph frame).
+            const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
+            vkCmdDrawIndexed(m_Cmd, count, 1, 0, 0, 0);
         }
     }
 
@@ -1218,7 +1317,9 @@ namespace OloEngine
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexed(m_Cmd, indexCount, instanceCount, 0, 0, 0);
+            // Same 0 = whole-index-buffer facade contract as DrawIndexed.
+            const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
+            vkCmdDrawIndexed(m_Cmd, count, instanceCount, 0, 0, 0);
         }
     }
 
