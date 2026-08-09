@@ -55,6 +55,10 @@ namespace OloEngine
         // embedded per pipeline (VulkanPipelineBuilder). Returns false on
         // failure.
         [[nodiscard]] bool WriteSampledImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout);
+        // The STORAGE_IMAGE sibling (#691 Phase 7 — compute/imageStore
+        // bindings). `layout` is GENERAL in every current use (the barrier
+        // lowering puts storage accesses there).
+        [[nodiscard]] bool WriteStorageImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout);
 
         // Record the heap bind into a command buffer. Must run before any draw
         // whose pipeline carries heap mappings; re-recorded per command buffer
@@ -80,6 +84,9 @@ namespace OloEngine
 
       private:
         VulkanResourceHeap() = default;
+
+        [[nodiscard]] bool WriteImageDescriptor(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout,
+                                                VkDescriptorType type);
 
         static constexpr u32 kSlotCapacity = 4096;
 

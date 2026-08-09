@@ -80,7 +80,14 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+#if OLO_WITH_VULKAN
+                // #691 Phase 7: file-load arm (stbi + one-shot upload).
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<VulkanTexture2D>::Create(path, srgb);
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out)!");
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:

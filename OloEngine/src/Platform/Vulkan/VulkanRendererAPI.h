@@ -31,11 +31,28 @@
 
 #include <volk.h>
 
+#include <array>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace OloEngine
 {
+    class VulkanFramebuffer;
+    class VulkanVertexArray;
+
+    // The render-target half of a thin PSO's baked state (attachment
+    // formats + sample count). Lives HERE beside VulkanRecordedPipelineState
+    // — both are recorded state VulkanPipelineBuilder consumes, and the
+    // builder's header includes this one (declaring it there would cycle).
+    struct VulkanRenderTargetDesc
+    {
+        u32 ColorCount = 0;
+        std::array<VkFormat, 8> ColorFormats{};
+        VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
+        u32 Samples = 1;
+    };
+
     // Pipeline-key state recorded from the facade's state-setter entry
     // points. Vulkan bakes nearly all of this into the VkPipeline, so
     // Phase 5 RECORDS it for Phase 6's pipeline-key derivation instead of
@@ -256,6 +273,59 @@ namespace OloEngine
         // Const: several facade getters are const-qualified and still must
         // count their stub hit (nothing may fall through silently).
         void Phase6Stub(const char* entryPoint) const;
+
+        // --- Phase 7: lazy dynamic-rendering scope + draw assembly ----------
+        //
+        // GL passes freely interleave framebuffer binds, state calls, clears,
+        // draws, barriers and copies; Vulkan forbids most non-draw commands
+        // inside a vkCmdBeginRendering scope. The scope is therefore LAZY:
+        // vkCmdBeginRendering is deferred to the first draw against the
+        // currently-published framebuffer (VulkanBindingState), Clear()
+        // before that folds into the attachments' loadOp, and any barrier /
+        // clear-resource / copy / dispatch / target-change ENDS the scope
+        // (the next draw resumes with LOAD_OP_LOAD). This is what lets
+        // unmodified GL-shaped pass bodies record legal Vulkan.
+        struct RenderingScope
+        {
+            bool Active = false;
+            VulkanFramebuffer* Target = nullptr; ///< The scope's framebuffer (never null while Active).
+            bool PendingClearColor = false;      ///< Fold into loadOp at scope begin.
+            bool PendingClearDepth = false;
+            // SetDrawBuffers selection: DrawList[i] = attachment index feeding
+            // fragment output location i (RHI::NoAttachment → UNUSED).
+            // Count 0 = identity over every color attachment.
+            std::array<u32, 8> DrawList{};
+            u32 DrawListCount = 0;
+        };
+
+        // End the scope if active (barriers/copies/dispatches are illegal
+        // inside a rendering instance).
+        void EndRenderingScope();
+        // Begin (or continue) the scope for the published framebuffer.
+        // Returns false when no target is published or attachment views
+        // cannot be built. Fills m_ScopeTargets for the PSO fetch.
+        [[nodiscard]] bool EnsureRenderingScopeForDraw();
+        // Shared draw-front-end: resolve the current shader + root layout,
+        // ensure the scope, fetch + bind the thin PSO, flush dynamic state,
+        // set the topology, bind the resource heap once per recording,
+        // assemble the root struct from VulkanBindingState + the vertex
+        // array, arena-push it, and vkCmdPushDataEXT the 8-byte address.
+        // Returns false (warn-once, dropped draw) on any missing piece.
+        [[nodiscard]] bool PrepareDraw(const VulkanVertexArray* vao, VkPrimitiveTopology topology);
+        // Bind the VAO's index buffer if it changed (redundant-bind cache,
+        // reset per recording). False when the VAO has no index buffer.
+        [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
+
+        RenderingScope m_Scope;
+        VulkanRenderTargetDesc m_ScopeTargets; ///< Valid while m_Scope.Active.
+        VkBuffer m_BoundIndexBuffer = VK_NULL_HANDLE;
+        bool m_HeapBoundThisRecording = false;
+        VulkanVertexArray* m_BoundVertexArray = nullptr; ///< BindVertexArrayRaw's publication.
+        std::vector<u8> m_RootScratch;
+        // Recorded scissor box (the WITH_COUNT dynamic state is emitted by
+        // the draw front-end, not by the setter — see SetScissorBox).
+        VkRect2D m_ScissorRect{};
+        bool m_ScissorRectSet = false;
 
         VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
         VulkanImageLayoutTracker m_LayoutTracker;

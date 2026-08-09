@@ -183,6 +183,18 @@ add_executable(OloEngine-Tests
 		# root-data binding mappings, vertex pulling, and the FXAA golden-pass
 		# checkpoint (ADR 0011 §4/§5). Same SKIP ladder + zero-validation bar.
 		Rendering/VulkanShaderPipelineTest.cpp
+		# #691 Phase 7 Stage 1.2: the buffer/texture factory arms on a REAL
+		# device — arena-versioned UBO addresses, texture upload/readback with
+		# the mip blit chain and RGB->RGBA widening, the descriptor slot
+		# cache's keying + recycling, SSBO data paths. Same SKIP ladder +
+		# zero-validation bar.
+		Rendering/VulkanResourceFactoryTest.cpp
+		# #691 Phase 7 Stage 1.6a: the facade draw path on a REAL device — an
+		# unmodified GL-shaped pass body (FB bind, clear, shader bind, UBO
+		# bind, BindTexture, DrawIndexed) renders through VulkanBindingState,
+		# root-data assembly, the thin-PSO fetch and the lazy dynamic-
+		# rendering scope. Same SKIP ladder + zero-validation bar.
+		Rendering/VulkanDrawPathTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`

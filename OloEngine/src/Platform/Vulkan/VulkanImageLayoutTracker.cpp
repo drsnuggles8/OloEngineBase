@@ -7,7 +7,8 @@
 
 namespace OloEngine
 {
-    void VulkanImageLayoutTracker::RegisterImage(const VkImage image, const u32 mipCount, const u32 layerCount, const u64 registrationId)
+    void VulkanImageLayoutTracker::RegisterImage(const VkImage image, const u32 mipCount, const u32 layerCount,
+                                                 const u64 registrationId, const VkImageLayout initialLayout)
     {
         if (image == VK_NULL_HANDLE)
             return;
@@ -23,12 +24,14 @@ namespace OloEngine
         }
 
         // New image, changed extents, or a recycled handle value carrying a
-        // fresh registry stamp — all reset to UNDEFINED.
+        // fresh registry stamp — all reset to the caller's initial layout
+        // (UNDEFINED unless a load-time upload already placed the contents —
+        // see the header note).
         ImageState state;
         state.MipCount = mips;
         state.LayerCount = layers;
         state.RegistrationId = registrationId;
-        state.Layouts.assign(static_cast<sizet>(mips) * layers, VK_IMAGE_LAYOUT_UNDEFINED);
+        state.Layouts.assign(static_cast<sizet>(mips) * layers, initialLayout);
         m_Images[image] = std::move(state);
     }
 

@@ -1,0 +1,111 @@
+#include "OloEnginePCH.h"
+
+#if OLO_WITH_VULKAN
+
+#include "Platform/Vulkan/VulkanBindingState.h"
+
+namespace OloEngine
+{
+    VulkanBindingState& VulkanBindingState::Get()
+    {
+        static auto* s_Instance = new VulkanBindingState(); // deliberately leaked
+        return *s_Instance;
+    }
+
+    void VulkanBindingState::EnsureTextureSlotsInitialised()
+    {
+        if (!m_TextureSlotsInitialised)
+        {
+            m_TextureHeapSlots.fill(kNoHeapSlot);
+            m_TextureSlotsInitialised = true;
+        }
+    }
+
+    void VulkanBindingState::SetUniformBuffer(u32 binding, VulkanUniformBuffer* buffer)
+    {
+        if (binding >= kMaxBufferBindings)
+        {
+            OLO_CORE_WARN("VulkanBindingState: UBO binding {} out of range", binding);
+            return;
+        }
+        m_UniformBuffers[binding] = buffer;
+    }
+
+    void VulkanBindingState::SetStorageBuffer(u32 binding, VulkanStorageBuffer* buffer)
+    {
+        if (binding >= kMaxBufferBindings)
+        {
+            OLO_CORE_WARN("VulkanBindingState: SSBO binding {} out of range", binding);
+            return;
+        }
+        m_StorageBuffers[binding] = buffer;
+    }
+
+    VulkanUniformBuffer* VulkanBindingState::GetUniformBuffer(u32 binding) const
+    {
+        return binding < kMaxBufferBindings ? m_UniformBuffers[binding] : nullptr;
+    }
+
+    VulkanStorageBuffer* VulkanBindingState::GetStorageBuffer(u32 binding) const
+    {
+        return binding < kMaxBufferBindings ? m_StorageBuffers[binding] : nullptr;
+    }
+
+    void VulkanBindingState::ClearBuffer(const void* buffer)
+    {
+        for (auto& entry : m_UniformBuffers)
+        {
+            if (entry == buffer)
+            {
+                entry = nullptr;
+            }
+        }
+        for (auto& entry : m_StorageBuffers)
+        {
+            if (entry == buffer)
+            {
+                entry = nullptr;
+            }
+        }
+    }
+
+    void VulkanBindingState::SetTextureHeapSlot(u32 slot, u32 heapSlot)
+    {
+        EnsureTextureSlotsInitialised();
+        if (slot >= kMaxTextureSlots)
+        {
+            OLO_CORE_WARN("VulkanBindingState: texture slot {} out of range", slot);
+            return;
+        }
+        m_TextureHeapSlots[slot] = heapSlot;
+    }
+
+    u32 VulkanBindingState::GetTextureHeapSlot(u32 slot) const
+    {
+        if (!m_TextureSlotsInitialised || slot >= kMaxTextureSlots)
+        {
+            return kNoHeapSlot;
+        }
+        return m_TextureHeapSlots[slot];
+    }
+
+    void VulkanBindingState::SetCurrentFramebuffer(VulkanFramebuffer* framebuffer)
+    {
+        m_CurrentFramebuffer = framebuffer;
+    }
+
+    VulkanFramebuffer* VulkanBindingState::GetCurrentFramebuffer() const
+    {
+        return m_CurrentFramebuffer;
+    }
+
+    void VulkanBindingState::ClearIfCurrentFramebuffer(const VulkanFramebuffer* framebuffer)
+    {
+        if (m_CurrentFramebuffer == framebuffer)
+        {
+            m_CurrentFramebuffer = nullptr;
+        }
+    }
+} // namespace OloEngine
+
+#endif // OLO_WITH_VULKAN

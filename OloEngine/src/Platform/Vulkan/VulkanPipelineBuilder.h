@@ -59,13 +59,9 @@ namespace OloEngine
         [[nodiscard]] const Field* Find(u32 set, u32 binding) const;
     };
 
-    struct VulkanRenderTargetDesc
-    {
-        u32 ColorCount = 0;
-        std::array<VkFormat, 8> ColorFormats{};
-        VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
-        u32 Samples = 1;
-    };
+    // VulkanRenderTargetDesc moved to VulkanRendererAPI.h (#691 Phase 7):
+    // the draw path's rendering scope holds one, and this header includes
+    // that one — declaring it here would cycle.
 
     class VulkanPipelineBuilder
     {

@@ -5,10 +5,18 @@
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
+#include "Platform/Vulkan/VulkanBindingState.h"
+#include "Platform/Vulkan/VulkanBufferResources.h"
+#include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <bit>
+#include <cstring>
 #include <vector>
 
 namespace OloEngine
@@ -107,10 +115,16 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(m_Cmd == VK_NULL_HANDLE, "BeginRecording while a recording bracket is already open");
         m_Cmd = cmd;
+        // Per-recording caches: binds are command-buffer state.
+        m_BoundIndexBuffer = VK_NULL_HANDLE;
+        m_HeapBoundThisRecording = false;
+        m_Scope = RenderingScope{};
+        m_ScissorRectSet = false;
     }
 
     void VulkanRendererAPI::EndRecording()
     {
+        EndRenderingScope();
         m_Cmd = VK_NULL_HANDLE;
     }
 
@@ -145,12 +159,11 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetScissorBox(const i32 x, const i32 y, const u32 width, const u32 height)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
-            return;
-        VkRect2D scissor{};
-        scissor.offset = { x, y };
-        scissor.extent = { width, height };
-        vkCmdSetScissor(m_Cmd, 0, 1, &scissor);
+        // Recorded; the draw front-end emits the WITH_COUNT form (the
+        // pipelines declare VIEWPORT/SCISSOR_WITH_COUNT dynamic state, which
+        // the plain setters cannot satisfy).
+        m_ScissorRect = { { x, y }, { width, height } };
+        m_ScissorRectSet = true;
     }
 
     // --- Barriers ----------------------------------------------------------
@@ -167,6 +180,9 @@ namespace OloEngine
             Phase6Stub("MemoryBarrier(outside recording bracket)");
             return;
         }
+
+        // Barriers are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
 
         VkMemoryBarrier2 barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -199,6 +215,10 @@ namespace OloEngine
                 Phase6Stub("IssueBarrierBatch(outside recording bracket)");
             return;
         }
+
+        // vkCmdPipelineBarrier2 is illegal inside a dynamic-rendering scope;
+        // the next draw resumes with LOAD_OP_LOAD.
+        EndRenderingScope();
 
         std::vector<VkImageMemoryBarrier2> imageBarriers;
         std::vector<VkBufferMemoryBarrier2> bufferBarriers;
@@ -250,7 +270,10 @@ namespace OloEngine
             // would underflow every `- 1u`/`- base` below.
             const u32 mipCount = std::max(info->MipLevels, 1u);
             const u32 layerCount = std::max(info->ArrayLayers, 1u);
-            m_LayoutTracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId);
+            // InitialLayout seeds the tracker's first sight of an uploaded
+            // image (SHADER_READ_ONLY after a load-time one-shot) so its
+            // first graph transition cannot legally discard the contents.
+            m_LayoutTracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId, info->InitialLayout);
 
             // The neutral range, clamped into Vk terms once; the tracker then
             // splits it into runs of equal current layout so oldLayout is
@@ -343,6 +366,9 @@ namespace OloEngine
             return;
         }
 
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
         auto& registry = RHI::ResourceRegistry::Get();
         const u64 native = registry.ResolveNativeForBackend(texture);
         if (native == 0u)
@@ -415,6 +441,9 @@ namespace OloEngine
             Phase6Stub("ClearTextureUInt(outside recording bracket)");
             return;
         }
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
         // Same shape as the float clear with a uint payload; share the
         // transition by delegating and then re-clearing would double-clear,
         // so the small duplication is deliberate.
@@ -477,6 +506,9 @@ namespace OloEngine
             Phase6Stub("ClearBufferFloat(outside recording bracket)");
             return;
         }
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(buffer);
         if (native == 0u)
             return;
@@ -507,6 +539,9 @@ namespace OloEngine
             Phase6Stub("ClearBufferUInt(outside recording bracket)");
             return;
         }
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(buffer);
         if (native == 0u)
             return;
@@ -751,41 +786,438 @@ namespace OloEngine
         m_State.PatchVertexCount = patchVertices;
     }
 
+    // --- Phase 7: rendering scope + draw assembly --------------------------
+
+    namespace
+    {
+        [[nodiscard]] VkPrimitiveTopology ToVkTopology(const RHI::PrimitiveTopology topology)
+        {
+            switch (topology)
+            {
+                case RHI::PrimitiveTopology::TriangleList:
+                    return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                case RHI::PrimitiveTopology::TriangleStrip:
+                    return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+                case RHI::PrimitiveTopology::LineList:
+                    return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+                case RHI::PrimitiveTopology::LineStrip:
+                    return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+                case RHI::PrimitiveTopology::PointList:
+                    return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+                case RHI::PrimitiveTopology::PatchList:
+                    return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+            }
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        }
+    } // namespace
+
+    void VulkanRendererAPI::EndRenderingScope()
+    {
+        if (!m_Scope.Active)
+        {
+            return;
+        }
+        vkCmdEndRendering(m_Cmd);
+        m_Scope.Active = false;
+        // Pending clears survive the scope END only if never consumed; the
+        // next scope begin re-reads them. Target/DrawList stay published.
+    }
+
+    bool VulkanRendererAPI::EnsureRenderingScopeForDraw()
+    {
+        auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
+        if (target == nullptr)
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[RHI/Vulkan] draw with no framebuffer published — dropped (default-framebuffer "
+                              "rendering arrives with the swapchain import)");
+            }
+            return false;
+        }
+
+        if (m_Scope.Active && m_Scope.Target == target)
+        {
+            return true;
+        }
+        EndRenderingScope();
+
+        const auto& spec = target->GetSpecification();
+        const u32 width = std::max(spec.Width, 1u);
+        const u32 height = std::max(spec.Height, 1u);
+
+        // The SetDrawBuffers selection maps fragment output location i onto
+        // attachment DrawList[i] (GL's glDrawBuffers semantics). Identity
+        // over every color attachment when no selection was recorded.
+        std::array<VkRenderingAttachmentInfo, 8> colorInfos{};
+        m_ScopeTargets = VulkanRenderTargetDesc{};
+        m_ScopeTargets.Samples = std::max(spec.Samples, 1u);
+
+        const bool identity = m_Scope.DrawListCount == 0;
+        const u32 outputCount =
+            identity ? std::min<u32>(target->GetColorAttachmentCount(), static_cast<u32>(colorInfos.size()))
+                     : std::min<u32>(m_Scope.DrawListCount, static_cast<u32>(colorInfos.size()));
+
+        for (u32 i = 0; i < outputCount; ++i)
+        {
+            auto& info = colorInfos[i];
+            info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+
+            const u32 attachmentIndex = identity ? i : m_Scope.DrawList[i];
+            Ref<VulkanTexture2D> image =
+                attachmentIndex == RHI::NoAttachment ? nullptr : target->GetColorAttachmentImage(attachmentIndex);
+            if (image == nullptr)
+            {
+                // VK_ATTACHMENT_UNUSED shape: a null imageView slot.
+                info.imageView = VK_NULL_HANDLE;
+                info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                info.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+                m_ScopeTargets.ColorFormats[i] = VK_FORMAT_UNDEFINED;
+                continue;
+            }
+
+            const VkImageView view = image->GetOrCreateAttachmentView();
+            if (view == VK_NULL_HANDLE)
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] attachment view unavailable — draw dropped");
+                return false;
+            }
+            info.imageView = view;
+            info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            info.loadOp = m_Scope.PendingClearColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            info.clearValue.color = { { m_State.ClearColor.r, m_State.ClearColor.g, m_State.ClearColor.b,
+                                        m_State.ClearColor.a } };
+
+            const auto* imageInfo = VulkanImageInfoRegistry::Get().Lookup(image->GetVkImage());
+            m_ScopeTargets.ColorFormats[i] = imageInfo != nullptr ? imageInfo->Format : VK_FORMAT_UNDEFINED;
+        }
+        m_ScopeTargets.ColorCount = outputCount;
+
+        VkRenderingAttachmentInfo depthInfo{};
+        Ref<VulkanTexture2D> depthImage = target->GetDepthAttachmentImage();
+        if (depthImage != nullptr)
+        {
+            const VkImageView depthView = depthImage->GetOrCreateAttachmentView();
+            if (depthView == VK_NULL_HANDLE)
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] depth attachment view unavailable — draw dropped");
+                return false;
+            }
+            depthInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            depthInfo.imageView = depthView;
+            depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            depthInfo.loadOp = m_Scope.PendingClearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            depthInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depthInfo.clearValue.depthStencil = { 1.0f, 0u };
+
+            const auto* depthImageInfo = VulkanImageInfoRegistry::Get().Lookup(depthImage->GetVkImage());
+            m_ScopeTargets.DepthFormat = depthImageInfo != nullptr ? depthImageInfo->Format : VK_FORMAT_UNDEFINED;
+        }
+
+        VkRenderingInfo rendering{};
+        rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        rendering.renderArea = { { 0, 0 }, { width, height } };
+        rendering.layerCount = 1;
+        rendering.colorAttachmentCount = outputCount;
+        rendering.pColorAttachments = outputCount > 0 ? colorInfos.data() : nullptr;
+        rendering.pDepthAttachment = depthImage != nullptr ? &depthInfo : nullptr;
+        // Stencil shares the depth attachment when the format carries the
+        // aspect; the recorded stencil state is dynamic.
+        rendering.pStencilAttachment =
+            (depthImage != nullptr && m_ScopeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) ? &depthInfo
+                                                                                                  : nullptr;
+        vkCmdBeginRendering(m_Cmd, &rendering);
+
+        m_Scope.Active = true;
+        m_Scope.Target = target;
+        // The pending clears were consumed by the loadOps above.
+        m_Scope.PendingClearColor = false;
+        m_Scope.PendingClearDepth = false;
+        return true;
+    }
+
+    bool VulkanRendererAPI::PrepareDraw(const VulkanVertexArray* vao, const VkPrimitiveTopology topology)
+    {
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("Draw(outside recording bracket)");
+            return false;
+        }
+
+        auto* shader = VulkanShader::GetCurrentlyBound();
+        if (shader == nullptr || shader->GetCompilationStatus() != ShaderCompilationStatus::Ready)
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[RHI/Vulkan] draw with no ready shader bound — dropped");
+            }
+            return false;
+        }
+
+        if (!EnsureRenderingScopeForDraw())
+        {
+            return false;
+        }
+
+        const auto& layout = shader->GetRootDataLayout();
+        const VkPipeline pipeline =
+            VulkanPipelineBuilder::Get().GetOrCreateGraphics(*shader, layout, m_State, m_ScopeTargets);
+        if (pipeline == VK_NULL_HANDLE)
+        {
+            return false;
+        }
+
+        vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        VulkanPipelineBuilder::FlushDynamicState(m_Cmd, m_State, m_ScopeTargets);
+        // FlushDynamicState's topology is the pilot's TRIANGLE_LIST; the
+        // draw knows better — later set wins.
+        vkCmdSetPrimitiveTopology(m_Cmd, topology);
+
+        // The pipelines declare VIEWPORT/SCISSOR_WITH_COUNT dynamic state —
+        // the plain setters cannot satisfy it, so the draw front-end emits
+        // both here: the recorded viewport (target extent when none was set)
+        // and the recorded scissor box (full render area when scissor state
+        // was merely disabled, which is the GL shape).
+        const auto& targetSpec = m_Scope.Target->GetSpecification();
+        VkViewport viewport{};
+        viewport.x = static_cast<f32>(m_Viewport.x);
+        viewport.y = static_cast<f32>(m_Viewport.y);
+        viewport.width = static_cast<f32>(m_Viewport.width != 0 ? m_Viewport.width : std::max(targetSpec.Width, 1u));
+        viewport.height =
+            static_cast<f32>(m_Viewport.height != 0 ? m_Viewport.height : std::max(targetSpec.Height, 1u));
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewportWithCount(m_Cmd, 1, &viewport);
+
+        VkRect2D scissor = m_ScissorRectSet && m_State.ScissorTest
+                               ? m_ScissorRect
+                               : VkRect2D{ { 0, 0 }, { std::max(targetSpec.Width, 1u), std::max(targetSpec.Height, 1u) } };
+        vkCmdSetScissorWithCount(m_Cmd, 1, &scissor);
+
+        if (!m_HeapBoundThisRecording)
+        {
+            VulkanResourceHeap::Get().CmdBind(m_Cmd);
+            m_HeapBoundThisRecording = true;
+        }
+
+        // Root-struct assembly: one u64 device address per buffer block, one
+        // u32 heap slot per sampled image, from the process-global binding
+        // state (ADR 0011 §4 — this is the draw-time writer half of the
+        // mapping contract; the pipeline emitted the reader half from the
+        // SAME layout).
+        auto& bindingState = VulkanBindingState::Get();
+        m_RootScratch.assign(layout.SizeBytes, 0u);
+        for (const auto& field : layout.Fields)
+        {
+            const auto& binding = field.Binding;
+            const bool isBuffer = binding.BindingKind == VulkanShaderBinding::Kind::UniformBuffer ||
+                                  binding.BindingKind == VulkanShaderBinding::Kind::StorageBuffer;
+            if (isBuffer)
+            {
+                u64 address = 0;
+                if (binding.Binding == 57u)
+                {
+                    // §5 vertex pulling: the reserved binding reads the draw's
+                    // vertex stream.
+                    const auto* pullBuffer = vao != nullptr ? vao->GetPullVertexBuffer() : nullptr;
+                    address = pullBuffer != nullptr ? pullBuffer->GetDeviceAddress() : 0;
+                }
+                else if (auto* ubo = bindingState.GetUniformBuffer(binding.Binding);
+                         ubo != nullptr && binding.BindingKind == VulkanShaderBinding::Kind::UniformBuffer)
+                {
+                    address = ubo->GetRootDataAddress();
+                }
+                else if (auto* ssbo = bindingState.GetStorageBuffer(binding.Binding); ssbo != nullptr)
+                {
+                    address = ssbo->GetDeviceAddress();
+                }
+                if (address == 0)
+                {
+                    // Warn once per shader+binding: an unfed block reads the
+                    // null address, which the mapping treats as a zero-filled
+                    // block — deterministic wrong data, never a crash the
+                    // engine can't see.
+                    static std::unordered_set<std::string> s_WarnedBindings;
+                    if (s_WarnedBindings.insert(shader->GetName() + ":" + std::to_string(binding.Binding)).second)
+                    {
+                        OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — zero address",
+                                      shader->GetName(), binding.Binding);
+                    }
+                }
+                std::memcpy(m_RootScratch.data() + field.Offset, &address, sizeof(address));
+            }
+            else
+            {
+                u32 slot = bindingState.GetTextureHeapSlot(binding.Binding);
+                if (slot == VulkanBindingState::kNoHeapSlot)
+                {
+                    static std::unordered_set<std::string> s_WarnedSlots;
+                    if (s_WarnedSlots.insert(shader->GetName() + ":" + std::to_string(binding.Binding)).second)
+                    {
+                        OLO_CORE_WARN("[RHI/Vulkan] '{}' texture binding {} has no staged heap slot — slot 0",
+                                      shader->GetName(), binding.Binding);
+                    }
+                    slot = 0;
+                }
+                std::memcpy(m_RootScratch.data() + field.Offset, &slot, sizeof(slot));
+            }
+        }
+
+        const auto rootAllocation = VulkanFrameArena::Get().Push(m_RootScratch.data(), m_RootScratch.size(), 16);
+        if (!rootAllocation.IsValid())
+        {
+            return false; // arena overflow — dropped draw, counted by the arena
+        }
+
+        VkPushDataInfoEXT pushInfo{};
+        pushInfo.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        pushInfo.offset = 0;
+        VkDeviceAddress rootAddress = rootAllocation.Gpu;
+        pushInfo.data = { .address = &rootAddress, .size = sizeof(rootAddress) };
+        vkCmdPushDataEXT(m_Cmd, &pushInfo);
+        return true;
+    }
+
+    bool VulkanRendererAPI::BindIndexBufferFor(const VulkanVertexArray* vao)
+    {
+        const auto* indexBuffer = vao != nullptr ? vao->GetVulkanIndexBuffer() : nullptr;
+        if (indexBuffer == nullptr || indexBuffer->GetVkBuffer() == VK_NULL_HANDLE)
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[RHI/Vulkan] indexed draw without an index buffer — dropped");
+            }
+            return false;
+        }
+        if (indexBuffer->GetVkBuffer() != m_BoundIndexBuffer)
+        {
+            vkCmdBindIndexBuffer(m_Cmd, indexBuffer->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+            m_BoundIndexBuffer = indexBuffer->GetVkBuffer();
+        }
+        return true;
+    }
+
     // --- Phase 6 stubs (generated; every entry warns once and counts) ------
 
     void VulkanRendererAPI::Clear()
     {
-        Phase6Stub("Clear");
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("Clear(outside recording bracket)");
+            return;
+        }
+        if (!m_Scope.Active)
+        {
+            // Folds into the next scope begin's loadOp (the GL clear-then-
+            // draw shape).
+            m_Scope.PendingClearColor = true;
+            m_Scope.PendingClearDepth = true;
+            return;
+        }
+        // Mid-scope clear: vkCmdClearAttachments against the live scope.
+        std::array<VkClearAttachment, 9> clears{};
+        u32 clearCount = 0;
+        for (u32 i = 0; i < m_ScopeTargets.ColorCount; ++i)
+        {
+            if (m_ScopeTargets.ColorFormats[i] == VK_FORMAT_UNDEFINED)
+            {
+                continue;
+            }
+            auto& clear = clears[clearCount++];
+            clear.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            clear.colorAttachment = i;
+            clear.clearValue.color = { { m_State.ClearColor.r, m_State.ClearColor.g, m_State.ClearColor.b,
+                                         m_State.ClearColor.a } };
+        }
+        if (m_ScopeTargets.DepthFormat != VK_FORMAT_UNDEFINED)
+        {
+            auto& clear = clears[clearCount++];
+            clear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            clear.clearValue.depthStencil = { 1.0f, 0u };
+        }
+        if (clearCount == 0)
+        {
+            return;
+        }
+        const auto& spec = m_Scope.Target->GetSpecification();
+        VkClearRect rect{};
+        rect.rect = { { 0, 0 }, { std::max(spec.Width, 1u), std::max(spec.Height, 1u) } };
+        rect.layerCount = 1;
+        vkCmdClearAttachments(m_Cmd, clearCount, clears.data(), 1, &rect);
     }
 
     void VulkanRendererAPI::ClearDepthOnly()
     {
-        Phase6Stub("ClearDepthOnly");
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("ClearDepthOnly(outside recording bracket)");
+            return;
+        }
+        if (!m_Scope.Active)
+        {
+            m_Scope.PendingClearDepth = true;
+            return;
+        }
+        if (m_ScopeTargets.DepthFormat == VK_FORMAT_UNDEFINED)
+        {
+            return;
+        }
+        VkClearAttachment clear{};
+        clear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        clear.clearValue.depthStencil = { 1.0f, 0u };
+        const auto& spec = m_Scope.Target->GetSpecification();
+        VkClearRect rect{};
+        rect.rect = { { 0, 0 }, { std::max(spec.Width, 1u), std::max(spec.Height, 1u) } };
+        rect.layerCount = 1;
+        vkCmdClearAttachments(m_Cmd, 1, &clear, 1, &rect);
     }
 
     void VulkanRendererAPI::ClearColorAndDepth()
     {
-        Phase6Stub("ClearColorAndDepth");
+        Clear();
     }
 
-    void VulkanRendererAPI::DrawArrays(const Ref<VertexArray>& /*vertexArray*/, u32 /*vertexCount*/)
+    void VulkanRendererAPI::DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
     {
-        Phase6Stub("DrawArrays");
+        const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+        {
+            vkCmdDraw(m_Cmd, vertexCount, 1, 0, 0);
+        }
     }
 
-    void VulkanRendererAPI::DrawIndexed(const Ref<VertexArray>& /*vertexArray*/, u32 /*indexCount*/)
+    void VulkanRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount)
     {
-        Phase6Stub("DrawIndexed");
+        const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
+        {
+            vkCmdDrawIndexed(m_Cmd, indexCount, 1, 0, 0, 0);
+        }
     }
 
-    void VulkanRendererAPI::DrawIndexedInstanced(const Ref<VertexArray>& /*vertexArray*/, u32 /*indexCount*/, u32 /*instanceCount*/)
+    void VulkanRendererAPI::DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 instanceCount)
     {
-        Phase6Stub("DrawIndexedInstanced");
+        const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
+        {
+            vkCmdDrawIndexed(m_Cmd, indexCount, instanceCount, 0, 0, 0);
+        }
     }
 
-    void VulkanRendererAPI::DrawLines(const Ref<VertexArray>& /*vertexArray*/, u32 /*vertexCount*/)
+    void VulkanRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount)
     {
-        Phase6Stub("DrawLines");
+        const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_LINE_LIST))
+        {
+            vkCmdDraw(m_Cmd, vertexCount, 1, 0, 0);
+        }
     }
 
     void VulkanRendererAPI::DrawIndexedPatches(const Ref<VertexArray>& /*vertexArray*/, u32 /*indexCount*/, u32 /*patchVertices*/)
@@ -793,19 +1225,39 @@ namespace OloEngine
         Phase6Stub("DrawIndexedPatches");
     }
 
-    void VulkanRendererAPI::DrawIndexedRaw(RHI::ResourceHandle /*vertexArray*/, u32 /*indexCount*/)
+    void VulkanRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount)
     {
-        Phase6Stub("DrawIndexedRaw");
+        DrawIndexedRaw(vertexArray, indexCount, 0u);
     }
 
-    void VulkanRendererAPI::DrawIndexedRaw(RHI::ResourceHandle /*vertexArray*/, u32 /*indexCount*/, u32 /*baseIndex*/)
+    void VulkanRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex)
     {
-        Phase6Stub("DrawIndexedRaw");
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
+        {
+            Phase6Stub("DrawIndexedRaw(unresolvable vertex array)");
+            return;
+        }
+        const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
+        {
+            vkCmdDrawIndexed(m_Cmd, indexCount, 1, baseIndex, 0, 0);
+        }
     }
 
-    void VulkanRendererAPI::DrawIndexedInstancedRaw(RHI::ResourceHandle /*vertexArray*/, u32 /*indexCount*/, u32 /*baseIndex*/, u32 /*instanceCount*/)
+    void VulkanRendererAPI::DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex, u32 instanceCount)
     {
-        Phase6Stub("DrawIndexedInstancedRaw");
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
+        {
+            Phase6Stub("DrawIndexedInstancedRaw(unresolvable vertex array)");
+            return;
+        }
+        const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
+        {
+            vkCmdDrawIndexed(m_Cmd, indexCount, instanceCount, baseIndex, 0, 0);
+        }
     }
 
     void VulkanRendererAPI::DrawIndexedPatchesRaw(RHI::ResourceHandle /*vertexArray*/, u32 /*indexCount*/, u32 /*patchVertices*/)
@@ -845,7 +1297,12 @@ namespace OloEngine
 
     void VulkanRendererAPI::BindDefaultFramebuffer()
     {
-        Phase6Stub("BindDefaultFramebuffer");
+        // GL semantics: unbind the named framebuffer. The swapchain-backed
+        // default target arrives with the frame-loop integration; until then
+        // a draw against the default framebuffer is dropped with the
+        // no-target warn in EnsureRenderingScopeForDraw.
+        EndRenderingScope();
+        VulkanBindingState::Get().SetCurrentFramebuffer(nullptr);
     }
 
     void VulkanRendererAPI::BlitFramebufferToDefault(RHI::ResourceHandle /*srcFramebuffer*/, u32 /*width*/, u32 /*height*/)
@@ -853,9 +1310,41 @@ namespace OloEngine
         Phase6Stub("BlitFramebufferToDefault");
     }
 
-    void VulkanRendererAPI::BindTexture(u32 /*slot*/, RHI::ResourceHandle /*texture*/)
+    void VulkanRendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture)
     {
-        Phase6Stub("BindTexture");
+        auto& bindingState = VulkanBindingState::Get();
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            bindingState.SetTextureHeapSlot(slot, VulkanBindingState::kNoHeapSlot);
+            return;
+        }
+        const auto image = reinterpret_cast<VkImage>(native);
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        if (info == nullptr)
+        {
+            bindingState.SetTextureHeapSlot(slot, VulkanBindingState::kNoHeapSlot);
+            return;
+        }
+
+        // Default whole-image sampled view. Depth-stencil formats sample the
+        // DEPTH aspect (GLSL sampler2D/shadow reads depth; sampling stencil
+        // needs an explicit stencil view, which no current pass requests).
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view.format = info->Format;
+        view.subresourceRange.aspectMask = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+        view.subresourceRange.baseMipLevel = 0;
+        view.subresourceRange.levelCount = std::max(info->MipLevels, 1u);
+        view.subresourceRange.baseArrayLayer = 0;
+        view.subresourceRange.layerCount = std::max(info->ArrayLayers, 1u);
+
+        const u32 heapSlot = VulkanDescriptorSlotCache::Get().AcquireSlot(
+            image, view, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        bindingState.SetTextureHeapSlot(
+            slot, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
     }
 
     void VulkanRendererAPI::BindImageTexture(u32 /*unit*/, RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/, bool /*layered*/, u32 /*layer*/, RHI::Access /*access*/, RHI::Format /*format*/)
@@ -878,14 +1367,37 @@ namespace OloEngine
         Phase6Stub("CopyFramebufferToTexture");
     }
 
-    void VulkanRendererAPI::SetDrawBuffers(std::span<const u32> /*attachments*/)
+    void VulkanRendererAPI::SetDrawBuffers(std::span<const u32> attachments)
     {
-        Phase6Stub("SetDrawBuffers");
+        // A selection change mid-scope re-shapes the attachment list: end the
+        // scope so the next draw begins with the new mapping.
+        const u32 count = std::min<u32>(static_cast<u32>(attachments.size()),
+                                        static_cast<u32>(m_Scope.DrawList.size()));
+        bool changed = count != m_Scope.DrawListCount;
+        for (u32 i = 0; !changed && i < count; ++i)
+        {
+            changed = m_Scope.DrawList[i] != attachments[i];
+        }
+        if (!changed)
+        {
+            return;
+        }
+        EndRenderingScope();
+        m_Scope.DrawListCount = count;
+        for (u32 i = 0; i < count; ++i)
+        {
+            m_Scope.DrawList[i] = attachments[i];
+        }
     }
 
     void VulkanRendererAPI::RestoreAllDrawBuffers(u32 /*colorAttachmentCount*/)
     {
-        Phase6Stub("RestoreAllDrawBuffers");
+        if (m_Scope.DrawListCount == 0)
+        {
+            return;
+        }
+        EndRenderingScope();
+        m_Scope.DrawListCount = 0; // identity over every color attachment
     }
 
     RHI::ResourceHandle VulkanRendererAPI::CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle /*srcTexture*/, u32 /*numLayers*/)
@@ -919,44 +1431,80 @@ namespace OloEngine
         Phase6Stub("EndConditionalRender");
     }
 
-    void VulkanRendererAPI::BindUniformBuffer(u32 /*bindingPoint*/, RHI::ResourceHandle /*buffer*/)
+    void VulkanRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
-        Phase6Stub("BindUniformBuffer");
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(buffer);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::UniformBuffer)
+        {
+            VulkanBindingState::Get().SetUniformBuffer(bindingPoint, nullptr);
+            return;
+        }
+        VulkanBindingState::Get().SetUniformBuffer(bindingPoint, static_cast<VulkanUniformBuffer*>(entry->Object));
     }
 
-    void VulkanRendererAPI::BindStorageBuffer(u32 /*bindingPoint*/, RHI::ResourceHandle /*buffer*/)
+    void VulkanRendererAPI::BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
-        Phase6Stub("BindStorageBuffer");
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(buffer);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::StorageBuffer)
+        {
+            VulkanBindingState::Get().SetStorageBuffer(bindingPoint, nullptr);
+            return;
+        }
+        VulkanBindingState::Get().SetStorageBuffer(bindingPoint, static_cast<VulkanStorageBuffer*>(entry->Object));
     }
 
-    void VulkanRendererAPI::BindShaderProgram(RHI::ResourceHandle /*program*/)
+    void VulkanRendererAPI::BindShaderProgram(RHI::ResourceHandle program)
     {
-        Phase6Stub("BindShaderProgram");
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(program);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::Shader)
+        {
+            Phase6Stub("BindShaderProgram(unresolvable shader)");
+            return;
+        }
+        static_cast<VulkanShader*>(entry->Object)->Bind();
     }
 
-    void VulkanRendererAPI::BindVertexArrayRaw(RHI::ResourceHandle /*vertexArray*/)
+    void VulkanRendererAPI::BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
     {
-        Phase6Stub("BindVertexArrayRaw");
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
+        m_BoundVertexArray = (entry != nullptr && entry->Kind == VulkanRootObjectKind::VertexArray)
+                                 ? static_cast<VulkanVertexArray*>(entry->Object)
+                                 : nullptr;
     }
 
-    void VulkanRendererAPI::BindFramebuffer(RHI::ResourceHandle /*framebuffer*/)
+    void VulkanRendererAPI::BindFramebuffer(RHI::ResourceHandle framebuffer)
     {
-        Phase6Stub("BindFramebuffer");
+        // Passes bind via Framebuffer::Bind(), which publishes to
+        // VulkanBindingState directly; this by-handle entry point serves the
+        // POD packet path and warns until a packet producer needs it.
+        (void)framebuffer;
+        Phase6Stub("BindFramebuffer(by handle - packet path)");
     }
 
-    void VulkanRendererAPI::DrawBoundIndexed(RHI::PrimitiveTopology /*topology*/, u32 /*indexCount*/, RHI::IndexType /*indexType*/, u32 /*baseIndex*/)
+    void VulkanRendererAPI::DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount, RHI::IndexType /*indexType*/, u32 baseIndex)
     {
-        Phase6Stub("DrawBoundIndexed");
+        // The engine's index format is fixed 32-bit (IndexBuffer.h contract);
+        // BindIndexBufferFor binds UINT32 accordingly.
+        if (PrepareDraw(m_BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(m_BoundVertexArray))
+        {
+            vkCmdDrawIndexed(m_Cmd, indexCount, 1, baseIndex, 0, 0);
+        }
     }
 
-    void VulkanRendererAPI::DrawBoundIndexedInstanced(RHI::PrimitiveTopology /*topology*/, u32 /*indexCount*/, RHI::IndexType /*indexType*/, u32 /*baseIndex*/, u32 /*instanceCount*/)
+    void VulkanRendererAPI::DrawBoundIndexedInstanced(RHI::PrimitiveTopology topology, u32 indexCount, RHI::IndexType /*indexType*/, u32 baseIndex, u32 instanceCount)
     {
-        Phase6Stub("DrawBoundIndexedInstanced");
+        if (PrepareDraw(m_BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(m_BoundVertexArray))
+        {
+            vkCmdDrawIndexed(m_Cmd, indexCount, instanceCount, baseIndex, 0, 0);
+        }
     }
 
-    void VulkanRendererAPI::DrawBoundArrays(RHI::PrimitiveTopology /*topology*/, u32 /*firstVertex*/, u32 /*vertexCount*/)
+    void VulkanRendererAPI::DrawBoundArrays(RHI::PrimitiveTopology topology, u32 firstVertex, u32 vertexCount)
     {
-        Phase6Stub("DrawBoundArrays");
+        if (PrepareDraw(m_BoundVertexArray, ToVkTopology(topology)))
+        {
+            vkCmdDraw(m_Cmd, vertexCount, 1, firstVertex, 0);
+        }
     }
 
     void VulkanRendererAPI::AttachFramebufferColorTexture(RHI::ResourceHandle /*framebuffer*/, u32 /*attachmentIndex*/, RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/)

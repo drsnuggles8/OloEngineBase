@@ -104,6 +104,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(frameSlot < kFramesInFlight, "VulkanFrameArena: frame slot out of range");
         m_CurrentSlot = frameSlot % kFramesInFlight;
         m_Slots[m_CurrentSlot].Cursor = 0;
+        ++m_FrameGeneration;
         m_AllocationsThisFrame = 0;
     }
 

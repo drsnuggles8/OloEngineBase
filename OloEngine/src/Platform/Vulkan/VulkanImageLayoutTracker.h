@@ -43,9 +43,17 @@ namespace OloEngine
         // different extents — or a different `registrationId`
         // (VulkanImageInfo::RegistrationId: the stamp that distinguishes a
         // driver-recycled handle VALUE from the image previously tracked,
-        // even at identical extents) — resets that image's state to
-        // UNDEFINED. Callers without a registry stamp may pass 0.
-        void RegisterImage(VkImage image, u32 mipCount, u32 layerCount, u64 registrationId = 0);
+        // even at identical extents) — resets that image's state. Callers
+        // without a registry stamp may pass 0.
+        //
+        // `initialLayout` is the layout every subresource starts in when the
+        // state is (re)created — UNDEFINED for ordinary attachments/storage
+        // (first use discards), SHADER_READ_ONLY_OPTIMAL for images a
+        // load-time one-shot uploaded (VulkanImageInfo::InitialLayout, #691
+        // Phase 7): transitioning those from UNDEFINED would legally discard
+        // the uploaded pixels.
+        void RegisterImage(VkImage image, u32 mipCount, u32 layerCount, u64 registrationId = 0,
+                           VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 
         // Drop all state for an image (call at destroy — a recycled handle
         // value must not inherit the dead image's layouts).

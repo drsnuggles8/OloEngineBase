@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanShader.h"
+#include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 
@@ -236,6 +237,7 @@ namespace OloEngine
         // are created, and lazily-recreated pipelines belong to the NEW
         // modules after a reload).
         VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey());
+        VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
         DestroyModules();
         m_RHIHandle.Reset();
     }
@@ -437,6 +439,9 @@ namespace OloEngine
         // Commit — nothing below can fail.
         m_SPIRV = std::move(spirv);
         m_Modules = std::move(newModules);
+        // The bindings just changed hands: any cached root layout describes
+        // the OLD reflection and must rebuild on next use (#691 Phase 7).
+        m_RootLayout.reset();
 
         // Identity: minted once, survives Reload (amendment (12) — the
         // reverse-index key and every cached reference stay valid while the
@@ -445,7 +450,20 @@ namespace OloEngine
         const u64 native = vertexIt != m_Modules.end() ? VkHandleToKey(vertexIt->second)
                                                        : VkHandleToKey(m_Modules.begin()->second);
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, native, RHI::Backend::Vulkan);
+        // Root-object registration so BindShaderProgram packets can resolve
+        // the handle back to this shader (#691 Phase 7). Identity survives
+        // Reload, so re-registering refreshes the same entry.
+        VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::Shader, this);
         return true;
+    }
+
+    const VulkanRootDataLayout& VulkanShader::GetRootDataLayout()
+    {
+        if (!m_RootLayout)
+        {
+            m_RootLayout = std::make_unique<VulkanRootDataLayout>(VulkanRootDataLayout::Build(m_Bindings));
+        }
+        return *m_RootLayout;
     }
 
     void VulkanShader::ReflectStage(VkShaderStageFlagBits stage, const std::vector<u32>& spirv)
