@@ -23,14 +23,22 @@
 layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) in;
 
 // ---------------------------------------------------------------------------
-// Push-constant–style uniforms (cheaper than a full UBO for small data)
+// Batch parameters. Former bare uniforms, migrated to a std140 block (issue
+// #691 Phase 7): the Vulkan SPIR-V route cannot express non-block uniforms
+// and its ComputeShader::Set* calls are deliberate no-ops. Refilled before
+// EVERY 4-mip dispatch batch (C++ twin: UBOStructures::HZBParamsUBO).
 // ---------------------------------------------------------------------------
-uniform vec2 u_DispatchThreadIdToBufferUV;  // 1.0 / dstMip0Size
-uniform vec2 u_InputViewportMaxBound;       // (srcSize - 0.5) / srcSize  (clamp bound)
-uniform vec2 u_InvSize;                     // 1.0 / srcMipSize
-uniform int  u_FirstLod;                    // Starting destination mip level
-uniform int  u_IsFirstPass;                 // 1 = read from scene depth, 0 = read from HZB
-uniform int  u_ReduceOp;                    // 0 = max (farthest), 1 = min (nearest)
+layout(std140, binding = 59) uniform HZBParams
+{
+    vec2 u_DispatchThreadIdToBufferUV;  // 1.0 / dstMip0Size
+    vec2 u_InputViewportMaxBound;       // (srcSize - 0.5) / srcSize  (clamp bound)
+    vec2 u_InvSize;                     // 1.0 / srcMipSize
+    int  u_FirstLod;                    // Starting destination mip level
+    int  u_IsFirstPass;                 // 1 = read from scene depth, 0 = read from HZB
+    int  u_ReduceOp;                    // 0 = max (farthest), 1 = min (nearest)
+    int  _hzbPad0;
+    vec2 _hzbPad1;
+};
 
 // ---------------------------------------------------------------------------
 // Resources

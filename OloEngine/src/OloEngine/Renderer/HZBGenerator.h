@@ -7,6 +7,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 namespace OloEngine
 {
@@ -116,6 +117,9 @@ namespace OloEngine
         void DispatchMipBatch(u32 startMip, u32 mipCount, RHI::ResourceHandle sceneDepthTexture);
 
         Ref<ComputeShader> m_HZBShader;
+        // Per-batch params block (the former bare uniforms — no-op Set* on
+        // the Vulkan route, issue #691); lazily created at first Generate.
+        Ref<UniformBuffer> m_ParamsUBO;
         Ref<Texture2D> m_HZBTexture;
         ReduceMode m_ReduceMode = ReduceMode::Max;
         RHI::ResourceHandle m_ExternalHZBTexture{};

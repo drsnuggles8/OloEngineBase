@@ -58,8 +58,18 @@ layout(binding = 1, r8) writeonly uniform image2D o_AOOutput;
 layout(binding = 2, r8) readonly  uniform image2D i_Edges;
 #endif
 
-// Per-pass direction uniform (avoids needing separate shaders)
-uniform int u_BlurHorizontal; // 1 = horizontal, 0 = vertical
+// Per-pass direction (avoids needing separate shaders). Former bare uniform,
+// migrated to a std140 block (issue #691 Phase 7 — the Vulkan route cannot
+// express it); refilled per ping-pong pass. NOT folded into GTAOParams@28:
+// that block is declared at two different lengths across GTAO.comp and this
+// file, so extending it would have to touch both. C++ twin:
+// UBOStructures::GTAODenoiseUBO.
+layout(std140, binding = 60) uniform GTAODenoiseParams
+{
+    int  u_BlurHorizontal; // 1 = horizontal, 0 = vertical
+    int  _gdPad0;
+    vec2 _gdPad1;
+};
 
 // ---------------------------------------------------------------------------
 // Bilateral blur kernel

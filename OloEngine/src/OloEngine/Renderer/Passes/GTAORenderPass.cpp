@@ -479,10 +479,22 @@ namespace OloEngine
         i32 passes = m_Settings.GTAODenoisePasses;
         bool readFromTex0 = true;
 
+        // Former bare uniform via ComputeShader::SetInt — a no-op on the
+        // Vulkan route (issue #691 Phase 7). Refilled per pass: each SetData
+        // is a fresh per-dispatch address on the arena-versioned backend.
+        if (!m_DenoiseUBO)
+        {
+            m_DenoiseUBO = UniformBuffer::Create(UBOStructures::GTAODenoiseUBO::GetSize(),
+                                                 ShaderBindingLayout::UBO_GTAO_DENOISE);
+        }
+
         for (i32 pass = 0; pass < passes; ++pass)
         {
             // Alternate horizontal/vertical
-            m_DenoiseShader->SetInt("u_BlurHorizontal", (pass % 2 == 0) ? 1 : 0);
+            UBOStructures::GTAODenoiseUBO denoiseParams{};
+            denoiseParams.BlurHorizontal = (pass % 2 == 0) ? 1 : 0;
+            m_DenoiseUBO->SetData(&denoiseParams, sizeof(denoiseParams));
+            m_DenoiseUBO->Bind();
 
             if (readFromTex0)
             {

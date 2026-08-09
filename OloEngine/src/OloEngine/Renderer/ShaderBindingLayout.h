@@ -539,6 +539,50 @@ namespace OloEngine
         static_assert(sizeof(AutoExposureUBO) % 16 == 0, "AutoExposureUBO must be 16-byte aligned for std140");
         static_assert(sizeof(AutoExposureUBO) == 64, "AutoExposureUBO std140 size drifted from GLSL expectation (64 B)");
 
+        // @brief HZB downsample-batch parameters (issue #691 Phase 7),
+        // uploaded at UBO_HZB (59). GLSL twin: the HZBParams block in
+        // compute/HZB.comp. Refilled before EVERY 4-mip dispatch batch (the
+        // values change per batch) — legal on both routes: GL re-uploads the
+        // bound buffer, the Vulkan backend's arena-versioned UBOs mint a new
+        // per-dispatch address on each SetData (ADR 0011 §4).
+        struct HZBParamsUBO
+        {
+            glm::vec2 DispatchThreadIdToBufferUV; // 1/dstMip0Size (or 2/src on later batches)
+            glm::vec2 InputViewportMaxBound;      // (srcSize - 0.5) / srcSize clamp bound
+            glm::vec2 InvSize;                    // 1 / srcMipSize
+            i32 FirstLod;                         // starting destination mip level
+            i32 IsFirstPass;                      // 1 = read scene depth, 0 = read HZB
+            i32 ReduceOp;                         // 0 = max (farthest), 1 = min (nearest)
+            i32 _pad0;
+            glm::vec2 _pad1;
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(HZBParamsUBO));
+            }
+        };
+
+        static_assert(sizeof(HZBParamsUBO) % 16 == 0, "HZBParamsUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(HZBParamsUBO) == 48, "HZBParamsUBO std140 size drifted from GLSL expectation (48 B)");
+
+        // @brief GTAO denoise direction (issue #691 Phase 7), uploaded at
+        // UBO_GTAO_DENOISE (60). GLSL twin: the GTAODenoiseParams block in
+        // compute/GTAO_Denoise.comp. Refilled per ping-pong pass.
+        struct GTAODenoiseUBO
+        {
+            i32 BlurHorizontal; // 1 = horizontal, 0 = vertical
+            i32 _pad0;
+            glm::vec2 _pad1;
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(GTAODenoiseUBO));
+            }
+        };
+
+        static_assert(sizeof(GTAODenoiseUBO) % 16 == 0, "GTAODenoiseUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(GTAODenoiseUBO) == 16, "GTAODenoiseUBO std140 size drifted from GLSL expectation (16 B)");
+
         // @brief Volumetric cloudscape raymarch parameters (issue #633),
         // uploaded at UBO_CLOUDSCAPE (53). GLSL twin: the CloudscapeData block
         // in include/CloudscapeCommon.glsl — shared by the raymarch pass, the
@@ -943,6 +987,8 @@ namespace OloEngine
         static constexpr u32 UBO_ATMOSPHERE_SHADING = 54;   // Surface weather response: wetness + cloud-shadow map transform + enables (AtmosphereShadingUBO — issue #633)
         static constexpr u32 UBO_IMPOSTOR_BAKE = 55;        // Octahedral impostor atlas bake params (view-proj + center/radius/cutoff/tint — issue #433)
         static constexpr u32 UBO_AUTO_EXPOSURE = 58;        // Auto-exposure metering/adaptation params (AutoExposureUBO — issue #691 Phase 7: the histogram/average computes' former bare uniforms, which the Vulkan SPIR-V route cannot express)
+        static constexpr u32 UBO_HZB = 59;                  // HZB downsample-batch params (HZBParamsUBO — issue #691 Phase 7: HZB.comp's former "push-constant-style" bare uniforms; refilled per 4-mip batch)
+        static constexpr u32 UBO_GTAO_DENOISE = 60;         // GTAO denoise direction (GTAODenoiseUBO — issue #691 Phase 7: the per-ping-pong-pass blur axis; NOT folded into UBO_GTAO 28, whose GLSL block is declared at two different lengths across GTAO.comp / GTAO_Denoise.comp)
         // The heap-offset table (issue #691 Phase 3). std140 uvec4[] of
         // RHI::HeapOffset values, indexed by the SAME TEX_* constant a slot-based
         // shader would have used in `layout(binding = N)`. That reuse is the
@@ -1363,6 +1409,10 @@ namespace OloEngine
                     return name.contains("DebugDraw") || name.contains("debugDraw");
                 case UBO_AUTO_EXPOSURE:
                     return name.contains("AutoExposure") || name.contains("autoExposure");
+                case UBO_HZB:
+                    return name.contains("HZB") || name.contains("hzb");
+                case UBO_GTAO_DENOISE:
+                    return name.contains("GTAODenoise") || name.contains("gtaoDenoise");
                 default:
                     return false;
             }
