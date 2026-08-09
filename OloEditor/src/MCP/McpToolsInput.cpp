@@ -4,6 +4,8 @@
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpToolsCommon.h"
 
+#include <atomic>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -43,79 +45,113 @@ namespace OloEngine::MCP
             if (const auto error = Inject::ParseRequest(args, request))
                 return ToolResult::Error(*error);
 
+            // Cancellation token shared with the marshaled job below. MarshalRead can
+            // give up on a timeout while the job it enqueued is still queued, and that
+            // job would then inject a plan AFTER this call has already returned an
+            // error — input the caller never learned about, landing in whatever the
+            // editor is doing by then. The job re-checks this flag immediately before
+            // injecting; the timeout path raises it. Same shape as the screenshot
+            // tool's PoseGuardState, and shared_ptr for the same reason: a copy
+            // carried into the job keeps the flag alive even if this frame unwinds.
+            const auto abandoned = std::make_shared<std::atomic<bool>>(false);
+
             // Step 1 (main thread): read the live viewport/window geometry, resolve the
             // coordinates against it, build the plan, and enqueue it. Done as ONE job so
             // the geometry the plan was resolved against cannot change under it (a panel
             // relayout between a separate read and a separate enqueue would silently aim
             // the click at the wrong pixel).
-            const Json accepted = server.MarshalRead(
-                [&context, &request]() -> Json
-                {
-                    // Refuse UP FRONT when the editor is not running frames (issue
-                    // #607). The queue drains one frame per EditorLayer::OnUpdate, and
-                    // an iconified editor never reaches OnUpdate at all — so accepting
-                    // here would queue a plan that can never be applied, block the
-                    // caller for the full settle timeout, and then leave the queue
-                    // occupied so every LATER call reports "an injected input sequence
-                    // is still in flight" with no hint of the real cause. That is the
-                    // exact loop this refusal breaks; note it is deliberately a
-                    // pre-check, not a post-hoc timeout message, because the damage is
-                    // the stuck queue rather than the wasted wait.
-                    if (context.GetEditorLiveness)
+            //
+            // `request` is captured BY VALUE: on the same timeout path, a reference to
+            // this frame's local would already be dangling by the time the job ran.
+            Json accepted;
+            try
+            {
+                accepted = server.MarshalRead(
+                    [&context, request, abandoned]() -> Json
                     {
-                        if (const McpEditorLiveness liveness = context.GetEditorLiveness();
-                            EditorLiveness::IsStale(liveness))
+                        // Refuse UP FRONT when the editor is not running frames (issue
+                        // #607). The queue drains one frame per EditorLayer::OnUpdate, and
+                        // an iconified editor never reaches OnUpdate at all — so accepting
+                        // here would queue a plan that can never be applied, block the
+                        // caller for the full settle timeout, and then leave the queue
+                        // occupied so every LATER call reports "an injected input sequence
+                        // is still in flight" with no hint of the real cause. That is the
+                        // exact loop this refusal breaks; note it is deliberately a
+                        // pre-check, not a post-hoc timeout message, because the damage is
+                        // the stuck queue rather than the wasted wait.
+                        if (context.GetEditorLiveness)
                         {
-                            return Json{ { "__error", "Cannot inject input: " + EditorLiveness::StallReason(liveness) } };
+                            if (const McpEditorLiveness liveness = context.GetEditorLiveness();
+                                EditorLiveness::IsStale(liveness))
+                            {
+                                return Json{ { "__error", "Cannot inject input: " + EditorLiveness::StallReason(liveness) } };
+                            }
                         }
-                    }
 
-                    const McpInputViewportInfo info = context.GetInputViewportInfo();
-                    if (!info.Available)
-                        return Json{ { "__error", "The editor viewport is not ready yet." } };
+                        const McpInputViewportInfo info = context.GetInputViewportInfo();
+                        // A pure `resetOffset` carries no coordinates, so it needs no
+                        // viewport geometry — and it is the one call that must keep
+                        // working when the Viewport panel is closed, since that is when
+                        // a session most needs to hand the cursor back.
+                        if (!info.Available && !request.ResetOnly)
+                            return Json{ { "__error", "The editor viewport is not ready yet." } };
 
-                    McpInputPlan plan;
-                    Inject::ResolvedPoint start;
-                    Inject::ResolvedPoint end;
-                    Inject::ResolvedDelta delta;
-                    if (const auto error = Inject::BuildPlan(request, info, plan, start, end, &delta))
-                        return Json{ { "__error", *error } };
+                        McpInputPlan plan;
+                        Inject::ResolvedPoint start;
+                        Inject::ResolvedPoint end;
+                        Inject::ResolvedDelta delta;
+                        if (const auto error = Inject::BuildPlan(request, info, plan, start, end, &delta))
+                            return Json{ { "__error", *error } };
 
-                    const McpInputInjectResult result = context.InjectInput(plan);
-                    if (!result.Available)
-                        return Json{ { "__error", "Input injection is not available in this build (no editor window)." } };
-                    if (!result.Ok)
-                        return Json{ { "__error", result.Message.empty()
-                                                      ? std::string("The editor refused the injected input.")
-                                                      : result.Message } };
+                        // Last check before the side effect: if this call already timed
+                        // out and returned, injecting now would be input from nowhere.
+                        if (abandoned->load(std::memory_order_acquire))
+                            return Json{ { "__error", "Injection abandoned (the call timed out before the editor ran it)." } };
 
-                    return Json{ { "baseFrame", result.BaseFrame },
-                                 { "frameCount", result.FrameCount },
-                                 { "message", result.Message },
-                                 { "panelX", info.PanelX },
-                                 { "panelY", info.PanelY },
-                                 { "windowX", info.WindowX },
-                                 { "windowY", info.WindowY },
-                                 { "logicalWidth", info.LogicalWidth },
-                                 { "logicalHeight", info.LogicalHeight },
-                                 { "dpiScale", info.DpiScale },
-                                 { "windowWidth", info.WindowWidth },
-                                 { "windowHeight", info.WindowHeight },
-                                 { "startWindowX", start.WindowX },
-                                 { "startWindowY", start.WindowY },
-                                 { "startPixelX", start.ViewportPixelX },
-                                 { "startPixelY", start.ViewportPixelY },
-                                 { "startInside", start.InsideViewport },
-                                 { "endWindowX", end.WindowX },
-                                 { "endWindowY", end.WindowY },
-                                 { "endPixelX", end.ViewportPixelX },
-                                 { "endPixelY", end.ViewportPixelY },
-                                 { "endInside", end.InsideViewport },
-                                 { "deltaWindowDx", delta.WindowDx },
-                                 { "deltaWindowDy", delta.WindowDy },
-                                 { "deltaFrames", delta.Frames },
-                                 { "deltaReset", delta.Reset } };
-                });
+                        const McpInputInjectResult result = context.InjectInput(plan);
+                        if (!result.Available)
+                            return Json{ { "__error", "Input injection is not available in this build (no editor window)." } };
+                        if (!result.Ok)
+                            return Json{ { "__error", result.Message.empty()
+                                                          ? std::string("The editor refused the injected input.")
+                                                          : result.Message } };
+
+                        return Json{ { "baseFrame", result.BaseFrame },
+                                     { "frameCount", result.FrameCount },
+                                     { "message", result.Message },
+                                     { "panelX", info.PanelX },
+                                     { "panelY", info.PanelY },
+                                     { "windowX", info.WindowX },
+                                     { "windowY", info.WindowY },
+                                     { "logicalWidth", info.LogicalWidth },
+                                     { "logicalHeight", info.LogicalHeight },
+                                     { "dpiScale", info.DpiScale },
+                                     { "windowWidth", info.WindowWidth },
+                                     { "windowHeight", info.WindowHeight },
+                                     { "startWindowX", start.WindowX },
+                                     { "startWindowY", start.WindowY },
+                                     { "startPixelX", start.ViewportPixelX },
+                                     { "startPixelY", start.ViewportPixelY },
+                                     { "startInside", start.InsideViewport },
+                                     { "endWindowX", end.WindowX },
+                                     { "endWindowY", end.WindowY },
+                                     { "endPixelX", end.ViewportPixelX },
+                                     { "endPixelY", end.ViewportPixelY },
+                                     { "endInside", end.InsideViewport },
+                                     { "deltaWindowDx", delta.WindowDx },
+                                     { "deltaWindowDy", delta.WindowDy },
+                                     { "deltaFrames", delta.Frames },
+                                     { "deltaReset", delta.Reset } };
+                    });
+            }
+            catch (...)
+            {
+                // MarshalRead gave up (timeout, or the server is stopping) but its job
+                // may still be queued. Disarm it before propagating, so it cannot
+                // inject after this call has reported failure.
+                abandoned->store(true, std::memory_order_release);
+                throw;
+            }
 
             if (accepted.is_object() && accepted.contains("__error"))
                 return ToolResult::Error(accepted["__error"].get<std::string>());

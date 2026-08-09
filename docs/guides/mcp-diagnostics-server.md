@@ -199,7 +199,7 @@ and for what to do when adding a tool.
 | `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_entity_set_field` | **(consented write)** set one component field by (`component`, `field`, `value`) — undoable (a single Ctrl-Z), UUID-keyed. The registry is **generated from every component definition** (issue #607), so it spans the whole ECS surface (meshes/materials/VirtualMesh, lights, fog/probes, physics bodies + colliders, text/UI, nav, water, terrain, …), not a curated handful. Out-of-range values are **clamped** to the serializer's own range (`clamped:true` + `requestedValue`); the result echoes `value` **read back from the component** plus `changed:true/false`. Gated behind **Agent writes**. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_scheduler_graph` | the gameplay `SystemScheduler`'s **derived** dependency DAG as JSON / Mermaid / DOT: execution order, the full derived edge set (including the read/write hazard edges no source file shows), every named channel with its readers and writers, and — per `Parallelizable` system — `mayOverlapWith`, the other marked systems it can genuinely race. Sibling of `olo_render_graph_topology_export`. See [Looking at the two DAGs](#looking-at-the-two-dags-olo_scheduler_graph--olo_render_graph_topology_export) |
-| `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings. **Also the liveness probe**: the `liveness` block (`ticking`, `frameIndex`, `msSinceLastFrame`, `iconified`, `focused`) answers "is the editor actually running frames?" in one call — see [Editor liveness](#editor-liveness-is-it-actually-running-frames) |
+| `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings. **Also the liveness probe**: the `liveness` block (`ticking`, `frameIndex`, `msSinceLastFrame`, `iconified`, `focused`) answers "is the editor actually running frames?" in one call — see [Editor liveness](#editor-liveness--is-it-actually-running-frames) |
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations (uses real cpu/gpu/gpuWait numbers) |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
 | `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time (per-draw times resolve via a deferred commit one-plus frames after the capture; draws carry their submesh debug names) |
@@ -755,6 +755,7 @@ injected Ctrl+click really is a Ctrl+click.)
 | `click` | `x`, `y`, `button?` (left/right/middle), `space?`, `modifiers?`, `doubleClick?` |
 | `move` | `x`, `y`, `space?` |
 | `drag` | `fromX`, `fromY`, `toX`, `toY`, `button?`, `space?`, `steps?` (1–64) |
+| `mouseDelta` | `dx`, `dy` (relative displacement in `space?` units), `frames?` (1–64, spread over that many frames), `resetOffset?` (zero the accumulated offset first — valid on its own, without `dx`/`dy`). See [Relative mouse movement](#relative-mouse-movement-mousedelta) |
 | `key` | `key`, `modifiers?`, `keyAction?` (`tap` default / `press` / `release`) |
 | `text` | `text` (printable ASCII, ≤ 256 chars — typed into the focused ImGui widget) |
 
@@ -834,7 +835,7 @@ read the pixel off a full-window screenshot from the `run-oloengine` driver
   to the human. Synthetic key/button state never masks a real physical press.
 - A minimized editor never drains the queue at all — the call is now **refused up
   front** with an explanation instead of timing out and leaving the queue occupied. See
-  [Editor liveness](#editor-liveness-is-it-actually-running-frames).
+  [Editor liveness](#editor-liveness--is-it-actually-running-frames).
 
 ### Relative mouse movement (`mouseDelta`)
 

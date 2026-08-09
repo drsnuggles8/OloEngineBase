@@ -149,6 +149,11 @@ namespace OloEngine::MCP::InputInject
         f32 Dy = 0.0f;
         int DeltaFrames = 1;
         bool ResetOffset = false;
+        // A reset with NO dx/dy at all — pure cleanup. Tracked as a flag rather than
+        // re-derived from `Dx == 0 && Dy == 0`, both because comparing floats for
+        // equality is banned here and because a deliberate `{dx: 0, dy: 0}` is a
+        // different request from "I only want the offset cleared".
+        bool ResetOnly = false;
 
         i32 KeyCode = 0; // GLFW key code (== OloEngine KeyCode)
         std::string KeyName;
@@ -410,7 +415,10 @@ namespace OloEngine::MCP::InputInject
                 const bool hasDx = args.contains("dx");
                 const bool hasDy = args.contains("dy");
                 if (!hasDx && !hasDy && out.ResetOffset)
+                {
+                    out.ResetOnly = true;
                     break;
+                }
                 if (auto error = readFinite("dx", out.Dx))
                     return error;
                 if (auto error = readFinite("dy", out.Dy))
@@ -804,9 +812,17 @@ namespace OloEngine::MCP::InputInject
                 ResolvedDelta delta;
                 delta.Frames = std::max(1, request.DeltaFrames);
                 delta.Reset = request.ResetOffset;
-                if (auto error = ResolveDelta(info, request.CoordSpace, request.Dx, request.Dy, delta.WindowDx,
-                                              delta.WindowDy))
-                    return error;
+                // A pure reset carries no displacement, so it needs no coordinate
+                // space and therefore no viewport geometry. Resolving anyway would
+                // make "put the virtual cursor back" fail whenever the Viewport panel
+                // is closed or has no size yet — precisely the cleanup call that must
+                // always be available. Its caller skips the viewport check to match.
+                if (!request.ResetOnly)
+                {
+                    if (auto error = ResolveDelta(info, request.CoordSpace, request.Dx, request.Dy, delta.WindowDx,
+                                                  delta.WindowDy))
+                        return error;
+                }
 
                 // The reset gets a frame of its own: it is a genuine discontinuity
                 // (the virtual cursor jumps back onto the hardware one) and folding it

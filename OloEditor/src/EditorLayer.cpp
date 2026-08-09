@@ -602,16 +602,7 @@ namespace OloEngine
             mcpContext.GetFrameIndex = [this]() -> u64
             { return m_FrameIndex; };
             mcpContext.IsCaptureUnready = [this]() -> bool
-            {
-                // Unready while throttled, or within a few frames of a viewport
-                // resize: freshly resized render-graph framebuffers render black
-                // for the first couple of frames (verified against the live
-                // editor — 2 frames after a resize still captured black, 6 were
-                // clean), so wait out a conservative window.
-                constexpr u64 kResizeSettleFrames = 6;
-                return m_ViewportRenderSkipped ||
-                       (m_FrameIndex < m_LastViewportResizeFrame + kResizeSettleFrames);
-            };
+            { return IsViewportCaptureUnready(); };
             // The superset of the two hooks above plus the window state (#607): the
             // one call that can say "the editor is minimized, so nothing you are
             // about to read or inject can work" instead of quietly succeeding.
@@ -1023,22 +1014,44 @@ namespace OloEngine
         // attribute: it is the exact condition Application::Run guards the layer
         // update with, so it is what decides whether OnUpdate (and therefore the
         // injection drain and the frame counter) runs at all.
-        if (const Application* const app = Application::TryGet())
-            liveness.Iconified = app->IsIconified();
-
-        if (auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow()))
+        //
+        // The window is reached through the SAME guarded pointer: Application::Get()
+        // dereferences its singleton unconditionally, so pairing it with a TryGet()
+        // null check above would be a null dereference in exactly the case the check
+        // exists to cover.
+        // Not `const Application*`: GetWindow() is a non-const accessor, so a const
+        // pointer cannot reach the native window at all.
+        if (Application* const app = Application::TryGet())
         {
-            liveness.Focused = ::glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
-            liveness.Visible = ::glfwGetWindowAttrib(window, GLFW_VISIBLE) != 0;
-            // Belt and braces: a window can be iconified without Application having
-            // seen the 0x0 resize event yet (the event arrives on the next poll).
-            liveness.Iconified = liveness.Iconified || (::glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0);
+            liveness.Iconified = app->IsIconified();
+            if (auto* const window = static_cast<GLFWwindow*>(app->GetWindow().GetNativeWindow()))
+            {
+                liveness.Focused = ::glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
+                liveness.Visible = ::glfwGetWindowAttrib(window, GLFW_VISIBLE) != 0;
+                // Belt and braces: a window can be iconified without Application having
+                // seen the 0x0 resize event yet (the event arrives on the next poll).
+                liveness.Iconified = liveness.Iconified || (::glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0);
+            }
         }
 
-        constexpr u64 kResizeSettleFrames = 6; // mirrors the IsCaptureUnready hook
-        liveness.CaptureUnready =
-            m_ViewportRenderSkipped || (m_FrameIndex < m_LastViewportResizeFrame + kResizeSettleFrames);
+        liveness.CaptureUnready = IsViewportCaptureUnready();
         return liveness;
+    }
+
+    bool EditorLayer::IsViewportCaptureUnready() const
+    {
+        // Unready while throttled, or within a few frames of a viewport resize:
+        // freshly resized render-graph framebuffers render black for the first
+        // couple of frames (verified against the live editor — 2 frames after a
+        // resize still captured black, 6 were clean), so wait out a conservative
+        // window.
+        //
+        // ONE definition, two consumers (the IsCaptureUnready context hook and the
+        // liveness snapshot). They must agree by construction: a capture tool that
+        // waits on one rule while the liveness block reports the other would send a
+        // reader hunting a contradiction that is purely an artifact of the split.
+        constexpr u64 kResizeSettleFrames = 6;
+        return m_ViewportRenderSkipped || (m_FrameIndex < m_LastViewportResizeFrame + kResizeSettleFrames);
     }
 
     MCP::McpSelectEntityResult EditorLayer::SelectEntityInEditor(u64 entityUuid, bool clear)

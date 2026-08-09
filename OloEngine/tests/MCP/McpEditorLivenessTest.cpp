@@ -91,7 +91,7 @@ TEST(McpEditorLiveness, IconifiedIsNotTickingEvenWithAFreshFrame)
 TEST(McpEditorLiveness, LongGapWithoutAFrameIsAStall)
 {
     McpEditorLiveness liveness = Healthy();
-    liveness.MsSinceLastFrame = Liveness::s_StallThresholdMs + 1.0;
+    liveness.MsSinceLastFrame = Liveness::kStallThresholdMs + 1.0;
 
     EXPECT_FALSE(Liveness::IsTicking(liveness));
     EXPECT_TRUE(Liveness::IsStale(liveness));
@@ -104,7 +104,7 @@ TEST(McpEditorLiveness, SlowButRunningEditorIsNotAStall)
     // sit above any plausible real frame time, or every capture on a busy scene
     // would carry a false STALE FRAME banner and train the reader to ignore it.
     McpEditorLiveness liveness = Healthy();
-    liveness.MsSinceLastFrame = Liveness::s_StallThresholdMs - 1.0;
+    liveness.MsSinceLastFrame = Liveness::kStallThresholdMs - 1.0;
 
     EXPECT_TRUE(Liveness::IsTicking(liveness));
     EXPECT_FALSE(Liveness::IsStale(liveness));

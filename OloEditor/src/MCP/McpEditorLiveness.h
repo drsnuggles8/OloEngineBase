@@ -44,7 +44,7 @@ namespace OloEngine::MCP::EditorLiveness
     // seconds-long silence an iconified window produces. It is a diagnosis, not a
     // hard gate: the value is reported alongside the verdict so a caller can always
     // apply its own judgement.
-    inline constexpr f64 s_StallThresholdMs = 750.0;
+    inline constexpr f64 kStallThresholdMs = 750.0;
 
     // True when the editor is running frames, so a capture is fresh and an injected
     // plan can actually drain. An unavailable signal (headless host, older context)
@@ -61,7 +61,7 @@ namespace OloEngine::MCP::EditorLiveness
         // inventing a stall on startup.
         if (!std::isfinite(liveness.MsSinceLastFrame))
             return true;
-        return liveness.MsSinceLastFrame < s_StallThresholdMs;
+        return liveness.MsSinceLastFrame < kStallThresholdMs;
     }
 
     // Whether a tool result derived from the rendered frame should be flagged
@@ -122,7 +122,7 @@ namespace OloEngine::MCP::EditorLiveness
         return Schema::Object()
             .Prop("ticking", Schema::Bool().Desc("False when the editor's update/render loop is parked — a minimized "
                                                  "window, or no completed frame for " +
-                                                 std::to_string(static_cast<i64>(s_StallThresholdMs)) +
+                                                 std::to_string(static_cast<i64>(kStallThresholdMs)) +
                                                  " ms. Injected input cannot drain and captures are stale while false."))
             .Prop("frameIndex", Schema::Int().Min(0).Desc("Monotonic editor frame counter; advances only while frames run."))
             .Prop("msSinceLastFrame", Schema::Number().Min(0).Desc("Wall-clock milliseconds since the last completed editor frame."))

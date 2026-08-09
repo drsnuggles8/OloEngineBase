@@ -255,6 +255,28 @@ TEST(McpRenderGraphTopology, DotEscapesQuotesWithABackslashNotAnEntity)
     EXPECT_EQ(std::string::npos, dot.find("&quot;"));
 }
 
+TEST(McpRenderGraphTopology, DotDoublesALiteralBackslashSoItCannotEscapeTheClosingQuote)
+{
+    // Escaping the quote but not the character that escapes it is worse than
+    // escaping neither: a name ending in a backslash would emit ...\" — whose
+    // backslash consumes the closing quote and swallows the rest of the line,
+    // producing DOT that will not parse. Mermaid needs no such treatment (its
+    // escape is an HTML entity, so a backslash is an ordinary character there).
+    Snapshot snap;
+    snap.Passes.push_back(PassInfo{ "Path\\To\\Pass", "Graphics", true, false, false, false });
+
+    const std::string dot = BuildDot(snap);
+    EXPECT_NE(std::string::npos, dot.find("n0 [label=\"Path\\\\To\\\\Pass\""));
+
+    // The trailing-backslash case is the one that actually breaks the parse.
+    Snapshot trailing;
+    trailing.Passes.push_back(PassInfo{ "Trailing\\", "Graphics", true, false, false, false });
+    EXPECT_NE(std::string::npos, BuildDot(trailing).find("n0 [label=\"Trailing\\\\\"];"));
+
+    // Mermaid leaves it alone.
+    EXPECT_NE(std::string::npos, BuildMermaid(snap).find("n0[\"Path\\To\\Pass\"]"));
+}
+
 // ---- Resolved GL ids + per-pass access lists (issue #607) -------------------
 
 TEST(McpRenderGraphTopology, ResourceEmitsResolvedGlIdsWhenSet)

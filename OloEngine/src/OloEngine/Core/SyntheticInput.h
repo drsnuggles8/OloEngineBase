@@ -134,10 +134,15 @@ namespace OloEngine
         // absolute-position behaviour.
         static void AddMouseDelta(glm::vec2 delta) noexcept
         {
-            // Relaxed accumulate + release on the flag: the flag is the fast-path
-            // gate, so publishing it last is what makes the components visible.
-            s_MouseOffsetX.store(s_MouseOffsetX.load(std::memory_order_relaxed) + delta.x, std::memory_order_relaxed);
-            s_MouseOffsetY.store(s_MouseOffsetY.load(std::memory_order_relaxed) + delta.y, std::memory_order_relaxed);
+            // fetch_add, not load-then-store: accumulation is a read-modify-write, and
+            // splitting it into two operations would lose a concurrent delta outright.
+            // Today's only writer is the game thread (the drain), so the split form
+            // would happen to be correct — but it encodes that invariant nowhere, and
+            // "+=" on an atomic is exactly the operation being expressed.
+            // Relaxed on the components + release on the flag: the flag is the
+            // fast-path gate, so publishing it last is what makes them visible.
+            s_MouseOffsetX.fetch_add(delta.x, std::memory_order_relaxed);
+            s_MouseOffsetY.fetch_add(delta.y, std::memory_order_relaxed);
             s_HasMouseOffset.store(true, std::memory_order_release);
         }
 

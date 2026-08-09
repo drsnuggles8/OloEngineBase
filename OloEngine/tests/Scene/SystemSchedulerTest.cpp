@@ -409,9 +409,28 @@ TEST(SystemSchedulerTest, ExportGraphAgreesWithDependsOnOnTheRealSchedule)
         return false;
     };
 
-    EXPECT_TRUE(reaches("Scripts", "Cinematics"));
-    EXPECT_EQ(reaches("Scripts", "Cinematics"), sched.DependsOn("Cinematics", "Scripts"));
-    EXPECT_EQ(reaches("Cinematics", "Scripts"), sched.DependsOn("Scripts", "Cinematics"));
+    // Every ORDERED PAIR, not a couple of hand-picked ones. The export and
+    // DependsOn are two readings of the same derived graph, and an agent reasoning
+    // off the export draws conclusions the engine's own tests are asserting with
+    // DependsOn — so a single divergent pair anywhere is a divergence that matters.
+    // Two spot checks would pass through it; ~1k pairs over a 33-node graph costs
+    // nothing.
+    ASSERT_TRUE(reaches("Scripts", "Cinematics")) << "sanity: the real schedule has at least one derived path";
+    sizet checked = 0;
+    for (const std::string& from : exportedOrder)
+    {
+        for (const std::string& to : exportedOrder)
+        {
+            if (from == to)
+                continue; // DependsOn reports no self-dependency by contract
+            // Note the reversed argument order: reaches(from, to) is an edge path
+            // from -> to, which is exactly DependsOn(to, from) ("to depends on from").
+            ASSERT_EQ(reaches(from, to), sched.DependsOn(to, from))
+                << "export and DependsOn disagree on whether " << to << " depends on " << from;
+            ++checked;
+        }
+    }
+    EXPECT_EQ(checked, exportedOrder.size() * (exportedOrder.size() - 1));
 }
 
 // The critical cross-subsystem seams the historical comments call out must hold

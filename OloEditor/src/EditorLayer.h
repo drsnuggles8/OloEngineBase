@@ -227,6 +227,11 @@ namespace OloEngine
         // returning a stale frame. Main-thread-only (queries GLFW), called from
         // inside a MarshalRead job.
         [[nodiscard]] MCP::McpEditorLiveness GetMcpEditorLiveness() const;
+        // The single definition of "the viewport framebuffer must not be captured
+        // yet" — throttle-skipped, or still inside the post-resize black-frame
+        // window. Shared by the IsCaptureUnready context hook and the liveness
+        // snapshot so the two can never disagree.
+        [[nodiscard]] bool IsViewportCaptureUnready() const;
 
         // ---- MCP editor selection (olo_editor_select_entity, issue #607) --------
         // Select/clear the Scene Hierarchy panel's selection so the Properties

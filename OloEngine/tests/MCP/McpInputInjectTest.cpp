@@ -32,6 +32,8 @@
 #include "MCP/McpInputInject.h"
 #include "MCP/McpServer.h"
 
+#include <algorithm>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -694,6 +696,10 @@ TEST(McpInputInjectSchema, RequiresActionAndIsClosed)
     const Json actionEnum = schema["properties"]["action"]["enum"];
     ASSERT_TRUE(actionEnum.is_array());
     EXPECT_EQ(actionEnum.size(), 6u);
+    // A count alone would pass if a rename dropped mouseDelta and added something
+    // else; the schema enum is what a client validates against before the handler
+    // ever sees the call, so the action has to be named here to be reachable.
+    EXPECT_NE(std::ranges::find(actionEnum, Json("mouseDelta")), actionEnum.end());
 }
 
 // ---- relative injection: the "mouseDelta" action (issue #607) ------------------
@@ -909,15 +915,67 @@ TEST(McpInputInjectDelta, ADisplacementHasNoPositionAndSoCannotBeOutsideTheViewp
 
 TEST(McpInputInjectDelta, ParseRejectsNonFiniteAndClampsFrames)
 {
-    Inject::Request request;
-    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "mouseDelta" }, { "dy", 1 } }, request).has_value())
-        << "dx is required unless this is a pure reset";
+    // Both components are required unless this is a pure reset — a half-given
+    // displacement is a typo, and silently treating the missing axis as 0 would
+    // move the cursor somewhere the caller never asked for. The offset PERSISTS,
+    // so a wrong displacement is not self-correcting the way a one-frame absolute
+    // override is.
+    Inject::Request missingDx;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "mouseDelta" }, { "dy", 1 } }, missingDx).has_value());
+    Inject::Request missingDy;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "mouseDelta" }, { "dx", 1 } }, missingDy).has_value());
+
+    // Non-finite input must never reach the accumulator: a NaN/Inf added to the
+    // persistent offset poisons EVERY later mouse read for the process, not just
+    // this call (Math::IsFinite then zeroes the rig's look input forever).
+    for (const char* axis : { "dx", "dy" })
+    {
+        for (const f64 bad : { std::numeric_limits<f64>::quiet_NaN(), std::numeric_limits<f64>::infinity(),
+                               -std::numeric_limits<f64>::infinity() })
+        {
+            Json args{ { "action", "mouseDelta" }, { "dx", 1.0 }, { "dy", 1.0 } };
+            args[axis] = bad;
+            Inject::Request request;
+            EXPECT_TRUE(Inject::ParseRequest(args, request).has_value())
+                << "non-finite '" << axis << "' was accepted";
+        }
+    }
 
     Inject::Request clamped;
     const Json args{ { "action", "mouseDelta" }, { "dx", 1 }, { "dy", 2 }, { "frames", 9999 } };
     ASSERT_FALSE(Inject::ParseRequest(args, clamped).has_value());
     EXPECT_LE(clamped.DeltaFrames, 64);
     EXPECT_GE(clamped.DeltaFrames, 1);
+}
+
+TEST(McpInputInjectDelta, ResetOnlyNeedsNoViewportGeometry)
+{
+    // A pure reset carries no coordinates, so it must not depend on viewport
+    // geometry — it is exactly the cleanup call a session makes when the Viewport
+    // panel is closed or has no size yet, i.e. when ResolveDelta would fail.
+    Inject::Request request;
+    ASSERT_FALSE(
+        Inject::ParseRequest(Json{ { "action", "mouseDelta" }, { "resetOffset", true } }, request).has_value());
+    ASSERT_TRUE(request.ResetOnly);
+
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    const McpInputViewportInfo noViewport; // Available == false, zero size, zero DPI
+    EXPECT_FALSE(Inject::BuildPlan(request, noViewport, plan, start, end).has_value())
+        << "a standalone resetOffset must not require a resolvable viewport";
+    EXPECT_GE(DeltaTimelineOf(plan).ResetFrame, 0);
+
+    // The bypass is scoped to the reset, not a blanket relaxation: a displacement
+    // that genuinely needs the viewport's extent still fails against the same info.
+    //
+    // viewportNorm, not viewport, is the honest negative control here — a fraction
+    // of the viewport is meaningless without its size, whereas a delta in native
+    // viewport PIXELS needs only the DPI ratio (which defaults to 1.0) and so
+    // legitimately resolves even against an unsized viewport.
+    Inject::Request normalized = DeltaRequest(0.1f, 0.0f, 1, Inject::Space::ViewportNormalized);
+    McpInputPlan rejected;
+    EXPECT_TRUE(Inject::BuildPlan(normalized, noViewport, rejected, start, end).has_value());
 }
 
 TEST(McpInputInjectDelta, AbsoluteActionsAreUnchangedByTheAdditionOfTheDeltaAction)

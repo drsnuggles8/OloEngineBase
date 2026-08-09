@@ -5064,6 +5064,8 @@ namespace OloEngine::MCP
             tool.OutputSchema = Schema::Object()
                                     .Prop("frameIndex", Schema::Int().Min(0).Desc("Frame the pixels came from (compare between calls to detect a stale read)."))
                                     .Prop("timestampMs", Schema::Int().Min(0).Desc("Wall-clock capture stamp, ms since epoch."))
+                                    .Prop("stale", Schema::Bool().Desc("The editor's loop was parked, so this capture is the last frame drawn before it stopped — not a current one."))
+                                    .Prop("liveness", EditorLiveness::SchemaNode())
                                     .Prop("name", Schema::String().Desc("Captured render-graph resource name."))
                                     .Prop("afterPass", Schema::String().Desc("Mid-frame snapshot pass; omitted unless 'afterPass' was given."))
                                     .Prop("snapshotSourceTextureId", Schema::Int().Desc("Source texture of the afterPass snapshot clone; omitted without 'afterPass'."))
@@ -5807,6 +5809,8 @@ namespace OloEngine::MCP
                                     .Prop("meta", Schema::Object()
                                                       .Prop("frameIndex", Schema::Int().Min(0))
                                                       .Prop("timestampMs", Schema::Int().Min(0))
+                                                      .Prop("stale", Schema::Bool().Desc("The editor's loop was parked, so these values describe the last frame drawn before it stopped."))
+                                                      .Prop("liveness", EditorLiveness::SchemaNode())
                                                       .Desc("Staleness stamp: the frame/time the values were read."))
                                     .Prop("renderingPath", Schema::String().Desc("G-Buffer mode only."))
                                     .Prop("channels", Schema::Object().Desc("G-Buffer mode only: decoded per-channel objects (albedo/metallic/normal/roughness/ao/emissive/flags?/velocity/entityID/depth/finalColor), each { available, source?, format?, value?, reason? }; depth adds device/linearViewDepth (null when the camera is unknown)/nearClip/farClip, normal adds encoded/space."))
@@ -5903,7 +5907,9 @@ namespace OloEngine::MCP
                                     .Prop("layerNote", Schema::String().Desc("Omitted unless the layer selection has a caveat."))
                                     .Prop("meta", Schema::Object()
                                                       .Prop("frameIndex", Schema::Int().Min(0))
-                                                      .Prop("timestampMs", Schema::Int().Min(0)))
+                                                      .Prop("timestampMs", Schema::Int().Min(0))
+                                                      .Prop("stale", Schema::Bool().Desc("The editor's loop was parked, so these values describe the last frame drawn before it stopped."))
+                                                      .Prop("liveness", EditorLiveness::SchemaNode()))
                                     .Required({ "name", "format", "mip", "mipWidth", "mipHeight", "rect", "origin", "texelCount", "channels", "meta" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderTargetStats;
@@ -5979,7 +5985,9 @@ namespace OloEngine::MCP
                                     .Prop("compare", Schema::Object().Desc("Only when 'compare' was requested: 'a'/'b' echoes plus either 'error' or the bit-exact result (comparedRegion/comparedTexels/bitwiseEqual/differingTexels/maxAbsDiff?/firstDiffs/note; firstDiffs a/b encode non-finite floats as the strings 'NaN'/'Inf')."))
                                     .Prop("meta", Schema::Object()
                                                       .Prop("frameIndex", Schema::Int().Min(0))
-                                                      .Prop("timestampMs", Schema::Int().Min(0)))
+                                                      .Prop("timestampMs", Schema::Int().Min(0))
+                                                      .Prop("stale", Schema::Bool().Desc("The editor's loop was parked, so these values describe the last frame drawn before it stopped."))
+                                                      .Prop("liveness", EditorLiveness::SchemaNode()))
                                     .Required({ "ok", "hazardCount", "hazards", "barrierDiagnostics", "buildDiagnostics",
                                                 "resolveFailures", "consumedButUnbacked", "versionGroups", "meta" });
             tool.MainMarshaled = true;
@@ -6329,7 +6337,9 @@ namespace OloEngine::MCP
                                                      .Prop("ranThisFrame", Schema::Bool()))
                                     .Prop("meta", Schema::Object()
                                                       .Prop("frameIndex", Schema::Int().Min(0))
-                                                      .Prop("timestampMs", Schema::Int().Min(0)))
+                                                      .Prop("timestampMs", Schema::Int().Min(0))
+                                                      .Prop("stale", Schema::Bool().Desc("The editor's loop was parked, so these values describe the last frame drawn before it stopped."))
+                                                      .Prop("liveness", EditorLiveness::SchemaNode()))
                                     .Prop("staleness", Schema::String().Desc("Present only when the froxel chain did not run last frame."))
                                     .Required({ "volume", "froxel", "scatter", "integrated", "fog", "meta" });
             tool.MainMarshaled = true;
