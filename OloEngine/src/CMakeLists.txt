@@ -666,6 +666,7 @@
 		"OloEngine/Renderer/ShaderWarmup.cpp"
 		"OloEngine/Renderer/ShaderWarmup.h"
 		"OloEngine/Renderer/Texture.cpp"
+		"OloEngine/Renderer/Texture3D.cpp"
 		"OloEngine/Renderer/Texture.h"
 		"OloEngine/Renderer/TextureCompression.cpp"
 		"OloEngine/Renderer/TextureCompression.h"

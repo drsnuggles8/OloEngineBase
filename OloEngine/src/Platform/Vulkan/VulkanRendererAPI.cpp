@@ -1480,10 +1480,12 @@ namespace OloEngine
         // Default whole-image sampled view. Depth-stencil formats sample the
         // DEPTH aspect (GLSL sampler2D/shadow reads depth; sampling stencil
         // needs an explicit stencil view, which no current pass requests).
+        // The registry carries the dimensionality (a 3D volume samples as
+        // sampler3D — hardcoding 2D here built an invalid view for it).
         VkImageViewCreateInfo view{};
         view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view.image = image;
-        view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view.viewType = info->ViewType;
         view.format = info->Format;
         view.subresourceRange.aspectMask = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         view.subresourceRange.baseMipLevel = 0;
@@ -1526,7 +1528,13 @@ namespace OloEngine
         VkImageViewCreateInfo view{};
         view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view.image = image;
-        view.viewType = (layered && info->ArrayLayers > 1u) ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+        // A 3D volume (image3D) binds as a whole-volume 3D view — GL's
+        // "layered" flag is how image3D binds arrive; layer slicing of 3D
+        // images (2D-slice views) has no current consumer.
+        view.viewType = info->ViewType == VK_IMAGE_VIEW_TYPE_3D
+                            ? VK_IMAGE_VIEW_TYPE_3D
+                            : ((layered && info->ArrayLayers > 1u) ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
+                                                                   : VK_IMAGE_VIEW_TYPE_2D);
         view.format = viewFormat;
         view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         view.subresourceRange.baseMipLevel = std::min(mipLevel, std::max(info->MipLevels, 1u) - 1u);

@@ -8,6 +8,7 @@
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 
 #include <stb_image/stb_image.h>
@@ -1163,6 +1164,98 @@ namespace OloEngine
     // =========================================================================
     // VulkanFramebuffer
     // =========================================================================
+
+    // --- VulkanTexture3D -----------------------------------------------------
+
+    namespace
+    {
+        VkFormat Texture3DFormatToVk(const Texture3DFormat format)
+        {
+            switch (format)
+            {
+                case Texture3DFormat::RGBA8:
+                    return VK_FORMAT_R8G8B8A8_UNORM;
+                case Texture3DFormat::RGBA16F:
+                    return VK_FORMAT_R16G16B16A16_SFLOAT;
+                case Texture3DFormat::RGBA32F:
+                    return VK_FORMAT_R32G32B32A32_SFLOAT;
+            }
+            return VK_FORMAT_UNDEFINED;
+        }
+    } // namespace
+
+    VulkanTexture3D::VulkanTexture3D(const Texture3DSpecification& spec)
+        : m_Specification(spec)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto* device = VulkanDevice::Get();
+        OLO_CORE_ASSERT(device != nullptr, "VulkanTexture3D requires a live VulkanDevice");
+
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_3D;
+        imageInfo.format = Texture3DFormatToVk(spec.Format);
+        imageInfo.extent = { std::max(spec.Width, 1u), std::max(spec.Height, 1u), std::max(spec.Depth, 1u) };
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        // Both halves of the volume contract: written as image3D by compute,
+        // read as sampler3D by consumers; transfer for clears/debug readback.
+        imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
+            VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanTexture3D: image creation failed ({}x{}x{})", spec.Width, spec.Height,
+                           spec.Depth);
+            m_Image = VK_NULL_HANDLE;
+            m_Allocation = VK_NULL_HANDLE;
+            return;
+        }
+
+        VulkanImageInfo registryInfo{};
+        registryInfo.Format = imageInfo.format;
+        registryInfo.MipLevels = 1;
+        registryInfo.ArrayLayers = 1;
+        registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_3D;
+        VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
+
+        m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);
+    }
+
+    VulkanTexture3D::~VulkanTexture3D()
+    {
+        try
+        {
+            RHI::DescriptorHeap::Get().RetireResource(m_RHIHandle.Get());
+            m_RHIHandle.Reset();
+            if (m_Image != VK_NULL_HANDLE || m_Allocation != VK_NULL_HANDLE)
+            {
+                VulkanDescriptorSlotCache::Get().ReleaseSlotsForImage(m_Image);
+                VulkanDeferredReclaim::Get().Enqueue(m_Image, m_Allocation);
+                m_Image = VK_NULL_HANDLE;
+                m_Allocation = VK_NULL_HANDLE;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("VulkanTexture3D dtor: reclaim enqueue threw ({}); the volume leaks", e.what());
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("VulkanTexture3D dtor: reclaim enqueue threw; the volume leaks");
+        }
+    }
+
+    void VulkanTexture3D::Bind(u32 slot) const
+    {
+        // The facade's slot path — same acquire the handle form performs.
+        RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
+    }
 
     VulkanFramebuffer::VulkanFramebuffer(const FramebufferSpecification& spec)
         : m_Specification(spec)

@@ -32,6 +32,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Texture3D.h"
 
 #include <string>
 #include <unordered_map>
@@ -59,6 +60,11 @@ namespace OloEngine
         u32 ArrayLayers = 1;
         bool HasDepth = false;
         bool HasStencil = false;
+        // The default whole-image sampled-view dimensionality. 2D for every
+        // texture/attachment; 3D volumes (Texture3D — froxel fog, noise
+        // fields) register VK_IMAGE_VIEW_TYPE_3D so the bind paths build the
+        // right view instead of hardcoding 2D (issue #691 Phase 7 Wave B).
+        VkImageViewType ViewType = VK_IMAGE_VIEW_TYPE_2D;
 
         // Stamped by Register() from a process-wide monotonic counter. A
         // destroyed VkImage's handle VALUE can be recycled by the driver for
@@ -300,6 +306,57 @@ namespace OloEngine
         // Generation-checked identity for m_Image, kept in lockstep by
         // m_RHIHandle.Sync at every site that assigns the native handle —
         // same pattern as the GL twin (issue #691).
+        RHI::ScopedResourceHandle m_RHIHandle;
+    };
+
+    // -------------------------------------------------------------------------
+    // VulkanTexture3D — the Texture3D backend twin (issue #691 Phase 7
+    // Wave B: froxel-fog volumes, 3D noise fields). Sampled (sampler3D) +
+    // storage (image3D) usage in one image; registers
+    // VK_IMAGE_VIEW_TYPE_3D in VulkanImageInfoRegistry so both bind paths
+    // build 3D views instead of the 2D default.
+    // -------------------------------------------------------------------------
+    class VulkanTexture3D : public Texture3D
+    {
+      public:
+        explicit VulkanTexture3D(const Texture3DSpecification& spec);
+        ~VulkanTexture3D() override;
+
+        [[nodiscard]] u32 GetWidth() const override
+        {
+            return m_Specification.Width;
+        }
+        [[nodiscard]] u32 GetHeight() const override
+        {
+            return m_Specification.Height;
+        }
+        [[nodiscard]] u32 GetDepth() const override
+        {
+            return m_Specification.Depth;
+        }
+        [[nodiscard]] u32 GetRendererID() const override
+        {
+            return 0; // no GL name exists; identity is the RHI handle
+        }
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
+        }
+        [[nodiscard]] const Texture3DSpecification& GetSpecification() const override
+        {
+            return m_Specification;
+        }
+        [[nodiscard]] VkImage GetVkImage() const
+        {
+            return m_Image;
+        }
+
+        void Bind(u32 slot) const override;
+
+      private:
+        Texture3DSpecification m_Specification;
+        VkImage m_Image = VK_NULL_HANDLE;
+        VmaAllocation m_Allocation = VK_NULL_HANDLE;
         RHI::ScopedResourceHandle m_RHIHandle;
     };
 
