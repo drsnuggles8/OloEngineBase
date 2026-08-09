@@ -496,6 +496,8 @@ namespace OloEngine
         note("TerrainUBO", s_Data.TerrainUBO != nullptr);
         note("FoliageUBO", s_Data.FoliageUBO != nullptr);
         note("WaterUBO", s_Data.WaterUBO != nullptr);
+        // Reflection-probe cubemap arrays + UBO + cluster-mask SSBO (#705).
+        note("ReflectionProbeArray", s_Data.ReflectionProbes.IsInitialized());
 
         return live;
     }

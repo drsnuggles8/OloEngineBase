@@ -271,6 +271,16 @@ namespace OloEngine::Tests
             ASSERT_NE(loaded, nullptr) << "Failed to reload written PNG '" << path << "'";
             EXPECT_EQ(w, static_cast<int>(kWidth));
             EXPECT_EQ(h, static_cast<int>(kHeight));
+            if (w == static_cast<int>(kWidth) && h == static_cast<int>(kHeight))
+            {
+                // PNG is lossless — the evidence on disk must be the exact
+                // pixels the contracts below measured (the sibling
+                // ReflectionProbeVisualEvidenceTest's check).
+                EXPECT_EQ(std::memcmp(loaded, outPixels.data(),
+                                      static_cast<std::size_t>(kWidth) * kHeight * 4u),
+                          0)
+                    << "Reloaded PNG pixels differ from the written buffer: " << path;
+            }
             ::stbi_image_free(loaded);
         }
     };
@@ -391,9 +401,50 @@ namespace OloEngine::Tests
             return;
 
         // ---- Contracts ----
-        for (const auto* frame : { &offBehind, &offAhead, &legacyAhead, &parBehind, &parAhead })
+        for (const auto* frame : { &offBehind, &offAhead, &legacyAhead, &parBehind, &parAhead,
+                                   &parLeft, &parOblique })
         {
             EXPECT_GT(MeanLuma(*frame), 4.0) << "a capture rendered (near-)black";
+        }
+
+        // The two extra acceptance angles carry their own positional
+        // contracts (band placement verified against the rendered frames):
+        //
+        // NearRedWall (camera hugging the red wall, facing the blue end):
+        // the red wall's reflection stripe runs down the left-centre floor,
+        // and the blue end wall reflects in the mid-distance floor.
+        {
+            const BandStats redStripe = SampleBand(parLeft, 0.22f, 0.36f, 0.62f, 0.90f);
+            EXPECT_GT(redStripe.R, redStripe.G + 10.0)
+                << "NearRedWall: the floor stripe under the red wall is not red-dominant (R="
+                << redStripe.R << " G=" << redStripe.G
+                << "). See ReflectionProbeParallax_Parallax_NearRedWall.png";
+            const BandStats blueFloor = SampleBand(parLeft, 0.50f, 0.63f, 0.26f, 0.38f);
+            EXPECT_GT(blueFloor.B, blueFloor.G + 10.0)
+                << "NearRedWall: the mid-floor is not reflecting the blue end wall (B="
+                << blueFloor.B << " G=" << blueFloor.G
+                << "). See ReflectionProbeParallax_Parallax_NearRedWall.png";
+        }
+        // ObliqueFromBlueEnd (facing the yellow end): the yellow wall
+        // reflects in the floor directly beneath it, and the side-wall
+        // reflections swap sides (green left, red right) with the view.
+        {
+            const BandStats yellowFloor = SampleBand(parOblique, 0.46f, 0.62f, 0.36f, 0.48f);
+            EXPECT_GT(yellowFloor.R, yellowFloor.B + 15.0)
+                << "ObliqueFromBlueEnd: the floor below the yellow wall is not yellow-dominant (R="
+                << yellowFloor.R << " B=" << yellowFloor.B
+                << "). See ReflectionProbeParallax_Parallax_ObliqueFromBlueEnd.png";
+            EXPECT_GT(yellowFloor.G, yellowFloor.B + 15.0)
+                << "ObliqueFromBlueEnd: yellow floor reflection missing its G half (G="
+                << yellowFloor.G << " B=" << yellowFloor.B << ")";
+            const BandStats leftStrip = SampleBand(parOblique, 0.08f, 0.30f, 0.68f, 0.92f);
+            const BandStats rightStrip = SampleBand(parOblique, 0.70f, 0.92f, 0.68f, 0.92f);
+            EXPECT_GT(leftStrip.G, leftStrip.R + 10.0)
+                << "ObliqueFromBlueEnd: left floor strip should reflect the green wall (R="
+                << leftStrip.R << " G=" << leftStrip.G << ")";
+            EXPECT_GT(rightStrip.R, rightStrip.G + 10.0)
+                << "ObliqueFromBlueEnd: right floor strip should reflect the red wall (R="
+                << rightStrip.R << " G=" << rightStrip.G << ")";
         }
 
         // (1) Behind-the-camera reflection: the floor band reads yellow

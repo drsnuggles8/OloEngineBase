@@ -80,6 +80,19 @@ namespace OloEngine
 
     bool ReflectionProbeArray::EnsureArrays(u32 requiredLayers, const Ref<TextureCubemap>& referencePrefilter)
     {
+        OLO_PROFILE_FUNCTION();
+
+        // PrepareFrame caps the wanted set at MAX_PROBES, so this is
+        // unreachable today — but a silent clamp here would hand out layer
+        // indices past the array and corrupt the UBO's layer field, so fail
+        // loudly instead if a future caller forgets the cap.
+        if (requiredLayers > UBOStructures::ReflectionProbeUBO::MAX_PROBES)
+        {
+            OLO_CORE_ERROR("ReflectionProbeArray::EnsureArrays: {} layers requested, cap is {}",
+                           requiredLayers, UBOStructures::ReflectionProbeUBO::MAX_PROBES);
+            return false;
+        }
+
         // The radiance array's face size / format follow the probes'
         // prefilter maps (every bake uses the same IBLConfiguration, so all
         // probes agree; a mismatching probe is skipped in PrepareFrame).
@@ -141,7 +154,10 @@ namespace OloEngine
         m_RadianceArray = radiance;
         m_DistanceArray = distance;
 
-        for (sizet i = 0; i < previous.size(); ++i)
+        // Capacity never shrinks, so previous.size() <= m_Layers.size() —
+        // the double bound is belt-and-braces against that ever changing.
+        sizet const reuploadCount = std::min(previous.size(), m_Layers.size());
+        for (sizet i = 0; i < reuploadCount; ++i)
         {
             if (previous[i].Environment && UploadLayer(static_cast<u32>(i), *previous[i].Environment))
             {
@@ -169,7 +185,19 @@ namespace OloEngine
             return false;
         }
 
-        u32 const mips = std::min(m_DistanceArray->GetMipLevelCount(), field->GetMipCount());
+        // Both chains derive from kProbeDistanceResolution, so they always
+        // agree today. A field with FEWER mips than the array would leave the
+        // upper array mips holding a previous occupant's data — and the cheap
+        // reject samples those — so a mismatch is a hard skip, not a partial
+        // upload.
+        if (m_DistanceArray->GetMipLevelCount() != field->GetMipCount())
+        {
+            OLO_CORE_ERROR("ReflectionProbeArray::UploadLayer: distance field has {} mips, array has {} — probe skipped",
+                           field->GetMipCount(), m_DistanceArray->GetMipLevelCount());
+            return false;
+        }
+
+        u32 const mips = field->GetMipCount();
         for (u32 mip = 0; mip < mips; ++mip)
         {
             auto const data = field->GetMip(mip);
@@ -336,6 +364,8 @@ namespace OloEngine
 
         if (dispatchCull)
         {
+            OLO_PROFILE_SCOPE("ReflectionProbeArray::CullDispatch");
+
             // The UBO carries render-relative probe positions, so the cull's
             // view matrix must map relative world to view (the Forward+ rule,
             // issue #429).

@@ -281,6 +281,27 @@ namespace OloEngine
         std::vector<f32> rgReadback(static_cast<sizet>(kRes) * kRes * 2u);
         sizet const faceBytes = rgReadback.size() * sizeof(f32);
 
+        // Deliberate restore as a scope guard (no GLStateGuard here — see
+        // docs/agent-rules/render-pass-published-state.md) so it also runs if
+        // a face capture throws: unbind the FBO, undo the cull flip, put the
+        // pre-capture viewport back, and re-establish the engine camera UBO.
+        // The bind cache must be invalidated FIRST or BindUBOIfNeeded thinks
+        // the camera binding never changed and skips the re-bind.
+        struct CaptureStateGuard
+        {
+            Ref<Framebuffer>& m_Fbo;
+            Viewport m_PrevViewport;
+            ~CaptureStateGuard()
+            {
+                m_Fbo->Unbind();
+                RenderCommand::EnableCulling();
+                RenderCommand::SetViewport(m_PrevViewport.x, m_PrevViewport.y,
+                                           m_PrevViewport.width, m_PrevViewport.height);
+                CommandDispatch::InvalidateRenderStateCache();
+                CommandDispatch::UploadCameraUBO();
+            }
+        } stateGuard{ fbo, RenderCommand::GetViewport() };
+
         fbo->Bind();
         RenderCommand::SetViewport(0, 0, kRes, kRes);
         RenderCommand::SetDepthTest(true);
@@ -352,16 +373,8 @@ namespace OloEngine
             }
         }
 
-        // Deliberate restore (no GLStateGuard here — see
-        // docs/agent-rules/render-pass-published-state.md): unbind the FBO,
-        // undo the cull flip, and re-establish the engine camera UBO. The
-        // bind cache must be invalidated FIRST or BindUBOIfNeeded thinks the
-        // camera binding never changed and skips the re-bind.
-        fbo->Unbind();
-        RenderCommand::EnableCulling();
-        CommandDispatch::InvalidateRenderStateCache();
-        CommandDispatch::UploadCameraUBO();
-
+        // stateGuard restores the FBO / cull / viewport / camera UBO on every
+        // exit path, including the readback-failure return below.
         if (!readbackOk)
         {
             return nullptr;

@@ -48,6 +48,13 @@ namespace OloEngine
 
     f32 ReflectionProbeDistanceField::SampleNearest(const glm::vec3& direction, u32 mip) const
     {
+        // Create() always builds at least mip 0, but a default-constructed
+        // instance is representable — fail safe to "sky" rather than
+        // underflowing the mip clamp below.
+        if (m_Mips.empty())
+        {
+            return kProbeDistanceFar;
+        }
         u32 const clampedMip = std::min(mip, static_cast<u32>(m_Mips.size()) - 1u);
         u32 const res = std::max(1u, m_Resolution >> clampedMip);
         CubeFaceTexel const texel = DirectionToCubeFaceTexel(direction, res);

@@ -22,8 +22,8 @@ namespace OloEngine
     // array holds every probe's prefiltered radiance chain, a second holds
     // the R32F radial-distance fields, so the deferred/forward lit passes
     // can select probes per pixel. Renderer-internal — never registered
-    // with the AssetManager (GetAssetType reuses TextureCube rather than
-    // widening the serialized AssetType enum for a non-asset resource).
+    // with the AssetManager (GetAssetType stays None rather than widening
+    // the serialized AssetType enum for a non-asset resource).
     class TextureCubemapArray : public Texture
     {
       public:
@@ -45,10 +45,14 @@ namespace OloEngine
         // array's; mips are copied up to min(source mips, array mips).
         virtual bool CopyLayerFromCubemap(u32 layer, const TextureCubemap& source) = 0;
 
-        // Asset interface — see class comment: renderer-internal resource.
-        static AssetType GetStaticType()
+        // Asset interface — see class comment: renderer-internal resource,
+        // never registered with the AssetManager. Deliberately AssetType::None
+        // (the abstract-Texture convention) rather than TextureCube: reusing
+        // TextureCube would let AssetType-keyed dispatch mistake an array for
+        // a TextureCubemap.
+        static constexpr AssetType GetStaticType() noexcept
         {
-            return AssetType::TextureCube;
+            return AssetType::None;
         }
         AssetType GetAssetType() const override
         {

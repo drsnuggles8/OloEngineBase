@@ -209,11 +209,10 @@ namespace OloEngine
     {
         ProbeRaymarchResult result;
 
-        auto insideAt = [&](f32 t, f32& radiusOut) -> bool
+        auto insideAt = [&](f32 t) -> bool
         {
             glm::vec3 const p = originProbeSpace + direction * t;
             f32 const radius = glm::length(p);
-            radiusOut = radius;
             if (radius <= 0.0f)
             {
                 return true; // degenerate: the ray passes through the probe centre
@@ -248,18 +247,14 @@ namespace OloEngine
         f32 const step = tMax / static_cast<f32>(kProbeMarchSteps);
         f32 tInside = -1.0f;
         f32 tOutside = -1.0f;
+        if (insideAt(step))
         {
-            f32 radius = 0.0f;
-            if (insideAt(step, radius))
-            {
-                tInside = 0.0f; // the t = 0 contract holds — normal bracketing
-            }
+            tInside = 0.0f; // the t = 0 contract holds — normal bracketing
         }
         for (u32 i = 1; i <= kProbeMarchSteps; ++i)
         {
             f32 const t = step * static_cast<f32>(i);
-            f32 radius = 0.0f;
-            if (insideAt(t, radius))
+            if (insideAt(t))
             {
                 tInside = t;
             }
@@ -278,8 +273,7 @@ namespace OloEngine
         for (u32 i = 0; i < kProbeRefineSteps; ++i)
         {
             f32 const tMid = 0.5f * (tInside + tOutside);
-            f32 radius = 0.0f;
-            if (insideAt(tMid, radius))
+            if (insideAt(tMid))
             {
                 tInside = tMid;
             }
