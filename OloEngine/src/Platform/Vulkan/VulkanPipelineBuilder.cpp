@@ -285,6 +285,125 @@ namespace OloEngine
         return static_cast<sizet>(hash);
     }
 
+    std::vector<VkDescriptorSetAndBindingMappingEXT>
+    VulkanPipelineBuilder::BuildBindingMappings(const VulkanRootDataLayout& layout, const VkSamplerCreateInfo& sampler)
+    {
+        std::vector<VkDescriptorSetAndBindingMappingEXT> mappings;
+        mappings.reserve(layout.Fields.size());
+        const u32 heapStride = static_cast<u32>(VulkanResourceHeap::Get().GetDescriptorStride());
+        for (const auto& field : layout.Fields)
+        {
+            VkDescriptorSetAndBindingMappingEXT mapping{};
+            mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            mapping.descriptorSet = field.Binding.Set;
+            mapping.firstBinding = field.Binding.Binding;
+            mapping.bindingCount = 1;
+            mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+            switch (field.Binding.BindingKind)
+            {
+                case VulkanShaderBinding::Kind::UniformBuffer:
+                case VulkanShaderBinding::Kind::StorageBuffer:
+                {
+                    // Block address lives in the root struct at Field.Offset;
+                    // the root struct's own address is push data offset 0.
+                    mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT;
+                    mapping.sourceData.indirectAddress = {
+                        .pushOffset = 0,
+                        .addressOffset = field.Offset,
+                    };
+                    break;
+                }
+                case VulkanShaderBinding::Kind::CombinedImageSampler:
+                case VulkanShaderBinding::Kind::StorageImage:
+                {
+                    // Heap slot index lives in the root struct at Field.Offset;
+                    // the sampler half is embedded (see header).
+                    mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;
+                    mapping.sourceData.indirectIndex = {
+                        .heapOffset = static_cast<u32>(VulkanResourceHeap::Get().GetSlotRegionOffset()),
+                        .pushOffset = 0,
+                        .addressOffset = field.Offset,
+                        .heapIndexStride = heapStride,
+                        .heapArrayStride = heapStride,
+                        .pEmbeddedSampler =
+                            field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler ? &sampler
+                                                                                                         : nullptr,
+                        .useCombinedImageSamplerIndex = VK_FALSE,
+                        .samplerHeapOffset = 0,
+                        .samplerPushOffset = 0,
+                        .samplerAddressOffset = 0,
+                        .samplerHeapIndexStride = 0,
+                        .samplerHeapArrayStride = 0,
+                    };
+                    break;
+                }
+            }
+            mappings.push_back(mapping);
+        }
+        return mappings;
+    }
+
+    VkPipeline VulkanPipelineBuilder::GetOrCreateCompute(const u64 shaderKey, const VkShaderModule module,
+                                                         const VulkanRootDataLayout& layout,
+                                                         const VkSamplerCreateInfo* embeddedSampler)
+    {
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || module == VK_NULL_HANDLE)
+        {
+            return VK_NULL_HANDLE;
+        }
+
+        const VkSamplerCreateInfo sampler = embeddedSampler != nullptr ? *embeddedSampler : DefaultEmbeddedSampler();
+
+        Key key;
+        key.ShaderKey = shaderKey;
+        key.SamplerHash = HashSampler(sampler);
+        key.LayoutHash = HashLayout(layout);
+        // Target/blend fields stay zero — compute has neither, and shader
+        // keys are process-unique so no graphics key can collide.
+
+        if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
+        {
+            return it->second;
+        }
+
+        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout, sampler);
+        VkShaderDescriptorSetAndBindingMappingInfoEXT mappingInfo{};
+        mappingInfo.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+        mappingInfo.mappingCount = static_cast<u32>(mappings.size());
+        mappingInfo.pMappings = mappings.data();
+
+        VkPipelineShaderStageCreateInfo stage{};
+        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage.pNext = &mappingInfo;
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = module;
+        stage.pName = "main";
+
+        VkPipelineCreateFlags2CreateInfo flags2{};
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        flags2.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+
+        VkComputePipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineInfo.pNext = &flags2;
+        pipelineInfo.stage = stage;
+        pipelineInfo.layout = VK_NULL_HANDLE; // heap-bindless: no pipeline layout exists
+
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        const VkResult result = vkCreateComputePipelines(device->GetDevice(), VulkanPipelineCache::Get().Handle(), 1,
+                                                         &pipelineInfo, nullptr, &pipeline);
+        if (result != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanPipelineBuilder: compute pipeline creation failed (VkResult {})",
+                           static_cast<int>(result));
+            return VK_NULL_HANDLE;
+        }
+
+        m_Pipelines[key] = pipeline;
+        return pipeline;
+    }
+
     VkPipeline VulkanPipelineBuilder::GetOrCreateGraphics(VulkanShader& shader, const VulkanRootDataLayout& layout,
                                                           const VulkanRecordedPipelineState& state,
                                                           const VulkanRenderTargetDesc& targets,
@@ -350,58 +469,7 @@ namespace OloEngine
         // The mapping array is identical across stages (the root struct is one
         // object per draw); resourceMask ALL lets one mapping per binding
         // cover whatever SPIR-V resource type the stage declares there.
-        std::vector<VkDescriptorSetAndBindingMappingEXT> mappings;
-        mappings.reserve(layout.Fields.size());
-        const u32 heapStride = static_cast<u32>(VulkanResourceHeap::Get().GetDescriptorStride());
-        for (const auto& field : layout.Fields)
-        {
-            VkDescriptorSetAndBindingMappingEXT mapping{};
-            mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-            mapping.descriptorSet = field.Binding.Set;
-            mapping.firstBinding = field.Binding.Binding;
-            mapping.bindingCount = 1;
-            mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-            switch (field.Binding.BindingKind)
-            {
-                case VulkanShaderBinding::Kind::UniformBuffer:
-                case VulkanShaderBinding::Kind::StorageBuffer:
-                {
-                    // Block address lives in the root struct at Field.Offset;
-                    // the root struct's own address is push data offset 0.
-                    mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT;
-                    mapping.sourceData.indirectAddress = {
-                        .pushOffset = 0,
-                        .addressOffset = field.Offset,
-                    };
-                    break;
-                }
-                case VulkanShaderBinding::Kind::CombinedImageSampler:
-                case VulkanShaderBinding::Kind::StorageImage:
-                {
-                    // Heap slot index lives in the root struct at Field.Offset;
-                    // the sampler half is embedded (see header).
-                    mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;
-                    mapping.sourceData.indirectIndex = {
-                        .heapOffset = static_cast<u32>(VulkanResourceHeap::Get().GetSlotRegionOffset()),
-                        .pushOffset = 0,
-                        .addressOffset = field.Offset,
-                        .heapIndexStride = heapStride,
-                        .heapArrayStride = heapStride,
-                        .pEmbeddedSampler =
-                            field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler ? &sampler
-                                                                                                         : nullptr,
-                        .useCombinedImageSamplerIndex = VK_FALSE,
-                        .samplerHeapOffset = 0,
-                        .samplerPushOffset = 0,
-                        .samplerAddressOffset = 0,
-                        .samplerHeapIndexStride = 0,
-                        .samplerHeapArrayStride = 0,
-                    };
-                    break;
-                }
-            }
-            mappings.push_back(mapping);
-        }
+        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout, sampler);
 
         VkShaderDescriptorSetAndBindingMappingInfoEXT mappingInfo{};
         mappingInfo.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;

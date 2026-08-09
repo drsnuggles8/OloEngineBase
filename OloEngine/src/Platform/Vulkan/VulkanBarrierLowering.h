@@ -67,6 +67,13 @@ namespace OloEngine::VulkanBarrierLowering
 
     [[nodiscard]] VkImageAspectFlags AspectMaskFor(RHI::TextureAspect aspect);
 
+    // RHI::Format -> VkFormat, honouring the image allocator's widening rules
+    // (3-channel formats widen to RGBA, D24S8 lowers to D32_S8 — the
+    // VulkanTransientResources choices, mirrored so a view reinterpretation
+    // names the format the image actually has). No default: -Wswitch makes a
+    // new RHI::Format member a compile error here (#691 Phase 7).
+    [[nodiscard]] VkFormat ToVkFormat(RHI::Format format);
+
     // Assemble a full VkImageMemoryBarrier2 from a neutral barrier plus the
     // backend-known image identity.
     //

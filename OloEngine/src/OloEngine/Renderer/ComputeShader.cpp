@@ -5,6 +5,12 @@
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Async/Async.h"
 #include "Platform/OpenGL/OpenGLComputeShader.h"
+
+#if OLO_WITH_VULKAN
+// Sanctioned factory-include pattern (rhi-abstraction-boundary.md).
+#include "Platform/Vulkan/VulkanComputeShader.h"
+#include "Platform/Vulkan/VulkanDevice.h"
+#endif
 #include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine
@@ -20,7 +26,16 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+#if OLO_WITH_VULKAN
+                // #691 Phase 7: the compute SPIR-V route. A Vulkan resource
+                // cannot exist without a device, so fall through to the loud
+                // assert when none is up.
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<VulkanComputeShader>::Create(filepath);
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out)!");
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:
@@ -44,7 +59,16 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+#if OLO_WITH_VULKAN
+                // #691 Phase 7: the compute SPIR-V route. A Vulkan resource
+                // cannot exist without a device, so fall through to the loud
+                // assert when none is up.
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<VulkanComputeShader>::Create(name, source);
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out)!");
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:

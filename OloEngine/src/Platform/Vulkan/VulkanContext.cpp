@@ -13,6 +13,7 @@
 #include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
@@ -141,6 +142,10 @@ namespace OloEngine
                 d.Pilot.PatternAlloc = VK_NULL_HANDLE;
             }
             VulkanPipelineBuilder::Get().ReleaseAll();
+            // The engine heap's slots index the resource heap below — retire
+            // them first (amendment (33): state must not outlive what gives
+            // it meaning).
+            RHI::DescriptorHeap::Get().Shutdown();
             VulkanResourceHeap::Get().Release();
             VulkanFrameArena::Get().ReleaseBuffers();
             VulkanDeferredReclaim::Get().FlushAll();
@@ -232,6 +237,18 @@ namespace OloEngine
 
         // --- Swapchain (+ its per-image semaphores) ---------------------------
         CreateSwapchain();
+
+        // --- Engine descriptor heap (#691 Phase 7) ----------------------------
+        // RHI::DescriptorHeap runs on this backend too: slots [0,
+        // kDescriptorHeapSlots) of the resource heap belong to it (reserved
+        // BEFORE any draw-path slot-cache use), with the GL-parity
+        // capacities. Failure leaves the engine heap disabled — every caller
+        // falls back to the slot path, same graceful shape as a GL device
+        // without ARB_bindless_texture.
+        if (!VulkanDescriptorHeapBackend::InstallOntoEngineHeap())
+        {
+            OLO_CORE_WARN("[Vulkan] engine descriptor heap unavailable — slot-path fallback stays in effect");
+        }
 
         OLO_CORE_INFO("[Vulkan] Bring-up context initialised ({} swapchain images, {}x{})",
                       m_Data->SwapchainImages.size(), m_Data->SwapchainExtent.width, m_Data->SwapchainExtent.height);

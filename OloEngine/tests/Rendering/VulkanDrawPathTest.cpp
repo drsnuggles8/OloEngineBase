@@ -33,6 +33,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/RendererAPI.h"
@@ -41,8 +42,11 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
@@ -334,6 +338,247 @@ TEST_F(VulkanDrawPath, FacadeDrawRendersTintedTextureThroughRootData)
         wrongPixels += green ? 0u : 1u;
     }
     EXPECT_EQ(wrongPixels, 0u) << "expected the whole 64x64 target tinted green";
+}
+
+// =============================================================================
+// The ENGINE heap (RHI::DescriptorHeap) running on Vulkan — the amendment
+// (56) deferral, proven end-to-end: engine-managed slots are shader-reachable
+// through the same heap buffer the draw path binds, memoisation and stale
+// rejection behave as on GL, and poison-on-free is DETERMINISTIC (a stale
+// offset reads the extension's null descriptor — zeros — never the dead
+// image's descriptor and never a hang).
+// =============================================================================
+TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // Amendment (34) discipline: this test displaces the process-wide engine
+    // heap; put back exactly what it found.
+    auto& engineHeap = RHI::DescriptorHeap::Get();
+    RHI::IDescriptorHeapBackend* priorBackend = engineHeap.GetBackend();
+    const RHI::HeapDesc priorDesc = engineHeap.GetDesc();
+    const bool hadPrior = priorBackend != nullptr;
+    struct RestoreHeap
+    {
+        bool Had;
+        RHI::HeapDesc Desc;
+        RHI::IDescriptorHeapBackend* Backend;
+        ~RestoreHeap()
+        {
+            if (Had)
+                RHI::DescriptorHeap::Get().Initialize(Desc, Backend);
+            else
+                RHI::DescriptorHeap::Get().Shutdown();
+        }
+    } restore{ hadPrior, priorDesc, priorBackend };
+
+    ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
+    engineHeap.SetEnabled(true);
+    ASSERT_TRUE(engineHeap.IsEnabled());
+
+    // --- scene resources (same shape as the facade draw test) --------------
+    FramebufferSpecification fbSpec;
+    fbSpec.Width = 32;
+    fbSpec.Height = 32;
+    fbSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    auto framebuffer = Framebuffer::Create(fbSpec);
+    ASSERT_NE(framebuffer, nullptr);
+
+    const f32 vertices[] = { -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f };
+    auto vertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
+    u32 indices[] = { 0, 1, 2 };
+    auto indexBuffer = IndexBuffer::Create(indices, 3);
+    auto vertexArray = VertexArray::Create();
+    vertexArray->AddVertexBuffer(vertexBuffer);
+    vertexArray->SetIndexBuffer(indexBuffer);
+
+    TextureSpecification texSpec;
+    texSpec.Width = 4;
+    texSpec.Height = 4;
+    texSpec.Format = ImageFormat::RGBA8;
+    texSpec.GenerateMips = false;
+    auto texture = Texture2D::Create(texSpec);
+    ASSERT_NE(texture, nullptr);
+    std::vector<u8> white(4 * 4 * 4, 0xFF);
+    texture->SetData(white.data(), static_cast<u32>(white.size()));
+
+    auto tintUbo = UniformBuffer::Create(16, 3);
+    const f32 green[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    tintUbo->SetData(green, sizeof(green));
+
+    auto shader = Ref<VulkanShader>::Create("EngineHeapTriangle", kVertexSrc, kFragmentSrc);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // --- engine-heap view: memoised, allocatable-range slot ----------------
+    RHI::ViewDesc viewDesc;
+    viewDesc.Resource = texture->GetRHIHandle();
+    const RHI::ViewHandle view = engineHeap.GetOrCreateView(texture->GetRHIHandle(), viewDesc, RHI::SamplerDesc{},
+                                                            RHI::HeapSlotLifetime::Persistent);
+    ASSERT_TRUE(view.IsValid());
+    EXPECT_EQ(engineHeap
+                  .GetOrCreateView(texture->GetRHIHandle(), viewDesc, RHI::SamplerDesc{},
+                                   RHI::HeapSlotLifetime::Persistent)
+                  .Index,
+              view.Index)
+        << "persistent views must memoise";
+
+    const RHI::HeapOffset offset = engineHeap.OffsetOf(view);
+    ASSERT_GE(offset.Value, RHI::kFirstAllocatableHeapSlot);
+    engineHeap.Flush(); // redeem staged tokens into real descriptor writes
+
+    VulkanRendererAPI api;
+    const auto colorHandle = framebuffer->GetColorAttachmentHandle(0);
+
+    const auto drawWithSlot = [&](u32 heapSlot, RHI::Access from)
+    {
+        SubmitFrame(api,
+                    [&]()
+                    {
+                        RHI::Barrier toColor{};
+                        toColor.Resource = colorHandle;
+                        toColor.Before = from;
+                        toColor.After = RHI::Access::ColorAttachmentWrite;
+                        api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toColor, 1 });
+
+                        framebuffer->Bind();
+                        api.SetViewport(0, 0, 32, 32);
+                        api.SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+                        api.Clear();
+                        shader->Bind();
+                        tintUbo->Bind();
+                        // Feed the ENGINE heap's slot index straight into the
+                        // root-data path — the whole point: engine-managed
+                        // slots live in the same heap the draw binds.
+                        VulkanBindingState::Get().SetTextureHeapSlot(0, heapSlot);
+                        api.DrawIndexed(vertexArray, 3);
+                        framebuffer->Unbind();
+
+                        RHI::Barrier toSampled{};
+                        toSampled.Resource = colorHandle;
+                        toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                        toSampled.After = RHI::Access::ShaderSampleRead;
+                        api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                    });
+    };
+
+    // Live view: white texel x green tint = green everywhere.
+    drawWithSlot(offset.Value, RHI::Access::Undefined);
+    auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
+    std::vector<u8> pixels;
+    ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(0)->GetData(pixels, 0));
+    EXPECT_EQ(pixels[1], 0xFFu) << "live engine-heap slot must sample the white texture (green output)";
+    EXPECT_EQ(pixels[0], 0x00u);
+
+    // Destroy the view: OffsetOf rejects, and the freed slot reads DETERMINISTIC
+    // zeros (null descriptor) — tint x zero = black, never the old texture and
+    // never undefined behaviour.
+    engineHeap.DestroyView(view);
+    EXPECT_FALSE(engineHeap.OffsetOf(view).IsValid()) << "a destroyed view's offset must reject";
+    engineHeap.Flush(); // publish the poison write
+
+    drawWithSlot(offset.Value, RHI::Access::ShaderSampleRead);
+    std::vector<u8> poisoned;
+    ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(0)->GetData(poisoned, 0));
+    EXPECT_EQ(poisoned[1], 0x00u) << "a freed slot must sample zeros (poison), not the dead texture";
+    EXPECT_EQ(poisoned[3], 0x00u) << "null-descriptor alpha reads zero too";
+
+    // Frame-transient ring: always mints, and the reset retires wholesale.
+    const RHI::ViewHandle transient = engineHeap.GetOrCreateView(
+        texture->GetRHIHandle(), viewDesc, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::FrameTransient);
+    ASSERT_TRUE(transient.IsValid());
+    engineHeap.ResetFrameTransients();
+    EXPECT_FALSE(engineHeap.OffsetOf(transient).IsValid()) << "the ring reset must retire transient views";
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+// =============================================================================
+// The compute SPIR-V route (#691 Phase 7 Stage 1.3, the amendment (56)
+// deferral): a .comp source compiles through shaderc(vulkan_1_4), reflects
+// into the shared binding vocabulary, gets a compute PSO with the SAME
+// mapping chain as graphics, and a facade DispatchCompute assembles root data
+// (UBO address + storage-image heap slot via the image-UNIT namespace) and
+// writes a deterministic pattern the readback verifies.
+// =============================================================================
+TEST_F(VulkanDrawPath, ComputeDispatchWritesStorageImageThroughRootData)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr const char* kComputeSrc = R"(
+#version 460 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0, rgba8) writeonly uniform image2D u_Output;
+layout(std140, binding = 3) uniform TintBlock
+{
+    vec4 u_Tint;
+};
+
+void main()
+{
+    imageStore(u_Output, ivec2(gl_GlobalInvocationID.xy), u_Tint);
+}
+)";
+
+    TextureSpecification spec;
+    spec.Width = 16;
+    spec.Height = 16;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+    spec.SRGB = false; // sRGB drops STORAGE usage (the Phase 5 rule)
+    auto target = Texture2D::Create(spec);
+    ASSERT_NE(target, nullptr);
+
+    auto tintUbo = UniformBuffer::Create(16, 3);
+    const f32 magenta[4] = { 1.0f, 0.0f, 1.0f, 1.0f };
+    tintUbo->SetData(magenta, sizeof(magenta));
+
+    auto compute = ComputeShader::CreateFromSource("DrawPathComputeTint", kComputeSrc);
+    ASSERT_NE(compute, nullptr);
+    ASSERT_TRUE(compute->IsValid()) << "the compute SPIR-V route must compile a plain .comp source";
+
+    VulkanRendererAPI api;
+    SubmitFrame(api,
+                [&]()
+                {
+                    // The graph's job by hand: the storage target must sit in
+                    // GENERAL before the dispatch writes it.
+                    RHI::Barrier toStorage{};
+                    toStorage.Resource = target->GetRHIHandle();
+                    toStorage.Before = RHI::Access::Undefined;
+                    toStorage.After = RHI::Access::StorageWrite;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toStorage, 1 });
+
+                    compute->Bind();
+                    tintUbo->Bind();
+                    api.BindImageTexture(0, target->GetRHIHandle(), 0, false, 0, RHI::Access::StorageWrite,
+                                         RHI::Format::RGBA8UNorm);
+                    api.DispatchCompute(2, 2, 1); // 2x2 groups x 8x8 = 16x16
+
+                    // Storage write -> sampled, so GetData's steady-state
+                    // readback transitions from the tracked layout.
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = target->GetRHIHandle();
+                    toSampled.Before = RHI::Access::StorageWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                });
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the dispatch path must not fall through to a stub";
+
+    std::vector<u8> pixels;
+    ASSERT_TRUE(target->GetData(pixels, 0));
+    ASSERT_EQ(pixels.size(), sizet{ 16 * 16 * 4 });
+    u32 wrongPixels = 0;
+    for (sizet i = 0; i < pixels.size(); i += 4)
+    {
+        const bool magentaPixel = pixels[i + 0] == 0xFF && pixels[i + 1] == 0x00 && pixels[i + 2] == 0xFF &&
+                                  pixels[i + 3] == 0xFF;
+        wrongPixels += magentaPixel ? 0u : 1u;
+    }
+    EXPECT_EQ(wrongPixels, 0u) << "every texel must carry the UBO tint the dispatch stored";
 }
 
 #endif // OLO_WITH_VULKAN

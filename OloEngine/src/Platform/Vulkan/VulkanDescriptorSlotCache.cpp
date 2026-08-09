@@ -4,6 +4,7 @@
 
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 
 namespace OloEngine
@@ -55,7 +56,7 @@ namespace OloEngine
         const u64 key = HashKey(image, viewInfo, type, layout);
         if (const auto it = m_SlotByKey.find(key); it != m_SlotByKey.end())
         {
-            return it->second;
+            return it->second.Slot;
         }
 
         u32 slot = VulkanResourceHeap::InvalidSlot;
@@ -82,7 +83,7 @@ namespace OloEngine
             return VulkanResourceHeap::InvalidSlot;
         }
 
-        m_SlotByKey[key] = slot;
+        m_SlotByKey[key] = SlotEntry{ .Slot = slot, .Type = type };
         m_KeysByImage[image].push_back(key);
         return slot;
     }
@@ -98,7 +99,12 @@ namespace OloEngine
         {
             if (const auto slotIt = m_SlotByKey.find(key); slotIt != m_SlotByKey.end())
             {
-                m_FreeSlots.push_back(slotIt->second);
+                // Poison-on-free (§1.2's discipline, realised with the
+                // backend's 1x1 black null image): a stale root-data index
+                // into this slot now reads deterministic black instead of the
+                // dead image's descriptor — never a driver hang.
+                (void)VulkanDescriptorHeapBackend::Get().WriteNullAt(slotIt->second.Slot, slotIt->second.Type);
+                m_FreeSlots.push_back(slotIt->second.Slot);
                 m_SlotByKey.erase(slotIt);
             }
         }

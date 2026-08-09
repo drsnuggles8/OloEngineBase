@@ -62,6 +62,14 @@ namespace OloEngine
         void SetTextureHeapSlot(u32 slot, u32 heapSlot);
         [[nodiscard]] u32 GetTextureHeapSlot(u32 slot) const;
 
+        // --- image units (BindImageTexture) — a SEPARATE index space ---------
+        // GL's image units and texture units are disjoint namespaces that both
+        // start at zero (amendment (29)); folding them here would let unit 0
+        // and TEX_DIFFUSE publish over each other — a wrong REAL resource,
+        // the model's worst failure shape.
+        void SetImageHeapSlot(u32 unit, u32 heapSlot);
+        [[nodiscard]] u32 GetImageHeapSlot(u32 unit) const;
+
         // --- current render target -------------------------------------------
         // (The current SHADER deliberately lives on VulkanShader itself —
         // s_CurrentlyBound / GetCurrentlyBound(), Phase 6's seam. One source
@@ -77,6 +85,7 @@ namespace OloEngine
         std::array<VulkanUniformBuffer*, kMaxBufferBindings> m_UniformBuffers{};
         std::array<VulkanStorageBuffer*, kMaxBufferBindings> m_StorageBuffers{};
         std::array<u32, kMaxTextureSlots> m_TextureHeapSlots{};
+        std::array<u32, kMaxTextureSlots> m_ImageHeapSlots{};
         VulkanFramebuffer* m_CurrentFramebuffer = nullptr;
 
         bool m_TextureSlotsInitialised = false;

@@ -265,6 +265,60 @@ namespace OloEngine::VulkanBarrierLowering
         out.size = VK_WHOLE_SIZE;
         return out;
     }
+    VkFormat ToVkFormat(const RHI::Format format)
+    {
+        switch (format)
+        {
+            case RHI::Format::Unknown:
+                return VK_FORMAT_UNDEFINED;
+            case RHI::Format::R8UNorm:
+                return VK_FORMAT_R8_UNORM;
+            case RHI::Format::R8UInt:
+                return VK_FORMAT_R8_UINT;
+            case RHI::Format::RG8UNorm:
+                return VK_FORMAT_R8G8_UNORM;
+            case RHI::Format::RGB8UNorm:
+                return VK_FORMAT_R8G8B8A8_UNORM; // widened, matching image allocation
+            case RHI::Format::RGBA8UNorm:
+                return VK_FORMAT_R8G8B8A8_UNORM;
+            case RHI::Format::RGBA8SRGB:
+                return VK_FORMAT_R8G8B8A8_SRGB;
+            case RHI::Format::R16UInt:
+                return VK_FORMAT_R16_UINT;
+            case RHI::Format::RG16UInt:
+                return VK_FORMAT_R16G16_UINT;
+            case RHI::Format::RG16Float:
+                return VK_FORMAT_R16G16_SFLOAT;
+            case RHI::Format::RGBA16Float:
+                return VK_FORMAT_R16G16B16A16_SFLOAT;
+            case RHI::Format::R32Float:
+                return VK_FORMAT_R32_SFLOAT;
+            case RHI::Format::R32Int:
+                return VK_FORMAT_R32_SINT;
+            case RHI::Format::R32UInt:
+                return VK_FORMAT_R32_UINT;
+            case RHI::Format::RG32Float:
+                return VK_FORMAT_R32G32_SFLOAT;
+            case RHI::Format::RGB32Float:
+                return VK_FORMAT_R32G32B32A32_SFLOAT; // widened
+            case RHI::Format::RGBA32Float:
+                return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case RHI::Format::D24UNormS8UInt:
+                return VK_FORMAT_D32_SFLOAT_S8_UINT; // what the allocator actually creates
+            case RHI::Format::D32Float:
+                return VK_FORMAT_D32_SFLOAT;
+            case RHI::Format::BC7UNorm:
+                return VK_FORMAT_BC7_UNORM_BLOCK;
+            case RHI::Format::BC7SRGB:
+                return VK_FORMAT_BC7_SRGB_BLOCK;
+            case RHI::Format::BC5UNorm:
+                return VK_FORMAT_BC5_UNORM_BLOCK;
+            case RHI::Format::BC6HUFloat:
+                return VK_FORMAT_BC6H_UFLOAT_BLOCK;
+        }
+        return VK_FORMAT_UNDEFINED;
+    }
+
 } // namespace OloEngine::VulkanBarrierLowering
 
 #endif // OLO_WITH_VULKAN

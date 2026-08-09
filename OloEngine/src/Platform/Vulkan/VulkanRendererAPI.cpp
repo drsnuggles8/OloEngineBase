@@ -12,6 +12,7 @@
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanComputeShader.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
@@ -1005,11 +1006,16 @@ namespace OloEngine
             m_HeapBoundThisRecording = true;
         }
 
+        return AssembleAndPushRootData(layout, shader->GetName().c_str(), vao);
+    }
+
+    bool VulkanRendererAPI::AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
+                                                    const VulkanVertexArray* vao)
+    {
         // Root-struct assembly: one u64 device address per buffer block, one
-        // u32 heap slot per sampled image, from the process-global binding
-        // state (ADR 0011 §4 — this is the draw-time writer half of the
-        // mapping contract; the pipeline emitted the reader half from the
-        // SAME layout).
+        // u32 heap slot per image, from the process-global binding state
+        // (ADR 0011 §4 — this is the writer half of the mapping contract;
+        // the pipeline emitted the reader half from the SAME layout).
         auto& bindingState = VulkanBindingState::Get();
         m_RootScratch.assign(layout.SizeBytes, 0u);
         for (const auto& field : layout.Fields)
@@ -1043,24 +1049,29 @@ namespace OloEngine
                     // block — deterministic wrong data, never a crash the
                     // engine can't see.
                     static std::unordered_set<std::string> s_WarnedBindings;
-                    if (s_WarnedBindings.insert(shader->GetName() + ":" + std::to_string(binding.Binding)).second)
+                    if (s_WarnedBindings.insert(std::string(shaderName) + ":" + std::to_string(binding.Binding))
+                            .second)
                     {
                         OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — zero address",
-                                      shader->GetName(), binding.Binding);
+                                      shaderName, binding.Binding);
                     }
                 }
                 std::memcpy(m_RootScratch.data() + field.Offset, &address, sizeof(address));
             }
             else
             {
-                u32 slot = bindingState.GetTextureHeapSlot(binding.Binding);
+                // amendment (29): image units and texture slots are DISJOINT
+                // namespaces — source by the binding's KIND.
+                const bool storageImage = binding.BindingKind == VulkanShaderBinding::Kind::StorageImage;
+                u32 slot = storageImage ? bindingState.GetImageHeapSlot(binding.Binding)
+                                        : bindingState.GetTextureHeapSlot(binding.Binding);
                 if (slot == VulkanBindingState::kNoHeapSlot)
                 {
                     static std::unordered_set<std::string> s_WarnedSlots;
-                    if (s_WarnedSlots.insert(shader->GetName() + ":" + std::to_string(binding.Binding)).second)
+                    if (s_WarnedSlots.insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)).second)
                     {
-                        OLO_CORE_WARN("[RHI/Vulkan] '{}' texture binding {} has no staged heap slot — slot 0",
-                                      shader->GetName(), binding.Binding);
+                        OLO_CORE_WARN("[RHI/Vulkan] '{}' {} binding {} has no staged heap slot — slot 0", shaderName,
+                                      storageImage ? "image" : "texture", binding.Binding);
                     }
                     slot = 0;
                 }
@@ -1071,7 +1082,7 @@ namespace OloEngine
         const auto rootAllocation = VulkanFrameArena::Get().Push(m_RootScratch.data(), m_RootScratch.size(), 16);
         if (!rootAllocation.IsValid())
         {
-            return false; // arena overflow — dropped draw, counted by the arena
+            return false; // arena overflow — dropped work, counted by the arena
         }
 
         VkPushDataInfoEXT pushInfo{};
@@ -1290,9 +1301,47 @@ namespace OloEngine
         Phase6Stub("MultiDrawElementsIndirectCountRaw");
     }
 
-    void VulkanRendererAPI::DispatchCompute(u32 /*groupsX*/, u32 /*groupsY*/, u32 /*groupsZ*/)
+    void VulkanRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
     {
-        Phase6Stub("DispatchCompute");
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("DispatchCompute(outside recording bracket)");
+            return;
+        }
+        auto* shader = VulkanComputeShader::GetCurrentlyBound();
+        if (shader == nullptr || !shader->IsValid())
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[RHI/Vulkan] dispatch with no valid compute shader bound - dropped");
+            }
+            return;
+        }
+
+        // Dispatches are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        const auto& layout = shader->GetRootDataLayout();
+        const VkPipeline pipeline =
+            VulkanPipelineBuilder::Get().GetOrCreateCompute(shader->GetPipelineIndexKey(), shader->GetModule(), layout);
+        if (pipeline == VK_NULL_HANDLE)
+        {
+            return;
+        }
+
+        vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        if (!m_HeapBoundThisRecording)
+        {
+            VulkanResourceHeap::Get().CmdBind(m_Cmd);
+            m_HeapBoundThisRecording = true;
+        }
+        if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr))
+        {
+            return;
+        }
+        vkCmdDispatch(m_Cmd, std::max(groupsX, 1u), std::max(groupsY, 1u), std::max(groupsZ, 1u));
     }
 
     void VulkanRendererAPI::BindDefaultFramebuffer()
@@ -1347,9 +1396,50 @@ namespace OloEngine
             slot, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
     }
 
-    void VulkanRendererAPI::BindImageTexture(u32 /*unit*/, RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/, bool /*layered*/, u32 /*layer*/, RHI::Access /*access*/, RHI::Format /*format*/)
+    void VulkanRendererAPI::BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered, u32 layer, RHI::Access /*access*/, RHI::Format format)
     {
-        Phase6Stub("BindImageTexture");
+        // `access` is Vulkan-irrelevant here (it lives in shader qualifiers
+        // and barriers - the ViewDesc::StorageAccess note); the FORMAT is the
+        // descriptor-typed half a storage binding cannot do without.
+        auto& bindingState = VulkanBindingState::Get();
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            bindingState.SetImageHeapSlot(unit, VulkanBindingState::kNoHeapSlot);
+            return;
+        }
+        const auto image = reinterpret_cast<VkImage>(native);
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        if (info == nullptr)
+        {
+            bindingState.SetImageHeapSlot(unit, VulkanBindingState::kNoHeapSlot);
+            return;
+        }
+
+        VkFormat viewFormat = VulkanBarrierLowering::ToVkFormat(format);
+        if (viewFormat == VK_FORMAT_UNDEFINED)
+        {
+            viewFormat = info->Format;
+        }
+
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = image;
+        view.viewType = (layered && info->ArrayLayers > 1u) ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+        view.format = viewFormat;
+        view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view.subresourceRange.baseMipLevel = std::min(mipLevel, std::max(info->MipLevels, 1u) - 1u);
+        view.subresourceRange.levelCount = 1u;
+        view.subresourceRange.baseArrayLayer =
+            layered ? 0u : std::min(layer, std::max(info->ArrayLayers, 1u) - 1u);
+        view.subresourceRange.layerCount = layered ? std::max(info->ArrayLayers, 1u) : 1u;
+
+        // Storage accesses live in GENERAL (the barrier lowering's rule) -
+        // the descriptor bakes the same layout so the two cannot disagree.
+        const u32 heapSlot = VulkanDescriptorSlotCache::Get().AcquireSlot(
+            image, view, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_LAYOUT_GENERAL);
+        bindingState.SetImageHeapSlot(
+            unit, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
     }
 
     void VulkanRendererAPI::CopyImageSubData(RHI::ResourceHandle /*src*/, TextureTargetType /*srcTarget*/, RHI::ResourceHandle /*dst*/, TextureTargetType /*dstTarget*/, u32 /*width*/, u32 /*height*/)

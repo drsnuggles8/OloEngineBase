@@ -77,6 +77,18 @@ namespace OloEngine
                                                      const VulkanRenderTargetDesc& targets,
                                                      const VkSamplerCreateInfo* embeddedSampler = nullptr);
 
+        // The compute sibling (#691 Phase 7): same mapping chain, same
+        // VK_NULL_HANDLE layout + DESCRIPTOR_HEAP flag, no fixed-function
+        // state at all. Keyed on (shaderKey, layout, sampler) — target and
+        // blend fields stay zero, and shader keys are process-unique so a
+        // compute key can never collide with a graphics one. `shaderKey` and
+        // `module` are passed directly so this header needs no
+        // VulkanComputeShader dependency; InvalidateShader(shaderKey) covers
+        // compute pipelines through the same reverse index.
+        [[nodiscard]] VkPipeline GetOrCreateCompute(u64 shaderKey, VkShaderModule module,
+                                                    const VulkanRootDataLayout& layout,
+                                                    const VkSamplerCreateInfo* embeddedSampler = nullptr);
+
         // Issue every vkCmdSet* for the states the pipelines above declare
         // dynamic, from the recorded state. Must run after vkCmdBindPipeline,
         // before the draw.
@@ -104,6 +116,12 @@ namespace OloEngine
 
       private:
         VulkanPipelineBuilder() = default;
+
+        // The §4 mapping array for one root layout — shared verbatim by the
+        // graphics and compute paths so the two cannot drift. `sampler` must
+        // outlive pipeline creation (pEmbeddedSampler points at it).
+        [[nodiscard]] static std::vector<VkDescriptorSetAndBindingMappingEXT>
+        BuildBindingMappings(const VulkanRootDataLayout& layout, const VkSamplerCreateInfo& sampler);
 
         struct Key
         {

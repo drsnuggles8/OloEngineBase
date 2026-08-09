@@ -4,6 +4,7 @@
 
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
@@ -608,6 +609,11 @@ namespace OloEngine
         // std::terminate.
         try
         {
+            // The engine heap's views of this texture retire FIRST — the
+            // amendment (22) correction: destruction is RetireResource
+            // (poison + generation advance), never InvalidateResource (whose
+            // re-acquire is for storage that was replaced, not destroyed).
+            RHI::DescriptorHeap::Get().RetireResource(m_RHIHandle.Get());
             m_RHIHandle.Reset();
             ReleaseImage();
         }
@@ -768,6 +774,11 @@ namespace OloEngine
         // Sync inside CreateImage PRESERVES the identity — same object, new
         // storage, matching the GL twin's recreate-in-place semantics.
         CreateImage();
+
+        // Storage replaced, object lives: the engine heap's views re-describe
+        // against the new image (amendment (22) — a reload must PUSH; the
+        // view's generation is unchanged, so OffsetOf cannot detect this).
+        RHI::DescriptorHeap::Get().InvalidateResource(m_RHIHandle.Get());
     }
 
     bool VulkanTexture2D::UploadPixels(const void* data, u64 sizeBytes)
@@ -1068,6 +1079,10 @@ namespace OloEngine
 
         const u64 sizeBytes = static_cast<u64>(width) * height * channels;
         m_IsLoaded = UploadPixels(data, sizeBytes);
+
+        // Same contract as Resize: storage replaced, identity preserved —
+        // push the re-describe (amendment (22)).
+        RHI::DescriptorHeap::Get().InvalidateResource(m_RHIHandle.Get());
     }
 
     void VulkanTexture2D::Bind(u32 slot) const

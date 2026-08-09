@@ -40,6 +40,7 @@ namespace OloEngine
 {
     class VulkanFramebuffer;
     class VulkanVertexArray;
+    struct VulkanRootDataLayout;
 
     // The render-target half of a thin PSO's baked state (attachment
     // formats + sample count). Lives HERE beside VulkanRecordedPipelineState
@@ -315,6 +316,13 @@ namespace OloEngine
         // Bind the VAO's index buffer if it changed (redundant-bind cache,
         // reset per recording). False when the VAO has no index buffer.
         [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
+        // Root-struct assembly + arena push + vkCmdPushDataEXT — shared by
+        // draws and dispatches (§4: one contract, no compute special case).
+        // Kind-aware: CombinedImageSampler bindings read the TEXTURE slot
+        // table, StorageImage bindings the IMAGE-UNIT table (amendment (29):
+        // two namespaces), buffers the bind-point tables (57 = vertex pull).
+        [[nodiscard]] bool AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
+                                                   const VulkanVertexArray* vao);
 
         RenderingScope m_Scope;
         VulkanRenderTargetDesc m_ScopeTargets; ///< Valid while m_Scope.Active.

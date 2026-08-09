@@ -83,7 +83,13 @@ namespace OloEngine
         [[nodiscard]] static u64 HashKey(VkImage image, const VkImageViewCreateInfo& viewInfo, VkDescriptorType type,
                                          VkImageLayout layout);
 
-        std::unordered_map<u64, u32> m_SlotByKey;
+        struct SlotEntry
+        {
+            u32 Slot = 0;
+            VkDescriptorType Type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        };
+
+        std::unordered_map<u64, SlotEntry> m_SlotByKey;
         std::unordered_map<VkImage, std::vector<u64>> m_KeysByImage;
         std::vector<u32> m_FreeSlots;
     };

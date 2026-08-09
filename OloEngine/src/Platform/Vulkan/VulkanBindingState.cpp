@@ -17,8 +17,29 @@ namespace OloEngine
         if (!m_TextureSlotsInitialised)
         {
             m_TextureHeapSlots.fill(kNoHeapSlot);
+            m_ImageHeapSlots.fill(kNoHeapSlot);
             m_TextureSlotsInitialised = true;
         }
+    }
+
+    void VulkanBindingState::SetImageHeapSlot(u32 unit, u32 heapSlot)
+    {
+        EnsureTextureSlotsInitialised();
+        if (unit >= kMaxTextureSlots)
+        {
+            OLO_CORE_WARN("VulkanBindingState: image unit {} out of range", unit);
+            return;
+        }
+        m_ImageHeapSlots[unit] = heapSlot;
+    }
+
+    u32 VulkanBindingState::GetImageHeapSlot(u32 unit) const
+    {
+        if (!m_TextureSlotsInitialised || unit >= kMaxTextureSlots)
+        {
+            return kNoHeapSlot;
+        }
+        return m_ImageHeapSlots[unit];
     }
 
     void VulkanBindingState::SetUniformBuffer(u32 binding, VulkanUniformBuffer* buffer)

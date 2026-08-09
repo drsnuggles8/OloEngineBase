@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
@@ -134,6 +135,33 @@ namespace OloEngine
         return m_NextSlot++;
     }
 
+    bool VulkanResourceHeap::ReserveSlotRange(const u32 count)
+    {
+        if (!EnsureCreated() || count > kSlotCapacity)
+        {
+            return false;
+        }
+        if (m_ReservedSlots == count)
+        {
+            return true; // idempotent re-install
+        }
+        if (m_NextSlot > m_ReservedSlots)
+        {
+            // Dynamic allocation already ran past the previous reservation —
+            // a retroactive widen would alias live slots.
+            if (count > m_NextSlot)
+            {
+                OLO_CORE_ERROR("VulkanResourceHeap: reserve of {} slots after dynamic allocation reached {} — "
+                               "install the engine heap before any draw-path slot use",
+                               count, m_NextSlot);
+                return false;
+            }
+        }
+        m_ReservedSlots = count;
+        m_NextSlot = std::max(m_NextSlot, count);
+        return true;
+    }
+
     bool VulkanResourceHeap::WriteSampledImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout)
     {
         return WriteImageDescriptor(slot, viewInfo, layout, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
@@ -206,11 +234,14 @@ namespace OloEngine
         m_Mapped = nullptr;
         m_BaseAddress = 0;
         m_NextSlot = 0;
+        m_ReservedSlots = 0;
         m_OwningDevice = VK_NULL_HANDLE;
         // Slot indices are meaningless once the heap they index is gone —
         // the amendment (33) family: state must not outlive what gives it
-        // meaning.
+        // meaning. The backend's null images die with the heap too (the
+        // descriptors pointing at them just did).
         VulkanDescriptorSlotCache::Get().Reset();
+        VulkanDescriptorHeapBackend::Get().ReleaseDeviceObjects();
     }
 } // namespace OloEngine
 
