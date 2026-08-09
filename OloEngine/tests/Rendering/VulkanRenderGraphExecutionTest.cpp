@@ -645,6 +645,18 @@ TEST_F(VulkanRenderGraphExecution, GpuFenceSignalsAndWaitsAcrossHostAndQueue)
     fence->QueueSignal(2);
     EXPECT_EQ(VulkanGpuFence::GetPendingSubmitOpCount(), 1u);
 
+    // Ordering guards on the staging seam: a second queued signal at or
+    // below the staged 2 is rejected at the CALL SITE (staging it would be
+    // guaranteed-invalid at submit), and a host signal that would advance
+    // the counter past the staged 2 is rejected too (it would invalidate
+    // the staged signal when it drains).
+    fence->QueueSignal(2);
+    EXPECT_EQ(VulkanGpuFence::GetPendingSubmitOpCount(), 1u)
+        << "A queued signal at or below an already-staged one must be rejected";
+    fence->HostSignal(3);
+    EXPECT_EQ(fence->CompletedValue(), 1u)
+        << "A host signal leapfrogging a staged queue signal must be rejected";
+
     std::vector<VkSemaphoreSubmitInfo> waits;
     std::vector<VkSemaphoreSubmitInfo> signals;
     VulkanGpuFence::DrainPendingSubmitOps(waits, signals);

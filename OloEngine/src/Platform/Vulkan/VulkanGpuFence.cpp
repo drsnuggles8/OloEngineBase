@@ -6,6 +6,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include <algorithm>
 #include <limits>
 #include <stdexcept>
 
@@ -39,6 +40,36 @@ namespace OloEngine
                 throw std::runtime_error(std::string("VulkanGpuFence: ") + what + " requires a live VulkanDevice");
             }
             return device->GetDevice();
+        }
+
+        // The largest signal value staged (and not yet drained) for one
+        // semaphore; 0 when none. The dispenser's reservation floor cannot
+        // answer this — it also covers values DISPENSED but not yet
+        // signalled, and rejecting those would break the ordinary
+        // NextValue() → QueueSignal(same value) pattern.
+        [[nodiscard]] u64 MaxPendingSignalValueFor(VkSemaphore semaphore)
+        {
+            u64 maxValue = 0;
+            for (const PendingSubmitOp& op : PendingOps())
+            {
+                if (op.IsSignal && op.Semaphore == semaphore)
+                {
+                    maxValue = std::max(maxValue, op.Value);
+                }
+            }
+            return maxValue;
+        }
+
+        [[nodiscard]] bool HasPendingSignalAtOrBelow(VkSemaphore semaphore, u64 value)
+        {
+            for (const PendingSubmitOp& op : PendingOps())
+            {
+                if (op.IsSignal && op.Semaphore == semaphore && op.Value <= value)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     } // namespace
 
@@ -94,6 +125,20 @@ namespace OloEngine
         OLO_CORE_ASSERT(value > CompletedValue(),
                         "VulkanGpuFence::QueueSignal: timeline values must strictly increase");
         (void)op;
+        // Ordering against SIGNALS ALREADY STAGED for this fence: two staged
+        // signals drain into one submission in staging order, so a value at
+        // or below an earlier staged one is guaranteed-invalid at submit
+        // time. Reject it HERE, where the caller is — staging it anyway
+        // would fail far away, inside the frame loop's vkQueueSubmit2.
+        const u64 maxPending = MaxPendingSignalValueFor(m_Semaphore);
+        if (maxPending != 0 && value <= maxPending)
+        {
+            // Reject (not assert): the rejection IS the contract, pinned by
+            // the device-gated test — and the error names the caller's bug.
+            OLO_CORE_ERROR("VulkanGpuFence::QueueSignal({}) rejected — a staged signal of {} is already pending",
+                           value, maxPending);
+            return;
+        }
         // Reserve the value with the dispenser: a staged-but-unsubmitted
         // signal is invisible to the live counter, and NextValue() must not
         // hand out anything at or below it.
@@ -116,6 +161,21 @@ namespace OloEngine
         const VkDevice device = RequireDevice("HostSignal");
         OLO_CORE_ASSERT(value > CompletedValue(),
                         "VulkanGpuFence::HostSignal: timeline values must strictly increase");
+
+        // A host signal executes NOW; a staged queue signal executes at the
+        // next submit. Advancing the counter past a still-pending staged
+        // value would make that staged signal invalid when it drains — this
+        // path cannot flush the queue (no submission context), so the host
+        // signal is rejected instead.
+        if (HasPendingSignalAtOrBelow(m_Semaphore, value))
+        {
+            // Reject (not assert) — same contract shape as QueueSignal's
+            // ordering check above.
+            OLO_CORE_ERROR("VulkanGpuFence::HostSignal({}) rejected — it would invalidate a pending staged signal "
+                           "(drain the submit first)",
+                           value);
+            return;
+        }
 
         NoteSignalValue(value); // same reservation rule as QueueSignal
 
