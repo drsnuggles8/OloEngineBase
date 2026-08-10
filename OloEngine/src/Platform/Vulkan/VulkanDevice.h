@@ -113,6 +113,27 @@ namespace OloEngine
         {
             return m_ShaderBufferInt64AtomicsEnabled;
         }
+        // #691 Phase 7 Wave C (the virtual-geometry MDI-count path). All three
+        // are enabled-when-supported, never contract rows:
+        //  - drawIndirectCount gates vkCmdDrawIndexedIndirectCount (core 1.2,
+        //    feature-gated) — MultiDrawElementsIndirectCountRaw drops without it.
+        //  - multiDrawIndirect gates maxDrawCount > 1 on the same call
+        //    (VUID-vkCmdDrawIndexedIndirectCount-maxDrawCount-02405).
+        //  - shaderDrawParameters gates the SPIR-V DrawParameters capability
+        //    (gl_DrawID / gl_BaseInstance in VirtualMeshGBuffer.glsl) — module
+        //    creation fails validation without it.
+        [[nodiscard]] bool IsDrawIndirectCountEnabled() const
+        {
+            return m_DrawIndirectCountEnabled;
+        }
+        [[nodiscard]] bool IsMultiDrawIndirectEnabled() const
+        {
+            return m_MultiDrawIndirectEnabled;
+        }
+        [[nodiscard]] bool IsShaderDrawParametersEnabled() const
+        {
+            return m_ShaderDrawParametersEnabled;
+        }
         // Phase 6 (#691, ADR 0011 §5): VK_EXT_extended_dynamic_state3's three
         // blend states (enable/equation/write-mask) are enabled when the driver
         // has them. TRUE → the pipeline builder makes blend state dynamic;
@@ -150,6 +171,9 @@ namespace OloEngine
         bool m_GeometryShaderEnabled = false;
         bool m_ShaderBufferInt64AtomicsEnabled = false;
         bool m_DynamicBlendStateEnabled = false;
+        bool m_DrawIndirectCountEnabled = false;
+        bool m_MultiDrawIndirectEnabled = false;
+        bool m_ShaderDrawParametersEnabled = false;
     };
 } // namespace OloEngine
 

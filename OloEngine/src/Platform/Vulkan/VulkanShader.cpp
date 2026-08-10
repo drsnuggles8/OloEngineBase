@@ -549,6 +549,15 @@ namespace OloEngine
         // No program object to bind — the pipeline binds at draw time. Record
         // the selection for the draw-time pipeline lookup.
         s_CurrentlyBound = const_cast<VulkanShader*>(this);
+        // The heap-binding seam forks on the PROCESS-GLOBAL bindless flag
+        // (Shader::IsBoundProgramBindless), which every GL bind sets for its
+        // program. OLO_BINDLESS never travels the Vulkan route, so a Vulkan
+        // bind must clear it — otherwise a backend swap after a GL suite whose
+        // LAST bound program was bindless leaves the flag stale-true, and the
+        // HeapBinding::BindTextureOrOffset fallbacks inside shared pass bodies
+        // (ParticleBatchRenderer, FoliageRenderer, VirtualGeometryPass) route
+        // into the offset path with no heap staged (#691 Wave C batch 2).
+        SetBoundProgramBindless(false);
     }
 
     void VulkanShader::Unbind() const

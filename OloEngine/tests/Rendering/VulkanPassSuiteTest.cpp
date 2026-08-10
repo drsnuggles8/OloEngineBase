@@ -34,9 +34,15 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
+#include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
@@ -53,7 +59,10 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/Passes/FluidCompositePass.h"
+#include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
+#include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
+#include "OloEngine/Renderer/Passes/ShaderDebugDrawPass.h"
 #include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include "OloEngine/Renderer/Passes/OverdrawRenderPass.h"
@@ -115,6 +124,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include <memory>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace
@@ -533,6 +543,24 @@ class VulkanPassSuite : public ::testing::Test
         if (!m_Device)
             return;
         vkDeviceWaitIdle(m_Device->GetDevice());
+        // Wave C batch 2 failure-path net: a tenant that re-homed the
+        // ShaderDebugDraw / particle-batch statics onto this device normally
+        // shuts them down itself, but an ASSERT exit skips that — and a
+        // Vulkan-currency static surviving past device teardown asserts in
+        // the allocator (the MeshPrimitives lesson). Scope: when this test
+        // flagged a re-home, or when no production GL renderer exists (an
+        // isolated run — the statics can only be this suite's). NEVER
+        // unconditionally mid-suite: that would strip the GL renderer's
+        // live statics from tests that never touched them.
+        if (m_ReinitShaderDebugDrawOnTearDown || !Renderer3D::IsInitialized())
+        {
+            if (ShaderDebugDraw::IsInitialised())
+                ShaderDebugDraw::Shutdown();
+        }
+        if (m_ReinitParticleBatchRendererOnTearDown || !Renderer3D::IsInitialized())
+        {
+            ParticleBatchRenderer::Shutdown(); // safe on empty statics
+        }
         // The fullscreen-triangle cache is a process STATIC now holding
         // Vulkan VMA buffers (this fixture is the first to route the real
         // MeshPrimitives triangle through the backend) — released here or
@@ -567,7 +595,23 @@ class VulkanPassSuite : public ::testing::Test
         if (glfwGetCurrentContext() != nullptr)
         {
             RenderCommand::Init();
+            // Wave C batch 2: tenants that re-home process-wide renderer
+            // statics onto the Vulkan device (the ShaderDebugDraw channels,
+            // the particle batch renderer) tear the GL-currency versions down
+            // first and release their Vulkan versions before device teardown.
+            // When the production GL renderer is still up (mid-suite runs —
+            // Renderer3D::IsInitialized() survives across fixtures), re-init
+            // them on the restored GL backend, or every later GL test that
+            // relies on Renderer3D::Init's statics finds them missing (the
+            // amendment (34) contamination class; ShaderDebugDrawVisualTest
+            // and the particle visual tests run AFTER this suite).
+            if (m_ReinitShaderDebugDrawOnTearDown && Renderer3D::IsInitialized())
+                ShaderDebugDraw::Init();
+            if (m_ReinitParticleBatchRendererOnTearDown && Renderer3D::IsInitialized())
+                ParticleBatchRenderer::Init();
         }
+        m_ReinitShaderDebugDrawOnTearDown = false;
+        m_ReinitParticleBatchRendererOnTearDown = false;
     }
 
     // The Wave A tenant harness: producer(input) -> passNode -> caller-backed
@@ -699,6 +743,12 @@ class VulkanPassSuite : public ::testing::Test
     // scope from the wrong access is a WRITE_AFTER_READ hazard the sync
     // validation names (the layout half is tracker-exact either way).
     RHI::Access m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
+    // Wave C batch 2 restore flags — see TearDown. A tenant that shuts down a
+    // production (GL-currency) renderer static to re-home it on Vulkan sets
+    // its flag IMMEDIATELY (before its own Init), so the restore happens even
+    // when the tenant fails mid-way.
+    bool m_ReinitShaderDebugDrawOnTearDown = false;
+    bool m_ReinitParticleBatchRendererOnTearDown = false;
 };
 
 TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
@@ -5355,6 +5405,1298 @@ TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
     ShadowMap::ShutdownPlaceholders();
     settings.Deferred.EnableLightProbes = prevProbes;
     Renderer3D::SetGlobalIBL(prevIrradiance, prevPrefilter, prevBrdfLut, prevEnvironment, prevIblIntensity);
+}
+
+// =============================================================================
+// VirtualGeometry (#691 Wave C item 5): the MDI-count indirect-draw entry.
+//
+// The FULL VirtualGeometryPass is disproportionate headlessly: its cull/raster
+// compute shaders drive ~15 bare uniforms through ComputeShader::Set* calls
+// (no-ops on the SPIR-V route — they need the Wave B "bare uniforms -> UBO"
+// migration first), VirtualMeshRegistry seeding needs cooked VirtualMeshAssets
+// (the VirtualMeshBuilder cook, not reachable from a plain run), and the
+// material loop rides CommandDispatch::UploadMaterialForDirectDraw (port-order
+// item 10's machinery). So per the survey's fallback this tenant pins the
+// INDIRECT-DRAW ENTRY itself — with the REAL VirtualMeshGBuffer.glsl and a
+// hand-authored cluster set, which is strictly stronger than a V1 stand-in:
+//
+//   * vkCmdDrawIndexedIndirectCount from a hand-built 2-command buffer
+//     (32-byte stride pass-through: command 1 reads wrong bytes if the stride
+//     is dropped) + a VirtualDrawArgs count buffer;
+//   * THE COUNT BUFFER DRIVES: chain 2 rewrites DrawCount 2 -> 1 with
+//     maxDrawCount still 2, and the second cluster must vanish;
+//   * per-command FirstIndex/BaseVertex land each cluster on its pooled slot
+//     (the registry's segmentation contract);
+//   * the SPIR-V DrawParameters capability: the shader requires
+//     GL_ARB_shader_draw_parameters (gl_BaseInstanceARB -> v_DbgSlot), so
+//     shaderc must emit the capability and the device must enable
+//     shaderDrawParameters — module/pipeline creation fails validation
+//     otherwise, and this suite's zero-error gate catches it;
+//   * TextureBarrier() — the pass's phase-2 "draw depth, then sample it"
+//     fence — lowers to scope-end + a conservative global barrier.
+//
+// The shader's debug SSBOs (33/38) and UBO 50 are bound with zeroed stand-ins
+// (mode 0 = off); its VirtualDebugViz storage images (image units 0/1) stay
+// unbound — never accessed under mode 0, the Wave B "content-safe, heap
+// descriptors invisible to validation" precedent (no R32UI ImageFormat exists
+// to stage a real one).
+// =============================================================================
+TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    // --- the real MDI shader (DrawParameters capability gate) ---------------
+    auto vgShader = Shader::Create("assets/shaders/VirtualMeshGBuffer.glsl");
+    ASSERT_TRUE(vgShader);
+    ASSERT_EQ(vgShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+        << "VirtualMeshGBuffer.glsl must compile through shaderc (GL_ARB_shader_draw_parameters)";
+
+    // --- hand-authored cluster set ------------------------------------------
+    // Two 4-vertex quad clusters in the pooled-array shape: cluster 0 on the
+    // left (NDC x -0.9..-0.1), cluster 1 on the right (0.1..0.9), both
+    // y -0.4..0.4 at z 0.5. Identity camera => authored NDC.
+    std::array<VirtualGpuVertex, 8> vertices{};
+    const auto quad = [&](sizet base, f32 x0, f32 x1)
+    {
+        vertices[base + 0].PositionU = { x0, -0.4f, 0.5f, 0.0f };
+        vertices[base + 1].PositionU = { x1, -0.4f, 0.5f, 1.0f };
+        vertices[base + 2].PositionU = { x1, 0.4f, 0.5f, 1.0f };
+        vertices[base + 3].PositionU = { x0, 0.4f, 0.5f, 0.0f };
+        for (sizet i = 0; i < 4; ++i)
+            vertices[base + i].NormalV = { 0.0f, 0.0f, 1.0f, 0.0f };
+    };
+    quad(0, -0.9f, -0.1f);
+    quad(4, 0.1f, 0.9f);
+    auto vertexSSBO = StorageBuffer::Create(static_cast<u32>(vertices.size() * sizeof(VirtualGpuVertex)),
+                                            ShaderBindingLayout::SSBO_VIRTUAL_VERTICES);
+    vertexSSBO->SetData(vertices.data(), static_cast<u32>(vertices.size() * sizeof(VirtualGpuVertex)));
+    vertexSSBO->Bind();
+
+    VirtualInstanceGpuRecord instance{};
+    instance.EntityID = 7;
+    auto instanceSSBO = StorageBuffer::Create(sizeof(VirtualInstanceGpuRecord),
+                                              ShaderBindingLayout::SSBO_VIRTUAL_INSTANCES);
+    instanceSSBO->SetData(&instance, sizeof(instance));
+    instanceSSBO->Bind();
+
+    // Debug stand-ins (read only under debug mode != 0, but the root layout
+    // wants live addresses): one zeroed cluster record + two visible records.
+    VirtualClusterGpuRecord zeroCluster{};
+    auto dbgClusterSSBO = StorageBuffer::Create(sizeof(VirtualClusterGpuRecord),
+                                                ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS);
+    dbgClusterSSBO->SetData(&zeroCluster, sizeof(zeroCluster));
+    dbgClusterSSBO->Bind();
+    std::array<VirtualVisibleCluster, 2> zeroVisible{};
+    auto dbgVisibleSSBO = StorageBuffer::Create(sizeof(zeroVisible), ShaderBindingLayout::SSBO_VIRTUAL_VISIBLE);
+    dbgVisibleSSBO->SetData(zeroVisible.data(), sizeof(zeroVisible));
+    dbgVisibleSSBO->Bind();
+
+    // Pooled cluster-local index buffer: each cluster's 6 indices are LOCAL
+    // (0..3); the command's BaseVertex lands them on the pooled slot.
+    u32 indices[] = { 0u, 1u, 2u, 2u, 3u, 0u, 0u, 1u, 2u, 2u, 3u, 0u };
+    auto indexBuffer = IndexBuffer::Create(indices, 12);
+    auto vao = VertexArray::Create();
+    vao->SetIndexBuffer(indexBuffer);
+
+    // The registry's 32-byte command records (DrawElementsIndirectCommand +
+    // 12 pad bytes — VkDrawIndexedIndirectCommand is the same 5-field prefix).
+    struct MdiCommand
+    {
+        u32 IndexCount = 0;
+        u32 InstanceCount = 0;
+        u32 FirstIndex = 0;
+        i32 BaseVertex = 0;
+        u32 BaseInstance = 0;
+        u32 _Pad[3] = { 0, 0, 0 };
+    };
+    static_assert(sizeof(MdiCommand) == 32, "the registry's MDI stride is 32 bytes");
+    std::array<MdiCommand, 2> commands{};
+    commands[0] = { 6u, 1u, 0u, 0, 0u, {} };
+    commands[1] = { 6u, 1u, 6u, 4, 1u, {} }; // BaseInstance 1 -> v_DbgSlot record 1
+    auto commandSSBO = StorageBuffer::Create(sizeof(commands), ShaderBindingLayout::SSBO_VIRTUAL_DRAW_COMMANDS);
+    commandSSBO->SetData(commands.data(), sizeof(commands));
+    commandSSBO->Bind();
+
+    VirtualDrawArgs args{};
+    args.DrawCount = 2;
+    auto argsSSBO = StorageBuffer::Create(sizeof(VirtualDrawArgs), ShaderBindingLayout::SSBO_VIRTUAL_DRAW_ARGS);
+    argsSSBO->SetData(&args, sizeof(args));
+    argsSSBO->Bind();
+
+    // --- every UBO the shader declares (the DRS lesson) ---------------------
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.Position = glm::vec3(0.0f, 0.0f, 1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    MotionBlurUBOData mbData{};
+    mbData.InverseViewProjection = glm::mat4(1.0f);
+    mbData.PrevViewProjection = glm::mat4(1.0f);
+    auto mbUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    mbUbo->SetData(&mbData, sizeof(mbData));
+
+    ShaderBindingLayout::PBRMaterialUBO material{};
+    material.BaseColorFactor = glm::vec4(0.8f, 0.2f, 0.1f, 1.0f);
+    material.EmissiveFactor = glm::vec4(0.0f);
+    material.MetallicFactor = 0.0f;
+    material.RoughnessFactor = 1.0f;
+    material.NormalScale = 1.0f;
+    material.OcclusionStrength = 1.0f;
+    material.UseAlbedoMap = 0;
+    material.UseNormalMap = 0;
+    material.UseMetallicRoughnessMap = 0;
+    material.UseAOMap = 0;
+    material.UseEmissiveMap = 0;
+    material.ApplyGammaCorrection = 0;
+    material.EnableLightProbes = 0;
+    auto materialUbo = UniformBuffer::Create(sizeof(ShaderBindingLayout::PBRMaterialUBO),
+                                             ShaderBindingLayout::UBO_MATERIAL);
+    materialUbo->SetData(&material, sizeof(material));
+
+    const u32 drawInfo[4] = { 0u, 0u, 0u, 0u }; // instance 0, segment base 0
+    auto drawInfoUbo = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+    drawInfoUbo->SetData(drawInfo, sizeof(drawInfo));
+
+    const u32 debugInfo[4] = { 0u, 0u, 0u, 0u }; // debug mode OFF
+    auto debugInfoUbo = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DEBUG);
+    debugInfoUbo->SetData(debugInfo, sizeof(debugInfo));
+
+    auto whiteTexture = MakeSolidTexture(4, 255, 255, 255, 255);
+    ASSERT_TRUE(whiteTexture);
+
+    // --- G-Buffer-shaped MRT target -----------------------------------------
+    FramebufferSpecification gbufferSpec;
+    gbufferSpec.Width = kSize;
+    gbufferSpec.Height = kSize;
+    gbufferSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F,
+                                FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F,
+                                FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> gbufferFB = Framebuffer::Create(gbufferSpec);
+    ASSERT_TRUE(gbufferFB);
+
+    const auto runChain = [&](u32 gpuDrawCount)
+    {
+        args.DrawCount = gpuDrawCount;
+        argsSSBO->SetData(&args, sizeof(args));
+
+        SubmitFrame(
+            [&]()
+            {
+                gbufferFB->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                RenderCommand::Clear(); // folds into the first draw's loadOp (+ depth -> 1.0)
+                RenderCommand::SetDepthTest(true);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                RenderCommand::SetDepthMask(true);
+                RenderCommand::SetBlendState(false);
+                RenderCommand::DisableCulling();
+
+                vgShader->Bind();
+                for (const u32 slot : { 0u, 1u, 2u, 4u, 5u })
+                    RenderCommand::BindTexture(slot, whiteTexture->GetRHIHandle());
+
+                // maxDrawCount stays 2 in BOTH chains: the count BUFFER must
+                // drive (chain 2's contract).
+                RenderCommand::MultiDrawElementsIndirectCountRaw(
+                    vao->GetRHIHandle(), commandSSBO->GetRHIHandle(), 0u,
+                    argsSSBO->GetRHIHandle(), 0u, 2u, 32u);
+
+                // The pass's phase-2 fence: framebuffer writes -> texture
+                // fetches. Scope-end + conservative global barrier.
+                RenderCommand::TextureBarrier();
+
+                for (const u32 attachment : { 0u, 4u })
+                {
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = gbufferFB->GetColorAttachmentHandle(attachment);
+                    toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                }
+            });
+
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "the one MDI-count draw";
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+    };
+
+    auto* vkGbuffer = static_cast<VulkanFramebuffer*>(gbufferFB.Raw());
+    const auto albedoAt = [&](const std::vector<u8>& rgba, u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rgba[i], rgba[i + 1], rgba[i + 2] };
+    };
+
+    // --- chain 1: count = 2 -> both clusters land ---------------------------
+    runChain(2u);
+    {
+        std::vector<u8> albedo;
+        std::vector<u8> entityBytes;
+        ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(0)->GetData(albedo, 0));
+        ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(4)->GetData(entityBytes, 0));
+        const auto* entities = reinterpret_cast<const i32*>(entityBytes.data());
+
+        const auto left = albedoAt(albedo, 32, 64);
+        EXPECT_NEAR(left[0], 204, 3) << "cluster 0 albedo (command 0: FirstIndex 0, BaseVertex 0)";
+        EXPECT_NEAR(left[1], 51, 3);
+        EXPECT_NEAR(left[2], 26, 3);
+        const auto right = albedoAt(albedo, 96, 64);
+        EXPECT_NEAR(right[0], 204, 3) << "cluster 1 albedo (command 1 via the 32-byte stride)";
+        EXPECT_NEAR(right[1], 51, 3);
+        EXPECT_NEAR(right[2], 26, 3);
+        const auto background = albedoAt(albedo, 64, 5);
+        EXPECT_EQ(background[0], 0) << "uncovered pixels keep the clear";
+
+        EXPECT_EQ(entities[static_cast<sizet>(64) * kSize + 32], 7) << "cluster 0 entity id";
+        EXPECT_EQ(entities[static_cast<sizet>(64) * kSize + 96], 7) << "cluster 1 entity id";
+        EXPECT_EQ(entities[static_cast<sizet>(5) * kSize + 64], 0) << "uncovered entity id keeps the clear";
+    }
+
+    // --- chain 2: count = 1 (maxDrawCount still 2) -> cluster 1 vanishes ----
+    runChain(1u);
+    {
+        std::vector<u8> albedo;
+        ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(0)->GetData(albedo, 0));
+        const auto left = albedoAt(albedo, 32, 64);
+        EXPECT_NEAR(left[0], 204, 3) << "cluster 0 must survive the count cut";
+        const auto right = albedoAt(albedo, 96, 64);
+        EXPECT_EQ(right[0], 0) << "the COUNT BUFFER (not maxDrawCount) must bound the draw";
+        EXPECT_EQ(right[1], 0);
+        EXPECT_EQ(right[2], 0);
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "MDI-count + TextureBarrier must ride real implementations, not stubs";
+}
+
+namespace
+{
+    // Directional hue test (the GL ShaderDebugDrawVisualTest's IsHue, floors
+    // kept): per-channel thresholds conflate hues sharing a dominant channel,
+    // so compare DIRECTION in RGB space instead.
+    [[nodiscard]] bool PixelCarriesHue(const u8* px, const glm::vec3& hue)
+    {
+        const glm::vec3 pixel(static_cast<f32>(px[0]), static_cast<f32>(px[1]), static_cast<f32>(px[2]));
+        const f32 brightest = std::max({ pixel.r, pixel.g, pixel.b });
+        const f32 darkest = std::min({ pixel.r, pixel.g, pixel.b });
+        if (brightest < 60.0f || (brightest - darkest) < 40.0f)
+            return false;
+        const f32 length = glm::length(pixel);
+        if (length < 1e-3f)
+            return false;
+        return glm::dot(pixel / length, glm::normalize(hue)) > 0.96f;
+    }
+
+    [[nodiscard]] u32 CountHuePixels(const std::vector<u8>& rgba, u32 size, const glm::vec3& hue)
+    {
+        u32 count = 0;
+        for (sizet i = 0; i + 3 < rgba.size(); i += 4)
+        {
+            if (PixelCarriesHue(&rgba[i], hue))
+                ++count;
+        }
+        (void)size;
+        return count;
+    }
+} // namespace
+
+// =============================================================================
+// ShaderDebugDraw (#691 Wave C item 6): the GPU-pushable debug channels'
+// DRAW side + the stats readback ring, through the REAL pass in the graph.
+//
+// One line + one AABB go through the CPU appenders into the SAME channel
+// SSBOs the GLSL push helpers append to; BeginFrame uploads them; the pass
+// then issues one DrawArraysIndirect PER CHANNEL (7 draws — the channel's
+// own 32-byte header IS the DrawArraysIndirectCommand), narrowed to colour 0
+// with depth-test-no-write against the producer's scene. Pinned:
+//   * vkCmdDrawIndirect from a resolved StorageBuffer handle (the channels
+//     now carry INDIRECT_BUFFER usage);
+//   * the primitives REACH pixels (directional hue counts — red line,
+//     yellow AABB — over the black producer pattern);
+//   * the readback ring: StageStatsForReadback mints DeviceToHost staging
+//     buffers (CreateBufferHandle + AllocateBufferStorage) and records
+//     vkCmdCopyBuffer header copies (CopyBufferSubData) INSIDE the pass;
+//     next frame's ReadbackStats reads the persistent mappings
+//     (ReadBufferSubData) — the A7 frames-in-flight discipline (this frame
+//     copies, the NEXT frame reads after the fence);
+//   * the empty channels draw too (instanceCount 0 costs nothing): 8
+//     prepared draws (producer + 7), zero dropped, ZERO stub hits across
+//     the whole tenant — the ring and the indirect draw must be real.
+// =============================================================================
+TEST_F(VulkanPassSuite, ShaderDebugDrawIndirectDrawsChannelsAndReadsBackStats)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    // Mid-suite the channels already exist with GL currency (Renderer3D::Init
+    // owns them): tear that version down and flag TearDown to re-init it on
+    // the restored GL backend — the amendment (34) two-way discipline. (The
+    // GL objects' dtors are direct GL calls, which is exactly why this only
+    // happens when the production renderer is up: with it up, glad is loaded
+    // and a context exists.) The stub baseline is taken AFTER this teardown:
+    // its DeleteBuffer calls route GL-currency staging handles into the
+    // Vulkan raw-registry guard, which counts them as stubs by design.
+    if (ShaderDebugDraw::IsInitialised())
+    {
+        m_ReinitShaderDebugDrawOnTearDown = true;
+        ShaderDebugDraw::Shutdown();
+    }
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto patternTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // black: hue floors never match it
+    ASSERT_NE(patternTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    // Channels + params UBO come up on the Vulkan backend (device-lifetime
+    // statics — Shutdown() below releases them before device teardown).
+    ShaderDebugDraw::Init();
+    ShaderDebugDraw::SetEnabled(true);
+    ShaderDebugDraw::SetLineWidth(4.0f);
+
+    // World == NDC (identity VP). z inside [0, 1] — Vulkan clips z outside.
+    ShaderDebugDraw::DrawLine(glm::vec3(-0.8f, 0.0f, 0.5f), glm::vec3(0.8f, 0.0f, 0.5f),
+                              glm::vec3(1.0f, 0.0f, 0.0f));
+    ShaderDebugDraw::DrawAABB(glm::vec3(-0.5f, -0.5f, 0.1f), glm::vec3(0.5f, 0.5f, 0.9f),
+                              glm::vec3(1.0f, 1.0f, 0.0f));
+    ShaderDebugDraw::BeginFrame(); // uploads the CPU pushes into the channels
+
+    auto debugPass = Ref<ShaderDebugDrawPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    debugPass->Init(initSpec);
+    ASSERT_TRUE(debugPass->IsReadyForExecution())
+        << "DebugDrawPrimitives.glsl must compile through shaderc (V12: no vertex buffer)";
+    debugPass->SetEnabled(true);
+    debugPass->SetCameraState(glm::mat4(1.0f), glm::mat4(1.0f));
+
+    // Scene FB with depth: the pass depth-TESTS (LessOrEqual, no write)
+    // against the producer's cleared 1.0.
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc sceneDesc;
+    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+    sceneDesc.Width = kSize;
+    sceneDesc.Height = kSize;
+    blackboard.Scene.SceneColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+
+    auto producer = Ref<PatternProducerPass>::Create(
+        patternTexture, blitShader, std::string(ResourceNames::SceneColor),
+        std::string(ResourceNames::SceneColorTexture),
+        [](FrameBlackboard& board) -> RGFramebufferHandle&
+        { return board.Scene.SceneColor; });
+    producer->ClearTargetFirst = true; // depth -> 1.0 at scope open
+
+    graph.AddNode(producer);
+    graph.AddNode(debugPass);
+    graph.SetFinalPass("ShaderDebugDrawPass");
+    graph.BuildFrameGraph();
+
+    SubmitFrame(
+        [&]()
+        {
+            graph.Execute();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_TRUE(producer->DidDraw);
+    EXPECT_TRUE(debugPass->GetTarget()) << "the pass early-returned";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "ShaderDebugDraw resolve failure: pass='" << failure.PassName << "' reason='"
+                      << failure.Reason << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 8u)
+        << "producer + one indirect draw per channel (empty channels draw with instanceCount 0)";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    // --- pixels: the primitives must reach the viewport ---------------------
+    std::vector<u8> rendered;
+    auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const u32 redCount = CountHuePixels(rendered, kSize, glm::vec3(1.0f, 0.0f, 0.0f));
+    const u32 yellowCount = CountHuePixels(rendered, kSize, glm::vec3(1.0f, 1.0f, 0.0f));
+    // The line spans ~102 px at width 4 (~400 px); the AABB's on-screen edges
+    // cover well over 500. Floors sit far below so anti-aliasing/overlap
+    // slack cannot flake, far above noise (the pattern is black).
+    EXPECT_GE(redCount, 100u) << "the pushed line must reach the viewport";
+    EXPECT_GE(yellowCount, 150u) << "the pushed AABB must reach the viewport";
+
+    // --- the stats ring: copied THIS frame, read NEXT frame -----------------
+    // The pass staged the seven 32-byte header copies into DeviceToHost
+    // buffers during Execute; the submit fence has signalled, so BeginFrame's
+    // ReadbackStats memcpy off the persistent mappings sees them.
+    ShaderDebugDraw::BeginFrame();
+    const auto& stats = ShaderDebugDraw::GetStats();
+    EXPECT_TRUE(stats.StatsValid);
+    const auto channelIndex = [](ShaderDebugDrawPrimitive primitive)
+    { return static_cast<sizet>(std::to_underlying(primitive)); };
+    const auto& lineStats = stats.Channels[channelIndex(ShaderDebugDrawPrimitive::Line)];
+    EXPECT_EQ(lineStats.Drawn, 1u) << "the line channel header's InstanceCount round-tripped the ring";
+    EXPECT_EQ(lineStats.Requested, 1u);
+    EXPECT_EQ(lineStats.CpuPushes, 1u);
+    const auto& aabbStats = stats.Channels[channelIndex(ShaderDebugDrawPrimitive::AABB)];
+    EXPECT_EQ(aabbStats.Drawn, 1u);
+    EXPECT_EQ(aabbStats.Requested, 1u);
+    for (const auto primitive : { ShaderDebugDrawPrimitive::Circle, ShaderDebugDrawPrimitive::Rectangle,
+                                  ShaderDebugDrawPrimitive::Box, ShaderDebugDrawPrimitive::Cone,
+                                  ShaderDebugDrawPrimitive::Sphere })
+    {
+        EXPECT_EQ(stats.Channels[channelIndex(primitive)].Drawn, 0u)
+            << "untouched channel " << static_cast<int>(std::to_underlying(primitive)) << " must read back empty";
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "DrawArraysIndirect + the CreateBufferHandle/AllocateBufferStorage/CopyBufferSubData/"
+           "ReadBufferSubData ring must be real, not stubs";
+
+    // Device-lifetime statics die before the fixture tears the device down
+    // (the fog tenant's placeholder discipline). Shutdown() also routes the
+    // staging buffers through DeleteBuffer -> deferred reclaim.
+    vkDeviceWaitIdle(m_Device->GetDevice());
+    ShaderDebugDraw::Shutdown();
+}
+
+// =============================================================================
+// Foliage (#691 Wave C item 7, first half): the V8 TWO-STREAM instance pull.
+//
+// FoliageRenderer::Render itself cannot run headless — it dereferences
+// Renderer3D statics that only Renderer3D::Init creates (GetFoliageUBO /
+// GetModelInstanceBuffer are null Refs here), so this tenant drives the EXACT
+// draw shape the renderer emits, byte-for-byte: the same VAO construction
+// (BuildQuadGeometry's 20-byte quad stream 0 + UploadInstances'
+// AddInstanceBuffer 48-byte stream 1), the REAL Foliage_Instance.glsl, and
+// DrawIndexedInstanced(vao, 6, 3). On Vulkan the two streams ride the
+// reserved pull pair — stream 0 on SSBO 57 by gl_VertexIndex, stream 1 on
+// SSBO 63 by gl_InstanceIndex (A3's "bones are just the first tenant") — so
+// three instances at known positions/tints pin per-vertex AND per-instance
+// lanes at once: any stride/offset slip moves or recolours a card.
+//
+// Deterministic shading: zero-intensity light (lightDir must still be
+// non-degenerate — normalize(vec3(0)) is NaN), wind UBO zeroed (windEnabled
+// false + legacy strength 0), distance fade far -> every card is exactly
+// ambient = 0.3 * tint * white.
+//
+// The other three V8 consumers (Foliage_Depth / _Instance_GBuffer /
+// _Impostor) carry byte-identical pull branches; their PSO-level exercise
+// needs depth-only / G-Buffer / impostor-atlas scaffolding better paid for
+// by items 10-11, so this tenant pins them at compile level (shaderc Ready).
+// =============================================================================
+TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto foliageShader = Shader::Create("assets/shaders/Foliage_Instance.glsl");
+    ASSERT_TRUE(foliageShader);
+    ASSERT_EQ(foliageShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    for (const char* sibling : { "assets/shaders/Foliage_Depth.glsl", "assets/shaders/Foliage_Instance_GBuffer.glsl",
+                                 "assets/shaders/Foliage_Impostor.glsl" })
+    {
+        auto shader = Shader::Create(sibling);
+        ASSERT_TRUE(shader);
+        EXPECT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+            << sibling << " must compile through shaderc (V8 pull branch)";
+    }
+
+    // --- the FoliageRenderer VAO shape, verbatim ----------------------------
+    const f32 quadVertices[] = {
+        -0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f, // bottom-left
+        0.5f,
+        0.0f,
+        0.0f,
+        1.0f,
+        0.0f, // bottom-right
+        0.5f,
+        1.0f,
+        0.0f,
+        1.0f,
+        1.0f, // top-right
+        -0.5f,
+        1.0f,
+        0.0f,
+        0.0f,
+        1.0f, // top-left
+    };
+    u32 quadIndices[] = { 0u, 1u, 2u, 2u, 3u, 0u };
+    auto vao = VertexArray::Create();
+    auto quadVB = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
+    quadVB->SetLayout({ { ShaderDataType::Float3, "a_Position" }, { ShaderDataType::Float2, "a_TexCoord" } });
+    vao->AddVertexBuffer(quadVB);
+    vao->SetIndexBuffer(IndexBuffer::Create(quadIndices, 6));
+
+    // Three instances: red / green / blue cards at x -0.6 / 0 / +0.6, scale
+    // 0.5, height 1, fade 1, cutoff 0.5. Identity VP + identity u_Model =>
+    // card i spans x = pos.x +- 0.25, y = pos.y .. pos.y + 0.5 in NDC.
+    struct FoliageInstance
+    {
+        glm::vec4 PositionScale;
+        glm::vec4 RotationHeight;
+        glm::vec4 ColorAlpha;
+    };
+    static_assert(sizeof(FoliageInstance) == 48, "V8 instance stride is 48 bytes");
+    const std::array<FoliageInstance, 3> instances{
+        FoliageInstance{ { -0.6f, -0.25f, 0.5f, 0.5f }, { 0.0f, 1.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 0.5f } },
+        FoliageInstance{ { 0.0f, -0.25f, 0.5f, 0.5f }, { 0.0f, 1.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 0.5f } },
+        FoliageInstance{ { 0.6f, -0.25f, 0.5f, 0.5f }, { 0.0f, 1.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f, 0.5f } },
+    };
+    auto instanceVB = VertexBuffer::Create(static_cast<u32>(sizeof(instances)));
+    instanceVB->SetLayout({ { ShaderDataType::Float4, "a_PositionScale" },
+                            { ShaderDataType::Float4, "a_RotationHeight" },
+                            { ShaderDataType::Float4, "a_ColorAlpha" } });
+    instanceVB->SetData({ instances.data(), static_cast<u32>(sizeof(instances)) });
+    vao->AddInstanceBuffer(instanceVB);
+
+    // --- every binding the shader declares ----------------------------------
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.Position = glm::vec3(0.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    // The foliage fragment's own five-vec4 light block (binding 5): zero
+    // intensity, but a NON-degenerate direction — normalize(-direction) of a
+    // zero vector is NaN and would poison litColor through 0 * NaN.
+    struct FoliageLightBlock
+    {
+        i32 NumLights = 0;
+        i32 _pad0 = 0;
+        i32 _pad1 = 0;
+        i32 _pad2 = 0;
+        glm::vec4 Position{ 0.0f };
+        glm::vec4 Direction{ 0.0f, -1.0f, 0.0f, 0.0f };
+        glm::vec4 ColorIntensity{ 1.0f, 1.0f, 1.0f, 0.0f }; // w = intensity 0
+        glm::vec4 Params{ 0.0f };
+        glm::vec4 Params2{ 0.0f };
+    } lightBlock;
+    auto lightUbo = UniformBuffer::Create(sizeof(FoliageLightBlock), 5);
+    lightUbo->SetData(&lightBlock, sizeof(lightBlock));
+
+    ShaderBindingLayout::FoliageUBO foliageData{};
+    foliageData.Time = 0.0f;
+    foliageData.WindStrength = 0.0f; // legacy sine path contributes zero displacement
+    foliageData.WindSpeed = 0.0f;
+    foliageData.ViewDistance = 100.0f; // cards sit ~0.7 from the origin camera
+    foliageData.FadeStart = 50.0f;     // => fadeFactor exactly 1
+    foliageData.AlphaCutoff = 0.5f;
+    foliageData.BaseColor = glm::vec4(0.0f);
+    auto foliageUbo = UniformBuffer::Create(ShaderBindingLayout::FoliageUBO::GetSize(),
+                                            ShaderBindingLayout::UBO_FOLIAGE);
+    foliageUbo->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
+
+    // WindSampling's UBO (uniform binding 15 — disjoint from the SSBO 15
+    // below, amendment (29)): all zeros => windEnabled() false.
+    const std::array<glm::vec4, 4> windZeros{};
+    auto windUbo = UniformBuffer::Create(sizeof(windZeros), 15);
+    windUbo->SetData(windZeros.data(), sizeof(windZeros));
+
+    // InstanceBlock_Vertex's SSBO 15: the shader indexes it by
+    // gl_InstanceIndex (the production path uploads ONE entry and relies on
+    // instance 0 — the impostor-card doc's known quirk), so give it three
+    // identity entries to keep every read in bounds and deterministic.
+    const std::array<InstanceData, 3> modelInstances{};
+    auto modelSSBO = StorageBuffer::Create(sizeof(modelInstances), 15);
+    modelSSBO->SetData(modelInstances.data(), sizeof(modelInstances));
+    modelSSBO->Bind();
+
+    auto whiteTexture = MakeSolidTexture(4, 255, 255, 255, 255);
+    ASSERT_TRUE(whiteTexture);
+    // WindSampling's sampler3D u_WindField (binding 29): never sampled with
+    // the zeroed UBO, but stage a REAL 3D descriptor so the baked slot's
+    // dimensionality matches the declaration.
+    Texture3DSpecification windFieldSpec;
+    windFieldSpec.Width = 2;
+    windFieldSpec.Height = 2;
+    windFieldSpec.Depth = 2;
+    windFieldSpec.Format = Texture3DFormat::RGBA8;
+    auto windField = Texture3D::Create(windFieldSpec);
+    ASSERT_TRUE(windField);
+
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            sceneFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+
+            foliageShader->Bind();
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_DIFFUSE, whiteTexture->GetRHIHandle());
+            RenderCommand::BindTexture(29, windField->GetRHIHandle());
+
+            vao->Bind();
+            RenderCommand::DrawIndexedInstanced(vao, 6, 3);
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u);
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> rendered;
+    auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const auto px = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
+    };
+
+    // ambient = 0.3 * tint * white => 76 on the tinted channel. Cards span
+    // y NDC -0.25..0.25 (row 64 covered under either y orientation); centres
+    // x = 25 / 64 / 103.
+    const auto red = px(25, 64);
+    EXPECT_NEAR(red[0], 76, 3) << "instance 0 tint (stream-1 lane 8..10 at instance stride 12 floats)";
+    EXPECT_NEAR(red[1], 0, 3);
+    EXPECT_NEAR(red[2], 0, 3);
+    const auto green = px(64, 64);
+    EXPECT_NEAR(green[0], 0, 3);
+    EXPECT_NEAR(green[1], 76, 3) << "instance 1 tint";
+    EXPECT_NEAR(green[2], 0, 3);
+    const auto blue = px(103, 64);
+    EXPECT_NEAR(blue[0], 0, 3);
+    EXPECT_NEAR(blue[1], 0, 3);
+    EXPECT_NEAR(blue[2], 76, 3) << "instance 2 tint";
+    const auto background = px(5, 120);
+    EXPECT_EQ(background[0], 0) << "uncovered pixels keep the clear";
+    EXPECT_EQ(background[1], 0);
+    EXPECT_EQ(background[2], 0);
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+}
+
+// =============================================================================
+// ForwardOverlay (#691 Wave C item 7, second half): the empty-bucket floor.
+//
+// The pass is pure bucket replay: its Setup declares nothing when the bucket
+// is empty (so the node is unreachable and culled) and its Execute would
+// re-dispatch recorded CommandPackets — port-order item 10's machinery
+// (CommandDispatch's per-packet draw path, the V1 mesh workhorse, material
+// upload). A populated replay is deferred there; what the pass OWNS in the
+// graph today is exactly this floor: registered with an empty bucket in
+// Deferred mode it must declare nothing, execute nothing, and leave the
+// producer's scene untouched — no stubs, no resolve failures. Its narrowing/
+// restore half (SetFramebufferDrawAttachments {0,1,2} + RestoreAll) is the
+// same mechanism the DeferredLighting and ShaderDebugDraw tenants already
+// pin with live draws.
+// =============================================================================
+TEST_F(VulkanPassSuite, ForwardOverlayEmptyBucketFloorLeavesTheSceneUntouched)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    // Setup gates on the Deferred path (Forward routes overlay draws through
+    // SceneRenderPass) — force it and restore.
+    auto& settings = Renderer3D::GetRendererSettings();
+    const RenderingPath prevPath = settings.Path;
+    settings.Path = RenderingPath::Deferred;
+
+    auto patternTexture = MakeSolidTexture(kSize, 200, 40, 90, 255);
+    ASSERT_NE(patternTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc sceneDesc;
+    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+    sceneDesc.Width = kSize;
+    sceneDesc.Height = kSize;
+    blackboard.Scene.SceneColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+
+    auto producer = Ref<PatternProducerPass>::Create(
+        patternTexture, blitShader, std::string(ResourceNames::SceneColor),
+        std::string(ResourceNames::SceneColorTexture),
+        [](FrameBlackboard& board) -> RGFramebufferHandle&
+        { return board.Scene.SceneColor; });
+
+    auto overlay = Ref<ForwardOverlayRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    overlay->Init(initSpec);
+    // No commands are submitted to the pass's bucket: the floor's premise.
+
+    graph.AddNode(producer);
+    graph.AddNode(overlay);
+    // The producer is the final pass: the undeclared overlay node has no
+    // edges to reach it by.
+    graph.SetFinalPass("TestPatternProducer");
+    graph.BuildFrameGraph();
+
+    SubmitFrame(
+        [&]()
+        {
+            graph.Execute();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_TRUE(producer->DidDraw);
+    EXPECT_FALSE(overlay->GetTarget()) << "an empty-bucket overlay must not resolve a target";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "ForwardOverlay resolve failure: pass='" << failure.PassName << "' reason='"
+                      << failure.Reason << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "exactly the producer's draw";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> rendered;
+    auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    const sizet centre = ((static_cast<sizet>(64) * kSize) + 64) * 4;
+    EXPECT_EQ(rendered[centre + 0], 200) << "the floored overlay must leave the scene untouched";
+    EXPECT_EQ(rendered[centre + 1], 40);
+    EXPECT_EQ(rendered[centre + 2], 90);
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+    settings.Path = prevPath;
+}
+
+// =============================================================================
+// Particle (#691 Wave C item 8), three chains:
+//
+// (a) CPU CLASSIC through the REAL ParticleRenderPass in the graph: the pass
+//     binds the scene FB, sets the LEqual/no-write depth + per-attachment
+//     alpha blend state, and runs the render callback — which drives the REAL
+//     ParticleBatchRenderer statics end to end (BeginBatch camera, Submit x2,
+//     SubmitTrailQuad, EndBatch -> Flush + FlushTrails). On Vulkan that is
+//     the V5+V6 two-stream pull (quad @57 by gl_VertexIndex, 96-byte
+//     ParticleInstance @63 by gl_InstanceIndex, EntityID int-lane bitcast)
+//     for the billboards and the V7 40-byte pull for the trail. Two
+//     billboards + one trail quad at known positions/colours probe all
+//     three streams' lane math.
+//
+// (b) WB-OIT: the same batch through OITPreparePass (clears + fallback depth
+//     seed — the item-1 tenant's machinery) + ParticleRenderPass in OIT mode:
+//     per-attachment split blend (accum additive, revealage
+//     Zero/OneMinusSrcColor). Covered pixels accumulate weight > 0 and
+//     multiply revealage to alpha = 0.5; uncovered keep the {0 / 1} clears.
+//
+// (c) GPU INDIRECT: Particle_Billboard_GPU (V5 pull + particle SSBOs 0/1/14)
+//     through DrawElementsIndirect — vkCmdDrawIndexedIndirect off a
+//     hand-seeded {6, 2, 0, 0, 0} indirect StorageBuffer, the exact
+//     RenderGPUBillboards shape. The full GPUParticleSystem sim is
+//     DISPROPORTIONATE here, deliberately: its emit/simulate/compact .comp
+//     chain drives bare uniforms through the no-op SPIR-V Set* route (the
+//     Wave B "bare uniforms -> UBO" migration owes it a dedicated slice), so
+//     the hand-seeded buffer pins the indirect-draw entry itself and the
+//     sim stays documented debt.
+// =============================================================================
+TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto patternTexture = MakeSolidTexture(kSize, 16, 16, 16, 255);
+    ASSERT_NE(patternTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    // Mid-suite the batch renderer's statics are GL currency (Renderer3D::Init
+    // owns them): tear that version down first and flag TearDown to re-init
+    // it on the restored GL backend — the amendment (34) two-way discipline
+    // (a later GL particle test writing through a shut-down InstancePtr is an
+    // AV, not a failure message).
+    if (Renderer3D::IsInitialized())
+    {
+        m_ReinitParticleBatchRendererOnTearDown = true;
+        ParticleBatchRenderer::Shutdown();
+    }
+    // The real batch-renderer statics (shaders, quad/instance/trail VBs,
+    // camera + params UBOs, white texture) come up on the Vulkan backend.
+    ParticleBatchRenderer::Init();
+
+    const Camera identityCamera(glm::mat4(1.0f));
+    const auto submitTestParticles = [&](bool withTrail)
+    {
+        // Identity projection x identity transform => world == NDC;
+        // CameraRight/Up from the transform columns = +X/+Y.
+        ParticleBatchRenderer::BeginBatch(identityCamera, glm::mat4(1.0f));
+        ParticleBatchRenderer::SetTexture(nullptr); // white fallback
+        ParticleBatchRenderer::Submit(glm::vec3(-0.5f, 0.0f, 0.0f), 0.5f, 0.0f,
+                                      glm::vec4(1.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f), 11,
+                                      glm::vec3(-0.5f, 0.0f, 0.0f), 0.5f, 0.0f);
+        ParticleBatchRenderer::Submit(glm::vec3(0.5f, 0.0f, 0.0f), 0.5f, 0.0f,
+                                      glm::vec4(0.0f, 1.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f), 12,
+                                      glm::vec3(0.5f, 0.0f, 0.0f), 0.5f, 0.0f);
+        if (withTrail)
+        {
+            const std::array<glm::vec3, 4> corners{ glm::vec3(-0.2f, -0.15f, 0.0f), glm::vec3(0.2f, -0.15f, 0.0f),
+                                                    glm::vec3(0.2f, 0.15f, 0.0f), glm::vec3(-0.2f, 0.15f, 0.0f) };
+            const std::array<glm::vec4, 4> colors{ glm::vec4(0.0f, 0.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
+                                                   glm::vec4(0.0f, 0.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f) };
+            const std::array<glm::vec2, 4> uvs{ glm::vec2(0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(1.0f),
+                                                glm::vec2(0.0f, 1.0f) };
+            ParticleBatchRenderer::SetTrailTexture(nullptr);
+            ParticleBatchRenderer::SubmitTrailQuad(corners, colors, uvs, 13);
+        }
+        ParticleBatchRenderer::EndBatch();
+    };
+
+    const auto px = [&](const std::vector<u8>& rgba, u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rgba[i], rgba[i + 1], rgba[i + 2] };
+    };
+
+    // ---- (a) classic alpha-blended path through the pass -------------------
+    {
+        FramebufferSpecification sceneSpec;
+        sceneSpec.Width = kSize;
+        sceneSpec.Height = kSize;
+        sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+        Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+        ASSERT_TRUE(sceneFramebuffer);
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc sceneDesc;
+        sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+        sceneDesc.Width = kSize;
+        sceneDesc.Height = kSize;
+        blackboard.Scene.SceneColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+
+        auto producer = Ref<PatternProducerPass>::Create(
+            patternTexture, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& board) -> RGFramebufferHandle&
+            { return board.Scene.SceneColor; });
+        producer->ClearTargetFirst = true; // depth -> 1.0: the LEqual test admits z=0 particles
+
+        auto particlePass = Ref<ParticleRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        particlePass->Init(initSpec);
+        particlePass->SetRenderCallback([&]()
+                                        { submitTestParticles(true); });
+
+        graph.AddNode(producer);
+        graph.AddNode(particlePass);
+        graph.SetFinalPass("ParticleRenderPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                RHI::Barrier toSampled{};
+                toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_TRUE(producer->DidDraw);
+        EXPECT_TRUE(particlePass->GetTarget()) << "the pass early-returned";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "Particle resolve failure: pass='" << failure.PassName << "' reason='"
+                          << failure.Reason << "' x" << failure.Count;
+        }
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u)
+            << "producer + billboard flush + trail flush";
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+        std::vector<u8> rendered;
+        auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+        ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+        ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+        // Billboards: centre +-0.5 NDC, half-size 0.25 => px 16..48 / 80..112,
+        // rows 48..80 (y-symmetric — orientation-proof). Trail: x -0.2..0.2.
+        const auto red = px(rendered, 32, 64);
+        EXPECT_EQ(red[0], 255) << "billboard 0 colour (instance lane 4..7 at stride 24 floats)";
+        EXPECT_EQ(red[1], 0);
+        EXPECT_EQ(red[2], 0);
+        const auto green = px(rendered, 96, 64);
+        EXPECT_EQ(green[0], 0);
+        EXPECT_EQ(green[1], 255) << "billboard 1 colour";
+        EXPECT_EQ(green[2], 0);
+        const auto blue = px(rendered, 64, 64);
+        EXPECT_EQ(blue[0], 0);
+        EXPECT_EQ(blue[1], 0);
+        EXPECT_EQ(blue[2], 255) << "trail quad colour (V7 lane 3..6 at stride 10 floats)";
+        const auto background = px(rendered, 5, 5);
+        EXPECT_EQ(background[0], 16) << "uncovered pixels keep the producer pattern";
+    }
+
+    // ---- (b) WB-OIT per-attachment blend variant ---------------------------
+    {
+        FramebufferSpecification sceneSpec;
+        sceneSpec.Width = kSize;
+        sceneSpec.Height = kSize;
+        sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8 }; // no depth: OITPrepare's fallback clear
+        Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+        ASSERT_TRUE(sceneFramebuffer);
+
+        FramebufferSpecification oitSpec;
+        oitSpec.Width = kSize;
+        oitSpec.Height = kSize;
+        oitSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F,
+                                FramebufferTextureFormat::Depth };
+        Ref<Framebuffer> oitFramebuffer = Framebuffer::Create(oitSpec);
+        ASSERT_TRUE(oitFramebuffer);
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc sceneDesc;
+        sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+        sceneDesc.Width = kSize;
+        sceneDesc.Height = kSize;
+        blackboard.Scene.SceneColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+
+        RGResourceDesc oitDesc;
+        oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        oitDesc.Width = kSize;
+        oitDesc.Height = kSize;
+        oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float,
+                                RGResourceFormat::Depth24Stencil8 };
+        const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc, oitFramebuffer);
+        blackboard.OIT.OITBuffer = oitHandle;
+        blackboard.OIT.OITAccum = graph.CreateFramebufferAttachmentView(ResourceNames::OITAccum, oitHandle, 0u);
+        blackboard.OIT.OITRevealage =
+            graph.CreateFramebufferAttachmentView(ResourceNames::OITRevealage, oitHandle, 1u);
+        blackboard.OIT.OITDepthAttachment =
+            graph.CreateFramebufferDepthAttachmentView(ResourceNames::OITDepthAttachment, oitHandle);
+
+        auto producer = Ref<PatternProducerPass>::Create(
+            patternTexture, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& board) -> RGFramebufferHandle&
+            { return board.Scene.SceneColor; });
+        producer->TreatAsSideEffecting = true; // the OITPrepare tenant's reachability rule
+
+        auto prepare = Ref<OITPrepareRenderPass>::Create();
+        FramebufferSpecification prepareSpec;
+        prepareSpec.Width = kSize;
+        prepareSpec.Height = kSize;
+        prepare->Init(prepareSpec);
+        prepare->SetEnabled(true);
+        prepare->SetHasContributors(true);
+
+        auto particlePass = Ref<ParticleRenderPass>::Create();
+        particlePass->Init(prepareSpec);
+        particlePass->SetOITEnabled(true);
+        particlePass->SetRenderCallback([&]()
+                                        { submitTestParticles(false); });
+
+        graph.AddNode(producer);
+        graph.AddNode(prepare);
+        graph.AddNode(particlePass);
+        graph.SetFinalPass("ParticleRenderPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                std::array<RHI::Barrier, 2> toSampled{};
+                toSampled[0].Resource = oitFramebuffer->GetColorAttachmentHandle(0);
+                toSampled[0].Before = RHI::Access::ColorAttachmentWrite;
+                toSampled[0].After = RHI::Access::ShaderSampleRead;
+                toSampled[1].Resource = oitFramebuffer->GetColorAttachmentHandle(1);
+                toSampled[1].Before = RHI::Access::ColorAttachmentWrite;
+                toSampled[1].After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+            });
+
+        EXPECT_TRUE(particlePass->GetTarget()) << "the OIT-mode pass early-returned";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "Particle OIT resolve failure: pass='" << failure.PassName << "' reason='"
+                          << failure.Reason << "' x" << failure.Count;
+        }
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+        std::vector<u8> accumBytes;
+        std::vector<u8> revealageBytes;
+        auto* vkOit = static_cast<VulkanFramebuffer*>(oitFramebuffer.Raw());
+        ASSERT_TRUE(vkOit->GetColorAttachmentImage(0)->GetData(accumBytes, 0));
+        ASSERT_TRUE(vkOit->GetColorAttachmentImage(1)->GetData(revealageBytes, 0));
+        ASSERT_EQ(accumBytes.size(), static_cast<sizet>(kSize) * kSize * 8);
+        ASSERT_EQ(revealageBytes.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+        const auto accumAt = [&](u32 x, u32 y)
+        {
+            const auto* halves = reinterpret_cast<const u16*>(accumBytes.data());
+            const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
+            return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
+                                       HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
+        };
+        const auto revealageAt = [&](u32 x, u32 y)
+        {
+            const auto* halves = reinterpret_cast<const u16*>(revealageBytes.data());
+            return HalfToFloat(halves[(static_cast<sizet>(y) * kSize + x) * 2]);
+        };
+
+        // Alpha-1 particles: revealage dst *= (1 - 1) => exactly 0 where
+        // covered; accum takes colour * weight (weight's magnitude is the
+        // OITCommon curve — assert sign/field, not the constant).
+        const auto redAccum = accumAt(32, 64);
+        EXPECT_GT(redAccum[0], 0.5f) << "covered accum must accumulate red * weight";
+        EXPECT_NEAR(redAccum[1], 0.0f, 1e-3f);
+        EXPECT_GT(redAccum[3], 0.5f) << "covered accum alpha must accumulate alpha * weight";
+        EXPECT_NEAR(revealageAt(32, 64), 0.0f, 1e-3f) << "alpha-1 coverage zeroes revealage";
+        const auto greenAccum = accumAt(96, 64);
+        EXPECT_GT(greenAccum[1], 0.5f) << "covered accum must accumulate green * weight";
+        EXPECT_NEAR(greenAccum[0], 0.0f, 1e-3f);
+
+        EXPECT_NEAR(accumAt(64, 8)[3], 0.0f, 1e-3f) << "uncovered accum keeps the (0,0,0,0) clear";
+        EXPECT_NEAR(revealageAt(64, 8), 1.0f, 1e-3f) << "uncovered revealage keeps the 1.0 clear";
+    }
+
+    // ---- (c) GPU-driven indirect draw --------------------------------------
+    {
+        auto gpuShader = Shader::Create("assets/shaders/Particle_Billboard_GPU.glsl");
+        ASSERT_TRUE(gpuShader);
+        ASSERT_EQ(gpuShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+        // The RenderGPUBillboards VAO shape: unit quad + index buffer, no
+        // instance stream (particle data rides the SSBOs).
+        const f32 gpuQuad[] = { -0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f };
+        u32 gpuIndices[] = { 0u, 1u, 2u, 2u, 3u, 0u };
+        auto gpuVao = VertexArray::Create();
+        auto gpuQuadVB = VertexBuffer::Create(gpuQuad, sizeof(gpuQuad));
+        gpuQuadVB->SetLayout({ { ShaderDataType::Float2, "a_QuadPos" } });
+        gpuVao->AddVertexBuffer(gpuQuadVB);
+        gpuVao->SetIndexBuffer(IndexBuffer::Create(gpuIndices, 6));
+
+        struct GpuParticle
+        {
+            glm::vec4 PositionLifetime;
+            glm::vec4 VelocityMaxLifetime;
+            glm::vec4 Color;
+            glm::vec4 InitialColor;
+            glm::vec4 InitialVelocitySize;
+            glm::vec4 Misc; // x = initial size, y = rotation, z = alive, w = entityID
+        };
+        std::array<GpuParticle, 2> particles{};
+        particles[0].PositionLifetime = { -0.5f, 0.0f, 0.0f, 1.0f };
+        particles[0].InitialVelocitySize = { 0.0f, 0.0f, 0.0f, 0.5f };
+        particles[0].Color = { 1.0f, 0.0f, 0.0f, 1.0f };
+        particles[0].Misc = { 0.5f, 0.0f, 1.0f, 21.0f };
+        particles[1] = particles[0];
+        particles[1].PositionLifetime.x = 0.5f;
+        particles[1].Color = { 0.0f, 1.0f, 0.0f, 1.0f };
+        particles[1].Misc.w = 22.0f;
+        auto particleSSBO = StorageBuffer::Create(sizeof(particles), 0);
+        particleSSBO->SetData(particles.data(), sizeof(particles));
+        particleSSBO->Bind();
+
+        const u32 aliveIndices[2] = { 0u, 1u };
+        auto aliveSSBO = StorageBuffer::Create(sizeof(aliveIndices), 1);
+        aliveSSBO->SetData(aliveIndices, sizeof(aliveIndices));
+        aliveSSBO->Bind();
+
+        struct PrevParticle
+        {
+            glm::vec4 Position;
+            glm::vec4 RotationSize;
+        };
+        std::array<PrevParticle, 2> prevData{};
+        prevData[0].Position = particles[0].PositionLifetime;
+        prevData[0].RotationSize = { 0.0f, 0.5f, 0.0f, 0.0f };
+        prevData[1].Position = particles[1].PositionLifetime;
+        prevData[1].RotationSize = { 0.0f, 0.5f, 0.0f, 0.0f };
+        auto prevSSBO = StorageBuffer::Create(sizeof(prevData), 14);
+        prevSSBO->SetData(prevData.data(), sizeof(prevData));
+        prevSSBO->Bind();
+
+        // Hand-seeded DrawElementsIndirectCommand == VkDrawIndexedIndirectCommand.
+        const u32 indirectArgs[8] = { 6u, 2u, 0u, 0u, 0u, 0u, 0u, 0u };
+        auto indirectSSBO = StorageBuffer::Create(sizeof(indirectArgs), 30);
+        indirectSSBO->SetData(indirectArgs, sizeof(indirectArgs));
+
+        // Camera + particle params: the GPU shader shares the classic camera
+        // block layout (engine CameraUBO prefix) and ParticleParams@2.
+        ShaderBindingLayout::CameraUBO cameraData{};
+        cameraData.ViewProjection = glm::mat4(1.0f);
+        cameraData.View = glm::mat4(1.0f);
+        cameraData.Projection = glm::mat4(1.0f);
+        cameraData.PrevViewProjection = glm::mat4(1.0f);
+        auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(),
+                                               ShaderBindingLayout::UBO_CAMERA);
+        cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+        struct ParticleParamsBlock
+        {
+            glm::vec3 CameraRight{ 1.0f, 0.0f, 0.0f };
+            f32 _pad0 = 0.0f;
+            glm::vec3 CameraUp{ 0.0f, 1.0f, 0.0f };
+            i32 HasTexture = 0;
+            i32 SoftParticlesEnabled = 0;
+            f32 SoftParticleDistance = 1.0f;
+            f32 NearClip = 0.1f;
+            f32 FarClip = 1000.0f;
+            glm::vec2 ViewportSize{ static_cast<f32>(kSize), static_cast<f32>(kSize) };
+            f32 _pad1[2]{};
+        } particleParams;
+        auto paramsUbo = UniformBuffer::Create(sizeof(ParticleParamsBlock), 2);
+        paramsUbo->SetData(&particleParams, sizeof(particleParams));
+
+        auto whiteTexture = MakeSolidTexture(4, 255, 255, 255, 255);
+        ASSERT_TRUE(whiteTexture);
+
+        FramebufferSpecification outSpec;
+        outSpec.Width = kSize;
+        outSpec.Height = kSize;
+        outSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+        Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outSpec);
+        ASSERT_TRUE(outputFramebuffer);
+
+        SubmitFrame(
+            [&]()
+            {
+                outputFramebuffer->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                RenderCommand::Clear();
+                RenderCommand::SetDepthTest(false);
+                RenderCommand::SetDepthMask(false);
+                RenderCommand::SetBlendState(false);
+                RenderCommand::DisableCulling();
+
+                gpuShader->Bind();
+                RenderCommand::BindTexture(0, whiteTexture->GetRHIHandle());
+                RenderCommand::BindTexture(1, whiteTexture->GetRHIHandle());
+                gpuVao->Bind();
+                RenderCommand::DrawElementsIndirect(gpuVao, indirectSSBO->GetRHIHandle());
+
+                RHI::Barrier toSampled{};
+                toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "the one indirect draw";
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+        std::vector<u8> rendered;
+        auto* vkOut = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+        ASSERT_TRUE(vkOut->GetColorAttachmentImage(0)->GetData(rendered, 0));
+
+        const auto red = px(rendered, 32, 64);
+        EXPECT_EQ(red[0], 255) << "GPU particle 0 (SSBO-sourced) through vkCmdDrawIndexedIndirect";
+        EXPECT_EQ(red[1], 0);
+        const auto green = px(rendered, 96, 64);
+        EXPECT_EQ(green[1], 255) << "GPU particle 1: the indirect instanceCount drives both instances";
+        EXPECT_EQ(green[0], 0);
+        const auto background = px(rendered, 64, 5);
+        EXPECT_EQ(background[0], 0) << "uncovered pixels keep the clear";
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "DrawElementsIndirect + the pull streams must be real, not stubs";
+
+    // Batch-renderer statics hold Vulkan buffers/shaders — release before the
+    // fixture tears the device down.
+    vkDeviceWaitIdle(m_Device->GetDevice());
+    ParticleBatchRenderer::Shutdown();
 }
 
 #endif // OLO_WITH_VULKAN

@@ -14,6 +14,33 @@ namespace OloEngine::VulkanBarrierLowering
                    aspect == RHI::TextureAspect::DepthStencil;
         }
 
+        // RenderGraph's framebuffer fan-out (BuildRHIBarriers) re-uses ONE
+        // access prototype for EVERY attachment of the framebuffer — the
+        // depth attachment included — and documents that "the backend
+        // derives each attachment's aspect/layout from its own image
+        // format". Honour that contract here: an attachment access arriving
+        // with a depth-like aspect IS the depth-stencil attachment access in
+        // disguise, and remapping the enum (instead of special-casing each
+        // switch) keeps LowerAccess and LayoutFor consistent by
+        // construction. Lowered aspect-blind, a graph WAW between two
+        // passes writing the same depth-carrying framebuffer emitted
+        // COLOR_ATTACHMENT_OPTIMAL on the depth image — illegal without
+        // COLOR_ATTACHMENT usage (VUID-VkImageMemoryBarrier2-oldLayout-
+        // 01208) — and then poisoned the layout tracker so the next
+        // scope-open emitted the inverse oldLayout error (found by the
+        // pass-suite ShaderDebugDraw/Particle tenants, #691 Wave C).
+        [[nodiscard]] RHI::Access NormalizeAttachmentAccessForAspect(const RHI::Access access,
+                                                                     const RHI::TextureAspect aspect)
+        {
+            if (!IsDepthLikeAspect(aspect))
+                return access;
+            if (access == RHI::Access::ColorAttachmentRead)
+                return RHI::Access::DepthStencilAttachmentRead;
+            if (access == RHI::Access::ColorAttachmentWrite)
+                return RHI::Access::DepthStencilAttachmentWrite;
+            return access;
+        }
+
         // The shader-stage union one lane's shader access can touch. The
         // Graphics union includes COMPUTE deliberately — this engine's
         // Graphics-work-type passes dispatch compute mid-pass (bloom chain,
@@ -45,7 +72,7 @@ namespace OloEngine::VulkanBarrierLowering
 
     StageAccess LowerAccess(const RHI::Access access, const RHI::QueueType queue, const RHI::TextureAspect aspect)
     {
-        switch (access)
+        switch (NormalizeAttachmentAccessForAspect(access, aspect))
         {
             case RHI::Access::Undefined:
                 // No prior access to make available — pairs with an UNDEFINED
@@ -119,7 +146,7 @@ namespace OloEngine::VulkanBarrierLowering
 
     VkImageLayout LayoutFor(const RHI::Access access, const RHI::TextureAspect aspect, const bool readWhileAttached)
     {
-        switch (access)
+        switch (NormalizeAttachmentAccessForAspect(access, aspect))
         {
             case RHI::Access::Undefined:
                 return VK_IMAGE_LAYOUT_UNDEFINED;

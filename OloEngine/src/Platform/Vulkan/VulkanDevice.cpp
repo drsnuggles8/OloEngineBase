@@ -396,6 +396,15 @@ namespace OloEngine
         vulkan12Features.bufferDeviceAddress = VK_TRUE;
         vulkan12Features.pNext = &vulkan13Features;
 
+        // #691 Phase 7 Wave C: shaderDrawParameters backs the SPIR-V
+        // DrawParameters capability (gl_DrawID / gl_BaseInstance — the
+        // virtual-geometry MDI shaders). Promoted to Vulkan11Features and
+        // enabled WHEN SUPPORTED (never a gate row); drawIndirectCount (set
+        // below from the same probe) gates vkCmdDrawIndexedIndirectCount.
+        VkPhysicalDeviceVulkan11Features vulkan11Features{};
+        vulkan11Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+        vulkan11Features.pNext = &vulkan12Features;
+
         std::vector<const char*> deviceExtensions = VulkanCapabilities::RequiredDeviceExtensions();
 
         // VK_EXT_extended_dynamic_state3: OPTIONAL (ADR 0011 §5 — dynamic blend
@@ -434,7 +443,7 @@ namespace OloEngine
             eds3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
             eds3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
             eds3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
-            eds3Features.pNext = &vulkan12Features;
+            eds3Features.pNext = &vulkan11Features;
         }
         // m_DynamicBlendStateEnabled is committed AFTER vkCreateDevice
         // succeeds (below): the flag must describe the LOGICAL device's
@@ -454,8 +463,18 @@ namespace OloEngine
         VkPhysicalDeviceFeatures enabledFeatures{};
         enabledFeatures.tessellationShader = supported.tessellationShader;
         enabledFeatures.geometryShader = supported.geometryShader;
+        // multiDrawIndirect: maxDrawCount > 1 on vkCmdDrawIndexedIndirectCount
+        // requires the feature (#691 Phase 7 Wave C, same when-supported rule).
+        enabledFeatures.multiDrawIndirect = supported.multiDrawIndirect;
+        // Vertex-stage SSBO writes (ShaderDebugDraw's channel buffers) and
+        // fragment-stage storage images (VirtualGeometry's debug images) are
+        // rejected at pipeline creation without these two core features
+        // (#691 Phase 7 Wave C batch 2, when-supported rule as above).
+        enabledFeatures.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;
+        enabledFeatures.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
         m_TessellationShaderEnabled = supported.tessellationShader == VK_TRUE;
         m_GeometryShaderEnabled = supported.geometryShader == VK_TRUE;
+        m_MultiDrawIndirectEnabled = supported.multiDrawIndirect == VK_TRUE;
 
         // shaderBufferInt64Atomics: the facade REPORTS this capability
         // (SupportsInt64ShaderAtomics feeds the virtual-geometry software
@@ -464,17 +483,29 @@ namespace OloEngine
         // never required — set on vulkan12Features (see the comment there).
         VkPhysicalDeviceShaderAtomicInt64Features supportedAtomics{};
         supportedAtomics.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
+        // Probe the promoted 1.1/1.2 feature structs in the same query:
+        // shaderDrawParameters (1.1) + drawIndirectCount (1.2), see above.
+        VkPhysicalDeviceVulkan11Features supported11{};
+        supported11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+        supported11.pNext = &supportedAtomics;
+        VkPhysicalDeviceVulkan12Features supported12{};
+        supported12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        supported12.pNext = &supported11;
         VkPhysicalDeviceFeatures2 supportedFeatures2{};
         supportedFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-        supportedFeatures2.pNext = &supportedAtomics;
+        supportedFeatures2.pNext = &supported12;
         vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supportedFeatures2);
         vulkan12Features.shaderBufferInt64Atomics = supportedAtomics.shaderBufferInt64Atomics;
         m_ShaderBufferInt64AtomicsEnabled = supportedAtomics.shaderBufferInt64Atomics == VK_TRUE;
+        vulkan12Features.drawIndirectCount = supported12.drawIndirectCount;
+        m_DrawIndirectCountEnabled = supported12.drawIndirectCount == VK_TRUE;
+        vulkan11Features.shaderDrawParameters = supported11.shaderDrawParameters;
+        m_ShaderDrawParametersEnabled = supported11.shaderDrawParameters == VK_TRUE;
 
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         deviceInfo.pNext = wantDynamicBlend ? static_cast<void*>(&eds3Features)
-                                            : static_cast<void*>(&vulkan12Features);
+                                            : static_cast<void*>(&vulkan11Features);
         deviceInfo.queueCreateInfoCount = 1;
         deviceInfo.pQueueCreateInfos = &queueInfo;
         deviceInfo.enabledExtensionCount = static_cast<u32>(deviceExtensions.size());

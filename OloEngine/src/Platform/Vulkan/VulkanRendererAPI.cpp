@@ -1429,24 +1429,112 @@ namespace OloEngine
         Phase6Stub("ClearStencil");
     }
 
-    void VulkanRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& /*vertexArray*/, RHI::ResourceHandle /*indirectBuffer*/)
+    // --- Indirect draws (#691 Phase 7 Wave C) ------------------------------
+    //
+    // GL's Draw*Indirect commands read the same POD layouts Vulkan defines
+    // (DrawArraysIndirectCommand == VkDrawIndirectCommand,
+    // DrawElementsIndirectCommand == VkDrawIndexedIndirectCommand, field for
+    // field), so the buffers pass through untranslated. The producers are
+    // shader atomics or CPU SetData; the facade's MemoryBarrier(Command)
+    // lowers to the conservative global barrier, whose ALL_COMMANDS /
+    // MEMORY_READ scopes cover DRAW_INDIRECT + INDIRECT_COMMAND_READ.
+
+    VkBuffer VulkanRendererAPI::ResolveIndirectBuffer(const RHI::ResourceHandle indirectBuffer, const char* entryPoint) const
     {
-        Phase6Stub("DrawElementsIndirect");
+        // Every Vulkan-backend buffer registers its VkBuffer as the identity's
+        // native (VulkanStorageBuffer / VulkanVertexBuffer / the raw-buffer
+        // registry all Sync it), so generic resolution covers them all.
+        if (RHI::ResourceRegistry::Get().KindOf(indirectBuffer) != RHI::ResourceKind::Buffer)
+        {
+            Phase6Stub(entryPoint);
+            return VK_NULL_HANDLE;
+        }
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(indirectBuffer);
+        if (native == 0u)
+        {
+            Phase6Stub(entryPoint);
+            return VK_NULL_HANDLE;
+        }
+        return reinterpret_cast<VkBuffer>(native);
     }
 
-    void VulkanRendererAPI::DrawArraysIndirect(const Ref<VertexArray>& /*vertexArray*/, RHI::ResourceHandle /*indirectBuffer*/)
+    void VulkanRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
-        Phase6Stub("DrawArraysIndirect");
+        const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawElementsIndirect(unresolvable indirect buffer)");
+        if (indirect == VK_NULL_HANDLE)
+            return;
+        const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
+        {
+            vkCmdDrawIndexedIndirect(m_Cmd, indirect, 0, 1, 0);
+        }
     }
 
-    void VulkanRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle /*indirectBuffer*/)
+    void VulkanRendererAPI::DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
-        Phase6Stub("DrawBoundElementsIndirect");
+        const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawArraysIndirect(unresolvable indirect buffer)");
+        if (indirect == VK_NULL_HANDLE)
+            return;
+        const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+        {
+            vkCmdDrawIndirect(m_Cmd, indirect, 0, 1, 0);
+        }
     }
 
-    void VulkanRendererAPI::MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle /*vertexArray*/, RHI::ResourceHandle /*indirectBuffer*/, u32 /*indirectOffsetBytes*/, RHI::ResourceHandle /*parameterBuffer*/, u32 /*parameterOffsetBytes*/, u32 /*maxDrawCount*/, u32 /*strideBytes*/)
+    void VulkanRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer)
     {
-        Phase6Stub("MultiDrawElementsIndirectCountRaw");
+        const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawBoundElementsIndirect(unresolvable indirect buffer)");
+        if (indirect == VK_NULL_HANDLE)
+            return;
+        if (PrepareDraw(m_BoundVertexArray, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(m_BoundVertexArray))
+        {
+            vkCmdDrawIndexedIndirect(m_Cmd, indirect, 0, 1, 0);
+        }
+    }
+
+    void VulkanRendererAPI::MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer, u32 indirectOffsetBytes, RHI::ResourceHandle parameterBuffer, u32 parameterOffsetBytes, u32 maxDrawCount, u32 strideBytes)
+    {
+        if (maxDrawCount == 0)
+            return; // GL twin's early-out: nothing to draw
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
+        {
+            Phase6Stub("MultiDrawElementsIndirectCountRaw(unresolvable vertex array)");
+            return;
+        }
+        const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "MultiDrawElementsIndirectCountRaw(unresolvable indirect buffer)");
+        const VkBuffer parameter = ResolveIndirectBuffer(parameterBuffer, "MultiDrawElementsIndirectCountRaw(unresolvable parameter buffer)");
+        if (indirect == VK_NULL_HANDLE || parameter == VK_NULL_HANDLE)
+            return;
+
+        // vkCmdDrawIndexedIndirectCount is core 1.2 but feature-gated
+        // (drawIndirectCount), and maxDrawCount > 1 additionally needs
+        // multiDrawIndirect — both enabled-when-supported at device init.
+        // Universal on the ADR 0010 desktop floor; a device without them
+        // drops the draw LOUDLY rather than faking it with a CPU loop over a
+        // count the CPU cannot read.
+        const auto* device = VulkanDevice::Get();
+        if (device == nullptr || !device->IsDrawIndirectCountEnabled() ||
+            (maxDrawCount > 1 && !device->IsMultiDrawIndirectEnabled()))
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_ERROR("[RHI/Vulkan] MultiDrawElementsIndirectCountRaw needs drawIndirectCount"
+                               "/multiDrawIndirect, which this device did not enable — draw dropped");
+            }
+            ++m_DroppedDrawsThisRecording;
+            return;
+        }
+
+        const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
+        {
+            vkCmdDrawIndexedIndirectCount(m_Cmd, indirect, indirectOffsetBytes, parameter, parameterOffsetBytes,
+                                          maxDrawCount, strideBytes);
+        }
     }
 
     void VulkanRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
@@ -1929,6 +2017,15 @@ namespace OloEngine
 
     void VulkanRendererAPI::BindShaderProgram(RHI::ResourceHandle program)
     {
+        // The null handle is glUseProgram(0): several passes unbind their
+        // program at exit (ShaderDebugDraw / ForwardOverlay state hygiene) —
+        // an unbind, not an unresolvable bind (#691 Wave C).
+        if (!program.IsValid())
+        {
+            if (auto* bound = VulkanShader::GetCurrentlyBound(); bound != nullptr)
+                bound->Unbind();
+            return;
+        }
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(program);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::Shader)
         {
@@ -2245,9 +2342,12 @@ namespace OloEngine
         }
     }
 
-    void VulkanRendererAPI::AllocateBufferStorage(RHI::ResourceHandle /*buffer*/, u64 /*sizeBytes*/, RHI::MemoryResidency /*residency*/)
+    void VulkanRendererAPI::AllocateBufferStorage(RHI::ResourceHandle buffer, u64 sizeBytes, RHI::MemoryResidency residency)
     {
-        Phase6Stub("AllocateBufferStorage");
+        // Raw-handle family only (CreateBufferHandle mints these). An
+        // object-backed buffer sizes itself; GL's glNamedBufferData shape has
+        // no other Vulkan tenant.
+        VulkanRawBufferRegistry::Get().Allocate(buffer, sizeBytes, residency);
     }
 
     void* VulkanRendererAPI::AllocatePersistentUploadStorage(RHI::ResourceHandle /*buffer*/, u64 /*sizeBytes*/)
@@ -2266,14 +2366,111 @@ namespace OloEngine
         Phase6Stub("UploadBufferSubData");
     }
 
-    void VulkanRendererAPI::ReadBufferSubData(RHI::ResourceHandle /*buffer*/, u64 /*offsetBytes*/, u64 /*sizeBytes*/, void* /*dest*/)
+    void VulkanRendererAPI::ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)
     {
-        Phase6Stub("ReadBufferSubData");
+        if (dest == nullptr || sizeBytes == 0)
+            return;
+
+        // The production consumer is the readback-ring shape (A7): a
+        // DeviceToHost raw buffer written by a PRIOR frame's CopyBufferSubData
+        // whose submission has already fence-waited — the fence signal makes
+        // device writes available, host-coherent memory makes them visible,
+        // so the read is a plain memcpy off the persistent mapping.
+        if (auto* raw = VulkanRawBufferRegistry::Get().Lookup(buffer); raw != nullptr)
+        {
+            if (raw->Mapped == nullptr || offsetBytes + sizeBytes > raw->Size)
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] ReadBufferSubData: unmapped raw buffer or out-of-range read "
+                              "({}+{} of {}) — zero-filled",
+                              offsetBytes, sizeBytes, raw->Size);
+                std::memset(dest, 0, sizeBytes);
+                return;
+            }
+            if (!raw->Coherent)
+            {
+                vmaInvalidateAllocation(VulkanDevice::Get()->GetAllocator(), raw->Allocation, offsetBytes, sizeBytes);
+            }
+            std::memcpy(dest, static_cast<const u8*>(raw->Mapped) + offsetBytes, sizeBytes);
+            return;
+        }
+
+        // Object-backed fallback: a StorageBuffer identity read through the
+        // facade (GL's glGetNamedBufferSubData is buffer-generic). GetData
+        // runs a blocking one-shot copy with its own availability barrier.
+        if (const auto* entry = VulkanRootObjectRegistry::Get().Lookup(buffer);
+            entry != nullptr && entry->Kind == VulkanRootObjectKind::StorageBuffer)
+        {
+            static_cast<VulkanStorageBuffer*>(entry->Object)
+                ->GetData(dest, static_cast<u32>(sizeBytes), static_cast<u32>(offsetBytes));
+            return;
+        }
+
+        Phase6Stub("ReadBufferSubData(unresolvable buffer)");
+        std::memset(dest, 0, sizeBytes);
     }
 
-    void VulkanRendererAPI::CopyBufferSubData(RHI::ResourceHandle /*srcBuffer*/, RHI::ResourceHandle /*dstBuffer*/, u64 /*srcOffsetBytes*/, u64 /*dstOffsetBytes*/, u64 /*sizeBytes*/)
+    void VulkanRendererAPI::CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer, u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes)
     {
-        Phase6Stub("CopyBufferSubData");
+        if (sizeBytes == 0)
+            return;
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("CopyBufferSubData(outside recording bracket)");
+            return;
+        }
+
+        auto& registry = RHI::ResourceRegistry::Get();
+        const u64 srcNative = registry.KindOf(srcBuffer) == RHI::ResourceKind::Buffer
+                                  ? registry.ResolveNativeForBackend(srcBuffer)
+                                  : 0u;
+        const u64 dstNative = registry.KindOf(dstBuffer) == RHI::ResourceKind::Buffer
+                                  ? registry.ResolveNativeForBackend(dstBuffer)
+                                  : 0u;
+        if (srcNative == 0u || dstNative == 0u)
+        {
+            Phase6Stub("CopyBufferSubData(unresolvable buffer)");
+            return;
+        }
+        const auto src = reinterpret_cast<VkBuffer>(srcNative);
+        const auto dst = reinterpret_cast<VkBuffer>(dstNative);
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        // No per-buffer state tracking exists (ADR 0011 §1.5's GL-shaped
+        // barrier model), so bracket the copy conservatively: make every
+        // prior write available to the copy, then the copy's write available
+        // to every later consumer INCLUDING the host (the readback ring's
+        // ReadBufferSubData memcpy next frame — fence-wait handles ordering,
+        // the HOST access flag makes the availability explicit for sync
+        // validation).
+        const auto globalBarrier = [&](VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                                       VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess)
+        {
+            VkMemoryBarrier2 barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = srcStage & m_EnabledStageMask;
+            barrier.srcAccessMask = srcAccess;
+            barrier.dstStageMask = dstStage & m_EnabledStageMask;
+            barrier.dstAccessMask = dstAccess;
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.memoryBarrierCount = 1;
+            dep.pMemoryBarriers = &barrier;
+            vkCmdPipelineBarrier2(m_Cmd, &dep);
+        };
+        globalBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+        VkBufferCopy region{};
+        region.srcOffset = srcOffsetBytes;
+        region.dstOffset = dstOffsetBytes;
+        region.size = sizeBytes;
+        vkCmdCopyBuffer(m_Cmd, src, dst, 1, &region);
+
+        globalBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
+                      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_HOST_READ_BIT);
     }
 
     RHI::ResourceHandle VulkanRendererAPI::CreateTexture2DHandle(u32 /*width*/, u32 /*height*/, RHI::Format /*internalFormat*/)
@@ -2296,8 +2493,7 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanRendererAPI::CreateBufferHandle()
     {
-        Phase6Stub("CreateBufferHandle");
-        return {};
+        return VulkanRawBufferRegistry::Get().CreateHandle();
     }
 
     RHI::ResourceHandle VulkanRendererAPI::CreateVertexArrayHandle()
@@ -2316,9 +2512,19 @@ namespace OloEngine
         Phase6Stub("DeleteFramebuffer");
     }
 
-    void VulkanRendererAPI::DeleteBuffer(RHI::ResourceHandle /*buffer*/)
+    void VulkanRendererAPI::DeleteBuffer(RHI::ResourceHandle buffer)
     {
-        Phase6Stub("DeleteBuffer");
+        // Raw-handle family only: object-backed buffers die with their C++
+        // object. Kind-guarded like the GL twin — a live handle of the wrong
+        // family names someone else's resource.
+        if (RHI::ResourceRegistry::Get().KindOf(buffer) != RHI::ResourceKind::Buffer)
+            return;
+        if (VulkanRawBufferRegistry::Get().Lookup(buffer) == nullptr)
+        {
+            Phase6Stub("DeleteBuffer(not a raw-registry buffer)");
+            return;
+        }
+        VulkanRawBufferRegistry::Get().Destroy(buffer);
     }
 
     void VulkanRendererAPI::DeleteVertexArray(RHI::ResourceHandle /*vertexArray*/)
@@ -2360,7 +2566,32 @@ namespace OloEngine
 
     void VulkanRendererAPI::TextureBarrier()
     {
-        Phase6Stub("TextureBarrier");
+        // glTextureBarrier orders framebuffer writes against texture fetches
+        // OF THE SAME TEXTURE (the VirtualGeometryPass phase-2 shape: draw
+        // depth, then sample it for the Hi-Z rebuild). The call carries no
+        // resource identity, so it lowers exactly like the flags-only
+        // MemoryBarrier: end the rendering scope (attachment writes retire
+        // with it) + one conservative global barrier. Layout transitions stay
+        // the callers' IssueBarrierBatch/tracker business — GL's glTextureBarrier
+        // has no layout concept either, so no caller expects one here.
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("TextureBarrier(outside recording bracket)");
+            return;
+        }
+        EndRenderingScope();
+
+        VkMemoryBarrier2 barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        barrier.srcStageMask = kAllStages;
+        barrier.srcAccessMask = kAllAccess;
+        barrier.dstStageMask = kAllStages;
+        barrier.dstAccessMask = kAllAccess;
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(m_Cmd, &dep);
     }
 
     void VulkanRendererAPI::CreateQueries(RHI::QueryType /*type*/, std::span<RHI::ResourceHandle> /*outQueries*/)

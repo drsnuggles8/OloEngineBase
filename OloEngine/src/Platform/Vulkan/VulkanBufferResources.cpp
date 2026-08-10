@@ -126,6 +126,129 @@ namespace OloEngine
     }
 
     // =========================================================================
+    // VulkanRawBufferRegistry
+    // =========================================================================
+
+    VulkanRawBufferRegistry& VulkanRawBufferRegistry::Get()
+    {
+        static auto* s_Instance = new VulkanRawBufferRegistry(); // deliberately leaked
+        return *s_Instance;
+    }
+
+    RHI::ResourceHandle VulkanRawBufferRegistry::CreateHandle()
+    {
+        const RHI::ResourceHandle handle =
+            RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Buffer, 0u, RHI::Backend::Vulkan);
+        if (handle.IsValid())
+        {
+            m_Entries.emplace(Key(handle), Entry{});
+        }
+        return handle;
+    }
+
+    void VulkanRawBufferRegistry::Allocate(RHI::ResourceHandle handle, u64 sizeBytes, RHI::MemoryResidency residency)
+    {
+        auto* entry = Lookup(handle);
+        if (entry == nullptr)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] AllocateBufferStorage on a handle CreateBufferHandle never minted — ignored");
+            return;
+        }
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] AllocateBufferStorage with no live VulkanDevice — ignored");
+            return;
+        }
+
+        // glNamedBufferData orphaning semantics: a re-allocate retires the old
+        // storage (prior frames may still read it) and mints fresh storage
+        // under the SAME identity.
+        if (entry->Buffer != VK_NULL_HANDLE || entry->Allocation != VK_NULL_HANDLE)
+        {
+            VulkanDeferredReclaim::Get().Enqueue(entry->Buffer, entry->Allocation);
+            *entry = Entry{};
+        }
+
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = std::max<VkDeviceSize>(sizeBytes, 1u);
+        // The GL twin's raw buffers serve as SSBO scratch, copy endpoints and
+        // indirect-args storage interchangeably; one conservative usage set
+        // keeps the facade's "a buffer is a buffer" contract.
+        bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                           VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        switch (residency)
+        {
+            case RHI::MemoryResidency::DeviceToHost:
+                // The readback-ring case: HOST_VISIBLE + persistently mapped;
+                // RANDOM access because the consumer reads it back field-wise.
+                allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                break;
+            case RHI::MemoryResidency::HostToDevice:
+                allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                                  VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                                  VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                break;
+            case RHI::MemoryResidency::DeviceLocal:
+                break;
+        }
+
+        VmaAllocationInfo outInfo{};
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VmaAllocation allocation = VK_NULL_HANDLE;
+        if (vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &buffer, &allocation, &outInfo) !=
+            VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] AllocateBufferStorage: vmaCreateBuffer({} bytes) failed", sizeBytes);
+            return;
+        }
+
+        entry->Buffer = buffer;
+        entry->Allocation = allocation;
+        entry->Size = sizeBytes;
+        entry->Residency = residency;
+        entry->Mapped = nullptr;
+        entry->Coherent = true;
+        VkMemoryPropertyFlags memProps = 0;
+        vmaGetAllocationMemoryProperties(device->GetAllocator(), allocation, &memProps);
+        if ((memProps & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0)
+        {
+            entry->Mapped = outInfo.pMappedData;
+            entry->Coherent = (memProps & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
+        }
+
+        // Keep generic native resolution working (CopyBufferSubData's operands
+        // and barrier lowering resolve through the identity registry).
+        RHI::ResourceRegistry::Get().UpdateNative(handle, VkHandleToU64(buffer));
+    }
+
+    VulkanRawBufferRegistry::Entry* VulkanRawBufferRegistry::Lookup(RHI::ResourceHandle handle)
+    {
+        const auto it = m_Entries.find(Key(handle));
+        return it != m_Entries.end() ? &it->second : nullptr;
+    }
+
+    void VulkanRawBufferRegistry::Destroy(RHI::ResourceHandle handle)
+    {
+        const auto it = m_Entries.find(Key(handle));
+        if (it == m_Entries.end())
+        {
+            return;
+        }
+        if (it->second.Buffer != VK_NULL_HANDLE || it->second.Allocation != VK_NULL_HANDLE)
+        {
+            VulkanDeferredReclaim::Get().Enqueue(it->second.Buffer, it->second.Allocation);
+        }
+        m_Entries.erase(it);
+        RHI::ResourceRegistry::Get().Unregister(handle);
+    }
+
+    // =========================================================================
     // VulkanUniformBuffer
     // =========================================================================
 

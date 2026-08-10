@@ -106,6 +106,62 @@ namespace OloEngine
     };
 
     // -------------------------------------------------------------------------
+    // VulkanRawBufferRegistry — the object-less buffer family behind the
+    // CreateBufferHandle / AllocateBufferStorage / ReadBufferSubData /
+    // DeleteBuffer facade entries (#691 Phase 7 Wave C).
+    //
+    // GL's shape is a bare glCreateBuffers name whose storage is allocated
+    // later by glNamedBufferData; production consumers are readback staging
+    // rings (ShaderDebugDraw's per-channel DeviceToHost header copies) and
+    // GPU-written scratch. There is no engine-side C++ object to hang the
+    // VkBuffer off, so this side table owns {VkBuffer, VmaAllocation, mapping}
+    // keyed by the minted handle. The handle's registry native is kept in sync
+    // (0 until AllocateBufferStorage creates storage, the VkBuffer after), so
+    // generic native resolution (CopyBufferSubData, barrier lowering) works on
+    // raw buffers exactly as on object-backed ones.
+    //
+    // Render-thread only, same as everything else here.
+    // -------------------------------------------------------------------------
+    class VulkanRawBufferRegistry
+    {
+      public:
+        struct Entry
+        {
+            VkBuffer Buffer = VK_NULL_HANDLE;
+            VmaAllocation Allocation = VK_NULL_HANDLE;
+            void* Mapped = nullptr; ///< Non-null for host-visible residencies.
+            bool Coherent = true;
+            u64 Size = 0;
+            RHI::MemoryResidency Residency = RHI::MemoryResidency::DeviceLocal;
+        };
+
+        [[nodiscard]] static VulkanRawBufferRegistry& Get();
+
+        // Mints the identity (registry native = 0 until storage exists).
+        [[nodiscard]] RHI::ResourceHandle CreateHandle();
+        // (Re)creates the VMA buffer at `sizeBytes` for `residency`
+        // (DeviceToHost => HOST_VISIBLE mapped, the readback-ring case). An
+        // existing buffer goes through VulkanDeferredReclaim — GL's
+        // glNamedBufferData orphaning semantics.
+        void Allocate(RHI::ResourceHandle handle, u64 sizeBytes, RHI::MemoryResidency residency);
+        // Null when the handle was never minted here (or is stale).
+        [[nodiscard]] Entry* Lookup(RHI::ResourceHandle handle);
+        // Deferred-reclaims the buffer, unregisters the identity, drops the
+        // entry. Safe on foreign/stale handles (no-op).
+        void Destroy(RHI::ResourceHandle handle);
+
+      private:
+        VulkanRawBufferRegistry() = default;
+
+        [[nodiscard]] static u64 Key(RHI::ResourceHandle handle)
+        {
+            return (static_cast<u64>(handle.Generation) << 32) | handle.Index;
+        }
+
+        std::unordered_map<u64, Entry> m_Entries;
+    };
+
+    // -------------------------------------------------------------------------
     // VulkanUniformBuffer — arena-versioned uniform data, no VkBuffer of its
     // own.
     //

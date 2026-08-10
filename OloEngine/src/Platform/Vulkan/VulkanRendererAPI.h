@@ -356,6 +356,10 @@ namespace OloEngine
         // Bind the VAO's index buffer if it changed (redundant-bind cache,
         // reset per recording). False when the VAO has no index buffer.
         [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
+        // Handle -> VkBuffer for the indirect-draw family (#691 Wave C). Any
+        // Vulkan-backend buffer identity resolves (its registry native IS the
+        // VkBuffer); null + a counted stub on kind mismatch / stale handles.
+        [[nodiscard]] VkBuffer ResolveIndirectBuffer(RHI::ResourceHandle indirectBuffer, const char* entryPoint) const;
         // Root-struct assembly + arena push + vkCmdPushDataEXT — shared by
         // draws and dispatches (§4: one contract, no compute special case).
         // Kind-aware: CombinedImageSampler bindings read the TEXTURE slot

@@ -1283,9 +1283,14 @@ namespace OloEngine
         // buffers):
         //   57 = "OloVertexPull" — vertex stream 0 (the geometry stream every
         //        pulling shader reads; positions/normals/uvs).
-        //   63 = "OloBonePull"   — vertex stream 1 (MeshSource's second VB:
-        //        {uvec4 BoneIDs, vec4 Weights} — the 5 skinned shaders read
-        //        it as 4 uint-bitcast + 4 float lanes, stride 8).
+        //   63 = "OloBonePull"   — vertex stream 1: whatever the VAO's second
+        //        buffer holds. Bone influences are its NAMESAKE tenant
+        //        (MeshSource's {uvec4 BoneIDs, vec4 Weights} — the 5 skinned
+        //        shaders read 4 uint-bitcast + 4 float lanes, stride 8), but
+        //        any second-stream VAO rides it: FoliageRenderer's 48-byte
+        //        per-instance card records and ParticleBatchRenderer's 96-byte
+        //        billboard instance records pull it by gl_InstanceIndex
+        //        (issue #691 Wave C batch 2).
         // A VAO with fewer streams than a bound shader pulls resolves the
         // missing binding to the null (zero) address — deterministic zeros +
         // the draw path's warn-once, never a crash. Both numbers are RESERVED

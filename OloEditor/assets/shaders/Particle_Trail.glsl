@@ -6,10 +6,21 @@
 #type vertex
 #version 450 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): V7 trail pull — the 40-byte TrailVertex
+// {pos3, color4, uv2, int EntityID} on the engine-wide binding 57 (10 float
+// lanes; EntityID is an int lane, floatBitsToInt). Non-instanced.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+	float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec4 a_Color;
 layout(location = 2) in vec2 a_TexCoord;
 layout(location = 3) in int a_EntityID;
+#endif
 
 layout(std140, binding = 0) uniform Camera
 {
@@ -33,6 +44,14 @@ layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+	int vertBase = gl_VertexIndex * 10;
+	vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+	vec4 a_Color = vec4(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4],
+	                    b_Vertices.v[vertBase + 5], b_Vertices.v[vertBase + 6]);
+	vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 7], b_Vertices.v[vertBase + 8]);
+	int a_EntityID = floatBitsToInt(b_Vertices.v[vertBase + 9]);
+#endif
 	vec4 clipCurr = u_ViewProjection     * vec4(a_Position, 1.0);
 	vec4 clipPrev = u_PrevViewProjection * vec4(a_Position, 1.0);
 	gl_Position = clipCurr;
