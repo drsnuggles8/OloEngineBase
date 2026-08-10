@@ -625,6 +625,16 @@ namespace OloEngine
         rendering.colorAttachmentCount = safeTargets.ColorCount;
         rendering.pColorAttachmentFormats = safeTargets.ColorFormats.data();
         rendering.depthAttachmentFormat = safeTargets.DepthFormat;
+        // A combined depth/stencil target shares the attachment for both
+        // aspects (EnsureRenderingScopeForDraw passes pStencilAttachment for
+        // it), and VUID-08917 requires the PSO's stencil format to match the
+        // rendering info's — the first D24S8/D32S8 scene FB on this backend
+        // (#691 Wave C: OITPrepare / DeferredLighting) tripped it.
+        rendering.stencilAttachmentFormat =
+            (safeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+             safeTargets.DepthFormat == VK_FORMAT_D24_UNORM_S8_UINT)
+                ? safeTargets.DepthFormat
+                : VK_FORMAT_UNDEFINED;
 
         VkPipelineCreateFlags2CreateInfo createFlags{};
         createFlags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
@@ -681,8 +691,17 @@ namespace OloEngine
                                                   const VulkanRenderTargetDesc& targets)
     {
         vkCmdSetCullMode(cmd, ToVk(state.CullFace, state.Culling));
-        vkCmdSetFrontFace(cmd, state.FrontFaceWinding == RHI::FrontFace::Clockwise ? VK_FRONT_FACE_CLOCKWISE
-                                                                                   : VK_FRONT_FACE_COUNTER_CLOCKWISE);
+        // A1/A8 (issue #691 Phase 7): the projection seam's Y flip
+        // (RHI::AdjustProjectionForBackend) mirrors every triangle's apparent
+        // winding on screen, so the recorded GL winding translates to its
+        // OPPOSITE VkFrontFace. Composed HERE — in the backend's one
+        // state-translation point — never at call sites, so a pass-local
+        // winding override (PlanarReflection's Clockwise) flips with it
+        // instead of fighting it. Raw-NDC fullscreen passes mirror the same
+        // way (y-up positions land y-down), so the swap is uniform; they draw
+        // with culling off and are indifferent regardless.
+        vkCmdSetFrontFace(cmd, state.FrontFaceWinding == RHI::FrontFace::Clockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE
+                                                                                   : VK_FRONT_FACE_CLOCKWISE);
         vkCmdSetPrimitiveTopology(cmd, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
         vkCmdSetDepthTestEnable(cmd, state.DepthTest ? VK_TRUE : VK_FALSE);
         vkCmdSetDepthWriteEnable(cmd, state.DepthWrite ? VK_TRUE : VK_FALSE);

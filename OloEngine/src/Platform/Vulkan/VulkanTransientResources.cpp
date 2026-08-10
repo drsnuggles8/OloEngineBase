@@ -1407,11 +1407,17 @@ namespace OloEngine
         // rendering no VkFramebuffer object exists to name (render passes are
         // Phase 6). The attachments carry their own nonzero-native handles.
         m_RHIHandle.Adopt(RHI::ResourceKind::Framebuffer, 0u, RHI::Backend::Vulkan);
+        // Raw-handle framebuffer ops (ClearFramebuffer* / BlitFramebuffer /
+        // the per-FB draw-attachment selection, #691 Phase 7 Wave C) receive
+        // only this handle and need the OBJECT back — the native is 0, so the
+        // root-object side table is the resolve path, exactly as for VAOs.
+        VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::Framebuffer, this);
     }
 
     VulkanFramebuffer::~VulkanFramebuffer()
     {
         VulkanBindingState::Get().ClearIfCurrentFramebuffer(this);
+        VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
         // Retire the framebuffer identity; the attachment Refs release next
         // and each texture enqueues its image on VulkanDeferredReclaim.
         m_RHIHandle.Reset();

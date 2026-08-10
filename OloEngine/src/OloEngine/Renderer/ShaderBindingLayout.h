@@ -1107,7 +1107,17 @@ namespace OloEngine
         // include/DDGICommon.glsl (and exposed as the shared binding a future
         // froxel-fog bounce term can sample).
         static constexpr u32 TEX_DDGI_IRRADIANCE = 56; // RGBA16F octahedral irradiance atlas (6x6 interior + 1px border per probe)
-        static constexpr u32 TEX_DDGI_VISIBILITY = 57; // RG16F Chebyshev atlas (mean, mean^2 distance; 14x14 interior + 1px border)
+        // TEX_DDGI_VISIBILITY was 57 and is now 64 (issue #691 Phase 7 Wave C,
+        // ADR item A2): 57 was triple-booked across GL's disjoint namespaces
+        // (UBO_DEBUG_DRAW = 57 + this sampler + the SSBO_VERTEX_PULL stream
+        // below), and DDGI_Capture.glsl is the first shader that PULLS its
+        // vertices (SSBO 57) while also including DDGICommon.glsl (sampler 57)
+        // — on Vulkan's single-set model that is a real within-shader
+        // collision, unlike the UBO (DebugDrawPrimitives never pulls).
+        // 64 was outside every namespace's used range; the shader-graph user
+        // base below shifts up past it, per the established procedure for new
+        // engine slots. Mirrors include/DDGICommon.glsl's global-sampler block.
+        static constexpr u32 TEX_DDGI_VISIBILITY = 64; // RG16F Chebyshev atlas (mean, mean^2 distance; 14x14 interior + 1px border)
         static constexpr u32 TEX_DDGI_PROBE_DATA = 58; // RGBA16F per-probe data (xyz = relocation offset / spacing, w = state)
         // Volumetric cloudscape inputs (issue #633): tiling Perlin-Worley 3D
         // noise (base 128³ + detail 32³, RGBA8, repeat), the 2D weather map
@@ -1119,7 +1129,12 @@ namespace OloEngine
         static constexpr u32 TEX_CLOUD_DETAIL_NOISE = 60; // sampler3D RGBA8 (repeat)
         static constexpr u32 TEX_CLOUD_WEATHER_MAP = 61;  // sampler2D RGBA8
         static constexpr u32 TEX_CLOUD_SHADOW = 62;       // sampler2D R8 (1 = unshadowed transmittance)
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 63;     // First shader graph user texture slot (must be after all engine-reserved slots)
+        // 63 is deliberately left unused in the SAMPLER namespace: it is
+        // SSBO_BONE_PULL in the storage namespace (see below), and keeping the
+        // number sampler-free means no shader can ever recreate the A2
+        // collision on Vulkan's single-set model. The shader-graph base sits
+        // past TEX_DDGI_VISIBILITY (64), per the established shift procedure.
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 65; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -1153,10 +1168,15 @@ namespace OloEngine
         static constexpr u32 MAX_ENGINE_IMAGE_SLOTS = 8;
 
         // Total entries in the shared heap-offset table: every texture slot, then
-        // every image slot. include/BindlessHeap.glsl declares
+        // every image slot, rounded UP to a whole uvec4 group (66 + 8 = 74 used
+        // entries → 76 declared; the A2 renumber moved the base off a multiple
+        // of four). The trailing pad entries are never indexed — image units
+        // stay < MAX_ENGINE_IMAGE_SLOTS — they only keep the std140 block a
+        // whole number of uvec4s. include/BindlessHeap.glsl declares
         // `uvec4 g_OloHeapOffsets[HEAP_OFFSET_TABLE_VEC4S]` and must match.
-        static constexpr u32 HEAP_OFFSET_TABLE_SLOTS = HEAP_IMAGE_SLOT_BASE + MAX_ENGINE_IMAGE_SLOTS;
-        static constexpr u32 HEAP_OFFSET_TABLE_VEC4S = (HEAP_OFFSET_TABLE_SLOTS + 3u) / 4u;
+        static constexpr u32 HEAP_OFFSET_TABLE_SLOTS =
+            ((HEAP_IMAGE_SLOT_BASE + MAX_ENGINE_IMAGE_SLOTS + 3u) / 4u) * 4u;
+        static constexpr u32 HEAP_OFFSET_TABLE_VEC4S = HEAP_OFFSET_TABLE_SLOTS / 4u;
         static_assert(HEAP_OFFSET_TABLE_VEC4S * 4u == HEAP_OFFSET_TABLE_SLOTS,
                       "The heap-offset table must be a whole number of uvec4s — std140 pads a uint array to a "
                       "16-byte stride, so a partial group would put the last slots outside the block the shader "
@@ -1253,6 +1273,28 @@ namespace OloEngine
 
         static constexpr u32 SSBO_DEBUG_DRAW_FIRST = SSBO_DEBUG_DRAW_LINE;
         static constexpr u32 SSBO_DEBUG_DRAW_COUNT = 7;
+
+        // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691
+        // Phase 7 Wave C, ADR items A2/A3). On the Vulkan backend pipelines
+        // carry no vertex-input state — a shader's OLO_VULKAN branch reads its
+        // vertex data from these readonly SSBOs by gl_VertexIndex, and
+        // VulkanRendererAPI::AssembleAndPushRootData maps each binding to the
+        // draw's VAO streams (never to VulkanBindingState's published
+        // buffers):
+        //   57 = "OloVertexPull" — vertex stream 0 (the geometry stream every
+        //        pulling shader reads; positions/normals/uvs).
+        //   63 = "OloBonePull"   — vertex stream 1 (MeshSource's second VB:
+        //        {uvec4 BoneIDs, vec4 Weights} — the 5 skinned shaders read
+        //        it as 4 uint-bitcast + 4 float lanes, stride 8).
+        // A VAO with fewer streams than a bound shader pulls resolves the
+        // missing binding to the null (zero) address — deterministic zeros +
+        // the draw path's warn-once, never a crash. Both numbers are RESERVED
+        // engine-wide: nothing else may claim SSBO 57/63, and 63/64 stay out
+        // of the sampler namespace too (the A2 renumber's lesson — see
+        // TEX_DDGI_VISIBILITY above). GL never binds these numbers: the
+        // attribute path serves the same streams through vertex-input state.
+        static constexpr u32 SSBO_VERTEX_PULL = 57; // "OloVertexPull" — VAO stream 0 (Vulkan-only)
+        static constexpr u32 SSBO_BONE_PULL = 63;   // "OloBonePull" — VAO stream 1, bone influences (Vulkan-only)
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE

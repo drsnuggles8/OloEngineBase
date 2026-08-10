@@ -337,8 +337,12 @@ vec3 ddgiSampleIrradiance(sampler2D irradianceAtlas, sampler2D visibilityAtlas, 
 
 // Slots mirror ShaderBindingLayout::TEX_DDGI_* — bound once per frame by the
 // DDGI update pass to the CURRENT (just-blended) atlases.
+// The visibility atlas moved 57 -> 64 (issue #691 Phase 7, ADR item A2):
+// 57 is the engine-wide Vulkan vertex-pull SSBO, and DDGI_Capture.glsl both
+// pulls its vertices AND includes this block — a real within-shader collision
+// on Vulkan's single-set binding model (GL's disjoint namespaces hid it).
 layout(binding = 56) uniform sampler2D u_DDGIIrradianceAtlas;
-layout(binding = 57) uniform sampler2D u_DDGIVisibilityAtlas;
+layout(binding = 64) uniform sampler2D u_DDGIVisibilityAtlas;
 layout(binding = 58) uniform sampler2D u_DDGIProbeData;
 
 vec3 sampleDDGIIrradiance(vec3 worldPos, vec3 normal, vec3 viewDir)

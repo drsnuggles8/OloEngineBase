@@ -33,6 +33,7 @@
 
 #include <array>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -315,11 +316,27 @@ namespace OloEngine
             VulkanFramebuffer* Target = nullptr; ///< The scope's framebuffer (never null while Active).
             bool PendingClearColor = false;      ///< Fold into loadOp at scope begin.
             bool PendingClearDepth = false;
-            // SetDrawBuffers selection: DrawList[i] = attachment index feeding
-            // fragment output location i (RHI::NoAttachment → UNUSED).
-            // Count 0 = identity over every color attachment.
+        };
+
+        // GL's glNamedFramebufferDrawBuffers / ReadBuffer are PER-FRAMEBUFFER
+        // PERSISTENT state, and both the bound form (SetDrawBuffers) and the
+        // raw-handle form (SetFramebufferDrawAttachments) mutate the SAME
+        // state on GL — so this backend models one map, keyed by the FB's
+        // RHI handle, that both forms write (#691 Phase 7 Wave C; replaces
+        // the earlier scope-transient DrawList, which forgot the selection on
+        // every target switch and could not express the raw form at all).
+        // The scope build consumes DrawList at vkCmdBeginRendering; blits
+        // consume ReadAttachment (src) and DrawList (dst fan-out).
+        // Entries for destroyed framebuffers linger harmlessly: the key packs
+        // the generation, so a recycled FB index gets a fresh entry.
+        struct FramebufferAttachmentSelection
+        {
+            // DrawList[i] = attachment index feeding fragment output location
+            // i (RHI::NoAttachment → UNUSED). Count 0 = identity over every
+            // color attachment (the engine-FB creation default on GL).
             std::array<u32, 8> DrawList{};
             u32 DrawListCount = 0;
+            u32 ReadAttachment = 0; ///< glNamedFramebufferReadBuffer's selection.
         };
 
         // End the scope if active (barriers/copies/dispatches are illegal
@@ -347,7 +364,27 @@ namespace OloEngine
         [[nodiscard]] bool AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
                                                    const VulkanVertexArray* vao);
 
+        // Selection-map plumbing (see FramebufferAttachmentSelection above).
+        [[nodiscard]] static u64 SelectionKey(RHI::ResourceHandle framebuffer)
+        {
+            return (static_cast<u64>(framebuffer.Generation) << 32) | framebuffer.Index;
+        }
+        [[nodiscard]] FramebufferAttachmentSelection* FindSelection(RHI::ResourceHandle framebuffer);
+        // Ends the live rendering scope when it targets `framebuffer` — a
+        // draw-list change re-shapes the attachment array, so the next draw
+        // must re-open the scope with the new mapping.
+        void EndScopeIfTargets(RHI::ResourceHandle framebuffer);
+        // Shared exact-oldLayout transfer-transition shape (the
+        // ClearTextureFloat / CopyImageSubData discipline): stage per-layout-run
+        // barriers into `out` and advance the tracker to `newLayout`.
+        void StageTransferTransition(VkImage image, const VkImageSubresourceRange& range, VkImageLayout newLayout,
+                                     VkAccessFlags2 dstAccess, std::vector<VkImageMemoryBarrier2>& out);
+
         RenderingScope m_Scope;
+        std::unordered_map<u64, FramebufferAttachmentSelection> m_FramebufferSelections;
+        // CreateDepthArrayCompareOffViewHandle's per-image cache (see the
+        // definition for the lifetime contract).
+        std::unordered_map<u64, RHI::ResourceHandle> m_CompareOffViewHandles;
         VulkanRenderTargetDesc m_ScopeTargets; ///< Valid while m_Scope.Active.
         VkBuffer m_BoundIndexBuffer = VK_NULL_HANDLE;
         bool m_HeapBoundThisRecording = false;

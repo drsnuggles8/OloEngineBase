@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -1276,13 +1277,20 @@ namespace OloEngine
         // the world or relative VP — derive it once for the UBO's Projection.
         const glm::mat4 projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
 
+        // A8 projection seam: the stored matrices stay GL-convention; the
+        // GPU-visible copies flip at upload (identity on GL). This one seam
+        // covers the shared re-upload AND the planar-reflection mirror camera.
+        // PrevViewProjection rides the same rasterizer-flavour flip: its
+        // consumers difference clip .xy against the current (flipped)
+        // rasterized position, and the two flip flavours agree on .xy.
         ShaderBindingLayout::CameraUBO cameraData{};
-        cameraData.ViewProjection = projection * relView;
+        cameraData.ViewProjection = RHI::AdjustProjectionForBackend(projection * relView);
         cameraData.View = relView;
-        cameraData.Projection = projection;
+        cameraData.Projection = RHI::AdjustProjectionForBackend(projection);
         cameraData.Position = MakePositionRelative(s_Data.ViewPos, origin);
         cameraData._padding0 = 0.0f;
-        cameraData.PrevViewProjection = MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, origin);
+        cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(
+            MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, origin));
         cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)
         s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
         BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());

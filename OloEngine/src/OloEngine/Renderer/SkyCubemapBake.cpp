@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -99,10 +100,14 @@ namespace OloEngine::SkyBake
             // Update CameraUBO with this face's view/projection. The shader's
             // vertex stage picks up u_ViewProjection just like every other
             // skybox-style shader, turning the cube vertex into a sample dir.
+            // A8 seam, rasterizer flavour — covers the three procedural sky
+            // bakes (Atmosphere/Preetham/StarNest) that route through this one
+            // face loop. Direction-addressed capture caveat applies when the
+            // bakes run on Vulkan (RHIProjectionSeam.h KNOWN LIMIT note).
             ShaderBindingLayout::CameraUBO data;
-            data.ViewProjection = mats.Projection * mats.Views[i];
+            data.ViewProjection = RHI::AdjustProjectionForBackend(mats.Projection * mats.Views[i]);
             data.View = mats.Views[i];
-            data.Projection = mats.Projection;
+            data.Projection = RHI::AdjustProjectionForBackend(mats.Projection);
             data.Position = glm::vec3(0.0f);
             data._padding0 = 0.0f;
             cameraUBO->SetData(&data, ShaderBindingLayout::CameraUBO::GetSize());

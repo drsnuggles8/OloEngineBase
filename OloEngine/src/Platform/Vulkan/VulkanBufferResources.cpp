@@ -415,13 +415,18 @@ namespace OloEngine
 
     const VulkanVertexBuffer* VulkanVertexArray::GetPullVertexBuffer() const
     {
-        if (m_VertexBuffers.empty())
+        return GetPullVertexBuffer(0u);
+    }
+
+    const VulkanVertexBuffer* VulkanVertexArray::GetPullVertexBuffer(sizet streamIndex) const
+    {
+        if (streamIndex >= m_VertexBuffers.size())
         {
             return nullptr;
         }
         // Safe: on the Vulkan backend every VertexBuffer the factory hands out
         // is a VulkanVertexBuffer.
-        return static_cast<const VulkanVertexBuffer*>(m_VertexBuffers.front().Raw());
+        return static_cast<const VulkanVertexBuffer*>(m_VertexBuffers[streamIndex].Raw());
     }
 
     const VulkanIndexBuffer* VulkanVertexArray::GetVulkanIndexBuffer() const

@@ -631,6 +631,11 @@
 		# timeline-semaphore implementation lives in Platform/Vulkan/.
 		"OloEngine/Renderer/RHI/RHIGpuFence.h"
 		"OloEngine/Renderer/RHI/RHIGpuFence.cpp"
+		# Phase 7 Wave C (ADR item A8): the backend projection-convention seam.
+		# GPU-visible projections flip y (and remap z for the rasterizer) here
+		# and nowhere else; CPU-side culling keeps GL-convention matrices.
+		"OloEngine/Renderer/RHI/RHIProjectionSeam.h"
+		"OloEngine/Renderer/RHI/RHIProjectionSeam.cpp"
 		"OloEngine/Renderer/HeapBindingSeam.cpp"
 		"OloEngine/Renderer/HeapBindingSeam.h"
 		"OloEngine/Renderer/RGCommandContext.cpp"

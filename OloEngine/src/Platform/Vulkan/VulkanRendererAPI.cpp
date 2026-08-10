@@ -4,6 +4,7 @@
 #if OLO_WITH_VULKAN
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
@@ -908,19 +909,24 @@ namespace OloEngine
         // VulkanPassSuiteTest's first full-graph frame).
         std::vector<RHI::Barrier> scopeBarriers;
 
-        const bool identity = m_Scope.DrawListCount == 0;
+        // Per-framebuffer persistent selection (GL's glNamedFramebufferDrawBuffers
+        // model — both the bound and the raw-handle setter write the same map).
+        const FramebufferAttachmentSelection* selection = FindSelection(target->GetRHIHandle());
+        const bool identity = selection == nullptr || selection->DrawListCount == 0;
         const u32 outputCount =
             identity ? std::min<u32>(target->GetColorAttachmentCount(), static_cast<u32>(colorInfos.size()))
-                     : std::min<u32>(m_Scope.DrawListCount, static_cast<u32>(colorInfos.size()));
+                     : std::min<u32>(selection->DrawListCount, static_cast<u32>(colorInfos.size()));
 
         for (u32 i = 0; i < outputCount; ++i)
         {
             auto& info = colorInfos[i];
             info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-            const u32 attachmentIndex = identity ? i : m_Scope.DrawList[i];
+            const u32 attachmentIndex = identity ? i : selection->DrawList[i];
             Ref<VulkanTexture2D> image =
-                attachmentIndex == RHI::NoAttachment ? nullptr : target->GetColorAttachmentImage(attachmentIndex);
+                (attachmentIndex == RHI::NoAttachment || attachmentIndex >= target->GetColorAttachmentCount())
+                    ? nullptr
+                    : target->GetColorAttachmentImage(attachmentIndex);
             if (image == nullptr)
             {
                 // VK_ATTACHMENT_UNUSED shape: a null imageView slot.
@@ -1125,12 +1131,27 @@ namespace OloEngine
                                   binding.BindingKind == VulkanShaderBinding::Kind::StorageBuffer;
             if (isBuffer)
             {
+                // §5 vertex pulling: the reserved pull PAIR reads the draw's
+                // VAO streams (A2/A3, see ShaderBindingLayout's SSBO section):
+                // SSBO 57 "OloVertexPull" = stream 0, SSBO 63 "OloBonePull" =
+                // stream 1 (the bone-influence VB). KIND-guarded to the SSBO
+                // namespace: UBO_DEBUG_DRAW is also 57, and a UBO at these
+                // numbers must keep resolving through the published binding
+                // state (GL's disjoint namespaces, amendment (29)).
+                const bool isStorage = binding.BindingKind == VulkanShaderBinding::Kind::StorageBuffer;
+                sizet pullStream = ~sizet{ 0 };
+                if (isStorage && binding.Binding == ShaderBindingLayout::SSBO_VERTEX_PULL)
+                    pullStream = 0;
+                else if (isStorage && binding.Binding == ShaderBindingLayout::SSBO_BONE_PULL)
+                    pullStream = 1;
+
                 u64 address = 0;
-                if (binding.Binding == 57u)
+                if (pullStream != ~sizet{ 0 })
                 {
-                    // §5 vertex pulling: the reserved binding reads the draw's
-                    // vertex stream.
-                    const auto* pullBuffer = vao != nullptr ? vao->GetPullVertexBuffer() : nullptr;
+                    // A VAO with fewer streams than the shader pulls (a
+                    // skinned shader on a static mesh) resolves to the zero
+                    // address: deterministic zeros + the warn-once below.
+                    const auto* pullBuffer = vao != nullptr ? vao->GetPullVertexBuffer(pullStream) : nullptr;
                     address = pullBuffer != nullptr ? pullBuffer->GetDeviceAddress() : 0;
                 }
                 else if (auto* ubo = bindingState.GetUniformBuffer(binding.Binding);
@@ -1654,6 +1675,41 @@ namespace OloEngine
             unit, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
     }
 
+    void VulkanRendererAPI::StageTransferTransition(VkImage image, const VkImageSubresourceRange& range,
+                                                    VkImageLayout newLayout, VkAccessFlags2 dstAccess,
+                                                    std::vector<VkImageMemoryBarrier2>& out)
+    {
+        // The CopyImageSubData / ClearTextureFloat discipline, shared by the
+        // blit path: register the image with the tracker (idempotent), emit
+        // one exact-oldLayout barrier per layout run — a same-layout run still
+        // emits, so the producer->transfer execution+memory dependency never
+        // silently disappears — and advance the tracker.
+        if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(image); info != nullptr)
+        {
+            m_LayoutTracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
+                                          info->RegistrationId, info->InitialLayout);
+        }
+        m_LayoutTracker.ForEachLayoutRun(
+            image, range,
+            [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
+            {
+                VkImageMemoryBarrier2 b{};
+                b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                b.srcStageMask = (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED) ? VK_PIPELINE_STAGE_2_NONE : kAllStages;
+                b.srcAccessMask = (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED) ? VK_ACCESS_2_NONE : kAllAccess;
+                b.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                b.dstAccessMask = dstAccess;
+                b.oldLayout = trackedLayout;
+                b.newLayout = newLayout;
+                b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.image = image;
+                b.subresourceRange = run;
+                out.push_back(b);
+            });
+        m_LayoutTracker.SetLayout(image, range, newLayout);
+    }
+
     void VulkanRendererAPI::CopyImageSubData(RHI::ResourceHandle src, TextureTargetType /*srcTarget*/, RHI::ResourceHandle dst, TextureTargetType /*dstTarget*/, u32 width, u32 height)
     {
         // The facade contract is glCopyImageSubData's no-offset form: mip 0,
@@ -1749,43 +1805,79 @@ namespace OloEngine
         Phase6Stub("CopyFramebufferToTexture");
     }
 
+    VulkanRendererAPI::FramebufferAttachmentSelection* VulkanRendererAPI::FindSelection(RHI::ResourceHandle framebuffer)
+    {
+        if (!framebuffer.IsValid())
+        {
+            return nullptr;
+        }
+        const auto it = m_FramebufferSelections.find(SelectionKey(framebuffer));
+        return it != m_FramebufferSelections.end() ? &it->second : nullptr;
+    }
+
+    void VulkanRendererAPI::EndScopeIfTargets(RHI::ResourceHandle framebuffer)
+    {
+        if (m_Scope.Active && m_Scope.Target != nullptr && m_Scope.Target->GetRHIHandle() == framebuffer)
+        {
+            EndRenderingScope();
+        }
+    }
+
     void VulkanRendererAPI::SetDrawBuffers(std::span<const u32> attachments)
     {
-        // A selection change mid-scope re-shapes the attachment list: end the
-        // scope so the next draw begins with the new mapping.
-        const u32 count = std::min<u32>(static_cast<u32>(attachments.size()),
-                                        static_cast<u32>(m_Scope.DrawList.size()));
-        bool changed = count != m_Scope.DrawListCount;
-        for (u32 i = 0; !changed && i < count; ++i)
+        auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
+        if (target == nullptr)
         {
-            changed = m_Scope.DrawList[i] != attachments[i];
+            // GL's bound form against the default framebuffer — nothing to
+            // select until the swapchain import exists.
+            return;
         }
-        if (!changed)
+        SetFramebufferDrawAttachments(target->GetRHIHandle(), attachments);
+    }
+
+    void VulkanRendererAPI::RestoreAllDrawBuffers(u32 colorAttachmentCount)
+    {
+        auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
+        if (target == nullptr)
         {
             return;
         }
-        EndRenderingScope();
-        m_Scope.DrawListCount = count;
-        for (u32 i = 0; i < count; ++i)
-        {
-            m_Scope.DrawList[i] = attachments[i];
-        }
+        RestoreAllFramebufferDrawAttachments(target->GetRHIHandle(), colorAttachmentCount);
     }
 
-    void VulkanRendererAPI::RestoreAllDrawBuffers(u32 /*colorAttachmentCount*/)
+    RHI::ResourceHandle VulkanRendererAPI::CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture, u32 /*numLayers*/)
     {
-        if (m_Scope.DrawListCount == 0)
+        // GL builds a second texture VIEW whose sampler state has depth
+        // comparison OFF, so PCSS blocker searches can read raw occluder
+        // depth. On this backend the equivalent needs no new view OBJECT:
+        // BindTexture mints the (image, view-desc, SAMPLED, layout) descriptor
+        // through VulkanDescriptorSlotCache, and the embedded sampler the
+        // pipeline pairs with it is the compare-DISABLED default — i.e. a
+        // plain alias handle to the SAME VkImage already samples raw depth.
+        // (The compare-ON family is the special one here, and that is the
+        // per-binding embedded-sampler work the Wave C shadow item owns.)
+        // The alias is REGISTERED as a texture in its own right — mirroring
+        // the GL twin's "a separate name with its own lifetime" contract — and
+        // cached per image so repeated calls (ShadowMap init + placeholder
+        // statics) return one identity. Lifetime: the alias is never retired;
+        // its owners (ShadowMap's arrays + process-lifetime placeholders) own
+        // the source image for at least as long, and the slot cache frees
+        // descriptors by VkImage, so a destroyed source leaves only an inert
+        // registry row. `numLayers` is baked into the GL view; here the bind
+        // path derives layer count from the image registry, so it is unused.
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(srcTexture);
+        if (native == 0u)
         {
-            return;
+            return RHI::NullResource;
         }
-        EndRenderingScope();
-        m_Scope.DrawListCount = 0; // identity over every color attachment
-    }
-
-    RHI::ResourceHandle VulkanRendererAPI::CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle /*srcTexture*/, u32 /*numLayers*/)
-    {
-        Phase6Stub("CreateDepthArrayCompareOffViewHandle");
-        return {};
+        if (const auto it = m_CompareOffViewHandles.find(native); it != m_CompareOffViewHandles.end())
+        {
+            return it->second;
+        }
+        const RHI::ResourceHandle alias =
+            RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, native, RHI::Backend::Vulkan);
+        m_CompareOffViewHandles.emplace(native, alias);
+        return alias;
     }
 
     void VulkanRendererAPI::SetTextureFilter(RHI::ResourceHandle /*texture*/, RHI::Filter /*minFilter*/, RHI::Filter /*magFilter*/)
@@ -1905,34 +1997,252 @@ namespace OloEngine
         return false;
     }
 
-    void VulkanRendererAPI::SetFramebufferDrawAttachments(RHI::ResourceHandle /*framebuffer*/, std::span<const u32> /*attachmentIndices*/)
+    // Resolve a framebuffer HANDLE to its backend object through the
+    // root-object side table (the FB's registry native is 0 — no
+    // VkFramebuffer exists under dynamic rendering). Null on a stale or
+    // foreign handle; callers warn-once rather than crash.
+    static VulkanFramebuffer* ResolveFramebufferObject(RHI::ResourceHandle framebuffer)
     {
-        Phase6Stub("SetFramebufferDrawAttachments");
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(framebuffer);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::Framebuffer)
+        {
+            return nullptr;
+        }
+        return static_cast<VulkanFramebuffer*>(entry->Object);
     }
 
-    void VulkanRendererAPI::RestoreAllFramebufferDrawAttachments(RHI::ResourceHandle /*framebuffer*/, u32 /*colorAttachmentCount*/)
+    void VulkanRendererAPI::SetFramebufferDrawAttachments(RHI::ResourceHandle framebuffer, std::span<const u32> attachmentIndices)
     {
-        Phase6Stub("RestoreAllFramebufferDrawAttachments");
+        if (!framebuffer.IsValid())
+        {
+            return;
+        }
+        auto& selection = m_FramebufferSelections[SelectionKey(framebuffer)];
+        const u32 count = std::min<u32>(static_cast<u32>(attachmentIndices.size()),
+                                        static_cast<u32>(selection.DrawList.size()));
+        bool changed = count != selection.DrawListCount;
+        for (u32 i = 0; !changed && i < count; ++i)
+        {
+            changed = selection.DrawList[i] != attachmentIndices[i];
+        }
+        if (!changed)
+        {
+            return;
+        }
+        selection.DrawListCount = count;
+        for (u32 i = 0; i < count; ++i)
+        {
+            selection.DrawList[i] = attachmentIndices[i];
+        }
+        // A selection change re-shapes the live scope's attachment array: end
+        // it so the next draw re-opens with the new mapping (only when the
+        // scope actually targets this framebuffer — the raw form legally
+        // mutates an unbound FB's state, GL's named-object semantics).
+        EndScopeIfTargets(framebuffer);
     }
 
-    void VulkanRendererAPI::SetFramebufferReadAttachment(RHI::ResourceHandle /*framebuffer*/, u32 /*attachmentIndex*/)
+    void VulkanRendererAPI::RestoreAllFramebufferDrawAttachments(RHI::ResourceHandle framebuffer, u32 /*colorAttachmentCount*/)
     {
-        Phase6Stub("SetFramebufferReadAttachment");
+        // Identity over every color attachment IS this backend's stored
+        // default, so the restore just clears the override; the count the GL
+        // twin needs (to spell the identity list out) is derived from the
+        // target at scope-open time here.
+        auto* selection = FindSelection(framebuffer);
+        if (selection == nullptr || selection->DrawListCount == 0)
+        {
+            return;
+        }
+        selection->DrawListCount = 0;
+        EndScopeIfTargets(framebuffer);
     }
 
-    void VulkanRendererAPI::ClearFramebufferColorAttachment(RHI::ResourceHandle /*framebuffer*/, u32 /*attachmentIndex*/, const glm::vec4& /*color*/)
+    void VulkanRendererAPI::SetFramebufferReadAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex)
     {
-        Phase6Stub("ClearFramebufferColorAttachment");
+        if (!framebuffer.IsValid())
+        {
+            return;
+        }
+        // Read selection only feeds blits — no scope interaction.
+        m_FramebufferSelections[SelectionKey(framebuffer)].ReadAttachment = attachmentIndex;
     }
 
-    void VulkanRendererAPI::ClearFramebufferDepth(RHI::ResourceHandle /*framebuffer*/, f32 /*depth*/)
+    void VulkanRendererAPI::ClearFramebufferColorAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex, const glm::vec4& color)
     {
-        Phase6Stub("ClearFramebufferDepth");
+        auto* fb = ResolveFramebufferObject(framebuffer);
+        if (fb == nullptr)
+        {
+            Phase6Stub("ClearFramebufferColorAttachment(unresolved framebuffer)");
+            return;
+        }
+        // GL contract: the index is a DRAW BUFFER index, remapped through the
+        // FB's draw-buffer selection (identity when none is stored).
+        u32 effective = attachmentIndex;
+        if (const auto* selection = FindSelection(framebuffer);
+            selection != nullptr && selection->DrawListCount != 0)
+        {
+            if (attachmentIndex >= selection->DrawListCount)
+            {
+                return; // past the selected list — GL clears nothing
+            }
+            effective = selection->DrawList[attachmentIndex];
+        }
+        if (effective == RHI::NoAttachment || effective >= fb->GetColorAttachmentCount())
+        {
+            return;
+        }
+        // The transfer-clear facade owns scope-end + exact per-layout-run
+        // transitions (the ClearTextureFloat shape) — same route
+        // VulkanFramebuffer::ClearAllAttachments takes.
+        ClearTextureFloat(fb->GetColorAttachmentHandle(effective), 0u, color);
     }
 
-    void VulkanRendererAPI::BlitFramebuffer(RHI::ResourceHandle /*srcFramebuffer*/, RHI::ResourceHandle /*dstFramebuffer*/, i32 /*srcX0*/, i32 /*srcY0*/, i32 /*srcX1*/, i32 /*srcY1*/, i32 /*dstX0*/, i32 /*dstY0*/, i32 /*dstX1*/, i32 /*dstY1*/, RHI::BlitAspect /*aspect*/, RHI::Filter /*filter*/)
+    void VulkanRendererAPI::ClearFramebufferDepth(RHI::ResourceHandle framebuffer, f32 depth)
     {
-        Phase6Stub("BlitFramebuffer");
+        auto* fb = ResolveFramebufferObject(framebuffer);
+        if (fb == nullptr)
+        {
+            Phase6Stub("ClearFramebufferDepth(unresolved framebuffer)");
+            return;
+        }
+        const RHI::ResourceHandle depthAttachment = fb->GetDepthAttachmentHandle();
+        if (!depthAttachment.IsValid())
+        {
+            return; // no depth attachment — GL is a silent no-op too
+        }
+        // ClearTextureFloat's depth path clears depth = color.r (stencil 0).
+        ClearTextureFloat(depthAttachment, 0u, glm::vec4(depth, 0.0f, 0.0f, 0.0f));
+    }
+
+    void VulkanRendererAPI::BlitFramebuffer(RHI::ResourceHandle srcFramebuffer, RHI::ResourceHandle dstFramebuffer, i32 srcX0, i32 srcY0, i32 srcX1, i32 srcY1, i32 dstX0, i32 dstY0, i32 dstX1, i32 dstY1, RHI::BlitAspect aspect, RHI::Filter /*filter*/)
+    {
+        // The engine's production blits are 1:1 full-surface copies (depth
+        // seeds, entity-ID handoffs, G-buffer resolves), lowered here as
+        // vkCmdCopyImage with the CopyImageSubData transition discipline. A
+        // scaling blit would need vkCmdBlitImage + per-aspect filter rules —
+        // no current caller scales, so that arm is a loud warn-once (report,
+        // don't guess) rather than silent wrong output. The filter argument
+        // is meaningless for a 1:1 copy (Nearest semantics by construction).
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("BlitFramebuffer(outside recording bracket)");
+            return;
+        }
+        auto* src = ResolveFramebufferObject(srcFramebuffer);
+        auto* dst = ResolveFramebufferObject(dstFramebuffer);
+        if (src == nullptr || dst == nullptr)
+        {
+            // RHI::NullResource spells "the default framebuffer" on GL — that
+            // arm arrives with the swapchain import.
+            Phase6Stub("BlitFramebuffer(unresolved framebuffer)");
+            return;
+        }
+        const i32 width = srcX1 - srcX0;
+        const i32 height = srcY1 - srcY0;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+        if (srcX0 != 0 || srcY0 != 0 || dstX0 != 0 || dstY0 != 0 || (dstX1 - dstX0) != width ||
+            (dstY1 - dstY0) != height)
+        {
+            static bool s_WarnedScaled = false;
+            if (!s_WarnedScaled)
+            {
+                s_WarnedScaled = true;
+                OLO_CORE_WARN("[RHI/Vulkan] BlitFramebuffer with offset/scaling rects is not lowered yet "
+                              "(src {}x{} at {},{} -> dst {}x{} at {},{}) — blit skipped",
+                              width, height, srcX0, srcY0, dstX1 - dstX0, dstY1 - dstY0, dstX0, dstY0);
+            }
+            return;
+        }
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        const auto copyOne = [&](const Ref<VulkanTexture2D>& srcImage, const Ref<VulkanTexture2D>& dstImage)
+        {
+            if (srcImage == nullptr || dstImage == nullptr)
+            {
+                return;
+            }
+            const VkImage srcVk = srcImage->GetVkImage();
+            const VkImage dstVk = dstImage->GetVkImage();
+            // The aspect comes from the IMAGE, not from the caller's
+            // BlitAspect: a combined depth/stencil format must name BOTH
+            // aspects in a layout-transition barrier (VUID 03320 — no
+            // separateDepthStencilLayouts on the floor), and a matched-format
+            // copy legally moves both (the unused stencil rides along, which
+            // is also what GL's depth blit leaves behaviourally). The blit
+            // pairs are format-matched by the caller contract, so one aspect
+            // set serves src and dst alike.
+            const auto* srcInfo = VulkanImageInfoRegistry::Get().Lookup(srcVk);
+            const auto* dstInfo = VulkanImageInfoRegistry::Get().Lookup(dstVk);
+            if (srcInfo == nullptr || dstInfo == nullptr)
+            {
+                return;
+            }
+            const VkImageAspectFlags aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
+            std::vector<VkImageMemoryBarrier2> toTransfer;
+            const VkImageSubresourceRange srcRange{ aspectMask, 0u, 1u, 0u, 1u };
+            const VkImageSubresourceRange dstRange{ aspectMask, 0u, 1u, 0u, 1u };
+            StageTransferTransition(srcVk, srcRange, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                    VK_ACCESS_2_TRANSFER_READ_BIT, toTransfer);
+            StageTransferTransition(dstVk, dstRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                    VK_ACCESS_2_TRANSFER_WRITE_BIT, toTransfer);
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
+            dep.pImageMemoryBarriers = toTransfer.data();
+            vkCmdPipelineBarrier2(m_Cmd, &dep);
+
+            VkImageCopy region{};
+            region.srcSubresource = { aspectMask, 0u, 0u, 1u };
+            region.dstSubresource = { aspectMask, 0u, 0u, 1u };
+            region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
+            vkCmdCopyImage(m_Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        };
+
+        if (aspect == RHI::BlitAspect::Depth || aspect == RHI::BlitAspect::DepthStencil ||
+            aspect == RHI::BlitAspect::Stencil)
+        {
+            // The BlitAspect selects the ATTACHMENT PAIR; the copied aspect
+            // set comes from the images themselves (see copyOne).
+            copyOne(src->GetDepthAttachmentImage(), dst->GetDepthAttachmentImage());
+            return;
+        }
+
+        // Color: GL copies FROM the src's READ attachment TO every attachment
+        // in the dst's draw-buffer selection (identity = all attachments).
+        u32 readAttachment = 0;
+        if (const auto* srcSelection = FindSelection(srcFramebuffer); srcSelection != nullptr)
+        {
+            readAttachment = srcSelection->ReadAttachment;
+        }
+        if (readAttachment >= src->GetColorAttachmentCount())
+        {
+            return;
+        }
+        const Ref<VulkanTexture2D> srcImage = src->GetColorAttachmentImage(readAttachment);
+
+        const auto* dstSelection = FindSelection(dstFramebuffer);
+        if (dstSelection != nullptr && dstSelection->DrawListCount != 0)
+        {
+            for (u32 i = 0; i < dstSelection->DrawListCount; ++i)
+            {
+                const u32 attachment = dstSelection->DrawList[i];
+                if (attachment == RHI::NoAttachment || attachment >= dst->GetColorAttachmentCount())
+                {
+                    continue;
+                }
+                copyOne(srcImage, dst->GetColorAttachmentImage(attachment));
+            }
+            return;
+        }
+        for (u32 i = 0; i < dst->GetColorAttachmentCount(); ++i)
+        {
+            copyOne(srcImage, dst->GetColorAttachmentImage(i));
+        }
     }
 
     void VulkanRendererAPI::AllocateBufferStorage(RHI::ResourceHandle /*buffer*/, u64 /*sizeBytes*/, RHI::MemoryResidency /*residency*/)

@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -667,13 +668,19 @@ namespace OloEngine
             const glm::mat4 view = glm::lookAt(probeRel, probeRel + kFaceTargets[face], kFaceUps[face]);
             const glm::mat4 vp = proj * view;
 
+            // A8 seam, rasterizer flavour (capture casters rasterize with
+            // this). NOTE for the DDGI port (Wave C item 15): the capture
+            // atlas is DIRECTION-addressed by the relight — the flip stores
+            // faces row-mirrored vs the GL bake, so the face bases must
+            // compensate when this pass runs on Vulkan (RHIProjectionSeam.h's
+            // KNOWN LIMIT note).
             UBOStructures::CameraUBO camera{};
-            camera.ViewProjection = vp;
+            camera.ViewProjection = RHI::AdjustProjectionForBackend(vp);
             camera.View = view;
-            camera.Projection = proj;
+            camera.Projection = RHI::AdjustProjectionForBackend(proj);
             camera.Position = probeRel;
             camera._padding0 = 0.0f;
-            camera.PrevViewProjection = vp;
+            camera.PrevViewProjection = RHI::AdjustProjectionForBackend(vp);
             camera.RenderOrigin = m_RenderOrigin;
             m_CaptureCameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
 

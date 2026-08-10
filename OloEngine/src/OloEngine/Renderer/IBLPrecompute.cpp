@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -35,11 +36,14 @@ namespace OloEngine
                 ShaderBindingLayout::UBO_CAMERA);
         }
 
-        // Prepare camera data
+        // Prepare camera data.
+        // A8 seam, rasterizer flavour. Direction-addressed capture caveat
+        // applies when IBL bakes run on Vulkan — see RHIProjectionSeam.h's
+        // KNOWN LIMIT note (dormant in this batch; bakes are GL-only today).
         ShaderBindingLayout::CameraUBO cameraData;
-        cameraData.ViewProjection = projection * view;
+        cameraData.ViewProjection = RHI::AdjustProjectionForBackend(projection * view);
         cameraData.View = view;
-        cameraData.Projection = projection;
+        cameraData.Projection = RHI::AdjustProjectionForBackend(projection);
         cameraData.Position = glm::vec3(0.0f); // IBL rendering is done from origin
         cameraData._padding0 = 0.0f;
 

@@ -202,11 +202,11 @@ layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
 
 layout(std140, binding = 56) uniform OloHeapOffsetBlock
 {
-    uvec4 g_OloHeapOffsets[18];
+    uvec4 g_OloHeapOffsets[19];
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
-#define OLO_HEAP_IMAGE_BASE 64u
+#define OLO_HEAP_IMAGE_BASE 66u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 #define OLO_HEAP_IMAGE_RW
 #define OLO_HEAP_IMAGE(fmt, mem, type, name, imgUnit) \

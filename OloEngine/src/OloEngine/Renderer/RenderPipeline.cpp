@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
@@ -385,10 +386,14 @@ namespace OloEngine
             // relative to it, so the GPU's world-space lighting math (which is
             // all differences — V = camPos - worldPos, lightPos - worldPos) is
             // unchanged while every coordinate stays near 0.
+            // A8 projection seam: `data.*` stays GL-convention for CPU culling
+            // and picking; only the UPLOADED copies flip (identity on GL) —
+            // the rasterizer flavour, since vertex stages feed these to
+            // gl_Position. See RHI/RHIProjectionSeam.h.
             ShaderBindingLayout::CameraUBO cameraData;
-            cameraData.ViewProjection = relativeViewProjection;
+            cameraData.ViewProjection = RHI::AdjustProjectionForBackend(relativeViewProjection);
             cameraData.View = relativeView;
-            cameraData.Projection = data.ProjectionMatrix;
+            cameraData.Projection = RHI::AdjustProjectionForBackend(data.ProjectionMatrix);
             cameraData.Position = MakePositionRelative(data.ViewPos, renderOrigin);
             cameraData._padding0 = 0.0f;
             // Previous-frame view-projection is maintained in
@@ -398,7 +403,7 @@ namespace OloEngine
             // G-Buffer PBR shader does through u_PrevViewProjection. It is made
             // relative to the *current* origin, matching PrevModel which is
             // shifted by the same origin, so velocity is invariant.
-            cameraData.PrevViewProjection = relativePrevViewProjection;
+            cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(relativePrevViewProjection);
             // The render origin itself, so pattern shaders can rebuild an
             // absolute world position (triplanar tiling, procedural noise, etc.).
             cameraData.RenderOrigin = renderOrigin;
@@ -500,9 +505,14 @@ namespace OloEngine
             // SSAOPass resolves its setup-selected depth/normal handles at
             // execution time; only technique settings and UBO contents vary here.
 
-            // Upload projection matrices for SSAO position reconstruction
-            data.PostProcessGPU.SSAOData.Projection = data.ProjectionMatrix;
-            data.PostProcessGPU.SSAOData.InverseProjection = glm::inverse(data.ProjectionMatrix);
+            // Upload projection matrices for SSAO position reconstruction.
+            // A8 seam, shader-reconstruction flavour: the shader consumes both
+            // against `uv*2-1 / depth*2-1` inputs (and extracts rows 2/3
+            // coefficients, which the row flip leaves untouched).
+            data.PostProcessGPU.SSAOData.Projection =
+                RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+            data.PostProcessGPU.SSAOData.InverseProjection =
+                RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
             data.PostProcessGPU.SSAOData.DebugView = data.PostProcess.SSAODebugView ? 1 : 0;
         }
         if (SceneCompositePasses.GTAO)
@@ -559,8 +569,9 @@ namespace OloEngine
             if (ssgiEnabled)
             {
                 auto& ssgi = data.PostProcessGPU.SSGIData;
-                ssgi.Projection = data.ProjectionMatrix;
-                ssgi.InverseProjection = glm::inverse(data.ProjectionMatrix);
+                // A8 seam, shader-reconstruction flavour (uv/depth marcher).
+                ssgi.Projection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+                ssgi.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
                 ssgi.View = data.ViewMatrix;
                 ssgi.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.SSGIMaxSteps, 1, kSSGIMaxSteps)),
                                            std::max(0.1f, data.PostProcess.SSGIMaxDistance),
@@ -603,8 +614,9 @@ namespace OloEngine
             if (ssrEnabled)
             {
                 auto& ssr = data.PostProcessGPU.SSRData;
-                ssr.Projection = data.ProjectionMatrix;
-                ssr.InverseProjection = glm::inverse(data.ProjectionMatrix);
+                // A8 seam, shader-reconstruction flavour (uv/depth marcher).
+                ssr.Projection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+                ssr.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
                 ssr.View = data.ViewMatrix;
                 ssr.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.SSRMaxSteps, 1, kSSRMaxSteps)),
                                           std::max(0.1f, data.PostProcess.SSRMaxDistance),
@@ -676,8 +688,9 @@ namespace OloEngine
             if (contactShadowEnabled)
             {
                 auto& cs = data.PostProcessGPU.ContactShadowData;
-                cs.Projection = data.ProjectionMatrix;
-                cs.InverseProjection = glm::inverse(data.ProjectionMatrix);
+                // A8 seam, shader-reconstruction flavour (uv/depth marcher).
+                cs.Projection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+                cs.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
                 cs.View = data.ViewMatrix;
 
                 // World-space direction TOWARD the light (= -lightTravelDir). Mark
@@ -1404,8 +1417,15 @@ namespace OloEngine
             data.Cloudscape.Enabled || data.Settings.Path == RenderingPath::Deferred)
         {
             auto& mb = data.PostProcessGPU.MotionBlurData;
-            mb.InverseViewProjection = data.InverseViewProjectionMatrix;
-            mb.PrevViewProjection = data.PrevViewProjectionMatrix;
+            // A8 projection seam, SHADER-RECONSTRUCTION flavour: every consumer
+            // of this block feeds it GL-shaped `vec3(uv*2-1, depth*2-1)` input
+            // (motion blur, fog, deferred world reconstruction, TAA, cloud
+            // rays), so on Vulkan the inverse is recomputed from the ROW-flipped
+            // forward matrix — never the rasterizer (z-remapped) one, and never
+            // by flipping an existing inverse. Identity on GL (bit-identical to
+            // data.InverseViewProjectionMatrix there).
+            mb.InverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(data.ViewProjectionMatrix);
+            mb.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(data.PrevViewProjectionMatrix);
             data.PostProcessGPU.MotionBlur->SetData(&mb, MotionBlurUBOData::GetSize());
             // Re-establish the base-8 binding every upload: of this UBO's
             // consumers only MotionBlurRenderPass binds it itself — the

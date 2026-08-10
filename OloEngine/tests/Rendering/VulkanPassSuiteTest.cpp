@@ -50,8 +50,14 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
+#include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
+#include "OloEngine/Renderer/Passes/FluidCompositePass.h"
 #include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
+#include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
+#include "OloEngine/Renderer/Passes/OverdrawRenderPass.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
@@ -346,8 +352,29 @@ namespace
             framebuffer->Bind();
             const auto& spec = framebuffer->GetSpecification();
             context.SetViewport(0, 0, spec.Width, spec.Height);
-            context.SetDepthTest(false);
-            context.SetDepthMask(false);
+            if (ClearTargetFirst)
+            {
+                // Folds into the scope's loadOp on Vulkan: color -> clear
+                // color, depth -> 1.0 (the far plane the depth-seed chain's
+                // fallback contract needs to displace).
+                context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                context.Clear();
+            }
+            if (WriteDepth)
+            {
+                // Author depth: the raw-NDC triangle sits at z = 0, which
+                // rasterises to depth 0.0 on Vulkan (no [-1,1] remap for
+                // pass-through vertices) — Always so the clear value never
+                // gates the write.
+                context.SetDepthTest(true);
+                context.SetDepthMask(true);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Always);
+            }
+            else
+            {
+                context.SetDepthTest(false);
+                context.SetDepthMask(false);
+            }
             context.SetBlendState(false);
             context.SetCulling(false);
 
@@ -358,6 +385,13 @@ namespace
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             context.DrawIndexed(va);
+            if (WriteDepth)
+            {
+                // Leave the recorded state at the fixture default.
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                context.SetDepthMask(false);
+                context.SetDepthTest(false);
+            }
             framebuffer->Unbind();
             DidDraw = true;
         }
@@ -367,9 +401,28 @@ namespace
             return nullptr;
         }
 
+        // The reachability cull walks DECLARED read edges backward from the
+        // final pass. A tenant whose pass consumes the produced content
+        // through an ATTACHMENT VIEW of the framebuffer (OITPrepare's depth
+        // read) — or through no declared edge at all — leaves the producer
+        // unreachable and culled. Marking it side-effecting keeps it, which
+        // matches what it is: an authored-content source, not derived work.
+        [[nodiscard]] bool IsSideEffecting() const override
+        {
+            return TreatAsSideEffecting;
+        }
+
         // Diagnosis seam: false after Execute means the resolve guard
         // early-returned and nothing recorded.
         bool DidDraw = false;
+        // Opt-in (see IsSideEffecting): defaults off so the versioned-input
+        // tenants keep exercising the real reachability chain.
+        bool TreatAsSideEffecting = false;
+        // OITPrepare's depth-seed chain (#691 Wave C): clear the target
+        // (color + depth -> 1.0) at scope open, then author depth from the
+        // raw-NDC triangle (z = 0 -> Vulkan depth 0.0).
+        bool ClearTargetFirst = false;
+        bool WriteDepth = false;
 
         [[nodiscard]] const std::string& GetTargetResource() const
         {
@@ -4309,6 +4362,999 @@ TEST_F(VulkanPassSuite, UiCompositeClearsBlitsAndBlendsTheOverlayCallback)
 
     EXPECT_EQ(api.GetPhase6StubHitCount(), 0u)
         << "the mixed int/float clear must ride the real ClearAllAttachments implementation";
+}
+
+// =============================================================================
+// OITPrepare (#691 Wave C item 1): the clears + depth-seed pass, in two chains.
+//
+// Chain A (scene HAS a blit-compatible depth): the producer authors depth 0.0
+// into the scene FB, OITPreparePass clears accum -> (0,0,0,0) / revealage ->
+// (1,0,0,0) via ClearFramebufferColorAttachment and SEEDS the OIT depth by
+// BlitFramebuffer(Depth, Nearest) — then a probe draw at NDC z = 0.5 with the
+// depth test ON must be BLOCKED (0.5 < 0.0 fails Less), leaving accum at its
+// clear.
+//
+// Chain B (scene has NO depth): the fallback ClearFramebufferDepth(1.0) runs
+// instead, and the SAME probe passes (0.5 < 1.0), landing the pattern in
+// accum. The pair is differential: only the seeded-vs-fallback depth content
+// separates the two chains, so it pins the blit's COPIED VALUES and the
+// fallback clear at once — no depth readback needed.
+// =============================================================================
+TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto patternTexture = MakeSolidTexture(kSize, 200, 40, 90, 255);
+    ASSERT_NE(patternTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    // The probe's own geometry: a fullscreen triangle at NDC z = 0.5 (the
+    // V3 20-byte {pos3, uv2} stream FullscreenBlit's pull branch reads).
+    constexpr f32 kProbeZ = 0.5f;
+    const f32 probeVertices[] = {
+        -1.0f, -1.0f, kProbeZ, 0.0f, 0.0f,
+        3.0f, -1.0f, kProbeZ, 2.0f, 0.0f,
+        -1.0f, 3.0f, kProbeZ, 0.0f, 2.0f
+    };
+    u32 probeIndices[] = { 0u, 1u, 2u }; // IndexBuffer::Create takes a non-const u32*
+    auto probeVB = VertexBuffer::Create(probeVertices, sizeof(probeVertices));
+    auto probeIB = IndexBuffer::Create(probeIndices, 3);
+    auto probeVA = VertexArray::Create();
+    probeVA->AddVertexBuffer(probeVB);
+    probeVA->SetIndexBuffer(probeIB);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u32 stubsBefore = api.GetPhase6StubHitCount();
+
+    struct ChainResult
+    {
+        std::vector<u8> Accum;     // RGBA16F raw halfs
+        std::vector<u8> Revealage; // RG16F raw halfs
+    };
+
+    const auto runChain = [&](bool sceneHasDepth) -> ChainResult
+    {
+        ChainResult result;
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        // Caller-backed scene FB — with or without the blit-compatible depth.
+        FramebufferSpecification sceneSpec;
+        sceneSpec.Width = kSize;
+        sceneSpec.Height = kSize;
+        if (sceneHasDepth)
+            sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+        else
+            sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+        EXPECT_TRUE(sceneFramebuffer);
+
+        RGResourceDesc sceneDesc;
+        sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+        sceneDesc.Width = kSize;
+        sceneDesc.Height = kSize;
+        blackboard.Scene.SceneColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+        if (sceneHasDepth)
+        {
+            blackboard.Scene.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(
+                ResourceNames::SceneDepthAttachment, blackboard.Scene.SceneColor);
+        }
+
+        // Caller-backed OIT MRT FB (production shape: RGBA16F + RG16F + D24S8).
+        FramebufferSpecification oitSpec;
+        oitSpec.Width = kSize;
+        oitSpec.Height = kSize;
+        oitSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F,
+                                FramebufferTextureFormat::Depth };
+        Ref<Framebuffer> oitFramebuffer = Framebuffer::Create(oitSpec);
+        EXPECT_TRUE(oitFramebuffer);
+
+        RGResourceDesc oitDesc;
+        oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        oitDesc.Width = kSize;
+        oitDesc.Height = kSize;
+        oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float,
+                                RGResourceFormat::Depth24Stencil8 };
+        const auto oitHandle = graph.DeclareTransientFramebuffer(ResourceNames::OITBuffer, oitDesc, oitFramebuffer);
+        blackboard.OIT.OITBuffer = oitHandle;
+        blackboard.OIT.OITAccum = graph.CreateFramebufferAttachmentView(ResourceNames::OITAccum, oitHandle, 0u);
+        blackboard.OIT.OITRevealage =
+            graph.CreateFramebufferAttachmentView(ResourceNames::OITRevealage, oitHandle, 1u);
+        blackboard.OIT.OITDepthAttachment =
+            graph.CreateFramebufferDepthAttachmentView(ResourceNames::OITDepthAttachment, oitHandle);
+
+        auto producer = Ref<PatternProducerPass>::Create(
+            patternTexture, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& board) -> RGFramebufferHandle&
+            { return board.Scene.SceneColor; });
+        producer->ClearTargetFirst = true;
+        producer->WriteDepth = sceneHasDepth;
+        // OITPrepare consumes the scene through its DEPTH VIEW (transfer
+        // source), not a versioned colour read — without the side-effect
+        // mark the reachability cull drops the producer.
+        producer->TreatAsSideEffecting = true;
+
+        auto prepare = Ref<OITPrepareRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        prepare->Init(initSpec);
+        prepare->SetEnabled(true);
+        prepare->SetHasContributors(true);
+
+        graph.AddNode(producer);
+        graph.AddNode(prepare);
+        graph.SetFinalPass("OITPreparePass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                // --- probe draw (a test instrument, not a pass) ------------
+                // Depth-test the seeded/fallback OIT depth at NDC z = 0.5:
+                // blocked by the seed (0.0), passed by the fallback (1.0).
+                oitFramebuffer->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                RenderCommand::SetDepthTest(true);
+                RenderCommand::SetDepthMask(false);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                RenderCommand::SetBlendState(false);
+                RenderCommand::DisableCulling();
+                blitShader->Bind();
+                RenderCommand::BindTexture(0, patternTexture->GetRHIHandle());
+                probeVA->Bind();
+                RenderCommand::DrawIndexed(probeVA);
+                oitFramebuffer->Unbind();
+                RenderCommand::SetDepthTest(false);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+
+                // Readback barriers: both OIT color attachments were last in
+                // the probe's rendering scope (attachment writes).
+                std::array<RHI::Barrier, 2> toSampled{};
+                toSampled[0].Resource = oitFramebuffer->GetColorAttachmentHandle(0);
+                toSampled[0].Before = RHI::Access::ColorAttachmentWrite;
+                toSampled[0].After = RHI::Access::ShaderSampleRead;
+                toSampled[1].Resource = oitFramebuffer->GetColorAttachmentHandle(1);
+                toSampled[1].Before = RHI::Access::ColorAttachmentWrite;
+                toSampled[1].After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+            });
+
+        EXPECT_TRUE(producer->DidDraw) << "producer early-returned (sceneHasDepth=" << sceneHasDepth << ")";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "OITPrepare resolve failure: pass='" << failure.PassName << "' reason='"
+                          << failure.Reason << "' x" << failure.Count;
+        }
+
+        auto* vkOit = static_cast<VulkanFramebuffer*>(oitFramebuffer.Raw());
+        EXPECT_TRUE(vkOit->GetColorAttachmentImage(0)->GetData(result.Accum, 0));
+        EXPECT_TRUE(vkOit->GetColorAttachmentImage(1)->GetData(result.Revealage, 0));
+        return result;
+    };
+
+    const ChainResult seeded = runChain(true);
+    const ChainResult fallback = runChain(false);
+
+    ASSERT_EQ(seeded.Accum.size(), static_cast<sizet>(kSize) * kSize * 8);
+    ASSERT_EQ(seeded.Revealage.size(), static_cast<sizet>(kSize) * kSize * 4);
+    ASSERT_EQ(fallback.Accum.size(), static_cast<sizet>(kSize) * kSize * 8);
+
+    const auto accumTexel = [&](const ChainResult& r, u32 x, u32 y)
+    {
+        const auto* halves = reinterpret_cast<const u16*>(r.Accum.data());
+        const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
+                                   HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
+    };
+    const auto revealageTexel = [&](const ChainResult& r, u32 x, u32 y)
+    {
+        const auto* halves = reinterpret_cast<const u16*>(r.Revealage.data());
+        const sizet base = (static_cast<sizet>(y) * kSize + x) * 2;
+        return HalfToFloat(halves[base]);
+    };
+
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 5, 5 }, { 64, 64 }, { 120, 120 } })
+    {
+        // Chain A: the seeded depth (0.0) blocks the z=0.5 probe — accum
+        // keeps the (0,0,0,0) clear, revealage the (1,...) clear.
+        const auto blocked = accumTexel(seeded, x, y);
+        EXPECT_NEAR(blocked[0], 0.0f, 1e-3f) << "seeded chain accum.r at (" << x << "," << y << ")";
+        EXPECT_NEAR(blocked[3], 0.0f, 1e-3f) << "seeded chain accum.a at (" << x << "," << y << ")";
+        EXPECT_NEAR(revealageTexel(seeded, x, y), 1.0f, 1e-3f)
+            << "revealage clear at (" << x << "," << y << ")";
+
+        // Chain B: the fallback depth clear (1.0) admits the probe — accum
+        // takes the pattern (200,40,90)/255.
+        const auto passed = accumTexel(fallback, x, y);
+        EXPECT_NEAR(passed[0], 200.0f / 255.0f, 0.01f) << "fallback chain accum.r at (" << x << "," << y << ")";
+        EXPECT_NEAR(passed[1], 40.0f / 255.0f, 0.01f) << "fallback chain accum.g at (" << x << "," << y << ")";
+        EXPECT_NEAR(passed[2], 90.0f / 255.0f, 0.01f) << "fallback chain accum.b at (" << x << "," << y << ")";
+        EXPECT_NEAR(revealageTexel(fallback, x, y), 1.0f, 1e-3f)
+            << "fallback revealage clear at (" << x << "," << y << ")";
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "OITPrepare must ride the real clears + depth blit, not stubs";
+}
+
+// =============================================================================
+// FluidComposite (#691 Wave C item 2), two halves:
+//
+// (a) PASS-LEVEL FLOOR: the composite's Execute gates on its intermediates
+//     partner's RanThisFrame() — and FluidIntermediatesPass::Execute cannot
+//     reach `m_RanThisFrame = true` on this backend yet (its targets come
+//     from the raw texture/FBO facade family, still Phase6Stub — the
+//     documented Wave C raw-FBO slice). The floor pins that the composite
+//     DECLARES its graph resources with a pending draw and then early-outs
+//     cleanly, leaving the scene untouched — the same "documented floor"
+//     shape FluidIntermediates itself pinned in Wave B.
+//
+// (b) SHADER-LEVEL REFRACTION PASSTHROUGH: the composite's V3 draw with the
+//     REAL FluidComposite.glsl (its pull branch is this batch's sibling
+//     change), driven directly with imported stand-ins: fluid depth 0 in the
+//     top band (-> discard, scene EXACT) and 0.251 m in the bottom band with
+//     thickness 0 (-> transmittance exp(0)=1, refraction offset 0, so the
+//     copied scene passes through modulo the ~2% head-on Fresnel mix with
+//     the sky-tint fallback). CopyImageSubData seeds the refraction copy —
+//     the composite's production snapshot path.
+// =============================================================================
+TEST_F(VulkanPassSuite, FluidCompositeFloorsWithoutIntermediatesAndPassesRefractionThrough)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto patternTexture = MakeSolidTexture(kSize, 200, 40, 90, 255);
+    ASSERT_NE(patternTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    // ---- (a) the pass-level floor ------------------------------------------
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    {
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc sceneDesc;
+        sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+        sceneDesc.Width = kSize;
+        sceneDesc.Height = kSize;
+        blackboard.Scene.SceneColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+        blackboard.Scene.SceneColorTexture =
+            graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, blackboard.Scene.SceneColor, 0u);
+        blackboard.Scene.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(
+            ResourceNames::SceneDepthAttachment, blackboard.Scene.SceneColor);
+
+        RGResourceDesc refractionDesc;
+        refractionDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        refractionDesc.Format = RGResourceFormat::RGBA16Float;
+        refractionDesc.Width = kSize;
+        refractionDesc.Height = kSize;
+        refractionDesc.DebugName = "FluidRefraction";
+        blackboard.Scratch.FluidRefraction = graph.AllocateTransientTextureHandle("FluidRefraction", refractionDesc);
+
+        // A pending draw makes HasPendingDraws() true, so the composite's
+        // Setup declares everything — but the intermediates pass was never
+        // Init'd and cannot run its body (the raw-FBO stub family), so
+        // RanThisFrame() stays false and the composite's Execute early-outs.
+        auto intermediates = Ref<FluidIntermediatesPass>::Create();
+        FluidRenderData pendingDraw{};
+        pendingDraw.ParticleUpperBound = 16u;
+        intermediates->SetFrameDraws({ pendingDraw });
+
+        auto composite = Ref<FluidCompositePass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        composite->Init(initSpec);
+        composite->SetEnabled(true);
+        composite->SetIntermediatesPass(intermediates);
+        ASSERT_TRUE(composite->IsReadyForExecution())
+            << "FluidComposite.glsl must compile through shaderc — its OLO_VULKAN pull branch";
+
+        auto producer = Ref<PatternProducerPass>::Create(
+            patternTexture, blitShader, std::string(ResourceNames::SceneColor),
+            std::string(ResourceNames::SceneColorTexture),
+            [](FrameBlackboard& board) -> RGFramebufferHandle&
+            { return board.Scene.SceneColor; });
+        // The composite reads the fixture-minted v0 attachment views, which
+        // the cull does not chain to the producer's new version — keep the
+        // producer via the side-effect mark (the floor's premise is that the
+        // COMPOSITE early-outs, not that the scene is empty).
+        producer->TreatAsSideEffecting = true;
+
+        graph.AddNode(producer);
+        graph.AddNode(composite);
+        graph.SetFinalPass("FluidCompositePass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                RHI::Barrier toSampled{};
+                toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_TRUE(producer->DidDraw);
+        EXPECT_FALSE(intermediates->RanThisFrame())
+            << "the raw-FBO stub family must still gate the intermediates body (this floor's premise)";
+
+        std::vector<u8> rendered;
+        auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+        ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+        const sizet centre = ((static_cast<sizet>(64) * kSize) + 64) * 4;
+        EXPECT_EQ(rendered[centre + 0], 200) << "the gated composite must leave the scene untouched";
+        EXPECT_EQ(rendered[centre + 1], 40);
+        EXPECT_EQ(rendered[centre + 2], 90);
+    }
+
+    // ---- (b) the shader-level refraction passthrough -----------------------
+    // Stand-ins: fluid depth split at row 64 (top r=0 -> discard, bottom
+    // r=64/255 = 0.251 m of view depth), thickness 0 everywhere, scene depth
+    // far (1.0).
+    auto fluidDepthTexture = MakeHorizontalSplitTexture(kSize, 64, { 0, 0, 0, 255 }, { 64, 0, 0, 255 });
+    auto fluidThicknessTexture = MakeSolidTexture(kSize, 0, 0, 0, 0);
+    auto sceneDepthTexture = MakeSolidTexture(kSize, 255, 255, 255, 255);
+    auto refractionTexture = MakeSolidTexture(kSize, 0, 0, 0, 0);
+    ASSERT_TRUE(fluidDepthTexture && fluidThicknessTexture && sceneDepthTexture && refractionTexture);
+
+    auto compositeShader = Shader::Create("assets/shaders/FluidComposite.glsl");
+    ASSERT_TRUE(compositeShader);
+    ASSERT_EQ(compositeShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // CameraUBO: eye at origin looking down -Z (identity view), standard
+    // perspective — the fragment only uses P00/P11 for view reconstruction,
+    // the window-depth guard, and the velocity reprojection (xy, unused by
+    // the contracts).
+    const glm::mat4 projection = glm::perspective(glm::radians(45.0f), 1.0f, 0.1f, 100.0f);
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = projection;
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = projection;
+    cameraData.Position = glm::vec3(0.0f);
+    cameraData.PrevViewProjection = projection;
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    UBOStructures::FluidRenderUBO fluidUbo{};
+    fluidUbo.TintRadius = glm::vec4(0.5f, 0.5f, 0.5f, 0.1f);
+    fluidUbo.AbsorptionParams = glm::vec4(0.45f, 0.06f, 0.01f, 1.0f);
+    fluidUbo.FoamParams = glm::vec4(3.0f, 1.0f, 0.0f, 0.0f);
+    fluidUbo.SmoothParams = glm::vec4(0.0f, 0.4f, 0.1f, 100.0f);
+    fluidUbo.ScreenParams = glm::vec4(static_cast<f32>(kSize), static_cast<f32>(kSize),
+                                      1.0f / static_cast<f32>(kSize), 1.0f / static_cast<f32>(kSize));
+    fluidUbo.Counts = glm::uvec4(16u, 7u, 0u, 0u); // z = 0: no environment map — sky-tint fallback
+    auto fluidRenderUbo = UniformBuffer::Create(UBOStructures::FluidRenderUBO::GetSize(),
+                                                ShaderBindingLayout::UBO_FLUID_RENDER);
+    fluidRenderUbo->SetData(&fluidUbo, UBOStructures::FluidRenderUBO::GetSize());
+
+    FramebufferSpecification outSpec;
+    outSpec.Width = kSize;
+    outSpec.Height = kSize;
+    outSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outSpec);
+    ASSERT_TRUE(outputFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            // Seed the scene into the output, snapshot it as the refraction
+            // copy (the composite's production CopyImageSubData path), then
+            // run the composite draw over it.
+            outputFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetDepthMask(false);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+            blitShader->Bind();
+            RenderCommand::BindTexture(0, patternTexture->GetRHIHandle());
+            const auto tri = MeshPrimitives::GetFullscreenTriangle();
+            tri->Bind();
+            RenderCommand::DrawIndexed(tri);
+
+            RenderCommand::CopyImageSubData(outputFramebuffer->GetColorAttachmentHandle(0),
+                                            RendererAPI::TextureTargetType::Texture2D,
+                                            refractionTexture->GetRHIHandle(),
+                                            RendererAPI::TextureTargetType::Texture2D, kSize, kSize);
+
+            compositeShader->Bind();
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_FLUID_DEPTH, fluidDepthTexture->GetRHIHandle());
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS,
+                                       fluidThicknessTexture->GetRHIHandle());
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthTexture->GetRHIHandle());
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexture->GetRHIHandle());
+            tri->Bind();
+            RenderCommand::DrawIndexed(tri);
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+    // Counters reset per recording bracket — absolute counts for THIS submit.
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "seed draw + composite draw must both prepare";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> rendered;
+    auto* vkOut = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+    ASSERT_TRUE(vkOut->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const auto px = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
+    };
+
+    // Top band (fluid depth 0): the discard path — scene EXACT.
+    const auto discarded = px(64, 32);
+    EXPECT_EQ(discarded[0], 200) << "no-fluid pixels must discard (scene untouched)";
+    EXPECT_EQ(discarded[1], 40);
+    EXPECT_EQ(discarded[2], 90);
+
+    // Bottom band (uniform 0.251 m fluid, thickness 0): transmittance
+    // exp(0) = 1 and a zero refraction offset pass the copied scene through;
+    // the only shift is the head-on Fresnel (~0.02) mix with the sky-tint
+    // fallback mix((0.35,0.45,0.60), Tint=0.5, 0.35) = (0.4025,0.4675,0.565):
+    //   r = 0.98*0.7843 + 0.02*0.4025 = 0.777  -> 198
+    //   g = 0.98*0.1569 + 0.02*0.4675 = 0.163  -> 42
+    //   b = 0.98*0.3529 + 0.02*0.565  = 0.357  -> 91
+    const auto lit = px(64, 96);
+    EXPECT_NEAR(lit[0], 198, 4) << "zero-thickness fluid must pass the refraction copy through";
+    EXPECT_NEAR(lit[1], 42, 4);
+    EXPECT_NEAR(lit[2], 91, 4);
+}
+
+// =============================================================================
+// Overdraw (#691 Wave C item 3), two halves:
+//
+// (a) PASS-LEVEL: the REAL OverdrawRenderPass through the graph with an
+//     EMPTY SceneRenderPass bucket — the replay plumbing runs end to end
+//     (accum FB creation + ClearAllAttachments, SetOverdrawActive toggles,
+//     bucket execute, heat-map draw) and a zero count maps to exact black.
+//     A REAL bucket replay needs scene draw packets (V1 vertex pull + the
+//     CommandDispatch packet path + the overdraw shader swap + camera /
+//     instance SSBO state) — that is port-order item 10's machinery, so
+//     constructing one here would be disproportionate; the empty-bucket run
+//     + the ramp half below pin everything this pass owns itself.
+//
+// (b) SHADER-LEVEL HEAT RAMP: PostProcess_OverdrawHeatmap.glsl (pull branch
+//     added this batch) over an imported count texture — the ramp's blue /
+//     green / red anchors at counts 2.5 / 5 / 10 out of kMaxLayers = 10.
+// =============================================================================
+TEST_F(VulkanPassSuite, OverdrawRunsTheEmptyReplayAndMapsCountsToHeatColours)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    // ---- (a) the pass through the graph ------------------------------------
+    FramebufferSpecification outSpec;
+    outSpec.Width = kSize;
+    outSpec.Height = kSize;
+    outSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outSpec);
+    ASSERT_TRUE(outputFramebuffer);
+
+    SceneRenderPass emptyScenePass; // ctor is inert; its bucket stays empty
+
+    auto overdraw = Ref<OverdrawRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    overdraw->Init(initSpec);
+    ASSERT_TRUE(overdraw->IsReadyForExecution())
+        << "PostProcess_OverdrawHeatmap.glsl must compile through shaderc — its OLO_VULKAN pull branch";
+    overdraw->SetEnabled(true);
+    overdraw->SetScenePass(&emptyScenePass);
+
+    {
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc fbDesc;
+        fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+        fbDesc.Width = kSize;
+        fbDesc.Height = kSize;
+        blackboard.Post.OverdrawColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::OverdrawColor, fbDesc, outputFramebuffer);
+
+        graph.AddNode(overdraw);
+        graph.SetFinalPass("OverdrawPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                RHI::Barrier toSampled{};
+                toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_TRUE(overdraw->GetTarget()) << "the pass early-returned";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "Overdraw resolve failure: pass='" << failure.PassName << "' reason='"
+                          << failure.Reason << "' x" << failure.Count;
+        }
+        // Counters reset per recording bracket — absolute count for this submit.
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u)
+            << "exactly the heat-map draw (the replayed bucket is empty)";
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+        std::vector<u8> rendered;
+        auto* vkOut = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+        ASSERT_TRUE(vkOut->GetColorAttachmentImage(0)->GetData(rendered, 0));
+        for (const auto& [x, y] : { std::pair<u32, u32>{ 3, 3 }, { 64, 64 }, { 124, 124 } })
+        {
+            const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+            EXPECT_EQ(rendered[i + 0], 0) << "HeatColor(0) is black at (" << x << "," << y << ")";
+            EXPECT_EQ(rendered[i + 1], 0);
+            EXPECT_EQ(rendered[i + 2], 0);
+            EXPECT_EQ(rendered[i + 3], 255);
+        }
+    }
+
+    // ---- (b) the analytic heat ramp ----------------------------------------
+    // Count stand-in: three vertical thirds at 2.5 / 5 / 10 layers. The
+    // sampler reads .r; an RGBA8 import cannot hold >1, so bake the counts
+    // through kMaxLayers-scaled values instead: the shader divides by 10, so
+    // r = 64/255 = 0.251 (t=0.025)... — too coarse. Use an RGBA16F texture
+    // written raw instead: SetData accepts the client format of the spec.
+    TextureSpecification countSpec;
+    countSpec.Width = kSize;
+    countSpec.Height = kSize;
+    countSpec.Format = ImageFormat::RGBA32F;
+    countSpec.GenerateMips = false;
+    auto countTexture = Texture2D::Create(countSpec);
+    ASSERT_TRUE(countTexture);
+    {
+        std::vector<f32> counts(static_cast<sizet>(kSize) * kSize * 4, 0.0f);
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                const f32 count = x < kSize / 3 ? 2.5f : (x < (2 * kSize) / 3 ? 5.0f : 10.0f);
+                counts[(static_cast<sizet>(y) * kSize + x) * 4] = count;
+            }
+        }
+        countTexture->SetData(counts.data(), static_cast<u32>(counts.size() * sizeof(f32)));
+    }
+
+    auto heatmapShader = Shader::Create("assets/shaders/PostProcess_OverdrawHeatmap.glsl");
+    ASSERT_TRUE(heatmapShader);
+    ASSERT_EQ(heatmapShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    FramebufferSpecification rampSpec;
+    rampSpec.Width = kSize;
+    rampSpec.Height = kSize;
+    rampSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> rampFramebuffer = Framebuffer::Create(rampSpec);
+    ASSERT_TRUE(rampFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            rampFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetDepthMask(false);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+            heatmapShader->Bind();
+            RenderCommand::BindTexture(0, countTexture->GetRHIHandle());
+            const auto tri = MeshPrimitives::GetFullscreenTriangle();
+            tri->Bind();
+            RenderCommand::DrawIndexed(tri);
+            rampFramebuffer->Unbind();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = rampFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    std::vector<u8> ramp;
+    auto* vkRamp = static_cast<VulkanFramebuffer*>(rampFramebuffer.Raw());
+    ASSERT_TRUE(vkRamp->GetColorAttachmentImage(0)->GetData(ramp, 0));
+
+    const auto rampPx = [&](u32 x)
+    {
+        const sizet i = (static_cast<sizet>(64) * kSize + x) * 4;
+        return std::array<int, 3>{ ramp[i], ramp[i + 1], ramp[i + 2] };
+    };
+    // count 2.5 -> t = 0.25 -> pure blue; 5 -> t = 0.5 -> pure green;
+    // 10 -> t = 1.0 -> pure red (the CPU-mirrored OverdrawHeatmap ramp).
+    const auto blue = rampPx(20);
+    EXPECT_NEAR(blue[0], 0, 3);
+    EXPECT_NEAR(blue[1], 0, 3);
+    EXPECT_NEAR(blue[2], 255, 3) << "2.5 of 10 layers must be the pure-blue anchor";
+    const auto green = rampPx(64);
+    EXPECT_NEAR(green[0], 0, 3);
+    EXPECT_NEAR(green[1], 255, 3) << "5 of 10 layers must be the pure-green anchor";
+    EXPECT_NEAR(green[2], 0, 3);
+    const auto red = rampPx(120);
+    EXPECT_NEAR(red[0], 255, 3) << "10 of 10 layers must be the pure-red anchor";
+    EXPECT_NEAR(red[1], 0, 3);
+    EXPECT_NEAR(red[2], 0, 3);
+}
+
+namespace
+{
+    // CPU mirror of the DeferredLighting analytic contract's shader terms
+    // (PBRCommon.glsl cookTorranceBRDF + calculateLightContribution +
+    // calculateSimpleAmbient; DeferredLightingShared.glsl composition). Kept
+    // formula-identical INCLUDING the epsilons so the expected pixel is
+    // computed, not tuned.
+    glm::vec3 MirrorDeferredLitPixel(const glm::vec3& albedo, const glm::vec3& N, const glm::vec3& V,
+                                     const glm::vec3& L)
+    {
+        constexpr f32 kEpsilon = 0.0001f;
+        constexpr f32 kPi = 3.14159265359f;
+        const f32 roughness = 1.0f;
+        const f32 metallic = 0.0f;
+
+        const glm::vec3 H = glm::normalize(V + L);
+        const f32 a = roughness * roughness;
+        const f32 a2 = a * a;
+        const f32 NdotH = std::max(glm::dot(N, H), 0.0f);
+        f32 denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
+        denom = kPi * denom * denom;
+        const f32 ndf = a2 / std::max(denom, kEpsilon);
+
+        const auto schlickGGX = [&](f32 NdotX)
+        {
+            const f32 r = roughness + 1.0f;
+            const f32 k = (r * r) / 8.0f;
+            return NdotX / std::max(NdotX * (1.0f - k) + k, kEpsilon);
+        };
+        const f32 NdotV = std::max(glm::dot(N, V), 0.0f);
+        const f32 NdotL = std::max(glm::dot(N, L), 0.0f);
+        const f32 g = schlickGGX(NdotV) * schlickGGX(NdotL);
+
+        const glm::vec3 f0(0.04f);
+        const f32 hDotV = std::max(glm::dot(H, V), 0.0f);
+        const glm::vec3 fresnel = f0 + (glm::vec3(1.0f) - f0) * std::pow(1.0f - hDotV, 5.0f);
+
+        const glm::vec3 specular = (ndf * g * fresnel) / (4.0f * NdotV * NdotL + kEpsilon);
+        const glm::vec3 kD = (glm::vec3(1.0f) - fresnel) * (1.0f - metallic);
+        const glm::vec3 brdf = kD * albedo * (1.0f / kPi) + specular;
+
+        const glm::vec3 lo = brdf * NdotL;                   // white light, intensity 1, no attenuation
+        const glm::vec3 ambient = glm::vec3(0.03f) * albedo; // calculateSimpleAmbient, ao = 1
+        return ambient + lo;
+    }
+} // namespace
+
+// =============================================================================
+// DeferredLighting (#691 Wave C item 4): the G-buffer sampling tenant.
+//
+// Imports 5 G-buffer stand-ins under the pass's blackboard names, runs the
+// UNMODIFIED pass against a caller-backed {RGBA8, R32I, D24S8} scene FB and
+// a real (cleared) GBuffer object, and pins:
+//   * the far band (depth 1.0): the emissive/sky passthrough EXACT;
+//   * the lit band: a single pixel's full Lambert+GGX term from the known
+//     G-buffer normal/albedo against one directional light, mirrored on the
+//     CPU (MirrorDeferredLitPixel) — light straight down the normal;
+//   * SetFramebufferDrawAttachments narrowing: the lighting draw touches
+//     only RT0 while the {1}-narrowed COLOR blit lands the G-buffer's
+//     entity-ID clear (42) in RT1 — the blit-remap half of the mechanism;
+//   * the two shadow-sampler families bind without validation errors
+//     (compare-on placeholders via NullSamplerKind::Texture2DArrayShadow,
+//     compare-off raw views via CreateDepthArrayCompareOffViewHandle);
+//   * the depth blit (G-buffer -> scene) rides the same BlitFramebuffer
+//     path the OITPrepare tenant pinned by content.
+// =============================================================================
+TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    // The ambient path keys off PROCESS-GLOBAL state: the light-probe
+    // setting AND the global IBL handles (earlier GL suites leave real
+    // GL-currency IBL maps published, flipping iblAvailable on — the maps
+    // then resolve to Vulkan nulls and the ambient term silently swaps from
+    // simple-ambient to sampled-black, a -6/255 red shift the lit-band
+    // contract caught in the full-suite run). Force the deterministic
+    // simple-ambient configuration and restore on exit.
+    auto& settings = Renderer3D::GetRendererSettings();
+    const bool prevProbes = settings.Deferred.EnableLightProbes;
+    settings.Deferred.EnableLightProbes = false;
+    const RHI::ResourceHandle prevIrradiance = Renderer3D::GetGlobalIrradianceMapHandle();
+    const RHI::ResourceHandle prevPrefilter = Renderer3D::GetGlobalPrefilterMapHandle();
+    const RHI::ResourceHandle prevBrdfLut = Renderer3D::GetGlobalBRDFLutMapHandle();
+    const RHI::ResourceHandle prevEnvironment = Renderer3D::GetGlobalEnvironmentMapHandle();
+    const f32 prevIblIntensity = Renderer3D::GetGlobalIBLIntensity();
+    Renderer3D::ClearGlobalIBL();
+
+    // --- G-buffer stand-ins --------------------------------------------------
+    // Albedo (0.8, 0.2, 0.2), metallic 0. Normal +Z oct-encodes to (0,0);
+    // roughness 1, ao 1. Emissive: sky colour in the far band, 0 in the lit
+    // band (the shader adds it). Depth: far band 1.0, lit band 128/255.
+    auto albedoTexture = MakeSolidTexture(kSize, 204, 51, 51, 0);
+    auto normalTexture = MakeSolidTexture(kSize, 0, 0, 255, 255);
+    auto emissiveTexture = MakeHorizontalSplitTexture(kSize, 64, { 30, 60, 200, 0 }, { 0, 0, 0, 0 });
+    auto velocityTexture = MakeSolidTexture(kSize, 0, 0, 0, 0);
+    auto depthTexture = MakeHorizontalSplitTexture(kSize, 64, { 255, 0, 0, 255 }, { 128, 0, 0, 255 });
+    ASSERT_TRUE(albedoTexture && normalTexture && emissiveTexture && velocityTexture && depthTexture);
+
+    // --- UBOs the shader declares (bind them ALL — the DRS lesson) ----------
+    // Camera: eye at +10 Z looking down -Z. World positions come from the
+    // MotionBlur block's identity inverse-VP, so the lit-band pixel at the
+    // band centre sits near the origin and V ~ N ~ L.
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.Position = glm::vec3(0.0f, 0.0f, 10.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    // One directional light along -Z (L = +Z = the G-buffer normal), white,
+    // intensity 1, no shadow entry (direction.w = -1).
+    auto lightData = std::make_unique<ShaderBindingLayout::MultiLightUBO>();
+    std::memset(lightData.get(), 0, sizeof(ShaderBindingLayout::MultiLightUBO));
+    lightData->LightCount = 1;
+    lightData->MaxLights = static_cast<i32>(ShaderBindingLayout::MultiLightUBO::MAX_LIGHTS);
+    lightData->DirectionalLightCount = 1;
+    lightData->Lights[0].Position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f); // w = 0: DIRECTIONAL_LIGHT
+    lightData->Lights[0].Direction = glm::vec4(0.0f, 0.0f, -1.0f, -1.0f);
+    lightData->Lights[0].Color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    lightData->Lights[0].SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    auto lightsUbo = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(),
+                                           ShaderBindingLayout::UBO_MULTI_LIGHTS);
+    lightsUbo->SetData(lightData.get(), ShaderBindingLayout::MultiLightUBO::GetSize());
+
+    // Shadows fully disabled (DirectionalShadowEnabled = 0, no atlas entries).
+    auto shadowData = std::make_unique<ShaderBindingLayout::ShadowUBO>();
+    std::memset(shadowData.get(), 0, sizeof(ShaderBindingLayout::ShadowUBO));
+    auto shadowUbo = UniformBuffer::Create(ShaderBindingLayout::ShadowUBO::GetSize(), ShaderBindingLayout::UBO_SHADOW);
+    shadowUbo->SetData(shadowData.get(), ShaderBindingLayout::ShadowUBO::GetSize());
+
+    // MotionBlur block: identity inverse-VP -> worldPos = (uv*2-1, d*2-1).
+    MotionBlurUBOData mbData{};
+    mbData.InverseViewProjection = glm::mat4(1.0f);
+    mbData.PrevViewProjection = glm::mat4(1.0f);
+    auto mbUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    mbUbo->SetData(&mbData, sizeof(MotionBlurUBOData));
+
+    // Atmosphere shading (UBO 54): zeros = wetness off, cloud shadow 1.0.
+    struct AtmosphereShadingZeros
+    {
+        glm::vec4 Params0{ 0.0f };
+        glm::vec4 Params1{ 0.0f };
+    } atmosphereZeros;
+    auto atmosphereUbo = UniformBuffer::Create(sizeof(AtmosphereShadingZeros),
+                                               ShaderBindingLayout::UBO_ATMOSPHERE_SHADING);
+    atmosphereUbo->SetData(&atmosphereZeros, sizeof(atmosphereZeros));
+
+    // Forward+ params (UBO 25): zeros = fplusActive false (the production
+    // "disabled UBO" shape).
+    struct ForwardPlusZeros
+    {
+        glm::uvec4 Params{ 0u };
+        glm::vec4 Depth{ 0.0f };
+    } fplusZeros;
+    auto fplusUbo = UniformBuffer::Create(sizeof(ForwardPlusZeros), 25);
+    fplusUbo->SetData(&fplusZeros, sizeof(fplusZeros));
+
+    // --- the pass + its objects ---------------------------------------------
+    // Real single-sample GBuffer: dimensions + the blit SOURCE. Its cleared
+    // depth (1.0) and entity attachment (42) are what the two blits hand to
+    // the scene FB.
+    auto gbuffer = GBuffer::Create(kSize, kSize, 1);
+    ASSERT_TRUE(gbuffer);
+    // Copy the Ref: the accessor returns a const Ref, which const-propagates
+    // to the framebuffer, and the clear is a mutating call. The clear itself
+    // runs INSIDE SubmitFrame below — the facade transfer clears need the
+    // recording bracket (outside it they are counted stubs and no-op).
+    Ref<Framebuffer> gbufferSamplingFB = gbuffer->GetSamplingFramebuffer();
+
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
+                              FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    auto deferredLighting = Ref<DeferredLightingPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    deferredLighting->Init(initSpec);
+    deferredLighting->SetGBuffer(gbuffer);
+    deferredLighting->SetPerSampleLighting(false);
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc sceneDesc;
+    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+    sceneDesc.Width = kSize;
+    sceneDesc.Height = kSize;
+    blackboard.Scene.SceneColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+
+    RGResourceDesc importDesc;
+    importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    importDesc.Format = RGResourceFormat::RGBA8UNorm;
+    importDesc.Width = kSize;
+    importDesc.Height = kSize;
+    blackboard.GBuffer.GBufferAlbedo =
+        graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), importDesc);
+    blackboard.GBuffer.GBufferNormal =
+        graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), importDesc);
+    blackboard.GBuffer.GBufferEmissive =
+        graph.ImportTextureHandle(ResourceNames::GBufferEmissive, emissiveTexture->GetRHIHandle(), importDesc);
+    blackboard.GBuffer.Velocity =
+        graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), importDesc);
+    blackboard.Scene.SceneDepth =
+        graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
+
+    graph.AddNode(deferredLighting);
+    graph.SetFinalPass("DeferredLightingPass");
+    graph.BuildFrameGraph();
+
+    // The shadow placeholder arrays (compare-on family) + their raw aliases
+    // (compare-off family, via CreateDepthArrayCompareOffViewHandle) bind
+    // during Execute. Materialise them eagerly and pre-transition out of
+    // UNDEFINED to the sampled layout their descriptors bake — the fog
+    // tenant's placeholder recipe (their content is never read: shadows are
+    // disabled in the Shadow UBO).
+    const RHI::ResourceHandle csmPlaceholder = ShadowMap::GetCSMPlaceholderHandle();
+    const RHI::ResourceHandle atlasPlaceholder = ShadowMap::GetAtlasPlaceholderHandle();
+    const RHI::ResourceHandle csmRawAlias = ShadowMap::GetCSMRawPlaceholderHandle();
+    ASSERT_TRUE(csmPlaceholder.IsValid());
+    ASSERT_TRUE(atlasPlaceholder.IsValid());
+    ASSERT_TRUE(csmRawAlias.IsValid())
+        << "CreateDepthArrayCompareOffViewHandle must mint the raw alias on Vulkan";
+
+    SubmitFrame(
+        [&]()
+        {
+            // Author the G-buffer content the pass's blits copy: entity RT4
+            // -> 42, depth -> 1.0 (float RTs -> 0, unread here).
+            gbufferSamplingFB->ClearAllAttachments(glm::vec4(0.0f), 42);
+            for (const RHI::ResourceHandle handle : { csmPlaceholder, atlasPlaceholder })
+            {
+                RHI::Barrier toSampled{};
+                toSampled.Resource = handle;
+                toSampled.Before = RHI::Access::Undefined;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            }
+            graph.Execute();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+            // The chain ends in the two transfer blits (depth + entity id),
+            // but RT0's last access is the lighting draw's attachment write.
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+
+            RHI::Barrier entityToSampled{};
+            entityToSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(1);
+            entityToSampled.Before = RHI::Access::TransferWrite; // the entity-ID blit
+            entityToSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &entityToSampled, 1 });
+        });
+
+    EXPECT_TRUE(deferredLighting->GetTarget()) << "the pass early-returned";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "DeferredLighting resolve failure: pass='" << failure.PassName << "' reason='"
+                      << failure.Reason << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> rendered;
+    auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const auto px = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
+    };
+
+    // Far band (depth 1.0): the emissive passthrough, EXACT.
+    const auto sky = px(64, 32);
+    EXPECT_EQ(sky[0], 30) << "far-plane pixels must pass the emissive stand-in through";
+    EXPECT_EQ(sky[1], 60);
+    EXPECT_EQ(sky[2], 200);
+
+    // Lit band: mirror the shader term-for-term at the probe pixel. World
+    // position from the identity inverse-VP at uv=(64.5,96.5)/128, GL-shaped
+    // depth 128/255; the light comes straight down the normal.
+    {
+        const glm::vec2 uv((64.0f + 0.5f) / kSize, (96.0f + 0.5f) / kSize);
+        const f32 depth = 128.0f / 255.0f;
+        const glm::vec3 worldPos(uv.x * 2.0f - 1.0f, uv.y * 2.0f - 1.0f, depth * 2.0f - 1.0f);
+        const glm::vec3 albedo(204.0f / 255.0f, 51.0f / 255.0f, 51.0f / 255.0f);
+        const glm::vec3 N(0.0f, 0.0f, 1.0f);
+        const glm::vec3 V = glm::normalize(cameraData.Position - worldPos);
+        const glm::vec3 L(0.0f, 0.0f, 1.0f);
+        const glm::vec3 expected = MirrorDeferredLitPixel(albedo, N, V, L);
+
+        const auto lit = px(64, 96);
+        EXPECT_NEAR(lit[0], static_cast<int>(std::lround(std::clamp(expected.r, 0.0f, 1.0f) * 255.0f)), 4)
+            << "lit-band red: ambient(0.03) + Lambert + GGX at N=L";
+        EXPECT_NEAR(lit[1], static_cast<int>(std::lround(std::clamp(expected.g, 0.0f, 1.0f) * 255.0f)), 4);
+        EXPECT_NEAR(lit[2], static_cast<int>(std::lround(std::clamp(expected.b, 0.0f, 1.0f) * 255.0f)), 4);
+    }
+
+    // The {1}-narrowed entity blit: RT1 carries the G-buffer's 42 clear
+    // everywhere — and RT0 visibly does NOT (the narrow remapped the copy).
+    std::vector<u8> entityBytes;
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(1)->GetData(entityBytes, 0));
+    ASSERT_EQ(entityBytes.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.data());
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 0, 0 }, { 64, 64 }, { 127, 127 } })
+    {
+        EXPECT_EQ(entityIds[static_cast<sizet>(y) * kSize + x], 42)
+            << "the narrowed colour blit must land the G-buffer entity clear in RT1 at (" << x << "," << y << ")";
+    }
+
+    // The pass lazily created the CSM/atlas placeholder array — a
+    // process-static Ref that must die before this device tears down (the
+    // fog tenant's discipline).
+    vkDeviceWaitIdle(m_Device->GetDevice());
+    ShadowMap::ShutdownPlaceholders();
+    settings.Deferred.EnableLightProbes = prevProbes;
+    Renderer3D::SetGlobalIBL(prevIrradiance, prevPrefilter, prevBrdfLut, prevEnvironment, prevIblIntensity);
 }
 
 #endif // OLO_WITH_VULKAN

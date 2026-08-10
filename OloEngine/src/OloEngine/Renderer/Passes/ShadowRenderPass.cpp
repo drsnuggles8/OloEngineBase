@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -268,11 +269,17 @@ namespace OloEngine
         const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
         const glm::mat4 lightVPRel = MakeViewProjectionRelative(lightVP, renderOrigin);
 
-        // Upload light VP to the shadow camera UBO (binding 0)
+        // Upload light VP to the shadow camera UBO (binding 0).
+        // A8 seam, rasterizer flavour: caster vertex stages feed this to
+        // gl_Position, so the shadow map renders y-flipped/z-[0,1] on Vulkan —
+        // its depth CONTENTS stay GL-identical (the z half's whole point).
+        // The SAMPLING matrices (ShadowMap::UploadUBO) are the shader-
+        // reconstruction side of the same contract and are Wave C item 11's
+        // port concern, not this pass's.
         auto cameraUBOData = ShaderBindingLayout::CameraUBO{};
-        cameraUBOData.ViewProjection = lightVPRel;
+        cameraUBOData.ViewProjection = RHI::AdjustProjectionForBackend(lightVPRel);
         cameraUBOData.View = glm::mat4(1.0f);
-        cameraUBOData.Projection = lightVPRel;
+        cameraUBOData.Projection = RHI::AdjustProjectionForBackend(lightVPRel);
         // Caster shaders that reconstruct an absolute world position from the
         // relative one (terrain snow-height displacement in Terrain_Depth.glsl:
         // worldP = (u_Model*pos).xyz + u_RenderOrigin) need the real origin here;

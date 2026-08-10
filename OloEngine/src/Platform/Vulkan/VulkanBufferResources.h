@@ -68,7 +68,12 @@ namespace OloEngine
         UniformBuffer,
         StorageBuffer,
         VertexArray,
-        Shader, ///< VulkanShader — resolved by BindShaderProgram packets.
+        Shader,      ///< VulkanShader — resolved by BindShaderProgram packets.
+        Framebuffer, ///< VulkanFramebuffer — resolved by the raw-handle framebuffer ops
+                     ///< (clears / blits / draw-attachment selection, #691 Phase 7 Wave C).
+                     ///< Needed because the FB registers native = 0 (no VkFramebuffer
+                     ///< exists under dynamic rendering), so ResourceRegistry cannot
+                     ///< resolve it — the same "no native object" reason VAOs live here.
     };
 
     class VulkanRootObjectRegistry
@@ -339,6 +344,12 @@ namespace OloEngine
         // Draw-path conveniences (backend-internal). Const: the draw assembly
         // only reads addresses/handles off the buffers.
         [[nodiscard]] const VulkanVertexBuffer* GetPullVertexBuffer() const;
+        // Stream-indexed form for the reserved pull PAIR (ADR item A3):
+        // stream 0 = SSBO_VERTEX_PULL (57), stream 1 = SSBO_BONE_PULL (63,
+        // MeshSource's bone-influence VB). Returns null past the last stream —
+        // the root-data writer maps that to the zero address (warn-once),
+        // never an error.
+        [[nodiscard]] const VulkanVertexBuffer* GetPullVertexBuffer(sizet streamIndex) const;
         [[nodiscard]] const VulkanIndexBuffer* GetVulkanIndexBuffer() const;
 
       private:
