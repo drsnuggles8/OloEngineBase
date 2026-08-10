@@ -11,6 +11,7 @@
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanComputeShader.h"
@@ -133,6 +134,7 @@ namespace OloEngine
         // previous recording must not leak into this one.
         m_ActiveQuery = {};
         m_ConditionalRenderSkip = false;
+        m_BackbufferWritten = false;
     }
 
     void VulkanRendererAPI::EndRecording()
@@ -148,6 +150,10 @@ namespace OloEngine
         }
         EndRenderingScope();
         m_Cmd = VK_NULL_HANDLE;
+        // A backbuffer publication is scoped to ONE recording by construction:
+        // the next frame acquires a different image (see FrameBackbuffer).
+        m_Backbuffer = FrameBackbuffer{};
+        m_BackbufferWritten = false;
     }
 
     // --- Viewport / scissor (real dynamic state) ---------------------------
@@ -323,6 +329,30 @@ namespace OloEngine
                     auto vkBarrier = VulkanBarrierLowering::BuildImageBarrier(barrier, image, aspect, trackedLayout,
                                                                               mipCount, layerCount);
                     vkBarrier.subresourceRange = run;
+                    // THE TRACKED LAYOUT IS EVIDENCE ABOUT THE LAST WRITER,
+                    // not just about oldLayout. A subresource sitting in a
+                    // TRANSFER layout was put there by a transfer command
+                    // (ClearTextureFloat's vkCmdClearColorImage,
+                    // CopyImageSubData's vkCmdCopyImage) — operations the
+                    // render GRAPH never declared, so the planner's `Before`
+                    // access names whatever the graph last knew
+                    // (ColorAttachmentWrite) and the emitted source scope
+                    // misses the transfer entirely. Sync validation calls
+                    // that a WRITE_AFTER_WRITE / WRITE_AFTER_READ hazard on
+                    // the layout transition, and it is right. Widening the
+                    // source scope with the transfer stage+access whenever
+                    // the tracker says "transfer layout" costs one extra
+                    // stage bit on a barrier that is already transitioning
+                    // and cannot over-synchronise anything real.
+                    // (ALL_TRANSFER covers CLEAR, COPY, BLIT and RESOLVE.)
+                    if (trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+                    {
+                        vkBarrier.srcStageMask |= VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+                        vkBarrier.srcAccessMask |= (trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+                                                       ? VK_ACCESS_2_TRANSFER_WRITE_BIT
+                                                       : VK_ACCESS_2_TRANSFER_READ_BIT;
+                    }
                     // The pure lowering emits the full shader-stage union;
                     // the device knows which stage features are ENABLED
                     // (VUID-…-03929/-03930). A masked-off stage can hold no
@@ -850,6 +880,8 @@ namespace OloEngine
         vkCmdEndRendering(m_Cmd);
         m_Scope.Active = false;
         m_Scope.DepthArrayView = VK_NULL_HANDLE;
+        m_Scope.TargetIsBackbuffer = false;
+        m_Scope.BackbufferView = VK_NULL_HANDLE;
         // Pending clears survive the scope END only if never consumed; the
         // next scope begin re-reads them. Target/DrawList stay published.
     }
@@ -880,9 +912,35 @@ namespace OloEngine
                 return RHI::Access::TransferWrite;
             case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
                 return RHI::Access::TransferRead;
+            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                // The presentation engine's read is ordered by the acquire
+                // SEMAPHORE, not by an access mask — so the src scope here is
+                // deliberately empty (the lowering maps Present to
+                // STAGE_NONE/ACCESS_NONE). Naming a stage instead would be a
+                // lie the sync validation has every right to disbelieve.
+                return RHI::Access::Present;
             default:
                 return RHI::Access::StorageReadWrite;
         }
+    }
+
+    bool VulkanRendererAPI::ShouldTargetBackbuffer() const
+    {
+        return VulkanBindingState::Get().GetCurrentFramebuffer() == nullptr && m_Backbuffer.IsValid();
+    }
+
+    VkExtent2D VulkanRendererAPI::ScopeExtent() const
+    {
+        if (!m_Scope.Active)
+        {
+            return { 0u, 0u };
+        }
+        if (m_Scope.TargetIsBackbuffer)
+        {
+            return { std::max(m_Backbuffer.Width, 1u), std::max(m_Backbuffer.Height, 1u) };
+        }
+        const auto& spec = m_Scope.Target->GetSpecification();
+        return { std::max(spec.Width, 1u), std::max(spec.Height, 1u) };
     }
 
     bool VulkanRendererAPI::ScopeMatchesCurrentTarget() const
@@ -892,6 +950,15 @@ namespace OloEngine
             return false;
         }
         auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
+        // The published backbuffer is a target in its own right (see
+        // FrameBackbuffer): "nothing bound" means the DEFAULT framebuffer
+        // while a publication is live, so a backbuffer scope must not be
+        // confused with the no-target scope that predates the import.
+        if (m_Scope.TargetIsBackbuffer || ShouldTargetBackbuffer())
+        {
+            return m_Scope.TargetIsBackbuffer && ShouldTargetBackbuffer() &&
+                   m_Scope.BackbufferView == m_Backbuffer.View;
+        }
         if (m_Scope.Target != target)
         {
             return false;
@@ -914,14 +981,15 @@ namespace OloEngine
     bool VulkanRendererAPI::EnsureRenderingScopeForDraw()
     {
         auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
-        if (target == nullptr)
+        const bool backbuffer = ShouldTargetBackbuffer();
+        if (target == nullptr && !backbuffer)
         {
             static bool s_Warned = false;
             if (!s_Warned)
             {
                 s_Warned = true;
-                OLO_CORE_WARN("[RHI/Vulkan] draw with no framebuffer published — dropped (default-framebuffer "
-                              "rendering arrives with the swapchain import)");
+                OLO_CORE_WARN("[RHI/Vulkan] draw with no framebuffer published and no backbuffer for this frame "
+                              "— dropped");
             }
             return false;
         }
@@ -931,6 +999,59 @@ namespace OloEngine
             return true;
         }
         EndRenderingScope();
+
+        if (backbuffer)
+        {
+            // The swapchain image: one color attachment, no depth, no
+            // draw-buffer selection (GL's default framebuffer offers exactly
+            // GL_BACK). Everything else — the pre-scope layout transition,
+            // the pending-clear fold into loadOp, the PSO's target
+            // description — is the framebuffer path's, verbatim.
+            m_ScopeTargets = VulkanRenderTargetDesc{};
+            m_ScopeTargets.Samples = 1u;
+            m_ScopeTargets.ColorCount = 1u;
+            m_ScopeTargets.ColorFormats[0] = m_Backbuffer.Format;
+
+            RHI::Barrier toAttachment{};
+            toAttachment.Resource = m_Backbuffer.Handle;
+            toAttachment.Range.BaseMip = 0u;
+            toAttachment.Range.MipCount = 1u;
+            toAttachment.Range.BaseLayer = 0u;
+            toAttachment.Range.LayerCount = 1u;
+            const VkImageSubresourceRange probe{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+            toAttachment.Before = AccessGuessForLayout(m_LayoutTracker.CurrentLayout(m_Backbuffer.Image, probe));
+            toAttachment.After = RHI::Access::ColorAttachmentWrite;
+            IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ &toAttachment, 1 });
+
+            VkRenderingAttachmentInfo colorInfo{};
+            colorInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            colorInfo.imageView = m_Backbuffer.View;
+            colorInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            colorInfo.loadOp = m_Scope.PendingClearColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            colorInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            colorInfo.clearValue.color = { { m_State.ClearColor.r, m_State.ClearColor.g, m_State.ClearColor.b,
+                                             m_State.ClearColor.a } };
+
+            VkRenderingInfo backbufferRendering{};
+            backbufferRendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            backbufferRendering.renderArea = { { 0, 0 },
+                                               { std::max(m_Backbuffer.Width, 1u),
+                                                 std::max(m_Backbuffer.Height, 1u) } };
+            backbufferRendering.layerCount = 1;
+            backbufferRendering.colorAttachmentCount = 1;
+            backbufferRendering.pColorAttachments = &colorInfo;
+            vkCmdBeginRendering(m_Cmd, &backbufferRendering);
+
+            m_Scope.Active = true;
+            m_Scope.Target = nullptr;
+            m_Scope.TargetIsBackbuffer = true;
+            m_Scope.BackbufferView = m_Backbuffer.View;
+            m_Scope.DepthArrayView = VK_NULL_HANDLE;
+            m_Scope.PendingClearColor = false;
+            m_Scope.PendingClearDepth = false;
+            m_BackbufferWritten = true;
+            return true;
+        }
 
         const auto& spec = target->GetSpecification();
         const u32 width = std::max(spec.Width, 1u);
@@ -1079,6 +1200,8 @@ namespace OloEngine
 
         m_Scope.Active = true;
         m_Scope.Target = target;
+        m_Scope.TargetIsBackbuffer = false;
+        m_Scope.BackbufferView = VK_NULL_HANDLE;
         m_Scope.DepthArrayView = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
         // The pending clears were consumed by the loadOps above.
         m_Scope.PendingClearColor = false;
@@ -1150,20 +1273,64 @@ namespace OloEngine
         // both here: the recorded viewport (target extent when none was set)
         // and the recorded scissor box (full render area when scissor state
         // was merely disabled, which is the GL shape).
-        const auto& targetSpec = m_Scope.Target->GetSpecification();
+        // ScopeExtent covers both target kinds (a backbuffer scope has no
+        // VulkanFramebuffer to ask for a specification).
+        const VkExtent2D targetExtent = ScopeExtent();
         VkViewport viewport{};
         viewport.x = static_cast<f32>(m_Viewport.x);
         viewport.y = static_cast<f32>(m_Viewport.y);
-        viewport.width = static_cast<f32>(m_Viewport.width != 0 ? m_Viewport.width : std::max(targetSpec.Width, 1u));
-        viewport.height =
-            static_cast<f32>(m_Viewport.height != 0 ? m_Viewport.height : std::max(targetSpec.Height, 1u));
+        viewport.width = static_cast<f32>(m_Viewport.width != 0 ? m_Viewport.width : targetExtent.width);
+        viewport.height = static_cast<f32>(m_Viewport.height != 0 ? m_Viewport.height : targetExtent.height);
+        if (m_Scope.TargetIsBackbuffer)
+        {
+            // THE ACQUIRED IMAGE'S EXTENT IS THE AUTHORITY, not the pass's
+            // recorded viewport. FinalRenderPass sizes its viewport from the
+            // GRAPH's framebuffer spec, which the editor resizes to its
+            // VIEWPORT PANEL — smaller than the window. On GL the default
+            // framebuffer keeps whatever the rest of the window already held
+            // (and ImGui paints over it anyway); a swapchain image is
+            // UNDEFINED outside what this frame writes, so honouring a
+            // smaller viewport presented the frame in a corner with garbage
+            // bands to the right and below it. The present blit covers the
+            // window, full stop.
+            viewport.x = 0.0f;
+            viewport.y = 0.0f;
+            viewport.width = static_cast<f32>(targetExtent.width);
+            viewport.height = static_cast<f32>(targetExtent.height);
+
+            // THE Y FLIP CANCELS EVERYWHERE EXCEPT HERE (#691 Phase 7 Final).
+            // Every graph-owned image is authored in a row order the whole
+            // chain agrees on — source and destination share it, so it
+            // cancels pass to pass. The swapchain is the one target that does
+            // NOT share it: the presentation engine displays row 0 at the
+            // TOP. Without this the entire live frame reached the screen
+            // upside down while every offscreen readback still looked
+            // perfect — which is exactly why no tenant could see it (each one
+            // reads its output back in the same order it wrote it), and why
+            // it took looking at the window.
+            //
+            // A negative-height viewport flips rasterisation for exactly the
+            // draws that target the backbuffer and nothing else. It is safe
+            // HERE and nowhere else in the chain: the only thing ever drawn
+            // to the default framebuffer is a fullscreen blit
+            // (FinalRenderPass, and the shader-warmup progress screen), which
+            // samples a texture rather than reconstructing world space from
+            // uv — so no screen-space shader has to know. Both run with
+            // culling off, so the winding reversal a negative viewport
+            // implies has nothing to act on.
+            viewport.y += viewport.height;
+            viewport.height = -viewport.height;
+        }
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
         vkCmdSetViewportWithCount(m_Cmd, 1, &viewport);
 
-        VkRect2D scissor = m_ScissorRectSet && m_State.ScissorTest
+        // Same authority rule for the scissor: a pass-recorded box sized to
+        // the graph's targets would re-introduce the bands the viewport
+        // override above removes.
+        VkRect2D scissor = (m_ScissorRectSet && m_State.ScissorTest && !m_Scope.TargetIsBackbuffer)
                                ? m_ScissorRect
-                               : VkRect2D{ { 0, 0 }, { std::max(targetSpec.Width, 1u), std::max(targetSpec.Height, 1u) } };
+                               : VkRect2D{ { 0, 0 }, targetExtent };
         vkCmdSetScissorWithCount(m_Cmd, 1, &scissor);
 
         if (!m_HeapBoundThisRecording)
@@ -1355,9 +1522,8 @@ namespace OloEngine
         {
             return;
         }
-        const auto& spec = m_Scope.Target->GetSpecification();
         VkClearRect rect{};
-        rect.rect = { { 0, 0 }, { std::max(spec.Width, 1u), std::max(spec.Height, 1u) } };
+        rect.rect = { { 0, 0 }, ScopeExtent() };
         rect.layerCount = 1;
         vkCmdClearAttachments(m_Cmd, clearCount, clears.data(), 1, &rect);
     }
@@ -1387,9 +1553,8 @@ namespace OloEngine
         VkClearAttachment clear{};
         clear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
         clear.clearValue.depthStencil = { 1.0f, 0u };
-        const auto& spec = m_Scope.Target->GetSpecification();
         VkClearRect rect{};
-        rect.rect = { { 0, 0 }, { std::max(spec.Width, 1u), std::max(spec.Height, 1u) } };
+        rect.rect = { { 0, 0 }, ScopeExtent() };
         rect.layerCount = 1;
         vkCmdClearAttachments(m_Cmd, 1, &clear, 1, &rect);
     }
@@ -1673,14 +1838,102 @@ namespace OloEngine
         vkCmdDispatch(m_Cmd, std::max(groupsX, 1u), std::max(groupsY, 1u), std::max(groupsZ, 1u));
     }
 
+    void VulkanRendererAPI::SetFrameBackbuffer(const RHI::ResourceHandle handle, const VkImageView view,
+                                               const u32 width, const u32 height)
+    {
+        m_Backbuffer = FrameBackbuffer{};
+        m_BackbufferWritten = false;
+        if (!handle.IsValid() || view == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle);
+        if (native == 0u)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] backbuffer handle does not resolve on this backend — the frame will "
+                          "fall back to the clear path");
+            return;
+        }
+        const auto image = reinterpret_cast<VkImage>(native);
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        if (info == nullptr)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] backbuffer image is not registered (format/aspect unknown) — the frame "
+                          "will fall back to the clear path");
+            return;
+        }
+        m_Backbuffer.Handle = handle;
+        m_Backbuffer.Image = image;
+        m_Backbuffer.View = view;
+        m_Backbuffer.Format = info->Format;
+        m_Backbuffer.Width = width;
+        m_Backbuffer.Height = height;
+    }
+
+    void VulkanRendererAPI::ClearFrameBackbuffer()
+    {
+        // A scope still open against the retiring publication must not survive
+        // into the next frame's (different) image.
+        if (m_Scope.Active && m_Scope.TargetIsBackbuffer)
+        {
+            EndRenderingScope();
+        }
+        m_Backbuffer = FrameBackbuffer{};
+        m_BackbufferWritten = false;
+    }
+
+    bool VulkanRendererAPI::FinalizeBackbufferForPresent(const bool frameRendered)
+    {
+        if (m_Cmd == VK_NULL_HANDLE || !m_Backbuffer.IsValid())
+        {
+            return false;
+        }
+
+        // The clear-only-pass gap: with a pending clear and no draw behind it
+        // the lazy scope never opened, so nothing has been written. Open the
+        // scope (which consumes the pending clear as loadOp CLEAR) and close
+        // it immediately — an empty CLEAR/STORE rendering instance is exactly
+        // GL's eager glClear.
+        if (frameRendered && !m_BackbufferWritten && m_Scope.PendingClearColor)
+        {
+            VulkanBindingState::Get().SetCurrentFramebuffer(nullptr);
+            if (EnsureRenderingScopeForDraw())
+            {
+                EndRenderingScope();
+            }
+        }
+        EndRenderingScope();
+
+        if (!m_BackbufferWritten)
+        {
+            return false;
+        }
+
+        RHI::Barrier toPresent{};
+        toPresent.Resource = m_Backbuffer.Handle;
+        toPresent.Range.BaseMip = 0u;
+        toPresent.Range.MipCount = 1u;
+        toPresent.Range.BaseLayer = 0u;
+        toPresent.Range.LayerCount = 1u;
+        toPresent.Before = RHI::Access::ColorAttachmentWrite;
+        toPresent.After = RHI::Access::Present;
+        IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ &toPresent, 1 });
+        return true;
+    }
+
     void VulkanRendererAPI::BindDefaultFramebuffer()
     {
-        // GL semantics: unbind the named framebuffer. The swapchain-backed
-        // default target arrives with the frame-loop integration; until then
-        // a draw against the default framebuffer is dropped with the
-        // no-target warn in EnsureRenderingScopeForDraw.
-        EndRenderingScope();
+        // GL semantics: unbind the named framebuffer, i.e. select framebuffer
+        // 0. On this backend "framebuffer 0" is the swapchain image the frame
+        // recorder published for THIS recording (SetFrameBackbuffer) — so
+        // this is a target CHANGE, not a target loss, and the lazy scope
+        // re-opens against the backbuffer at the next draw. With nothing
+        // published (headless recordings) it stays the old no-target state.
         VulkanBindingState::Get().SetCurrentFramebuffer(nullptr);
+        if (!ScopeMatchesCurrentTarget())
+        {
+            EndRenderingScope();
+        }
     }
 
     void VulkanRendererAPI::BlitFramebufferToDefault(RHI::ResourceHandle /*srcFramebuffer*/, u32 /*width*/, u32 /*height*/)
@@ -2978,30 +3231,65 @@ namespace OloEngine
         return value;
     }
 
+    // --- Fences (the u64-token facade) -------------------------------------
+    //
+    // GL's glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE) is "a token that becomes
+    // signalled once everything submitted so far has completed"; the ONE
+    // production caller (FrameResourceManager::EndFrame, per frame) uses it to
+    // know when a frame's transient allocations are safe to recycle. Leaving
+    // it stubbed made EndFrame fail EVERY frame in a live session.
+    //
+    // The timeline semaphore already models exactly that, so the token IS a
+    // VulkanGpuFence with a staged queue-signal of 1: the next vkQueueSubmit2
+    // — the frame's own submit, since EndFrame runs inside the frame-render
+    // callback — drains it (DrainPendingSubmitOps) and signals the timeline
+    // when that submission completes. Ownership is raw because the facade's
+    // currency is a u64 the caller stores and later destroys; DestroyFence is
+    // the matching delete.
     u64 VulkanRendererAPI::CreateFence()
     {
-        Phase6Stub("CreateFence");
-        return 0;
+        auto* fence = new VulkanGpuFence(0u);
+        if (fence->GetNativeSemaphore() == VK_NULL_HANDLE)
+        {
+            delete fence;
+            return 0u;
+        }
+        fence->QueueSignal(1u, RHI::FenceSignalOp::Set);
+        return reinterpret_cast<u64>(fence);
     }
 
-    RHI::FenceStatus VulkanRendererAPI::ClientWaitFence(u64 /*fence*/, u64 /*timeoutNanoseconds*/)
+    RHI::FenceStatus VulkanRendererAPI::ClientWaitFence(const u64 fence, const u64 timeoutNanoseconds)
     {
-        Phase6Stub("ClientWaitFence");
-        // Failed, not ConditionSatisfied: a stub must not claim GPU work
-        // completed (consistent with IsFenceSignaled() returning false — a
-        // caller gating a readback on this would consume garbage).
-        return RHI::FenceStatus::Failed;
+        if (fence == 0u)
+        {
+            return RHI::FenceStatus::Failed;
+        }
+        auto* gpuFence = reinterpret_cast<VulkanGpuFence*>(fence);
+        if (gpuFence->CompletedValue() >= 1u)
+        {
+            return RHI::FenceStatus::AlreadySignaled;
+        }
+        return gpuFence->HostWait(1u, timeoutNanoseconds, RHI::FenceCompareOp::GreaterEqual)
+                   ? RHI::FenceStatus::ConditionSatisfied
+                   : RHI::FenceStatus::TimeoutExpired;
     }
 
-    bool VulkanRendererAPI::IsFenceSignaled(u64 /*fence*/)
+    bool VulkanRendererAPI::IsFenceSignaled(const u64 fence)
     {
-        Phase6Stub("IsFenceSignaled");
-        return false;
+        if (fence == 0u)
+        {
+            return false;
+        }
+        return reinterpret_cast<VulkanGpuFence*>(fence)->CompletedValue() >= 1u;
     }
 
-    void VulkanRendererAPI::DestroyFence(u64 /*fence*/)
+    void VulkanRendererAPI::DestroyFence(const u64 fence)
     {
-        Phase6Stub("DestroyFence");
+        if (fence == 0u)
+        {
+            return;
+        }
+        delete reinterpret_cast<VulkanGpuFence*>(fence);
     }
 
     void VulkanRendererAPI::SetProgramUniformFloat(RHI::ResourceHandle /*program*/, std::string_view /*name*/, f32 /*value*/)

@@ -86,6 +86,7 @@ namespace OloEngine
         s_Data.m_DeformShader = nullptr;
         s_Data.m_SnowDepthTexture = nullptr;
         s_Data.m_AccumulationUBO = nullptr;
+        s_Data.m_ComputeParamsUBO = nullptr;
         s_Data.m_DeformerSSBO = nullptr;
 
         s_Data.m_Initialized = false;
@@ -196,18 +197,24 @@ namespace OloEngine
         // --- Dispatch Snow_Accumulate compute ---
         s_Data.m_AccumulateShader->Bind();
 
-        s_Data.m_AccumulateShader->SetFloat("u_DeltaTime", static_cast<f32>(dt));
-        s_Data.m_AccumulateShader->SetFloat("u_AccumulationRate", settings.AccumulationRate);
-        s_Data.m_AccumulateShader->SetFloat("u_MaxDepth", settings.MaxDepth);
-        s_Data.m_AccumulateShader->SetFloat("u_MeltRate", settings.MeltRate);
-        s_Data.m_AccumulateShader->SetFloat("u_RestorationRate", settings.RestorationRate);
-        s_Data.m_AccumulateShader->SetFloat("u_SnowDensity", settings.SnowDensity);
-        s_Data.m_AccumulateShader->SetInt("u_Resolution", static_cast<i32>(s_Data.m_TextureResolution));
-
-        // Clipmap center and extent for ring 0 (innermost)
+        // Accumulation parameters. Formerly bare uniforms driven by
+        // ComputeShader::Set*, which GLSL-for-Vulkan cannot express and whose
+        // Set* is a deliberate no-op on that route — one std140 refill per
+        // dispatch instead (issue #691 Phase 7).
+        //
+        // Clipmap center and extent are ring 0 (innermost).
         const auto& ce = gpu.ClipmapCenterAndExtent[0];
-        s_Data.m_AccumulateShader->SetFloat2("u_ClipmapCenter", glm::vec2(ce.x, ce.y));
-        s_Data.m_AccumulateShader->SetFloat("u_ClipmapExtent", ce.z);
+        UBOStructures::SnowComputeUBO snowParams{};
+        snowParams.ClipmapCenter = glm::vec2(ce.x, ce.y);
+        snowParams.ClipmapExtent = ce.z;
+        snowParams.Resolution = static_cast<i32>(s_Data.m_TextureResolution);
+        snowParams.DeltaTime = static_cast<f32>(dt);
+        snowParams.AccumulationRate = settings.AccumulationRate;
+        snowParams.MaxDepth = settings.MaxDepth;
+        snowParams.MeltRate = settings.MeltRate;
+        snowParams.RestorationRate = settings.RestorationRate;
+        snowParams.SnowDensity = settings.SnowDensity;
+        UploadComputeParams(snowParams);
 
         HeapBinding::BindImageOrOffset(0, s_Data.m_SnowDepthTexture->GetRHIHandle(), 0, false, 0,
                                        RHI::Access::StorageReadWrite, RHI::Format::R32Float,
@@ -219,6 +226,20 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
         s_Data.m_PrevClipmapCenter = cameraPos;
+    }
+
+    // Lazily create the shared compute-params UBO, upload and re-bind it.
+    // The Bind() must follow the SetData: on the Vulkan route every SetData
+    // mints a fresh arena address (ADR 0011 §4).
+    void SnowAccumulationSystem::UploadComputeParams(const UBOStructures::SnowComputeUBO& params)
+    {
+        if (!s_Data.m_ComputeParamsUBO)
+        {
+            s_Data.m_ComputeParamsUBO = UniformBuffer::Create(UBOStructures::SnowComputeUBO::GetSize(),
+                                                              ShaderBindingLayout::UBO_SNOW_COMPUTE);
+        }
+        s_Data.m_ComputeParamsUBO->SetData(&params, sizeof(params));
+        s_Data.m_ComputeParamsUBO->Bind();
     }
 
     void SnowAccumulationSystem::SubmitDeformers(const glm::vec4* stamps, u32 count)
@@ -248,12 +269,16 @@ namespace OloEngine
 
         // Dispatch deformation compute
         s_Data.m_DeformShader->Bind();
-        s_Data.m_DeformShader->SetInt("u_StampCount", static_cast<i32>(clampedCount));
-        s_Data.m_DeformShader->SetInt("u_Resolution", static_cast<i32>(s_Data.m_TextureResolution));
-
+        // Same shared block as the accumulate dispatch (issue #691 Phase 7).
+        // The accumulate-only tail stays at its value-initialised zero here;
+        // Snow_Deform.comp does not read it.
         const auto& ce = s_Data.m_GPUData.ClipmapCenterAndExtent[0];
-        s_Data.m_DeformShader->SetFloat2("u_ClipmapCenter", glm::vec2(ce.x, ce.y));
-        s_Data.m_DeformShader->SetFloat("u_ClipmapExtent", ce.z);
+        UBOStructures::SnowComputeUBO deformParams{};
+        deformParams.ClipmapCenter = glm::vec2(ce.x, ce.y);
+        deformParams.ClipmapExtent = ce.z;
+        deformParams.Resolution = static_cast<i32>(s_Data.m_TextureResolution);
+        deformParams.StampCount = static_cast<i32>(clampedCount);
+        UploadComputeParams(deformParams);
 
         HeapBinding::BindImageOrOffset(0, s_Data.m_SnowDepthTexture->GetRHIHandle(), 0, false, 0,
                                        RHI::Access::StorageReadWrite, RHI::Format::R32Float,

@@ -4,6 +4,8 @@
 #include "OloEngine/Particle/GPUParticleData.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <span>
 
@@ -66,6 +68,11 @@ namespace OloEngine
         }
 
       private:
+        // Lazily create the params UBO, upload m_Params and re-bind it. Called
+        // once per dispatch: on the Vulkan route every SetData mints a fresh
+        // arena address, so the Bind() must follow the upload (ADR 0011 §4).
+        void UploadParams();
+
         u32 m_MaxParticles = 0;
         bool m_Initialized = false;
 
@@ -83,6 +90,14 @@ namespace OloEngine
         Ref<ComputeShader> m_SimulateShader;
         Ref<ComputeShader> m_CompactShader;
         Ref<ComputeShader> m_BuildIndirectShader;
+
+        // Emit/simulate/compact parameters (issue #691 Phase 7). These were
+        // bare `uniform` declarations fed by ComputeShader::Set*, which the
+        // Vulkan SPIR-V route cannot express at all and whose Set* feeders are
+        // a no-op there. One block at UBO_PARTICLE_SIM, shared verbatim by the
+        // three .comp files and refilled before each dispatch.
+        Ref<UniformBuffer> m_ParamsUBO;
+        UBOStructures::GPUParticleParamsUBO m_Params{};
 
         static constexpr u32 EMIT_WORKGROUP_SIZE = 64;
         static constexpr u32 SIM_WORKGROUP_SIZE = 256;

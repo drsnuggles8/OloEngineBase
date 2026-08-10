@@ -583,6 +583,280 @@ namespace OloEngine
         static_assert(sizeof(GTAODenoiseUBO) % 16 == 0, "GTAODenoiseUBO must be 16-byte aligned for std140");
         static_assert(sizeof(GTAODenoiseUBO) == 16, "GTAODenoiseUBO std140 size drifted from GLSL expectation (16 B)");
 
+        // =====================================================================
+        // Compute bare-uniform migration (issue #691 Phase 7)
+        //
+        // The eight blocks below all exist for ONE reason: GLSL-for-Vulkan
+        // forbids a non-opaque uniform outside a block, so every `uniform float
+        // u_Foo;` in a .comp was a hard SPIR-V compile error — and
+        // VulkanComputeShader::Set* is a deliberate no-op, so even a shader that
+        // did compile would read zeros. Migrating the values into std140 blocks
+        // is legal on BOTH routes (GL compute at 460 core takes UBO blocks), so
+        // per docs/agent-rules/glsl-shaders.md §5f the GLSL declarations do NOT
+        // fork per backend.
+        //
+        // Where two or three shaders of one system share a parameter set, they
+        // share ONE block declared VERBATIM in each file (the AutoExposure
+        // precedent above) — never two different lengths at one binding, which
+        // is exactly why GTAODenoise got a binding of its own.
+        //
+        // Members a given shader does not read are simply unread; every filler
+        // is a fresh value-initialised struct, so a code path that used to skip
+        // a Set* call (leaving GL's per-program uniform state at its previous
+        // value) now gets a deterministic zero instead of a stale one.
+        // =====================================================================
+
+        // @brief GPU particle simulation parameters, uploaded at
+        // UBO_PARTICLE_SIM (61). GLSL twin: the ParticleSimParams block shared
+        // verbatim by compute/Particle_Simulate.comp (15 of the members),
+        // compute/Particle_Emit.comp (EmitCount + MaxParticles) and
+        // compute/Particle_Compact.comp (MaxParticles). One refill per dispatch
+        // — Emit/Simulate/Compact run back to back inside one frame.
+        struct GPUParticleParamsUBO
+        {
+            glm::vec3 Gravity;         // 0  — world-space gravity vector
+            f32 DeltaTime;             // 12
+            f32 DragCoefficient;       // 16
+            u32 MaxParticles;          // 20
+            i32 EmitCount;             // 24 — Particle_Emit only
+            i32 EnableGravity;         // 28
+            i32 EnableDrag;            // 32
+            i32 EnableWind;            // 36
+            f32 WindInfluence;         // 40
+            i32 EnableNoise;           // 44
+            f32 NoiseStrength;         // 48
+            f32 NoiseFrequency;        // 52
+            i32 EnableGroundCollision; // 56
+            f32 GroundY;               // 60
+            f32 CollisionBounce;       // 64
+            f32 CollisionFriction;     // 68
+            glm::vec2 _pad0;           // 72
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(GPUParticleParamsUBO));
+            }
+        };
+
+        static_assert(sizeof(GPUParticleParamsUBO) % 16 == 0,
+                      "GPUParticleParamsUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(GPUParticleParamsUBO) == 80,
+                      "GPUParticleParamsUBO std140 size drifted from GLSL expectation (80 B)");
+
+        // @brief Wind volume generation parameters, uploaded at
+        // UBO_WIND_GENERATE (62). GLSL twin: the WindGenerateParams block in
+        // compute/Wind_Generate.comp. NOT the same thing as UBO_WIND (15), the
+        // WindData block every *consumer* samples — this one is the producer's
+        // own grid/turbulence description and is written once per generation.
+        struct WindGenerateUBO
+        {
+            glm::vec3 GridMin;       // 0  — world-space AABB minimum corner
+            f32 GridWorldSize;       // 12 — side length of the cube (m)
+            glm::vec3 WindDirection; // 16 — normalized base direction
+            f32 WindSpeed;           // 28 — base speed (m/s)
+            i32 GridResolution;      // 32 — voxels per axis
+            f32 GustStrength;        // 36
+            f32 GustFrequency;       // 40
+            f32 TurbulenceIntensity; // 44
+            f32 TurbulenceScale;     // 48
+            f32 Time;                // 52 — accumulated seconds
+            glm::vec2 _pad0;         // 56
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(WindGenerateUBO));
+            }
+        };
+
+        static_assert(sizeof(WindGenerateUBO) % 16 == 0, "WindGenerateUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(WindGenerateUBO) == 64,
+                      "WindGenerateUBO std140 size drifted from GLSL expectation (64 B)");
+
+        // @brief Snow clipmap compute parameters, uploaded at UBO_SNOW_COMPUTE
+        // (66). GLSL twin: the SnowComputeParams block shared verbatim by
+        // compute/Snow_Accumulate.comp and compute/Snow_Deform.comp — the two
+        // agree on the clipmap trio (Center/Extent/Resolution) and each reads
+        // its own tail. Refilled before each of the two dispatches.
+        struct SnowComputeUBO
+        {
+            glm::vec2 ClipmapCenter; // 0  — world XZ centre
+            f32 ClipmapExtent;       // 8  — world-space side length
+            i32 Resolution;          // 12 — texels per axis
+            f32 DeltaTime;           // 16 — Snow_Accumulate only, from here down
+            f32 AccumulationRate;    // 20 — m of snow per second
+            f32 MaxDepth;            // 24
+            f32 MeltRate;            // 28
+            f32 RestorationRate;     // 32 — deformation fill-back speed (m/s)
+            f32 SnowDensity;         // 36 — 0 = powder, 1 = packed
+            i32 StampCount;          // 40 — Snow_Deform only
+            i32 _pad0;               // 44
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(SnowComputeUBO));
+            }
+        };
+
+        static_assert(sizeof(SnowComputeUBO) % 16 == 0, "SnowComputeUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(SnowComputeUBO) == 48, "SnowComputeUBO std140 size drifted from GLSL expectation (48 B)");
+
+        // @brief Hydraulic-erosion droplet parameters, uploaded at
+        // UBO_TERRAIN_EROSION (67). GLSL twin: the TerrainErosionParams block in
+        // compute/Terrain_Erosion.comp. Refilled per erosion iteration (Seed
+        // advances each call).
+        struct TerrainErosionUBO
+        {
+            u32 Resolution;          // 0  — square heightmap resolution
+            u32 MaxDropletSteps;     // 4
+            u32 Seed;                // 8  — RNG seed offset
+            u32 DropletCount;        // 12
+            f32 Inertia;             // 16
+            f32 SedimentCapacity;    // 20
+            f32 MinSedimentCapacity; // 24
+            f32 DepositSpeed;        // 28
+            f32 ErodeSpeed;          // 32
+            f32 EvaporateSpeed;      // 36
+            f32 Gravity;             // 40
+            f32 InitialWater;        // 44
+            f32 InitialSpeed;        // 48
+            i32 ErosionRadius;       // 52 — brush radius in texels
+            glm::vec2 _pad0;         // 56
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(TerrainErosionUBO));
+            }
+        };
+
+        static_assert(sizeof(TerrainErosionUBO) % 16 == 0, "TerrainErosionUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(TerrainErosionUBO) == 64,
+                      "TerrainErosionUBO std140 size drifted from GLSL expectation (64 B)");
+
+        // @brief Forward+ / clustered light-culling dispatch parameters,
+        // uploaded at UBO_LIGHT_CULLING (68). GLSL twin: the LightCullingParams
+        // block in compute/LightCulling.comp. Distinct from ForwardPlusUBO (7),
+        // which carries the *shading*-side slice scale/bias — this one is the
+        // culler's own view/projection + per-frame light counts.
+        struct LightCullingUBO
+        {
+            glm::mat4 ViewMatrix;              // 0
+            glm::mat4 InverseProjectionMatrix; // 64
+            u32 PointLightCount;               // 128
+            u32 SpotLightCount;                // 132
+            u32 SphereAreaLightCount;          // 136
+            u32 MaxLightsPerCluster;           // 140
+            f32 NearPlane;                     // 144 — positive distance
+            f32 FarPlane;                      // 148 — positive distance
+            glm::vec2 _pad0;                   // 152
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(LightCullingUBO));
+            }
+        };
+
+        static_assert(sizeof(LightCullingUBO) % 16 == 0, "LightCullingUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(LightCullingUBO) == 160,
+                      "LightCullingUBO std140 size drifted from GLSL expectation (160 B)");
+
+        // @brief Virtualized-geometry cluster-cull parameters, uploaded at
+        // UBO_VIRTUAL_CLUSTER_CULL (69). GLSL twin: the VirtualClusterCullParams
+        // block in compute/VirtualClusterCull.comp. Refilled PER DISPATCH: the
+        // main view loops one dispatch per instance with InstanceIndex changing,
+        // and the shadow path re-fills the whole block in ortho mode. Per-
+        // dispatch SetData is the documented Phase 7 pattern (GL re-uploads the
+        // bound buffer; the Vulkan arena mints a fresh address each SetData).
+        struct VirtualClusterCullUBO
+        {
+            glm::mat4 OcclusionViewProjection; // 0  — the VP the bound pyramid was rendered with
+            glm::vec2 HZBSize;                 // 64 — HZB texels (power-of-2)
+            glm::vec2 HZBUVFactor;             // 72 — viewport / HZB size
+            u32 InstanceIndex;                 // 80
+            f32 ViewportHeight;                // 84 — pixels
+            f32 SwRasterThresholdPixels;       // 88 — 0 disables the SW path
+            i32 OrthoMode;                     // 92 — 1 = shadow cascade
+            f32 OrthoErrorScale;               // 96
+            i32 OcclusionEnabled;              // 100
+            i32 HZBMipCount;                   // 104
+            f32 OcclusionDepthBias;            // 108
+            i32 WriteRejected;                 // 112 — phase 1 defers instead of dropping
+            i32 Phase2;                        // 116
+            u32 RejectCapacity;                // 120
+            u32 CommandSlotBase;               // 124
+            u32 ArgsSlotBase;                  // 128
+            i32 DebugDrawClusters;             // 132 — bit field, 0 = off (issue #725)
+            u32 DebugDrawClusterStride;        // 136
+            i32 _pad0;                         // 140
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(VirtualClusterCullUBO));
+            }
+        };
+
+        static_assert(sizeof(VirtualClusterCullUBO) % 16 == 0,
+                      "VirtualClusterCullUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(VirtualClusterCullUBO) == 144,
+                      "VirtualClusterCullUBO std140 size drifted from GLSL expectation (144 B)");
+
+        // @brief Virtualized-geometry software-raster / debug-colorize
+        // parameters, uploaded at UBO_VIRTUAL_RASTER (70). GLSL twin: the
+        // VirtualRasterParams block shared verbatim by
+        // compute/VirtualClusterRaster.comp (both the portable and the INT64
+        // variant of the same file) and compute/VirtualDebugColorize.comp —
+        // whose former u_Width/u_Height were RENAMED to the raster's
+        // u_ViewportWidth/u_ViewportHeight so one block serves both. Refilled
+        // per dispatch: the portable raster runs two passes that differ only in
+        // Phase.
+        struct VirtualRasterUBO
+        {
+            u32 ViewportWidth;  // 0 — visibility-buffer / debug-target width
+            u32 ViewportHeight; // 4
+            u32 Phase;          // 8 — portable raster: 0 = depth atomicMin, 1 = payload write
+            f32 OverdrawScale;  // 12 — colorize: count mapping to the hot end of the ramp
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(VirtualRasterUBO));
+            }
+        };
+
+        static_assert(sizeof(VirtualRasterUBO) % 16 == 0, "VirtualRasterUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(VirtualRasterUBO) == 16,
+                      "VirtualRasterUBO std140 size drifted from GLSL expectation (16 B)");
+
+        // @brief GPU instance-cull parameters, uploaded at UBO_INSTANCE_CULL
+        // (71). GLSL twin: the InstanceCullParams block shared verbatim by
+        // compute/InstanceOcclusionCull.comp and compute/InstanceFrustumCull.comp
+        // — the frustum-only variant reads the first three members and ignores
+        // the occlusion tail, which the always-fresh struct leaves at zero
+        // (u_OcclusionEnabled == 0 is exactly the frustum-only behaviour the
+        // old "just don't call Set*" path relied on).
+        struct InstanceCullUBO
+        {
+            glm::mat4 PrevViewProjection;  // 0  — the VP matching the bound HZB
+            glm::vec4 LocalBoundingSphere; // 64 — xyz = centre, w = radius (pre-expansion)
+            glm::vec2 HZBSize;             // 80
+            glm::vec2 HZBUVFactor;         // 88
+            u32 InstanceCount;             // 96
+            f32 RadiusExpansion;           // 100
+            i32 OcclusionEnabled;          // 104 — 0 = frustum only
+            i32 HZBMipCount;               // 108
+            f32 OcclusionDepthBias;        // 112
+            i32 WriteRejected;             // 116 — phase 1 appends to the reject list
+            i32 Phase2;                    // 120
+            i32 _pad0;                     // 124
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(InstanceCullUBO));
+            }
+        };
+
+        static_assert(sizeof(InstanceCullUBO) % 16 == 0, "InstanceCullUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(InstanceCullUBO) == 128,
+                      "InstanceCullUBO std140 size drifted from GLSL expectation (128 B)");
+
         // @brief Volumetric cloudscape raymarch parameters (issue #633),
         // uploaded at UBO_CLOUDSCAPE (53). GLSL twin: the CloudscapeData block
         // in include/CloudscapeCommon.glsl — shared by the raymarch pass, the
@@ -989,6 +1263,31 @@ namespace OloEngine
         static constexpr u32 UBO_AUTO_EXPOSURE = 58;        // Auto-exposure metering/adaptation params (AutoExposureUBO — issue #691 Phase 7: the histogram/average computes' former bare uniforms, which the Vulkan SPIR-V route cannot express)
         static constexpr u32 UBO_HZB = 59;                  // HZB downsample-batch params (HZBParamsUBO — issue #691 Phase 7: HZB.comp's former "push-constant-style" bare uniforms; refilled per 4-mip batch)
         static constexpr u32 UBO_GTAO_DENOISE = 60;         // GTAO denoise direction (GTAODenoiseUBO — issue #691 Phase 7: the per-ping-pong-pass blur axis; NOT folded into UBO_GTAO 28, whose GLSL block is declared at two different lengths across GTAO.comp / GTAO_Denoise.comp)
+        // The compute bare-uniform sweep (issue #691 Phase 7). Every one of
+        // these replaces a set of default-block `uniform` declarations that the
+        // Vulkan SPIR-V route rejects outright and whose ComputeShader::Set*
+        // feeders are a no-op there. See the UBOStructures twins above for the
+        // exact member lists and which shaders share which block.
+        static constexpr u32 UBO_PARTICLE_SIM = 61;  // GPU particle simulate/emit/compact params (GPUParticleParamsUBO)
+        static constexpr u32 UBO_WIND_GENERATE = 62; // Wind volume GENERATION params (WindGenerateUBO) — the producer side; UBO_WIND (15) is what consumers sample
+        // 63, 64 and 65 are deliberately skipped in the UNIFORM-BUFFER
+        // namespace: they are SSBO_BONE_PULL (63), TEX_DDGI_VISIBILITY (64) and
+        // TEX_SHADER_GRAPH_0 (65). The backend maps each resource kind with its
+        // own VK_SPIRV_RESOURCE_TYPE_* mask (VulkanPipelineBuilder::
+        // BuildBindingMappings), so a cross-namespace reuse is legal — but the
+        // A2 note above earned the habit of keeping engine slots numerically
+        // unique across namespaces, and there is no shortage of numbers.
+        static constexpr u32 UBO_SNOW_COMPUTE = 66;         // Snow accumulate/deform clipmap params (SnowComputeUBO)
+        static constexpr u32 UBO_TERRAIN_EROSION = 67;      // Hydraulic-erosion droplet params (TerrainErosionUBO)
+        static constexpr u32 UBO_LIGHT_CULLING = 68;        // Forward+/clustered light-cull dispatch params (LightCullingUBO) — the CULLER's view/counts; UBO_FORWARD_PLUS (25) is the shading side
+        static constexpr u32 UBO_VIRTUAL_CLUSTER_CULL = 69; // Virtual-geometry cluster cull params (VirtualClusterCullUBO) — refilled per instance dispatch
+        static constexpr u32 UBO_VIRTUAL_RASTER = 70;       // Virtual-geometry SW raster + debug colorize params (VirtualRasterUBO)
+        static constexpr u32 UBO_INSTANCE_CULL = 71;        // GPU instance frustum/occlusion cull params (InstanceCullUBO)
+
+        // Every engine-reserved uniform-buffer binding must fit the GL 4.6
+        // minimum guarantee for GL_MAX_UNIFORM_BUFFER_BINDINGS (84).
+        static_assert(UBO_INSTANCE_CULL < 84,
+                      "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
         // The heap-offset table (issue #691 Phase 3). std140 uvec4[] of
         // RHI::HeapOffset values, indexed by the SAME TEX_* constant a slot-based
         // shader would have used in `layout(binding = N)`. That reuse is the
@@ -1460,6 +1759,23 @@ namespace OloEngine
                     return name.contains("HZB") || name.contains("hzb");
                 case UBO_GTAO_DENOISE:
                     return name.contains("GTAODenoise") || name.contains("gtaoDenoise");
+                // Issue #691 Phase 7 compute bare-uniform sweep.
+                case UBO_PARTICLE_SIM:
+                    return name.contains("ParticleSim") || name.contains("particleSim");
+                case UBO_WIND_GENERATE:
+                    return name.contains("WindGenerate") || name.contains("windGenerate");
+                case UBO_SNOW_COMPUTE:
+                    return name.contains("SnowCompute") || name.contains("snowCompute");
+                case UBO_TERRAIN_EROSION:
+                    return name.contains("TerrainErosion") || name.contains("terrainErosion");
+                case UBO_LIGHT_CULLING:
+                    return name.contains("LightCulling") || name.contains("lightCulling");
+                case UBO_VIRTUAL_CLUSTER_CULL:
+                    return name.contains("VirtualClusterCull") || name.contains("virtualClusterCull");
+                case UBO_VIRTUAL_RASTER:
+                    return name.contains("VirtualRaster") || name.contains("virtualRaster");
+                case UBO_INSTANCE_CULL:
+                    return name.contains("InstanceCull") || name.contains("instanceCull");
                 default:
                     return false;
             }

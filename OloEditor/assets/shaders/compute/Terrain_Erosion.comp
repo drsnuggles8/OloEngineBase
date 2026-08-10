@@ -21,21 +21,33 @@ layout(local_size_x = 256) in;
 layout(r32f, binding = 0) coherent uniform image2D u_Heightmap;
 #endif
 
-// Erosion parameters
-uniform uint  u_Resolution;       // Heightmap resolution (square)
-uniform uint  u_MaxDropletSteps;   // Max steps per droplet (default 64)
-uniform float u_Inertia;           // Direction inertia [0,1] (default 0.05)
-uniform float u_SedimentCapacity;  // Sediment capacity multiplier (default 4.0)
-uniform float u_MinSedimentCapacity; // Minimum capacity floor (default 0.01)
-uniform float u_DepositSpeed;      // Deposit speed [0,1] (default 0.3)
-uniform float u_ErodeSpeed;        // Erosion speed [0,1] (default 0.3)
-uniform float u_EvaporateSpeed;    // Evaporation per step [0,1] (default 0.01)
-uniform float u_Gravity;           // Gravity constant (default 4.0)
-uniform float u_InitialWater;      // Starting water volume (default 1.0)
-uniform float u_InitialSpeed;      // Starting droplet speed (default 1.0)
-uniform int   u_ErosionRadius;     // Brush radius for erosion/deposition in texels (default 3)
-uniform uint  u_Seed;              // RNG seed offset
-uniform uint  u_DropletCount;      // Actual number of droplets to simulate
+// ---- Erosion parameters ----
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// C++ twin: UBOStructures::TerrainErosionUBO
+// (ShaderBindingLayout::UBO_TERRAIN_EROSION).
+layout(std140, binding = 67) uniform TerrainErosionParams
+{
+    uint  u_Resolution;          // 0  — heightmap resolution (square)
+    uint  u_MaxDropletSteps;     // 4  — max steps per droplet (default 64)
+    uint  u_Seed;                // 8  — RNG seed offset
+    uint  u_DropletCount;        // 12 — number of droplets to simulate
+    float u_Inertia;             // 16 — direction inertia [0,1] (default 0.05)
+    float u_SedimentCapacity;    // 20 — sediment capacity multiplier (default 4.0)
+    float u_MinSedimentCapacity; // 24 — minimum capacity floor (default 0.01)
+    float u_DepositSpeed;        // 28 — deposit speed [0,1] (default 0.3)
+    float u_ErodeSpeed;          // 32 — erosion speed [0,1] (default 0.3)
+    float u_EvaporateSpeed;      // 36 — evaporation per step [0,1] (default 0.01)
+    float u_Gravity;             // 40 — gravity constant (default 4.0)
+    float u_InitialWater;        // 44 — starting water volume (default 1.0)
+    float u_InitialSpeed;        // 48 — starting droplet speed (default 1.0)
+    int   u_ErosionRadius;       // 52 — brush radius in texels (default 3)
+    vec2  _erosionPad0;          // 56
+};
 
 // --- Pseudo-random number generator (PCG) ---
 uint pcgHash(uint v)

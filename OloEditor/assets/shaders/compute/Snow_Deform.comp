@@ -30,10 +30,30 @@ layout(std430, binding = 7) readonly buffer DeformerBuffer
     DeformerStamp stamps[];
 };
 
-uniform int   u_StampCount;
-uniform int   u_Resolution;
-uniform vec2  u_ClipmapCenter;
-uniform float u_ClipmapExtent;
+// ---- Snow clipmap parameters ----
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// Declared VERBATIM in Snow_Accumulate.comp and Snow_Deform.comp: the two agree
+// on the clipmap trio and each reads its own tail. C++ twin:
+// UBOStructures::SnowComputeUBO (ShaderBindingLayout::UBO_SNOW_COMPUTE).
+layout(std140, binding = 66) uniform SnowComputeParams
+{
+    vec2  u_ClipmapCenter;    // 0  — world XZ center
+    float u_ClipmapExtent;    // 8  — world-space side length
+    int   u_Resolution;       // 12 — texture resolution per axis
+    float u_DeltaTime;        // 16 — Snow_Accumulate from here down
+    float u_AccumulationRate; // 20 — meters of snow per second
+    float u_MaxDepth;         // 24 — maximum snow depth (meters)
+    float u_MeltRate;         // 28 — meters lost per second
+    float u_RestorationRate;  // 32 — deformation fill-back speed (m/s)
+    float u_SnowDensity;      // 36 — 0 = powder, 1 = packed
+    int   u_StampCount;       // 40 — Snow_Deform only
+    int   _snowPad0;          // 44
+};
 
 void main()
 {

@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Events/Event.h"
+#include "OloEngine/Renderer/GraphicsContext.h"
 
 #include <sstream>
 #include <utility>
@@ -45,6 +46,12 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual bool IsVSync() const = 0;
 
         [[nodiscard("Store this!")]] virtual void* GetNativeWindow() const = 0;
+
+        // The window's rendering context. Non-owning; null only before Init.
+        // Needed by the frame-render seam (#691 Phase 7): a backend whose swap
+        // path owns frame recording is handed the frame's work through
+        // GraphicsContext::SetFrameRenderCallback.
+        [[nodiscard("Store this!")]] virtual GraphicsContext* GetGraphicsContext() const = 0;
 
         virtual void SetTitle(const std::string& title) = 0;
 

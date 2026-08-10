@@ -507,7 +507,20 @@ namespace OloEngine
         supportedFeatures2.pNext = &supported12;
         vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supportedFeatures2);
         vulkan12Features.shaderBufferInt64Atomics = supportedAtomics.shaderBufferInt64Atomics;
-        m_ShaderBufferInt64AtomicsEnabled = supportedAtomics.shaderBufferInt64Atomics == VK_TRUE;
+        // shaderInt64 is a DIFFERENT feature from shaderBufferInt64Atomics:
+        // the first is "the shader may declare the Int64 capability at all",
+        // the second is "64-bit atomics on buffers". A SPIR-V module that
+        // uses 64-bit integers declares Int64 and is rejected by
+        // vkCreateShaderModule (VUID-VkShaderModuleCreateInfo-pCode-08740)
+        // when only the atomics feature is on — which is exactly what
+        // VirtualClusterRaster_Int64 hit: SupportsInt64ShaderAtomics said
+        // yes, VirtualGeometryPass::Init built the Int64 variant, the module
+        // creation failed with a validation error, and the pass silently fell
+        // back to the portable rasteriser. The capability the facade reports
+        // needs BOTH halves, so both are enabled and both gate the flag.
+        enabledFeatures.shaderInt64 = supported.shaderInt64;
+        m_ShaderBufferInt64AtomicsEnabled =
+            supportedAtomics.shaderBufferInt64Atomics == VK_TRUE && supported.shaderInt64 == VK_TRUE;
         vulkan12Features.drawIndirectCount = supported12.drawIndirectCount;
         m_DrawIndirectCountEnabled = supported12.drawIndirectCount == VK_TRUE;
         vulkan11Features.shaderDrawParameters = supported11.shaderDrawParameters;

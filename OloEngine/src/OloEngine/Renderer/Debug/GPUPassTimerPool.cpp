@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "GPUPassTimerPool.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 
 #include <glad/gl.h>
 
@@ -22,6 +23,17 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         if (m_Initialized)
             return;
+
+        // GL timestamp queries, called directly rather than through the facade
+        // — the pool is a GL-only instrument until the Vulkan timestamp-query
+        // path exists (#691 Phase 8). Staying UNinitialized is the complete
+        // disable: every per-frame entry point below gates on m_Active, which
+        // only BeginFrame (itself gated on m_Initialized) can set.
+        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            OLO_CORE_INFO("GPUPassTimerPool: disabled — GL timestamp queries only (#691 Phase 8)");
+            return;
+        }
 
         m_MaxPasses = maxPassesPerFrame;
 

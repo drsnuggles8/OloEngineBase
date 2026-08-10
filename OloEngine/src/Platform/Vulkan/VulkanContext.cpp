@@ -409,6 +409,37 @@ namespace OloEngine
         VulkanContextData& d = *m_Data;
         const VkDevice device = d.Device.GetDevice();
 
+        // NESTED PRESENT. On GL, SwapBuffers is a pure present and calling it
+        // from inside frame work is merely odd; here it owns acquire, the
+        // frame's ONE command buffer, submit and present, so a nested call
+        // resets a command buffer that the outer call is still recording into
+        // and re-opens an already-open recording bracket. The engine does
+        // present from inside frame work — ShaderWarmup's progress screen
+        // swaps once per compiled shader, and Renderer3D::Init is reachable
+        // from a layer callback — so this is a real path, not a theoretical
+        // one. The nested present is simply dropped: the outer frame is still
+        // in flight and will present.
+        if (m_InSwapBuffers)
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[Vulkan] nested SwapBuffers ignored (a present issued from inside frame "
+                              "recording — e.g. the shader-warmup progress screen)");
+            }
+            return;
+        }
+        m_InSwapBuffers = true;
+        struct SwapLatch
+        {
+            bool& Flag;
+            ~SwapLatch()
+            {
+                Flag = false;
+            }
+        } swapLatch{ m_InSwapBuffers };
+
         // Minimised: a 0-sized framebuffer cannot host a swapchain — skip frames
         // until the window has area again.
         int fbWidth = 0;
@@ -491,12 +522,38 @@ namespace OloEngine
         {
             auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
             api.BeginRecording(frame.Cmd);
+            // Publish the acquired image as this recording's DEFAULT
+            // framebuffer: FinalRenderPass's BindDefaultFramebuffer (GL's
+            // glBindFramebuffer(0)) resolves to it, and the lazy rendering
+            // scope opens against it exactly as it does against a
+            // VulkanFramebuffer. The publication dies with the recording.
+            api.SetFrameBackbuffer(d.SwapchainImageHandles[imageIndex].Get(), d.SwapchainViews[imageIndex],
+                                   d.SwapchainExtent.width, d.SwapchainExtent.height);
             const GraphicsContext::FrameRenderTarget target{
                 d.SwapchainImageHandles[imageIndex].Get(),
                 d.SwapchainExtent.width,
                 d.SwapchainExtent.height,
             };
-            rendered = m_FrameRenderCallback(target);
+            bool callbackRendered = false;
+            try
+            {
+                callbackRendered = m_FrameRenderCallback(target);
+            }
+            catch (const std::exception& e)
+            {
+                // The callback runs arbitrary engine code inside an OPEN
+                // command buffer; letting an exception escape would leave the
+                // bracket unbalanced and take the process down with it. Log
+                // and fall back to the clear frame instead.
+                OLO_CORE_ERROR("[Vulkan] frame render callback threw: {} — falling back to the clear frame", e.what());
+                callbackRendered = false;
+            }
+            // Owning the present transition here (rather than asking the
+            // callback for it) keeps swapchain-layout knowledge inside the
+            // presenting backend, and lets the fallback below stay correct:
+            // it returns false ONLY when nothing touched the image, so the
+            // fallback's UNDEFINED oldLayout can never discard real work.
+            rendered = api.FinalizeBackbufferForPresent(callbackRendered);
             api.EndRecording();
         }
         if (!rendered)

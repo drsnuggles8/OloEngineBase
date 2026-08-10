@@ -204,6 +204,66 @@ namespace OloEngine
             return m_LayoutTracker;
         }
 
+        // --- The default framebuffer (#691 Phase 7, Final pass) -----------
+        // GL's "default framebuffer" is a fixed object (name 0) that outlives
+        // every frame; Vulkan's is a DIFFERENT image every frame — whichever
+        // one vkAcquireNextImageKHR just handed the swap loop. So the backend
+        // cannot own it: the frame recorder publishes it for the duration of
+        // one recording bracket, and BindDefaultFramebuffer (i.e. GL's
+        // glBindFramebuffer(0), which is also VulkanFramebuffer::Unbind)
+        // resolves to whatever is published.
+        //
+        // "No framebuffer bound AND a backbuffer published" IS the default
+        // framebuffer — there is deliberately no extra selected/unselected
+        // flag, because that is exactly GL's rule and it keeps Unbind() and
+        // BindDefaultFramebuffer() the same operation. With nothing published
+        // (every headless test, and the live loop outside the callback) the
+        // old behaviour stands: a draw with no target is dropped with the
+        // warn-once.
+        struct FrameBackbuffer
+        {
+            RHI::ResourceHandle Handle{}; ///< The neutral identity (barriers, layout tracking).
+            VkImage Image = VK_NULL_HANDLE;
+            VkImageView View = VK_NULL_HANDLE; ///< Attachment view; owned by the publisher.
+            VkFormat Format = VK_FORMAT_UNDEFINED;
+            u32 Width = 0;
+            u32 Height = 0;
+
+            [[nodiscard]] bool IsValid() const
+            {
+                return Image != VK_NULL_HANDLE && View != VK_NULL_HANDLE;
+            }
+        };
+        /// Publish the acquired image as this recording's default framebuffer.
+        /// The view is passed explicitly because it is the one piece the
+        /// registries do not carry (VulkanImageInfo has no view); everything
+        /// else is derived from `handle`. Publishing an invalid handle, or a
+        /// null view, clears the publication.
+        void SetFrameBackbuffer(RHI::ResourceHandle handle, VkImageView view, u32 width, u32 height);
+        void ClearFrameBackbuffer();
+        [[nodiscard]] const FrameBackbuffer& GetFrameBackbuffer() const
+        {
+            return m_Backbuffer;
+        }
+        /// True once this recording opened a rendering scope against the
+        /// published backbuffer (i.e. the frame actually targeted the screen).
+        [[nodiscard]] bool BackbufferWasWrittenThisRecording() const
+        {
+            return m_BackbufferWritten;
+        }
+        /// Close the frame's backbuffer work and leave it presentable.
+        ///
+        /// `frameRendered` is the recorder's own verdict. When it is true a
+        /// still-PENDING clear is materialised as an empty CLEAR-loadOp scope
+        /// — GL clears immediately, this backend folds the clear into the next
+        /// draw's loadOp, so a pass that clears the screen and then bails
+        /// (FinalRenderPass with no resolvable input) would otherwise present
+        /// undefined memory. Returns true when the backbuffer holds defined
+        /// content and has been transitioned to Present; false means nothing
+        /// touched it and the caller's clear-only fallback is both safe and
+        /// necessary.
+        [[nodiscard]] bool FinalizeBackbufferForPresent(bool frameRendered);
+
         // Observability for the execution test: how many packets/entry points
         // hit a Phase 6 stub (nothing may fall through silently).
         [[nodiscard]] u64 GetPhase6StubHitCount() const
@@ -388,8 +448,14 @@ namespace OloEngine
         struct RenderingScope
         {
             bool Active = false;
-            VulkanFramebuffer* Target = nullptr; ///< The scope's framebuffer (never null while Active).
-            bool PendingClearColor = false;      ///< Fold into loadOp at scope begin.
+            VulkanFramebuffer* Target = nullptr; ///< The scope's framebuffer (null iff TargetIsBackbuffer).
+            /// The scope renders into the published swapchain image rather
+            /// than a VulkanFramebuffer (see FrameBackbuffer). BackbufferView
+            /// is part of the scope's identity for the same reason
+            /// DepthArrayView is: the publication changes per frame.
+            bool TargetIsBackbuffer = false;
+            VkImageView BackbufferView = VK_NULL_HANDLE;
+            bool PendingClearColor = false; ///< Fold into loadOp at scope begin.
             bool PendingClearDepth = false;
             /// The per-layer depth view this scope was opened with, or
             /// VK_NULL_HANDLE when the target's OWN depth attachment was used
@@ -403,6 +469,13 @@ namespace OloEngine
         /// target right now: same framebuffer AND same depth-array layer
         /// selection. Used by both the scope-open path and the clear paths.
         [[nodiscard]] bool ScopeMatchesCurrentTarget() const;
+
+        /// True when a draw right now would target the published backbuffer:
+        /// nothing bound (GL's framebuffer 0) and a publication live.
+        [[nodiscard]] bool ShouldTargetBackbuffer() const;
+        /// The live scope's render area — the framebuffer's spec, or the
+        /// published backbuffer's extent. {0,0} when no scope is open.
+        [[nodiscard]] VkExtent2D ScopeExtent() const;
 
         // GL's glNamedFramebufferDrawBuffers / ReadBuffer are PER-FRAMEBUFFER
         // PERSISTENT state, and both the bound form (SetDrawBuffers) and the
@@ -477,6 +550,8 @@ namespace OloEngine
         [[nodiscard]] bool ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const;
 
         RenderingScope m_Scope;
+        FrameBackbuffer m_Backbuffer;     ///< Live only inside a frame-callback recording.
+        bool m_BackbufferWritten = false; ///< A backbuffer scope opened this recording.
         std::unordered_map<u64, FramebufferAttachmentSelection> m_FramebufferSelections;
         // CreateDepthArrayCompareOffViewHandle's per-image cache (see the
         // definition for the lifetime contract).

@@ -5,6 +5,8 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <glm/glm.hpp>
 #include <span>
@@ -201,6 +203,22 @@ namespace OloEngine
         // frustum-only path even when occlusion inputs are supplied.
         Ref<ComputeShader> m_OcclusionCullShader;
         HZBOcclusionInputs m_Occlusion;
+
+        // InstanceFrustumCull/InstanceOcclusionCull.comp's former bare uniforms
+        // (issue #691 Phase 7), at UBO_INSTANCE_CULL — one block shared verbatim
+        // by both .comp files. GLSL-for-Vulkan forbids a non-opaque uniform
+        // outside a block, and ComputeShader::Set* is a deliberate no-op on that
+        // route, so the whole cull read zeros there. C++ twin:
+        // UBOStructures::InstanceCullUBO. Every filler starts from a fresh
+        // value-initialised struct: the frustum-only path used to simply skip
+        // the occlusion Set* calls, and a zeroed u_OcclusionEnabled is exactly
+        // that behaviour.
+        Ref<UniformBuffer> m_CullParamsUBO;
+
+        // Lazily create m_CullParamsUBO, upload and re-bind it. Called once per
+        // dispatch: on the Vulkan route every SetData mints a fresh arena
+        // address, so the Bind() must follow the upload (ADR 0011 §4).
+        void UploadCullParams(const UBOStructures::InstanceCullUBO& params);
         std::vector<PoolSlot> m_Pool;
         u32 m_NextSlot = 0;
         bool m_Initialised = false;

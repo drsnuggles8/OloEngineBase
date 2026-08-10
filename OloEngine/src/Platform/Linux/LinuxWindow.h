@@ -45,6 +45,11 @@ namespace OloEngine
             return m_Window;
         }
 
+        [[nodiscard("Store this!")]] GraphicsContext* GetGraphicsContext() const noexcept override
+        {
+            return m_Context.get();
+        }
+
         void SetTitle(const std::string& title) override;
 
       private:

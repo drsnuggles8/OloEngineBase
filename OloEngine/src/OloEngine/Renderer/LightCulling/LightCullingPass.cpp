@@ -83,14 +83,27 @@ namespace OloEngine
         // ClusteredLighting::SliceNearDepth — the fragment-side scale/bias
         // pair rides the ForwardPlusUBO (BindForShading), not this dispatch.
         m_CullingShader->Bind();
-        m_CullingShader->SetMat4("u_ViewMatrix", viewMatrix);
-        m_CullingShader->SetMat4("u_InverseProjectionMatrix", glm::inverse(projectionMatrix));
-        m_CullingShader->SetUint("u_PointLightCount", pointLightCount);
-        m_CullingShader->SetUint("u_SpotLightCount", spotLightCount);
-        m_CullingShader->SetUint("u_SphereAreaLightCount", sphereAreaLightCount);
-        m_CullingShader->SetUint("u_MaxLightsPerCluster", grid.GetMaxLightsPerCluster());
-        m_CullingShader->SetFloat("u_NearPlane", std::max(nearPlane, ClusteredLighting::kMinNearPlane));
-        m_CullingShader->SetFloat("u_FarPlane", std::max(farPlane, nearPlane * (1.0f + 1e-3f)));
+
+        // One std140 refill per dispatch. These were bare uniforms fed through
+        // ComputeShader::Set*, which the Vulkan SPIR-V route cannot express and
+        // whose Set* is a no-op there — so Forward+ culling would have read
+        // zeros and left every cluster empty (issue #691 Phase 7).
+        if (!m_ParamsUBO)
+        {
+            m_ParamsUBO = UniformBuffer::Create(UBOStructures::LightCullingUBO::GetSize(),
+                                                ShaderBindingLayout::UBO_LIGHT_CULLING);
+        }
+        UBOStructures::LightCullingUBO cullParams{};
+        cullParams.ViewMatrix = viewMatrix;
+        cullParams.InverseProjectionMatrix = glm::inverse(projectionMatrix);
+        cullParams.PointLightCount = pointLightCount;
+        cullParams.SpotLightCount = spotLightCount;
+        cullParams.SphereAreaLightCount = sphereAreaLightCount;
+        cullParams.MaxLightsPerCluster = grid.GetMaxLightsPerCluster();
+        cullParams.NearPlane = std::max(nearPlane, ClusteredLighting::kMinNearPlane);
+        cullParams.FarPlane = std::max(farPlane, nearPlane * (1.0f + 1e-3f));
+        m_ParamsUBO->SetData(&cullParams, sizeof(cullParams));
+        m_ParamsUBO->Bind();
 
         // Dispatch one workgroup per froxel cluster
         RenderCommand::DispatchCompute(

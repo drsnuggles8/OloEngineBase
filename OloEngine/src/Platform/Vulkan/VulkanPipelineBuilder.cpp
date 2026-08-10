@@ -16,6 +16,41 @@ namespace OloEngine
 {
     namespace
     {
+        // An integer colour format carries no COLOR_ATTACHMENT_BLEND format
+        // feature on any implementation (blending is defined on floating-point
+        // and normalized formats only), so blendEnable MUST be false against
+        // one — VUID-vkCmdDraw-blendEnable-04727. Enumerated rather than
+        // queried because the set is closed and this runs per draw: it is the
+        // formats VulkanFramebuffer can actually create for an integer
+        // attachment (RED_INTEGER / RG*_INTEGER family).
+        [[nodiscard]] bool IsIntegerFormat(const VkFormat format)
+        {
+            switch (format)
+            {
+                case VK_FORMAT_R8_UINT:
+                case VK_FORMAT_R8_SINT:
+                case VK_FORMAT_R16_UINT:
+                case VK_FORMAT_R16_SINT:
+                case VK_FORMAT_R32_UINT:
+                case VK_FORMAT_R32_SINT:
+                case VK_FORMAT_R8G8_UINT:
+                case VK_FORMAT_R8G8_SINT:
+                case VK_FORMAT_R16G16_UINT:
+                case VK_FORMAT_R16G16_SINT:
+                case VK_FORMAT_R32G32_UINT:
+                case VK_FORMAT_R32G32_SINT:
+                case VK_FORMAT_R8G8B8A8_UINT:
+                case VK_FORMAT_R8G8B8A8_SINT:
+                case VK_FORMAT_R16G16B16A16_UINT:
+                case VK_FORMAT_R16G16B16A16_SINT:
+                case VK_FORMAT_R32G32B32A32_UINT:
+                case VK_FORMAT_R32G32B32A32_SINT:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         // --- RHI → Vk state-enum lowering ------------------------------------
         [[nodiscard]] VkCompareOp ToVk(RHI::CompareOp op)
         {
@@ -585,7 +620,12 @@ namespace OloEngine
                 // AttachmentBlendFuncSet comment): glEnablei alone keeps the
                 // GLOBAL blend func; only glBlendFunci diverts the factors.
                 const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
-                attachment.blendEnable = (state.AttachmentBlend[i] || state.Blend) ? VK_TRUE : VK_FALSE;
+                // Integer attachments cannot blend — see the identical mask
+                // in FlushDynamicState (the two routes must agree).
+                attachment.blendEnable = (!IsIntegerFormat(safeTargets.ColorFormats[i]) &&
+                                          (state.AttachmentBlend[i] || state.Blend))
+                                             ? VK_TRUE
+                                             : VK_FALSE;
                 attachment.srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
                 attachment.dstColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstRGB);
                 attachment.colorBlendOp = ToVk(state.BlendEquation);
@@ -774,7 +814,18 @@ namespace OloEngine
                 // glBlendFunci diverts the factors — AttachmentBlendSrc/Dst
                 // are meaningful only when AttachmentBlendFuncSet[i] is true.
                 const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
-                const bool enabled = state.AttachmentBlend[i] || state.Blend;
+                // An INTEGER attachment can never blend: R32_SINT (the
+                // engine's entity-ID render target) carries no
+                // COLOR_ATTACHMENT_BLEND format feature, and enabling blend
+                // against it is VUID-vkCmdDraw-blendEnable-04727. GL has the
+                // same rule but expresses it silently (blending is ignored
+                // for integer attachments), so every pass that flips the
+                // GLOBAL blend switch with an ID target attached — the whole
+                // forward/G-buffer family — tripped this on the first live
+                // frame. Masking it here keeps GL's "just ignore it"
+                // behaviour and costs the caller nothing.
+                const bool blendableFormat = !IsIntegerFormat(targets.ColorFormats[i]);
+                const bool enabled = blendableFormat && (state.AttachmentBlend[i] || state.Blend);
                 enables[i] = enabled ? VK_TRUE : VK_FALSE;
                 equations[i] = {
                     .srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB),

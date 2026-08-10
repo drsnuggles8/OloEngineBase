@@ -246,6 +246,15 @@ namespace OloEngine
         bool OnWindowClose(WindowCloseEvent const& e);
         bool OnWindowResize(WindowResizeEvent const& e);
 
+        // The frame's layer work — layer OnUpdate (which is where the render
+        // graph executes) plus the ImGui phase. On GL this runs inline in
+        // Run(); on a backend that owns frame recording (Vulkan) it runs
+        // INSIDE the swap path's command-buffer bracket, driven by
+        // GraphicsContext::SetFrameRenderCallback (#691 Phase 7). Returns
+        // false when the frame was declined (minimized / zero-area / no
+        // renderer), which is the seam's "fall back to the clear frame".
+        bool RenderFrameLayers(Timestep timestep);
+
       private:
         ApplicationSpecification m_Specification;
         Scope<Window> m_Window;
@@ -263,7 +272,21 @@ namespace OloEngine
         f32 m_FixedTimeStep = 1.0f / 60.0f;
         u64 m_RandomSeed = kDefaultRandomSeed;
         u32 m_SmokeTestTicksCompleted = 0; // see SmokeTestTickLimit / IsSmokeTest
-        FramePacer m_FramePacer;           // frame-rate cap + delta smoothing (#456)
+        // True when the graphics context records the frame itself and the
+        // layer work has been handed to its frame-render callback (Vulkan).
+        bool m_BackendDrivesFrameRendering = false;
+        // Re-entrancy latch for RenderFrameLayers — see its definition.
+        bool m_FrameLayersInProgress = false;
+        // False until Run() begins. The frame-render callback must decline
+        // every swap before that: the engine PRESENTS during startup (the
+        // shader-warmup progress screen swaps once per compiled shader, from
+        // inside a layer's OnAttach), and driving the layer stack from there
+        // would run OnUpdate on layers that are still attaching.
+        bool m_FrameLoopStarted = false;
+        // The timestep the pending callback should use — set just before
+        // SwapBuffers, consumed inside it. Same thread, no lifetime concern.
+        Timestep m_PendingFrameTimestep{ 0.0f };
+        FramePacer m_FramePacer; // frame-rate cap + delta smoothing (#456)
         PerformanceProfiler m_PerformanceProfiler;
 
       private:

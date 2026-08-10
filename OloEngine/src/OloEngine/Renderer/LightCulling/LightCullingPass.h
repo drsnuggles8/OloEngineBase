@@ -5,6 +5,8 @@
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/LightCulling/LightGrid.h"
 #include "OloEngine/Renderer/LightCulling/LightCullingBuffer.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -42,5 +44,8 @@ namespace OloEngine
 
       private:
         Ref<ComputeShader> m_CullingShader;
+        // LightCulling.comp's former bare uniforms (issue #691 Phase 7), at
+        // UBO_LIGHT_CULLING. C++ twin: UBOStructures::LightCullingUBO.
+        Ref<UniformBuffer> m_ParamsUBO;
     };
 } // namespace OloEngine

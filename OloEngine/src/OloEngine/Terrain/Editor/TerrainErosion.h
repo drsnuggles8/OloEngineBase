@@ -6,6 +6,7 @@
 namespace OloEngine
 {
     class ComputeShader;
+    class UniformBuffer;
     class TerrainData;
 
     struct ErosionSettings
@@ -42,6 +43,9 @@ namespace OloEngine
 
       private:
         Ref<ComputeShader> m_ErosionShader;
+        // Terrain_Erosion.comp's former bare uniforms (issue #691 Phase 7), at
+        // UBO_TERRAIN_EROSION. C++ twin: UBOStructures::TerrainErosionUBO.
+        Ref<UniformBuffer> m_ParamsUBO;
         u32 m_IterationSeed = 0;
     };
 } // namespace OloEngine

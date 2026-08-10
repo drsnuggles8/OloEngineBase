@@ -56,8 +56,11 @@ namespace OloEngine
         // alongside Renderer3D for 2D overlay support). Shut it down unconditionally.
         Renderer2D::Shutdown();
 
-        // Shutdown shared framebuffer resources (post-process shader)
-        OpenGLFramebuffer::ShutdownSharedResources();
+        // Shutdown shared framebuffer resources (post-process shader). GL-only
+        // statics behind a GL-only entry point — the Vulkan framebuffer has no
+        // shared-resource pool of its own (#691 Phase 7).
+        if (RendererAPI::GetAPI() == RendererAPI::API::OpenGL)
+            OpenGLFramebuffer::ShutdownSharedResources();
 
         // Boot + fallback shaders were initialized in Renderer::Init() before
         // any sub-renderer. Shut them down after all renderers are gone.

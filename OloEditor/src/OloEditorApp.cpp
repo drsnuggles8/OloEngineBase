@@ -19,19 +19,21 @@ namespace OloEngine
             // GL/ImGui editor UI which needs a real OpenGL 4.6 context, and the
             // app runs window-less there. See CreateApplication below.
             //
-            // Under `--rhi=vulkan` (#691 Phase 4 bring-up) it is skipped too — the
-            // editor UI is imgui_impl_opengl3-bound until Phase 8, so the editor
-            // legitimately shows only the Vulkan-cleared window. Checked here, not
-            // in CreateApplication: selection (flag + config fallback) resolves in
-            // the Application base constructor, which has run by this point.
-            if (pushEditorLayer && Renderer::GetAPI() == RendererAPI::API::OpenGL)
+            // #691 Phase 7 (Final): the layer is pushed on BOTH backends now.
+            // Under --rhi=vulkan it drives the scene and the render graph
+            // exactly as on GL, and the graph's FinalPass blits to the
+            // swapchain — so the window shows the rendered scene FULL SCREEN.
+            // What is missing there is the editor UI itself: ImGui runs
+            // platform-only (imgui_impl_opengl3 is GL-bound until Phase 8), so
+            // panel logic executes but nothing is painted over the scene.
+            if (pushEditorLayer)
             {
                 PushLayer(std::make_unique<EditorLayer>());
-            }
-            else if (pushEditorLayer)
-            {
-                OLO_CORE_INFO("[RHI] EditorLayer skipped under --rhi=vulkan (Phase 4 bring-up: "
-                              "expect only a cleared window; editor UI returns with Phase 8)");
+                if (Renderer::GetAPI() != RendererAPI::API::OpenGL)
+                {
+                    OLO_CORE_INFO("[RHI] EditorLayer under --rhi=vulkan: the scene renders through the graph "
+                                  "to the swapchain; the ImGui editor UI is not painted until Phase 8");
+                }
             }
         }
 

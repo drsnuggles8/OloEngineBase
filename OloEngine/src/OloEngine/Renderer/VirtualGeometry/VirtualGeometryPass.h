@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 namespace OloEngine
 {
@@ -102,7 +103,21 @@ namespace OloEngine
         Ref<Shader> m_ResolveShader;         // fullscreen visibility-buffer -> G-Buffer material resolve
         Ref<ComputeShader> m_ColorizeShader; // overdraw count -> heat colour (debug capture)
         Ref<SceneRenderPass> m_ScenePass;
-        Ref<UniformBuffer> m_DrawInfoUBO;  // UBO_VIRTUAL_DRAW, one update per MDI/resolve draw
+        Ref<UniformBuffer> m_DrawInfoUBO; // UBO_VIRTUAL_DRAW, one update per MDI/resolve draw
+        // VirtualClusterCull.comp's former bare uniforms (issue #691 Phase 7),
+        // at UBO_VIRTUAL_CLUSTER_CULL — refilled PER instance dispatch (the
+        // loop varies u_InstanceIndex). C++ twin:
+        // UBOStructures::VirtualClusterCullUBO.
+        Ref<UniformBuffer> m_CullParamsUBO;
+        // Lazily create the block, upload and re-bind it. The Bind() must
+        // follow the SetData: on the Vulkan route every SetData mints a fresh
+        // arena address (ADR 0011 §4).
+        void UploadCullParams(const UBOStructures::VirtualClusterCullUBO& params);
+        void UploadRasterParams(const UBOStructures::VirtualRasterUBO& params);
+        // VirtualClusterRaster.comp + VirtualDebugColorize.comp's former bare
+        // uniforms, at UBO_VIRTUAL_RASTER — the portable raster refills it
+        // between its two passes. C++ twin: UBOStructures::VirtualRasterUBO.
+        Ref<UniformBuffer> m_RasterParamsUBO;
         Ref<UniformBuffer> m_DebugInfoUBO; // UBO_VIRTUAL_DEBUG, one update per frame (debug mode)
         // ScenePass publishes the scene/G-Buffer textures as EXPORT COPIES at
         // the end of its Execute — before this pass draws. Re-export after our

@@ -6,6 +6,7 @@
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Debug/DebugUtils.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -99,13 +100,24 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // GPU Info (query OpenGL directly)
-        auto const* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
-        auto const* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
-        auto const* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
-        ImGui::Text("GPU: %s", renderer ? renderer : "Unknown");
-        ImGui::Text("Vendor: %s", vendor ? vendor : "Unknown");
-        ImGui::Text("GL Version: %s", version ? version : "Unknown");
+        // GPU Info (queried from the GL driver directly — glGetString has no
+        // Vulkan analogue, and on any non-GL backend the glad pointer is null:
+        // this ran EVERY frame from the default-open Statistics panel, so it
+        // was the first thing to crash a --rhi=vulkan editor session, #691).
+        if (RendererAPI::GetAPI() == RendererAPI::API::OpenGL)
+        {
+            auto const* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+            auto const* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+            auto const* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+            ImGui::Text("GPU: %s", renderer ? renderer : "Unknown");
+            ImGui::Text("Vendor: %s", vendor ? vendor : "Unknown");
+            ImGui::Text("GL Version: %s", version ? version : "Unknown");
+        }
+        else
+        {
+            ImGui::Text("GPU: (device info is OpenGL-only for now)");
+            ImGui::Text("Backend: Vulkan");
+        }
 
         // VSync
         auto& window = Application::Get().GetWindow();

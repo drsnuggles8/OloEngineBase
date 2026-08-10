@@ -24,17 +24,30 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 layout(rgba16f, binding = 0) writeonly uniform image3D u_WindField;
 #endif
 
-// ---- Uniforms set by WindSystem::Update() ----
-uniform vec3  u_GridMin;              // World-space AABB minimum corner
-uniform float u_GridWorldSize;        // Side length of the cube (meters)
-uniform int   u_GridResolution;       // Voxels per axis (e.g. 128)
-uniform vec3  u_WindDirection;        // Normalized base wind direction
-uniform float u_WindSpeed;            // Base wind speed (m/s)
-uniform float u_GustStrength;         // 0–1 gust amplitude
-uniform float u_GustFrequency;        // Hz
-uniform float u_TurbulenceIntensity;  // Strength of noise-based perturbation
-uniform float u_TurbulenceScale;      // Spatial frequency of noise
-uniform float u_Time;                 // Accumulated time (seconds)
+// ---- Parameters set by WindSystem::Update() ----
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// NOT the WindData block at binding 15 that every wind CONSUMER samples: this
+// is the producer's own grid/turbulence description. C++ twin:
+// UBOStructures::WindGenerateUBO (ShaderBindingLayout::UBO_WIND_GENERATE).
+layout(std140, binding = 62) uniform WindGenerateParams
+{
+    vec3  u_GridMin;              // 0  — world-space AABB minimum corner
+    float u_GridWorldSize;        // 12 — side length of the cube (meters)
+    vec3  u_WindDirection;        // 16 — normalized base wind direction
+    float u_WindSpeed;            // 28 — base wind speed (m/s)
+    int   u_GridResolution;       // 32 — voxels per axis (e.g. 128)
+    float u_GustStrength;         // 36 — 0–1 gust amplitude
+    float u_GustFrequency;        // 40 — Hz
+    float u_TurbulenceIntensity;  // 44 — strength of noise-based perturbation
+    float u_TurbulenceScale;      // 48 — spatial frequency of noise
+    float u_Time;                 // 52 — accumulated time (seconds)
+    vec2  _windGenPad0;           // 56
+};
 
 // ============================================================================
 // Simplex-style 3D noise (based on Ashima Arts webgl-noise)

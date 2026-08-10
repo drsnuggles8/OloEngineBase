@@ -63,6 +63,8 @@ namespace OloEngine
         GLFWwindow* m_WindowHandle;
         Scope<VulkanContextData> m_Data;
         FrameRenderCallback m_FrameRenderCallback;
+        /// Re-entrancy latch — see the nested-present guard in SwapBuffers.
+        bool m_InSwapBuffers = false;
     };
 } // namespace OloEngine
 

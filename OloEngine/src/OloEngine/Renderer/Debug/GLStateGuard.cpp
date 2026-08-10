@@ -85,6 +85,15 @@ namespace OloEngine
 
         GLStateSnapshot s;
 
+        // Same backend gate as the guard's ctor and ApplyCore (#691): every
+        // read below is a raw glad call, and this entry point is PUBLIC — the
+        // ctor's inertness promise has to hold here too, or a direct
+        // Capture()/DetectLeaks() sails past it into null function pointers.
+        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            return s;
+        }
+
         s.m_DepthTest = GlGetBoolean(GL_DEPTH_TEST);
         GLboolean dm = GL_TRUE;
         ::glGetBooleanv(GL_DEPTH_WRITEMASK, &dm);

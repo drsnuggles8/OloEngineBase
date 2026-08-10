@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include <glm/glm.hpp>
 
@@ -97,6 +98,10 @@ namespace OloEngine
         static void Reset();
 
       private:
+        // Upload + re-bind the shared Snow_Accumulate/_Deform params block
+        // (issue #691 Phase 7). Lazily creates the UBO on first use.
+        static void UploadComputeParams(const UBOStructures::SnowComputeUBO& params);
+
         struct SnowAccumulationData
         {
             Ref<ComputeShader> m_AccumulateShader;
@@ -104,7 +109,13 @@ namespace OloEngine
             Ref<ComputeShader> m_ClearShader;
             Ref<Texture2D> m_SnowDepthTexture;    // R32F, 2048×2048
             Ref<UniformBuffer> m_AccumulationUBO; // binding 16
-            Ref<StorageBuffer> m_DeformerSSBO;    // SSBO for deformer stamps (binding 7)
+            // Snow_Accumulate/_Deform.comp's former bare uniforms (issue #691
+            // Phase 7), at UBO_SNOW_COMPUTE. Distinct from m_AccumulationUBO
+            // above: that one is what the snow SHADING path samples; this is
+            // the two computes' own clipmap/rate description, one block shared
+            // verbatim by both. C++ twin: UBOStructures::SnowComputeUBO.
+            Ref<UniformBuffer> m_ComputeParamsUBO;
+            Ref<StorageBuffer> m_DeformerSSBO; // SSBO for deformer stamps (binding 7)
             SnowAccumulationUBOData m_GPUData;
 
             glm::vec3 m_PrevClipmapCenter = glm::vec3(0.0f);

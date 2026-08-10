@@ -53,6 +53,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 #include "OloEngine/Renderer/Passes/EASURenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
@@ -133,6 +134,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <string>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -8962,6 +8965,408 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
     // subdivided patch covers its triangle and not the whole target.
     EXPECT_GT(coveredTexels, 1000u) << "the patch covered " << coveredTexels << " texels";
     EXPECT_LT(coveredTexels, 2600u) << "the patch covered " << coveredTexels << " texels";
+}
+
+// =============================================================================
+// FinalRenderPass — the swapchain import (#691 Phase 7, the LAST pass).
+//
+// Every other pass in the suite renders into a VulkanFramebuffer the graph
+// owns. This one targets "the default framebuffer", which on GL is a fixed
+// object (name 0) and on Vulkan is a DIFFERENT image every frame — whichever
+// vkAcquireNextImageKHR just handed the swap loop. VulkanContext publishes
+// that image for the duration of one recording (SetFrameBackbuffer) and
+// BindDefaultFramebuffer resolves to it.
+//
+// WINDOWLESS PROOF: the publication needs exactly three things from its image
+// — an RHI identity, a VulkanImageInfoRegistry entry (format/aspect) and an
+// attachment view — and a plain colour attachment carries all three, created
+// the same way the swapchain images are registered. So a framebuffer's own
+// attachment stands in for the acquired image and the seam is provable with no
+// surface, no swapchain and no window. What this canNOT prove is the surface
+// half (acquire/present semaphores, the PRESENT_SRC layout actually being
+// accepted by the presentation engine) — that is what the live run is for.
+//
+// Two arms, because the pass has two exits:
+//  1. with a resolvable input: clear + fullscreen blit reach the backbuffer;
+//  2. with NO input: the pass clears and RETURNS. GL clears eagerly, this
+//     backend folds a clear into the next draw's loadOp — so a clear with no
+//     draw behind it used to leave the presented image undefined. Arm 2 pins
+//     FinalizeBackbufferForPresent materialising it.
+// =============================================================================
+TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublishedBackbuffer)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // The stand-in backbuffer (see the header comment).
+    FramebufferSpecification backbufferSpec;
+    backbufferSpec.Width = kSize;
+    backbufferSpec.Height = kSize;
+    backbufferSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> backbufferOwner = Framebuffer::Create(backbufferSpec);
+    ASSERT_TRUE(backbufferOwner) << "stand-in backbuffer creation failed";
+    auto* vkBackbufferOwner = static_cast<VulkanFramebuffer*>(backbufferOwner.Raw());
+    Ref<VulkanTexture2D> backbufferImage = vkBackbufferOwner->GetColorAttachmentImage(0);
+    ASSERT_TRUE(backbufferImage);
+    const VkImageView backbufferView = backbufferImage->GetOrCreateAttachmentView();
+    ASSERT_NE(backbufferView, VK_NULL_HANDLE);
+    const RHI::ResourceHandle backbufferHandle = backbufferImage->GetRHIHandle();
+    ASSERT_TRUE(backbufferHandle.IsValid());
+
+    // A VERTICALLY ASYMMETRIC pattern, because the thing most likely to be
+    // wrong about "the frame reached the screen" is which way up it is: the
+    // A8 projection seam leaves every graph-owned image in GL's row order,
+    // and the swapchain is the one target that displays row 0 at the TOP.
+    // A solid colour cannot see that; two stacked bands can.
+    // Neither band is a colour any clear path here produces, so "the blit
+    // landed" and "something cleared" can never be confused either.
+    constexpr u8 kTopR = 40;
+    constexpr u8 kTopG = 180;
+    constexpr u8 kTopB = 90;
+    constexpr u8 kBottomR = 200;
+    constexpr u8 kBottomG = 60;
+    constexpr u8 kBottomB = 30;
+    std::vector<u8> bandRgba(static_cast<sizet>(kSize) * kSize * 4);
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        const bool firstHalf = y < kSize / 2u;
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+            bandRgba[i + 0] = firstHalf ? kTopR : kBottomR;
+            bandRgba[i + 1] = firstHalf ? kTopG : kBottomG;
+            bandRgba[i + 2] = firstHalf ? kTopB : kBottomB;
+            bandRgba[i + 3] = 255;
+        }
+    }
+    TextureSpecification bandSpec;
+    bandSpec.Width = kSize;
+    bandSpec.Height = kSize;
+    bandSpec.Format = ImageFormat::RGBA8;
+    auto patternInput = Texture2D::Create(bandSpec);
+    ASSERT_NE(patternInput, nullptr);
+    patternInput->SetData(bandRgba.data(), static_cast<u32>(bandRgba.size()));
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // FullscreenBlit's fragment reads DRSParams@33 — both the producer's copy
+    // and FinalRenderPass's own. Defaults are the DRS-inactive (1,1).
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    auto finalPass = Ref<FinalRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    finalPass->Init(initSpec);
+    finalPass->SetupFramebuffer(kSize, kSize);
+
+    auto producer = Ref<PatternProducerPass>::Create(patternInput, blitShader);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    // --- Arm 1: producer -> FinalRenderPass -> the published backbuffer -----
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+    fbDesc.Width = kSize;
+    fbDesc.Height = kSize;
+
+    // The producer's target is CALLER-BACKED so the chain's own row order can
+    // be read back and compared against the presented image — the orientation
+    // contract below is stated as a relation between the two, which is
+    // convention-free (it holds whatever GL's texture-row convention is).
+    FramebufferSpecification chainSpec;
+    chainSpec.Width = kSize;
+    chainSpec.Height = kSize;
+    chainSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> chainFramebuffer = Framebuffer::Create(chainSpec);
+    ASSERT_TRUE(chainFramebuffer);
+
+    auto& blackboard = graph.GetBlackboard();
+    blackboard.Post.PostProcessColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::PostProcessColor, fbDesc, chainFramebuffer);
+
+    graph.AddNode(producer);
+    graph.AddNode(finalPass);
+    graph.SetFinalPass("FinalRenderPass");
+    graph.BuildFrameGraph();
+
+    bool armOneFinalized = false;
+    SubmitFrame(
+        [&]()
+        {
+            // The publication is recording-scoped: VulkanContext does exactly
+            // this between BeginRecording and the callback.
+            api.SetFrameBackbuffer(backbufferHandle, backbufferView, kSize, kSize);
+            graph.Execute();
+            armOneFinalized = api.FinalizeBackbufferForPresent(true);
+
+            // The present layout is where the real frame ends; the readback
+            // path wants the steady-state sampled layout, so walk both images
+            // on.
+            std::array<RHI::Barrier, 2> toSampled{};
+            toSampled[0].Resource = backbufferHandle;
+            toSampled[0].Range.MipCount = 1u;
+            toSampled[0].Range.LayerCount = 1u;
+            toSampled[0].Before = RHI::Access::Present;
+            toSampled[0].After = RHI::Access::ShaderSampleRead;
+            toSampled[1].Resource = chainFramebuffer->GetColorAttachmentHandle(0);
+            toSampled[1].Range.MipCount = 1u;
+            toSampled[1].Range.LayerCount = 1u;
+            toSampled[1].Before = RHI::Access::ColorAttachmentWrite;
+            toSampled[1].After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+        });
+
+    EXPECT_TRUE(producer->DidDraw) << "the producer pass early-returned";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "FinalRenderPass: resolve failure pass='" << failure.PassName << "' reason='"
+                      << failure.Reason << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u)
+        << "the producer's blit and the final blit must BOTH record — a final blit dropped for want of a "
+           "target is exactly the bug the swapchain import fixes";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a draw dropped silently";
+    EXPECT_TRUE(armOneFinalized) << "the frame never touched the backbuffer";
+
+    std::vector<u8> presented;
+    ASSERT_TRUE(backbufferImage->GetData(presented, 0)) << "backbuffer readback failed";
+    ASSERT_EQ(presented.size(), static_cast<sizet>(kSize) * kSize * 4);
+    std::vector<u8> chain;
+    auto* vkChain = static_cast<VulkanFramebuffer*>(chainFramebuffer.Raw());
+    ASSERT_TRUE(vkChain->GetColorAttachmentImage(0) != nullptr &&
+                vkChain->GetColorAttachmentImage(0)->GetData(chain, 0))
+        << "chain framebuffer readback failed";
+    ASSERT_EQ(chain.size(), presented.size());
+
+    const auto texel = [&](const std::vector<u8>& image, u32 x, u32 y, u32 channel)
+    { return static_cast<int>(image[(static_cast<sizet>(y) * kSize + x) * 4 + channel]); };
+
+    // Content: both bands survived the two blits (no clear, no black frame).
+    {
+        const int topBandRed = texel(presented, 64, 8, 0);
+        const int bottomBandRed = texel(presented, 64, kSize - 9, 0);
+        EXPECT_NE(topBandRed, bottomBandRed)
+            << "the presented image is a flat colour — the two-band pattern did not survive the chain";
+        const bool bandsPresent =
+            (std::abs(topBandRed - kTopR) <= 2 && std::abs(bottomBandRed - kBottomR) <= 2) ||
+            (std::abs(topBandRed - kBottomR) <= 2 && std::abs(bottomBandRed - kTopR) <= 2);
+        EXPECT_TRUE(bandsPresent) << "presented bands are " << topBandRed << " / " << bottomBandRed
+                                  << ", neither authored colour";
+    }
+
+    // ORIENTATION: the presented image is the vertical MIRROR of the chain's
+    // own row order. That is not a quirk to be tolerated — it is the contract.
+    // The A8 seam authors every graph image in GL's row order (row 0 = bottom
+    // of the picture) so that screen-space shaders stay source-identical
+    // across backends; the swapchain displays row 0 at the TOP, so the final
+    // blit MUST flip. Without the flip the whole live frame is upside down on
+    // screen while every in-chain readback still looks perfect — which is
+    // exactly how it shipped past 45 green tenants until someone looked at
+    // the window.
+    for (const u32 row : { 2u, 30u, 64u, 100u, kSize - 3u })
+    {
+        const u32 mirrored = kSize - 1u - row;
+        for (const u32 channel : { 0u, 1u, 2u })
+        {
+            EXPECT_NEAR(texel(presented, 64, row, channel), texel(chain, 64, mirrored, channel), 2)
+                << "presented row " << row << " must mirror chain row " << mirrored << " (channel " << channel << ")";
+        }
+    }
+
+    // --- Arm 2: the clear-only exit ----------------------------------------
+    // FinalRenderPass with no resolvable input clears and returns. Recorded
+    // by hand rather than through a second graph so the assertion is about
+    // the BACKEND contract (a pending clear with no draw behind it) and not
+    // about how a graph with no producer culls.
+    bool armTwoFinalized = false;
+    SubmitFrame(
+        [&]()
+        {
+            api.SetFrameBackbuffer(backbufferHandle, backbufferView, kSize, kSize);
+            RenderCommand::BindDefaultFramebuffer();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            // No draw — the FinalRenderPass "missing input" exit.
+            armTwoFinalized = api.FinalizeBackbufferForPresent(true);
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = backbufferHandle;
+            toSampled.Range.BaseMip = 0u;
+            toSampled.Range.MipCount = 1u;
+            toSampled.Range.BaseLayer = 0u;
+            toSampled.Range.LayerCount = 1u;
+            toSampled.Before = RHI::Access::Present;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_TRUE(armTwoFinalized)
+        << "a clear-only frame must still count as rendered — otherwise the backend's clear fallback "
+           "silently replaces the pass's own clear colour";
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 0u) << "arm 2 records no draw by construction";
+
+    std::vector<u8> cleared;
+    ASSERT_TRUE(backbufferImage->GetData(cleared, 0)) << "backbuffer readback failed";
+    ASSERT_EQ(cleared.size(), presented.size());
+    const auto clearedTexel = [&](u32 x, u32 y, u32 channel)
+    { return static_cast<int>(cleared[(static_cast<sizet>(y) * kSize + x) * 4 + channel]); };
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 4, 4 }, { 64, 64 }, { 123, 123 } })
+    {
+        EXPECT_GE(clearedTexel(x, y, 0), 250) << "clear-only frame (" << x << "," << y << ") must be red";
+        EXPECT_LE(clearedTexel(x, y, 1), 5) << "clear-only frame (" << x << "," << y << ") must be red";
+        EXPECT_LE(clearedTexel(x, y, 2), 5) << "clear-only frame (" << x << "," << y << ") must be red";
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+// =============================================================================
+// Issue #691 Phase 7 — the compute bare-uniform sweep.
+//
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, so every
+// `uniform float u_Foo;` in a .comp was a HARD SPIR-V compile error on the
+// Vulkan route ("'non-opaque uniforms outside a block' : not allowed"), and
+// VulkanComputeShader::Set* is a deliberate no-op — so a shader that somehow
+// did compile would still read zeros. A live --rhi=vulkan editor run showed 13
+// compute programs failing outright, taking GPU particles, virtual geometry,
+// Forward+ light culling, snow, wind and terrain erosion with them.
+//
+// The two tests below are the sweep's contract, and they are deliberately of
+// two different kinds:
+//
+//  * the device-gated one PROVES the fix — every migrated shader really goes
+//    through shaderc(vulkan_1_4) and produces a valid program;
+//  * the headless one STOPS THE DEBT RETURNING — it is a pure text scan, so it
+//    runs in CI with no GPU at all and fails the moment someone reintroduces a
+//    default-block uniform into one of these files.
+//
+// Neither one is redundant: a text scan cannot prove the SPIR-V compiles, and a
+// device-gated test SKIPs on every machine CI actually runs on.
+// =============================================================================
+
+namespace
+{
+    // The files this sweep migrated. Each declares exactly one pass-owned
+    // std140 block (some SHARE one block across the sibling shaders of a
+    // system — see UBOStructures in ShaderBindingLayout.h for which).
+    //
+    // NOT the whole compute directory: CloudNoise_Generate, CloudShadow_Generate,
+    // Ocean_Assemble, Ocean_FFTButterfly, Ocean_SpectrumEvolve and
+    // Precipitation_Feed still declare bare uniforms. They did not appear in the
+    // live log (their passes never ran in that session) and are outside this
+    // sweep's scope — they are remaining debt, not an exemption. Add them here
+    // when they are migrated.
+    constexpr const char* kPhase7MigratedComputeShaders[] = {
+        "assets/shaders/compute/Particle_Simulate.comp",
+        "assets/shaders/compute/Particle_Emit.comp",
+        "assets/shaders/compute/Particle_Compact.comp",
+        "assets/shaders/compute/Wind_Generate.comp",
+        "assets/shaders/compute/Snow_Accumulate.comp",
+        "assets/shaders/compute/Snow_Deform.comp",
+        "assets/shaders/compute/Terrain_Erosion.comp",
+        "assets/shaders/compute/LightCulling.comp",
+        "assets/shaders/compute/VirtualClusterCull.comp",
+        "assets/shaders/compute/VirtualClusterRaster.comp",
+        "assets/shaders/compute/VirtualDebugColorize.comp",
+        "assets/shaders/compute/InstanceOcclusionCull.comp",
+        "assets/shaders/compute/InstanceFrustumCull.comp",
+    };
+} // namespace
+
+// The decisive check: each migrated .comp compiles through the REAL Vulkan
+// compute path (shaderc -> SPIR-V -> VkShaderModule + compute pipeline). Before
+// the sweep every one of these returned an invalid program.
+TEST_F(VulkanPassSuite, Phase7MigratedComputeShadersCompileOnVulkan)
+{
+    ASSERT_EQ(RendererAPI::GetAPI(), RendererAPI::API::Vulkan)
+        << "the fixture must have switched the process-global backend to Vulkan";
+
+    std::vector<std::string> failures;
+    for (const char* path : kPhase7MigratedComputeShaders)
+    {
+        Ref<ComputeShader> shader = ComputeShader::Create(path);
+        if (!shader || !shader->IsValid())
+            failures.emplace_back(path);
+    }
+
+    // VirtualClusterRaster_Int64 — the define-injected variant of
+    // VirtualClusterRaster.comp — is DELIBERATELY NOT BUILT HERE, and the reason
+    // is worth writing down because it looks like a gap.
+    //
+    // It appeared in the live log under its own name, for the same bare-uniform
+    // reason as the rest; that half is fixed and is covered twice over — the
+    // block lives in the shared source, so the base variant compiling above
+    // proves it parses, and the ratchet below proves the file declares no bare
+    // uniform in either variant.
+    //
+    // What building it here would additionally exercise is a DIFFERENT contract
+    // that this sweep does not own and currently does not hold: the module
+    // declares the SPIR-V `Int64` capability (it uses uint64_t), which requires
+    // VkPhysicalDeviceFeatures::shaderInt64 — a separate feature from the
+    // shaderBufferInt64Atomics that VulkanDevice enables and that
+    // RenderCommand::SupportsInt64ShaderAtomics() reports. So on this backend
+    // the facade answers "yes, use the 64-bit path", vkCreateShaderModule then
+    // raises VUID-VkShaderModuleCreateInfo-pCode-08740, and production falls
+    // back to the portable two-pass raster with a warning. Attempting it here
+    // would fail this test on that unrelated device-feature gap AND trip the
+    // fixture's zero-validation-error teardown, turning a bare-uniform gate into
+    // a permanent red for something a Platform/Vulkan/ change has to fix.
+
+    std::string joined;
+    for (const auto& f : failures)
+    {
+        joined += "\n  " + f;
+    }
+    EXPECT_TRUE(failures.empty())
+        << failures.size() << " migrated compute shader(s) still fail to compile on Vulkan:" << joined
+        << "\nCheck OloEngine.log for the glslang diagnostic. A 'non-opaque uniforms outside a block' "
+           "error means a bare uniform came back (issue #691 Phase 7).";
+}
+
+// The ratchet. Pure text, no device: fails on any machine the moment a
+// default-block uniform reappears in a migrated file. A `uniform` at column 0
+// is the exact shape glslang rejects; an opaque one always carries a
+// `layout(binding = N)` prefix and so never starts a line.
+TEST(VulkanComputeBareUniformSweep, MigratedComputeShadersDeclareNoBareUniforms)
+{
+    ASSERT_TRUE(ChangeToOloEditorDir()) << "OloEditor/ not found from the test cwd";
+
+    std::vector<std::string> offenders;
+    for (const char* path : kPhase7MigratedComputeShaders)
+    {
+        std::ifstream file{ path };
+        ASSERT_TRUE(file.is_open()) << "could not open " << path;
+        std::string line;
+        u32 lineNumber = 0;
+        while (std::getline(file, line))
+        {
+            ++lineNumber;
+            if (line.starts_with("uniform "))
+            {
+                offenders.emplace_back(std::string(path) + ":" + std::to_string(lineNumber) + " -> " + line);
+            }
+        }
+    }
+
+    std::string joined;
+    for (const auto& o : offenders)
+    {
+        joined += "\n  " + o;
+    }
+    EXPECT_TRUE(offenders.empty())
+        << "default-block uniform(s) reintroduced into a shader the #691 Phase 7 sweep migrated:" << joined
+        << "\nThe Vulkan SPIR-V route rejects these outright and VulkanComputeShader::Set* is a no-op "
+           "there — move the value into the shader's pass-owned std140 block instead.";
 }
 
 #endif // OLO_WITH_VULKAN

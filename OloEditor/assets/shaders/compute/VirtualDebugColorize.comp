@@ -17,9 +17,26 @@ layout(rgba8, binding = 0) uniform writeonly image2D u_DebugColor;
 layout(r32ui, binding = 1) uniform readonly uimage2D u_DebugCount;
 #endif
 
-uniform uint u_Width;
-uniform uint u_Height;
-uniform float u_OverdrawScale; // count that maps to the hot end of the ramp
+// ---- Visibility-buffer / debug-target parameters ----
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// Declared VERBATIM in VirtualClusterRaster.comp (both the portable and the
+// INT64 variant of that one file) and VirtualDebugColorize.comp — whose former
+// u_Width/u_Height ARE these u_ViewportWidth/u_ViewportHeight, renamed so one
+// block serves both. C++ twin: UBOStructures::VirtualRasterUBO
+// (ShaderBindingLayout::UBO_VIRTUAL_RASTER).
+layout(std140, binding = 70) uniform VirtualRasterParams
+{
+    uint  u_ViewportWidth;  // 0  — visibility-buffer / debug-target width in pixels
+    uint  u_ViewportHeight; // 4
+    uint  u_Phase;          // 8  — portable raster: 0 = depth atomicMin, 1 = payload write
+                            //      (ignored in INT64 mode)
+    float u_OverdrawScale;  // 12 — colorize: count that maps to the hot end of the ramp
+};
 
 // blue (low) -> green (mid) -> red (high)
 vec3 Heat(float t)
@@ -35,7 +52,7 @@ void main()
     OLO_HEAP_IMAGE(r32ui, OLO_HEAP_IMAGE_RW, uimage2D, u_DebugCount, 1);
 #endif
     uvec2 px = gl_GlobalInvocationID.xy;
-    if (px.x >= u_Width || px.y >= u_Height)
+    if (px.x >= u_ViewportWidth || px.y >= u_ViewportHeight)
         return;
 
     uint count = imageLoad(u_DebugCount, ivec2(px)).r;

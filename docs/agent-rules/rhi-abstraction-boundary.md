@@ -2233,3 +2233,112 @@ character is not alphanumeric.** A digit separator is always preceded by a digit
 a real char literal is preceded by `(`, `=`, `,`, whitespace, `return`, … The
 rule also declines to treat the quote in `u8'x'` / `L'\n'` as an opener, which is
 harmless — a char literal cannot contain a GL call either way.
+
+---
+
+## 9. Phase 7 (the pass suite): where the boundary actually held, and the five ways it leaked
+
+Phase 7 ported every render pass to Vulkan behind the facade. The abstraction
+mostly worked — pass bodies moved **unmodified**, which is the whole claim §1
+made. What follows are the five categories that did leak, because each one is a
+place the boundary looked clean and was not.
+
+### 9a. A factory in a `Platform/<Backend>/` TU is a leak the include scan cannot see
+
+`Texture3D::Create` and `Texture2DArray::Create` lived in
+`Platform/OpenGL/OpenGLTexture3D.cpp` / `OpenGLTexture2DArray.cpp` and
+unconditionally constructed the GL class. With one backend that is invisible;
+with two it is a **null `glad` function pointer** in any process that never
+created a GL context, i.e. an access violation with no diagnostic. The engine
+header declared a neutral interface, every call site was neutral, and the
+`glXxx(` counters were zero — the leak was the *definition site of the
+factory*, which no counter in §8 measures.
+
+The same shape caught `GLStateGuard`: its constructor queried GL state
+unconditionally, so the first guard-carrying pass body to execute on Vulkan
+faulted. Add both to the mental scan: **"constructs a backend object" and
+"queries backend state" are leaks even when the file names no `GLenum`.** A
+factory belongs in a neutral TU with an explicit `switch (Renderer::GetAPI())`;
+a process-wide guard must be inert off its backend.
+
+### 9b. The facade's *semantics* are wider than its signatures
+
+`DrawIndexed(va, indexCount)` has an unwritten contract — `0` means "the whole
+index buffer" — that lives only in the GL implementation, and **every pass body
+relies on it**. The Vulkan arm passed `0` through to `vkCmdDrawIndexed`: a
+legal draw of nothing, no error, no warning, nothing rendered.
+
+Before declaring an entry point ported, enumerate its **sentinels**: `0` = all,
+`RHI::NoAttachment` = "this slot is unused", a null handle = "unbind",
+`SamplerDesc{}` = inherit (§4f already learned that one the hard way). A
+signature match proves nothing about them.
+
+### 9c. GL's separate binding namespaces are a boundary assumption
+
+The neutral model gives a binding a *number*. GL gives uniform blocks, storage
+blocks, samplers and image units four independent number spaces, and the engine
+used that freedom: binding 57 was simultaneously a UBO, a sampler, and (after
+§5's vertex pulling) the vertex-pull SSBO. One Vulkan descriptor set collapses
+all four spaces.
+
+The correct test is **per shader**, not global: a collision matters only where
+two of the meanings meet inside one compiled shader. But the renumber is
+cheapest before per-backend branches multiply, and reserved engine-wide
+bindings should be documented as a set (this port reserved 57/63 as the
+vertex-pull *pair* — stream 0 and stream 1 — because a VAO with two vertex
+buffers has no other way to reach its second stream once vertex-input state is
+gone).
+
+### 9d. Implicit synchronisation is part of the GL API surface
+
+Three things GL does silently that the neutral layer never described, each of
+which the render graph does **not** emit because it reasonably assumed the
+backend owned them:
+
+- **Attachment layout transitions.** The graph's barrier planner never lowers a
+  framebuffer-kind write to an image barrier; the draw front-end must
+  transition attachments at scope open.
+- **Mid-pass visibility.** Sampling an attachment the same `Execute` just
+  rendered (or an image it just copied) needs a barrier and a layout change
+  that no GL-shaped pass body contains. Bind time is the seam.
+- **Per-attachment aspect.** The graph fans one framebuffer transition into
+  per-attachment barriers reusing a single access prototype — depth included —
+  with the documented contract that *the backend derives each attachment's
+  aspect and layout from its own image*. A lowering that honours the enum but
+  not the aspect emits colour layouts on depth images.
+
+The general rule: when a neutral structure documents "the backend derives X",
+that sentence is a **requirement on the backend**, and the first backend that
+did not need to derive it will have left the code path untested.
+
+### 9e. Device capability is not one contract but a growing list
+
+ADR 0010's capability gate covers the extension floor. The *core feature bits*
+are separate, and each one surfaced only when a particular shader family
+reached pipeline creation: demote-to-helper-invocation (any `discard`),
+vertex-stage stores (debug-draw channels), fragment-stage stores (virtual
+geometry's debug images), independent blend (**the entire per-attachment blend
+facade is undefined without it** — enabled late, retroactively fixing already
+"green" WB-OIT work), multi-draw-indirect, draw-indirect-count, draw
+parameters, tessellation.
+
+Enable from `vkGetPhysicalDeviceFeatures2`'s answer *when supported*, never
+from a hand-maintained constant, and expect the list to grow with every shader
+family a port reaches.
+
+### 9f. What the port surfaced in the GL path itself
+
+A backend port is an audit. Three defects found were **pre-existing GL bugs**,
+not Vulkan problems:
+
+- Normal-mode decals write nothing on either backend — the shader emits at
+  `location = 0` while the mode's draw-attachment map targets attachment 1.
+  (Vulkan's validation layer states it verbatim; GL says nothing.)
+- No `R32F` colour `FramebufferTextureFormat` exists, so the graph's format
+  mapping answers `None` and the upscaled depth/velocity target silently loses
+  its first attachment on the FSR1 path.
+- A GTAO history/AO target survives a resolution-band resize without
+  invalidation and can latch a zero attractor.
+
+Expect this. The second backend is the first reader of contracts the first
+backend never had to state.
