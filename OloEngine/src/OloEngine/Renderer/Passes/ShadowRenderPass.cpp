@@ -274,8 +274,8 @@ namespace OloEngine
         // gl_Position, so the shadow map renders y-flipped/z-[0,1] on Vulkan —
         // its depth CONTENTS stay GL-identical (the z half's whole point).
         // The SAMPLING matrices (ShadowMap::UploadUBO) are the shader-
-        // reconstruction side of the same contract and are Wave C item 11's
-        // port concern, not this pass's.
+        // reconstruction side of the same contract and carry the row flip that
+        // matches what this pass stores — both halves must move together.
         auto cameraUBOData = ShaderBindingLayout::CameraUBO{};
         cameraUBOData.ViewProjection = RHI::AdjustProjectionForBackend(lightVPRel);
         cameraUBOData.View = glm::mat4(1.0f);

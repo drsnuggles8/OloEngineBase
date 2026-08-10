@@ -45,11 +45,14 @@
 // that composition spelled once. (On GL both functions are identity, so the
 // recomputed inverse is bit-identical to inverting the input directly.)
 //
-// The winding half of the flip (A1): F mirrors the screen vertically, which
-// flips every triangle's apparent winding — VulkanPipelineBuilder's
-// front-face translation composes the CCW<->CW swap so pass-local winding
-// overrides (PlanarReflection's Clockwise) flip with it. Call sites never
-// hand-flip winding.
+// The winding half of the flip (A1): F mirrors the screen vertically, but
+// this does NOT need a compensating winding swap, and adding one is a bug we
+// already shipped once. Vulkan computes the facing determinant in FRAMEBUFFER
+// coordinates, whose y points DOWN where GL's window y points UP; that
+// inversion and the seam's clip-y negation compose to identity, so a triangle
+// GL calls front-facing is front-facing here. VulkanPipelineBuilder therefore
+// translates a recorded GL winding to the SAME VkFrontFace (see the long note
+// at its vkCmdSetFrontFace call). Call sites never hand-flip winding either.
 //
 // KNOWN LIMIT (deliberate, documented for the later Wave C items): a
 // DIRECTION-ADDRESSED capture (cubemap face bakes — SkyCubemapBake,

@@ -241,6 +241,10 @@ namespace OloEngine
                 // relative (GPUFrustumCuller::Cull), so reproject with the prev-VP
                 // made relative to the same origin, else clip = VP_world *
                 // relativeCenter is garbage far from origin (issue #429).
+                // Stays GL-convention here; the A8 seam is applied where this
+                // becomes GPU-visible (GPUFrustumCuller's cullParams upload and
+                // VirtualGeometryPass's), so it cannot be double-applied by a
+                // second producer.
                 occ.PrevViewProjection = MakeViewProjectionRelative(data.PrevViewProjectionMatrix, data.RenderOrigin);
                 occ.HZBSize = glm::vec2(static_cast<f32>(data.OcclusionHZB.GetHZBWidth()),
                                         static_cast<f32>(data.OcclusionHZB.GetHZBHeight()));
@@ -1090,11 +1094,16 @@ namespace OloEngine
             // That makes the space a faithful identity round-trip to
             // MainCameraNDC rather than a source of garbage geometry, and leaves
             // exactly one line to change when #726 lands.
-            // PrepareFrame already inverted this frame's view-projection, and it
-            // runs before UploadExecutionState — reuse it rather than paying for
-            // a second 4x4 inverse per frame.
-            RenderStreamPasses.ShaderDebugDraw->SetCameraState(data.ViewProjectionMatrix,
-                                                               data.InverseViewProjectionMatrix);
+            // A8 seam, rasterizer flavour (#691 Phase 7): u_DebugViewProjection
+            // feeds gl_Position, so without F every debug primitive would draw
+            // vertically mirrored AND half of them would fall outside Vulkan's
+            // [0,w] clip volume. The partner matrix must be the inverse of the
+            // SAME adjusted matrix, or the observer-NDC -> world -> clip round
+            // trip stops being the identity the comment above relies on — which
+            // is why this pays for one extra 4x4 inverse per frame rather than
+            // reusing PrepareFrame's GL-convention one. Identity on GL.
+            const glm::mat4 debugVP = RHI::AdjustProjectionForBackend(data.ViewProjectionMatrix);
+            RenderStreamPasses.ShaderDebugDraw->SetCameraState(debugVP, glm::inverse(debugVP));
         }
         ShaderDebugDraw::BeginFrame();
 

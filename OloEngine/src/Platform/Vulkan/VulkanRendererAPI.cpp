@@ -1391,8 +1391,13 @@ namespace OloEngine
                 {
                     address = ubo->GetRootDataAddress();
                 }
-                else if (auto* ssbo = bindingState.GetStorageBuffer(binding.Binding); ssbo != nullptr)
+                else if (auto* ssbo = bindingState.GetStorageBuffer(binding.Binding);
+                         ssbo != nullptr && isStorage)
                 {
+                    // KIND-guarded for the same reason as the UBO arm above:
+                    // the two bind-point namespaces overlap by design, so an
+                    // unfed UBO block must resolve to the zero address (warned
+                    // below) rather than to whatever SSBO shares its number.
                     address = ssbo->GetDeviceAddress();
                 }
                 if (address == 0)
@@ -1969,10 +1974,18 @@ namespace OloEngine
         // clear), while the baked SHADER_READ_ONLY descriptor lied about the
         // image's actual ATTACHMENT/TRANSFER layout. Transition exactly the
         // layout runs a previous command produced, at bind time, scope-ended
-        // first (the ClearTextureFloat shape). GENERAL is deliberately left
-        // alone: compute store-then-sample chains keep their images in
-        // GENERAL on purpose (storage descriptors bake it; the Wave B
-        // documented debt) and transitioning here would break the write half.
+        // first (the ClearTextureFloat shape).
+        //
+        // GENERAL is included. It used to be skipped, on the reasoning that a
+        // compute store-then-sample chain keeps its image in GENERAL and
+        // moving it here "would break the write half" — but that left the
+        // baked SHADER_READ_ONLY descriptor disagreeing with the image's real
+        // layout on exactly those chains (HZB mip ladder, fog scatter ->
+        // integrate, snow, cloud shadows, the ocean FFT), which is invalid
+        // usage even though the RAW hazard is covered by the explicit
+        // MemoryBarrier those paths issue. It is safe to move now because
+        // BindImageTexture transitions BACK to GENERAL when the image is next
+        // bound for storage — the write half is no longer stranded.
         if (m_Cmd != VK_NULL_HANDLE)
         {
             const u32 mipCount = std::max(info->MipLevels, 1u);
@@ -2005,7 +2018,14 @@ namespace OloEngine
                         trackedLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
                         trackedLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
                         trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_GENERAL ||
+                        // UNDEFINED too: a never-written subresource (a shadow
+                        // cascade with no casters, an imported stand-in) would
+                        // otherwise stay UNDEFINED while this descriptor claims
+                        // SHADER_READ_ONLY. Transitioning it is free — it
+                        // discards contents that are undefined anyway.
+                        trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED;
                     if (!producedByPriorCommand)
                         return;
 
@@ -2111,8 +2131,73 @@ namespace OloEngine
             layered ? 0u : std::min(layer, std::max(info->ArrayLayers, 1u) - 1u);
         view.subresourceRange.layerCount = layered ? std::max(info->ArrayLayers, 1u) : 1u;
 
-        // Storage accesses live in GENERAL (the barrier lowering's rule) -
-        // the descriptor bakes the same layout so the two cannot disagree.
+        // Storage accesses live in GENERAL (the barrier lowering's rule), and
+        // the descriptor below bakes GENERAL — so the image has to ACTUALLY BE
+        // in GENERAL. Nothing else puts it there: only the render graph's
+        // planner barriers reach VulkanBarrierLowering::LayoutFor, so a
+        // pass-owned or system-owned storage image (the froxel scatter volume,
+        // cloud noise, the ocean FFT ping-pongs, the snow clipmaps, VG's
+        // raster targets) reached its first imageStore in whatever layout
+        // vkCreateImage left it — UNDEFINED. That is both a descriptor/layout
+        // mismatch (VUID-vkCmdDispatch-None-09600) and undefined contents plus
+        // uninitialised compression metadata on IHVs that use it, so a store
+        // followed by a sample could return garbage rather than the value
+        // stored. NVIDIA masks it; it is the AMD conformance runner that would
+        // not. Validation cannot see it either — the descriptors live in the
+        // resource heap and the layer cannot tell which slot a shader indexes.
+        //
+        // Same tracker-driven seam BindTexture uses, scoped to the SUBRESOURCE
+        // this bind exposes (one mip, one layer or all): transition every run
+        // that is not already GENERAL, including UNDEFINED runs, which cost
+        // nothing because they discard contents that are undefined anyway.
+        if (m_Cmd != VK_NULL_HANDLE)
+        {
+            m_LayoutTracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
+                                          info->RegistrationId, info->InitialLayout);
+
+            VkImageSubresourceRange bound{};
+            bound.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // storage images are colour-aspect
+            bound.baseMipLevel = view.subresourceRange.baseMipLevel;
+            bound.levelCount = 1u;
+            bound.baseArrayLayer = view.subresourceRange.baseArrayLayer;
+            bound.layerCount = view.subresourceRange.layerCount;
+
+            std::vector<VkImageMemoryBarrier2> toGeneral;
+            m_LayoutTracker.ForEachLayoutRun(image, bound,
+                                             [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
+                                             {
+                                                 if (trackedLayout == VK_IMAGE_LAYOUT_GENERAL)
+                                                     return; // already where a storage access needs it
+
+                                                 VkImageMemoryBarrier2 b{};
+                                                 b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                                                 // Conservative scopes, same reasoning as the sampled seam:
+                                                 // the producer may be raster, transfer, or a prior dispatch.
+                                                 b.srcStageMask = kAllStages;
+                                                 b.srcAccessMask = kAllAccess;
+                                                 b.dstStageMask = kAllStages;
+                                                 b.dstAccessMask = kAllAccess;
+                                                 b.oldLayout = trackedLayout;
+                                                 b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+                                                 b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                                 b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                                 b.image = image;
+                                                 b.subresourceRange = run;
+                                                 toGeneral.push_back(b);
+                                             });
+            if (!toGeneral.empty())
+            {
+                EndRenderingScope(); // vkCmdPipelineBarrier2 is illegal inside a rendering scope
+                VkDependencyInfo dep{};
+                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dep.imageMemoryBarrierCount = static_cast<u32>(toGeneral.size());
+                dep.pImageMemoryBarriers = toGeneral.data();
+                vkCmdPipelineBarrier2(m_Cmd, &dep);
+                for (const auto& b : toGeneral)
+                    m_LayoutTracker.SetLayout(image, b.subresourceRange, VK_IMAGE_LAYOUT_GENERAL);
+            }
+        }
+
         const u32 heapSlot = VulkanDescriptorSlotCache::Get().AcquireSlot(
             image, view, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_LAYOUT_GENERAL);
         bindingState.SetImageHeapSlot(

@@ -39,6 +39,16 @@ namespace OloEngine
     class VulkanImageLayoutTracker
     {
       public:
+        // Trackers self-register so the deferred-reclaim destroy pass can
+        // retire an image from all of them (see ForgetImageEverywhere); the
+        // registered `this` is why copy/move are deleted.
+        VulkanImageLayoutTracker();
+        ~VulkanImageLayoutTracker();
+        VulkanImageLayoutTracker(const VulkanImageLayoutTracker&) = delete;
+        VulkanImageLayoutTracker& operator=(const VulkanImageLayoutTracker&) = delete;
+        VulkanImageLayoutTracker(VulkanImageLayoutTracker&&) = delete;
+        VulkanImageLayoutTracker& operator=(VulkanImageLayoutTracker&&) = delete;
+
         // Declare an image's extents. Idempotent; re-registering with
         // different extents — or a different `registrationId`
         // (VulkanImageInfo::RegistrationId: the stamp that distinguishes a
@@ -58,6 +68,16 @@ namespace OloEngine
         // Drop all state for an image (call at destroy — a recycled handle
         // value must not inherit the dead image's layouts).
         void ForgetImage(VkImage image);
+
+        // Drop `image` from EVERY live tracker. This is the call the reclaim
+        // queue's destroy pass makes: it is the only place that knows an image
+        // is really gone, and it cannot name a particular tracker (the API
+        // owns one per instance and a test fixture may own its own). Without
+        // it the map only ever grows — one row per VkImage ever seen, for the
+        // life of the process. Correctness does not depend on it (a recycled
+        // handle value carries a fresh RegistrationId, which resets the row),
+        // so this is a leak fix, not a hazard fix.
+        static void ForgetImageEverywhere(VkImage image);
 
         void Reset();
 

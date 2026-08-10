@@ -527,6 +527,13 @@ namespace OloEngine
         explicit VulkanFramebuffer(const FramebufferSpecification& spec);
         ~VulkanFramebuffer() override;
 
+        // Retire every cached per-cascade depth view built over `image`, in
+        // EVERY live framebuffer. Called from VulkanDeferredReclaim's destroy
+        // pass, before the image is destroyed — a VkImageView must never
+        // outlive the VkImage it views. (Framebuffers self-register for this;
+        // see m_DepthArrayViews for what goes wrong without it.)
+        static void ReleaseCachedDepthViewsForImage(VkImage image);
+
         // Will become meaningful when the orchestrator's VulkanRendererAPI
         // current-render-target state lands — warn-once no-ops until then.
         void Bind() override;
@@ -640,9 +647,25 @@ namespace OloEngine
         // The selected layer (see GetDepthArrayAttachment) plus the per-layer
         // view cache that backs it, keyed by (image, layer) — a shadow pass
         // walks the same N cascades every frame, so the views are created once
-        // and reused; they are destroyed with this framebuffer.
+        // and reused.
+        //
+        // The SOURCE IMAGE is stored alongside each view because these views
+        // are built over an EXTERNAL array texture this framebuffer does not
+        // own. Destroying them only in ~VulkanFramebuffer was wrong twice
+        // over: a long-lived shadow framebuffer outlives the array across a
+        // resolution change (ShadowMap::SetSettings destroys and recreates it),
+        // so the views outlived their image — and once the driver recycled that
+        // VkImage handle VALUE, the identical cache key handed a DEAD view to
+        // vkCmdBeginRendering. ReleaseCachedDepthViewsForImage retires them at
+        // the one moment that is correct: the reclaim pass, before the image
+        // itself is destroyed.
         DepthArrayLayerAttachment m_DepthArrayAttachment;
-        std::unordered_map<u64, VkImageView> m_DepthArrayViews;
+        struct CachedDepthArrayView
+        {
+            VkImageView View = VK_NULL_HANDLE;
+            VkImage SourceImage = VK_NULL_HANDLE;
+        };
+        std::unordered_map<u64, CachedDepthArrayView> m_DepthArrayViews;
     };
 
     // -------------------------------------------------------------------------

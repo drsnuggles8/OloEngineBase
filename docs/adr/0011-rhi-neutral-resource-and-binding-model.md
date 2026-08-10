@@ -2639,12 +2639,26 @@ The seam therefore has two documented flavours behind one helper
   (never invert-then-flip), for matrices shader math consumes.
 
 Corollaries: `PrevViewProjection` must travel the same path as its current
-sibling or velocity/TAA breaks; the front-face flip belongs in the pipeline
-builder's state translation, **not** at call sites, so a pass with its own
-local winding flip (planar reflection's mirror replay) composes instead of
-cancelling; and direction-addressed captures (sky/IBL/DDGI cube faces) store
-faces row-mirrored under `F` while cubemap addressing is API-fixed — they
-compensate at the face bases.
+sibling or velocity/TAA breaks; front-face winding is translated in the
+pipeline builder's state translation, **not** at call sites — and that
+translation is the **identity**, because Vulkan computes the facing
+determinant in framebuffer coordinates (y down) where GL uses window
+coordinates (y up), so that inversion and `F`'s clip-y negation already cancel
+(adding a third swap turned every solid mesh inside-out once); and
+direction-addressed captures (sky/IBL/DDGI cube faces) take a **third**
+flavour, `AdjustCaptureProjectionForBackend` — the z remap **without** the y
+flip. Compensating "at the face bases" is *not* expressible: `lookAt` derives
+`right = cross(forward, up)`, so negating `up` also flips `right`, which is a
+180° roll rather than a mirror. Omitting the y flip is what keeps a captured
+face's rows byte-identical to the GL bake, which is what direction→texel
+addressing requires.
+
+A **third** consumer class therefore exists, and the deciding question is not
+who *writes* a matrix but who *reads* it: any shader doing `ndc.xy * 0.5 + 0.5`
+or `uv * 2 - 1` against an uploaded matrix needs a flavour decision, including
+consumers that live far from the `CameraUBO` writers (shadow *sampling*
+matrices, decal inverse-VP, HZB reprojection, the planar-reflection lookup,
+the debug-draw VP). Enumerating by writer misses exactly those.
 
 ### (60) One Vulkan descriptor set collapses GL's separate binding namespaces
 

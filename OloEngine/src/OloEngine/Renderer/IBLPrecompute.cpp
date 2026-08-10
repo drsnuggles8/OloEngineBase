@@ -37,13 +37,15 @@ namespace OloEngine
         }
 
         // Prepare camera data.
-        // A8 seam, rasterizer flavour. Direction-addressed capture caveat
-        // applies when IBL bakes run on Vulkan — see RHIProjectionSeam.h's
-        // KNOWN LIMIT note (dormant in this batch; bakes are GL-only today).
+        // A8 seam, CAPTURE flavour (z remap, no y flip): these cube faces are
+        // addressed by DIRECTION, not screen uv, so the y flip would only
+        // store each face row-mirrored relative to the GL bake. Same reasoning
+        // as DDGI's capture atlas. Dormant today (IBL bakes are GL-only) but
+        // the right flavour costs nothing and nothing would fail later.
         ShaderBindingLayout::CameraUBO cameraData;
-        cameraData.ViewProjection = RHI::AdjustProjectionForBackend(projection * view);
+        cameraData.ViewProjection = RHI::AdjustCaptureProjectionForBackend(projection * view);
         cameraData.View = view;
-        cameraData.Projection = RHI::AdjustProjectionForBackend(projection);
+        cameraData.Projection = RHI::AdjustCaptureProjectionForBackend(projection);
         cameraData.Position = glm::vec3(0.0f); // IBL rendering is done from origin
         cameraData._padding0 = 0.0f;
 

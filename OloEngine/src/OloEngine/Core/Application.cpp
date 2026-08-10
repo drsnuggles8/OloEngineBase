@@ -236,6 +236,8 @@ namespace OloEngine
         NetworkManager::Shutdown();
         if (!m_Specification.IsHeadless)
         {
+            // Before StopWorkers() below: this is what joins the audio thread.
+            AudioEngine::Shutdown();
             // The GL debug tools only initialized on the GL backend (#691
             // Phase 7); the renderer itself now comes up on both.
             if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)

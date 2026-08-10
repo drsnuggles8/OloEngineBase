@@ -589,9 +589,15 @@ class VulkanPassSuite : public ::testing::Test
         VulkanDeferredReclaim::Get().FlushAll();
         if (m_Fence != VK_NULL_HANDLE)
             vkDestroyFence(m_Device->GetDevice(), m_Fence, nullptr);
-        EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u)
-            << "Zero validation errors (sync validation included in debug builds)";
         m_Device->Shutdown();
+        // AFTER Shutdown, deliberately: vkDestroyDevice is when the object
+        // tracker reports leaked handles, and the next SetUp resets the
+        // counter — so reading it before teardown could never see the very
+        // leak reports several tenants say they rely on (the occlusion-query
+        // pool retirement note, for one).
+        EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u)
+            << "Zero validation errors (sync validation included in debug builds; "
+               "device-teardown object-leak reports land here too)";
         m_Device.reset();
 
         // Restore the process-global backend to the pre-test default (the
@@ -685,6 +691,15 @@ class VulkanPassSuite : public ::testing::Test
         graph.SetFinalPass(finalPassName);
         graph.BuildFrameGraph();
 
+        // ADR amendment (57) lists zero-stub among the instruments every wave
+        // fixture carries, but this shared harness was omitting it — so nine
+        // tenants could have had a facade entry point fall through to
+        // Phase6Stub while still producing their pixels by other means. A
+        // DELTA, not an absolute: the counter is cumulative and the SSAO floor
+        // tenant deliberately expects hits.
+        const u32 stubsBefore =
+            static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI()).GetPhase6StubHitCount();
+
         SubmitFrame(
             [&]()
             {
@@ -709,6 +724,8 @@ class VulkanPassSuite : public ::testing::Test
             auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
             EXPECT_EQ(vkApi.GetPreparedDrawsThisRecording(), 2u) << finalPassName << ": expected exactly two draws";
             EXPECT_EQ(vkApi.GetDroppedDrawsThisRecording(), 0u) << finalPassName << ": a draw dropped silently";
+            EXPECT_EQ(vkApi.GetPhase6StubHitCount(), stubsBefore)
+                << finalPassName << ": the chain fell through to a Phase 6 stub";
         }
 
         auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
@@ -2058,18 +2075,19 @@ TEST_F(VulkanPassSuite, VolumetricFogIntegratesAUniformMediumMonotonically)
     constexpr u32 kVolD = VolumetricFogPass::kVolumeDepth;
 
     // The compile gate comes FIRST, before any process-global state is
-    // touched: today the froxel chain is BLOCKED on the Vulkan compute
-    // includer, which resolves relative includes against the fixed shader
-    // root ("assets/shaders" + "../include/..." = assets/include/, which
-    // does not exist) instead of the including FILE's directory — so
+    // touched. It is a REGRESSION GUARD, not a live blocker: the froxel chain
+    // compiles today. It exists because writing this tenant is what found the
+    // Vulkan compute includer resolving relative includes against the fixed
+    // shader root ("assets/shaders" + "../include/..." = assets/include/,
+    // which does not exist) instead of the including FILE's directory — so
     // FroxelFogScatter.comp's load-bearing includes (FogCommon.glsl,
-    // FogVolumeCommon.glsl, AtmosphereShading.glsl) never expand and the
-    // shader fails glslang with hundreds of undeclared identifiers. Every
-    // .comp that compiled so far (HZB/GTAO/Denoise/AutoExposure) only
-    // includes BindlessHeap.glsl, whose entire content is OLO_BINDLESS-
-    // guarded — a silently-tolerated failed include, which is why the gap
-    // stayed invisible until this pass. Fix belongs in the compute shaderc
-    // includer (file-relative resolution), not in this tenant.
+    // FogVolumeCommon.glsl, AtmosphereShading.glsl) never expanded and the
+    // shader failed glslang with hundreds of undeclared identifiers. That is
+    // fixed in VulkanComputeShader; every .comp that compiled BEFORE the fix
+    // (HZB/GTAO/Denoise/AutoExposure) only included BindlessHeap.glsl, whose
+    // entire content is OLO_BINDLESS-guarded — a silently-tolerated failed
+    // include, which is why the gap stayed invisible until this pass. If this
+    // ever skips again, the includer regressed.
     {
         auto compileProbe = Ref<VolumetricFogPass>::Create();
         FramebufferSpecification probeSpec;
@@ -2190,14 +2208,16 @@ TEST_F(VulkanPassSuite, VolumetricFogIntegratesAUniformMediumMonotonically)
         SubmitFrame(
             [&]()
             {
-                // First use per volume this frame: scatter[0] is image-stored
-                // (GENERAL), scatter[1] is the sampled history, integrate
-                // image-stores the integrated volume. The shadow placeholder
-                // is sampled (never actually read — the taps are gated off).
-                transitionVolume(scatter0, RHI::Access::Undefined, RHI::Access::StorageWrite);
-                transitionVolume(scatter1, RHI::Access::Undefined, RHI::Access::ShaderSampleRead);
-                transitionVolume(integrated, RHI::Access::Undefined, RHI::Access::StorageWrite);
-                transitionVolume(shadowPlaceholder, RHI::Access::Undefined, RHI::Access::ShaderSampleRead);
+                // DELIBERATELY no first-use transitions here. This tenant used
+                // to hand-transition all four volumes out of UNDEFINED, which
+                // silently supplied what production omitted: BindImageTexture
+                // baked GENERAL into its descriptor without ever transitioning
+                // the image, so every pass-owned storage volume reached its
+                // first imageStore still in UNDEFINED. Because the test did
+                // the backend's job, it could not fail. The backend now does
+                // its own bind-time transitions, so leaving these out is what
+                // makes the tenant exercise the production path — a regression
+                // there resurfaces as the validation errors TearDown asserts on.
                 graph.Execute();
             });
 
@@ -2621,20 +2641,21 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
 //      DeleteTexture/DeleteFramebuffer) — ALL still Phase6Stub on Vulkan,
 //      so CreateTargets() cannot produce the splat FBOs (shared with the
 //      WaterRenderPass raw-FBO work in Wave C).
-//   2. FluidSmooth.comp cannot compile: the Vulkan compute includer resolves
-//      "../include/FluidRenderCommon.glsl" against the shader root instead
-//      of the including file's directory (the same gap that blocks
-//      VolumetricFog — see that tenant).
-//   3. FluidDepthSplat/FluidThickness DO compile (their vec2 a_QuadPos
-//      vertex-pull branches are shaderc-clean) but vkCreateShaderModule
-//      rejects the fragment SPIR-V: glslang lowers `discard` to
-//      OpDemoteToHelperInvocation under vulkan1.4, and VulkanDevice does not
-//      enable VkPhysicalDeviceVulkan13Features::shaderDemoteToHelperInvocation
-//      — a validation error per module (VUID-VkShaderModuleCreateInfo-pCode-
-//      08740) that every discard-carrying shader (water, foliage, decals)
-//      will hit in Wave C. One device-init line, outside this tenant's remit.
+//   2. (CLOSED in this batch) FluidSmooth.comp could not compile: the Vulkan
+//      compute includer resolved "../include/FluidRenderCommon.glsl" against
+//      the shader root instead of the including file's directory. Fixed in
+//      VulkanComputeShader; see the VolumetricFog tenant's compile gate.
+//   3. (CLOSED in this batch) vkCreateShaderModule rejected the
+//      FluidDepthSplat/FluidThickness fragment SPIR-V, because glslang lowers
+//      `discard` to OpDemoteToHelperInvocation under vulkan1.4 and the device
+//      did not enable shaderDemoteToHelperInvocation (VUID-
+//      VkShaderModuleCreateInfo-pCode-08740). VulkanDevice now enables it.
 //
-// Because gap 3 fires INSIDE Init(), this tenant never calls Init — the
+// So gap 1 alone is what still keeps this tenant off the real pass resources:
+// Init() itself would now succeed, but target creation walks the stubbed
+// raw-handle family. This tenant can and should be strengthened to a real
+// execute once that family lands (Phase 8a) — it is deliberately weaker than
+// the backend currently allows, and this note is the reminder. Until then the
 // contracts it pins are the ones that hold independent of pass resources:
 //   a. The no-draw early-out through the REAL graph: with an empty draw list
 //      Setup declares NOTHING (the issue #530 fingerprint gate) and Execute
@@ -2649,10 +2670,9 @@ TEST_F(VulkanPassSuite, FluidIntermediatesPinsTheNoDrawEarlyOutThroughTheGraph)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto fluid = Ref<FluidIntermediatesPass>::Create();
-    // Deliberately NO Init() and NO SetupFramebuffer(): the shader loads trip
-    // the shaderDemoteToHelperInvocation validation error (gap 3) and target
-    // creation walks into the stubbed raw-handle family (gap 1). The gates
-    // this tenant pins sit in front of both.
+    // Deliberately NO Init() and NO SetupFramebuffer(): target creation walks
+    // into the stubbed raw-handle family (gap 1). The shader-side gaps 2 and 3
+    // are closed, so only target creation still blocks a fuller tenant here.
     fluid->SetEnabled(true);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
@@ -8336,15 +8356,17 @@ TEST_F(VulkanPassSuite, PlanarReflectionMirrorCameraProducesTheVerticallyMirrore
 // and DrawBoundElementsIndirect honouring an instanceCount the GPU decided.
 //
 // The production cull (assets/shaders/compute/InstanceOcclusionCull.comp) is
-// NOT the compute stage here and cannot be: it declares 15 BARE default-block
-// uniforms, which SPIR-V cannot express, so it does not compile on the Vulkan
-// route at all — the same bare-uniform debt batch 2 recorded for
-// VirtualClusterCull.comp, and a migration slice of its own. The stand-in below
-// makes the SAME decision from the SAME input (phase 1's depth attachment,
-// sampled after the barrier) and writes the SAME
+// NOT the compute stage here. It DOES compile on Vulkan now — its 15 bare
+// default-block uniforms moved into the std140 InstanceCullParams block at
+// binding 71 in this batch, and Phase7MigratedComputeShadersCompileOnVulkan
+// asserts exactly that — so the original reason (SPIR-V cannot express a bare
+// uniform) no longer applies. What still keeps it out is that driving it needs
+// the instance-buffer plumbing this device-local fixture has no producer for.
+// The stand-in below makes the SAME decision from the SAME input (phase 1's
+// depth attachment, sampled after the barrier) and writes the SAME
 // DrawElementsIndirectCommand POD, so what is under test — the backend
 // entry points and the ordering — is the production path; only the cull's
-// arithmetic is stubbed.
+// arithmetic is stubbed. Driving the real cull here is a Phase 8a follow-up.
 //
 // Two chains, differing ONLY in where phase 1's occluder sits, so the contract
 // is a paired differential rather than an absolute:
@@ -9334,9 +9356,11 @@ TEST_F(VulkanPassSuite, Phase7MigratedComputeShadersCompileOnVulkan)
 }
 
 // The ratchet. Pure text, no device: fails on any machine the moment a
-// default-block uniform reappears in a migrated file. A `uniform` at column 0
-// is the exact shape glslang rejects; an opaque one always carries a
-// `layout(binding = N)` prefix and so never starts a line.
+// default-block uniform reappears in a migrated file. glslang rejects a
+// default-block uniform regardless of leading whitespace, so the line is
+// TRIMMED before matching — an earlier column-0-only test would have missed an
+// indented `    uniform float u_Foo;`. An opaque uniform always carries a
+// `layout(binding = N)` prefix, so it never begins the trimmed line.
 TEST(VulkanComputeBareUniformSweep, MigratedComputeShadersDeclareNoBareUniforms)
 {
     ASSERT_TRUE(ChangeToOloEditorDir()) << "OloEditor/ not found from the test cwd";
@@ -9351,7 +9375,12 @@ TEST(VulkanComputeBareUniformSweep, MigratedComputeShadersDeclareNoBareUniforms)
         while (std::getline(file, line))
         {
             ++lineNumber;
-            if (line.starts_with("uniform "))
+            const auto firstNonSpace = line.find_first_not_of(" \t");
+            const std::string_view trimmed =
+                firstNonSpace == std::string::npos ? std::string_view{} : std::string_view{ line }.substr(firstNonSpace);
+            // "uniform" followed by any whitespace — a tab separator counts.
+            if (trimmed.starts_with("uniform") && trimmed.size() > 7 &&
+                (trimmed[7] == ' ' || trimmed[7] == '\t'))
             {
                 offenders.emplace_back(std::string(path) + ":" + std::to_string(lineNumber) + " -> " + line);
             }

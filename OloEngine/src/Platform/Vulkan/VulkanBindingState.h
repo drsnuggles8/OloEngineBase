@@ -60,8 +60,8 @@ namespace OloEngine
         static constexpr u32 kMaxTextureSlots = 96;   // engine slots + shader-graph user slots, with headroom
         static constexpr u32 kNoHeapSlot = 0xFFFFFFFFu;
 
-        static_assert(ShaderBindingLayout::UBO_AUTO_EXPOSURE < kMaxBufferBindings,
-                      "the highest engine UBO binding must fit the bind-state mirror");
+        static_assert(ShaderBindingLayout::UBO_BINDING_LIMIT <= kMaxBufferBindings,
+                      "every engine UBO binding must fit the bind-state mirror");
         static_assert(ShaderBindingLayout::SSBO_BONE_PULL < kMaxBufferBindings,
                       "the highest engine SSBO binding must fit the bind-state mirror");
         static_assert(ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS <= kMaxTextureSlots,

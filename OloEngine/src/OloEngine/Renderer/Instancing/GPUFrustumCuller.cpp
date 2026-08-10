@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
@@ -205,7 +206,13 @@ namespace OloEngine
             HeapBinding::BindTextureOrOffset(0, m_Occlusion.HZBTexture,
                                              RHI::HeapSlotLifetime::Persistent);
             cullParams.OcclusionEnabled = 1;
-            cullParams.PrevViewProjection = m_Occlusion.PrevViewProjection;
+            // A8 seam, shader-reconstruction flavour (#691 Phase 7): the cull
+            // samples the HZB at `ndc.xy * 0.5 + 0.5`, and that pyramid reduces
+            // the row-mirrored scene depth — so the reprojection must mirror
+            // with it. Row flip only: `ndc.z * 0.5 + 0.5` is already right
+            // against GL-shaped stored depth. Applied HERE, at the upload, not
+            // at the producer — three producers feed this field. Identity on GL.
+            cullParams.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(m_Occlusion.PrevViewProjection);
             cullParams.HZBSize = m_Occlusion.HZBSize;
             cullParams.HZBUVFactor = m_Occlusion.HZBUVFactor;
             cullParams.HZBMipCount = static_cast<i32>(m_Occlusion.MipCount);
@@ -330,7 +337,13 @@ namespace OloEngine
             HeapBinding::BindTextureOrOffset(0, m_Occlusion.HZBTexture,
                                              RHI::HeapSlotLifetime::Persistent); // previous-frame HZB
             cullParams.OcclusionEnabled = 1;
-            cullParams.PrevViewProjection = m_Occlusion.PrevViewProjection;
+            // A8 seam, shader-reconstruction flavour (#691 Phase 7): the cull
+            // samples the HZB at `ndc.xy * 0.5 + 0.5`, and that pyramid reduces
+            // the row-mirrored scene depth — so the reprojection must mirror
+            // with it. Row flip only: `ndc.z * 0.5 + 0.5` is already right
+            // against GL-shaped stored depth. Applied HERE, at the upload, not
+            // at the producer — three producers feed this field. Identity on GL.
+            cullParams.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(m_Occlusion.PrevViewProjection);
             cullParams.HZBSize = m_Occlusion.HZBSize;
             cullParams.HZBUVFactor = m_Occlusion.HZBUVFactor;
             cullParams.HZBMipCount = static_cast<i32>(m_Occlusion.MipCount);
@@ -416,7 +429,8 @@ namespace OloEngine
         cullParams.OcclusionEnabled = 1;
         // Current-frame HZB is in CURRENT screen space → reproject with the
         // current VP (the caller stores it in PrevViewProjection).
-        cullParams.PrevViewProjection = currentHZB.PrevViewProjection;
+        // Same A8 seam as the phase-1 uploads above (row flip only).
+        cullParams.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(currentHZB.PrevViewProjection);
         cullParams.HZBSize = currentHZB.HZBSize;
         cullParams.HZBUVFactor = currentHZB.HZBUVFactor;
         cullParams.HZBMipCount = static_cast<i32>(currentHZB.MipCount);

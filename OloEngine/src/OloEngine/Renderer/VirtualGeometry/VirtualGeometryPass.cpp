@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -317,7 +318,11 @@ namespace OloEngine
             // The SetInt('u_HZB', 0) companion is gone: redundant against the
             // shader's own layout(binding = 0), and a per-frame 'uniform not found'
             // warning under the bindless variant where the name is a #define.
-            cullParams.OcclusionViewProjection = hzb.PrevViewProjection;
+            // A8 seam, shader-reconstruction flavour (#691 Phase 7): same
+            // contract as GPUFrustumCuller's uploads — VirtualClusterCull.comp
+            // samples the HZB at `ndc.xy * 0.5 + 0.5` against a pyramid built
+            // from row-mirrored depth. Row flip only. Identity on GL.
+            cullParams.OcclusionViewProjection = RHI::AdjustProjectionForShaderReconstruction(hzb.PrevViewProjection);
             cullParams.HZBSize = hzb.HZBSize;
             cullParams.HZBUVFactor = hzb.HZBUVFactor;
             cullParams.HZBMipCount = static_cast<i32>(hzb.MipCount);

@@ -7,6 +7,34 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Deliberately leaked, same rationale as this backend's other
+        // process-wide registries: a tracker can be destroyed during static
+        // teardown, and erasing from an already-destroyed vector is UB.
+        std::vector<VulkanImageLayoutTracker*>& LiveTrackers()
+        {
+            static auto* s_Live = new std::vector<VulkanImageLayoutTracker*>();
+            return *s_Live;
+        }
+    } // namespace
+
+    VulkanImageLayoutTracker::VulkanImageLayoutTracker()
+    {
+        LiveTrackers().push_back(this);
+    }
+
+    VulkanImageLayoutTracker::~VulkanImageLayoutTracker()
+    {
+        std::erase(LiveTrackers(), this);
+    }
+
+    void VulkanImageLayoutTracker::ForgetImageEverywhere(const VkImage image)
+    {
+        for (auto* tracker : LiveTrackers())
+            tracker->ForgetImage(image);
+    }
+
     void VulkanImageLayoutTracker::RegisterImage(const VkImage image, const u32 mipCount, const u32 layerCount,
                                                  const u64 registrationId, const VkImageLayout initialLayout)
     {

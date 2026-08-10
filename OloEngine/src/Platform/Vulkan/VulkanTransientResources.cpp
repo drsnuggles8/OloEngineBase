@@ -8,6 +8,7 @@
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
+#include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 
@@ -477,6 +478,14 @@ namespace OloEngine
         if (entry.Image != VK_NULL_HANDLE)
         {
             VulkanImageInfoRegistry::Get().Unregister(entry.Image);
+            // Same reasoning for the layout rows: retiring them any earlier
+            // would strand a barrier mid-flight, and never retiring them grows
+            // the map for the process lifetime.
+            VulkanImageLayoutTracker::ForgetImageEverywhere(entry.Image);
+            // And the per-cascade depth views framebuffers cached over this
+            // image — they are enqueued here, i.e. strictly BEFORE the
+            // vmaDestroyImage below, so no view outlives its image.
+            VulkanFramebuffer::ReleaseCachedDepthViewsForImage(entry.Image);
             // Cached heap slots free HERE, not at enqueue: the generation wait
             // this queue already performed is what makes immediate slot reuse
             // safe (no in-flight frame can still index them).
@@ -1017,31 +1026,43 @@ namespace OloEngine
         // — never UNDEFINED (a legal discard of the rest). Backend invariant:
         // sampled asset textures are not graph-written, so outside graph
         // execution they sit in SHADER_READ_ONLY.
-        VulkanOneShot::Submit("VulkanTexture2D::SubImage",
-                              [&](VkCommandBuffer cmd)
-                              {
-                                  RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
-                                                     VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u,
-                                                     1u);
+        //
+        // Read it back rather than hardcoding it: a texture created but never
+        // uploaded is still UNDEFINED, and naming SHADER_READ_ONLY as the
+        // oldLayout there is invalid usage (VUID-VkImageMemoryBarrier2-oldLayout-01197).
+        // Discarding is harmless in that case — there are no prior texels to keep.
+        const auto* imageInfo = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+        const VkImageLayout priorLayout = imageInfo != nullptr ? imageInfo->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        const bool ok = VulkanOneShot::Submit("VulkanTexture2D::SubImage",
+                                              [&](VkCommandBuffer cmd)
+                                              {
+                                                  RecordImageBarrier(cmd, m_Image, priorLayout,
+                                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
+                                                                     VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u,
+                                                                     1u);
 
-                                  VkBufferImageCopy region{};
-                                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                                  region.imageOffset = { static_cast<i32>(x), static_cast<i32>(y), 0 };
-                                  region.imageExtent = { width, height, 1u };
-                                  vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                         1u, &region);
+                                                  VkBufferImageCopy region{};
+                                                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+                                                  region.imageOffset = { static_cast<i32>(x), static_cast<i32>(y), 0 };
+                                                  region.imageExtent = { width, height, 1u };
+                                                  vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                                         1u, &region);
 
-                                  RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                                     VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                                                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
-                                                     0u, 1u);
-                              });
+                                                  RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                                                     VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                                                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
+                                                                     0u, 1u);
+                                              });
 
         vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
-        VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (ok)
+        {
+            // Only on success: recording a layout the image never reached is
+            // exactly the wrong-oldLayout hazard InitialLayout exists to stop.
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
     }
 
     void VulkanTexture2D::Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels)
@@ -1248,7 +1269,10 @@ namespace OloEngine
             m_RHIHandle.Reset();
             if (m_Image != VK_NULL_HANDLE || m_Allocation != VK_NULL_HANDLE)
             {
-                VulkanDescriptorSlotCache::Get().ReleaseSlotsForImage(m_Image);
+                // Slots free in DestroyEntry, NOT here: releasing at enqueue
+                // time hands the slot to the next texture while in-flight
+                // frames still index it (VulkanDescriptorSlotCache.h's
+                // recycling contract). VulkanTexture2D already does it this way.
                 VulkanDeferredReclaim::Get().Enqueue(m_Image, m_Allocation);
                 m_Image = VK_NULL_HANDLE;
                 m_Allocation = VK_NULL_HANDLE;
@@ -1372,7 +1396,10 @@ namespace OloEngine
             m_RHIHandle.Reset();
             if (m_Image != VK_NULL_HANDLE || m_Allocation != VK_NULL_HANDLE)
             {
-                VulkanDescriptorSlotCache::Get().ReleaseSlotsForImage(m_Image);
+                // Slots free in DestroyEntry, NOT here: releasing at enqueue
+                // time hands the slot to the next texture while in-flight
+                // frames still index it (VulkanDescriptorSlotCache.h's
+                // recycling contract). VulkanTexture2D already does it this way.
                 VulkanDeferredReclaim::Get().Enqueue(m_Image, m_Allocation);
                 m_Image = VK_NULL_HANDLE;
                 m_Allocation = VK_NULL_HANDLE;
@@ -1499,7 +1526,10 @@ namespace OloEngine
             m_RHIHandle.Reset();
             if (m_Image != VK_NULL_HANDLE || m_Allocation != VK_NULL_HANDLE)
             {
-                VulkanDescriptorSlotCache::Get().ReleaseSlotsForImage(m_Image);
+                // Slots free in DestroyEntry, NOT here: releasing at enqueue
+                // time hands the slot to the next texture while in-flight
+                // frames still index it (VulkanDescriptorSlotCache.h's
+                // recycling contract). VulkanTexture2D already does it this way.
                 VulkanDeferredReclaim::Get().Enqueue(m_Image, m_Allocation);
                 m_Image = VK_NULL_HANDLE;
                 m_Allocation = VK_NULL_HANDLE;
@@ -1541,10 +1571,58 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        // Every live VulkanFramebuffer, so the reclaim pass can reach the
+        // per-cascade depth views they cache over EXTERNAL array images.
+        // Deliberately leaked, same rationale as this backend's other
+        // process-wide registries (a framebuffer released during static
+        // teardown must still find a live set).
+        std::unordered_set<VulkanFramebuffer*>& LiveFramebuffers()
+        {
+            static auto* s_Live = new std::unordered_set<VulkanFramebuffer*>();
+            return *s_Live;
+        }
+    } // namespace
+
+    void VulkanFramebuffer::ReleaseCachedDepthViewsForImage(const VkImage image)
+    {
+        if (image == VK_NULL_HANDLE)
+            return;
+        auto* device = VulkanDevice::Get();
+        for (auto* framebuffer : LiveFramebuffers())
+        {
+            auto& cache = framebuffer->m_DepthArrayViews;
+            for (auto it = cache.begin(); it != cache.end();)
+            {
+                if (it->second.SourceImage != image)
+                {
+                    ++it;
+                    continue;
+                }
+                // Destroyed INLINE, not enqueued. This runs from
+                // VulkanDeferredReclaim::DestroyEntry, which is itself inside
+                // an erase_if over the queue's own entry vector — enqueueing
+                // here would reallocate the container being iterated. Inline is
+                // also simply correct: the queue has already waited
+                // kFramesInFlight generations past this image's last use, so no
+                // in-flight frame can still reference a view of it.
+                if (it->second.View != VK_NULL_HANDLE && device != nullptr)
+                    vkDestroyImageView(device->GetDevice(), it->second.View, nullptr);
+                // The current selection may name the view being retired; drop
+                // it so a later scope cannot attach a destroyed view.
+                if (framebuffer->m_DepthArrayAttachment.View == it->second.View)
+                    framebuffer->m_DepthArrayAttachment = DepthArrayLayerAttachment{};
+                it = cache.erase(it);
+            }
+        }
+    }
+
     VulkanFramebuffer::VulkanFramebuffer(const FramebufferSpecification& spec)
         : m_Specification(spec)
     {
         OLO_PROFILE_FUNCTION();
+        LiveFramebuffers().insert(this);
         OLO_CORE_ASSERT(VulkanDevice::Get() != nullptr, "VulkanFramebuffer requires a live VulkanDevice");
 
         for (const auto& attachmentSpec : m_Specification.Attachments.Attachments)
@@ -1579,12 +1657,13 @@ namespace OloEngine
         // The per-cascade depth views (AttachDepthTextureArrayLayer) are owned
         // here, not by the array texture — they outlive no frame of their own,
         // so they retire on the deferred queue like every other view.
-        for (const auto& [key, view] : m_DepthArrayViews)
+        for (const auto& [key, cached] : m_DepthArrayViews)
         {
-            if (view != VK_NULL_HANDLE)
-                VulkanDeferredReclaim::Get().Enqueue(view);
+            if (cached.View != VK_NULL_HANDLE)
+                VulkanDeferredReclaim::Get().Enqueue(cached.View);
         }
         m_DepthArrayViews.clear();
+        LiveFramebuffers().erase(this);
         m_DepthArrayAttachment = DepthArrayLayerAttachment{};
         // Retire the framebuffer identity; the attachment Refs release next
         // and each texture enqueues its image on VulkanDeferredReclaim.
@@ -1805,7 +1884,7 @@ namespace OloEngine
         VkImageView view = VK_NULL_HANDLE;
         if (const auto it = m_DepthArrayViews.find(cacheKey); it != m_DepthArrayViews.end())
         {
-            view = it->second;
+            view = it->second.View;
         }
         else
         {
@@ -1831,7 +1910,7 @@ namespace OloEngine
                 m_DepthArrayAttachment = DepthArrayLayerAttachment{};
                 return;
             }
-            m_DepthArrayViews.emplace(cacheKey, view);
+            m_DepthArrayViews.emplace(cacheKey, CachedDepthArrayView{ .View = view, .SourceImage = image });
         }
 
         m_DepthArrayAttachment.Image = image;

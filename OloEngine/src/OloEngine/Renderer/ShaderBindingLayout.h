@@ -1314,10 +1314,9 @@ namespace OloEngine
         static constexpr u32 UBO_VIRTUAL_RASTER = 70;       // Virtual-geometry SW raster + debug colorize params (VirtualRasterUBO)
         static constexpr u32 UBO_INSTANCE_CULL = 71;        // GPU instance frustum/occlusion cull params (InstanceCullUBO)
 
-        // Every engine-reserved uniform-buffer binding must fit the GL 4.6
-        // minimum guarantee for GL_MAX_UNIFORM_BUFFER_BINDINGS (84).
-        static_assert(UBO_AUTO_EXPOSURE < 84,
-                      "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
+        // (The GL 4.6 GL_MAX_UNIFORM_BUFFER_BINDINGS minimum guarantee of 84 is
+        // asserted once, against UBO_BINDING_LIMIT, below — naming a single
+        // hand-picked constant here is what let the range drift unnoticed.)
         // The heap-offset table (issue #691 Phase 3). std140 uvec4[] of
         // RHI::HeapOffset values, indexed by the SAME TEX_* constant a slot-based
         // shader would have used in `layout(binding = N)`. That reuse is the
@@ -1342,6 +1341,23 @@ namespace OloEngine
         // ReflectionProbeArray, read by the deferred/forward lit passes and
         // the ReflectionProbeCull compute.
         static constexpr u32 UBO_REFLECTION_PROBES = 58;
+
+        // ONE past the highest engine UBO binding above. Every consumer that
+        // needs to size an array over "all UBO bindings" derives it from here
+        // instead of naming a hand-picked constant — GLStateGuard's UBO-leak
+        // snapshot and VulkanBindingState's bind-point mirror both did, and
+        // both silently stopped covering the top of the range when this file
+        // grew (GLStateGuard's own comment records it drifting twice before
+        // that). A hand-picked name has to be MOVED on every addition; this
+        // one only has to be RAISED when a binding exceeds it, which the
+        // static_assert below makes a compile error rather than a black frame.
+        static constexpr u32 UBO_BINDING_LIMIT = 73;
+        static_assert(UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
+                          UBO_REFLECTION_PROBES < UBO_BINDING_LIMIT && UBO_HEAP_OFFSETS < UBO_BINDING_LIMIT &&
+                          UBO_DEBUG_DRAW < UBO_BINDING_LIMIT,
+                      "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
+        static_assert(UBO_BINDING_LIMIT <= 84,
+                      "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
