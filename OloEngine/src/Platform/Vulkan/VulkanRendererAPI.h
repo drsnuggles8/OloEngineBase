@@ -99,6 +99,16 @@ namespace OloEngine
         bool AttachmentBlend[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendSrc[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendDst[kMaxAttachments] = {};
+        // GL parity (#691 Phase 7 Wave A, found by the OITResolve tenant):
+        // glEnablei(GL_BLEND, i) alone does NOT give buffer i its own blend
+        // func — the GLOBAL glBlendFunc applies until glBlendFunci names the
+        // buffer. A pass that per-attachment-ENABLES but sets only the global
+        // func (OITResolve) must therefore blend with the global factors, not
+        // the never-written per-attachment defaults (Zero/Zero). This flag
+        // records "SetBlendFuncForAttachment was called for i"; the global
+        // SetBlendFunc/SetBlendFuncSeparate clear it (glBlendFunc overwrites
+        // every buffer's func in GL).
+        bool AttachmentBlendFuncSet[kMaxAttachments] = {};
         u8 AttachmentColorMask[kMaxAttachments] = { 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF };
     };
 

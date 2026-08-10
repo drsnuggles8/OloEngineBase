@@ -38,21 +38,32 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
+#include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
+#include "OloEngine/Renderer/Passes/CloudscapeRenderPass.h"
 #include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
 #include "OloEngine/Renderer/Passes/ContactShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/DOFRenderPass.h"
+#include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 #include "OloEngine/Renderer/Passes/EASURenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
+#include "OloEngine/Renderer/Passes/FogRenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
+#include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
+#include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
+#include "OloEngine/Renderer/Passes/SSRRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
+#include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
+#include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
+#include "OloEngine/Renderer/Texture3D.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
@@ -78,6 +89,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_transform.hpp>
 #include <glm/glm.hpp>
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
@@ -96,6 +108,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace
@@ -567,7 +580,7 @@ class VulkanPassSuite : public ::testing::Test
                 auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
                 RHI::Barrier toSampled{};
                 toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
-                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.Before = m_OutputBarrierBefore;
                 toSampled.After = RHI::Access::ShaderSampleRead;
                 api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
             });
@@ -626,6 +639,13 @@ class VulkanPassSuite : public ::testing::Test
     VkFence m_Fence = VK_NULL_HANDLE;
     // Per-chain auxiliary-resource hook; reset it between chains.
     std::function<void(RenderGraph&, FrameBlackboard&)> m_ExtraSetup;
+    // The LAST access the chain performs on the output attachment before the
+    // harness's readback barrier. ColorAttachmentWrite for a plain
+    // draw-terminated chain; a pass whose Setup EXTRACTS the output (TAA's
+    // history copy) leaves it transfer-READ, and lowering the barrier's src
+    // scope from the wrong access is a WRITE_AFTER_READ hazard the sync
+    // validation names (the layout half is tracker-exact either way).
+    RHI::Access m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
 };
 
 TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
@@ -2583,6 +2603,1712 @@ TEST_F(VulkanPassSuite, FluidIntermediatesPinsTheNoDrawEarlyOutThroughTheGraph)
 
     EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
         << "both gated paths must return before touching the stubbed raw-handle family";
+}
+
+// =============================================================================
+// Wave A MEDIUM tenants (#691 Phase 7) — the multi-draw / multi-resolution /
+// history-carrying passes. FinalRenderPass is deliberately absent (it needs
+// the swapchain import — the FrameRenderCallback live bring-up slice).
+// =============================================================================
+
+// Bloom: threshold extract -> 4 progressive downsamples -> 4 additive tent
+// upsamples -> composite, across the five graph-owned BloomMips scratch
+// framebuffers (AllowSamePassReadWrite — each mip is rendered then sampled
+// inside one Execute). The pass mutates the shared PostProcessUBO's TexelSize
+// per mip via SetData mid-pass — arena-versioned addresses on Vulkan, so each
+// draw reads the range minted for it (GL command ordering with no hazard
+// tracking). Contract, two chains: a single bright blob spreads into a halo
+// wider than itself (core saturated, ring outside the blob lit, far corner
+// near-black and darker than the ring), and an all-black input stays black
+// through the whole chain (threshold-of-black = 0, additive chain of zeros).
+TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // Black field with an 8x8 white blob centred at (64, 64).
+    const auto makeBlobTexture = [&](bool withBlob) -> Ref<Texture2D>
+    {
+        std::vector<u8> pixels(static_cast<sizet>(kSize) * kSize * 4, 0u);
+        for (sizet i = 3; i < pixels.size(); i += 4)
+            pixels[i] = 255u;
+        if (withBlob)
+        {
+            for (u32 y = 60; y < 68; ++y)
+            {
+                for (u32 x = 60; x < 68; ++x)
+                {
+                    const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+                    pixels[i + 0] = 255u;
+                    pixels[i + 1] = 255u;
+                    pixels[i + 2] = 255u;
+                }
+            }
+        }
+        TextureSpecification spec;
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Format = ImageFormat::RGBA8;
+        spec.GenerateMips = false;
+        auto texture = Texture2D::Create(spec);
+        if (texture)
+            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+        return texture;
+    };
+    auto blobInput = makeBlobTexture(true);
+    ASSERT_NE(blobInput, nullptr);
+    auto blackInput = makeBlobTexture(false);
+    ASSERT_NE(blackInput, nullptr);
+
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    // Shared PostProcessUBO@7 + the CPU mirror the pass mutates per mip.
+    PostProcessUBOData uboData{};
+    uboData.BloomThreshold = 0.5f;
+    uboData.BloomIntensity = 1.0f;
+    uboData.TexelSizeX = 1.0f / static_cast<f32>(kSize);
+    uboData.TexelSizeY = 1.0f / static_cast<f32>(kSize);
+    uboData.InverseScreenWidth = 1.0f / static_cast<f32>(kSize);
+    uboData.InverseScreenHeight = 1.0f / static_cast<f32>(kSize);
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+    postProcessUbo->SetData(&uboData, sizeof(uboData));
+
+    const auto runChain = [&](const Ref<Texture2D>& input) -> std::vector<u8>
+    {
+        std::vector<u8> rendered;
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc fbDesc;
+        fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+        fbDesc.Width = kSize;
+        fbDesc.Height = kSize;
+        blackboard.Post.PostProcessColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::PostProcessColor, fbDesc);
+
+        // The five bloom mips, halving from kSize/2 — the production recipe
+        // (RenderPipeline's BloomMip block), pooled + RGBA16F.
+        u32 mipW = kSize / 2u;
+        u32 mipH = kSize / 2u;
+        for (u32 i = 0; i < 5u && mipW >= 2u && mipH >= 2u; ++i)
+        {
+            RGResourceDesc mipDesc;
+            mipDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+            mipDesc.Format = RGResourceFormat::RGBA16Float;
+            mipDesc.Width = mipW;
+            mipDesc.Height = mipH;
+            mipDesc.DebugName = "BloomMip" + std::to_string(i);
+            blackboard.Scratch.BloomMips[i] = graph.DeclareTransientFramebuffer(mipDesc.DebugName, mipDesc);
+            mipW /= 2u;
+            mipH /= 2u;
+        }
+
+        FramebufferSpecification outputSpec;
+        outputSpec.Width = kSize;
+        outputSpec.Height = kSize;
+        outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
+        if (!outputFramebuffer)
+        {
+            ADD_FAILURE() << "bloom output framebuffer creation failed";
+            return rendered;
+        }
+        blackboard.Post.BloomColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::BloomColor, fbDesc, outputFramebuffer);
+
+        auto bloom = Ref<BloomRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        bloom->Init(initSpec);
+        bloom->SetEnabled(true);
+        bloom->SetPostProcessUBO(postProcessUbo);
+        bloom->SetPostProcessGPUData(&uboData); // Execute mutates TexelSize per mip through this
+
+        auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
+        graph.AddNode(producer);
+        graph.AddNode(bloom);
+        graph.SetFinalPass("BloomPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+                RHI::Barrier toSampled{};
+                toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_TRUE(producer->DidDraw) << "bloom: the producer pass early-returned";
+        EXPECT_TRUE(bloom->GetTarget()) << "bloom: Execute early-returned (input/output/mips/shader guard)";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "bloom resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                          << "' x" << failure.Count;
+        }
+        {
+            auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+            // producer + threshold + 4 downsamples + 4 upsamples + composite.
+            EXPECT_EQ(vkApi.GetPreparedDrawsThisRecording(), 11u) << "bloom mip loop draw count";
+            EXPECT_EQ(vkApi.GetDroppedDrawsThisRecording(), 0u);
+        }
+
+        auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+        if (!vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0))
+            ADD_FAILURE() << "bloom output readback failed";
+        return rendered;
+    };
+
+    const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
+    { return static_cast<int>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    const auto bloomed = runChain(blobInput);
+    ASSERT_EQ(bloomed.size(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_GE(redAt(bloomed, 64, 64), 250) << "the blob core must stay saturated (scene + bloom)";
+    const int halo = redAt(bloomed, 70, 64);
+    EXPECT_GE(halo, 10) << "2 px outside the blob the additive upsample chain must have spread energy";
+    const int farCorner = redAt(bloomed, 120, 120);
+    EXPECT_LE(farCorner, 12) << "the far corner sits outside the tent chain's reach";
+    EXPECT_GT(halo, farCorner + 5) << "the halo must decay with distance from the blob";
+
+    const auto black = runChain(blackInput);
+    ASSERT_EQ(black.size(), static_cast<sizet>(kSize) * kSize * 4);
+    int maxBlack = 0;
+    for (sizet i = 0; i < black.size(); i += 4)
+    {
+        maxBlack = std::max(maxBlack, static_cast<int>(black[i]));
+        maxBlack = std::max(maxBlack, static_cast<int>(black[i + 1]));
+        maxBlack = std::max(maxBlack, static_cast<int>(black[i + 2]));
+    }
+    EXPECT_LE(maxBlack, 2) << "a black input must pass the threshold + additive chain as black";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+// =============================================================================
+// SSAO: DOCUMENTED FLOOR, not a full-body tenant. The pass's Init creates its
+// 4x4 RG16F rotation-noise texture through the raw-handle texture family —
+// CreateTexture2DHandle + UploadTextureSubImage2D + SetTextureFilter +
+// SetTextureWrap — which is ENTIRELY Phase6Stub on Vulkan (the same family
+// that blocks FluidIntermediates' raw FBOs; it is NOT in this wave's
+// sanctioned stub-fix list, so it is reported rather than implemented). With
+// the noise handle invalid, IsReadyForExecution() is false and Execute
+// early-returns before its first resolve.
+//
+// A second, independent gap this tenant documents (found while auditing the
+// noise bind): the EXPLICIT RHI::SamplerDesc the pass passes for its
+// Nearest/Repeat noise sampler is unreachable on this backend today —
+//   * heap OFF (this fixture): HeapBinding::BindTextureOrOffsetImpl's
+//     fallback calls plain BindTexture(slot, texture) and DROPS the
+//     SamplerDesc argument entirely;
+//   * heap ON: the Vulkan draw path builds every pipeline with the single
+//     DefaultEmbeddedSampler (linear / clamp-to-edge —
+//     VulkanPipelineBuilder::GetOrCreateGraphics is called with no
+//     embeddedSampler override), so a per-binding Nearest/Repeat sampler has
+//     no route into the descriptor mapping either.
+// Both must land before SSAO's noise sampling is correct on Vulkan.
+//
+// What this floor pins: the exact 4-stub blocking set at Init (this test
+// FAILS the moment someone implements the family — the prompt to promote it
+// to a full 2-draw + CopyImageSubData tenant), and the clean early-out
+// through the real graph (declares everything, resolves nothing, zero draws,
+// zero resolve failures, zero validation errors).
+// =============================================================================
+TEST_F(VulkanPassSuite, SsaoPinsTheRawTextureStubFloorThroughTheGraph)
+{
+    constexpr u32 kSize = 128;
+    constexpr u32 kHalf = kSize / 2;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto depthTexture = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto normalTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(normalTexture, nullptr);
+    auto aoOutput = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(aoOutput, nullptr);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto ssao = Ref<SSAORenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    ssao->Init(initSpec); // CreateNoiseTexture walks the stubbed raw-handle family
+
+    EXPECT_EQ(api.GetPhase6StubHitCount() - stubsBefore, 4u)
+        << "Init must hit exactly CreateTexture2DHandle + UploadTextureSubImage2D + SetTextureFilter + "
+           "SetTextureWrap — if this shrank, the raw-texture family gained a Vulkan arm: promote this "
+           "floor to the full SSAO tenant (2 half-res draws + CopyImageSubData + Nearest/Repeat noise)";
+    EXPECT_FALSE(ssao->IsReadyForExecution()) << "an invalid noise handle must gate execution off";
+
+    PostProcessSettings settings{};
+    settings.SSAOEnabled = true;
+    settings.ActiveAOTechnique = AOTechnique::SSAO;
+    ssao->SetSettings(settings);
+    SSAOUBOData ssaoData{};
+    auto ssaoUbo = UniformBuffer::Create(sizeof(SSAOUBOData), 9);
+    ssaoUbo->SetData(&ssaoData, sizeof(ssaoData));
+    ssao->SetSSAOUBO(ssaoUbo, &ssaoData);
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc importDesc;
+    importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    importDesc.Format = RGResourceFormat::RGBA8UNorm;
+    importDesc.Width = kSize;
+    importDesc.Height = kSize;
+    blackboard.Scene.SceneDepth =
+        graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
+    blackboard.Scene.SceneNormals =
+        graph.ImportTextureHandle(ResourceNames::SceneNormals, normalTexture->GetRHIHandle(), importDesc);
+    blackboard.AO.AOBuffer =
+        graph.ImportTextureHandle(ResourceNames::AOBuffer, aoOutput->GetRHIHandle(), importDesc);
+
+    RGResourceDesc scratchDesc;
+    scratchDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    scratchDesc.Format = RGResourceFormat::RG16Float;
+    scratchDesc.Width = kHalf;
+    scratchDesc.Height = kHalf;
+    scratchDesc.DebugName = "SSAORaw";
+    blackboard.Scratch.SSAORaw = graph.DeclareTransientFramebuffer("SSAORaw", scratchDesc);
+    scratchDesc.DebugName = std::string(ResourceNames::SSAOBlur);
+    blackboard.Scratch.SSAOBlur = graph.DeclareTransientFramebuffer(ResourceNames::SSAOBlur, scratchDesc);
+
+    graph.AddNode(ssao);
+    graph.SetFinalPass("SSAOPass");
+    graph.BuildFrameGraph();
+
+    SubmitFrame([&]()
+                { graph.Execute(); });
+
+    EXPECT_FALSE(ssao->GetTarget()) << "not-ready SSAO must reject the frame before its first resolve";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "SSAO resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                      << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 0u) << "the gated pass must record no draws";
+    EXPECT_EQ(api.GetPhase6StubHitCount() - stubsBefore, 4u)
+        << "Execute must early-return without touching another stubbed entry";
+}
+
+// =============================================================================
+// SelectionOutline: JFA init (the suite's first INTEGER-sampler consumer —
+// isampler2D over an imported R32I entity-ID stand-in, read with texelFetch,
+// so the pipeline's linear embedded sampler is never used to filter) -> two
+// ping-pong flood iterations across the RGBA32F JFAPing/JFAPong scratch pair
+// (AllowSamePassReadWrite) -> composite. The UBO@29 step value changes per
+// flood iteration mid-pass (arena-versioned SetData).
+//
+// Contract: a selected 32x32 id blob yields a ring of the configured colour
+// straddling its boundary — pure outline 1 px outside the edge, scene
+// passthrough deep inside the blob and far outside it — and with an empty
+// selection the pass contributes nothing (GetTarget null, producer-only
+// draw count).
+// =============================================================================
+TEST_F(VulkanPassSuite, SelectionOutlineRingsTheSelectedBlobAndIdlesWithoutSelection)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // Entity-ID stand-in: R32I, id 7 in [48, 80)^2, -1 elsewhere (the
+    // engine's "no entity" sentinel).
+    Ref<Texture2D> entityTexture;
+    {
+        std::vector<i32> ids(static_cast<sizet>(kSize) * kSize, -1);
+        for (u32 y = 48; y < 80; ++y)
+            for (u32 x = 48; x < 80; ++x)
+                ids[static_cast<sizet>(y) * kSize + x] = 7;
+        TextureSpecification spec;
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Format = ImageFormat::R32I;
+        spec.GenerateMips = false;
+        entityTexture = Texture2D::Create(spec);
+        ASSERT_NE(entityTexture, nullptr);
+        entityTexture->SetData(ids.data(), static_cast<u32>(ids.size() * sizeof(i32)));
+    }
+
+    auto sceneInput = MakeSolidTexture(kSize, 90, 90, 90, 255);
+    ASSERT_NE(sceneInput, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    const auto runChain = [&](std::span<const i32> selectedIds, u32& preparedDraws,
+                              bool& targetValid) -> std::vector<u8>
+    {
+        std::vector<u8> rendered;
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc fbDesc;
+        fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+        fbDesc.Width = kSize;
+        fbDesc.Height = kSize;
+        blackboard.Post.PostProcessColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::PostProcessColor, fbDesc);
+
+        RGResourceDesc entityDesc;
+        entityDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        entityDesc.Format = RGResourceFormat::R32Int;
+        entityDesc.Width = kSize;
+        entityDesc.Height = kSize;
+        blackboard.Scene.SceneEntityID =
+            graph.ImportTextureHandle(ResourceNames::SceneEntityID, entityTexture->GetRHIHandle(), entityDesc);
+
+        // JFA scratch pair — full-res RGBA32F, the production recipe.
+        RGResourceDesc jfaDesc;
+        jfaDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        jfaDesc.Format = RGResourceFormat::RGBA32Float;
+        jfaDesc.Width = kSize;
+        jfaDesc.Height = kSize;
+        jfaDesc.DebugName = "JFAPing";
+        blackboard.Scratch.JFAPing = graph.DeclareTransientFramebuffer("JFAPing", jfaDesc);
+        jfaDesc.DebugName = "JFAPong";
+        blackboard.Scratch.JFAPong = graph.DeclareTransientFramebuffer("JFAPong", jfaDesc);
+
+        FramebufferSpecification outputSpec;
+        outputSpec.Width = kSize;
+        outputSpec.Height = kSize;
+        outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
+        if (!outputFramebuffer)
+        {
+            ADD_FAILURE() << "selection-outline output framebuffer creation failed";
+            return rendered;
+        }
+        blackboard.Post.SelectionOutlineColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::SelectionOutlineColor, fbDesc, outputFramebuffer);
+
+        auto outline = Ref<SelectionOutlineRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        outline->Init(initSpec);
+        outline->SetEnabled(true);
+        outline->SetSelectedEntityIDs(selectedIds);
+        outline->SetOutlineColor(glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
+        // Width 6 -> smoothstep band inner 0.012 / outer 0.024 UV (1.5-3 px at
+        // 128) — inside the default 2-pass JFA's 3-texel propagation reach.
+        outline->SetOutlineWidth(6);
+
+        auto producer = Ref<PatternProducerPass>::Create(sceneInput, blitShader);
+        graph.AddNode(producer);
+        graph.AddNode(outline);
+        graph.SetFinalPass("SelectionOutlinePass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+                RHI::Barrier toSampled{};
+                toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_TRUE(producer->DidDraw);
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "selection-outline resolve failure: pass='" << failure.PassName << "' reason='"
+                          << failure.Reason << "' x" << failure.Count;
+        }
+        {
+            auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+            preparedDraws = static_cast<u32>(vkApi.GetPreparedDrawsThisRecording());
+            EXPECT_EQ(vkApi.GetDroppedDrawsThisRecording(), 0u);
+        }
+        targetValid = outline->GetTarget() != nullptr;
+
+        if (targetValid)
+        {
+            auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+            if (!vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0))
+                ADD_FAILURE() << "selection-outline readback failed";
+        }
+        return rendered;
+    };
+
+    // --- selected blob: outline ring straddles the boundary ------------------
+    const std::array<i32, 1> selected = { 7 };
+    u32 draws = 0;
+    bool hasTarget = false;
+    const auto ringed = runChain(std::span<const i32>(selected), draws, hasTarget);
+    EXPECT_TRUE(hasTarget) << "a live selection must produce the outline target";
+    // producer + JFA init + 2 flood iterations + composite.
+    EXPECT_EQ(draws, 5u);
+    ASSERT_EQ(ringed.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto px = [&](const std::vector<u8>& img, u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ img[i], img[i + 1], img[i + 2] };
+    };
+    const auto ringPx = px(ringed, 64, 47); // 1 px outside the blob's top edge (dist 1 px -> alpha 1)
+    EXPECT_LE(ringPx[0], 20) << "the ring must be the configured pure green";
+    EXPECT_GE(ringPx[1], 235) << "the ring must be the configured pure green";
+    EXPECT_LE(ringPx[2], 20) << "the ring must be the configured pure green";
+    const auto innerPx = px(ringed, 64, 64); // blob centre: 16 px from every edge, far past the band
+    EXPECT_GE(innerPx[0], 85);
+    EXPECT_LE(innerPx[0], 95);
+    EXPECT_GE(innerPx[1], 85) << "deep inside the blob the scene must pass through (no fill)";
+    EXPECT_LE(innerPx[1], 95);
+    const auto farPx = px(ringed, 16, 16); // far outside the JFA propagation reach
+    EXPECT_GE(farPx[0], 85);
+    EXPECT_LE(farPx[1], 95) << "far from the blob the scene must pass through";
+
+    // --- empty selection: the pass idles -------------------------------------
+    u32 idleDraws = 0;
+    bool idleTarget = true;
+    (void)runChain(std::span<const i32>{}, idleDraws, idleTarget);
+    EXPECT_FALSE(idleTarget) << "SelectedCount == 0 must report no target (the pass's own contract)";
+    EXPECT_EQ(idleDraws, 1u) << "only the producer may draw with an empty selection";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+// =============================================================================
+// Cloudscape: three draws at two resolutions — half-res raymarch into
+// CloudsRaw, half-res temporal resolve into CloudsResolved (history extract
+// declared on it, the TAA sink pattern at half res), full-res depth-aware
+// composite — plus the pass-owned noise field: two 3D textures + a 2D
+// weather map (Texture3D has no CPU upload path BY DESIGN — production
+// generates the field in compute — so the stand-ins are filled with UNIFORM
+// values via the facade's transfer clears, which is exactly enough for the
+// density math: coverage/type come from the weather map, the base-noise
+// remap yields a constant ~0.73 shape, and detail erosion is disabled via
+// Field.z = 0).
+//
+// Contract — the documented FLOOR: executes clean (4 draws, zero stubs,
+// zero validation errors), the history extract actually copied (the sink
+// valid-flag flips), and clouds render SOMETHING against the sky-blue input
+// — the camera looks straight up at the layer, so the composite must differ
+// from the input at the zenith and vary across the frame (slant paths + the
+// per-pixel IGN jitter make uniformity impossible). A stronger contract
+// would need an unjittered, single-step march over the uniform medium so the
+// slab path length per pixel becomes closed-form (inscatter/transmittance as
+// exact functions of view angle) — that requires a jitter kill-switch the
+// shader does not expose today.
+// =============================================================================
+TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
+{
+    constexpr u32 kSize = 128;
+    constexpr u32 kHalf = (kSize + 1u) / 2u;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto skyInput = MakeSolidTexture(kSize, 90, 140, 220, 255);
+    ASSERT_NE(skyInput, nullptr);
+    auto depthTexture = MakeSolidTexture(kSize, 255, 255, 255, 255); // depth 1.0 = sky everywhere
+    ASSERT_NE(depthTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    // Pass-owned noise field stand-ins. Values chosen against the
+    // CloudscapeCommon density math: weather.r 0.86 passes the coverage
+    // smoothstep at 1, base noise r 0.78 vs the g/b/a FBM floor 0.20 remaps
+    // to a ~0.73 constant shape, zeroed detail + Field.z = 0 disables the
+    // erosion term entirely.
+    Texture3DSpecification noiseSpec;
+    noiseSpec.Width = 8;
+    noiseSpec.Height = 8;
+    noiseSpec.Depth = 8;
+    noiseSpec.Format = Texture3DFormat::RGBA8;
+    noiseSpec.Repeat = true;
+    auto baseNoise = Texture3D::Create(noiseSpec);
+    ASSERT_NE(baseNoise, nullptr);
+    auto detailNoise = Texture3D::Create(noiseSpec);
+    ASSERT_NE(detailNoise, nullptr);
+    // The weather map is the one CPU-uploadable field input, so it carries
+    // the spatial structure: vertical coverage stripes alternating between
+    // solidly cloudy (230 -> coverage 1 after the smoothstep) and genuinely
+    // clear (30, below the 0.28 low edge -> sky gap). A UNIFORM opaque deck
+    // is ambient-dominated and angle-independent — legitimately flat — so
+    // the non-uniformity floor needs the field itself to vary.
+    Ref<Texture2D> weatherMap;
+    {
+        constexpr u32 kWeatherSize = 4;
+        std::vector<u8> weather(static_cast<sizet>(kWeatherSize) * kWeatherSize * 4);
+        for (u32 y = 0; y < kWeatherSize; ++y)
+        {
+            for (u32 x = 0; x < kWeatherSize; ++x)
+            {
+                const u8 coverage = (x % 2u == 0u) ? 230u : 30u;
+                const sizet i = (static_cast<sizet>(y) * kWeatherSize + x) * 4;
+                weather[i + 0] = coverage;
+                weather[i + 1] = 128u; // type blend
+                weather[i + 2] = 0u;   // wetness
+                weather[i + 3] = 255u;
+            }
+        }
+        TextureSpecification spec;
+        spec.Width = kWeatherSize;
+        spec.Height = kWeatherSize;
+        spec.Format = ImageFormat::RGBA8;
+        spec.GenerateMips = false;
+        weatherMap = Texture2D::Create(spec);
+        ASSERT_NE(weatherMap, nullptr);
+        weatherMap->SetData(weather.data(), static_cast<u32>(weather.size()));
+    }
+
+    // Camera looking straight UP (+Y) from (4000, 0, 4000): every ray pierces
+    // the [1500, 4000] m layer, and the xz footprint at cloud altitude lands
+    // INSIDE the positive weather-map extent (uv ~0.2..0.8 at 1/8000 map
+    // scale — the embedded sampler clamps, so a footprint straddling uv 0
+    // would flatten the left half onto one texel column).
+    const glm::vec3 kEye(4000.0f, 0.0f, 4000.0f);
+    const glm::mat4 projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    const glm::mat4 view = glm::lookAtRH(kEye, kEye + glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f));
+    const glm::mat4 viewProjection = projection * view;
+
+    UBOStructures::CameraUBO cameraData{};
+    cameraData.ViewProjection = viewProjection;
+    cameraData.View = view;
+    cameraData.Projection = projection;
+    cameraData.Position = kEye;
+    cameraData.PrevViewProjection = viewProjection;
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, UBOStructures::CameraUBO::GetSize());
+
+    MotionBlurUBOData motionData{};
+    motionData.InverseViewProjection = glm::inverse(viewProjection);
+    motionData.PrevViewProjection = viewProjection;
+    auto motionUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    motionUbo->SetData(&motionData, sizeof(motionData));
+
+    auto cloudscape = Ref<CloudscapeRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    cloudscape->Init(initSpec);
+    cloudscape->SetEnabled(true);
+    cloudscape->SetCameraUBO(cameraUbo);
+    cloudscape->SetNoiseTextures(baseNoise->GetRHIHandle(), detailNoise->GetRHIHandle(),
+                                 weatherMap->GetRHIHandle());
+    cloudscape->SetHistory({}, false); // first frame: no history, Misc.x forced 0
+
+    UBOStructures::CloudscapeUBO cloudData{};
+    cloudData.Layer = glm::vec4(1500.0f, 4000.0f, 1.0f / 2500.0f, 1.0f);
+    cloudData.Field = glm::vec4(0.9f, 0.5f, 0.0f, 0.0f); // dense coverage, NO detail erosion
+    cloudData.Wind = glm::vec4(0.0f);
+    // Map extent 8000 m: the camera's cloud-altitude footprint spans ~2.5
+    // weather texels, so the stripes above land across the frame.
+    cloudData.Map = glm::vec4(1.0f / 8000.0f, 32.0f, 4.0f, 0.6f);
+    cloudData.Light = glm::vec4(1.0f, 1.0f, 0.5f, 1.0f);
+    cloudData.Misc = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f); // blend 0, enabled 1
+    cloudData.SunDirection = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+    cloudData.SunColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+    cloudData.Ambient = glm::vec4(0.4f, 0.5f, 0.7f, 0.0f);
+    cloudscape->SetUBOData(cloudData);
+    cloudscape->UploadAndBindUBO(); // production uploads pre-graph (UploadExecutionState)
+
+    // Half-res history sink target (the CloudsResolved copy destination).
+    TextureSpecification historySpec;
+    historySpec.Width = kHalf;
+    historySpec.Height = kHalf;
+    historySpec.Format = ImageFormat::RGBA16F;
+    historySpec.GenerateMips = false;
+    auto historyTexture = Texture2D::Create(historySpec);
+    ASSERT_NE(historyTexture, nullptr);
+    bool historyValid = false;
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+    fbDesc.Width = kSize;
+    fbDesc.Height = kSize;
+    blackboard.Post.PostProcessColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::PostProcessColor, fbDesc);
+
+    RGResourceDesc importDesc;
+    importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    importDesc.Format = RGResourceFormat::RGBA8UNorm;
+    importDesc.Width = kSize;
+    importDesc.Height = kSize;
+    blackboard.Scene.SceneDepth =
+        graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
+
+    RGResourceDesc halfDesc;
+    halfDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    halfDesc.Format = RGResourceFormat::RGBA16Float;
+    halfDesc.Width = kHalf;
+    halfDesc.Height = kHalf;
+    halfDesc.DebugName = std::string(ResourceNames::CloudsRaw);
+    blackboard.Scratch.CloudsRaw = graph.DeclareTransientFramebuffer(ResourceNames::CloudsRaw, halfDesc);
+    halfDesc.DebugName = std::string(ResourceNames::CloudsResolved);
+    blackboard.Scratch.CloudsResolved = graph.DeclareTransientFramebuffer(ResourceNames::CloudsResolved, halfDesc);
+
+    graph.RegisterHistoryTextureSink(ResourceNames::CloudsHistory, historyTexture->GetRHIHandle(), kHalf, kHalf,
+                                     &historyValid);
+
+    FramebufferSpecification outputSpec;
+    outputSpec.Width = kSize;
+    outputSpec.Height = kSize;
+    outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
+    ASSERT_TRUE(outputFramebuffer);
+    blackboard.Post.CloudsColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::CloudsColor, fbDesc, outputFramebuffer);
+
+    auto producer = Ref<PatternProducerPass>::Create(skyInput, blitShader);
+    graph.AddNode(producer);
+    graph.AddNode(cloudscape);
+    graph.SetFinalPass("CloudscapePass");
+    graph.BuildFrameGraph();
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    SubmitFrame(
+        [&]()
+        {
+            // Fill the noise stand-ins with their uniform values through the
+            // facade's transfer clears (exact per-layout-run transitions),
+            // then move each to the sampled layout its descriptor bakes.
+            RenderCommand::ClearTextureFloat(baseNoise->GetRHIHandle(), 0u,
+                                             glm::vec4(0.78f, 0.20f, 0.20f, 0.20f));
+            RenderCommand::ClearTextureFloat(detailNoise->GetRHIHandle(), 0u, glm::vec4(0.0f));
+            for (const RHI::ResourceHandle volume : { baseNoise->GetRHIHandle(), detailNoise->GetRHIHandle() })
+            {
+                RHI::Barrier toSampled{};
+                toSampled.Resource = volume;
+                toSampled.Before = RHI::Access::TransferWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            }
+
+            graph.Execute();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_TRUE(producer->DidDraw);
+    EXPECT_TRUE(cloudscape->GetTarget()) << "cloudscape Execute early-returned (input/scratch/depth guard)";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "cloudscape resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                      << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 4u) << "producer + raymarch + resolve + composite";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+    EXPECT_TRUE(historyValid) << "the CloudsResolved -> CloudsHistory extract must have copied (sink flag)";
+
+    std::vector<u8> rendered;
+    auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+    ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    // Clouds must have changed the zenith away from the sky-blue input...
+    const auto px = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
+    };
+    const auto centre = px(64, 64);
+    const int centreDelta =
+        std::abs(centre[0] - 90) + std::abs(centre[1] - 140) + std::abs(centre[2] - 220);
+    EXPECT_GE(centreDelta, 30) << "an opaque deck straight overhead must not pass the sky through";
+    // ...and the frame must not be UNIFORM: the striped weather field must
+    // put both cloud deck AND clear-sky gaps on screen (observed: a
+    // saturated deck at ~255 with sky-blue stripes — scan the whole frame,
+    // a sparse probe grid can sit entirely on the deck).
+    int minR = 255;
+    int maxR = 0;
+    for (sizet i = 0; i < rendered.size(); i += 4)
+    {
+        const int r = rendered[i];
+        minR = std::min(minR, r);
+        maxR = std::max(maxR, r);
+    }
+    EXPECT_GE(maxR - minR, 30)
+        << "the striped weather coverage must render cloud deck AND clear-sky gaps (uniform veil = dead "
+           "density/weather path)";
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+// =============================================================================
+// Fog: two draws — half-res evaluation into FogHalfRes (AllowSamePassReadWrite
+// write-then-sample) + full-res bilateral upsample/composite — on the
+// ANALYTIC path, with the froxel fallback pinned the production way: a real
+// VolumetricFogPass is attached via SetVolumetricFogPass but never added to
+// the graph, so FogRenderPass::Execute sees RanThisFrame() == false and
+// calls UploadDisabledUBO() (FroxelFogData@46 zeroed, enabled 0). The
+// DependsOnPass("VolumetricFogPass") edge dangles harmlessly (no such node —
+// tryAddDerivedDependency simply adds no edge).
+//
+// Contract, two chains over a mid-gray input with uniform far-plane depth:
+// density 0.05 EXPONENTIAL red fog fully fogs the far field (centre pixel ~
+// fogColor: factor 1 - exp(-5) = 0.993), and density 0 is an exact
+// passthrough (transmittance 1, inscatter 0) — so a fog that never applies,
+// or always applies, fails one side.
+// =============================================================================
+TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDensity)
+{
+    constexpr u32 kSize = 128;
+    constexpr u32 kHalf = (kSize + 1u) / 2u;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto grayInput = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(grayInput, nullptr);
+    auto depthTexture = MakeSolidTexture(kSize, 255, 255, 255, 255); // far plane everywhere
+    ASSERT_NE(depthTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    // Identity view at the origin; both fog shaders read the full 288-byte
+    // CameraMatrices block, the depth reconstruction reads MotionBlurUBO@8.
+    const glm::mat4 projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    UBOStructures::CameraUBO cameraData{};
+    cameraData.ViewProjection = projection;
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = projection;
+    cameraData.Position = glm::vec3(0.0f);
+    cameraData.PrevViewProjection = projection;
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, UBOStructures::CameraUBO::GetSize());
+    MotionBlurUBOData motionData{};
+    motionData.InverseViewProjection = glm::inverse(projection);
+    motionData.PrevViewProjection = projection;
+    auto motionUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    motionUbo->SetData(&motionData, sizeof(motionData));
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+    PostProcessUBOData postData{};
+    postProcessUbo->SetData(&postData, sizeof(postData));
+    FogVolumesUBOData fogVolumes{}; // count 0 — no local volumes
+    auto fogVolumesUbo = UniformBuffer::Create(sizeof(FogVolumesUBOData), ShaderBindingLayout::UBO_FOG_VOLUMES);
+    fogVolumesUbo->SetData(&fogVolumes, sizeof(fogVolumes));
+    auto fogUbo = UniformBuffer::Create(sizeof(FogUBOData), ShaderBindingLayout::UBO_FOG);
+
+    // The froxel provider, Init'd but never graphed: RanThisFrame() stays
+    // false, so the fog pass exercises the UploadDisabledUBO fallback.
+    auto froxel = Ref<VolumetricFogPass>::Create();
+    {
+        FramebufferSpecification froxelSpec;
+        froxelSpec.Width = kSize;
+        froxelSpec.Height = kSize;
+        froxel->Init(froxelSpec);
+    }
+
+    // The fog shader still DECLARES the froxel sampler3D@53; the volumetric
+    // branch is uniform-false so it is never accessed, but the fixture keeps
+    // every declared binding fed with a real (1-texel) 3D view.
+    Texture3DSpecification tinySpec;
+    tinySpec.Width = 1;
+    tinySpec.Height = 1;
+    tinySpec.Depth = 1;
+    tinySpec.Format = Texture3DFormat::RGBA16F;
+    auto tinyVolume = Texture3D::Create(tinySpec);
+    ASSERT_NE(tinyVolume, nullptr);
+    bool tinyVolumeSeeded = false;
+
+    const auto runChain = [&](f32 density) -> std::vector<u8>
+    {
+        std::vector<u8> rendered;
+
+        FogUBOData fogData{};
+        fogData.ColorAndDensity = glm::vec4(1.0f, 0.0f, 0.0f, density); // red fog
+        fogData.DistanceParams = glm::vec4(0.0f, 100.0f, 0.0f, 0.0f);   // heightFalloff 0
+        fogData.ScatterParams = glm::vec4(0.0f);
+        fogData.RayleighColorAndMaxOpacity = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        fogData.SunDirection = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f);
+        fogData.Flags = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f); // enabled, EXPONENTIAL, no scatter, no volumetric
+        fogData.NoiseParams = glm::vec4(0.0f);
+        fogData.VolumetricParams = glm::vec4(0.0f);
+        fogUbo->SetData(&fogData, sizeof(fogData));
+
+        auto fog = Ref<FogRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        fog->Init(initSpec);
+        fog->SetEnabled(true);
+        fog->SetPostProcessUBO(postProcessUbo);
+        fog->SetCameraUBO(cameraUbo);
+        fog->SetVolumetricFogPass(froxel);
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc fbDesc;
+        fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+        fbDesc.Width = kSize;
+        fbDesc.Height = kSize;
+        blackboard.Post.PostProcessColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::PostProcessColor, fbDesc);
+
+        RGResourceDesc importDesc;
+        importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        importDesc.Format = RGResourceFormat::RGBA8UNorm;
+        importDesc.Width = kSize;
+        importDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
+
+        RGResourceDesc halfDesc;
+        halfDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        halfDesc.Format = RGResourceFormat::RGBA16Float;
+        halfDesc.Width = kHalf;
+        halfDesc.Height = kHalf;
+        halfDesc.DebugName = std::string(ResourceNames::FogHalfRes);
+        blackboard.Scratch.FogHalfRes = graph.DeclareTransientFramebuffer(ResourceNames::FogHalfRes, halfDesc);
+
+        FramebufferSpecification outputSpec;
+        outputSpec.Width = kSize;
+        outputSpec.Height = kSize;
+        outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
+        if (!outputFramebuffer)
+        {
+            ADD_FAILURE() << "fog output framebuffer creation failed";
+            return rendered;
+        }
+        blackboard.Post.FogColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::FogColor, fbDesc, outputFramebuffer);
+
+        auto producer = Ref<PatternProducerPass>::Create(grayInput, blitShader);
+        graph.AddNode(producer);
+        graph.AddNode(fog);
+        graph.SetFinalPass("FogPass");
+        graph.BuildFrameGraph();
+
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        SubmitFrame(
+            [&]()
+            {
+                if (!tinyVolumeSeeded)
+                {
+                    // One-time: give the never-sampled sampler3D@53 a real 3D
+                    // view in its descriptor-baked layout.
+                    RenderCommand::ClearTextureFloat(tinyVolume->GetRHIHandle(), 0u, glm::vec4(0.0f));
+                    RHI::Barrier seeded{};
+                    seeded.Resource = tinyVolume->GetRHIHandle();
+                    seeded.Before = RHI::Access::TransferWrite;
+                    seeded.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &seeded, 1 });
+                    tinyVolumeSeeded = true;
+                }
+                RenderCommand::BindTexture(ShaderBindingLayout::TEX_FROXEL_FOG, tinyVolume->GetRHIHandle());
+
+                graph.Execute();
+
+                RHI::Barrier toSampled{};
+                toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_TRUE(producer->DidDraw);
+        EXPECT_TRUE(fog->GetTarget()) << "fog Execute early-returned (input/output/halfres/depth guard)";
+        EXPECT_FALSE(froxel->RanThisFrame()) << "the un-graphed froxel chain must not have dispatched";
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "fog resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                          << "' x" << failure.Count;
+        }
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u) << "producer + half-res fog + upsample composite";
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+        auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+        if (!vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0))
+            ADD_FAILURE() << "fog output readback failed";
+        return rendered;
+    };
+
+    // Density 0.05 over ~100 view units: factor 0.993 — red fog everywhere.
+    const auto fogged = runChain(0.05f);
+    ASSERT_EQ(fogged.size(), static_cast<sizet>(kSize) * kSize * 4);
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 64, 64 }, { 8, 8 }, { 120, 120 } })
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        EXPECT_GE(static_cast<int>(fogged[i]), 245) << "far-field pixels must carry the red fog colour at ("
+                                                    << x << "," << y << ")";
+        EXPECT_LE(static_cast<int>(fogged[i + 1]), 8) << "the gray scene must be almost fully extinguished";
+    }
+
+    // Density 0: transmittance 1, inscatter 0 — exact passthrough.
+    const auto clear = runChain(0.0f);
+    ASSERT_EQ(clear.size(), static_cast<sizet>(kSize) * kSize * 4);
+    u32 maxDiff = 0;
+    for (sizet i = 0; i < clear.size(); i += 4)
+    {
+        for (sizet c = 0; c < 3; ++c)
+        {
+            maxDiff = std::max(maxDiff, static_cast<u32>(std::abs(static_cast<int>(clear[i + c]) - 128)));
+        }
+    }
+    EXPECT_LE(maxDiff, 2u) << "zero density must pass the scene through the two-draw chain untouched";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+// =============================================================================
+// TAA: the history pass — two frames through the RunSinglePassChain harness.
+// Frame 1 declares builder.ExtractHistoryTexture(TAAHistory, output): the
+// graph's FlushExtractions copies the frame's output into the fixture-owned
+// history texture (RegisterHistoryTextureSink — CopyImageSubData on this
+// backend) and flips the sink's valid flag; frame 1's own history bind falls
+// back to the current input (the pass's documented history=current path).
+// Frame 2 imports the extracted history (ImportHistoryHandle) — the copy
+// left it in a TRANSFER layout, so the sample rides the backend's GL-parity
+// bind-time transition seam — and the blend consumes REAL prior content.
+//
+// Contract on a CHECKERBOARD (not a hard-edge pattern: the variance clamp
+// legitimately clips a pixel's own history at a strong edge, so "identical
+// frames == identity" only holds where the neighborhood box contains the
+// value — a checkerboard's 3x3 box always spans both values):
+//   frame 1 (zero velocity, history == current): output == input exactly.
+//   frame 2 over the INVERTED checkerboard: every pixel must land at
+//   mix(current, history, feedback) = 0.1*current + 0.9*history — far from
+//   the no-history result (current), so a dead import, a skipped extract, or
+//   a mis-reprojection all fail by ~52 bytes.
+// =============================================================================
+TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u8 kLow = 96;
+    constexpr u8 kHigh = 160;
+    const auto makeChecker = [&](u32 flip) -> Ref<Texture2D>
+    {
+        std::vector<u8> pixels(static_cast<sizet>(kSize) * kSize * 4);
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                const u8 v = (((x + y) & 1u) == flip) ? kHigh : kLow;
+                const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+                pixels[i + 0] = v;
+                pixels[i + 1] = v;
+                pixels[i + 2] = v;
+                pixels[i + 3] = 255;
+            }
+        }
+        TextureSpecification spec;
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Format = ImageFormat::RGBA8;
+        spec.GenerateMips = false;
+        auto texture = Texture2D::Create(spec);
+        if (texture)
+            texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+        return texture;
+    };
+    auto checkerA = makeChecker(1u); // odd parity high
+    ASSERT_NE(checkerA, nullptr);
+    auto checkerB = makeChecker(0u); // even parity high — A inverted
+    ASSERT_NE(checkerB, nullptr);
+
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto velocityTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // zero motion
+    ASSERT_NE(velocityTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    MotionBlurUBOData motionData{}; // identity — unused on the velocity path
+    auto motionUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    motionUbo->SetData(&motionData, sizeof(motionData));
+
+    // Fixture-owned history storage + validity, the RenderPipeline shape.
+    auto historyTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(historyTexture, nullptr);
+    bool historyValid = false;
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.Velocity =
+            graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), auxDesc);
+        graph.RegisterHistoryTextureSink(ResourceNames::TAAHistory, historyTexture->GetRHIHandle(), kSize, kSize,
+                                         &historyValid);
+        if (historyValid)
+        {
+            blackboard.Temporal.TAAHistory =
+                graph.ImportHistoryHandle(ResourceNames::TAAHistory, historyTexture->GetRHIHandle());
+        }
+    };
+    // The history extract READS the output attachment last — the readback
+    // barrier's source scope must name the copy, not the raster.
+    m_OutputBarrierBefore = RHI::Access::TransferRead;
+
+    const auto runFrame = [&](const Ref<Texture2D>& input) -> std::vector<u8>
+    {
+        auto taa = Ref<TAARenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        taa->Init(initSpec);
+        taa->SetEnabled(true);
+        PostProcessSettings settings{};
+        settings.TAAFeedback = 0.9f;
+        settings.TAASharpness = 0.0f; // the exact-arithmetic contract wants no unsharp term
+        taa->SetSettings(settings);
+
+        auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
+        return RunSinglePassChain(kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.TAAColor = handle; });
+    };
+
+    const auto valueAt = [&](u32 x, u32 y, u32 flip) -> int
+    { return (((x + y) & 1u) == flip) ? kHigh : kLow; };
+
+    // Frame 1: history invalid -> the pass's history=current fallback makes
+    // the resolve an exact identity; the extract fills the history sink.
+    const auto frame1 = runFrame(checkerA);
+    ASSERT_EQ(frame1.size(), static_cast<sizet>(kSize) * kSize * 4);
+    {
+        u32 maxDiff = 0;
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                const int expected = valueAt(x, y, 1u);
+                const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+                maxDiff = std::max(maxDiff,
+                                   static_cast<u32>(std::abs(static_cast<int>(frame1[i]) - expected)));
+            }
+        }
+        EXPECT_LE(maxDiff, 2u) << "frame 1: zero velocity + history==current must resolve to the input";
+    }
+    EXPECT_TRUE(historyValid) << "frame 1 must have extracted TAAColor into the history sink";
+
+    // Frame 2 over the INVERTED checkerboard: current and history disagree at
+    // every pixel, both inside the neighborhood clamp box, so the output is
+    // the pure feedback blend: 0.1*current + 0.9*history.
+    const auto frame2 = runFrame(checkerB);
+    ASSERT_EQ(frame2.size(), static_cast<sizet>(kSize) * kSize * 4);
+    {
+        u32 maxDiff = 0;
+        for (u32 y = 0; y < kSize; ++y)
+        {
+            for (u32 x = 0; x < kSize; ++x)
+            {
+                const f32 current = static_cast<f32>(valueAt(x, y, 0u));
+                const f32 history = static_cast<f32>(valueAt(x, y, 1u));
+                const int expected = static_cast<int>(std::lround(0.1f * current + 0.9f * history));
+                const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+                maxDiff = std::max(maxDiff,
+                                   static_cast<u32>(std::abs(static_cast<int>(frame2[i]) - expected)));
+            }
+        }
+        EXPECT_LE(maxDiff, 3u) << "frame 2 must blend the IMPORTED history at the feedback weight "
+                                  "(current alone here means the extract or the import never happened)";
+    }
+    EXPECT_TRUE(historyValid) << "frame 2 must re-extract for the frame after it";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    m_ExtraSetup = nullptr;
+    m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
+}
+
+// =============================================================================
+// OITResolve: the in-place read-modify-write pass — it renames SceneColor
+// (WriteNewVersion) and composites INTO the framebuffer the producer just
+// drew, with per-attachment blend: attachment 0 enabled via
+// SetBlendStateForAttachment while the FACTORS come from the global
+// SetBlendFunc(OneMinusSrcAlpha, SrcAlpha) — the exact GL glEnablei-vs-
+// glBlendFunci split whose Vulkan lowering this tenant fixed (the recorded
+// state previously diverted the factors to the never-written per-attachment
+// array, i.e. Zero/Zero, whenever the per-attachment ENABLE was set).
+//
+// Contract over a blue background with an imported half-red accum and a
+// split revealage: rows with revealage 0.251 must land at the EXACT
+// weighted-blended composite (avg*(1-r) + bg*r), and rows with revealage 1.0
+// take the shader's discard path — background untouched, byte-exact.
+// =============================================================================
+TEST_F(VulkanPassSuite, OitResolveCompositesAccumOverTheSceneByRevealage)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto backgroundInput = MakeSolidTexture(kSize, 0, 0, 200, 255);
+    ASSERT_NE(backgroundInput, nullptr);
+    // Accum: sum(Ci*ai*wi) = (0.502, 0, 0), sum(ai*wi) = 1 -> average (0.502, 0, 0).
+    auto accumTexture = MakeSolidTexture(kSize, 128, 0, 0, 255);
+    ASSERT_NE(accumTexture, nullptr);
+    // Revealage .r: rows < 64 keep 0.251 of the background; rows >= 64 are
+    // fully revealed (1.0) and must DISCARD.
+    auto revealageTexture = MakeHorizontalSplitTexture(kSize, 64, { 64, 64, 64, 255 }, { 255, 255, 255, 255 });
+    ASSERT_NE(revealageTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+    fbDesc.Width = kSize;
+    fbDesc.Height = kSize;
+    // The RMW target: caller-backed SceneColor — the producer writes it, the
+    // resolve composites into the SAME physical through its renamed version.
+    FramebufferSpecification outputSpec;
+    outputSpec.Width = kSize;
+    outputSpec.Height = kSize;
+    outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(outputSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+    blackboard.Scene.SceneColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, fbDesc, sceneFramebuffer);
+
+    RGResourceDesc importDesc;
+    importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    importDesc.Format = RGResourceFormat::RGBA8UNorm;
+    importDesc.Width = kSize;
+    importDesc.Height = kSize;
+    blackboard.OIT.OITAccum =
+        graph.ImportTextureHandle(ResourceNames::OITAccum, accumTexture->GetRHIHandle(), importDesc);
+    blackboard.OIT.OITRevealage =
+        graph.ImportTextureHandle(ResourceNames::OITRevealage, revealageTexture->GetRHIHandle(), importDesc);
+
+    auto resolve = Ref<OITResolveRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    resolve->Init(initSpec);
+    resolve->SetEnabled(true);
+    resolve->SetHasContributors(true); // the frame-gate a contributor pass normally sets
+
+    auto producer = Ref<PatternProducerPass>::Create(
+        backgroundInput, blitShader, std::string(ResourceNames::SceneColor),
+        std::string(ResourceNames::SceneColorTexture),
+        [](FrameBlackboard& board) -> RGFramebufferHandle&
+        { return board.Scene.SceneColor; });
+    graph.AddNode(producer);
+    graph.AddNode(resolve);
+    graph.SetFinalPass("OITResolvePass");
+    graph.BuildFrameGraph();
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    SubmitFrame(
+        [&]()
+        {
+            graph.Execute();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_TRUE(producer->DidDraw);
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "OIT resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                      << "' x" << failure.Count;
+    }
+    // (OITResolveRenderPass never publishes m_Target — GetTarget() is not a
+    // seam here; the composite READBACK is the execute proof.)
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "producer + one resolve draw";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> rendered;
+    auto* vkOutput = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+    ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const auto px = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
+    };
+    // Blended band: dst' = avg*(1 - r) + dst*r with avg = (0.502, 0, 0),
+    // r = 64/255 = 0.251, dst = (0, 0, 0.784):
+    //   R = 0.502 * 0.749          = 0.376 -> 96
+    //   B = 0.784 * 0.251          = 0.197 -> 50
+    const auto blended = px(64, 32);
+    EXPECT_NEAR(blended[0], 96, 3) << "the accum's average colour must blend in by (1 - revealage)";
+    EXPECT_LE(blended[1], 3);
+    EXPECT_NEAR(blended[2], 50, 3) << "the background must survive by exactly revealage";
+    // Discard band: revealage 1.0 -> the shader discards, background exact.
+    const auto discarded = px(64, 96);
+    EXPECT_EQ(discarded[0], 0) << "full revealage must take the discard path (background untouched)";
+    EXPECT_EQ(discarded[1], 0);
+    EXPECT_NEAR(discarded[2], 200, 1);
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+// =============================================================================
+// DepthVelocityUpscale: the suite's first MRT tenant — one draw with
+// SetDrawBuffers({0, 1}) into a two-attachment backed framebuffer, RT0 the
+// nearest-upscaled depth, RT1 the nearest-upscaled velocity. No producer:
+// both inputs are imported reduced-resolution textures.
+//
+// ENGINE GAP (reported, not fixed here): the production declaration asks for
+// an R32Float colour attachment, but FramebufferTextureFormat has NO
+// single-channel float colour member at all — RenderGraph::ToFramebufferFormat
+// maps RGResourceFormat::R32Float to None, so the POOLED materialization path
+// silently DROPS production's RT0 (UpscaledDepthVelocity becomes a
+// one-attachment FB and the RT1 attachment view dangles). This tenant backs
+// the FB with RG32F for RT0 instead (float depth in .r, exact) and mirrors
+// production's {R32Float, RG16Float} in the DECLARED desc, which caller
+// backing renders inert.
+//
+// Contract: a 64x64 two-band depth/velocity pair lands in the 128x128 output
+// with EXACT per-texel values and a hard band edge at the doubled row — the
+// nearest tap's defining property (a bilinear upsample would invent
+// intermediate depths across the seam, the exact artefact #480 exists to
+// prevent).
+// =============================================================================
+TEST_F(VulkanPassSuite, DepthVelocityUpscaleNearestUpsamplesExactValues)
+{
+    constexpr u32 kSize = 128;
+    constexpr u32 kReduced = kSize / 2;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // Reduced-res stand-ins, split at reduced row 32 (output row 64).
+    auto depthTexture = MakeHorizontalSplitTexture(kReduced, 32, { 200, 200, 200, 255 }, { 50, 50, 50, 255 });
+    ASSERT_NE(depthTexture, nullptr);
+    auto velocityTexture = MakeHorizontalSplitTexture(kReduced, 32, { 10, 240, 0, 255 }, { 80, 30, 0, 255 });
+    ASSERT_NE(velocityTexture, nullptr);
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc importDesc;
+    importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    importDesc.Format = RGResourceFormat::RGBA8UNorm;
+    importDesc.Width = kReduced;
+    importDesc.Height = kReduced;
+    blackboard.Scene.SceneDepth =
+        graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
+    blackboard.GBuffer.Velocity =
+        graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), importDesc);
+
+    FramebufferSpecification outputSpec;
+    outputSpec.Width = kSize;
+    outputSpec.Height = kSize;
+    // RG32F stands in for the unrepresentable R32F (see the header comment);
+    // only .r is asserted. RT1 is the production RG16F.
+    outputSpec.Attachments = { FramebufferTextureFormat::RG32F, FramebufferTextureFormat::RG16F };
+    Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
+    ASSERT_TRUE(outputFramebuffer);
+
+    RGResourceDesc dvDesc;
+    dvDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    dvDesc.Width = kSize;
+    dvDesc.Height = kSize;
+    dvDesc.Attachments = { RGResourceFormat::R32Float, RGResourceFormat::RG16Float }; // production mirror
+    dvDesc.DebugName = std::string(ResourceNames::UpscaledDepthVelocity);
+    blackboard.Post.UpscaledDepthVelocity =
+        graph.DeclareTransientFramebuffer(ResourceNames::UpscaledDepthVelocity, dvDesc, outputFramebuffer);
+
+    auto upscale = Ref<DepthVelocityUpscalePass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    upscale->Init(initSpec);
+    upscale->SetEnabled(true);
+    upscale->SetRenderScale(0.5f);
+
+    graph.AddNode(upscale);
+    graph.SetFinalPass("DepthVelocityUpscalePass");
+    graph.BuildFrameGraph();
+
+    // Setup must have published the full-res views for the post band.
+    EXPECT_TRUE(blackboard.Post.UpscaledSceneDepthTexture.IsValid());
+    EXPECT_TRUE(blackboard.Post.UpscaledVelocityTexture.IsValid());
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    SubmitFrame(
+        [&]()
+        {
+            graph.Execute();
+
+            for (u32 attachment = 0; attachment < 2u; ++attachment)
+            {
+                RHI::Barrier toSampled{};
+                toSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(attachment);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            }
+        });
+
+    EXPECT_TRUE(upscale->GetTarget()) << "DepthVelocityUpscale early-returned (input/output guard)";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "upscale resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                      << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "one MRT2 fullscreen draw, no producer";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+    std::vector<u8> depthBytes;
+    ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(depthBytes, 0));
+    ASSERT_EQ(depthBytes.size(), static_cast<sizet>(kSize) * kSize * 8); // RG32F
+    std::vector<u8> velocityBytes;
+    ASSERT_TRUE(vkOutput->GetColorAttachmentImage(1)->GetData(velocityBytes, 0));
+    ASSERT_EQ(velocityBytes.size(), static_cast<sizet>(kSize) * kSize * 4); // RG16F
+
+    const auto depthAt = [&](u32 x, u32 y) -> f32
+    {
+        const auto* floats = reinterpret_cast<const f32*>(depthBytes.data());
+        return floats[(static_cast<sizet>(y) * kSize + x) * 2];
+    };
+    const auto velocityAt = [&](u32 x, u32 y) -> glm::vec2
+    {
+        const auto* halves = reinterpret_cast<const u16*>(velocityBytes.data());
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 2;
+        return { HalfToFloat(halves[i]), HalfToFloat(halves[i + 1]) };
+    };
+
+    constexpr f32 kNear = 200.0f / 255.0f;
+    constexpr f32 kFar = 50.0f / 255.0f;
+    // Exact values inside each band (UNORM8 decode and the nearest tap are
+    // both exactly-rounded; RT0 is f32 end to end).
+    EXPECT_NEAR(depthAt(20, 20), kNear, 1e-6f);
+    EXPECT_NEAR(depthAt(100, 100), kFar, 1e-6f);
+    // The band edge doubles EXACTLY: output row 63 still reads reduced row 31,
+    // row 64 reads reduced row 32 — no invented intermediate value.
+    EXPECT_NEAR(depthAt(64, 63), kNear, 1e-6f) << "the nearest tap must not blend across the seam";
+    EXPECT_NEAR(depthAt(64, 64), kFar, 1e-6f) << "the nearest tap must not blend across the seam";
+    // Velocity rides RT1 through the same tap (f16 storage tolerance).
+    const glm::vec2 topVelocity = velocityAt(20, 20);
+    EXPECT_NEAR(topVelocity.x, 10.0f / 255.0f, 2e-3f);
+    EXPECT_NEAR(topVelocity.y, 240.0f / 255.0f, 2e-3f);
+    const glm::vec2 bottomVelocity = velocityAt(100, 100);
+    EXPECT_NEAR(bottomVelocity.x, 80.0f / 255.0f, 2e-3f);
+    EXPECT_NEAR(bottomVelocity.y, 30.0f / 255.0f, 2e-3f);
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+}
+
+// =============================================================================
+// SSR: the pass-owned min-HZB is (re)built by COMPUTE inside Execute
+// (HZBGenerator::Generate — dispatches + its own barriers, the Wave B
+// HZBParams@59 per-dispatch route), then one fullscreen draw consumes five
+// samplers (scene colour, depth, G-Buffer normal + albedo, the HZB) under
+// SSRParams@38.
+//
+// Contract — the documented FLOOR: Intensity 0 makes the final blend factor
+// exactly 0, so the output must equal the input byte-for-byte WHILE the full
+// machinery still runs (non-sky depth + low roughness keep every early-out
+// closed: the HiZ march, the binary search and the HZB compute chain all
+// execute — zero stubs / zero validation errors is the proof). The
+// mirror-plane contract (a known emitter reflected onto a known receiver)
+// needs oct-encoded tilted normals and a two-wall depth field whose reflected
+// rays land on-screen — deferred to the wave's hardening slice; this floor
+// pins the machinery and the intensity lever's OFF side.
+// =============================================================================
+TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    const std::vector<f32> pattern = MakeHardEdgePattern(kSize);
+    std::vector<u8> patternRgba8(static_cast<sizet>(kSize) * kSize * 4);
+    for (sizet i = 0; i < patternRgba8.size(); ++i)
+        patternRgba8[i] = static_cast<u8>(std::lround(std::clamp(pattern[i], 0.0f, 1.0f) * 255.0f));
+    TextureSpecification patternSpec;
+    patternSpec.Width = kSize;
+    patternSpec.Height = kSize;
+    patternSpec.Format = ImageFormat::RGBA8;
+    patternSpec.GenerateMips = false;
+    auto patternTexture = Texture2D::Create(patternSpec);
+    ASSERT_NE(patternTexture, nullptr);
+    patternTexture->SetData(patternRgba8.data(), static_cast<u32>(patternRgba8.size()));
+
+    auto depthTexture = MakeSolidTexture(kSize, 128, 128, 128, 255); // mid depth — NOT sky
+    ASSERT_NE(depthTexture, nullptr);
+    auto normalTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // oct(0,0) -> +Z, roughness 0
+    ASSERT_NE(normalTexture, nullptr);
+    auto albedoTexture = MakeSolidTexture(kSize, 200, 200, 200, 0); // metallic 0
+    ASSERT_NE(albedoTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.GBufferNormal =
+            graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.GBufferAlbedo =
+            graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), auxDesc);
+    };
+
+    auto ssr = Ref<SSRRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    ssr->Init(initSpec); // compiles PostProcess_SSR + brings up the min-HZB generator
+    ssr->SetEnabled(true);
+
+    SSRUBOData ssrData{};
+    ssrData.Projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    ssrData.InverseProjection = glm::inverse(ssrData.Projection);
+    ssrData.View = glm::mat4(1.0f);
+    ssrData.RayParams = glm::vec4(32.0f, 10.0f, 0.5f, 0.25f);
+    ssrData.ShadeParams = glm::vec4(0.0f, 0.6f, 0.1f, 4.0f); // Intensity 0 — the passthrough lever
+    ssrData.ScreenParams = glm::vec4(static_cast<f32>(kSize), static_cast<f32>(kSize),
+                                     1.0f / static_cast<f32>(kSize), 1.0f / static_cast<f32>(kSize));
+    ssrData.Flags = glm::vec4(0.0f);
+    const glm::vec2 hzbUVFactor = ssr->GetHZBUVFactor();
+    ssrData.HZBParams = glm::vec4(hzbUVFactor.x, hzbUVFactor.y, static_cast<f32>(ssr->GetHZBMipCount()), 1.0f);
+    auto ssrUbo = UniformBuffer::Create(sizeof(SSRUBOData), 38);
+    ssrUbo->SetData(&ssrData, sizeof(ssrData));
+    ssr->SetSSRUBO(ssrUbo);
+
+    auto producer = Ref<PatternProducerPass>::Create(
+        patternTexture, blitShader, std::string(ResourceNames::SceneColor),
+        std::string(ResourceNames::SceneColorTexture),
+        [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
+        { return blackboard.Scene.SceneColor; });
+    const auto rendered = RunSinglePassChain(kSize, producer, ssr, "SSRPass", ResourceNames::SSRColor,
+                                             [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                             { blackboard.Post.SSRColor = handle; });
+    ASSERT_EQ(rendered.size(), patternRgba8.size());
+
+    u32 maxDiff = 0;
+    for (sizet i = 0; i < rendered.size(); i += 4)
+    {
+        for (sizet c = 0; c < 3; ++c)
+        {
+            maxDiff = std::max(maxDiff, static_cast<u32>(std::abs(static_cast<int>(rendered[i + c]) -
+                                                                  static_cast<int>(patternRgba8[i + c]))));
+        }
+    }
+    EXPECT_LE(maxDiff, 2u) << "Intensity 0 must pass the scene through while the march + HZB chain run";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u)
+        << "the in-Execute HZB compute chain (Resize/Generate dispatches) must not fall through to a stub";
+    m_ExtraSetup = nullptr;
+}
+
+// =============================================================================
+// UIComposite: ClearAllAttachments over a mixed float/int MRT (this suite's
+// sibling VulkanFramebuffer::ClearAllAttachments implementation exists for
+// exactly this call — per-attachment transfer clears with exact layout-run
+// transitions, entity-ID attachment to -1), then the FullscreenBlit of the
+// upstream scene, then the one-shot 2D overlay callback under standard alpha
+// blending.
+//
+// Contract: the blit must land the background exactly where the callback's
+// half-alpha overlay does not change it fully — out = overlay*a + bg*(1-a),
+// exact arithmetic — and the R32I entity attachment must read back -1
+// everywhere (the clear is real, and the narrowed SetDrawBuffers({0}) scope
+// kept both blended draws off the integer attachment).
+// =============================================================================
+TEST_F(VulkanPassSuite, UiCompositeClearsBlitsAndBlendsTheOverlayCallback)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto backgroundInput = MakeSolidTexture(kSize, 0, 0, 200, 255);
+    ASSERT_NE(backgroundInput, nullptr);
+    auto overlayTexture = MakeSolidTexture(kSize, 255, 0, 0, 128); // half-alpha red
+    ASSERT_NE(overlayTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    fbDesc.Format = RGResourceFormat::RGBA8UNorm;
+    fbDesc.Width = kSize;
+    fbDesc.Height = kSize;
+    blackboard.Post.PostProcessColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::PostProcessColor, fbDesc);
+
+    // Production's UIComposite target shape: colour + entity-ID + RG16F.
+    FramebufferSpecification outputSpec;
+    outputSpec.Width = kSize;
+    outputSpec.Height = kSize;
+    outputSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
+                               FramebufferTextureFormat::RG16F };
+    Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
+    ASSERT_TRUE(outputFramebuffer);
+    RGResourceDesc uiDesc;
+    uiDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    uiDesc.Width = kSize;
+    uiDesc.Height = kSize;
+    uiDesc.Attachments = { RGResourceFormat::RGBA8UNorm, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+    uiDesc.DebugName = std::string(ResourceNames::UIComposite);
+    blackboard.Post.UIComposite =
+        graph.DeclareTransientFramebuffer(ResourceNames::UIComposite, uiDesc, outputFramebuffer);
+
+    auto uiComposite = Ref<UICompositeRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    uiComposite->Init(initSpec);
+    bool callbackRan = false;
+    uiComposite->SetRenderCallback(
+        [&]()
+        {
+            // The arbitrary blended 2D overlay: a half-alpha red fullscreen
+            // blit through the same facade path Renderer2D uses.
+            callbackRan = true;
+            blitShader->Bind();
+            RenderCommand::BindTexture(0, overlayTexture->GetRHIHandle());
+            const auto va = MeshPrimitives::GetFullscreenTriangle();
+            va->Bind();
+            RenderCommand::DrawIndexed(va);
+        });
+
+    auto producer = Ref<PatternProducerPass>::Create(backgroundInput, blitShader);
+    graph.AddNode(producer);
+    graph.AddNode(uiComposite);
+    graph.SetFinalPass("UICompositePass");
+    graph.BuildFrameGraph();
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    SubmitFrame(
+        [&]()
+        {
+            graph.Execute();
+
+            RHI::Barrier colorToSampled{};
+            colorToSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(0);
+            colorToSampled.Before = RHI::Access::ColorAttachmentWrite;
+            colorToSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &colorToSampled, 1 });
+            // The entity attachment was only transfer-CLEARED (the narrowed
+            // draw-buffer scope never contained it).
+            RHI::Barrier entityToSampled{};
+            entityToSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(1);
+            entityToSampled.Before = RHI::Access::TransferWrite;
+            entityToSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &entityToSampled, 1 });
+        });
+
+    EXPECT_TRUE(producer->DidDraw);
+    EXPECT_TRUE(callbackRan) << "Execute must invoke the one-shot overlay callback";
+    EXPECT_TRUE(uiComposite->GetTarget()) << "UIComposite early-returned (output resolve guard)";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "UIComposite resolve failure: pass='" << failure.PassName << "' reason='"
+                      << failure.Reason << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u) << "producer + background blit + overlay draw";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
+    std::vector<u8> rendered;
+    ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    // out = overlay * a + background * (1 - a), a = 128/255:
+    //   R = 1.0   * 0.502 = 0.502 -> 128
+    //   B = 0.784 * 0.498 = 0.390 -> 100
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 16, 16 }, { 64, 64 }, { 110, 110 } })
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        EXPECT_NEAR(static_cast<int>(rendered[i]), 128, 3) << "overlay red at (" << x << "," << y << ")";
+        EXPECT_LE(static_cast<int>(rendered[i + 1]), 3);
+        EXPECT_NEAR(static_cast<int>(rendered[i + 2]), 100, 3) << "background blue at (" << x << "," << y << ")";
+    }
+
+    // The R32I entity attachment reads back the -1 clear everywhere probed.
+    std::vector<u8> entityBytes;
+    ASSERT_TRUE(vkOutput->GetColorAttachmentImage(1)->GetData(entityBytes, 0));
+    ASSERT_EQ(entityBytes.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.data());
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 0, 0 }, { 64, 64 }, { 127, 127 } })
+    {
+        EXPECT_EQ(entityIds[static_cast<sizet>(y) * kSize + x], -1)
+            << "ClearAllAttachments must clear the integer attachment to the -1 sentinel at (" << x << "," << y
+            << ")";
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u)
+        << "the mixed int/float clear must ride the real ClearAllAttachments implementation";
 }
 
 #endif // OLO_WITH_VULKAN

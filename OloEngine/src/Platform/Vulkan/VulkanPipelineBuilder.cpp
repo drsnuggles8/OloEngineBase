@@ -472,6 +472,7 @@ namespace OloEngine
             for (u32 i = 0; i < safeTargets.ColorCount; ++i)
             {
                 blendHash = HashCombine(blendHash, state.AttachmentBlend[i] ? 1u : 0u);
+                blendHash = HashCombine(blendHash, state.AttachmentBlendFuncSet[i] ? 1u : 0u);
                 blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendSrc[i]));
                 blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendDst[i]));
                 blendHash = HashCombine(blendHash, state.AttachmentColorMask[i]);
@@ -565,15 +566,18 @@ namespace OloEngine
                 // dynamic path in FlushDynamicState — the two lowering routes
                 // must produce identical blend behaviour for one recorded
                 // state, and every field read here is in BakedBlendHash.
-                const bool useAttachment = state.AttachmentBlend[i];
-                attachment.blendEnable = (useAttachment || state.Blend) ? VK_TRUE : VK_FALSE;
-                attachment.srcColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
-                attachment.dstColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstRGB);
+                // ENABLE and FUNC divert independently (GL parity, see the
+                // AttachmentBlendFuncSet comment): glEnablei alone keeps the
+                // GLOBAL blend func; only glBlendFunci diverts the factors.
+                const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
+                attachment.blendEnable = (state.AttachmentBlend[i] || state.Blend) ? VK_TRUE : VK_FALSE;
+                attachment.srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
+                attachment.dstColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstRGB);
                 attachment.colorBlendOp = ToVk(state.BlendEquation);
                 attachment.srcAlphaBlendFactor =
-                    ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha);
+                    ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha);
                 attachment.dstAlphaBlendFactor =
-                    ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstAlpha);
+                    ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstAlpha);
                 attachment.alphaBlendOp = ToVk(state.BlendEquation);
                 const VkColorComponentFlags globalMask = (state.ColorMask[0] ? VK_COLOR_COMPONENT_R_BIT : 0u) |
                                                          (state.ColorMask[1] ? VK_COLOR_COMPONENT_G_BIT : 0u) |
@@ -713,17 +717,20 @@ namespace OloEngine
             for (u32 i = 0; i < colorCount; ++i)
             {
                 // Per-attachment state where the pass set it, the global
-                // recorded state otherwise (AttachmentBlendSrc/Dst default to
-                // enum 0 — only meaningful when AttachmentBlend[i] is true).
-                const bool useAttachment = state.AttachmentBlend[i];
-                const bool enabled = useAttachment || state.Blend;
+                // recorded state otherwise. ENABLE and FUNC divert
+                // independently (GL parity, see the AttachmentBlendFuncSet
+                // comment): glEnablei alone keeps the GLOBAL blend func; only
+                // glBlendFunci diverts the factors — AttachmentBlendSrc/Dst
+                // are meaningful only when AttachmentBlendFuncSet[i] is true.
+                const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
+                const bool enabled = state.AttachmentBlend[i] || state.Blend;
                 enables[i] = enabled ? VK_TRUE : VK_FALSE;
                 equations[i] = {
-                    .srcColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB),
-                    .dstColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstRGB),
+                    .srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB),
+                    .dstColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstRGB),
                     .colorBlendOp = ToVk(state.BlendEquation),
-                    .srcAlphaBlendFactor = ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha),
-                    .dstAlphaBlendFactor = ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstAlpha),
+                    .srcAlphaBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha),
+                    .dstAlphaBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstAlpha),
                     .alphaBlendOp = ToVk(state.BlendEquation),
                 };
                 writeMasks[i] = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]) & globalMask;

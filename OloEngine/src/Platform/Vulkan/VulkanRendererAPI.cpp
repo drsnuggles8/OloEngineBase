@@ -661,6 +661,10 @@ namespace OloEngine
         m_State.BlendDstRGB = dfactor;
         m_State.BlendSrcAlpha = sfactor;
         m_State.BlendDstAlpha = dfactor;
+        // glBlendFunc overwrites EVERY buffer's func in GL — the recorded
+        // per-attachment funcs must stop diverting (see the struct comment).
+        for (bool& funcSet : m_State.AttachmentBlendFuncSet)
+            funcSet = false;
     }
     void VulkanRendererAPI::SetBlendFuncSeparate(const RHI::BlendFactor srcRGB, const RHI::BlendFactor dstRGB,
                                                  const RHI::BlendFactor srcAlpha, const RHI::BlendFactor dstAlpha)
@@ -669,6 +673,9 @@ namespace OloEngine
         m_State.BlendDstRGB = dstRGB;
         m_State.BlendSrcAlpha = srcAlpha;
         m_State.BlendDstAlpha = dstAlpha;
+        // Same glBlendFuncSeparate global-overwrite semantics as SetBlendFunc.
+        for (bool& funcSet : m_State.AttachmentBlendFuncSet)
+            funcSet = false;
     }
     void VulkanRendererAPI::SetBlendEquation(const RHI::BlendOp mode)
     {
@@ -783,6 +790,7 @@ namespace OloEngine
             return;
         m_State.AttachmentBlendSrc[attachment] = src;
         m_State.AttachmentBlendDst[attachment] = dst;
+        m_State.AttachmentBlendFuncSet[attachment] = true; // glBlendFunci semantics
     }
     void VulkanRendererAPI::SetPatchVertexCount(const u32 patchVertices)
     {
@@ -1216,6 +1224,18 @@ namespace OloEngine
             Phase6Stub("Clear(outside recording bracket)");
             return;
         }
+        // GL clears the BOUND framebuffer — but the rendering scope switches
+        // lazily at the next draw, so after a mid-pass Bind() the live scope
+        // still holds the PREVIOUS target. Clearing "the live scope" then
+        // wipes the output the pass just drew (the bloom mip ladder, JFA
+        // ping-pong, fog/cloud half-res chains all Bind(); Clear(); draw;
+        // — found by #691 Phase 7 Wave A: every intra-pass consumer sampled
+        // its producer's CLEAR). A scope on a stale target ends here and the
+        // clear folds into the NEW target's first-draw loadOp.
+        if (m_Scope.Active && m_Scope.Target != VulkanBindingState::Get().GetCurrentFramebuffer())
+        {
+            EndRenderingScope();
+        }
         if (!m_Scope.Active)
         {
             // Folds into the next scope begin's loadOp (the GL clear-then-
@@ -1262,6 +1282,12 @@ namespace OloEngine
         {
             Phase6Stub("ClearDepthOnly(outside recording bracket)");
             return;
+        }
+        // Same stale-scope guard as Clear(): GL clears the BOUND framebuffer,
+        // never the lazily-switched previous scope target.
+        if (m_Scope.Active && m_Scope.Target != VulkanBindingState::Get().GetCurrentFramebuffer())
+        {
+            EndRenderingScope();
         }
         if (!m_Scope.Active)
         {
@@ -1475,6 +1501,83 @@ namespace OloEngine
         {
             bindingState.SetTextureHeapSlot(slot, VulkanBindingState::kNoHeapSlot);
             return;
+        }
+
+        // GL-parity mid-pass visibility (#691 Phase 7 Wave A): GL makes a
+        // just-rendered (or just-copied) image visible to a later texture()
+        // with NO application barrier, so pass bodies sample an attachment
+        // they drew two draws ago without saying anything — the bloom mip
+        // ladder, the JFA ping-pong, fog's and cloudscape's half-res
+        // write-then-sample all do exactly this inside ONE Execute, where the
+        // graph's per-pass planner barriers cannot reach. Without this seam
+        // the sample raced the raster and read the PRE-draw content (the
+        // clear), while the baked SHADER_READ_ONLY descriptor lied about the
+        // image's actual ATTACHMENT/TRANSFER layout. Transition exactly the
+        // layout runs a previous command produced, at bind time, scope-ended
+        // first (the ClearTextureFloat shape). GENERAL is deliberately left
+        // alone: compute store-then-sample chains keep their images in
+        // GENERAL on purpose (storage descriptors bake it; the Wave B
+        // documented debt) and transitioning here would break the write half.
+        if (m_Cmd != VK_NULL_HANDLE)
+        {
+            const u32 mipCount = std::max(info->MipLevels, 1u);
+            const u32 layerCount = std::max(info->ArrayLayers, 1u);
+            m_LayoutTracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId, info->InitialLayout);
+
+            VkImageSubresourceRange whole{};
+            whole.aspectMask = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+            whole.baseMipLevel = 0;
+            whole.levelCount = VK_REMAINING_MIP_LEVELS;
+            whole.baseArrayLayer = 0;
+            whole.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+            std::vector<VkImageMemoryBarrier2> toSampled;
+            m_LayoutTracker.ForEachLayoutRun(
+                image, whole,
+                [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
+                {
+                    const bool producedByPriorCommand =
+                        trackedLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                    if (!producedByPriorCommand)
+                        return;
+
+                    VkImageMemoryBarrier2 b{};
+                    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                    // Conservative all-stage scopes: the producer may be
+                    // raster, a transfer, or the harness — over-sync beats a
+                    // silent race on a correctness seam.
+                    b.srcStageMask = kAllStages;
+                    b.srcAccessMask = kAllAccess;
+                    b.dstStageMask = kAllStages;
+                    b.dstAccessMask = kAllAccess;
+                    b.oldLayout = trackedLayout;
+                    b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    b.image = image;
+                    b.subresourceRange = run;
+                    toSampled.push_back(b);
+                });
+            if (!toSampled.empty())
+            {
+                // vkCmdPipelineBarrier2 is illegal inside a rendering scope;
+                // ending here also closes the scope that RENDERED the runs
+                // being transitioned (the JFA/bloom shape: the source's scope
+                // is still open when the next iteration binds it).
+                EndRenderingScope();
+                VkDependencyInfo dep{};
+                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dep.imageMemoryBarrierCount = static_cast<u32>(toSampled.size());
+                dep.pImageMemoryBarriers = toSampled.data();
+                vkCmdPipelineBarrier2(m_Cmd, &dep);
+                for (const auto& b : toSampled)
+                {
+                    m_LayoutTracker.SetLayout(image, b.subresourceRange, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                }
+            }
         }
 
         // Default whole-image sampled view. Depth-stencil formats sample the

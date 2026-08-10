@@ -1530,9 +1530,41 @@ namespace OloEngine
 
     void VulkanFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)
     {
-        (void)clearColor;
-        (void)entityIdClear;
-        OLO_VK_PHASE6_STUB("VulkanFramebuffer::ClearAllAttachments");
+        // GL-parity semantics (OpenGLFramebuffer::ClearAllAttachments): every
+        // float colour attachment clears to `clearColor`, every RED_INTEGER
+        // attachment to `entityIdClear`, the depth attachment to 1.0 (stencil
+        // 0). Routed through the facade's transfer clears — each resolves the
+        // attachment via the registries, ends the rendering scope first, and
+        // issues exact per-layout-run transitions through the layout tracker
+        // (the ClearTextureFloat/UInt shape), so the tracker stays true for
+        // whatever samples or renders these attachments next (#691 Phase 7
+        // Wave A — UICompositePass's mixed int/float clear is the first
+        // caller on this backend).
+        for (sizet i = 0; i < m_ColorAttachmentSpecifications.size() && i < m_ColorAttachments.size(); ++i)
+        {
+            if (!m_ColorAttachments[i])
+                continue;
+            const RHI::ResourceHandle attachment = m_ColorAttachments[i]->GetRHIHandle();
+            if (m_ColorAttachmentSpecifications[i].TextureFormat == FramebufferTextureFormat::RED_INTEGER)
+            {
+                // vkCmdClearColorImage on an SINT image reads the int32 union
+                // lanes; the uint clear writes the same bit pattern, so the
+                // cast is bit-exact for the -1 sentinel and every other id.
+                RenderCommand::ClearTextureUInt(attachment, 0u, static_cast<u32>(entityIdClear));
+            }
+            else
+            {
+                RenderCommand::ClearTextureFloat(attachment, 0u, clearColor);
+            }
+        }
+
+        if (m_DepthAttachment)
+        {
+            // ClearTextureFloat's depth path clears depth = color.r, stencil 0
+            // — the GL twin's glClearDepth(1.0) / glClearStencil(0) pair.
+            RenderCommand::ClearTextureFloat(m_DepthAttachment->GetRHIHandle(), 0u,
+                                             glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+        }
     }
 
     RHI::ResourceHandle VulkanFramebuffer::GetColorAttachmentHandle(u32 index) const
