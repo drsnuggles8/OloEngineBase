@@ -16,6 +16,9 @@ namespace OloEngine
     //   - the culling compute (LightCulling.comp, textual mirror),
     //   - fragment consumption (ForwardPlusCommon.glsl, textual mirror),
     //   - the froxel-fog compute passes (same slice formula, own grid dims),
+    //   - the reflection-probe cluster cull + lookup (issue #705:
+    //     ReflectionProbeCull.comp and include/ReflectionProbes.glsl's
+    //     oloProbeClusterMask, textual mirrors on the same grid),
     //   - the CPU contract tests (ClusteredLightingMathTest.cpp).
     //
     // Slice k spans view depth [near·(far/near)^(k/Z), near·(far/near)^((k+1)/Z)];

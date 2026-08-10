@@ -240,6 +240,11 @@ layout(std140, binding = 6) uniform ShadowData {
 #define FPLUS_ATLAS_SHADOWS 1
 #include "include/ForwardPlusCommon.glsl"
 
+// Distance-impostor reflection probes (issue #705) — see PBR_MultiLight.glsl
+// for the slot-based rationale.
+#define OLO_REFLECTION_PROBE_SAMPLERS
+#include "include/ReflectionProbes.glsl"
+
 // =============================================================================
 // INPUT/OUTPUT
 // =============================================================================
@@ -406,11 +411,22 @@ void main()
         Lo += lightContrib;
     }
 
-    // Calculate ambient lighting
+    // Calculate ambient lighting. The specular source is parallax-corrected
+    // by the distance-impostor probes exactly like PBR_MultiLight.glsl and
+    // the deferred path (issue #705) — skinned meshes are probe RECEIVERS
+    // even though they are absent from the baked distance fields.
     vec3 ambient = vec3(0.0);
     if (u_EnableIBL == 1)
     {
-        ambient = calculateIBL(N, V, albedo, metallic, roughness, u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
+        vec3 R = reflect(-V, N);
+        vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+        float probeViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
+        vec4 probeSpecular = oloSampleReflectionProbes(v_WorldPos, N, R,
+                                                       roughness * MAX_REFLECTION_LOD, probeViewDepth);
+        prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
+
+        ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
+                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
         ambient *= u_IBLIntensity;
     }
     else

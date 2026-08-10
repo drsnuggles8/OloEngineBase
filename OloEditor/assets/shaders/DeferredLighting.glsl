@@ -133,6 +133,13 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 #define FPLUS_ATLAS_SHADOWS 1
 #include "include/ForwardPlusCommon.glsl"
 
+// Distance-impostor reflection probes (issue #705). The two cube-array slots
+// (14/15) stay slot-based in BOTH variants on purpose: ReflectionProbeArray
+// publishes them via PublishTextureOffsetAndBind (offset staged AND real bind
+// issued), the DDGI-atlas pattern the bindless pipeline test allowlists.
+#define OLO_REFLECTION_PROBE_SAMPLERS
+#include "include/ReflectionProbes.glsl"
+
 // G-Buffer samplers (non-MSAA variant).
 #ifdef OLO_BINDLESS
 #define u_GBufferAlbedo   OLO_HEAP_TEX_2D(43)  // TEX_GBUFFER_ALBEDO

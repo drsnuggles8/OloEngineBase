@@ -6513,8 +6513,10 @@ namespace OloEngine
 
         std::vector<ReflectionProbeRef> probeRefs;
         std::vector<const ReflectionProbeComponent*> probePtrs;
+        std::vector<ReflectionProbeRenderData> renderProbes;
         probeRefs.reserve(8);
         probePtrs.reserve(8);
+        renderProbes.reserve(8);
 
         for (auto entity : view)
         {
@@ -6525,7 +6527,28 @@ namespace OloEngine
             }
             probeRefs.push_back({ transform.Translation, probe.m_InfluenceRadius });
             probePtrs.push_back(&probe);
+
+            ReflectionProbeRenderData renderData;
+            renderData.Position = transform.Translation;
+            renderData.InfluenceRadius = probe.m_InfluenceRadius;
+            renderData.BlendDistance = probe.m_BlendDistance;
+            renderData.Intensity = probe.m_Intensity;
+            renderData.Environment = probe.m_BakedEnvironment;
+            renderProbes.push_back(std::move(renderData));
         }
+
+        // Per-pixel specular path (issue #705): hand the frame's probe set to
+        // the array manager, nearest-to-camera first so the MAX_PROBES cap
+        // drops the least relevant probes. Submitted unconditionally (an
+        // empty set clears last frame's probes).
+        std::sort(renderProbes.begin(), renderProbes.end(),
+                  [&cameraPosition](const ReflectionProbeRenderData& a, const ReflectionProbeRenderData& b)
+                  {
+                      glm::vec3 const da = a.Position - cameraPosition;
+                      glm::vec3 const db = b.Position - cameraPosition;
+                      return glm::dot(da, da) < glm::dot(db, db);
+                  });
+        Renderer3D::GetReflectionProbes().SetProbes(std::move(renderProbes));
 
         i32 const winner = SelectDominantReflectionProbe(cameraPosition, probeRefs);
         if (winner < 0)
@@ -6535,12 +6558,31 @@ namespace OloEngine
 
         auto const* bestProbe = probePtrs[static_cast<sizet>(winner)];
         auto const& envMap = bestProbe->m_BakedEnvironment;
-        Renderer3D::SetGlobalIBL(
-            envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRHIHandle() : RHI::NullResource,
-            envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
-            envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
-            envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
-            bestProbe->m_Intensity);
+
+        // The dominant-probe override is now DIFFUSE-ONLY when a global
+        // environment exists: the specular half moved to the per-pixel probe
+        // arrays, and overriding the prefilter map too would make the
+        // probe-miss fallback the dominant probe's own radiance instead of
+        // the sky — breaking the SSR -> probe raymarch -> sky ladder. In a
+        // scene with NO global IBL (indoor-only, no environment map) the
+        // full-trio override is kept so probes still supply a prefilter +
+        // BRDF LUT and the IBL path lights up at all.
+        if (Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
+            Renderer3D::GetGlobalBRDFLutMapHandle().IsValid())
+        {
+            Renderer3D::OverrideGlobalIrradiance(
+                envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRHIHandle() : RHI::NullResource,
+                bestProbe->m_Intensity);
+        }
+        else
+        {
+            Renderer3D::SetGlobalIBL(
+                envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRHIHandle() : RHI::NullResource,
+                envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
+                envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
+                envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
+                bestProbe->m_Intensity);
+        }
     }
 
     // Helper: obtain the shadow VAO RHI::ResourceHandle from a Mesh (returns 0 if unavailable).

@@ -100,6 +100,11 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 #define FPLUS_ATLAS_SHADOWS 1
 #include "include/ForwardPlusCommon.glsl"
 
+// Distance-impostor reflection probes (issue #705) — slot-based like the
+// rest of this variant; published by ReflectionProbeArray::BindForShading.
+#define OLO_REFLECTION_PROBE_SAMPLERS
+#include "include/ReflectionProbes.glsl"
+
 // G-Buffer samplers — MSAA variant uses sampler2DMS (no implicit filtering;
 // must use texelFetch per-sample).
 layout(binding = 43) uniform sampler2DMS u_GBufferAlbedo;

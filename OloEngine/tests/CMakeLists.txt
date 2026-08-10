@@ -91,6 +91,7 @@ add_executable(OloEngine-Tests
 		Rendering/FrustumCullingTest.cpp
 		Rendering/RendererSettingsBootstrapTest.cpp
 		Rendering/ReflectionProbeSelectionTest.cpp
+		Rendering/ReflectionProbeDistanceFieldTest.cpp
 		Rendering/PlanarReflectionMathTest.cpp
 		Rendering/CameraRelativeTest.cpp
 		Rendering/Renderer2DCameraRelativeTest.cpp
@@ -263,6 +264,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ReflectionProbeParallaxVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
 		Rendering/DDGI/DDGIVisualEvidenceTest.cpp
 		Rendering/PathTracing/DDGIReferenceParityTest.cpp

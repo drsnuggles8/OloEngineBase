@@ -4,19 +4,27 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/ReflectionProbeDistanceField.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -71,7 +79,8 @@ namespace OloEngine
 
     Ref<TextureCubemap> ReflectionProbeBaker::CaptureSceneCubemap(Ref<Scene>& scene,
                                                                   const glm::vec3& position,
-                                                                  u32 resolution)
+                                                                  u32 resolution,
+                                                                  std::vector<DDGIMeshCaster>* casterSink)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -154,7 +163,23 @@ namespace OloEngine
         // frame to settle into the reallocated targets). Without this every
         // captured face is black even though RenderScene3D works fine at the
         // unchanged live-view size.
+        //
+        // The warm-up render doubles as the caster-collection pass for the
+        // distance capture: the scene's mesh submission is registry-driven
+        // (not frustum-culled on the CPU), so ONE render enumerates every
+        // opaque caster regardless of which face the camera looks at. The
+        // guard clears the sink pointer on every exit so a throw inside
+        // RenderScene3D can never leave Renderer3D pointing at a dead vector.
         {
+            struct AuxSinkGuard
+            {
+                ~AuxSinkGuard()
+                {
+                    Renderer3D::SetAuxCasterSink(nullptr);
+                }
+            } sinkGuard;
+            Renderer3D::SetAuxCasterSink(casterSink);
+
             glm::mat4 const warmView = glm::inverse(glm::lookAt(position, position + s_FaceTargets[0], s_FaceUps[0]));
             scene->RenderScene3D(captureCamera, warmView);
         }
@@ -217,6 +242,146 @@ namespace OloEngine
         return cubemap;
     }
 
+    Ref<ReflectionProbeDistanceField> ReflectionProbeBaker::CaptureDistanceField(const std::vector<DDGIMeshCaster>& casters,
+                                                                                 const glm::vec3& position)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Per-draw UBO — GLSL twin: ProbeDistanceCaptureData (binding 7) in
+        // ReflectionProbe_Distance.glsl.
+        struct ProbeDistanceCaptureUBO
+        {
+            glm::mat4 Model;
+            glm::vec4 ProbePosition;
+        };
+
+        constexpr u32 kRes = kProbeDistanceResolution;
+
+        FramebufferSpecification spec;
+        spec.Width = kRes;
+        spec.Height = kRes;
+        spec.Attachments = { FramebufferTextureFormat::RG32F, FramebufferTextureFormat::ShadowDepth };
+        auto fbo = Framebuffer::Create(spec);
+        auto shader = Shader::Create("assets/shaders/ReflectionProbe_Distance.glsl");
+        if (!fbo || !shader)
+        {
+            OLO_CORE_ERROR("ReflectionProbeBaker: distance-capture FBO or shader unavailable");
+            return nullptr;
+        }
+        auto cameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+        auto passUBO = UniformBuffer::Create(sizeof(ProbeDistanceCaptureUBO), ShaderBindingLayout::UBO_USER_0);
+
+        // Everything below runs in ABSOLUTE world space: the face cameras sit
+        // at the world probe position and the caster transforms are absolute
+        // (DDGIMeshCaster contract), so no render-origin shift is involved —
+        // radial distances are origin-independent anyway.
+        glm::mat4 const proj = glm::perspective(glm::radians(90.0f), 1.0f, kProbeDistanceNear, kProbeDistanceFar);
+
+        std::vector<f32> fieldData(static_cast<sizet>(kRes) * kRes * 6u, kProbeDistanceFar);
+        std::vector<f32> rgReadback(static_cast<sizet>(kRes) * kRes * 2u);
+        sizet const faceBytes = rgReadback.size() * sizeof(f32);
+
+        // Deliberate restore as a scope guard (no GLStateGuard here — see
+        // docs/agent-rules/render-pass-published-state.md) so it also runs if
+        // a face capture throws: unbind the FBO, undo the cull flip, put the
+        // pre-capture viewport back, and re-establish the engine camera UBO.
+        // The bind cache must be invalidated FIRST or BindUBOIfNeeded thinks
+        // the camera binding never changed and skips the re-bind.
+        struct CaptureStateGuard
+        {
+            Ref<Framebuffer>& m_Fbo;
+            Viewport m_PrevViewport;
+            ~CaptureStateGuard()
+            {
+                m_Fbo->Unbind();
+                RenderCommand::EnableCulling();
+                RenderCommand::SetViewport(m_PrevViewport.x, m_PrevViewport.y,
+                                           m_PrevViewport.width, m_PrevViewport.height);
+                CommandDispatch::InvalidateRenderStateCache();
+                CommandDispatch::UploadCameraUBO();
+            }
+        } stateGuard{ fbo, RenderCommand::GetViewport() };
+
+        fbo->Bind();
+        RenderCommand::SetViewport(0, 0, kRes, kRes);
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::SetBlendState(false);
+        // Backfaces must render: a probe looking at single-sided geometry
+        // from behind still needs the surface's distance, not a see-through.
+        RenderCommand::DisableCulling();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetColorMask(true, true, true, true);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
+
+        shader->Bind();
+        cameraUBO->Bind();
+        passUBO->Bind();
+
+        RHI::ResourceHandle const colorAttachment = fbo->GetColorAttachmentHandle(0);
+        bool readbackOk = true;
+        for (u32 face = 0; face < 6; ++face)
+        {
+            // Un-covered texels keep the clear value == the miss sentinel of
+            // the encoding contract (ReflectionProbeDistanceField.h).
+            fbo->ClearAttachment(0, glm::vec4(kProbeDistanceFar, 0.0f, 0.0f, 0.0f));
+            RenderCommand::ClearDepthOnly();
+
+            glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
+            UBOStructures::CameraUBO camera{};
+            camera.ViewProjection = proj * view;
+            camera.View = view;
+            camera.Projection = proj;
+            camera.Position = position;
+            camera._padding0 = 0.0f;
+            camera.PrevViewProjection = camera.ViewProjection;
+            camera.RenderOrigin = glm::vec3(0.0f);
+            cameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
+
+            for (auto const& caster : casters)
+            {
+                if (!caster.vaoID.IsValid() || caster.indexCount == 0)
+                {
+                    continue;
+                }
+                ProbeDistanceCaptureUBO data{};
+                data.Model = caster.transform;
+                data.ProbePosition = glm::vec4(position, 0.0f);
+                passUBO->SetData(&data, sizeof(data));
+                RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
+            }
+
+            if (!RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RG32Float,
+                                                 faceBytes, rgReadback.data()))
+            {
+                OLO_CORE_WARN("ReflectionProbeBaker: distance face {} readback failed", face);
+                readbackOk = false;
+                break;
+            }
+
+            sizet const faceBase = static_cast<sizet>(face) * kRes * kRes;
+            for (sizet i = 0; i < static_cast<sizet>(kRes) * kRes; ++i)
+            {
+                // Clamp into the contract range — geometry closer than the
+                // near plane was clipped anyway, non-finite values must never
+                // reach the field.
+                f32 const distance = rgReadback[i * 2u];
+                fieldData[faceBase + i] = std::isfinite(distance)
+                                              ? std::clamp(distance, kProbeDistanceNear, kProbeDistanceFar)
+                                              : kProbeDistanceFar;
+            }
+        }
+
+        // stateGuard restores the FBO / cull / viewport / camera UBO on every
+        // exit path, including the readback-failure return below.
+        if (!readbackOk)
+        {
+            return nullptr;
+        }
+        return ReflectionProbeDistanceField::Create(std::move(fieldData), kRes);
+    }
+
     bool ReflectionProbeBaker::BakeProbe(Ref<Scene>& scene,
                                          const glm::vec3& position,
                                          ReflectionProbeComponent& probe)
@@ -256,7 +421,8 @@ namespace OloEngine
         } activeGuard{ probe.m_Active, probe.m_Active };
         probe.m_Active = false;
 
-        auto cubemap = CaptureSceneCubemap(scene, position, resolution);
+        std::vector<DDGIMeshCaster> casters;
+        auto cubemap = CaptureSceneCubemap(scene, position, resolution, &casters);
         if (!cubemap)
         {
             return false;
@@ -284,11 +450,25 @@ namespace OloEngine
             return false;
         }
 
+        // Distance-impostor capture (issue #705): rasterize the casters the
+        // warm-up render collected into the radial-distance field. A probe
+        // with no distance field still works — the per-pixel probe path just
+        // skips it and the global IBL fallback covers those pixels — so a
+        // failed distance capture degrades rather than failing the bake.
+        if (auto distanceField = CaptureDistanceField(casters, position))
+        {
+            environment->SetProbeDistanceField(distanceField);
+        }
+        else
+        {
+            OLO_CORE_WARN("ReflectionProbeBaker: distance capture failed — probe will not parallax-correct");
+        }
+
         probe.m_BakedEnvironment = environment;
         probe.m_NeedsBake = false;
 
-        OLO_CORE_INFO("Baked reflection probe at ({}, {}, {}) — cubemap {}x{}",
-                      position.x, position.y, position.z, resolution, resolution);
+        OLO_CORE_INFO("Baked reflection probe at ({}, {}, {}) — cubemap {}x{}, {} casters in distance field",
+                      position.x, position.y, position.z, resolution, resolution, casters.size());
         return true;
     }
 } // namespace OloEngine
