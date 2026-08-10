@@ -19,6 +19,16 @@ namespace OloEngine::RHI
             return f;
         }
 
+        // F without the y row: z' = (z + w) / 2 only, for direction-addressed
+        // captures (see AdjustCaptureProjectionForBackend).
+        [[nodiscard]] constexpr glm::mat4 DepthOnlyFlipMatrix()
+        {
+            glm::mat4 f(1.0f);
+            f[2][2] = 0.5f;
+            f[3][2] = 0.5f;
+            return f;
+        }
+
         [[nodiscard]] constexpr glm::mat4 RowFlipMatrix()
         {
             glm::mat4 y(1.0f);
@@ -47,5 +57,12 @@ namespace OloEngine::RHI
         // Recompute-from-flipped, never invert-then-flip: the inverse of the
         // adjusted matrix is what shader-side ndc math must see.
         return glm::inverse(AdjustProjectionForShaderReconstruction(forward));
+    }
+
+    glm::mat4 AdjustCaptureProjectionForBackend(const glm::mat4& projection)
+    {
+        // See the header: the z remap WITHOUT the y flip, so a
+        // direction-addressed face bake stores GL-identical rows.
+        return BackendFlips() ? DepthOnlyFlipMatrix() * projection : projection;
     }
 } // namespace OloEngine::RHI

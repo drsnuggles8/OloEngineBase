@@ -391,7 +391,18 @@ namespace OloEngine
             VulkanFramebuffer* Target = nullptr; ///< The scope's framebuffer (never null while Active).
             bool PendingClearColor = false;      ///< Fold into loadOp at scope begin.
             bool PendingClearDepth = false;
+            /// The per-layer depth view this scope was opened with, or
+            /// VK_NULL_HANDLE when the target's OWN depth attachment was used
+            /// (#691 Wave C §4). A shadow pass walks N cascades against ONE
+            /// framebuffer object, so "same Target" is NOT enough to reuse the
+            /// scope — see ScopeMatchesCurrentTarget.
+            VkImageView DepthArrayView = VK_NULL_HANDLE;
         };
+
+        /// True when the live scope still describes what a draw/clear would
+        /// target right now: same framebuffer AND same depth-array layer
+        /// selection. Used by both the scope-open path and the clear paths.
+        [[nodiscard]] bool ScopeMatchesCurrentTarget() const;
 
         // GL's glNamedFramebufferDrawBuffers / ReadBuffer are PER-FRAMEBUFFER
         // PERSISTENT state, and both the bound form (SetDrawBuffers) and the

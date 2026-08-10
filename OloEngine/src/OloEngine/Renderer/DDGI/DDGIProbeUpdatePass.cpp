@@ -668,19 +668,19 @@ namespace OloEngine
             const glm::mat4 view = glm::lookAt(probeRel, probeRel + kFaceTargets[face], kFaceUps[face]);
             const glm::mat4 vp = proj * view;
 
-            // A8 seam, rasterizer flavour (capture casters rasterize with
-            // this). NOTE for the DDGI port (Wave C item 15): the capture
-            // atlas is DIRECTION-addressed by the relight — the flip stores
-            // faces row-mirrored vs the GL bake, so the face bases must
-            // compensate when this pass runs on Vulkan (RHIProjectionSeam.h's
-            // KNOWN LIMIT note).
+            // A8 seam, CAPTURE flavour (#691 Wave C item 15): the z remap
+            // without the y flip. The atlas is DIRECTION-addressed by the
+            // relight, so the screen-space y flip would store every face
+            // row-mirrored relative to the GL bake while direction->texel
+            // addressing stayed API-identical — see
+            // RHIProjectionSeam.h's AdjustCaptureProjectionForBackend.
             UBOStructures::CameraUBO camera{};
-            camera.ViewProjection = RHI::AdjustProjectionForBackend(vp);
+            camera.ViewProjection = RHI::AdjustCaptureProjectionForBackend(vp);
             camera.View = view;
-            camera.Projection = RHI::AdjustProjectionForBackend(proj);
+            camera.Projection = RHI::AdjustCaptureProjectionForBackend(proj);
             camera.Position = probeRel;
             camera._padding0 = 0.0f;
-            camera.PrevViewProjection = RHI::AdjustProjectionForBackend(vp);
+            camera.PrevViewProjection = RHI::AdjustCaptureProjectionForBackend(vp);
             camera.RenderOrigin = m_RenderOrigin;
             m_CaptureCameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
 

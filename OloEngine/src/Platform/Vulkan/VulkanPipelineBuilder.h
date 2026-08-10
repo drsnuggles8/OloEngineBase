@@ -133,6 +133,11 @@ namespace OloEngine
             u64 BakedBlendHash = 0; ///< 0 when blend is dynamic (EDS3 present).
             u64 SamplerHash = 0;
             u64 LayoutHash = 0; ///< Root-data layout — drives the baked binding mappings.
+            /// Baked patch size for a tessellated pipeline; 0 when the shader
+            /// has no TCS/TES stage. patchControlPoints is only dynamic under
+            /// extendedDynamicState2PatchControlPoints, which is NOT on the
+            /// ADR 0010 floor — so it is a PSO axis here (#691 Wave C, A10).
+            u32 PatchControlPoints = 0;
 
             bool operator==(const Key&) const = default;
         };

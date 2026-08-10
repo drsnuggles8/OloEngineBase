@@ -58,6 +58,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
@@ -87,9 +88,11 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/Texture3D.h"
+#include "OloEngine/Renderer/PlanarReflection.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
@@ -101,8 +104,10 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
@@ -7746,6 +7751,1217 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebu
     settings.Deferred.DebugChannel = prevDebugChannel;
     settings.Deferred.MSAASampleCount = prevSamples;
     settings.Deferred.PerSampleLighting = prevPerSample;
+}
+
+// =============================================================================
+// Wave C item 11 — SHADOW: the layered depth path + the skinned two-stream pull
+// =============================================================================
+namespace
+{
+    // The V2 bone stream (32 B: uvec4 BoneIDs @0, vec4 Weights @16) as a
+    // SECOND vertex buffer on the same VAO — exactly what
+    // MeshSource::BuildBoneInfluenceBuffer builds, so it lands on VAO stream 1
+    // and AssembleAndPushRootData resolves it for pull binding 63.
+    // Ref<T> const-propagates, so a const& would make AddVertexBuffer unreachable.
+    void AddBoneStream(Ref<VertexArray>& vao, u32 vertexCount, u32 boneIndex)
+    {
+        struct BoneVertex
+        {
+            u32 BoneIDs[4];
+            f32 Weights[4];
+        };
+        static_assert(sizeof(BoneVertex) == 32, "V2 stride is 32 bytes / 8 floats");
+        std::vector<BoneVertex> influences(vertexCount);
+        for (auto& influence : influences)
+        {
+            influence.BoneIDs[0] = boneIndex;
+            influence.BoneIDs[1] = 0u;
+            influence.BoneIDs[2] = 0u;
+            influence.BoneIDs[3] = 0u;
+            influence.Weights[0] = 1.0f;
+            influence.Weights[1] = 0.0f;
+            influence.Weights[2] = 0.0f;
+            influence.Weights[3] = 0.0f;
+        }
+        auto boneVB = VertexBuffer::Create(reinterpret_cast<f32*>(influences.data()),
+                                           static_cast<u32>(influences.size() * sizeof(BoneVertex)));
+        boneVB->SetLayout({ { ShaderDataType::Int4, "a_BoneIDs" }, { ShaderDataType::Float4, "a_BoneWeights" } });
+        vao->AddVertexBuffer(boneVB);
+    }
+
+    // Read ONE layer of a depth texture array back to the host. No engine
+    // readback exists for a Texture2DArray and none is added for a test: this
+    // is VulkanTexture2D::GetData's body with the layer in the copy's
+    // subresource, and it assumes the caller left the array in
+    // SHADER_READ_ONLY (the tenant issues that barrier inside its frame, so
+    // the engine's layout tracker agrees).
+    bool ReadDepthArrayLayer(const Ref<Texture2DArray>& array, u32 layer, std::vector<f32>& outDepth)
+    {
+        outDepth.clear();
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || !array)
+            return false;
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(array->GetRHIHandle());
+        if (native == 0u)
+            return false;
+        const auto image = reinterpret_cast<VkImage>(native);
+        const u32 width = array->GetWidth();
+        const u32 height = array->GetHeight();
+        const u64 sizeBytes = static_cast<u64>(width) * height * sizeof(f32);
+
+        VkBufferCreateInfo readbackInfo{};
+        readbackInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        readbackInfo.size = sizeBytes;
+        readbackInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        VmaAllocationCreateInfo readbackAlloc{};
+        readbackAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        readbackAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer readback = VK_NULL_HANDLE;
+        VmaAllocation readbackAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo readbackOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
+                            &readbackOut) != VK_SUCCESS)
+        {
+            return false;
+        }
+
+        const auto recordBarrier = [&](VkCommandBuffer cmd, VkImageLayout oldLayout, VkImageLayout newLayout)
+        {
+            VkImageMemoryBarrier2 barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+            barrier.oldLayout = oldLayout;
+            barrier.newLayout = newLayout;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = image;
+            barrier.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0u, 1u, layer, 1u };
+            VkDependencyInfo dependency{};
+            dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dependency.imageMemoryBarrierCount = 1;
+            dependency.pImageMemoryBarriers = &barrier;
+            vkCmdPipelineBarrier2(cmd, &dependency);
+        };
+
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanPassSuite::ReadDepthArrayLayer",
+            [&](VkCommandBuffer cmd)
+            {
+                recordBarrier(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0u, layer, 1u };
+                region.imageExtent = { width, height, 1u };
+                vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
+                recordBarrier(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            });
+
+        if (ok)
+        {
+            vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, sizeBytes);
+            outDepth.resize(static_cast<sizet>(width) * height);
+            std::memcpy(outDepth.data(), readbackOut.pMappedData, sizeBytes);
+        }
+        vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        return ok;
+    }
+} // namespace
+
+// The §4 layered-depth contract, and the A3 two-stream skinned pull that rides
+// with it. ONE depth-only framebuffer walks TWO layers of a 2-layer depth array
+// exactly as ShadowRenderPass walks its cascades: AttachDepthTextureArrayLayer,
+// ClearDepthOnly, draw. Cascade 0 draws through ShadowDepth.glsl (V1 pull only);
+// cascade 1 through ShadowDepthSkinned.glsl, whose vertices are skinned by BONE
+// 1 — a pure +1.0 x translation. Both cascades author the SAME quad on the LEFT
+// half, so:
+//   * a stubbed AttachDepthTextureArrayLayer leaves both layers at the clear
+//     value (nothing renders into the array at all),
+//   * a scope that survives the layer change paints cascade 1 into cascade 0,
+//   * an unfed bone stream (binding 63 -> zero address) reads bone id 0, the
+//     IDENTITY palette entry, and leaves cascade 1's quad on the LEFT.
+// The assertions therefore read both halves of both layers.
+TEST_F(VulkanPassSuite, ShadowCascadesRenderIntoTheirOwnDepthArrayLayers)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto shadowShader = Shader::Create("assets/shaders/ShadowDepth.glsl");
+    auto skinnedShader = Shader::Create("assets/shaders/ShadowDepthSkinned.glsl");
+    ASSERT_TRUE(shadowShader && skinnedShader);
+    ASSERT_EQ(shadowShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+        << "ShadowDepth.glsl must compile through shaderc (V1 pull branch)";
+    ASSERT_EQ(skinnedShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+        << "ShadowDepthSkinned.glsl must compile through shaderc (V1 + V2 two-stream pull)";
+    // The other four skinned shaders ride the identical branch — compile-pinned
+    // here so a broken bone-stream declaration cannot reach a live scene
+    // unnoticed (they need G-buffer/forward targets a shadow tenant has not).
+    for (const char* path : { "assets/shaders/PBR_MultiLight_Skinned.glsl",
+                              "assets/shaders/PBR_GBuffer_Skinned.glsl",
+                              "assets/shaders/DepthPrepass_Skinned.glsl",
+                              "assets/shaders/DepthPrepass_MaskSkinned.glsl" })
+    {
+        auto skinned = Shader::Create(path);
+        ASSERT_TRUE(skinned) << path;
+        EXPECT_EQ(skinned->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+            << path << " must compile through shaderc (V1 @57 + V2 @63)";
+    }
+
+    // --- every binding the two shaders declare -------------------------------
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    // AnimationMatrices (binding 4): 100 mat4. Entry 0 is the IDENTITY (the
+    // value a zero-address bone pull would select), entry 1 translates +1.0 in
+    // x — one full NDC half — so a correctly pulled bone id lands the quad on
+    // the RIGHT and a dropped one leaves it on the LEFT.
+    std::vector<glm::mat4> bonePalette(100, glm::mat4(1.0f));
+    bonePalette[1] = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    auto boneUbo = UniformBuffer::Create(static_cast<u32>(bonePalette.size() * sizeof(glm::mat4)),
+                                         ShaderBindingLayout::UBO_ANIMATION);
+    boneUbo->SetData(bonePalette.data(), static_cast<u32>(bonePalette.size() * sizeof(glm::mat4)));
+
+    // Both cascades author the same LEFT-half quad; the skinned one is moved
+    // right by bone 1. Different depths so a layer that received the wrong
+    // cascade is visible in the value as well as the position.
+    constexpr f32 kStaticDepth = 0.25f;
+    constexpr f32 kSkinnedDepth = 0.75f;
+    auto staticQuad = MakeV1Quad(-1.0f, 0.0f, -1.0f, 1.0f, kStaticDepth);
+    auto skinnedQuad = MakeV1Quad(-1.0f, 0.0f, -1.0f, 1.0f, kSkinnedDepth);
+    ASSERT_TRUE(staticQuad && skinnedQuad);
+    AddBoneStream(skinnedQuad, 4u, 1u);
+
+    // The layered depth array + the depth-only framebuffer that walks it —
+    // ShadowRenderPass::Init's shape verbatim (ShadowDepth attachment, the
+    // internal depth texture the per-layer attach replaces).
+    Texture2DArraySpecification arraySpec;
+    arraySpec.Width = kSize;
+    arraySpec.Height = kSize;
+    arraySpec.Layers = 2;
+    arraySpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    arraySpec.DepthComparisonMode = true;
+    auto cascades = Texture2DArray::Create(arraySpec);
+    ASSERT_TRUE(cascades);
+    ASSERT_EQ(cascades->GetLayers(), 2u);
+
+    FramebufferSpecification shadowSpec;
+    shadowSpec.Width = kSize;
+    shadowSpec.Height = kSize;
+    shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+    Ref<Framebuffer> shadowFramebuffer = Framebuffer::Create(shadowSpec);
+    ASSERT_TRUE(shadowFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            shadowFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetBlendState(false);
+            // The production pass front-face-culls; the tenant's quads are
+            // authored in raw clip space with no projection seam applied, so
+            // culling is off (the seam's global winding flip would otherwise
+            // decide the result rather than the layer selection).
+            RenderCommand::DisableCulling();
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+
+            // --- cascade 0: static caster ------------------------------------
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), 0u);
+            RenderCommand::ClearDepthOnly();
+            shadowShader->Bind();
+            staticQuad->Bind();
+            RenderCommand::DrawIndexed(staticQuad, 6);
+
+            // --- cascade 1: skinned caster -----------------------------------
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), 1u);
+            RenderCommand::ClearDepthOnly();
+            skinnedShader->Bind();
+            skinnedQuad->Bind();
+            RenderCommand::DrawIndexed(skinnedQuad, 6);
+
+            // Hand both layers to the readback in the layout its one-shot
+            // assumes, through the engine's own barrier path so the layout
+            // tracker stays true.
+            std::array<RHI::Barrier, 2> toSampled{};
+            for (u32 layer = 0; layer < 2u; ++layer)
+            {
+                toSampled[layer].Resource = cascades->GetRHIHandle();
+                toSampled[layer].Range.BaseMip = 0u;
+                toSampled[layer].Range.MipCount = 1u;
+                toSampled[layer].Range.BaseLayer = layer;
+                toSampled[layer].Range.LayerCount = 1u;
+                toSampled[layer].Before = RHI::Access::DepthStencilAttachmentWrite;
+                toSampled[layer].After = RHI::Access::ShaderSampleRead;
+            }
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "one draw per cascade";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a cascade draw dropped silently";
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "AttachDepthTextureArrayLayer must no longer be a Phase 6 stub";
+
+    std::vector<f32> cascade0;
+    std::vector<f32> cascade1;
+    ASSERT_TRUE(ReadDepthArrayLayer(cascades, 0u, cascade0)) << "layer 0 readback failed";
+    ASSERT_TRUE(ReadDepthArrayLayer(cascades, 1u, cascade1)) << "layer 1 readback failed";
+    ASSERT_EQ(cascade0.size(), static_cast<sizet>(kSize) * kSize);
+    ASSERT_EQ(cascade1.size(), static_cast<sizet>(kSize) * kSize);
+
+    const auto sample = [&](const std::vector<f32>& layer, u32 x, u32 y)
+    { return layer[static_cast<sizet>(y) * kSize + x]; };
+    constexpr u32 kLeftX = kSize / 4; // inside the authored quad
+    constexpr u32 kRightX = 3 * kSize / 4;
+    constexpr u32 kRow = kSize / 2;
+
+    // Layer 0 carries ONLY the static cascade: near on the left, cleared right.
+    EXPECT_NEAR(sample(cascade0, kLeftX, kRow), kStaticDepth, 1e-4f)
+        << "cascade 0's left half must carry the static caster's depth";
+    EXPECT_NEAR(sample(cascade0, kRightX, kRow), 1.0f, 1e-4f)
+        << "cascade 0's right half must stay at the ClearDepthOnly value — a cascade-1 draw that leaked "
+           "into layer 0 (a scope surviving the layer change) lands exactly here";
+
+    // Layer 1 carries ONLY the skinned cascade, translated to the RIGHT half by
+    // bone 1. Its left half must be clear: that is the assertion the two-stream
+    // pull actually earns — a zero-address bone buffer selects bone 0
+    // (identity) and would leave the quad on the left instead.
+    EXPECT_NEAR(sample(cascade1, kRightX, kRow), kSkinnedDepth, 1e-4f)
+        << "cascade 1's right half must carry the SKINNED caster — bone 1's +1.0 x translation, i.e. the "
+           "V2 bone stream really arrived on pull binding 63";
+    EXPECT_NEAR(sample(cascade1, kLeftX, kRow), 1.0f, 1e-4f)
+        << "cascade 1's left half must be clear — a dropped bone stream reads bone id 0 (identity) and "
+           "would leave the quad here";
+}
+
+// =============================================================================
+// Wave C item 12 — PLANAR REFLECTION: the mirror camera through the Y-flip seam
+// =============================================================================
+//
+// PlanarReflectionRenderPass swaps the GLOBAL camera to a mirrored one (oblique
+// near-clip included) and overrides the front winding to Clockwise for the
+// replay. On Vulkan that composes with TWO backend conventions at once:
+//   * the A8 projection seam (RHI::AdjustProjectionForBackend) negates clip y
+//     for EVERY rasterizer-consumed matrix, the mirror camera's included;
+//   * the A1 winding half — VulkanPipelineBuilder translates the RECORDED GL
+//     winding to its OPPOSITE VkFrontFace, so the pass-local Clockwise
+//     override must flip WITH the seam, not against it.
+// Get either wrong and the reflection lands in the wrong half of the screen or
+// is culled outright. This tenant pins both.
+//
+// Configuration chosen so "the mirror is the vertical mirror" is EXACT rather
+// than approximate: the camera sits ON the reflection plane (y = 0) looking
+// horizontally, which makes the mirrored view the y-negation of the direct one
+// in view space — and MakeObliqueProjection only rewrites the clip-Z row, so
+// the XY layout is untouched by the oblique clip. An asymmetric caster (upper
+// LEFT, off-centre in both axes) makes every wrong composition — a missing
+// flip, a doubled flip, a transposed one — land somewhere the assertion sees.
+//
+// Both renders target LAYERS of one depth array through the item-11 layered
+// path, so the coverage readback is the same helper and the two images cannot
+// differ by anything but the camera + winding.
+TEST_F(VulkanPassSuite, PlanarReflectionMirrorCameraProducesTheVerticallyMirroredImage)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto depthShader = Shader::Create("assets/shaders/ShadowDepth.glsl");
+    ASSERT_TRUE(depthShader);
+    ASSERT_EQ(depthShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // Camera ON the plane, looking down -z with +y up.
+    const glm::vec3 cameraPosition{ 0.0f, 0.0f, 3.0f };
+    const glm::mat4 view = glm::lookAt(cameraPosition, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 projection = glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 100.0f);
+    const glm::vec4 waterPlane{ 0.0f, 1.0f, 0.0f, 0.0f };
+    const auto mirror = PlanarReflection::BuildReflectionMatrices(view, projection, cameraPosition, waterPlane);
+
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    const auto uploadCamera = [&](const glm::mat4& viewMatrix, const glm::mat4& viewProjection)
+    {
+        // Byte-for-byte what CommandDispatch::UploadCameraUBO writes for the
+        // mirror camera (the pass's own path): the stored matrices stay
+        // GL-convention, the GPU-visible copies go through the A8 seam.
+        ShaderBindingLayout::CameraUBO cameraData{};
+        cameraData.ViewProjection = RHI::AdjustProjectionForBackend(viewProjection);
+        cameraData.View = viewMatrix;
+        cameraData.Projection = RHI::AdjustProjectionForBackend(projection);
+        cameraData.PrevViewProjection = cameraData.ViewProjection;
+        cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+    };
+
+    // The asymmetric caster: a quad ABOVE the water, offset LEFT, entirely
+    // inside the direct view's upper-left quadrant.
+    auto caster = MakeV1Quad(-0.9f, -0.1f, 0.3f, 0.9f, 0.0f);
+    ASSERT_TRUE(caster);
+
+    // Four renders of ONE caster into four layers of one depth array. The pairs
+    // isolate the two halves of the composition from each other:
+    //   0/1 = direct / mirror with culling OFF  -> the A8 projection half
+    //   2/3 = the same two with culling ON      -> the A1 winding half
+    // so a failure names which half broke instead of just "nothing drew".
+    constexpr u32 kDirectNoCull = 0;
+    constexpr u32 kMirrorNoCull = 1;
+    constexpr u32 kDirectCulledCCW = 2;
+    constexpr u32 kDirectCulledCW = 3;
+    constexpr u32 kMirrorCulledCCW = 4;
+    constexpr u32 kMirrorCulledCW = 5;
+    constexpr u32 kLayers = 6;
+
+    Texture2DArraySpecification arraySpec;
+    arraySpec.Width = kSize;
+    arraySpec.Height = kSize;
+    arraySpec.Layers = kLayers;
+    arraySpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    auto images = Texture2DArray::Create(arraySpec);
+    ASSERT_TRUE(images);
+
+    FramebufferSpecification depthSpec;
+    depthSpec.Width = kSize;
+    depthSpec.Height = kSize;
+    depthSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+    Ref<Framebuffer> depthFramebuffer = Framebuffer::Create(depthSpec);
+    ASSERT_TRUE(depthFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            depthFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+            depthShader->Bind();
+
+            const auto renderInto = [&](u32 layer, const glm::mat4& viewMatrix, const glm::mat4& viewProjection,
+                                        bool culling, RHI::FrontFace winding)
+            {
+                if (culling)
+                {
+                    RenderCommand::EnableCulling();
+                    RenderCommand::SetCullFace(RHI::CullMode::Back);
+                }
+                else
+                {
+                    RenderCommand::DisableCulling();
+                }
+                RenderCommand::SetFrontFace(winding);
+                uploadCamera(viewMatrix, viewProjection);
+                depthFramebuffer->AttachDepthTextureArrayLayer(images->GetRHIHandle(), layer);
+                RenderCommand::ClearDepthOnly();
+                caster->Bind();
+                RenderCommand::DrawIndexed(caster, 6);
+            };
+
+            renderInto(kDirectNoCull, view, projection * view, false, RHI::FrontFace::CounterClockwise);
+            renderInto(kMirrorNoCull, mirror.MirrorView, mirror.ViewProjection, false,
+                       RHI::FrontFace::CounterClockwise);
+            // Both windings under culling, for both cameras: a triangle is
+            // either front or back, so the PAIR is a complete statement — one
+            // of each pair must survive and the other must vanish. Asserting
+            // WHICH one is what pins the A1 composition; asserting only
+            // "something survived" would pass with the flip inverted.
+            renderInto(kDirectCulledCCW, view, projection * view, true, RHI::FrontFace::CounterClockwise);
+            renderInto(kDirectCulledCW, view, projection * view, true, RHI::FrontFace::Clockwise);
+            renderInto(kMirrorCulledCCW, mirror.MirrorView, mirror.ViewProjection, true,
+                       RHI::FrontFace::CounterClockwise);
+            // A reflection reverses handedness, so the replay declares CW the
+            // front winding — PlanarReflectionRenderPass's exact call.
+            renderInto(kMirrorCulledCW, mirror.MirrorView, mirror.ViewProjection, true,
+                       RHI::FrontFace::Clockwise);
+            RenderCommand::DisableCulling();
+            RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
+
+            std::array<RHI::Barrier, kLayers> toSampled{};
+            for (u32 layer = 0; layer < kLayers; ++layer)
+            {
+                toSampled[layer].Resource = images->GetRHIHandle();
+                toSampled[layer].Range.BaseMip = 0u;
+                toSampled[layer].Range.MipCount = 1u;
+                toSampled[layer].Range.BaseLayer = layer;
+                toSampled[layer].Range.LayerCount = 1u;
+                toSampled[layer].Before = RHI::Access::DepthStencilAttachmentWrite;
+                toSampled[layer].After = RHI::Access::ShaderSampleRead;
+            }
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), kLayers);
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+
+    std::array<std::vector<f32>, kLayers> layers;
+    for (u32 layer = 0; layer < kLayers; ++layer)
+    {
+        ASSERT_TRUE(ReadDepthArrayLayer(images, layer, layers[layer])) << "layer " << layer << " readback failed";
+        ASSERT_EQ(layers[layer].size(), static_cast<sizet>(kSize) * kSize);
+    }
+
+    // Coverage, not depth: the oblique near-clip rewrites the clip-Z row, so
+    // the mirror's depth VALUES are deliberately warped while its XY footprint
+    // is the exact mirror.
+    const auto covered = [&](u32 layer, u32 x, u32 y)
+    { return layers[layer][static_cast<sizet>(y) * kSize + x] < 0.999f; };
+    const auto coveredCount = [&](u32 layer)
+    {
+        u32 count = 0;
+        for (u32 y = 0; y < kSize; ++y)
+            for (u32 x = 0; x < kSize; ++x)
+                count += covered(layer, x, y) ? 1u : 0u;
+        return count;
+    };
+
+    // Baseline: the direct render must draw SOMETHING, or every comparison
+    // below is vacuous.
+    // The caster projects to roughly 15 x 11 texels at this camera; anything
+    // above ~100 covered texels means the quad really rasterized.
+    constexpr u32 kMinCoverage = 100u;
+    EXPECT_GT(coveredCount(kDirectNoCull), kMinCoverage) << "the direct render drew nothing";
+    EXPECT_GT(coveredCount(kMirrorNoCull), kMinCoverage) << "the mirror render drew nothing";
+
+    // Where the caster landed pins the A8 half INDEPENDENTLY of the mirror
+    // comparison (which is symmetric and would pass with or without the flip).
+    // The caster is ABOVE the plane and the camera looks horizontally, so a
+    // seam-flipped matrix puts it in the FIRST half of memory: Vulkan's memory
+    // row 0 is ndc_y = -1, and the flip sends world +y to negative ndc_y.
+    u32 directMinRow = kSize;
+    u32 directMaxRow = 0;
+    for (u32 y = 0; y < kSize; ++y)
+        for (u32 x = 0; x < kSize; ++x)
+            if (covered(kDirectNoCull, x, y))
+            {
+                directMinRow = std::min(directMinRow, y);
+                directMaxRow = std::max(directMaxRow, y);
+            }
+    EXPECT_LT(directMaxRow, kSize / 2u)
+        << "the caster occupies rows " << directMinRow << ".." << directMaxRow
+        << "; above the horizon must mean the FIRST half of memory, or the A8 projection flip never "
+           "reached this matrix";
+
+    // (1) The A8 half: the mirrored image is the exact vertical mirror.
+    u32 mirrorMismatches = 0;
+    for (u32 y = 0; y < kSize; ++y)
+        for (u32 x = 0; x < kSize; ++x)
+            mirrorMismatches += (covered(kDirectNoCull, x, y) != covered(kMirrorNoCull, x, kSize - 1u - y)) ? 1u : 0u;
+    EXPECT_EQ(mirrorMismatches, 0u)
+        << "the mirrored image must be the exact vertical mirror of the direct one — " << mirrorMismatches
+        << " of " << (kSize * kSize)
+        << " pixels disagree, which is what a wrong Y-flip composition on the mirror camera looks like";
+
+    // ...and the two are genuinely DIFFERENT images (a seam that dropped the
+    // mirror matrix would render the caster twice in the same place, and a
+    // self-mirror-symmetric result would satisfy (1) vacuously).
+    u32 identicalRows = 0;
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        bool same = true;
+        for (u32 x = 0; x < kSize && same; ++x)
+            same = covered(kDirectNoCull, x, y) == covered(kMirrorNoCull, x, y);
+        identicalRows += same ? 1u : 0u;
+    }
+    EXPECT_LT(identicalRows, kSize) << "every row identical => the mirror camera was never applied";
+
+    // (2) The A1 half: culling ON must change NOTHING for either camera. The
+    // caster is front-facing to the direct camera under the recorded CCW
+    // winding, and front-facing to the mirror camera under the pass's
+    // Clockwise override — the backend composes each with the seam's own flip.
+    // Invert that composition and the quad becomes a back face and vanishes.
+    const auto delta = [&](u32 a, u32 b)
+    {
+        u32 count = 0;
+        for (u32 y = 0; y < kSize; ++y)
+            for (u32 x = 0; x < kSize; ++x)
+                count += (covered(a, x, y) != covered(b, x, y)) ? 1u : 0u;
+        return count;
+    };
+
+    // The caster is authored counter-clockwise in world space, so it is front
+    // facing to the DIRECT camera under the recorded CounterClockwise winding —
+    // the engine's default and what every solid pass records. The reflection
+    // reverses handedness, so the SAME caster is front facing to the MIRROR
+    // camera only under PlanarReflectionRenderPass's Clockwise override. The
+    // backend composes each with the seam's own front-face flip; invert that
+    // composition and all four of these assertions swap.
+    EXPECT_EQ(delta(kDirectCulledCCW, kDirectNoCull), 0u)
+        << "back-face culling removed the DIRECT caster under the recorded CounterClockwise winding: the "
+           "A1 front-face composition is inverted (observed CW coverage "
+        << coveredCount(kDirectCulledCW) << ")";
+    EXPECT_EQ(coveredCount(kDirectCulledCW), 0u)
+        << "the DIRECT caster survived a Clockwise front winding — it must be a BACK face there";
+    EXPECT_EQ(delta(kMirrorCulledCW, kMirrorNoCull), 0u)
+        << "back-face culling removed the MIRRORED caster under PlanarReflectionRenderPass's Clockwise "
+           "override (observed CCW coverage "
+        << coveredCount(kMirrorCulledCCW) << ")";
+    EXPECT_EQ(coveredCount(kMirrorCulledCCW), 0u)
+        << "the MIRRORED caster survived a CounterClockwise front winding — the reflection's handedness "
+           "reversal did not reach the rasterizer";
+}
+
+// =============================================================================
+// Wave C item 13 — the GPU-OCCLUSION PAIR: two-phase indirect
+// =============================================================================
+//
+// GPUDrivenOcclusionPass / DeferredGPUOcclusionPass share one shape: phase 1
+// rasterizes the survivors, a TextureBarrier orders that framebuffer write
+// against the following texture FETCH, a compute cull re-tests the rejects
+// against the freshly-written depth and writes the phase-2 DrawElementsIndirect
+// args, and phase 2 replays through those args. This tenant pins that shape on
+// Vulkan end-to-end: RenderCommand::TextureBarrier, a GPU-authored args buffer,
+// and DrawBoundElementsIndirect honouring an instanceCount the GPU decided.
+//
+// The production cull (assets/shaders/compute/InstanceOcclusionCull.comp) is
+// NOT the compute stage here and cannot be: it declares 15 BARE default-block
+// uniforms, which SPIR-V cannot express, so it does not compile on the Vulkan
+// route at all — the same bare-uniform debt batch 2 recorded for
+// VirtualClusterCull.comp, and a migration slice of its own. The stand-in below
+// makes the SAME decision from the SAME input (phase 1's depth attachment,
+// sampled after the barrier) and writes the SAME
+// DrawElementsIndirectCommand POD, so what is under test — the backend
+// entry points and the ordering — is the production path; only the cull's
+// arithmetic is stubbed.
+//
+// Two chains, differing ONLY in where phase 1's occluder sits, so the contract
+// is a paired differential rather than an absolute:
+//   * OCCLUDED: the occluder covers the probe -> the cull writes instanceCount
+//     0 -> phase 2's indirect draw issues and paints NOTHING.
+//   * VISIBLE:  the occluder sits on the other half -> instanceCount 1 -> the
+//     same indirect draw paints the pattern.
+// An indirect entry that ignored its args would paint in both (or neither).
+TEST_F(VulkanPassSuite, GpuOcclusionPhaseTwoDrawsThroughGpuAuthoredIndirectArgs)
+{
+    constexpr u32 kSize = 64;
+    constexpr u32 kProbeX = kSize / 4; // inside the LEFT half
+    constexpr u32 kProbeY = kSize / 2;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto depthShader = Shader::Create("assets/shaders/DepthPrepass.glsl");
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(depthShader && blitShader);
+    ASSERT_EQ(depthShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    const std::string cullSource = std::format(R"(#version 450 core
+layout(local_size_x = 1) in;
+
+// Phase 1's depth attachment, sampled AFTER RenderCommand::TextureBarrier().
+layout(binding = 0) uniform sampler2D u_Phase1Depth;
+
+// The phase-2 args. Field order is OloEngine::DrawElementsIndirectCommand ==
+// VkDrawIndexedIndirectCommand, field for field (no translation on either
+// backend).
+layout(std430, binding = 17) buffer Phase2Args
+{{
+    uint IndexCount;
+    uint InstanceCount;
+    uint FirstIndex;
+    uint BaseVertex;
+    uint BaseInstance;
+}} b_Args;
+
+void main()
+{{
+    // "Did phase 1 already cover this probe?" — the reduced form of the
+    // production reject test against the freshly built Hi-Z.
+    float d = texelFetch(u_Phase1Depth, ivec2({}, {}), 0).r;
+    b_Args.IndexCount = 3u;
+    b_Args.InstanceCount = (d < 0.9) ? 0u : 1u;
+    b_Args.FirstIndex = 0u;
+    b_Args.BaseVertex = 0u;
+    b_Args.BaseInstance = 0u;
+}}
+)",
+                                               kProbeX, kProbeY);
+    auto cullShader = ComputeShader::CreateFromSource("Phase2ArgsProbe", cullSource);
+    ASSERT_TRUE(cullShader);
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    // FullscreenBlit reads DRSParams@33 — an unbound UBO would collapse every
+    // sample to texel (0,0) (the fixture contract in this file's header).
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto redTexture = MakeSolidTexture(kSize, 255, 0, 0, 255);
+    ASSERT_TRUE(redTexture);
+
+    // The phase-1 occluders: one over the probe, one on the far side.
+    auto occluderOverProbe = MakeV1Quad(-1.0f, 0.0f, -1.0f, 1.0f, 0.3f);
+    auto occluderElsewhere = MakeV1Quad(0.0f, 1.0f, -1.0f, 1.0f, 0.3f);
+    ASSERT_TRUE(occluderOverProbe && occluderElsewhere);
+
+    struct Chain
+    {
+        Ref<VertexArray> Occluder;
+        Ref<Framebuffer> Phase1;
+        Ref<Framebuffer> Phase2;
+        Ref<StorageBuffer> Args;
+        u32 ExpectedInstances;
+        const char* Name;
+    };
+
+    FramebufferSpecification phase1Spec;
+    phase1Spec.Width = kSize;
+    phase1Spec.Height = kSize;
+    phase1Spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    FramebufferSpecification phase2Spec;
+    phase2Spec.Width = kSize;
+    phase2Spec.Height = kSize;
+    phase2Spec.Attachments = { FramebufferTextureFormat::RGBA8 };
+
+    std::array<Chain, 2> chains{
+        Chain{ occluderOverProbe, Framebuffer::Create(phase1Spec), Framebuffer::Create(phase2Spec),
+               StorageBuffer::Create(5u * sizeof(u32), 17u), 0u, "occluded" },
+        Chain{ occluderElsewhere, Framebuffer::Create(phase1Spec), Framebuffer::Create(phase2Spec),
+               StorageBuffer::Create(5u * sizeof(u32), 17u), 1u, "visible" },
+    };
+    for (auto& chain : chains)
+    {
+        ASSERT_TRUE(chain.Phase1 && chain.Phase2 && chain.Args) << chain.Name;
+        // Seed the args with a value NEITHER outcome can produce, so a cull
+        // dispatch that silently never ran cannot be mistaken for either arm.
+        const std::array<u32, 5> poison{ 3u, 7u, 0u, 0u, 0u };
+        chain.Args->SetData(poison.data(), static_cast<u32>(poison.size() * sizeof(u32)));
+    }
+
+    for (auto& chain : chains)
+    {
+        SubmitFrame(
+            [&]()
+            {
+                // --- phase 1: rasterize the occluder -------------------------
+                chain.Phase1->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                RenderCommand::Clear();
+                RenderCommand::SetBlendState(false);
+                RenderCommand::DisableCulling();
+                RenderCommand::SetDepthTest(true);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                RenderCommand::SetDepthMask(true);
+                depthShader->Bind();
+                chain.Occluder->Bind();
+                RenderCommand::DrawIndexed(chain.Occluder, 6);
+                chain.Phase1->Unbind();
+
+                // The phase-1 draws just wrote this depth through the
+                // fixed-function pipeline; the cull samples it as a texture.
+                // This is GPUDrivenOcclusionPass's own call at its own place.
+                RenderCommand::TextureBarrier();
+
+                // --- the cull: phase 2's args, decided on the GPU ------------
+                cullShader->Bind();
+                RenderCommand::BindTexture(0, chain.Phase1->GetDepthAttachmentHandle());
+                chain.Args->Bind();
+                RenderCommand::DispatchCompute(1, 1, 1);
+                // SSBO write -> indirect-args fetch.
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
+
+                // --- phase 2: the indirect replay ----------------------------
+                chain.Phase2->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                RenderCommand::Clear();
+                RenderCommand::SetDepthTest(false);
+                RenderCommand::SetDepthMask(false);
+                blitShader->Bind();
+                RenderCommand::BindTexture(0, redTexture->GetRHIHandle());
+                const auto triangle = MeshPrimitives::GetFullscreenTriangle();
+                // DrawBoundElementsIndirect draws the RAW-bound vertex array
+                // (the packet path's shape) — VertexArray::Bind() is a no-op on
+                // this backend, so the handle must be published explicitly or
+                // the draw finds no index buffer and drops.
+                RenderCommand::BindVertexArrayRaw(triangle->GetRHIHandle());
+                RenderCommand::DrawBoundElementsIndirect(chain.Args->GetRHIHandle());
+                RenderCommand::BindVertexArrayRaw(RHI::NullResource);
+                chain.Phase2->Unbind();
+
+                auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+                RHI::Barrier toSampled{};
+                toSampled.Resource = chain.Phase2->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                vkApi.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << chain.Name << ": a draw dropped silently";
+
+        std::array<u32, 5> args{};
+        chain.Args->GetData(args.data(), static_cast<u32>(args.size() * sizeof(u32)));
+        EXPECT_EQ(args[0], 3u) << chain.Name << ": the cull must have written the index count";
+        EXPECT_EQ(args[1], chain.ExpectedInstances)
+            << chain.Name << ": the cull's instanceCount decision (7 here means the dispatch never ran)";
+
+        std::vector<u8> rendered;
+        auto* vkPhase2 = static_cast<VulkanFramebuffer*>(chain.Phase2.Raw());
+        ASSERT_TRUE(vkPhase2->GetColorAttachmentImage(0) &&
+                    vkPhase2->GetColorAttachmentImage(0)->GetData(rendered, 0))
+            << chain.Name << ": phase-2 readback failed";
+        ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4u);
+        const sizet centre = (static_cast<sizet>(kSize / 2) * kSize + kSize / 2) * 4u;
+        if (chain.ExpectedInstances == 0u)
+        {
+            EXPECT_LT(rendered[centre + 0], 8u)
+                << "instanceCount 0 must draw NOTHING — an indirect entry that ignored its args paints here";
+        }
+        else
+        {
+            EXPECT_GT(rendered[centre + 0], 200u)
+                << "instanceCount 1 must draw the pattern — the indirect entry never issued";
+        }
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "TextureBarrier / DrawBoundElementsIndirect must no longer be Phase 6 stubs";
+}
+
+// =============================================================================
+// Wave C item 15 — DDGI: the direction-addressed capture's row convention
+// =============================================================================
+//
+// RHIProjectionSeam.h carried a KNOWN LIMIT from batch 1: a cubemap FACE BAKE
+// is addressed by DIRECTION, not by uv, so the seam's clip-y negation stores
+// every face ROW-MIRRORED relative to the GL bake while direction->texel
+// addressing stays API-identical — the relight then reads the wrong row of the
+// right face. DDGIProbeUpdatePass::CaptureProbe is the engine's live instance
+// of that shape (six 90-degree faces into one atlas tile each).
+//
+// The fix is at the PROJECTION, not at the readback and not at the face basis:
+// RHI::AdjustCaptureProjectionForBackend applies the seam's z remap WITHOUT its
+// y flip, so the stored rows stay byte-identical to the GL bake while depth
+// keeps its GL-shaped contents. (Negating the face's UP vector — the first
+// thing one reaches for — does NOT work: lookAt derives right =
+// cross(forward, up), so it rolls the face 180 degrees instead of mirroring it.
+// This tenant caught that, which is why the note is here.)
+//
+// The tenant renders one face of the capture recipe twice: once through the
+// production path and once through the SCREEN seam the capture must not use.
+// The contract has two halves, and both are needed:
+//   * the two are exact vertical MIRRORS — i.e. the bug is real and, without
+//     this pin, would have been silent;
+//   * the capture path puts a caster displaced along the face's -up direction
+//     in the SECOND half of memory, which is where GL's bake puts it (memory
+//     row 0 is clip y = -w on BOTH backends, and the face basis maps world +y
+//     to POSITIVE view y here, so ndc_y > 0).
+//
+// The full pass body is out of reach here for the batch-3 reason: CaptureProbe
+// drives Renderer3D/HeapBinding statics and a caster registry that are
+// GL-currency mid-suite with no setter. What is under test is the seam
+// decision the port turns on, driven through the pass's own lookAt recipe.
+TEST_F(VulkanPassSuite, DdgiCaptureFaceBasisCancelsTheSeamRowMirror)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    auto depthShader = Shader::Create("assets/shaders/ShadowDepth.glsl");
+    ASSERT_TRUE(depthShader);
+    ASSERT_EQ(depthShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // DDGIProbeUpdatePass's face 0 (+X) basis, verbatim.
+    const glm::vec3 probe{ 0.0f, 0.0f, 0.0f };
+    const glm::vec3 faceTarget{ 1.0f, 0.0f, 0.0f };
+    const glm::vec3 faceUp{ 0.0f, -1.0f, 0.0f };
+    const glm::mat4 projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.05f, 50.0f);
+
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    const auto uploadFace = [&](bool captureSeam)
+    {
+        const glm::mat4 view = glm::lookAt(probe, probe + faceTarget, faceUp);
+        const glm::mat4 vp = projection * view;
+        ShaderBindingLayout::CameraUBO cameraData{};
+        cameraData.ViewProjection = captureSeam ? RHI::AdjustCaptureProjectionForBackend(vp)
+                                                : RHI::AdjustProjectionForBackend(vp);
+        cameraData.View = view;
+        cameraData.Projection = captureSeam ? RHI::AdjustCaptureProjectionForBackend(projection)
+                                            : RHI::AdjustProjectionForBackend(projection);
+        cameraData.PrevViewProjection = cameraData.ViewProjection;
+        cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+    };
+
+    // A caster in front of the probe (+x), displaced toward world +y — i.e.
+    // along -faceUp. Asymmetric in BOTH axes so a row mirror is unmistakable.
+    // MakeV1Quad authors the xy plane, so build the +x-facing quad directly.
+    struct EngineVertex
+    {
+        glm::vec3 Position;
+        glm::vec3 Normal;
+        glm::vec2 TexCoord;
+    };
+    const std::array<EngineVertex, 4> casterVertices{
+        EngineVertex{ { 2.0f, 0.4f, -0.9f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
+        EngineVertex{ { 2.0f, 0.4f, -0.2f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
+        EngineVertex{ { 2.0f, 1.2f, -0.2f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
+        EngineVertex{ { 2.0f, 1.2f, -0.9f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },
+    };
+    u32 casterIndices[] = { 0u, 1u, 2u, 2u, 3u, 0u };
+    auto caster = VertexArray::Create();
+    auto casterVb = VertexBuffer::Create(const_cast<f32*>(reinterpret_cast<const f32*>(casterVertices.data())),
+                                         static_cast<u32>(sizeof(casterVertices)));
+    casterVb->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                          { ShaderDataType::Float3, "a_Normal" },
+                          { ShaderDataType::Float2, "a_TexCoord" } });
+    caster->AddVertexBuffer(casterVb);
+    caster->SetIndexBuffer(IndexBuffer::Create(casterIndices, 6));
+
+    constexpr u32 kCaptureSeam = 0; // production Vulkan capture path
+    constexpr u32 kScreenSeam = 1;  // what the screen seam would store
+
+    Texture2DArraySpecification arraySpec;
+    arraySpec.Width = kSize;
+    arraySpec.Height = kSize;
+    arraySpec.Layers = 2;
+    arraySpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    auto faces = Texture2DArray::Create(arraySpec);
+    ASSERT_TRUE(faces);
+
+    FramebufferSpecification depthSpec;
+    depthSpec.Width = kSize;
+    depthSpec.Height = kSize;
+    depthSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+    Ref<Framebuffer> faceFramebuffer = Framebuffer::Create(depthSpec);
+    ASSERT_TRUE(faceFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            faceFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetBlendState(false);
+            // The capture must SEE backfaces (in-wall probe classification), so
+            // the production loop disables culling — copied here so the face
+            // basis, not the winding, decides the result.
+            RenderCommand::DisableCulling();
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+            depthShader->Bind();
+
+            const auto renderFace = [&](u32 layer, bool captureSeam)
+            {
+                uploadFace(captureSeam);
+                faceFramebuffer->AttachDepthTextureArrayLayer(faces->GetRHIHandle(), layer);
+                RenderCommand::ClearDepthOnly();
+                caster->Bind();
+                RenderCommand::DrawIndexed(caster, 6);
+            };
+
+            renderFace(kCaptureSeam, true);
+            renderFace(kScreenSeam, false);
+
+            std::array<RHI::Barrier, 2> toSampled{};
+            for (u32 layer = 0; layer < 2u; ++layer)
+            {
+                toSampled[layer].Resource = faces->GetRHIHandle();
+                toSampled[layer].Range.BaseMip = 0u;
+                toSampled[layer].Range.MipCount = 1u;
+                toSampled[layer].Range.BaseLayer = layer;
+                toSampled[layer].Range.LayerCount = 1u;
+                toSampled[layer].Before = RHI::Access::DepthStencilAttachmentWrite;
+                toSampled[layer].After = RHI::Access::ShaderSampleRead;
+            }
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u);
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::array<std::vector<f32>, 2> stored;
+    for (u32 layer = 0; layer < 2u; ++layer)
+    {
+        ASSERT_TRUE(ReadDepthArrayLayer(faces, layer, stored[layer])) << "face layer " << layer << " readback failed";
+        ASSERT_EQ(stored[layer].size(), static_cast<sizet>(kSize) * kSize);
+    }
+    const auto covered = [&](u32 layer, u32 x, u32 y)
+    { return stored[layer][static_cast<sizet>(y) * kSize + x] < 0.999f; };
+
+    u32 compensatedPixels = 0;
+    u32 minRow = kSize;
+    u32 maxRow = 0;
+    u32 mirrorMismatches = 0;
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            if (covered(kCaptureSeam, x, y))
+            {
+                ++compensatedPixels;
+                minRow = std::min(minRow, y);
+                maxRow = std::max(maxRow, y);
+            }
+            mirrorMismatches += (covered(kCaptureSeam, x, y) != covered(kScreenSeam, x, kSize - 1u - y)) ? 1u : 0u;
+        }
+    }
+
+    EXPECT_GT(compensatedPixels, 50u) << "the capture face rasterized nothing";
+    EXPECT_EQ(mirrorMismatches, 0u)
+        << "the capture-seam and screen-seam faces must be exact vertical mirrors — that difference IS the "
+           "row-mirroring the screen seam would otherwise bake into every direction-addressed capture";
+
+    // Memory row 0 is clip y = -w on BOTH backends, so a capture whose
+    // projection carries no y flip stores exactly what GL stores. Face 0's
+    // basis is up = (0,-1,0) — lookAt's camera-up IS that vector — so the
+    // caster at world +y sits at NEGATIVE view y, hence ndc_y < 0, hence the
+    // FIRST half of memory, the same half GL's bake writes.
+    EXPECT_LT(maxRow, kSize / 2u)
+        << "the caster must land in the first half of the stored face (rows " << minRow << ".." << maxRow
+        << ") — the second half means the screen seam's clip-y negation reached the capture projection";
+}
+
+// =============================================================================
+// Wave C item 14 — WATER: the tessellated pipeline shape (A10)
+// =============================================================================
+//
+// Water.glsl is the engine's only four-stage program (vertex -> TCS -> TES ->
+// fragment), so it is the first shader to need a pipeline shape the backend did
+// not have: VkPipelineTessellationStateCreateInfo, PATCH_LIST topology, and the
+// patch size as a PSO axis (patchControlPoints is dynamic only under
+// extendedDynamicState2PatchControlPoints, which is NOT on the ADR 0010 floor,
+// so SetPatchVertexCount joins VulkanPipelineBuilder::Key). This tenant is the
+// floor the survey named: the tessellated pipeline BUILDS and a patch draw
+// RECORDS AND RASTERIZES. A full water-surface contract (Gerstner displacement,
+// refraction, foam, SSR) is disproportionate here — the water fragment stage
+// samples 11 textures and reads the scene's own colour/depth, and its physical
+// contract is already pinned on GL by WaterRenderingTest /
+// WaterVisualEvidenceTest.
+//
+// The draw goes through RenderCommand::DrawIndexedPatches — the facade entry
+// DrawTerrainPatch/DrawWater decode to — so the recorded patch size, the
+// PATCH_LIST topology and the TCS/TES stages all have to line up or the draw
+// drops (counted) instead of silently rendering as triangles.
+TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto waterShader = Shader::Create("assets/shaders/Water.glsl");
+    ASSERT_TRUE(waterShader);
+    ASSERT_EQ(waterShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+        << "Water.glsl must compile all FOUR stages through shaderc (V1 pull branch in the vertex stage; "
+           "the tessellation stages consume varyings and need none)";
+
+    // --- every binding the four stages declare that decides geometry ---------
+    // Identity camera + identity model: the patch is authored in clip space, so
+    // "did it rasterize" is a plain coverage question. The samplers the
+    // fragment stage declares (normal maps, scene depth/colour, foam, planar
+    // reflection, environment) are deliberately left to the typed NULL
+    // descriptors — they tint the surface, they do not decide whether it
+    // rasterizes.
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    ShaderBindingLayout::WaterUBO water{};
+    water.WaveParams = { 0.0f, 1.0f, 0.0f, 1.0f }; // time 0, no amplitude — a FLAT patch
+    water.WaveDir0 = { 1.0f, 0.0f, 0.0f, 10.0f };
+    water.WaveDir1 = { 0.0f, 1.0f, 0.0f, 10.0f };
+    water.WaterColor = { 0.0f, 0.4f, 0.8f, 1.0f };     // opaque so the coverage test is unambiguous
+    water.WaterDeepColor = { 0.0f, 0.1f, 0.3f, 0.0f }; // reflectivity 0 — no env/planar contribution
+    water.VisualParams = { 5.0f, 0.0f, 1.0f, 0.0f };
+    water.NormalMapScroll = { 0.0f, 0.0f, 0.0f, 0.0f };
+    water.NormalMapSpeed = { 0.0f, 0.0f, 0.0f, 0.0f };
+    water.LightDirection = { 0.0f, -1.0f, 0.0f, 0.0f };
+    water.ScreenParams = { static_cast<f32>(kSize), static_cast<f32>(kSize), 1.0f / kSize, 1.0f / kSize };
+    water.DepthRefractionParams = { 1.0f, 0.0f, 0.0f, 0.0f };
+    water.RefractionColor = { 1.0f, 1.0f, 1.0f, 0.0f };
+    water.FoamParams = { 10.0f, 1.0f, 1.0f, 0.0f };
+    water.FoamParams2 = { 1.0f, 1.0f, 0.0f, 0.0f };
+    water.SSSColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+    water.SSRParams = { 0.0f, 0.0f, 0.0f, 0.0f }; // SSR off
+    // THE knob under test: tessellation ACTIVE, frustum cull off (the patch is
+    // already in clip space, so the TCS's distance-based cull has no camera to
+    // reason about).
+    water.TessParams = { 4.0f, 1.0f, 100.0f, 0.0f };
+    water.FFTParams = { 0.0f, 1.0f, 1.0f, 1.0f }; // Gerstner, not FFT
+    auto waterUbo = UniformBuffer::Create(ShaderBindingLayout::WaterUBO::GetSize(), ShaderBindingLayout::UBO_WATER);
+    waterUbo->SetData(&water, ShaderBindingLayout::WaterUBO::GetSize());
+
+    // PlanarReflectionParams (43): disabled. Left unbound this would read the
+    // null address — deterministic zeros, which happens to mean "disabled" too,
+    // but the fixture contract is to bind every declared block.
+    struct PlanarReflectionParamsBlock
+    {
+        glm::mat4 ViewProjection{ 1.0f };
+        glm::vec4 Params{ 0.0f };
+    } planarParams;
+    auto planarUbo = UniformBuffer::Create(static_cast<u32>(sizeof(planarParams)), 43u);
+    planarUbo->SetData(&planarParams, static_cast<u32>(sizeof(planarParams)));
+
+    // The water fragment stage writes o_Color@0, o_EntityID@1, o_ViewNormal@2,
+    // o_Velocity@3 — the scene framebuffer's shape. An attachment short of that
+    // is a validation warning about an output with no attachment.
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RED_INTEGER,
+                              FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RG16F,
+                              FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    // Coverage is read off DEPTH, not colour. The water fragment stage's colour
+    // is a function of eleven samplers this tenant deliberately leaves at the
+    // typed NULL descriptors (scene depth/colour, normal maps, foam, planar
+    // reflection, environment) plus a full lighting/refraction/foam evaluation
+    // — it can legitimately resolve to black, and "the pipeline built and the
+    // patch rasterized" must not hinge on that arithmetic. Depth is written by
+    // the fixed-function pipeline for every fragment the patch produces (the
+    // stage's only `discard` is the render-from-below waterline branch, which
+    // u_NormalMapSpeed.w = 0 keeps inert), so it is the honest witness. It
+    // rides the item-11 layered path, whose readback helper this reuses.
+    Texture2DArraySpecification depthArraySpec;
+    depthArraySpec.Width = kSize;
+    depthArraySpec.Height = kSize;
+    depthArraySpec.Layers = 1;
+    depthArraySpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    auto patchDepth = Texture2DArray::Create(depthArraySpec);
+    ASSERT_TRUE(patchDepth);
+
+    // One triangular PATCH covering the lower-left half of the target. The
+    // engine `Vertex` layout (V1) is what the water VAO carries in production.
+    struct EngineVertex
+    {
+        glm::vec3 Position;
+        glm::vec3 Normal;
+        glm::vec2 TexCoord;
+    };
+    const std::array<EngineVertex, 3> patchVertices{
+        EngineVertex{ { -0.9f, -0.9f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },
+        EngineVertex{ { 0.9f, -0.9f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },
+        EngineVertex{ { -0.9f, 0.9f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
+    };
+    u32 patchIndices[] = { 0u, 1u, 2u };
+    auto patchVao = VertexArray::Create();
+    auto patchVb = VertexBuffer::Create(const_cast<f32*>(reinterpret_cast<const f32*>(patchVertices.data())),
+                                        static_cast<u32>(sizeof(patchVertices)));
+    patchVb->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                         { ShaderDataType::Float3, "a_Normal" },
+                         { ShaderDataType::Float2, "a_TexCoord" } });
+    patchVao->AddVertexBuffer(patchVb);
+    patchVao->SetIndexBuffer(IndexBuffer::Create(patchIndices, 3));
+
+    SubmitFrame(
+        [&]()
+        {
+            sceneFramebuffer->Bind();
+            sceneFramebuffer->AttachDepthTextureArrayLayer(patchDepth->GetRHIHandle(), 0u);
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetBlendState(false);
+            // A tessellated patch's winding after subdivision is the TES's
+            // business (`layout(..., ccw)` there); culling off keeps this
+            // tenant about the pipeline shape, not about winding.
+            RenderCommand::DisableCulling();
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+
+            waterShader->Bind();
+            patchVao->Bind();
+            // 3 control points per patch — WaterRenderPass's own value, and the
+            // TCS's `layout(vertices = 3) out`.
+            RenderCommand::DrawIndexedPatches(patchVao, 3u, 3u);
+            sceneFramebuffer->Unbind();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = patchDepth->GetRHIHandle();
+            toSampled.Range.BaseMip = 0u;
+            toSampled.Range.MipCount = 1u;
+            toSampled.Range.BaseLayer = 0u;
+            toSampled.Range.LayerCount = 1u;
+            toSampled.Before = RHI::Access::DepthStencilAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u)
+        << "the patch draw must reach the recorder — a tessellation pipeline that failed to build drops it";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "DrawIndexedPatches must no longer be a Phase 6 stub";
+
+    std::vector<f32> depth;
+    ASSERT_TRUE(ReadDepthArrayLayer(patchDepth, 0u, depth)) << "patch depth readback failed";
+    ASSERT_EQ(depth.size(), static_cast<sizet>(kSize) * kSize);
+    const auto covered = [&](u32 x, u32 y)
+    { return depth[static_cast<sizet>(y) * kSize + x] < 0.999f; };
+
+    // The patch is the lower-left half of clip space (hypotenuse x + y = 0) and
+    // the camera matrices are raw identity here, so ndc == the authored
+    // position and buffer row r samples ndc_y = 2r/kSize - 1:
+    //   (8, 40)  -> ndc (-0.75,  0.25): inside
+    //   (56, 56) -> ndc ( 0.75,  0.75): outside
+    EXPECT_TRUE(covered(8u, 40u))
+        << "the tessellated patch rasterized NOTHING — a PATCH_LIST draw against a pipeline carrying no "
+           "tessellation state produces no primitives at all";
+    EXPECT_FALSE(covered(56u, 56u))
+        << "outside the patch must stay at the clear depth — a patch that rasterized as a full-screen "
+           "primitive would fail here";
+
+    u32 coveredTexels = 0;
+    for (u32 y = 0; y < kSize; ++y)
+        for (u32 x = 0; x < kSize; ++x)
+            coveredTexels += covered(x, y) ? 1u : 0u;
+    // Half of a 64x64 target is 2048; the authored triangle spans 0.9 of each
+    // axis, so ~1650. Bounded loosely on both sides: the point is that the
+    // subdivided patch covers its triangle and not the whole target.
+    EXPECT_GT(coveredTexels, 1000u) << "the patch covered " << coveredTexels << " texels";
+    EXPECT_LT(coveredTexels, 2600u) << "the patch covered " << coveredTexels << " texels";
 }
 
 #endif // OLO_WITH_VULKAN

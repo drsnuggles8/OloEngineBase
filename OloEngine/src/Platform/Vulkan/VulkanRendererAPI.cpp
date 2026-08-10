@@ -849,6 +849,7 @@ namespace OloEngine
         }
         vkCmdEndRendering(m_Cmd);
         m_Scope.Active = false;
+        m_Scope.DepthArrayView = VK_NULL_HANDLE;
         // Pending clears survive the scope END only if never consumed; the
         // next scope begin re-reads them. Target/DrawList stay published.
     }
@@ -884,6 +885,32 @@ namespace OloEngine
         }
     }
 
+    bool VulkanRendererAPI::ScopeMatchesCurrentTarget() const
+    {
+        if (!m_Scope.Active)
+        {
+            return false;
+        }
+        auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
+        if (m_Scope.Target != target)
+        {
+            return false;
+        }
+        if (target == nullptr)
+        {
+            return true;
+        }
+        // #691 Wave C §4: a layered shadow pass renders every cascade through
+        // ONE framebuffer object, calling AttachDepthTextureArrayLayer between
+        // them. Comparing only the framebuffer POINTER would keep the scope
+        // open across that change and paint every cascade into cascade 0's
+        // view — silently, with no validation error (the view is legal, just
+        // stale). The selection is part of the scope's identity.
+        const auto& depthArray = target->GetDepthArrayAttachment();
+        const VkImageView selected = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
+        return m_Scope.DepthArrayView == selected;
+    }
+
     bool VulkanRendererAPI::EnsureRenderingScopeForDraw()
     {
         auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
@@ -899,7 +926,7 @@ namespace OloEngine
             return false;
         }
 
-        if (m_Scope.Active && m_Scope.Target == target)
+        if (ScopeMatchesCurrentTarget())
         {
             return true;
         }
@@ -984,11 +1011,20 @@ namespace OloEngine
         }
         m_ScopeTargets.ColorCount = outputCount;
 
+        // §4 layered shadow depth: a selected texture-array LAYER wins over the
+        // framebuffer's own depth attachment (the GL twin's
+        // glNamedFramebufferTextureLayer re-point). Everything else about the
+        // depth attachment — layout, loadOp folding, the pre-scope transition —
+        // is identical; only the view, the format source and the barrier's
+        // layer differ.
+        const auto& depthArray = target->GetDepthArrayAttachment();
         VkRenderingAttachmentInfo depthInfo{};
-        Ref<VulkanTexture2D> depthImage = target->GetDepthAttachmentImage();
-        if (depthImage != nullptr)
+        Ref<VulkanTexture2D> depthImage = depthArray.Active ? nullptr : target->GetDepthAttachmentImage();
+        const bool hasDepth = depthArray.Active || depthImage != nullptr;
+        if (hasDepth)
         {
-            const VkImageView depthView = depthImage->GetOrCreateAttachmentView();
+            const VkImageView depthView =
+                depthArray.Active ? depthArray.View : depthImage->GetOrCreateAttachmentView();
             if (depthView == VK_NULL_HANDLE)
             {
                 OLO_CORE_ERROR("[RHI/Vulkan] depth attachment view unavailable — draw dropped");
@@ -1001,20 +1037,22 @@ namespace OloEngine
             depthInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             depthInfo.clearValue.depthStencil = { 1.0f, 0u };
 
-            const auto* depthImageInfo = VulkanImageInfoRegistry::Get().Lookup(depthImage->GetVkImage());
+            const VkImage depthVkImage = depthArray.Active ? depthArray.Image : depthImage->GetVkImage();
+            const auto* depthImageInfo = VulkanImageInfoRegistry::Get().Lookup(depthVkImage);
             m_ScopeTargets.DepthFormat = depthImageInfo != nullptr ? depthImageInfo->Format : VK_FORMAT_UNDEFINED;
 
+            const u32 depthLayer = depthArray.Active ? depthArray.Layer : 0u;
             RHI::Barrier toDepth{};
-            toDepth.Resource = depthImage->GetRHIHandle();
+            toDepth.Resource = depthArray.Active ? depthArray.Handle : depthImage->GetRHIHandle();
             toDepth.Range.BaseMip = 0u;
             toDepth.Range.MipCount = 1u;
-            toDepth.Range.BaseLayer = 0u;
+            toDepth.Range.BaseLayer = depthLayer;
             toDepth.Range.LayerCount = 1u;
             // The tracker resolves runs by (mip, layer) only; the aspect mask
             // merely echoes into the emitted runs, so DEPTH is safe for the
             // query even on a combined depth-stencil format.
-            const VkImageSubresourceRange depthProbe{ VK_IMAGE_ASPECT_DEPTH_BIT, 0u, 1u, 0u, 1u };
-            toDepth.Before = AccessGuessForLayout(m_LayoutTracker.CurrentLayout(depthImage->GetVkImage(), depthProbe));
+            const VkImageSubresourceRange depthProbe{ VK_IMAGE_ASPECT_DEPTH_BIT, 0u, 1u, depthLayer, 1u };
+            toDepth.Before = AccessGuessForLayout(m_LayoutTracker.CurrentLayout(depthVkImage, depthProbe));
             toDepth.After = RHI::Access::DepthStencilAttachmentWrite;
             scopeBarriers.push_back(toDepth);
         }
@@ -1032,16 +1070,16 @@ namespace OloEngine
         rendering.layerCount = 1;
         rendering.colorAttachmentCount = outputCount;
         rendering.pColorAttachments = outputCount > 0 ? colorInfos.data() : nullptr;
-        rendering.pDepthAttachment = depthImage != nullptr ? &depthInfo : nullptr;
+        rendering.pDepthAttachment = hasDepth ? &depthInfo : nullptr;
         // Stencil shares the depth attachment when the format carries the
         // aspect; the recorded stencil state is dynamic.
         rendering.pStencilAttachment =
-            (depthImage != nullptr && m_ScopeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) ? &depthInfo
-                                                                                                  : nullptr;
+            (hasDepth && m_ScopeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) ? &depthInfo : nullptr;
         vkCmdBeginRendering(m_Cmd, &rendering);
 
         m_Scope.Active = true;
         m_Scope.Target = target;
+        m_Scope.DepthArrayView = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
         // The pending clears were consumed by the loadOps above.
         m_Scope.PendingClearColor = false;
         m_Scope.PendingClearDepth = false;
@@ -1280,7 +1318,7 @@ namespace OloEngine
         // — found by #691 Phase 7 Wave A: every intra-pass consumer sampled
         // its producer's CLEAR). A scope on a stale target ends here and the
         // clear folds into the NEW target's first-draw loadOp.
-        if (m_Scope.Active && m_Scope.Target != VulkanBindingState::Get().GetCurrentFramebuffer())
+        if (m_Scope.Active && !ScopeMatchesCurrentTarget())
         {
             EndRenderingScope();
         }
@@ -1333,7 +1371,7 @@ namespace OloEngine
         }
         // Same stale-scope guard as Clear(): GL clears the BOUND framebuffer,
         // never the lazily-switched previous scope target.
-        if (m_Scope.Active && m_Scope.Target != VulkanBindingState::Get().GetCurrentFramebuffer())
+        if (m_Scope.Active && !ScopeMatchesCurrentTarget())
         {
             EndRenderingScope();
         }
@@ -1406,9 +1444,25 @@ namespace OloEngine
         }
     }
 
-    void VulkanRendererAPI::DrawIndexedPatches(const Ref<VertexArray>& /*vertexArray*/, u32 /*indexCount*/, u32 /*patchVertices*/)
+    // A10 (#691 Wave C): tessellated draws. GL's glPatchParameteri +
+    // GL_PATCHES becomes a PATCH_LIST topology plus a baked
+    // VkPipelineTessellationStateCreateInfo::patchControlPoints — the patch
+    // size is a PSO axis on the ADR 0010 floor (extendedDynamicState2-
+    // PatchControlPoints is not required), so the count is recorded through
+    // the same SetPatchVertexCount state the GL twin sets and the PSO key
+    // picks it up. Callers that pass an explicit count (the packet-decoded
+    // Raw form) record it here first, exactly as glPatchParameteri would.
+    void VulkanRendererAPI::DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices)
     {
-        Phase6Stub("DrawIndexedPatches");
+        if (patchVertices != 0)
+            m_State.PatchVertexCount = patchVertices;
+        const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) && BindIndexBufferFor(vao))
+        {
+            // Same 0 = whole-index-buffer facade contract as DrawIndexed.
+            const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
+            vkCmdDrawIndexed(m_Cmd, count, 1, 0, 0, 0);
+        }
     }
 
     void VulkanRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount)
@@ -1446,9 +1500,21 @@ namespace OloEngine
         }
     }
 
-    void VulkanRendererAPI::DrawIndexedPatchesRaw(RHI::ResourceHandle /*vertexArray*/, u32 /*indexCount*/, u32 /*patchVertices*/)
+    void VulkanRendererAPI::DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices)
     {
-        Phase6Stub("DrawIndexedPatchesRaw");
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
+        {
+            Phase6Stub("DrawIndexedPatchesRaw(unresolvable vertex array)");
+            return;
+        }
+        if (patchVertices != 0)
+            m_State.PatchVertexCount = patchVertices;
+        const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
+        if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) && BindIndexBufferFor(vao))
+        {
+            vkCmdDrawIndexed(m_Cmd, indexCount, 1, 0, 0, 0);
+        }
     }
 
     void VulkanRendererAPI::ClearStencil()

@@ -76,4 +76,29 @@ namespace OloEngine::RHI
     // The uploaded-inverse form: glm::inverse(AdjustProjectionForShaderReconstruction(m)).
     // Spelled here so call sites cannot drift into inverting first.
     [[nodiscard]] glm::mat4 AdjustedInverseForShaderReconstruction(const glm::mat4& forward);
+
+    // The KNOWN LIMIT above, closed for the passes that opt in (#691 Wave C
+    // item 15). A DIRECTION-ADDRESSED capture — a cubemap/atlas face bake whose
+    // consumer addresses the result by DIRECTION, not by screen uv — wants the
+    // z half of the seam and NOT the y half. The y flip exists so that a
+    // SCREEN-space uv convention lines up; a face bake has no screen, and the
+    // flip only costs it correctness: with it, each face lands ROW-MIRRORED
+    // relative to the GL bake (memory row 0 is clip y = -w on BOTH backends, so
+    // negating clip y negates which row a world point lands in) while
+    // direction->texel addressing stays API-identical. The relight then reads
+    // the wrong row of the right face.
+    //
+    // Applying only the z remap leaves the stored rows byte-identical to GL's
+    // and still gives the depth buffer its GL-shaped contents. Identity on GL.
+    //
+    // NOT expressible by negating the face's UP vector: lookAt derives right =
+    // cross(forward, up), so negating up flips the RIGHT axis too — a 180-degree
+    // roll, not a mirror.
+    //
+    // A capture that CULLS would need its winding reconsidered (without the y
+    // flip the framebuffer-space facing determinant matches GL's window-space
+    // one, which is the opposite of what the screen path composes); the engine's
+    // face bakes all rasterize with culling disabled, so the question is moot
+    // today and is called out here rather than guessed at.
+    [[nodiscard]] glm::mat4 AdjustCaptureProjectionForBackend(const glm::mat4& projection);
 } // namespace OloEngine::RHI

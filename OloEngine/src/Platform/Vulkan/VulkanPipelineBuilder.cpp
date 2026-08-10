@@ -282,6 +282,7 @@ namespace OloEngine
         hash = HashCombine(hash, key.BakedBlendHash);
         hash = HashCombine(hash, key.SamplerHash);
         hash = HashCombine(hash, key.LayoutHash);
+        hash = HashCombine(hash, key.PatchControlPoints);
         return static_cast<sizet>(hash);
     }
 
@@ -451,6 +452,12 @@ namespace OloEngine
         key.Samples = safeTargets.Samples;
         key.SamplerHash = HashSampler(sampler);
         key.LayoutHash = HashLayout(layout);
+        // A10 (#691 Wave C): a shader carrying a tessellation-control stage is
+        // a PATCH pipeline — VK_PRIMITIVE_TOPOLOGY_PATCH_LIST is then the ONLY
+        // legal topology (VUID-…-pStages-00736) and the patch size must be
+        // baked, so it joins the key.
+        const bool tessellated = shader.GetModule(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != VK_NULL_HANDLE;
+        key.PatchControlPoints = tessellated ? std::max(state.PatchVertexCount, 1u) : 0u;
         if (!dynamicBlend)
         {
             // Blend is a baked axis only where EDS3 is absent (§5's fallback
@@ -528,7 +535,15 @@ namespace OloEngine
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // dynamic
+        inputAssembly.topology =
+            key.PatchControlPoints != 0 ? VK_PRIMITIVE_TOPOLOGY_PATCH_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        // A10: the tessellation state exists ONLY on a patch pipeline; the
+        // draw front-end sets PATCH_LIST through the dynamic topology so the
+        // baked value above and the recorded one agree.
+        VkPipelineTessellationStateCreateInfo tessellation{};
+        tessellation.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
+        tessellation.patchControlPoints = key.PatchControlPoints;
 
         VkPipelineViewportStateCreateInfo viewport{};
         viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -648,6 +663,7 @@ namespace OloEngine
         pipelineInfo.pStages = stages.data();
         pipelineInfo.pVertexInputState = &vertexInput;
         pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pTessellationState = key.PatchControlPoints != 0 ? &tessellation : nullptr;
         pipelineInfo.pViewportState = &viewport;
         pipelineInfo.pRasterizationState = &raster;
         pipelineInfo.pMultisampleState = &multisample;
@@ -691,17 +707,33 @@ namespace OloEngine
                                                   const VulkanRenderTargetDesc& targets)
     {
         vkCmdSetCullMode(cmd, ToVk(state.CullFace, state.Culling));
-        // A1/A8 (issue #691 Phase 7): the projection seam's Y flip
-        // (RHI::AdjustProjectionForBackend) mirrors every triangle's apparent
-        // winding on screen, so the recorded GL winding translates to its
-        // OPPOSITE VkFrontFace. Composed HERE — in the backend's one
-        // state-translation point — never at call sites, so a pass-local
-        // winding override (PlanarReflection's Clockwise) flips with it
-        // instead of fighting it. Raw-NDC fullscreen passes mirror the same
-        // way (y-up positions land y-down), so the swap is uniform; they draw
-        // with culling off and are indifferent regardless.
-        vkCmdSetFrontFace(cmd, state.FrontFaceWinding == RHI::FrontFace::Clockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE
-                                                                                   : VK_FRONT_FACE_CLOCKWISE);
+        // A1/A8 (issue #691 Phase 7): the recorded GL winding translates to the
+        // SAME VkFrontFace — no swap.
+        //
+        // Batch 1 shipped the opposite (recorded CCW -> VK_FRONT_FACE_CLOCKWISE)
+        // on the reasoning that the projection seam's Y flip mirrors every
+        // triangle's apparent winding. Half of that is true and it is the half
+        // that cancels: the seam DOES negate clip y, but Vulkan's facing
+        // determinant is computed in FRAMEBUFFER coordinates, whose y already
+        // points DOWN where GL's window y points UP. The two inversions
+        // compose to identity — a triangle GL calls front-facing has the same
+        // facing here — so applying a third one made every solid mesh
+        // inside-out on Vulkan: back-face culling removed exactly the
+        // triangles GL keeps.
+        //
+        // Nothing caught it until now because the only Vulkan tenants that
+        // recorded a winding drew with culling OFF (every fullscreen pass, the
+        // decal/particle/foliage bodies), where front-face state is inert. The
+        // planar-reflection tenant is the first to cull real geometry, and it
+        // pins all four cells of the matrix — {direct, mirrored} x {CCW, CW} —
+        // so an inversion here fails loudly in both directions rather than
+        // being masked by the reflection's own handedness reversal.
+        //
+        // Composed HERE, in the backend's one state-translation point, never at
+        // call sites: a pass-local override (PlanarReflection's Clockwise for
+        // the mirrored replay) then means exactly what it means on GL.
+        vkCmdSetFrontFace(cmd, state.FrontFaceWinding == RHI::FrontFace::Clockwise ? VK_FRONT_FACE_CLOCKWISE
+                                                                                   : VK_FRONT_FACE_COUNTER_CLOCKWISE);
         vkCmdSetPrimitiveTopology(cmd, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
         vkCmdSetDepthTestEnable(cmd, state.DepthTest ? VK_TRUE : VK_FALSE);
         vkCmdSetDepthWriteEnable(cmd, state.DepthWrite ? VK_TRUE : VK_FALSE);

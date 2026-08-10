@@ -282,6 +282,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Same backend gate as the GLStateGuard constructor, and for the same
+        // reason: this is a GL-STATE instrument. The ctor's guard covers the
+        // ctor/dtor path, but a pass may call ApplyCore() DIRECTLY on the
+        // guard's entry snapshot to roll its own reconfiguration back before
+        // the dtor's diff runs — PlanarReflectionRenderPass does exactly that
+        // (#691 Phase 7 Wave C). On a non-GL backend that snapshot is the
+        // default-constructed one the inert ctor left behind, so the raw GL
+        // calls below are at best meaningless and at worst fatal: in a
+        // Vulkan-only process the glad pointers are NULL, and mid-suite (a GL
+        // context alive alongside the Vulkan device) they would stomp the GL
+        // context's real state with a snapshot that was never captured.
+        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            return;
+        }
+
         // FBO bindings FIRST — subsequent state-setting calls are global so
         // their order doesn't matter, but `glNamedFramebuffer*` DSA calls
         // (not used here) would still target the snapshot's FBO regardless.

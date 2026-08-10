@@ -497,6 +497,31 @@ namespace OloEngine
 
         void AttachDepthTextureArrayLayer(RHI::ResourceHandle textureArray, u32 layer) override;
 
+        // #691 Phase 7 Wave C §4 (layered shadow depth): the GL twin re-points
+        // the FBO's depth attachment at ONE LAYER of a depth texture array
+        // (glNamedFramebufferTextureLayer), then clears + renders a cascade
+        // into it. Under dynamic rendering there is no FBO object to re-point,
+        // so AttachDepthTextureArrayLayer instead SELECTS which cached
+        // single-layer depth VIEW the next rendering scope opens against
+        // (baseArrayLayer = the cascade, layerCount = 1). The scope-open path
+        // (VulkanRendererAPI::EnsureRenderingScopeForDraw) consults this
+        // override before falling back to the framebuffer's own depth
+        // attachment; the layer number also rides the scope's depth barrier so
+        // the layout tracker stays per-layer exact.
+        struct DepthArrayLayerAttachment
+        {
+            VkImage Image = VK_NULL_HANDLE;
+            VkImageView View = VK_NULL_HANDLE;
+            VkFormat Format = VK_FORMAT_UNDEFINED;
+            RHI::ResourceHandle Handle{};
+            u32 Layer = 0;
+            bool Active = false;
+        };
+        [[nodiscard]] const DepthArrayLayerAttachment& GetDepthArrayAttachment() const
+        {
+            return m_DepthArrayAttachment;
+        }
+
         [[nodiscard]] Ref<VulkanTexture2D> GetColorAttachmentImage(u32 index) const;
         [[nodiscard]] u32 GetColorAttachmentCount() const
         {
@@ -528,6 +553,13 @@ namespace OloEngine
         // reset to zero by Resize().
         u32 m_RenderViewportWidth = 0;
         u32 m_RenderViewportHeight = 0;
+
+        // The selected layer (see GetDepthArrayAttachment) plus the per-layer
+        // view cache that backs it, keyed by (image, layer) — a shadow pass
+        // walks the same N cascades every frame, so the views are created once
+        // and reused; they are destroyed with this framebuffer.
+        DepthArrayLayerAttachment m_DepthArrayAttachment;
+        std::unordered_map<u64, VkImageView> m_DepthArrayViews;
     };
 
     // -------------------------------------------------------------------------
