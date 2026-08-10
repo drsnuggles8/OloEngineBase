@@ -1,8 +1,11 @@
 #include "OloEnginePCH.h"
+#include "MCP/McpEditorLiveness.h"
 #include "MCP/McpInputInject.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpToolsCommon.h"
 
+#include <atomic>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -42,55 +45,113 @@ namespace OloEngine::MCP
             if (const auto error = Inject::ParseRequest(args, request))
                 return ToolResult::Error(*error);
 
+            // Cancellation token shared with the marshaled job below. MarshalRead can
+            // give up on a timeout while the job it enqueued is still queued, and that
+            // job would then inject a plan AFTER this call has already returned an
+            // error — input the caller never learned about, landing in whatever the
+            // editor is doing by then. The job re-checks this flag immediately before
+            // injecting; the timeout path raises it. Same shape as the screenshot
+            // tool's PoseGuardState, and shared_ptr for the same reason: a copy
+            // carried into the job keeps the flag alive even if this frame unwinds.
+            const auto abandoned = std::make_shared<std::atomic<bool>>(false);
+
             // Step 1 (main thread): read the live viewport/window geometry, resolve the
             // coordinates against it, build the plan, and enqueue it. Done as ONE job so
             // the geometry the plan was resolved against cannot change under it (a panel
             // relayout between a separate read and a separate enqueue would silently aim
             // the click at the wrong pixel).
-            const Json accepted = server.MarshalRead(
-                [&context, &request]() -> Json
-                {
-                    const McpInputViewportInfo info = context.GetInputViewportInfo();
-                    if (!info.Available)
-                        return Json{ { "__error", "The editor viewport is not ready yet." } };
+            //
+            // `request` is captured BY VALUE: on the same timeout path, a reference to
+            // this frame's local would already be dangling by the time the job ran.
+            Json accepted;
+            try
+            {
+                accepted = server.MarshalRead(
+                    [&context, request, abandoned]() -> Json
+                    {
+                        // Refuse UP FRONT when the editor is not running frames (issue
+                        // #607). The queue drains one frame per EditorLayer::OnUpdate, and
+                        // an iconified editor never reaches OnUpdate at all — so accepting
+                        // here would queue a plan that can never be applied, block the
+                        // caller for the full settle timeout, and then leave the queue
+                        // occupied so every LATER call reports "an injected input sequence
+                        // is still in flight" with no hint of the real cause. That is the
+                        // exact loop this refusal breaks; note it is deliberately a
+                        // pre-check, not a post-hoc timeout message, because the damage is
+                        // the stuck queue rather than the wasted wait.
+                        if (context.GetEditorLiveness)
+                        {
+                            if (const McpEditorLiveness liveness = context.GetEditorLiveness();
+                                EditorLiveness::IsStale(liveness))
+                            {
+                                return Json{ { "__error", "Cannot inject input: " + EditorLiveness::StallReason(liveness) } };
+                            }
+                        }
 
-                    McpInputPlan plan;
-                    Inject::ResolvedPoint start;
-                    Inject::ResolvedPoint end;
-                    if (const auto error = Inject::BuildPlan(request, info, plan, start, end))
-                        return Json{ { "__error", *error } };
+                        const McpInputViewportInfo info = context.GetInputViewportInfo();
+                        // A pure `resetOffset` carries no coordinates, so it needs no
+                        // viewport geometry — and it is the one call that must keep
+                        // working when the Viewport panel is closed, since that is when
+                        // a session most needs to hand the cursor back.
+                        if (!info.Available && !request.ResetOnly)
+                            return Json{ { "__error", "The editor viewport is not ready yet." } };
 
-                    const McpInputInjectResult result = context.InjectInput(plan);
-                    if (!result.Available)
-                        return Json{ { "__error", "Input injection is not available in this build (no editor window)." } };
-                    if (!result.Ok)
-                        return Json{ { "__error", result.Message.empty()
-                                                      ? std::string("The editor refused the injected input.")
-                                                      : result.Message } };
+                        McpInputPlan plan;
+                        Inject::ResolvedPoint start;
+                        Inject::ResolvedPoint end;
+                        Inject::ResolvedDelta delta;
+                        if (const auto error = Inject::BuildPlan(request, info, plan, start, end, &delta))
+                            return Json{ { "__error", *error } };
 
-                    return Json{ { "baseFrame", result.BaseFrame },
-                                 { "frameCount", result.FrameCount },
-                                 { "message", result.Message },
-                                 { "panelX", info.PanelX },
-                                 { "panelY", info.PanelY },
-                                 { "windowX", info.WindowX },
-                                 { "windowY", info.WindowY },
-                                 { "logicalWidth", info.LogicalWidth },
-                                 { "logicalHeight", info.LogicalHeight },
-                                 { "dpiScale", info.DpiScale },
-                                 { "windowWidth", info.WindowWidth },
-                                 { "windowHeight", info.WindowHeight },
-                                 { "startWindowX", start.WindowX },
-                                 { "startWindowY", start.WindowY },
-                                 { "startPixelX", start.ViewportPixelX },
-                                 { "startPixelY", start.ViewportPixelY },
-                                 { "startInside", start.InsideViewport },
-                                 { "endWindowX", end.WindowX },
-                                 { "endWindowY", end.WindowY },
-                                 { "endPixelX", end.ViewportPixelX },
-                                 { "endPixelY", end.ViewportPixelY },
-                                 { "endInside", end.InsideViewport } };
-                });
+                        // Last check before the side effect: if this call already timed
+                        // out and returned, injecting now would be input from nowhere.
+                        if (abandoned->load(std::memory_order_acquire))
+                            return Json{ { "__error", "Injection abandoned (the call timed out before the editor ran it)." } };
+
+                        const McpInputInjectResult result = context.InjectInput(plan);
+                        if (!result.Available)
+                            return Json{ { "__error", "Input injection is not available in this build (no editor window)." } };
+                        if (!result.Ok)
+                            return Json{ { "__error", result.Message.empty()
+                                                          ? std::string("The editor refused the injected input.")
+                                                          : result.Message } };
+
+                        return Json{ { "baseFrame", result.BaseFrame },
+                                     { "frameCount", result.FrameCount },
+                                     { "message", result.Message },
+                                     { "panelX", info.PanelX },
+                                     { "panelY", info.PanelY },
+                                     { "windowX", info.WindowX },
+                                     { "windowY", info.WindowY },
+                                     { "logicalWidth", info.LogicalWidth },
+                                     { "logicalHeight", info.LogicalHeight },
+                                     { "dpiScale", info.DpiScale },
+                                     { "windowWidth", info.WindowWidth },
+                                     { "windowHeight", info.WindowHeight },
+                                     { "startWindowX", start.WindowX },
+                                     { "startWindowY", start.WindowY },
+                                     { "startPixelX", start.ViewportPixelX },
+                                     { "startPixelY", start.ViewportPixelY },
+                                     { "startInside", start.InsideViewport },
+                                     { "endWindowX", end.WindowX },
+                                     { "endWindowY", end.WindowY },
+                                     { "endPixelX", end.ViewportPixelX },
+                                     { "endPixelY", end.ViewportPixelY },
+                                     { "endInside", end.InsideViewport },
+                                     { "deltaWindowDx", delta.WindowDx },
+                                     { "deltaWindowDy", delta.WindowDy },
+                                     { "deltaFrames", delta.Frames },
+                                     { "deltaReset", delta.Reset } };
+                    });
+            }
+            catch (...)
+            {
+                // MarshalRead gave up (timeout, or the server is stopping) but its job
+                // may still be queued. Disarm it before propagating, so it cannot
+                // inject after this call has reported failure.
+                abandoned->store(true, std::memory_order_release);
+                throw;
+            }
 
             if (accepted.is_object() && accepted.contains("__error"))
                 return ToolResult::Error(accepted["__error"].get<std::string>());
@@ -103,20 +164,32 @@ namespace OloEngine::MCP
             const auto frameCount = accepted.value("frameCount", static_cast<u32>(0));
             const bool timedOut = !AwaitRenderedFrames(server, baseFrame, static_cast<int>(frameCount) + 1);
 
-            // Step 3 (main thread): read back what the injection changed.
+            // Step 3 (main thread): read back what the injection changed — plus the
+            // liveness, so a timeout can name its cause instead of leaving the caller
+            // to guess (the editor could have been minimized DURING the settle wait,
+            // which the step-1 pre-check cannot see).
             const Json stateJson = server.MarshalRead(
                 [&context]() -> Json
                 {
                     const McpInputStateSnapshot state = context.GetInputState();
-                    return Json{ { "available", state.Available },
-                                 { "pending", state.Pending },
-                                 { "selectedId", state.SelectedEntityId },
-                                 { "selectedName", state.SelectedEntityName },
-                                 { "hoveredId", state.HoveredEntityId },
-                                 { "hoveredName", state.HoveredEntityName },
-                                 { "viewportHovered", state.ViewportHovered },
-                                 { "mouseX", state.MouseX },
-                                 { "mouseY", state.MouseY } };
+                    Json j{ { "available", state.Available },
+                            { "pending", state.Pending },
+                            { "selectedId", state.SelectedEntityId },
+                            { "selectedName", state.SelectedEntityName },
+                            { "hoveredId", state.HoveredEntityId },
+                            { "hoveredName", state.HoveredEntityName },
+                            { "viewportHovered", state.ViewportHovered },
+                            { "mouseX", state.MouseX },
+                            { "mouseY", state.MouseY },
+                            { "mouseOffsetX", state.MouseOffsetX },
+                            { "mouseOffsetY", state.MouseOffsetY } };
+                    if (context.GetEditorLiveness)
+                    {
+                        const McpEditorLiveness liveness = context.GetEditorLiveness();
+                        j["liveness"] = EditorLiveness::ToJson(liveness);
+                        j["stallReason"] = EditorLiveness::StallReason(liveness);
+                    }
+                    return j;
                 });
 
             McpInputInjectResult result;
@@ -136,6 +209,8 @@ namespace OloEngine::MCP
             state.ViewportHovered = stateJson.value("viewportHovered", false);
             state.MouseX = stateJson.value("mouseX", 0.0f);
             state.MouseY = stateJson.value("mouseY", 0.0f);
+            state.MouseOffsetX = stateJson.value("mouseOffsetX", 0.0f);
+            state.MouseOffsetY = stateJson.value("mouseOffsetY", 0.0f);
 
             McpInputViewportInfo info;
             info.Available = true;
@@ -163,7 +238,17 @@ namespace OloEngine::MCP
             end.ViewportPixelY = accepted.value("endPixelY", 0.0f);
             end.InsideViewport = accepted.value("endInside", false);
 
-            return ToolResult::Structured(Inject::ToJson(result, state, info, request, start, end, timedOut));
+            Inject::ResolvedDelta delta;
+            delta.WindowDx = accepted.value("deltaWindowDx", 0.0f);
+            delta.WindowDy = accepted.value("deltaWindowDy", 0.0f);
+            delta.Frames = accepted.value("deltaFrames", 1);
+            delta.Reset = accepted.value("deltaReset", false);
+
+            Json out = Inject::ToJson(result, state, info, request, start, end, timedOut, &delta,
+                                      stateJson.value("stallReason", std::string{}));
+            if (const Json liveness = stateJson.value("liveness", Json(nullptr)); !liveness.is_null())
+                out["liveness"] = liveness;
+            return ToolResult::Structured(out);
         }
     } // namespace
 
@@ -185,8 +270,18 @@ namespace OloEngine::MCP
             "(never the OS cursor, so it cannot type into whatever window you have focused). "
             "This is a WRITE tool: refused unless 'Allow writes' is enabled in the editor's MCP panel (or "
             "OLO_MCP_ALLOW_WRITES=1), because a click can move a gizmo and a key can delete an entity.\n\n"
-            "Actions: click / move / drag (mouse), key (press/release/tap, with modifiers), text (type into "
-            "the focused widget).\n\n"
+            "Actions: click / move / drag (mouse, ABSOLUTE), mouseDelta (mouse, RELATIVE), key "
+            "(press/release/tap, with modifiers), text (type into the focused widget).\n\n"
+            "ABSOLUTE vs RELATIVE. click/move/drag inject a cursor POSITION, held only while the call is in "
+            "flight — right for ImGui widgets, menus and gizmo drags, and useless for anything that "
+            "integrates 'mouse - lastMousePos' ACROSS frames, such as a mouse-look rig: it sees the position "
+            "arrive as a spike and, when the call ends, that spike's mirror, and the two cancel to zero. Use "
+            "mouseDelta {dx, dy} for those: it applies a DISPLACEMENT that persists exactly as a real mouse "
+            "movement would, so the rotation is never taken back. Spread a large movement over several frames "
+            "with 'frames' (a rig may reject an implausible single-frame jump as a discontinuity), and put the "
+            "virtual cursor back with resetOffset:true. mouseDelta does NOT move the ImGui cursor — it targets "
+            "the engine's poll-based Input:: API — so keep using move/drag for anything ImGui-facing. Every "
+            "reply reports the accumulated displacement as after.mouseOffset.\n\n"
             "COORDINATES. 'space' picks the frame of reference:\n"
             "  viewport      (default) pixels of the olo_screenshot image at NATIVE resolution, origin "
             "top-left. Note olo_screenshot downscales to maxWidth — if it did, its pixels are NOT these.\n"
@@ -206,6 +301,13 @@ namespace OloEngine::MCP
                                 .Prop("framesInjected", Schema::Int().Min(0))
                                 .Prop("message", Schema::String())
                                 .Prop("resolved", Schema::Object().Desc("Mouse actions (click/move/drag) only; omitted for key/text. A resolved point {windowX, windowY, viewportPixelX, viewportPixelY, insideViewport} for click/move, or {from, to} of two such points for drag."))
+                                .Prop("resolvedDelta", Schema::Object()
+                                                           .Prop("windowDx", Schema::Number())
+                                                           .Prop("windowDy", Schema::Number())
+                                                           .Prop("frames", Schema::Int().Min(1))
+                                                           .Prop("reset", Schema::Bool())
+                                                           .Desc("mouseDelta only: the requested displacement converted to window-client logical pixels (the units Input::GetMousePosition reports), the number of frames it was spread over, and whether the accumulated offset was zeroed first."))
+                                .Prop("liveness", EditorLiveness::SchemaNode())
                                 .Prop("viewport", Schema::Object()
                                                       .Prop("pixelWidth", Schema::Number())
                                                       .Prop("pixelHeight", Schema::Number())
@@ -216,6 +318,10 @@ namespace OloEngine::MCP
                                                    .Prop("viewportHovered", Schema::Bool())
                                                    .Prop("mouseX", Schema::Number())
                                                    .Prop("mouseY", Schema::Number())
+                                                   .Prop("mouseOffset", Schema::Object()
+                                                                            .Prop("x", Schema::Number())
+                                                                            .Prop("y", Schema::Number())
+                                                                            .Desc("Accumulated relative displacement from mouseDelta calls, in window-client logical pixels. Unlike an absolute injection this PERSISTS after the call — that is what lets a delta-integrating consumer register the movement. Zero it with mouseDelta { resetOffset: true }."))
                                                    .Prop("selectedEntity", Schema::Raw(Json{ { "type", Json::array({ "object", "null" }) } }).Desc("{id, name} of the selected entity, or null when none."))
                                                    .Prop("hoveredEntity", Schema::Raw(Json{ { "type", Json::array({ "object", "null" }) } }).Desc("{id, name} of the entity under the cursor, or null when none."))
                                                    .Desc("Post-injection editor state — the state change the injection caused."))

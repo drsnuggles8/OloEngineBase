@@ -158,6 +158,52 @@ namespace OloEngine
             return m_Systems.size();
         }
 
+        // ---- graph export (issue #607) -----------------------------------
+        // The derived graph as plain data, for the olo_scheduler_graph MCP tool
+        // and any other consumer that needs to LOOK at the schedule rather than
+        // assert one property of it.
+        //
+        // This exists because the whole design premise of this class is that the
+        // execution order is DERIVED, not written down — which means the thing you
+        // actually have to reason about (which edges exist, and therefore which
+        // systems may overlap) is not visible in any source file. Until now it
+        // could only be interrogated one yes/no question at a time via DependsOn,
+        // so understanding the schedule meant writing a test per hypothesis.
+        //
+        // Parallel is exported alongside the edges deliberately. Per CLAUDE.md a
+        // missing edge is INVISIBLE in the sequential order (the registration-order
+        // tie-break masks it) and only becomes a data race under the parallel
+        // executor — so a graph export that showed edges but not parallelism would
+        // omit precisely the half that makes the graph worth looking at.
+        struct GraphNode
+        {
+            std::string Name;
+            std::vector<std::string> Reads;
+            std::vector<std::string> Writes;
+            std::vector<std::string> After;  // as DECLARED, not as derived
+            std::vector<std::string> Before; // as DECLARED, not as derived
+            bool Parallel = false;
+            u32 OrderIndex = 0; // position in the derived execution order
+        };
+
+        // One derived edge: From must finish before To may start.
+        struct GraphEdge
+        {
+            std::string From;
+            std::string To;
+        };
+
+        struct GraphSnapshot
+        {
+            std::vector<GraphNode> Nodes; // in derived execution order
+            std::vector<GraphEdge> Edges; // derived DAG, deduplicated
+            bool ParallelExecutionEnabled = false;
+        };
+
+        // Snapshot the derived graph. Builds if needed, so it throws
+        // SystemSchedulerError on the same invalid schedules Execute would.
+        [[nodiscard]] GraphSnapshot ExportGraph();
+
       private:
         struct SystemNode
         {

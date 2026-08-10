@@ -56,7 +56,7 @@ namespace OloEngine::Tests
         /// still has to be re-pointed by hand: deriving "the maximum" would
         /// need the constants enumerated somewhere, and the reason this test
         /// exists is that they are not.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_DEBUG_DRAW_SPHERE;
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_REFLECTION_PROBE_GRID;
 
         struct BindingFailure
         {

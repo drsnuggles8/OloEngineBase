@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
+#include "MCP/McpEditorLiveness.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpCpuScopes.h"
 #include "MCP/McpPassTimings.h"
@@ -97,7 +98,7 @@ namespace OloEngine::MCP
         // ---- olo_perf_snapshot (main-marshaled; profiler has no mutex) ----------
         ToolResult Handle_PerfSnapshot(McpServer& server, const Json& /*args*/)
         {
-            Json j = server.MarshalRead([]() -> Json
+            Json j = server.MarshalRead([&server]() -> Json
                                         {
                 // GetLastCompletedFrameData(), not GetCurrentFrameData(): the
                 // latter's FrameTime is only a live estimate carried over
@@ -135,6 +136,18 @@ namespace OloEngine::MCP
                     const auto& spec = sceneFB->GetSpecification();
                     o["renderWidth"] = spec.Width;
                     o["renderHeight"] = spec.Height;
+                }
+                // Is the editor actually running frames at all (issue #607)? Every
+                // number above describes the last COMPLETED frame, which may be
+                // arbitrarily old: a minimized editor parks the loop entirely and each
+                // of these counters then reports, perfectly truthfully, on a frame from
+                // minutes ago. This block is what makes that visible — and it is here,
+                // on the cheapest and most-called tool, so "is the loop ticking?" is one
+                // call rather than a cross-tool inference.
+                if (server.Context().GetEditorLiveness)
+                {
+                    const McpEditorLiveness liveness = server.Context().GetEditorLiveness();
+                    o["liveness"] = EditorLiveness::ToJson(liveness);
                 }
                 return o; });
             return ToolResult::Structured(j);
@@ -401,7 +414,13 @@ namespace OloEngine::MCP
                 "draw calls, triangles, state/shader/texture binds, and the ACTUAL scene render resolution "
                 "(renderWidth/renderHeight — cross-check it against any olo_viewport_set_size override "
                 "before trusting timings). Server-computed snapshot from the live profiler. Map a low fps "
-                "back to draw calls / lack of instancing.";
+                "back to draw calls / lack of instancing.\n\n"
+                "ALSO THE LIVENESS PROBE. Every counter here describes the last COMPLETED frame, which can be "
+                "arbitrarily old — a minimized editor parks its update/render loop entirely and then reports "
+                "these numbers, truthfully, about a frame from minutes ago while input injection silently "
+                "never drains and screenshots go stale. The 'liveness' block answers 'is the editor actually "
+                "running frames?' in ONE call: check liveness.ticking (with frameIndex, msSinceLastFrame, "
+                "iconified, focused) before trusting any other tool's view of the frame.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("fps", Schema::Number())
@@ -423,6 +442,7 @@ namespace OloEngine::MCP
                                     .Prop("gpuWaitMs", Schema::Number().Desc("CPU ms spent blocked on the GPU frame fence — high values mean GPU-bound."))
                                     .Prop("renderWidth", Schema::Int().Min(0).Desc("Actual SceneColor render-target width in pixels. Compare against your viewport override to detect a stale/incorrect render size. Omitted when no render graph is live."))
                                     .Prop("renderHeight", Schema::Int().Min(0).Desc("Actual SceneColor render-target height in pixels."))
+                                    .Prop("liveness", EditorLiveness::SchemaNode())
                                     .Required({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfSnapshot;

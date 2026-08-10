@@ -1253,6 +1253,34 @@ vec3 calculateIBL(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
     return kD * diffuse + specular;
 }
 
+// calculateIBL with the specular prefilter fetch hoisted out: the caller
+// resolves `prefilteredColor` itself (global prefilter map, or the
+// distance-impostor probe blend from include/ReflectionProbes.glsl — issue
+// #705) and this applies the identical BRDF split. Keep the body in lockstep
+// with calculateIBL above.
+vec3 calculateIBLPrefiltered(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
+                             samplerCube irradianceMap, sampler2D brdfLUT, vec3 prefilteredColor)
+{
+    vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
+    F0 = mix(F0, albedo, metallic);
+
+    vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+
+    vec3 kS = F;
+    vec3 kD = 1.0 - kS;
+    kD *= 1.0 - metallic;
+
+    // Diffuse IBL
+    vec3 irradiance = texture(irradianceMap, N).rgb;
+    vec3 diffuse = irradiance * albedo;
+
+    // Specular from the caller-resolved prefiltered radiance
+    vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
+
+    return kD * diffuse + specular;
+}
+
 // Simple ambient lighting fallback when IBL is not available
 // NOTE: Does NOT include AO — caller applies AO uniformly via `ambient * ao`
 // to match the IBL / light-probe paths which also omit AO from their returns.
@@ -1345,6 +1373,32 @@ vec3 calculateCombinedAmbient(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
     // Specular from IBL prefilter
     vec3 R = reflect(-V, N);
     vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+    vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
+
+    return kD * diffuse + specular;
+}
+
+// calculateCombinedAmbient with the specular prefilter fetch hoisted out —
+// same contract as calculateIBLPrefiltered (issue #705). Keep the body in
+// lockstep with calculateCombinedAmbient above.
+vec3 calculateCombinedAmbientPrefiltered(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
+                                         float metallic, float roughness,
+                                         sampler2D brdfLUT, vec3 prefilteredColor)
+{
+    vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
+    F0 = mix(F0, albedo, metallic);
+
+    vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+
+    vec3 kS = F;
+    vec3 kD = 1.0 - kS;
+    kD *= 1.0 - metallic;
+
+    // Diffuse from probes
+    vec3 diffuse = probeIrradiance * albedo;
+
+    // Specular from the caller-resolved prefiltered radiance
     vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
 

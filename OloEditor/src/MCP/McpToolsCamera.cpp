@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpCaptureRegion.h"
+#include "MCP/McpEditorLiveness.h"
 #include "MCP/McpSchemaBuilder.h"
 #include <algorithm>
 #include <atomic>
@@ -270,6 +271,20 @@ namespace OloEngine::MCP
                                                             "current viewportWidth/viewportHeight." } };
                     Json j{ { "bytes", static_cast<u64>(png.size()) },
                             { "playing", server.Context().IsPlaying ? server.Context().IsPlaying() : false } };
+                    // Sampled in the SAME job as the readback, so it describes the
+                    // frame actually captured (issue #607). Without it a capture taken
+                    // against a minimized editor comes back HTTP 200 with the last
+                    // frame drawn before the minimize: two shots either side of a 10 m
+                    // walk were byte-identical, which reads as "the camera didn't move"
+                    // — the exact opposite of the truth, and unfalsifiable from the
+                    // reply alone.
+                    if (server.Context().GetEditorLiveness)
+                    {
+                        const McpEditorLiveness liveness = server.Context().GetEditorLiveness();
+                        j["liveness"] = EditorLiveness::ToJson(liveness);
+                        j["stale"] = EditorLiveness::IsStale(liveness);
+                        j["stallReason"] = EditorLiveness::StallReason(liveness);
+                    }
                     // Link mode hands the RAW bytes out (base64 happens lazily at
                     // resources/read); inline keeps encoding here, unchanged.
                     if (deliverLink)
@@ -312,6 +327,18 @@ namespace OloEngine::MCP
                 result.Content.push_back(Json{ { "type", "text" },
                                                { "text", "Warning: timed out waiting for the new camera pose to render; "
                                                          "the image may show a stale frame." } });
+            // Loud, unmissable, and FIRST — ahead of the meta and the image — because
+            // the whole failure mode this closes is a stale frame that looks perfectly
+            // valid (issue #607). A flag buried in structuredContent would be read
+            // after the image had already been believed.
+            const bool stale = marshaled.value("stale", false);
+            if (stale)
+                result.Content.push_back(
+                    Json{ { "type", "text" },
+                          { "text", "STALE FRAME: this image is NOT current. " +
+                                        marshaled.value("stallReason", std::string{}) +
+                                        " Two captures taken while this is true will be identical no matter what you "
+                                        "changed in between." } });
             // Which state (and so whose camera) produced this frame — Play
             // renders from the runtime's primary CameraComponent, Edit /
             // Simulate from the editor camera (issue #607: a Play-mode frame
@@ -322,6 +349,15 @@ namespace OloEngine::MCP
             Json meta;
             meta["sceneState"] = capturedWhilePlaying ? "play" : "edit-or-simulate";
             meta["camera"] = capturedWhilePlaying ? "runtime primary CameraComponent" : "editor camera";
+            if (const Json liveness = marshaled.value("liveness", Json(nullptr)); !liveness.is_null())
+            {
+                meta["liveness"] = liveness;
+                meta["stale"] = stale;
+                // The frame this image came from, hoisted out of the liveness block:
+                // two captures reporting the same frameIndex came from the same frame,
+                // whatever else changed between the calls.
+                meta["frameIndex"] = liveness.value("frameIndex", static_cast<u64>(0));
+            }
             // Echo the requested sub-rect (issue #607). `nativeResolution` can only
             // be decided against the encoded size, which lives in the PNG, so it is
             // stated as the request's INTENT: a region no wider than maxWidth is
@@ -431,6 +467,9 @@ namespace OloEngine::MCP
                                     .Prop("camera", Schema::String().Enum({ "runtime primary CameraComponent", "editor camera" }).Desc("Which camera produced the frame."))
                                     .Prop("region", Schema::Object().Desc("The requested sub-rect {x, y, w, h} plus 'nativeResolution' (whether it was no wider than maxWidth, so never downscaled); present only when 'region' was given."))
                                     .Prop("resourceUri", Schema::String().Desc("Present only with delivery:'resource_link' — the olo://capture/... resource holding the PNG (resources/read returns it as base64 blob contents)."))
+                                    .Prop("frameIndex", Schema::Int().Min(0).Desc("Editor frame the image came from. Two captures reporting the SAME frameIndex came from the same frame, whatever changed between the calls."))
+                                    .Prop("stale", Schema::Bool().Desc("True when the editor's loop was parked, so this image is the last frame drawn before it stopped — not a current one. A leading STALE FRAME text block says so too."))
+                                    .Prop("liveness", EditorLiveness::SchemaNode())
                                     .Required({ "sceneState", "camera" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_Screenshot;

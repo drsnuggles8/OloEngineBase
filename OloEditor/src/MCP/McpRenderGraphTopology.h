@@ -23,6 +23,7 @@
 #include <nlohmann/json.hpp>
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -220,39 +221,81 @@ namespace OloEngine::MCP::RenderGraphTopology
         return out;
     }
 
-    // Shape the snapshot as a Mermaid `flowchart LR` of the pass graph. Pass names
-    // can contain '@', spaces and other characters Mermaid rejects in a node id, so
-    // each pass is assigned a stable synthetic id (n0, n1, ...) and the real name is
-    // only ever used as the quoted label. The final pass and any culled passes get a
-    // classDef so the diagram reads at a glance.
-    [[nodiscard]] inline std::string BuildMermaid(const Snapshot& snap)
+    // ---- shared graph-rendering helpers ------------------------------------
+    // The Mermaid and DOT renderers below differ only in syntax and in how they
+    // escape a quote; everything else — id assignment, label construction — is the
+    // same job twice. Mirrors Detail::IdMap / Detail::EscapeQuoted in
+    // McpSchedulerGraph.h so the engine's two DAG exports stay recognisably one
+    // design.
+    namespace Detail
     {
-        std::unordered_map<std::string, std::string> idByName;
-        // Return by value (never a reference into the map): a later idOf() can insert
-        // and rehash, which would dangle a reference held across the call.
-        const auto idOf = [&idByName](const std::string& name) -> std::string
+        // Stable synthetic ids (n0, n1, ...). Pass names contain '@', spaces and
+        // other characters neither format accepts in a node id, so the real name is
+        // only ever used as the quoted label.
+        class IdMap
         {
-            if (const auto it = idByName.find(name); it != idByName.end())
-                return it->second;
-            std::string id = "n" + std::to_string(idByName.size());
-            idByName.emplace(name, id);
-            return id;
+          public:
+            // Returns BY VALUE, never a reference into the map: a later Of() can
+            // insert and rehash, dangling a reference held across the call.
+            [[nodiscard]] std::string Of(const std::string& name)
+            {
+                if (const auto it = m_Ids.find(name); it != m_Ids.end())
+                    return it->second;
+                std::string id = "n" + std::to_string(m_Ids.size());
+                m_Ids.emplace(name, id);
+                return id;
+            }
+
+          private:
+            std::unordered_map<std::string, std::string> m_Ids;
         };
 
-        // Escape a label for a Mermaid quoted string ("...").
-        const auto escapeLabel = [](const std::string& s) -> std::string
+        // Escape a label for a quoted string in either format. `quoteEscape` is the
+        // format's replacement for '"' ("&quot;" for Mermaid, "\\\"" for DOT).
+        //
+        // The backslash is doubled FIRST, and that order is load-bearing for DOT:
+        // escaping only the quote would turn a name ending in '\' into '\\"', whose
+        // second backslash escapes the closing quote and swallows the rest of the
+        // line. Escaping a quote but not the character that escapes it is worse than
+        // escaping neither.
+        [[nodiscard]] inline std::string EscapeQuoted(const std::string& text, std::string_view quoteEscape,
+                                                      bool escapeBackslash)
         {
-            std::string r;
-            r.reserve(s.size());
-            for (const char c : s)
+            std::string out;
+            out.reserve(text.size());
+            for (const char c : text)
             {
-                if (c == '"')
-                    r += "&quot;";
+                if (c == '\\' && escapeBackslash)
+                    out += "\\\\";
+                else if (c == '"')
+                    out += quoteEscape;
                 else
-                    r.push_back(c);
+                    out.push_back(c);
             }
-            return r;
-        };
+            return out;
+        }
+
+        // A pass's display label: its name, plus the work type when it is not the
+        // default Graphics (the one thing worth seeing at a glance in a diagram).
+        [[nodiscard]] inline std::string PassLabel(const PassInfo& pass)
+        {
+            std::string label = pass.Name;
+            if (pass.WorkType != "Graphics")
+                label += " [" + pass.WorkType + "]";
+            return label;
+        }
+    } // namespace Detail
+
+    // Shape the snapshot as a Mermaid `flowchart LR` of the pass graph. The final
+    // pass and any culled passes get a classDef so the diagram reads at a glance.
+    [[nodiscard]] inline std::string BuildMermaid(const Snapshot& snap)
+    {
+        Detail::IdMap ids;
+        const auto idOf = [&ids](const std::string& name)
+        { return ids.Of(name); };
+        // Mermaid takes the HTML entity, and its labels are not backslash-escaped.
+        const auto escapeLabel = [](const std::string& s)
+        { return Detail::EscapeQuoted(s, "&quot;", /*escapeBackslash*/ false); };
 
         std::string out = "flowchart LR\n";
 
@@ -263,10 +306,7 @@ namespace OloEngine::MCP::RenderGraphTopology
         for (const auto& p : snap.Passes)
         {
             const std::string id = idOf(p.Name);
-            std::string label = p.Name;
-            if (p.WorkType != "Graphics")
-                label += " [" + p.WorkType + "]";
-            out += "    " + id + "[\"" + escapeLabel(label) + "\"]\n";
+            out += "    " + id + "[\"" + escapeLabel(Detail::PassLabel(p)) + "\"]\n";
             anyCulled = anyCulled || p.Culled;
             anyFinal = anyFinal || p.IsFinalPass;
         }
@@ -290,6 +330,43 @@ namespace OloEngine::MCP::RenderGraphTopology
                 out += "    class " + idOf(p.Name) + " culled;\n";
         }
 
+        return out;
+    }
+
+    // Shape the snapshot as Graphviz DOT (issue #607) — the sibling format of the
+    // Mermaid renderer above, added so both of the engine's DAGs (this and the
+    // gameplay SystemScheduler, see McpSchedulerGraph.h) can be exported in the same
+    // two drawable formats. Same synthetic-id and quoted-label treatment; only the
+    // quote escape differs (DOT takes a backslash escape, Mermaid an HTML entity).
+    [[nodiscard]] inline std::string BuildDot(const Snapshot& snap)
+    {
+        Detail::IdMap ids;
+        const auto idOf = [&ids](const std::string& name)
+        { return ids.Of(name); };
+        // DOT takes a backslash escape for the quote — and therefore must also
+        // double a literal backslash, or a name ending in one would escape the
+        // closing quote. See Detail::EscapeQuoted.
+        const auto escapeLabel = [](const std::string& s)
+        { return Detail::EscapeQuoted(s, "\\\"", /*escapeBackslash*/ true); };
+
+        std::string out = "digraph RenderGraph {\n";
+        out += "    rankdir=LR;\n";
+        out += "    node [shape=box, style=rounded, fontname=\"sans-serif\"];\n";
+
+        for (const auto& p : snap.Passes)
+        {
+            out += "    " + idOf(p.Name) + " [label=\"" + escapeLabel(Detail::PassLabel(p)) + "\"";
+            if (p.IsFinalPass)
+                out += ", style=\"rounded,filled\", fillcolor=\"#d4edda\", color=\"#2e7d32\"";
+            else if (p.Culled)
+                out += ", style=\"rounded,dashed,filled\", fillcolor=\"#f2f2f2\", color=\"#9e9e9e\"";
+            out += "];\n";
+        }
+
+        for (const auto& edge : snap.Edges)
+            out += "    " + idOf(edge.From) + " -> " + idOf(edge.To) + ";\n";
+
+        out += "}\n";
         return out;
     }
 } // namespace OloEngine::MCP::RenderGraphTopology

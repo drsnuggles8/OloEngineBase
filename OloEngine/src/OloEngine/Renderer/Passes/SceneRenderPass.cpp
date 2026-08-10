@@ -275,6 +275,23 @@ namespace OloEngine
             forwardPlus.BindForShading();
         }
 
+        // Distance-impostor reflection probes (issue #705): upload changed
+        // array layers + the probe UBO and fill the per-cluster probe mask,
+        // then publish for the colour sub-pass (forward consumers) — the
+        // DeferredLightingPass re-binds for the fullscreen lighting draw.
+        // Deliberately OUTSIDE the Forward+ gate: the probe grid carries its
+        // own copy of the cluster parameters, so probes keep working when
+        // Forward+ is inactive.
+        {
+            auto& reflectionProbes = Renderer3D::GetReflectionProbes();
+            u32 const vpWidth = m_Target ? m_Target->GetSpecification().Width : 0;
+            u32 const vpHeight = m_Target ? m_Target->GetSpecification().Height : 0;
+            reflectionProbes.PrepareFrame(Renderer3D::GetViewMatrix(),
+                                          Renderer3D::GetProjectionMatrix(),
+                                          vpWidth, vpHeight);
+            reflectionProbes.BindForShading();
+        }
+
         // Set up color pass state AFTER occlusion flush (which mutates GL state)
         if (depthPrepass)
         {

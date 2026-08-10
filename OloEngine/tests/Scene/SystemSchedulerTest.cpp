@@ -43,7 +43,10 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -317,6 +320,117 @@ TEST(SystemSchedulerTest, DependsOnReportsTransitiveReachability)
     EXPECT_FALSE(sched.DependsOn("Lone", "A"));
     EXPECT_FALSE(sched.DependsOn("A", "A")); // no self-dependency
     EXPECT_THROW((void)sched.DependsOn("Typo", "A"), SystemSchedulerError);
+}
+
+// ---- graph export (issue #607, olo_scheduler_graph) --------------------------
+//
+// ExportGraph is the read side of the same derivation DependsOn queries one pair
+// at a time. Two things must hold or the MCP export becomes confidently wrong:
+// the node list must be in DERIVED order (not registration order — they differ
+// exactly when a constraint bites, which is the only interesting case), and the
+// edge list must contain the RESOURCE-derived edges, which are the majority and
+// the ones no source file shows.
+TEST(SystemSchedulerTest, ExportGraphReportsDerivedOrderNodesAndEdges)
+{
+    SystemScheduler sched;
+    sched.AddSystem("A", NoOp()).Writes("X");
+    sched.AddSystem("B", NoOp()).Reads("X").Parallelizable();
+    sched.AddSystem("Early", NoOp()).Before("A");
+
+    const SystemScheduler::GraphSnapshot graph = sched.ExportGraph();
+
+    ASSERT_EQ(graph.Nodes.size(), 3u);
+    // Registration order is A, B, Early; the Before() edge pulls Early to the front.
+    EXPECT_EQ(graph.Nodes[0].Name, "Early");
+    EXPECT_EQ(graph.Nodes[1].Name, "A");
+    EXPECT_EQ(graph.Nodes[2].Name, "B");
+    for (u32 i = 0; i < graph.Nodes.size(); ++i)
+        EXPECT_EQ(graph.Nodes[i].OrderIndex, i) << "OrderIndex must be the position in the exported order";
+
+    EXPECT_FALSE(graph.Nodes[1].Parallel);
+    EXPECT_TRUE(graph.Nodes[2].Parallel) << "the Parallelizable flag is the half of the graph that turns a "
+                                            "missing edge into a data race — it must survive the export";
+    EXPECT_EQ(graph.Nodes[1].Writes, (std::vector<std::string>{ "X" }));
+    EXPECT_EQ(graph.Nodes[2].Reads, (std::vector<std::string>{ "X" }));
+    EXPECT_EQ(graph.Nodes[0].Before, (std::vector<std::string>{ "A" }));
+
+    const auto hasEdge = [&graph](std::string_view from, std::string_view to)
+    {
+        return std::ranges::any_of(graph.Edges, [&](const SystemScheduler::GraphEdge& edge)
+                                   { return edge.From == from && edge.To == to; });
+    };
+    EXPECT_TRUE(hasEdge("A", "B")) << "the RAW edge on channel X is derived, not declared — exporting only the "
+                                      "explicit after/before edges would hide most of the real graph";
+    EXPECT_TRUE(hasEdge("Early", "A"));
+    EXPECT_FALSE(hasEdge("B", "A"));
+}
+
+TEST(SystemSchedulerTest, ExportGraphAgreesWithDependsOnOnTheRealSchedule)
+{
+    // The export and the one-pair-at-a-time query answer the same question, so a
+    // seam DependsOn confirms must be reachable in the exported edge set too. A
+    // divergence would mean an agent reading the export draws conclusions the
+    // engine's own tests contradict.
+    SystemScheduler& sched = Scene::GetGameplayScheduler();
+    const SystemScheduler::GraphSnapshot graph = sched.ExportGraph();
+
+    ASSERT_FALSE(graph.Nodes.empty());
+    EXPECT_EQ(graph.Nodes.size(), sched.SystemCount());
+
+    std::vector<std::string> exportedOrder;
+    exportedOrder.reserve(graph.Nodes.size());
+    for (const auto& node : graph.Nodes)
+        exportedOrder.push_back(node.Name);
+    EXPECT_EQ(exportedOrder, Scene::GetGameplaySystemOrderForTesting());
+
+    // Transitive reachability over the exported edges must reproduce DependsOn.
+    std::unordered_map<std::string, std::vector<std::string>> successors;
+    for (const auto& edge : graph.Edges)
+        successors[edge.From].push_back(edge.To);
+    const auto reaches = [&successors](const std::string& from, const std::string& to)
+    {
+        std::unordered_set<std::string> seen;
+        std::vector<std::string> stack{ from };
+        while (!stack.empty())
+        {
+            const std::string current = std::move(stack.back());
+            stack.pop_back();
+            const auto it = successors.find(current);
+            if (it == successors.end())
+                continue;
+            for (const std::string& next : it->second)
+            {
+                if (next == to)
+                    return true;
+                if (seen.insert(next).second)
+                    stack.push_back(next);
+            }
+        }
+        return false;
+    };
+
+    // Every ORDERED PAIR, not a couple of hand-picked ones. The export and
+    // DependsOn are two readings of the same derived graph, and an agent reasoning
+    // off the export draws conclusions the engine's own tests are asserting with
+    // DependsOn — so a single divergent pair anywhere is a divergence that matters.
+    // Two spot checks would pass through it; ~1k pairs over a 33-node graph costs
+    // nothing.
+    ASSERT_TRUE(reaches("Scripts", "Cinematics")) << "sanity: the real schedule has at least one derived path";
+    sizet checked = 0;
+    for (const std::string& from : exportedOrder)
+    {
+        for (const std::string& to : exportedOrder)
+        {
+            if (from == to)
+                continue; // DependsOn reports no self-dependency by contract
+            // Note the reversed argument order: reaches(from, to) is an edge path
+            // from -> to, which is exactly DependsOn(to, from) ("to depends on from").
+            ASSERT_EQ(reaches(from, to), sched.DependsOn(to, from))
+                << "export and DependsOn disagree on whether " << to << " depends on " << from;
+            ++checked;
+        }
+    }
+    EXPECT_EQ(checked, exportedOrder.size() * (exportedOrder.size() - 1));
 }
 
 // The critical cross-subsystem seams the historical comments call out must hold

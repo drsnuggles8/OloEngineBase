@@ -22,6 +22,7 @@
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
+#include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 
 #include <algorithm>
@@ -623,6 +624,13 @@ namespace OloEngine
                                  RHI::ResourceHandle brdfLutMap, RHI::ResourceHandle environmentMap,
                                  f32 iblIntensity = 1.0f);
         static void ClearGlobalIBL();
+        // Replace only the diffuse irradiance source (+ intensity), keeping
+        // the sky's prefilter / BRDF LUT / environment intact. The dominant
+        // reflection probe's diffuse override (issue #705): its specular half
+        // moved to the per-pixel probe arrays, and overriding the prefilter
+        // map too would turn the probe-miss sky fallback into the dominant
+        // probe's own radiance.
+        static void OverrideGlobalIrradiance(RHI::ResourceHandle irradianceMap, f32 iblIntensity);
         // Identity forms — what the command layer's bind cache consumes.
         [[nodiscard]] static RHI::ResourceHandle GetGlobalIrradianceMapHandle()
         {
@@ -733,6 +741,11 @@ namespace OloEngine
         static TiledForwardPlus& GetForwardPlus()
         {
             return s_Data.ForwardPlus;
+        }
+        // Distance-impostor reflection probe arrays (issue #705)
+        static ReflectionProbeArray& GetReflectionProbes()
+        {
+            return s_Data.ReflectionProbes;
         }
         static bool IsForwardPlusActive()
         {
@@ -928,6 +941,14 @@ namespace OloEngine
         // The pass itself, for the editor debug viz + MCP capture accessors
         // (may be null before Init / after Shutdown).
         [[nodiscard]] static DDGIProbeUpdatePass* GetDDGIPass();
+
+        // Auxiliary mesh-caster sink (issue #705). While set, the scene's
+        // SubmitDDGICasterIfCollecting sites ALSO append to this vector, so a
+        // bake path (ReflectionProbeBaker's distance capture) can borrow the
+        // DDGI caster enumeration for one RenderScene3D without a DDGI volume
+        // being active. Caller owns the vector and MUST clear the sink
+        // (nullptr) before it goes out of scope.
+        static void SetAuxCasterSink(std::vector<DDGIMeshCaster>* sink);
 
         // @brief Record this frame's transform for an entity and return the
         // previous frame's transform (or the current one if no history exists
@@ -1710,6 +1731,10 @@ namespace OloEngine
             Ref<RenderGraph> RGraph;
             std::unique_ptr<RenderPipeline> Pipeline;
 
+            // Auxiliary mesh-caster sink (issue #705) — see SetAuxCasterSink.
+            // Non-owning; null except while a bake path is collecting.
+            std::vector<DDGIMeshCaster>* AuxCasterSink = nullptr;
+
             // True once Init() has allocated the renderer's one-shot singletons
             // (FrameDataBufferManager, FrameResourceManager, command dispatch, …).
             // Distinct from IsInitialized(): Init() can legitimately run with a
@@ -1831,6 +1856,9 @@ namespace OloEngine
 
             // Forward+ light culling
             TiledForwardPlus ForwardPlus;
+
+            // Distance-impostor reflection probe arrays (issue #705)
+            ReflectionProbeArray ReflectionProbes;
 
             // Global renderer settings (path selection, culling toggles, etc.)
             RendererSettings Settings;

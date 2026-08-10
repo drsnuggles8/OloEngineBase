@@ -16,6 +16,7 @@
 
 namespace
 {
+    using OloEngine::MCP::RenderGraphTopology::BuildDot;
     using OloEngine::MCP::RenderGraphTopology::BuildJson;
     using OloEngine::MCP::RenderGraphTopology::BuildMermaid;
     using OloEngine::MCP::RenderGraphTopology::EdgeInfo;
@@ -213,6 +214,67 @@ TEST(McpRenderGraphTopology, MermaidEscapesQuotesAndUsesSyntheticIds)
     EXPECT_NE(std::string::npos, mermaid.find("n0[\"Post&quot;Process@v2\"]"));
     // The literal double quote must not leak into the label unescaped.
     EXPECT_EQ(std::string::npos, mermaid.find("\"Post\"Process"));
+}
+
+// ---- Graphviz DOT (issue #607) ---------------------------------------------
+//
+// Added so both of the engine's derived DAGs — this one and the gameplay
+// SystemScheduler (olo_scheduler_graph) — can be exported in the same two
+// drawable formats, rather than the reader having to know which tool speaks
+// which language.
+
+TEST(McpRenderGraphTopology, DotEmitsDigraphNodesEdgesAndStyles)
+{
+    const std::string dot = BuildDot(MakeSnapshot());
+
+    EXPECT_TRUE(dot.starts_with("digraph RenderGraph {\n"));
+    EXPECT_TRUE(dot.ends_with("}\n"));
+    EXPECT_NE(std::string::npos, dot.find("rankdir=LR;"));
+    EXPECT_NE(std::string::npos, dot.find("n0 [label=\"Shadow\""));
+    EXPECT_NE(std::string::npos, dot.find("AOCompute [Compute]"));
+    // The same three edges as the Mermaid rendering, in DOT's arrow syntax.
+    std::size_t arrows = 0;
+    for (std::size_t at = dot.find(" -> "); at != std::string::npos; at = dot.find(" -> ", at + 1))
+        ++arrows;
+    EXPECT_EQ(arrows, 3u);
+    // Final and culled passes stay visually distinct, as they are in Mermaid.
+    EXPECT_NE(std::string::npos, dot.find("#d4edda"));
+    EXPECT_NE(std::string::npos, dot.find("dashed"));
+}
+
+TEST(McpRenderGraphTopology, DotEscapesQuotesWithABackslashNotAnEntity)
+{
+    // Mermaid takes an HTML entity, DOT a backslash. Sharing one escape between the
+    // two renderers would silently corrupt one of them, and a pass name only grows
+    // an awkward character long after the code was written.
+    Snapshot snap;
+    snap.Passes.push_back(PassInfo{ "Post\"Process@v2", "Graphics", true, false, false, true });
+
+    const std::string dot = BuildDot(snap);
+    EXPECT_NE(std::string::npos, dot.find("n0 [label=\"Post\\\"Process@v2\""));
+    EXPECT_EQ(std::string::npos, dot.find("&quot;"));
+}
+
+TEST(McpRenderGraphTopology, DotDoublesALiteralBackslashSoItCannotEscapeTheClosingQuote)
+{
+    // Escaping the quote but not the character that escapes it is worse than
+    // escaping neither: a name ending in a backslash would emit ...\" — whose
+    // backslash consumes the closing quote and swallows the rest of the line,
+    // producing DOT that will not parse. Mermaid needs no such treatment (its
+    // escape is an HTML entity, so a backslash is an ordinary character there).
+    Snapshot snap;
+    snap.Passes.push_back(PassInfo{ "Path\\To\\Pass", "Graphics", true, false, false, false });
+
+    const std::string dot = BuildDot(snap);
+    EXPECT_NE(std::string::npos, dot.find("n0 [label=\"Path\\\\To\\\\Pass\""));
+
+    // The trailing-backslash case is the one that actually breaks the parse.
+    Snapshot trailing;
+    trailing.Passes.push_back(PassInfo{ "Trailing\\", "Graphics", true, false, false, false });
+    EXPECT_NE(std::string::npos, BuildDot(trailing).find("n0 [label=\"Trailing\\\\\"];"));
+
+    // Mermaid leaves it alone.
+    EXPECT_NE(std::string::npos, BuildMermaid(snap).find("n0[\"Path\\To\\Pass\"]"));
 }
 
 // ---- Resolved GL ids + per-pass access lists (issue #607) -------------------

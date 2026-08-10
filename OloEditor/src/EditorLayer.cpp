@@ -618,16 +618,12 @@ namespace OloEngine
             mcpContext.GetFrameIndex = [this]() -> u64
             { return m_FrameIndex; };
             mcpContext.IsCaptureUnready = [this]() -> bool
-            {
-                // Unready while throttled, or within a few frames of a viewport
-                // resize: freshly resized render-graph framebuffers render black
-                // for the first couple of frames (verified against the live
-                // editor — 2 frames after a resize still captured black, 6 were
-                // clean), so wait out a conservative window.
-                constexpr u64 kResizeSettleFrames = 6;
-                return m_ViewportRenderSkipped ||
-                       (m_FrameIndex < m_LastViewportResizeFrame + kResizeSettleFrames);
-            };
+            { return IsViewportCaptureUnready(); };
+            // The superset of the two hooks above plus the window state (#607): the
+            // one call that can say "the editor is minimized, so nothing you are
+            // about to read or inject can work" instead of quietly succeeding.
+            mcpContext.GetEditorLiveness = [this]() -> MCP::McpEditorLiveness
+            { return GetMcpEditorLiveness(); };
 
             m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
             MCP::RegisterBuiltinTools(*m_McpServer);
@@ -885,6 +881,33 @@ namespace OloEngine
                 ::ImGui_ImplGlfw_CursorPosCallback(window, static_cast<f64>(event.X), static_cast<f64>(event.Y));
                 break;
             }
+            case MCP::McpInputEvent::Kind::MouseDelta:
+            {
+                // Relative injection (issue #607) targets the POLL-based Input:: API
+                // — the mouse-look rigs and camera controllers that integrate
+                // `Input::GetMousePosition() - lastPos` across frames, and which an
+                // absolute override provably cannot drive (see
+                // SyntheticInput::AddMouseDelta).
+                //
+                // Deliberately NOT forwarded to ImGui. ImGui's cursor is absolute and
+                // is fed by the real GLFW callbacks; synthesising a position for it
+                // here would move the ImGui pointer as a side effect of a call that
+                // asked for a displacement, and would make relative injection
+                // non-additive with respect to widget/gizmo behaviour. `move` and
+                // `drag` remain the actions for anything ImGui-facing.
+                SyntheticInput::AddMouseDelta({ event.X, event.Y });
+                break;
+            }
+            case MCP::McpInputEvent::Kind::MouseOffsetReset:
+            {
+                // The counterpart to the above: puts the virtual cursor back where the
+                // hardware one actually is. A delta consumer registers this as one
+                // jump of -(accumulated offset), which is honest — it IS a jump — and
+                // is why it lives in its own plan frame rather than being folded into
+                // the same frame as a following displacement.
+                SyntheticInput::ClearMouseOffset();
+                break;
+            }
             case MCP::McpInputEvent::Kind::MouseButton:
             {
                 SyntheticInput::SetMouseButton(static_cast<MouseCode>(event.Code), event.Down);
@@ -990,7 +1013,73 @@ namespace OloEngine
             state.HoveredEntityId = static_cast<u64>(hovered.GetUUID());
             state.HoveredEntityName = hovered.GetName();
         }
+
+        // The accumulated relative displacement of the "mouseDelta" action. Unlike the
+        // absolute override this OUTLIVES the plan (that is the entire point — see
+        // McpInputInject.h), so every reply reports it and a drift is visible.
+        const glm::vec2 offset = SyntheticInput::GetMouseOffset();
+        state.MouseOffsetX = offset.x;
+        state.MouseOffsetY = offset.y;
         return state;
+    }
+
+    MCP::McpEditorLiveness EditorLayer::GetMcpEditorLiveness() const
+    {
+        MCP::McpEditorLiveness liveness;
+        liveness.Available = true;
+        liveness.FrameIndex = m_FrameIndex;
+
+        // Zero until the first OnUpdate has run. Report 0 ms rather than the epoch
+        // gap, so a tool started against a just-launched editor does not diagnose a
+        // multi-decade stall (EditorLiveness::IsTicking would otherwise refuse every
+        // call during startup).
+        liveness.MsSinceLastFrame =
+            m_LastFrameTick.time_since_epoch().count() == 0
+                ? 0.0
+                : std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - m_LastFrameTick).count();
+
+        // Application::IsIconified is the AUTHORITATIVE flag here, not GLFW's window
+        // attribute: it is the exact condition Application::Run guards the layer
+        // update with, so it is what decides whether OnUpdate (and therefore the
+        // injection drain and the frame counter) runs at all.
+        //
+        // The window is reached through the SAME guarded pointer: Application::Get()
+        // dereferences its singleton unconditionally, so pairing it with a TryGet()
+        // null check above would be a null dereference in exactly the case the check
+        // exists to cover.
+        // Not `const Application*`: GetWindow() is a non-const accessor, so a const
+        // pointer cannot reach the native window at all.
+        if (Application* const app = Application::TryGet())
+        {
+            liveness.Iconified = app->IsIconified();
+            if (auto* const window = static_cast<GLFWwindow*>(app->GetWindow().GetNativeWindow()))
+            {
+                liveness.Focused = ::glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
+                liveness.Visible = ::glfwGetWindowAttrib(window, GLFW_VISIBLE) != 0;
+                // Belt and braces: a window can be iconified without Application having
+                // seen the 0x0 resize event yet (the event arrives on the next poll).
+                liveness.Iconified = liveness.Iconified || (::glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0);
+            }
+        }
+
+        liveness.CaptureUnready = IsViewportCaptureUnready();
+        return liveness;
+    }
+
+    bool EditorLayer::IsViewportCaptureUnready() const
+    {
+        // Unready while throttled, or within a few frames of a viewport resize:
+        // freshly resized render-graph framebuffers render black for the first
+        // couple of frames (verified against the live editor — 2 frames after a
+        // resize still captured black, 6 were clean), so wait out a conservative
+        // window.
+        //
+        // ONE definition, two consumers (the IsCaptureUnready context hook and the
+        // liveness snapshot). They must agree by construction: a capture tool that
+        // waits on one rule while the liveness block reports the other would send a
+        // reader hunting a contradiction that is purely an artifact of the split.
+        constexpr u64 kResizeSettleFrames = 6;
+        return m_ViewportRenderSkipped || (m_FrameIndex < m_LastViewportResizeFrame + kResizeSettleFrames);
     }
 
     MCP::McpSelectEntityResult EditorLayer::SelectEntityInEditor(u64 entityUuid, bool clear)
@@ -1048,6 +1137,11 @@ namespace OloEngine
         OLO_PERF_SCOPE("EditorLayer::OnUpdate", Application::Get().GetPerformanceProfiler());
 
         ++m_FrameIndex; // MCP capture tools key off this to await a rendered frame
+        // Stamped in the same breath as the counter so the two can never disagree:
+        // together they let one MCP call answer "is the editor running frames?"
+        // (issue #607). While the window is iconified Application::Run never reaches
+        // this function at all, so BOTH freeze — which is exactly the signal.
+        m_LastFrameTick = std::chrono::steady_clock::now();
 
         // Apply at most ONE frame of queued synthetic input (olo_input_inject, #607).
         // Deliberately before every early-return below (a scene-less editor must still

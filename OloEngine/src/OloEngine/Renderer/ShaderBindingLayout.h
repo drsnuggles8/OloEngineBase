@@ -983,6 +983,33 @@ namespace OloEngine
                 return static_cast<u32>(sizeof(ForwardPlusUBO));
             }
         };
+
+        // @brief Distance-impostor reflection probes (issue #705). GLSL twin:
+        // the ReflectionProbeData block in include/ReflectionProbes.glsl,
+        // uploaded at UBO_REFLECTION_PROBES by ReflectionProbeArray. Cluster
+        // fields deliberately mirror ForwardPlusUBO's shapes so the shader-side
+        // cluster lookup is the same math with the same slice mapping; they are
+        // duplicated (not shared) so probes keep working when Forward+ is off.
+        struct ReflectionProbeUBO
+        {
+            static constexpr u32 MAX_PROBES = 32; // one bit per probe in the cluster mask
+
+            struct Probe
+            {
+                glm::vec4 PositionRadius; // xyz = render-relative world position, w = influence radius
+                glm::vec4 Params;         // x = blend distance, y = intensity, z = max finite distance (dMax), w = array layer
+            };
+
+            glm::uvec4 Counts;      // x = probe count, y = cluster grid valid (0/1), z = ClusterCountX, w = ClusterCountY
+            glm::vec4 TileScale;    // xy = clusterCount / screenSize, z = ClusterCountZ (as float), w = unused
+            glm::vec4 DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
+            Probe Probes[MAX_PROBES];
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(ReflectionProbeUBO));
+            }
+        };
         // @brief Selection outline parameters for editor entity highlighting
         struct SelectionOutlineUBO
         {
@@ -1260,7 +1287,10 @@ namespace OloEngine
         static constexpr u32 UBO_CLOUDSCAPE = 53;           // Volumetric cloudscape raymarch params (CloudscapeUBO — issue #633)
         static constexpr u32 UBO_ATMOSPHERE_SHADING = 54;   // Surface weather response: wetness + cloud-shadow map transform + enables (AtmosphereShadingUBO — issue #633)
         static constexpr u32 UBO_IMPOSTOR_BAKE = 55;        // Octahedral impostor atlas bake params (view-proj + center/radius/cutoff/tint — issue #433)
-        static constexpr u32 UBO_AUTO_EXPOSURE = 58;        // Auto-exposure metering/adaptation params (AutoExposureUBO — issue #691 Phase 7: the histogram/average computes' former bare uniforms, which the Vulkan SPIR-V route cannot express)
+        static constexpr u32 UBO_AUTO_EXPOSURE = 72;        // (was 58 until the #705 reflection-probe
+                                                            // block claimed 58 on master — moved on merge;
+                                                            // GLSL twins in the two AutoExposure*.comp files
+                                                            // move with it)        // Auto-exposure metering/adaptation params (AutoExposureUBO — issue #691 Phase 7: the histogram/average computes' former bare uniforms, which the Vulkan SPIR-V route cannot express)
         static constexpr u32 UBO_HZB = 59;                  // HZB downsample-batch params (HZBParamsUBO — issue #691 Phase 7: HZB.comp's former "push-constant-style" bare uniforms; refilled per 4-mip batch)
         static constexpr u32 UBO_GTAO_DENOISE = 60;         // GTAO denoise direction (GTAODenoiseUBO — issue #691 Phase 7: the per-ping-pong-pass blur axis; NOT folded into UBO_GTAO 28, whose GLSL block is declared at two different lengths across GTAO.comp / GTAO_Denoise.comp)
         // The compute bare-uniform sweep (issue #691 Phase 7). Every one of
@@ -1286,7 +1316,7 @@ namespace OloEngine
 
         // Every engine-reserved uniform-buffer binding must fit the GL 4.6
         // minimum guarantee for GL_MAX_UNIFORM_BUFFER_BINDINGS (84).
-        static_assert(UBO_INSTANCE_CULL < 84,
+        static_assert(UBO_AUTO_EXPOSURE < 84,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
         // The heap-offset table (issue #691 Phase 3). std140 uvec4[] of
         // RHI::HeapOffset values, indexed by the SAME TEX_* constant a slot-based
@@ -1306,6 +1336,12 @@ namespace OloEngine
         // primitive selector that picks which channel this draw expands.
         // Push-side shaders never see this block — they only touch the SSBOs.
         static constexpr u32 UBO_DEBUG_DRAW = 57;
+        // Distance-impostor reflection probe set (issue #705): per-frame probe
+        // array (positions, radii, blend, intensity, dMax, layer) + the
+        // cluster-lookup params for the per-cluster probe mask. Uploaded by
+        // ReflectionProbeArray, read by the deferred/forward lit passes and
+        // the ReflectionProbeCull compute.
+        static constexpr u32 UBO_REFLECTION_PROBES = 58;
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -1326,23 +1362,31 @@ namespace OloEngine
         static constexpr u32 TEX_USER_2 = 12;     // User-defined texture 2
         // The budgeted local-light shadow atlas (issue #435) — a 1-layer depth
         // array holding every spot / point-face shadow tile. Replaces the old
-        // 4-layer spot array on this slot; the four point-cubemap slots 14-17
-        // it also replaces are now FREE (former TEX_SHADOW_POINT_0..3).
-        static constexpr u32 TEX_SHADOW_ATLAS = 13;         // Local-light shadow atlas (sampler2DArrayShadow, 1 layer)
-        static constexpr u32 TEX_POSTPROCESS_LUT = 18;      // Post-process color grading LUT
-        static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;    // Post-process scene depth access
-        static constexpr u32 TEX_SSAO = 20;                 // Blurred SSAO result
-        static constexpr u32 TEX_SSAO_NOISE = 21;           // SSAO 4x4 rotation noise texture
-        static constexpr u32 TEX_SCENE_NORMALS = 22;        // View-space normals from G-buffer
-        static constexpr u32 TEX_TERRAIN_HEIGHTMAP = 23;    // Terrain heightmap (R32F)
-        static constexpr u32 TEX_TERRAIN_SPLATMAP = 24;     // Terrain splatmap 0 (RGBA8, layers 0-3)
-        static constexpr u32 TEX_TERRAIN_ALBEDO_ARRAY = 25; // Terrain albedo layer array (Texture2DArray)
-        static constexpr u32 TEX_TERRAIN_NORMAL_ARRAY = 26; // Terrain normal map layer array (Texture2DArray)
-        static constexpr u32 TEX_TERRAIN_ARM_ARRAY = 27;    // Terrain ARM layer array (Texture2DArray)
-        static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;   // Terrain splatmap 1 (RGBA8, layers 4-7)
-        static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
-        static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
-        static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
+        // 4-layer spot array on this slot; of the four point-cubemap slots
+        // 14-17 it also freed, 14/15 now carry the reflection-probe cubemap
+        // arrays (issue #705) and 16-17 remain FREE.
+        static constexpr u32 TEX_SHADOW_ATLAS = 13; // Local-light shadow atlas (sampler2DArrayShadow, 1 layer)
+        // Distance-impostor reflection probes (issue #705): every baked
+        // probe's prefiltered radiance chain and R32F radial-distance field,
+        // one array layer per probe (samplerCubeArray). Published by
+        // ReflectionProbeArray::BindForShading; consumed by the deferred and
+        // forward lit passes via include/ReflectionProbes.glsl.
+        static constexpr u32 TEX_REFLECTION_PROBE_RADIANCE = 14; // RGBA32F prefilter chains (roughness mips)
+        static constexpr u32 TEX_REFLECTION_PROBE_DISTANCE = 15; // R32F radial distance + max-mips
+        static constexpr u32 TEX_POSTPROCESS_LUT = 18;           // Post-process color grading LUT
+        static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;         // Post-process scene depth access
+        static constexpr u32 TEX_SSAO = 20;                      // Blurred SSAO result
+        static constexpr u32 TEX_SSAO_NOISE = 21;                // SSAO 4x4 rotation noise texture
+        static constexpr u32 TEX_SCENE_NORMALS = 22;             // View-space normals from G-buffer
+        static constexpr u32 TEX_TERRAIN_HEIGHTMAP = 23;         // Terrain heightmap (R32F)
+        static constexpr u32 TEX_TERRAIN_SPLATMAP = 24;          // Terrain splatmap 0 (RGBA8, layers 0-3)
+        static constexpr u32 TEX_TERRAIN_ALBEDO_ARRAY = 25;      // Terrain albedo layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_NORMAL_ARRAY = 26;      // Terrain normal map layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_ARM_ARRAY = 27;         // Terrain ARM layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;        // Terrain splatmap 1 (RGBA8, layers 4-7)
+        static constexpr u32 TEX_WIND_FIELD = 29;                // 3D wind velocity field (sampler3D, RGBA16F)
+        static constexpr u32 TEX_SNOW_DEPTH = 30;                // Snow accumulation depth map (sampler2D, R32F)
+        static constexpr u32 TEX_PRECIPITATION_NOISE = 31;       // Precipitation streak/lens noise (sampler2D)
         // Nearest water-surface depth (DEPTH_COMPONENT32F) captured by WaterRenderPass;
         // sampled by the underwater-fog stage in the ToneMap pass to find the per-pixel
         // wavy water boundary (WATER_FUTURE_IMPROVEMENTS.md §7.2). Took GTAO-reserved
@@ -1573,6 +1617,13 @@ namespace OloEngine
         static constexpr u32 SSBO_DEBUG_DRAW_FIRST = SSBO_DEBUG_DRAW_LINE;
         static constexpr u32 SSBO_DEBUG_DRAW_COUNT = 7;
 
+        // Distance-impostor reflection probes (issue #705): one u32 bitmask
+        // per froxel cluster (bit i = probe i's influence sphere overlaps the
+        // cluster), written by compute/ReflectionProbeCull.comp, read by the
+        // lit passes via include/ReflectionProbes.glsl. Same 32x18x24 grid
+        // and slice mapping as the Forward+ light grid.
+        static constexpr u32 SSBO_REFLECTION_PROBE_GRID = 53;
+
         // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691
         // Phase 7 Wave C, ADR items A2/A3). On the Vulkan backend pipelines
         // carry no vertex-input state — a shader's OLO_VULKAN branch reads its
@@ -1753,6 +1804,8 @@ namespace OloEngine
                     return name.contains("ImpostorBake") || name.contains("impostorBake");
                 case UBO_DEBUG_DRAW:
                     return name.contains("DebugDraw") || name.contains("debugDraw");
+                case UBO_REFLECTION_PROBES:
+                    return name.contains("ReflectionProbe") || name.contains("reflectionProbe");
                 case UBO_AUTO_EXPOSURE:
                     return name.contains("AutoExposure") || name.contains("autoExposure");
                 case UBO_HZB:
@@ -1873,6 +1926,9 @@ namespace OloEngine
                     return name.contains("Environment") || name.contains("environment") ||
                            name.contains("Skybox") || name.contains("skybox") ||
                            name.contains("Cubemap");
+                case TEX_REFLECTION_PROBE_RADIANCE:
+                case TEX_REFLECTION_PROBE_DISTANCE:
+                    return name.contains("Probe") || name.contains("probe");
                 case TEX_WIND_FIELD:
                     return name.contains("Wind") || name.contains("wind");
                 case TEX_SNOW_DEPTH:

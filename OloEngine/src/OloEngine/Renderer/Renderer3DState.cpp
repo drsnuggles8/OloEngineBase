@@ -76,16 +76,33 @@ namespace OloEngine
 
     bool Renderer3D::IsDDGICollectingCasters()
     {
+        if (s_Data.AuxCasterSink != nullptr)
+        {
+            return true;
+        }
         auto ddgiPass = s_Data.Pipeline->FrameCorePasses.DDGIProbeUpdate;
         return ddgiPass && ddgiPass->WantsCasters();
     }
 
     void Renderer3D::AddDDGICaster(const DDGIMeshCaster& caster)
     {
-        if (auto ddgiPass = s_Data.Pipeline->FrameCorePasses.DDGIProbeUpdate; ddgiPass)
+        if (s_Data.AuxCasterSink != nullptr)
+        {
+            s_Data.AuxCasterSink->push_back(caster);
+        }
+        // Only feed the DDGI pass when IT asked for casters this frame — the
+        // aux sink alone must not push bake-time geometry into the pass's
+        // per-frame list (it would double up with the frame's own traversal).
+        if (auto ddgiPass = s_Data.Pipeline->FrameCorePasses.DDGIProbeUpdate;
+            ddgiPass && ddgiPass->WantsCasters())
         {
             ddgiPass->AddMeshCaster(caster);
         }
+    }
+
+    void Renderer3D::SetAuxCasterSink(std::vector<DDGIMeshCaster>* sink)
+    {
+        s_Data.AuxCasterSink = sink;
     }
 
     DDGIProbeUpdatePass* Renderer3D::GetDDGIPass()
@@ -192,6 +209,12 @@ namespace OloEngine
         s_Data.GlobalBRDFLutMapID = {};
         s_Data.GlobalEnvironmentMapID = {};
         s_Data.GlobalIBLIntensity = 1.0f;
+    }
+
+    void Renderer3D::OverrideGlobalIrradiance(RHI::ResourceHandle irradianceMap, f32 iblIntensity)
+    {
+        s_Data.GlobalIrradianceMapID = irradianceMap;
+        s_Data.GlobalIBLIntensity = iblIntensity;
     }
 
     void Renderer3D::UploadUnderwaterFogUBO(const UnderwaterFogUBOData& data)

@@ -96,6 +96,21 @@ namespace OloEngine
             return *m_Window;
         }
 
+        // True while the window is minimized. Load-bearing well beyond bookkeeping:
+        // Run() skips the ENTIRE layer OnUpdate / OnImGuiRender / render block while
+        // this is set, so nothing that lives in a layer tick advances — no frame
+        // counter, no queued-work drain, no redraw. Anything reporting on whether the
+        // application is making progress has to consult it (issue #607).
+        //
+        // Named "IsIconified" rather than "IsMinimized" on purpose: <winuser.h>
+        // defines IsMinimized as a MACRO, which Platform/Windows/PostWindowsApi.h
+        // already has to #undef. A method by that name would be silently rewritten in
+        // any TU that included the Windows headers without that cleanup.
+        [[nodiscard("Store this!")]] bool IsIconified() const noexcept
+        {
+            return m_Minimized;
+        }
+
         [[nodiscard("Store this!")]] static Application& Get()
         {
             return *s_Instance;

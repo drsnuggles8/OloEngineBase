@@ -252,6 +252,38 @@ namespace OloEngine
         return false;
     }
 
+    SystemScheduler::GraphSnapshot SystemScheduler::ExportGraph()
+    {
+        Build();
+
+        GraphSnapshot snapshot;
+        snapshot.ParallelExecutionEnabled = m_AnyParallel && IsParallelExecutionEnabled();
+        snapshot.Nodes.reserve(m_Order.size());
+
+        // Walk the DERIVED order, not m_Systems: the order is the thing this class
+        // computes, so a reader should see the graph laid out the way it will run
+        // rather than the way it happened to be registered.
+        for (u32 position = 0; position < static_cast<u32>(m_Order.size()); ++position)
+        {
+            const SystemNode& node = m_Systems[m_Order[position]];
+            snapshot.Nodes.push_back(GraphNode{ node.Name, node.Reads, node.Writes, node.After, node.Before,
+                                                node.Parallel, position });
+        }
+
+        // m_Successors is already deduplicated (DeriveOrder's edgeSet) and already
+        // includes the edges derived from the read/write declarations, so this is
+        // the complete edge set the executor honours — not just the explicit
+        // After()/Before() ones, which are the only edges a source file shows.
+        for (u32 from = 0; from < static_cast<u32>(m_Successors.size()); ++from)
+        {
+            for (const u32 to : m_Successors[from])
+            {
+                snapshot.Edges.push_back(GraphEdge{ m_Systems[from].Name, m_Systems[to].Name });
+            }
+        }
+        return snapshot;
+    }
+
     void SystemScheduler::DeriveOrder()
     {
         const u32 n = static_cast<u32>(m_Systems.size());

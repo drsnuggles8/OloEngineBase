@@ -109,6 +109,66 @@ namespace OloEngine
             s_HasMousePosition.store(false, std::memory_order_release);
         }
 
+        // ---- cursor DISPLACEMENT (relative injection) ------------------------
+        //
+        // The absolute override above cannot express "the mouse moved 40 px right"
+        // to a consumer that INTEGRATES the position across frames — a mouse-look
+        // rig computing `mouse - lastMousePos` (issue #607). Such a consumer sees
+        // the override arrive as a one-frame spike and, the moment the plan drains
+        // and the override is dropped, that spike's exact mirror; the two cancel to
+        // zero net rotation. Latching the override for longer does not help: the
+        // mirror is produced by REVERTING it, not by its duration, so the sum over
+        // any plan is still exactly zero. Measured on the #645 player rig: four
+        // equal horizontal moves each produced dYaw = 0.000.
+        //
+        // The only faithful model is the one a real mouse implements — a
+        // displacement leaves the cursor permanently moved. So this offset is
+        // ACCUMULATED and deliberately OUTLIVES the plan; a delta consumer sees the
+        // displacement once, on the frame it is applied, and never a mirror.
+        // Reset() (editor teardown, and the explicit reset the MCP tool exposes)
+        // is what puts it back.
+        //
+        // Applied on top of the HARDWARE position only. The absolute override wins
+        // outright when set, so an injected click/drag still resolves to exactly the
+        // pixel it names — relative injection is strictly additive and changes no
+        // absolute-position behaviour.
+        static void AddMouseDelta(glm::vec2 delta) noexcept
+        {
+            // fetch_add, not load-then-store: accumulation is a read-modify-write, and
+            // splitting it into two operations would lose a concurrent delta outright.
+            // Today's only writer is the game thread (the drain), so the split form
+            // would happen to be correct — but it encodes that invariant nowhere, and
+            // "+=" on an atomic is exactly the operation being expressed.
+            // Relaxed on the components + release on the flag: the flag is the
+            // fast-path gate, so publishing it last is what makes them visible.
+            s_MouseOffsetX.fetch_add(delta.x, std::memory_order_relaxed);
+            s_MouseOffsetY.fetch_add(delta.y, std::memory_order_relaxed);
+            s_HasMouseOffset.store(true, std::memory_order_release);
+        }
+
+        [[nodiscard]] static bool TryGetMouseOffset(glm::vec2& out) noexcept
+        {
+            if (!s_HasMouseOffset.load(std::memory_order_acquire))
+                return false;
+            out = { s_MouseOffsetX.load(std::memory_order_relaxed), s_MouseOffsetY.load(std::memory_order_relaxed) };
+            return true;
+        }
+
+        // Unconditional read for reporting (zero when nothing is accumulated).
+        [[nodiscard]] static glm::vec2 GetMouseOffset() noexcept
+        {
+            glm::vec2 offset{ 0.0f };
+            (void)TryGetMouseOffset(offset);
+            return offset;
+        }
+
+        static void ClearMouseOffset() noexcept
+        {
+            s_MouseOffsetX.store(0.0f, std::memory_order_relaxed);
+            s_MouseOffsetY.store(0.0f, std::memory_order_relaxed);
+            s_HasMouseOffset.store(false, std::memory_order_release);
+        }
+
         // Release every synthetic key / button and drop the cursor override. Called
         // on editor teardown (and available as a panic button) so a plan that was
         // interrupted mid-flight can never leave a key stuck down forever.
@@ -121,6 +181,7 @@ namespace OloEngine
             s_KeyDownCount.store(0, std::memory_order_release);
             s_ButtonDownCount.store(0, std::memory_order_release);
             ClearMousePosition();
+            ClearMouseOffset();
         }
 
       private:
@@ -131,5 +192,8 @@ namespace OloEngine
         inline static std::atomic<bool> s_HasMousePosition{ false };
         inline static std::atomic<f32> s_MouseX{ 0.0f };
         inline static std::atomic<f32> s_MouseY{ 0.0f };
+        inline static std::atomic<bool> s_HasMouseOffset{ false };
+        inline static std::atomic<f32> s_MouseOffsetX{ 0.0f };
+        inline static std::atomic<f32> s_MouseOffsetY{ 0.0f };
     };
 } // namespace OloEngine

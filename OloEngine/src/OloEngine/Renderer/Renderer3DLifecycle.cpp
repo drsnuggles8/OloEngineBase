@@ -457,6 +457,9 @@ namespace OloEngine
         // Initialize Forward+ light culling system
         s_Data.ForwardPlus.Initialize(fbWidth, fbHeight);
 
+        // Distance-impostor reflection probe arrays (issue #705)
+        s_Data.ReflectionProbes.Init();
+
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -493,6 +496,8 @@ namespace OloEngine
         note("TerrainUBO", s_Data.TerrainUBO != nullptr);
         note("FoliageUBO", s_Data.FoliageUBO != nullptr);
         note("WaterUBO", s_Data.WaterUBO != nullptr);
+        // Reflection-probe cubemap arrays + UBO + cluster-mask SSBO (#705).
+        note("ReflectionProbeArray", s_Data.ReflectionProbes.IsInitialized());
 
         return live;
     }
@@ -540,6 +545,9 @@ namespace OloEngine
 
         // Shutdown Forward+ system
         s_Data.ForwardPlus.Shutdown();
+
+        // Shutdown the reflection-probe arrays (issue #705)
+        s_Data.ReflectionProbes.Shutdown();
 
         // Shutdown shadow mapping
         s_Data.Shadow.Shutdown();

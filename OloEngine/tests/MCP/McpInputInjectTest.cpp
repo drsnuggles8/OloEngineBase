@@ -32,6 +32,8 @@
 #include "MCP/McpInputInject.h"
 #include "MCP/McpServer.h"
 
+#include <algorithm>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -693,5 +695,308 @@ TEST(McpInputInjectSchema, RequiresActionAndIsClosed)
 
     const Json actionEnum = schema["properties"]["action"]["enum"];
     ASSERT_TRUE(actionEnum.is_array());
-    EXPECT_EQ(actionEnum.size(), 5u);
+    EXPECT_EQ(actionEnum.size(), 6u);
+    // A count alone would pass if a rename dropped mouseDelta and added something
+    // else; the schema enum is what a client validates against before the handler
+    // ever sees the call, so the action has to be named here to be reachable.
+    EXPECT_NE(std::ranges::find(actionEnum, Json("mouseDelta")), actionEnum.end());
+}
+
+// ---- relative injection: the "mouseDelta" action (issue #607) ------------------
+//
+// The gap: every other action injects an ABSOLUTE cursor position, held only while
+// the plan is in flight. That is correct for ImGui widgets and gizmo drags, and
+// provably useless for a consumer that integrates `mouse - lastMousePos` ACROSS
+// frames — it sees the override as a one-frame spike and, when the plan drains,
+// that spike's exact mirror, and the two cancel. Measured on the #645 player rig:
+// four equal horizontal moves each produced dYaw = 0.000.
+//
+// Note what these tests deliberately do NOT do: assert that holding the absolute
+// override for longer fixes it. It cannot — the mirror comes from REVERTING the
+// override, not from its brevity, so the integral over any plan is still exactly
+// zero however long it is latched. That is why this shipped as a relative action
+// rather than the `holdFrames` parameter the gap report also floated.
+
+namespace
+{
+    // Sum the per-frame MouseDelta displacements across a plan, and count how many
+    // frames carried one. A delta consumer sees exactly this sequence.
+    struct DeltaTimeline
+    {
+        f32 TotalX = 0.0f;
+        f32 TotalY = 0.0f;
+        int DeltaFrames = 0;
+        int ResetFrame = -1;
+        int FirstDeltaFrame = -1;
+    };
+
+    DeltaTimeline DeltaTimelineOf(const McpInputPlan& plan)
+    {
+        DeltaTimeline timeline;
+        for (int frameIndex = 0; frameIndex < static_cast<int>(plan.Frames.size()); ++frameIndex)
+        {
+            for (const McpInputEvent& event : plan.Frames[frameIndex])
+            {
+                if (event.Type == McpInputEvent::Kind::MouseDelta)
+                {
+                    timeline.TotalX += event.X;
+                    timeline.TotalY += event.Y;
+                    ++timeline.DeltaFrames;
+                    if (timeline.FirstDeltaFrame < 0)
+                        timeline.FirstDeltaFrame = frameIndex;
+                }
+                else if (event.Type == McpInputEvent::Kind::MouseOffsetReset)
+                {
+                    timeline.ResetFrame = frameIndex;
+                }
+            }
+        }
+        return timeline;
+    }
+
+    Inject::Request DeltaRequest(f32 dx, f32 dy, int frames = 1, Inject::Space space = Inject::Space::Window)
+    {
+        Inject::Request request;
+        request.Act = Inject::Action::MouseDelta;
+        request.CoordSpace = space;
+        request.Dx = dx;
+        request.Dy = dy;
+        request.DeltaFrames = frames;
+        return request;
+    }
+} // namespace
+
+TEST(McpInputInjectDelta, EmitsRelativeEventsAndNeverAnAbsolutePosition)
+{
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    Inject::ResolvedDelta delta;
+    ASSERT_FALSE(Inject::BuildPlan(DeltaRequest(40.0f, -10.0f), MakeViewportInfo(), plan, start, end, &delta)
+                     .has_value());
+
+    // A single absolute MousePos anywhere in the plan would reintroduce the exact
+    // bug this action exists to fix: the override is dropped when the plan drains,
+    // and the delta consumer integrates the mirror back out again.
+    for (const auto& frame : plan.Frames)
+    {
+        for (const McpInputEvent& event : frame)
+            EXPECT_NE(event.Type, McpInputEvent::Kind::MousePos)
+                << "mouseDelta must never inject an absolute position";
+    }
+
+    const DeltaTimeline timeline = DeltaTimelineOf(plan);
+    EXPECT_EQ(timeline.DeltaFrames, 1);
+    EXPECT_FLOAT_EQ(timeline.TotalX, 40.0f);
+    EXPECT_FLOAT_EQ(timeline.TotalY, -10.0f);
+    EXPECT_FLOAT_EQ(delta.WindowDx, 40.0f);
+    EXPECT_FLOAT_EQ(delta.WindowDy, -10.0f);
+    // Settled afterwards, like every other action, so the caller observes the result.
+    EXPECT_GE(static_cast<int>(plan.Frames.size()) - timeline.FirstDeltaFrame - 1, Inject::s_TrailingSettleFrames);
+}
+
+TEST(McpInputInjectDelta, FramesSpreadTheDisplacementAndSumExactly)
+{
+    // Spreading matters because a consumer is entitled to reject an implausible
+    // single-frame jump as a discontinuity, and several do — PlayerRigSystem drops
+    // any look sample worth over kMaxLookDegreesPerSample. A real mouse delivers a
+    // large movement as many small per-frame deltas.
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    Inject::ResolvedDelta delta;
+    ASSERT_FALSE(Inject::BuildPlan(DeltaRequest(30.0f, 9.0f, /*frames*/ 4), MakeViewportInfo(), plan, start, end,
+                                   &delta)
+                     .has_value());
+
+    const DeltaTimeline timeline = DeltaTimelineOf(plan);
+    EXPECT_EQ(timeline.DeltaFrames, 4);
+    EXPECT_EQ(delta.Frames, 4);
+    // Exactness is the point: the plan walks the running TOTAL rather than adding a
+    // rounded per-frame step, so N frames cannot drift away from the requested
+    // displacement — which would leave the virtual cursor permanently mis-placed,
+    // since the offset is never reverted.
+    EXPECT_FLOAT_EQ(timeline.TotalX, 30.0f);
+    EXPECT_FLOAT_EQ(timeline.TotalY, 9.0f);
+}
+
+TEST(McpInputInjectDelta, AwkwardSplitStillSumsExactly)
+{
+    // 10 / 3 has no exact binary representation; a naive per-frame step would leave
+    // a residue.
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    ASSERT_FALSE(Inject::BuildPlan(DeltaRequest(10.0f, -7.0f, /*frames*/ 3), MakeViewportInfo(), plan, start, end)
+                     .has_value());
+
+    const DeltaTimeline timeline = DeltaTimelineOf(plan);
+    EXPECT_EQ(timeline.DeltaFrames, 3);
+    EXPECT_FLOAT_EQ(timeline.TotalX, 10.0f);
+    EXPECT_FLOAT_EQ(timeline.TotalY, -7.0f);
+}
+
+TEST(McpInputInjectDelta, ResetPrecedesTheDisplacementInItsOwnFrame)
+{
+    Inject::Request request = DeltaRequest(25.0f, 0.0f);
+    request.ResetOffset = true;
+
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    Inject::ResolvedDelta delta;
+    ASSERT_FALSE(Inject::BuildPlan(request, MakeViewportInfo(), plan, start, end, &delta).has_value());
+
+    const DeltaTimeline timeline = DeltaTimelineOf(plan);
+    ASSERT_GE(timeline.ResetFrame, 0);
+    EXPECT_TRUE(delta.Reset);
+    // Its own frame, ahead of the displacement: the reset IS a jump (the virtual
+    // cursor lands back on the hardware one), and folding it into the same frame
+    // would hand a delta consumer the algebraic sum of the two, hiding both.
+    EXPECT_LT(timeline.ResetFrame, timeline.FirstDeltaFrame);
+    EXPECT_FLOAT_EQ(timeline.TotalX, 25.0f);
+}
+
+TEST(McpInputInjectDelta, ResetAloneNeedsNoDisplacement)
+{
+    // "Put the virtual cursor back" is a meaningful call on its own; demanding
+    // dx:0, dy:0 to express it would be noise.
+    Inject::Request request;
+    const Json args{ { "action", "mouseDelta" }, { "resetOffset", true } };
+    ASSERT_FALSE(Inject::ParseRequest(args, request).has_value());
+    EXPECT_TRUE(request.ResetOffset);
+    EXPECT_FLOAT_EQ(request.Dx, 0.0f);
+
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    ASSERT_FALSE(Inject::BuildPlan(request, MakeViewportInfo(), plan, start, end).has_value());
+    const DeltaTimeline timeline = DeltaTimelineOf(plan);
+    EXPECT_GE(timeline.ResetFrame, 0);
+    EXPECT_FLOAT_EQ(timeline.TotalX, 0.0f);
+}
+
+TEST(McpInputInjectDelta, SpacesScaleTheDisplacementLikeTheyScaleAPosition)
+{
+    const McpInputViewportInfo hiDpi = MakeViewportInfo(2.0f);
+
+    f32 dx = 0.0f;
+    f32 dy = 0.0f;
+    // window: already the logical pixels Input::GetMousePosition reports.
+    ASSERT_FALSE(Inject::ResolveDelta(hiDpi, Inject::Space::Window, 40.0f, 10.0f, dx, dy).has_value());
+    EXPECT_FLOAT_EQ(dx, 40.0f);
+    EXPECT_FLOAT_EQ(dy, 10.0f);
+
+    // viewport: native screenshot pixels -> logical, i.e. divided by the DPI scale,
+    // exactly as ResolvePoint treats a position. The two must agree, or `space`
+    // would silently mean two different things depending on the action.
+    ASSERT_FALSE(Inject::ResolveDelta(hiDpi, Inject::Space::Viewport, 40.0f, 10.0f, dx, dy).has_value());
+    EXPECT_FLOAT_EQ(dx, 20.0f);
+    EXPECT_FLOAT_EQ(dy, 5.0f);
+
+    // viewportNorm: a fraction of the viewport's logical extent.
+    ASSERT_FALSE(Inject::ResolveDelta(hiDpi, Inject::Space::ViewportNormalized, 0.5f, 0.25f, dx, dy).has_value());
+    EXPECT_FLOAT_EQ(dx, 640.0f);
+    EXPECT_FLOAT_EQ(dy, 180.0f);
+}
+
+TEST(McpInputInjectDelta, ADisplacementHasNoPositionAndSoCannotBeOutsideTheViewport)
+{
+    // ResolvePoint rejects an out-of-viewport POSITION, and rightly so. A
+    // displacement names no position at all, so the same guard applied here would
+    // refuse every movement larger than the viewport — including the perfectly
+    // ordinary "spin the camera all the way round".
+    f32 dx = 0.0f;
+    f32 dy = 0.0f;
+    EXPECT_FALSE(Inject::ResolveDelta(MakeViewportInfo(), Inject::Space::Viewport, 99999.0f, -99999.0f, dx, dy)
+                     .has_value());
+    EXPECT_FLOAT_EQ(dx, 99999.0f);
+}
+
+TEST(McpInputInjectDelta, ParseRejectsNonFiniteAndClampsFrames)
+{
+    // Both components are required unless this is a pure reset — a half-given
+    // displacement is a typo, and silently treating the missing axis as 0 would
+    // move the cursor somewhere the caller never asked for. The offset PERSISTS,
+    // so a wrong displacement is not self-correcting the way a one-frame absolute
+    // override is.
+    Inject::Request missingDx;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "mouseDelta" }, { "dy", 1 } }, missingDx).has_value());
+    Inject::Request missingDy;
+    EXPECT_TRUE(Inject::ParseRequest(Json{ { "action", "mouseDelta" }, { "dx", 1 } }, missingDy).has_value());
+
+    // Non-finite input must never reach the accumulator: a NaN/Inf added to the
+    // persistent offset poisons EVERY later mouse read for the process, not just
+    // this call (Math::IsFinite then zeroes the rig's look input forever).
+    for (const char* axis : { "dx", "dy" })
+    {
+        for (const f64 bad : { std::numeric_limits<f64>::quiet_NaN(), std::numeric_limits<f64>::infinity(),
+                               -std::numeric_limits<f64>::infinity() })
+        {
+            Json args{ { "action", "mouseDelta" }, { "dx", 1.0 }, { "dy", 1.0 } };
+            args[axis] = bad;
+            Inject::Request request;
+            EXPECT_TRUE(Inject::ParseRequest(args, request).has_value())
+                << "non-finite '" << axis << "' was accepted";
+        }
+    }
+
+    Inject::Request clamped;
+    const Json args{ { "action", "mouseDelta" }, { "dx", 1 }, { "dy", 2 }, { "frames", 9999 } };
+    ASSERT_FALSE(Inject::ParseRequest(args, clamped).has_value());
+    EXPECT_LE(clamped.DeltaFrames, 64);
+    EXPECT_GE(clamped.DeltaFrames, 1);
+}
+
+TEST(McpInputInjectDelta, ResetOnlyNeedsNoViewportGeometry)
+{
+    // A pure reset carries no coordinates, so it must not depend on viewport
+    // geometry — it is exactly the cleanup call a session makes when the Viewport
+    // panel is closed or has no size yet, i.e. when ResolveDelta would fail.
+    Inject::Request request;
+    ASSERT_FALSE(
+        Inject::ParseRequest(Json{ { "action", "mouseDelta" }, { "resetOffset", true } }, request).has_value());
+    ASSERT_TRUE(request.ResetOnly);
+
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    const McpInputViewportInfo noViewport; // Available == false, zero size, zero DPI
+    EXPECT_FALSE(Inject::BuildPlan(request, noViewport, plan, start, end).has_value())
+        << "a standalone resetOffset must not require a resolvable viewport";
+    EXPECT_GE(DeltaTimelineOf(plan).ResetFrame, 0);
+
+    // The bypass is scoped to the reset, not a blanket relaxation: a displacement
+    // that genuinely needs the viewport's extent still fails against the same info.
+    //
+    // viewportNorm, not viewport, is the honest negative control here — a fraction
+    // of the viewport is meaningless without its size, whereas a delta in native
+    // viewport PIXELS needs only the DPI ratio (which defaults to 1.0) and so
+    // legitimately resolves even against an unsized viewport.
+    Inject::Request normalized = DeltaRequest(0.1f, 0.0f, 1, Inject::Space::ViewportNormalized);
+    McpInputPlan rejected;
+    EXPECT_TRUE(Inject::BuildPlan(normalized, noViewport, rejected, start, end).has_value());
+}
+
+TEST(McpInputInjectDelta, AbsoluteActionsAreUnchangedByTheAdditionOfTheDeltaAction)
+{
+    // The trap this whole slice had to avoid: the one-frame override behaviour is
+    // CORRECT for ImGui widgets and gizmo drags, so relative injection had to be
+    // strictly additive. A click plan must still be exactly what it was — an
+    // absolute move, then press/hold/release — with no delta events smuggled in.
+    McpInputPlan plan;
+    Inject::ResolvedPoint start;
+    Inject::ResolvedPoint end;
+    Inject::ResolvedDelta delta;
+    ASSERT_FALSE(Inject::BuildPlan(ClickRequest(640.0f, 360.0f), MakeViewportInfo(), plan, start, end, &delta)
+                     .has_value());
+
+    const DeltaTimeline timeline = DeltaTimelineOf(plan);
+    EXPECT_EQ(timeline.DeltaFrames, 0);
+    EXPECT_EQ(timeline.ResetFrame, -1);
+
+    const ButtonTimeline buttons = Timeline(plan);
+    ASSERT_EQ(buttons.MoveFrames.size(), 1u);
+    ASSERT_EQ(buttons.PressFrames.size(), 1u);
+    EXPECT_GE(buttons.PressFrames[0] - buttons.MoveFrames[0], Inject::s_MoveSettleFrames);
 }

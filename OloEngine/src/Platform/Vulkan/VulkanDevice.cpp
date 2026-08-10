@@ -472,6 +472,13 @@ namespace OloEngine
         // (#691 Phase 7 Wave C batch 2, when-supported rule as above).
         enabledFeatures.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;
         enabledFeatures.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
+        // samplerCubeArray in a shader declares the SampledCubeArray SPIR-V
+        // capability, which needs this feature or vkCreateShaderModule refuses
+        // the module (VUID-…-08740). The distance-impostor reflection probes
+        // (#705) are the first cube-ARRAY sampler in the engine — amendment
+        // (65)'s "the feature list grows with each shader family" arriving from
+        // master rather than from a new Vulkan pass.
+        enabledFeatures.imageCubeArray = supported.imageCubeArray;
         // independentBlend: WITHOUT it every element of
         // VkPipelineColorBlendStateCreateInfo::pAttachments must be IDENTICAL
         // (VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605), and

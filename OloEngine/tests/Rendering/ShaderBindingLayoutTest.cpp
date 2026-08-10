@@ -147,7 +147,8 @@ TEST(ShaderBindingLayout, UBOBindingSlotUniqueness)
     checkSlot(ShaderBindingLayout::UBO_FOG_VOLUMES, "UBO_FOG_VOLUMES");
     checkSlot(ShaderBindingLayout::UBO_DECAL, "UBO_DECAL");
     checkSlot(ShaderBindingLayout::UBO_VIRTUAL_DRAW, "UBO_VIRTUAL_DRAW");
-    checkSlot(ShaderBindingLayout::UBO_DEBUG_DRAW, "UBO_DEBUG_DRAW"); // #725
+    checkSlot(ShaderBindingLayout::UBO_DEBUG_DRAW, "UBO_DEBUG_DRAW");               // #725
+    checkSlot(ShaderBindingLayout::UBO_REFLECTION_PROBES, "UBO_REFLECTION_PROBES"); // #705
 }
 
 // =============================================================================
@@ -175,6 +176,9 @@ TEST(ShaderBindingLayout, TextureSlotUniqueness)
     checkSlot(ShaderBindingLayout::TEX_METALLIC, "TEX_METALLIC");
     checkSlot(ShaderBindingLayout::TEX_SHADOW, "TEX_SHADOW");
     checkSlot(ShaderBindingLayout::TEX_ENVIRONMENT, "TEX_ENVIRONMENT");
+    // Distance-impostor reflection probe arrays (issue #705).
+    checkSlot(ShaderBindingLayout::TEX_REFLECTION_PROBE_RADIANCE, "TEX_REFLECTION_PROBE_RADIANCE");
+    checkSlot(ShaderBindingLayout::TEX_REFLECTION_PROBE_DISTANCE, "TEX_REFLECTION_PROBE_DISTANCE");
 }
 
 // =============================================================================
@@ -236,6 +240,8 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_BOX, "SSBO_DEBUG_DRAW_BOX");
     checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_CONE, "SSBO_DEBUG_DRAW_CONE");
     checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_SPHERE, "SSBO_DEBUG_DRAW_SPHERE");
+    // Per-cluster reflection-probe bitmask (issue #705).
+    checkSlot(ShaderBindingLayout::SSBO_REFLECTION_PROBE_GRID, "SSBO_REFLECTION_PROBE_GRID");
 }
 
 // =============================================================================

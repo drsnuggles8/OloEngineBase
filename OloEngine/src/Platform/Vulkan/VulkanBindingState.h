@@ -31,6 +31,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <array>
 
@@ -46,9 +47,25 @@ namespace OloEngine
       public:
         [[nodiscard]] static VulkanBindingState& Get();
 
-        static constexpr u32 kMaxBufferBindings = 64;
-        static constexpr u32 kMaxTextureSlots = 64;
+        // These bound the mirror arrays, so a binding at or above them is
+        // DROPPED (with a warn) and its later lookup answers null — the shader
+        // then reads a zero address or the reserved null descriptor and
+        // renders wrong, not loudly. They must therefore stay above every
+        // number ShaderBindingLayout can hand out, which the static_asserts
+        // below enforce at compile time rather than at first sight of a black
+        // frame (#691 Phase 7: the auto-exposure block moving to 72 on the
+        // #705 merge, and the A2 renumber pushing TEX_DDGI_VISIBILITY to 64
+        // and TEX_SHADER_GRAPH_0 to 65, both walked past the old 64).
+        static constexpr u32 kMaxBufferBindings = 84; // GL_MAX_UNIFORM_BUFFER_BINDINGS' minimum guarantee
+        static constexpr u32 kMaxTextureSlots = 96;   // engine slots + shader-graph user slots, with headroom
         static constexpr u32 kNoHeapSlot = 0xFFFFFFFFu;
+
+        static_assert(ShaderBindingLayout::UBO_AUTO_EXPOSURE < kMaxBufferBindings,
+                      "the highest engine UBO binding must fit the bind-state mirror");
+        static_assert(ShaderBindingLayout::SSBO_BONE_PULL < kMaxBufferBindings,
+                      "the highest engine SSBO binding must fit the bind-state mirror");
+        static_assert(ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS <= kMaxTextureSlots,
+                      "every engine texture slot must fit the bind-state mirror");
 
         // --- buffer bind points (glBindBufferBase mirror) --------------------
         void SetUniformBuffer(u32 binding, VulkanUniformBuffer* buffer);

@@ -162,6 +162,17 @@ namespace OloEngine::Tests
 
             EnableRendering(kWidth, kHeight);
 
+            // Keep the editor's authoring chrome out of the evidence: an
+            // active probe draws a wireframe marker + influence sphere on the
+            // editor render path (with the camera INSIDE the 40m influence
+            // sphere its wire circles cross the frame as stray line
+            // fragments), the world-axis helper draws through the sphere at
+            // the origin, and the infinite grid crosses the room at y=0.
+            // All three were baked into earlier committed PNGs of this test.
+            scene.SetLightGizmosVisible(false);
+            scene.SetGridVisible(false);
+            scene.SetWorldAxisHelperVisible(false);
+
             // No lights and no global EnvironmentMap: the only light in the scene
             // is the emissive room, and the only IBL is the baked probe. That
             // makes the Off baseline a clean, near-neutral metal (0.03 ambient)

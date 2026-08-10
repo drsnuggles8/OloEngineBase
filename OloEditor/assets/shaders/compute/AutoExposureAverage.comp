@@ -38,7 +38,7 @@ layout(std430, binding = 20) buffer ExposureState
 // (u_LowPercentile, u_HighPercentile] contributes to the metered average
 // (UE EyeAdaptation Low/HighPercent style) — robust against composition
 // shifts AND compact glints; (0, 1) reproduces the plain weighted mean.
-layout(std140, binding = 58) uniform AutoExposureParams
+layout(std140, binding = 72) uniform AutoExposureParams
 {
     vec2  u_MeterSize;              // metering grid dimensions (unused here)
     float u_MinLogLum;              // histogram lower bound (log2 luminance)
