@@ -154,6 +154,11 @@ namespace OloEngine
         // Phase 7: attachment views (vkCmdBeginRendering references them from
         // in-flight command buffers exactly like pipelines).
         void Enqueue(VkImageView view);
+        // Phase 7 Wave C: occlusion query pools. vkCmdResetQueryPool /
+        // vkCmdBeginQuery reference the pool from in-flight command buffers,
+        // and DeleteQueries is called from a frame that may still have the
+        // previous one submitted — same generation discipline as pipelines.
+        void Enqueue(VkQueryPool queryPool);
 
         // Called by the frame loop once per completed frame. Destroys every
         // entry enqueued >= 2 notifications ago; also unregisters images from
@@ -175,11 +180,12 @@ namespace OloEngine
 
         struct Entry
         {
-            VkImage Image = VK_NULL_HANDLE; // exactly one of Image/Buffer/Semaphore/Pipeline/View is set
+            VkImage Image = VK_NULL_HANDLE; // exactly one of Image/Buffer/Semaphore/Pipeline/View/QueryPool is set
             VkBuffer Buffer = VK_NULL_HANDLE;
             VkSemaphore Semaphore = VK_NULL_HANDLE;
             VkPipeline Pipeline = VK_NULL_HANDLE;
             VkImageView View = VK_NULL_HANDLE;
+            VkQueryPool QueryPool = VK_NULL_HANDLE;
             VmaAllocation Allocation = VK_NULL_HANDLE; // set only for Image/Buffer entries
             u64 EnqueuedAtGeneration = 0;
         };

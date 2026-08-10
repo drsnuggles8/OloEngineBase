@@ -17,8 +17,12 @@
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <cstring>
+#include <limits>
+#include <span>
 #include <vector>
 
 namespace OloEngine
@@ -124,10 +128,24 @@ namespace OloEngine
         m_ScissorRectSet = false;
         m_PreparedDrawsThisRecording = 0;
         m_DroppedDrawsThisRecording = 0;
+        m_ConditionallySkippedDrawsThisRecording = 0;
+        // Query state is command-buffer state too: an unbalanced Begin from a
+        // previous recording must not leak into this one.
+        m_ActiveQuery = {};
+        m_ConditionalRenderSkip = false;
     }
 
     void VulkanRendererAPI::EndRecording()
     {
+        if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
+        {
+            // An unbalanced vkCmdBeginQuery makes the whole command buffer
+            // invalid at vkEndCommandBuffer — close it loudly instead.
+            OLO_CORE_WARN("[RHI/Vulkan] recording ended with an occlusion query still active — auto-ending it");
+            EndRenderingScope();
+            vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
+            m_ActiveQuery = {};
+        }
         EndRenderingScope();
         m_Cmd = VK_NULL_HANDLE;
     }
@@ -1038,6 +1056,15 @@ namespace OloEngine
             return false;
         }
 
+        // Host-side conditional rendering (see BeginConditionalRender): the
+        // predicate said "fully occluded last frame", so this draw is skipped
+        // by request — counted apart from the failure drops.
+        if (m_ConditionalRenderSkip)
+        {
+            ++m_ConditionallySkippedDrawsThisRecording;
+            return false;
+        }
+
         auto* shader = VulkanShader::GetCurrentlyBound();
         if (shader == nullptr || shader->GetCompilationStatus() != ShaderCompilationStatus::Ready)
         {
@@ -1634,7 +1661,17 @@ namespace OloEngine
             m_LayoutTracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId, info->InitialLayout);
 
             VkImageSubresourceRange whole{};
-            whole.aspectMask = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+            // A BARRIER on a combined depth-stencil image must name BOTH
+            // aspects while separateDepthStencilLayouts is off
+            // (VUID-VkImageMemoryBarrier2-image-03320) — naming only DEPTH
+            // leaves the stencil half in whatever layout the producer left it
+            // (TRANSFER_DST after a depth clear), and the draw that samples the
+            // image then fails VUID-vkCmdDraw-None-09600 on the stencil
+            // subresource. The DESCRIPTOR view below is the opposite rule: a
+            // sampled view may name exactly one aspect, so it stays DEPTH.
+            // (First hit by the decal tenant — the first pass on Vulkan to
+            // sample a depth attachment; #691 Phase 7 Wave C batch 3.)
+            whole.aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*info));
             whole.baseMipLevel = 0;
             whole.levelCount = VK_REMAINING_MIP_LEVELS;
             whole.baseArrayLayer = 0;
@@ -1983,14 +2020,28 @@ namespace OloEngine
         Phase6Stub("UploadTextureSubImage2D");
     }
 
-    void VulkanRendererAPI::BeginConditionalRender(RHI::ResourceHandle /*query*/)
+    // Conditional rendering — the HOST-side gate (ADR item A6, second half;
+    // the shape §1.6a of the phase plan pinned as "conditional render -> CPU
+    // skip"). VK_EXT_conditional_rendering exists and this device may well
+    // expose it, but its predicate lives in a BUFFER, not in the query object:
+    // using it would mean a scratch device buffer, a vkCmdCopyQueryPoolResults
+    // with WAIT (a GPU-side stall that hangs outright on a never-written slot),
+    // and an object whose lifetime outlives the API instance that made it.
+    // The engine's ONE caller (CommandDispatch::DrawMesh) passes
+    // OcclusionQueryPool::GetQueryHandle — the PREVIOUS frame's query, whose
+    // result is already resolved host-side — so the host read is exact for the
+    // production usage and costs nothing. The GL fail-safe is preserved: an
+    // unavailable result renders (never culls).
+    void VulkanRendererAPI::BeginConditionalRender(RHI::ResourceHandle query)
     {
-        Phase6Stub("BeginConditionalRender");
+        u64 samplesPassed = 0;
+        const bool available = ReadQueryResult(query, false, samplesPassed);
+        m_ConditionalRenderSkip = available && samplesPassed == 0u;
     }
 
     void VulkanRendererAPI::EndConditionalRender()
     {
-        Phase6Stub("EndConditionalRender");
+        m_ConditionalRenderSkip = false;
     }
 
     void VulkanRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
@@ -2594,42 +2645,271 @@ namespace OloEngine
         vkCmdPipelineBarrier2(m_Cmd, &dep);
     }
 
-    void VulkanRendererAPI::CreateQueries(RHI::QueryType /*type*/, std::span<RHI::ResourceHandle> /*outQueries*/)
+    // =========================================================================
+    // Occlusion queries (#691 Phase 7 Wave C, ADR item A6)
+    //
+    // GL hands out N independent query names; Vulkan has one VkQueryPool with N
+    // slots, so VulkanQueryRegistry (declared in the header) makes ONE pool per
+    // CreateQueries call and each handle names a (pool, slot) pair.
+    //
+    // Three Vulkan-only disciplines the GL twin has no equivalent of:
+    //
+    //  1. RESET. A slot must be reset before it is written, and
+    //     vkCmdResetQueryPool is illegal inside a render pass instance — so
+    //     BeginQuery ends the lazy rendering scope first. The reset is per-slot
+    //     and immediately before the write, which is what keeps the PREVIOUS
+    //     frame's results readable in the double-buffered pool (a blanket
+    //     reset-at-BeginRecording would wipe the half OcclusionQueryPool::
+    //     BeginFrame is about to read).
+    //  2. SCOPE SPAN. vkCmdEndQuery must sit in the same render pass instance
+    //     as its vkCmdBeginQuery. Both therefore run with the scope ENDED: the
+    //     proxy draws in between open (and close) their own instance, which is
+    //     legal precisely because the query began outside one. The re-open uses
+    //     LOAD_OP_LOAD, so splitting the instance is a cost, not a content
+    //     change — the same trade every barrier/copy/dispatch already makes.
+    //  3. READ SAFETY. vkGetQueryPoolResults under WAIT on a slot that was
+    //     reset but never written blocks forever, and reading a never-reset
+    //     slot is undefined. `Entry::Recorded` gates both: nothing is read
+    //     until a Begin/End pair has actually reached a command buffer.
+    // =========================================================================
+
+    VulkanQueryRegistry& VulkanQueryRegistry::Get()
     {
-        Phase6Stub("CreateQueries");
+        // Deliberately leaked, like the other process-wide side tables.
+        static auto* instance = new VulkanQueryRegistry();
+        return *instance;
     }
 
-    void VulkanRendererAPI::DeleteQueries(std::span<const RHI::ResourceHandle> /*queries*/)
+    void VulkanQueryRegistry::CreatePool(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries)
     {
-        Phase6Stub("DeleteQueries");
+        std::ranges::fill(outQueries, RHI::NullResource);
+        if (outQueries.empty())
+        {
+            return;
+        }
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || device->GetDevice() == VK_NULL_HANDLE)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] CreateQueries with no live device — {} queries left null", outQueries.size());
+            return;
+        }
+
+        VkQueryPoolCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        info.queryType = type == RHI::QueryType::TimeElapsed ? VK_QUERY_TYPE_TIMESTAMP : VK_QUERY_TYPE_OCCLUSION;
+        info.queryCount = static_cast<u32>(outQueries.size());
+        VkQueryPool pool = VK_NULL_HANDLE;
+        if (vkCreateQueryPool(device->GetDevice(), &info, nullptr, &pool) != VK_SUCCESS || pool == VK_NULL_HANDLE)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] vkCreateQueryPool failed for {} queries", outQueries.size());
+            return;
+        }
+
+        auto& registry = RHI::ResourceRegistry::Get();
+        u32 live = 0;
+        for (sizet i = 0; i < outQueries.size(); ++i)
+        {
+            // The registry native is the POOL, so a generic native resolve of a
+            // query handle names the object it belongs to rather than garbage.
+            const RHI::ResourceHandle handle =
+                registry.Register(RHI::ResourceKind::Query, std::bit_cast<u64>(pool), RHI::Backend::Vulkan);
+            if (!handle.IsValid())
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] resource registry full — query {} left null", i);
+                continue;
+            }
+            outQueries[i] = handle;
+            m_Entries.emplace(Key(handle), Entry{ .Pool = pool, .Index = static_cast<u32>(i), .Recorded = false });
+            ++live;
+        }
+        if (live == 0)
+        {
+            vkDestroyQueryPool(device->GetDevice(), pool, nullptr);
+            return;
+        }
+        m_Pools.push_back(Pool{ .Handle = pool, .Count = info.queryCount, .LiveQueries = live });
     }
 
-    void VulkanRendererAPI::BeginQuery(RHI::QueryType /*type*/, RHI::ResourceHandle /*query*/)
+    VulkanQueryRegistry::Entry* VulkanQueryRegistry::Lookup(RHI::ResourceHandle handle)
     {
-        Phase6Stub("BeginQuery");
+        if (!handle.IsValid())
+        {
+            return nullptr;
+        }
+        const auto it = m_Entries.find(Key(handle));
+        return it == m_Entries.end() ? nullptr : &it->second;
+    }
+
+    void VulkanQueryRegistry::Destroy(std::span<const RHI::ResourceHandle> queries)
+    {
+        auto& registry = RHI::ResourceRegistry::Get();
+        for (const RHI::ResourceHandle handle : queries)
+        {
+            const auto it = m_Entries.find(Key(handle));
+            if (it == m_Entries.end())
+            {
+                continue; // foreign / already-retired handle — the GL twin no-ops too
+            }
+            const VkQueryPool pool = it->second.Pool;
+            m_Entries.erase(it);
+            registry.Unregister(handle);
+
+            const auto poolIt = std::ranges::find_if(m_Pools, [pool](const Pool& p)
+                                                     { return p.Handle == pool; });
+            if (poolIt == m_Pools.end())
+            {
+                continue;
+            }
+            if (--poolIt->LiveQueries == 0)
+            {
+                // In-flight command buffers may still name the pool
+                // (vkCmdResetQueryPool / vkCmdBeginQuery) — same generation
+                // discipline as pipelines and attachment views.
+                VulkanDeferredReclaim::Get().Enqueue(pool);
+                m_Pools.erase(poolIt);
+            }
+        }
+    }
+
+    void VulkanQueryRegistry::ReleaseAll()
+    {
+        auto& registry = RHI::ResourceRegistry::Get();
+        for (const auto& [key, entry] : m_Entries)
+        {
+            // Rebuild the handle from the map key (generation << 32 | index).
+            RHI::ResourceHandle handle{};
+            handle.Index = static_cast<u32>(key & 0xFFFFFFFFu);
+            handle.Generation = static_cast<u32>(key >> 32);
+            registry.Unregister(handle);
+        }
+        m_Entries.clear();
+        auto* device = VulkanDevice::Get();
+        for (const Pool& pool : m_Pools)
+        {
+            if (device != nullptr && device->GetDevice() != VK_NULL_HANDLE)
+            {
+                vkDestroyQueryPool(device->GetDevice(), pool.Handle, nullptr);
+            }
+        }
+        m_Pools.clear();
+    }
+
+    void VulkanRendererAPI::CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries)
+    {
+        VulkanQueryRegistry::Get().CreatePool(type, outQueries);
+    }
+
+    void VulkanRendererAPI::DeleteQueries(std::span<const RHI::ResourceHandle> queries)
+    {
+        VulkanQueryRegistry::Get().Destroy(queries);
+    }
+
+    void VulkanRendererAPI::BeginQuery(RHI::QueryType /*type*/, RHI::ResourceHandle query)
+    {
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("BeginQuery(outside recording bracket)");
+            return;
+        }
+        auto* entry = VulkanQueryRegistry::Get().Lookup(query);
+        if (entry == nullptr)
+        {
+            Phase6Stub("BeginQuery(unresolved query)");
+            return;
+        }
+        if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
+        {
+            // GL keeps one active query per target and errors on nesting; do
+            // the same loudly rather than record an illegal command buffer.
+            OLO_CORE_WARN("[RHI/Vulkan] BeginQuery while another occlusion query is active — ignored");
+            return;
+        }
+        // Discipline 1 + 2 (see the block comment above): both the reset and
+        // the begin must sit outside a render pass instance.
+        EndRenderingScope();
+        vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 1u);
+        vkCmdBeginQuery(m_Cmd, entry->Pool, entry->Index, 0u);
+        m_ActiveQuery = { entry->Pool, entry->Index };
+        entry->Recorded = true;
     }
 
     void VulkanRendererAPI::EndQuery(RHI::QueryType /*type*/)
     {
-        Phase6Stub("EndQuery");
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("EndQuery(outside recording bracket)");
+            return;
+        }
+        if (m_ActiveQuery.Pool == VK_NULL_HANDLE)
+        {
+            // GL's glEndQuery with nothing active is an error, not a crash.
+            return;
+        }
+        EndRenderingScope();
+        vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
+        m_ActiveQuery = {};
     }
 
-    bool VulkanRendererAPI::IsQueryResultAvailable(RHI::ResourceHandle /*query*/)
+    bool VulkanRendererAPI::ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const
     {
-        Phase6Stub("IsQueryResultAvailable");
-        return false;
+        outValue = 0;
+        auto* entry = VulkanQueryRegistry::Get().Lookup(query);
+        auto* device = VulkanDevice::Get();
+        if (entry == nullptr || !entry->Recorded || device == nullptr || device->GetDevice() == VK_NULL_HANDLE)
+        {
+            // A stale handle (or one never written) has no result and never
+            // will. Reporting "available" would make the caller read a zero and
+            // treat it as a real answer — for occlusion that reads as "fully
+            // occluded", which silently deletes geometry (the GL twin's note).
+            return false;
+        }
+
+        // Availability first, never blocking: this is both the answer for
+        // IsQueryResultAvailable and the guard that keeps the WAIT read below
+        // off a slot whose submission has not been made yet.
+        std::array<u64, 2> probe{ 0u, 0u };
+        const VkResult status =
+            vkGetQueryPoolResults(device->GetDevice(), entry->Pool, entry->Index, 1u, sizeof(probe), probe.data(),
+                                  sizeof(probe), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+        if (status == VK_SUCCESS && probe[1] != 0u)
+        {
+            outValue = probe[0];
+            return true;
+        }
+        if (!wait)
+        {
+            return false;
+        }
+        u64 value = 0;
+        if (vkGetQueryPoolResults(device->GetDevice(), entry->Pool, entry->Index, 1u, sizeof(value), &value,
+                                  sizeof(value), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) != VK_SUCCESS)
+        {
+            return false;
+        }
+        outValue = value;
+        return true;
     }
 
-    u32 VulkanRendererAPI::GetQueryResultU32(RHI::ResourceHandle /*query*/)
+    bool VulkanRendererAPI::IsQueryResultAvailable(RHI::ResourceHandle query)
     {
-        Phase6Stub("GetQueryResultU32");
-        return 0;
+        u64 ignored = 0;
+        return ReadQueryResult(query, false, ignored);
     }
 
-    u64 VulkanRendererAPI::GetQueryResultU64(RHI::ResourceHandle /*query*/)
+    u32 VulkanRendererAPI::GetQueryResultU32(RHI::ResourceHandle query)
     {
-        Phase6Stub("GetQueryResultU64");
-        return 0;
+        u64 value = 0;
+        // GL's glGetQueryObjectuiv(GL_QUERY_RESULT) blocks until the result is
+        // there; the WAIT read is the parity (Recorded gates the deadlock).
+        (void)ReadQueryResult(query, true, value);
+        return static_cast<u32>(std::min<u64>(value, std::numeric_limits<u32>::max()));
+    }
+
+    u64 VulkanRendererAPI::GetQueryResultU64(RHI::ResourceHandle query)
+    {
+        u64 value = 0;
+        (void)ReadQueryResult(query, true, value);
+        return value;
     }
 
     u64 VulkanRendererAPI::CreateFence()

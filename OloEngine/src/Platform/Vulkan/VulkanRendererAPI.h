@@ -32,6 +32,7 @@
 #include <volk.h>
 
 #include <array>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -113,6 +114,73 @@ namespace OloEngine
         u8 AttachmentColorMask[kMaxAttachments] = { 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF };
     };
 
+    // -------------------------------------------------------------------------
+    // VulkanQueryRegistry — the object-less occlusion-query family behind the
+    // CreateQueries / BeginQuery / EndQuery / GetQueryResult* / DeleteQueries
+    // facade entries (#691 Phase 7 Wave C, ADR item A6).
+    //
+    // GL's shape is N independent query NAMES; Vulkan's is one VkQueryPool with
+    // N slots. `CreateQueries` is the natural pool boundary — OcclusionQueryPool
+    // calls it once per double-buffer half with the full capacity — so one
+    // VkQueryPool backs one CreateQueries call and each minted handle names a
+    // (pool, index) pair. There is no engine-side C++ object to hang the pool
+    // off, hence this side table (the VulkanRawBufferRegistry shape).
+    //
+    // `Recorded` is the frame-crossing guard: `vkGetQueryPoolResults` on a slot
+    // that was reset but never written blocks forever under WAIT, and reading a
+    // slot that was never reset at all is undefined. Nothing may be read until
+    // a Begin/End pair has actually reached a command buffer.
+    //
+    // Render-thread only, same as everything else here.
+    // -------------------------------------------------------------------------
+    class VulkanQueryRegistry
+    {
+      public:
+        struct Entry
+        {
+            VkQueryPool Pool = VK_NULL_HANDLE;
+            u32 Index = 0;
+            bool Recorded = false; ///< a Begin/End pair reached a command buffer
+        };
+
+        [[nodiscard]] static VulkanQueryRegistry& Get();
+
+        // Mints one identity per element of `outQueries`, all backed by a
+        // single VkQueryPool of that size. Elements are set to
+        // RHI::NullResource on failure (the GL twin's contract).
+        void CreatePool(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries);
+        // Null when the handle was never minted here (or is stale).
+        [[nodiscard]] Entry* Lookup(RHI::ResourceHandle handle);
+        // Retires the identities; the backing pool is deferred-reclaimed once
+        // its last live handle goes away. Safe on foreign/stale handles.
+        void Destroy(std::span<const RHI::ResourceHandle> queries);
+        // Teardown net: destroy every remaining pool (caller guarantees idle).
+        void ReleaseAll();
+        // Diagnostic/test affordance.
+        [[nodiscard]] sizet GetLivePoolCount() const
+        {
+            return m_Pools.size();
+        }
+
+      private:
+        VulkanQueryRegistry() = default;
+
+        [[nodiscard]] static u64 Key(RHI::ResourceHandle handle)
+        {
+            return (static_cast<u64>(handle.Generation) << 32) | handle.Index;
+        }
+
+        struct Pool
+        {
+            VkQueryPool Handle = VK_NULL_HANDLE;
+            u32 Count = 0;
+            u32 LiveQueries = 0;
+        };
+
+        std::unordered_map<u64, Entry> m_Entries;
+        std::vector<Pool> m_Pools;
+    };
+
     class VulkanRendererAPI : public RendererAPI
     {
       public:
@@ -154,6 +222,13 @@ namespace OloEngine
         [[nodiscard]] u32 GetDroppedDrawsThisRecording() const
         {
             return m_DroppedDrawsThisRecording;
+        }
+        // Draws the host-side conditional-render predicate skipped. Kept apart
+        // from the dropped counter on purpose: a conditional skip is the
+        // requested behaviour, a drop is a failure.
+        [[nodiscard]] u32 GetConditionallySkippedDrawsThisRecording() const
+        {
+            return m_ConditionallySkippedDrawsThisRecording;
         }
 
         // --- RendererAPI ---------------------------------------------------
@@ -383,6 +458,12 @@ namespace OloEngine
         // barriers into `out` and advance the tracker to `newLayout`.
         void StageTransferTransition(VkImage image, const VkImageSubresourceRange& range, VkImageLayout newLayout,
                                      VkAccessFlags2 dstAccess, std::vector<VkImageMemoryBarrier2>& out);
+        // Shared read path for IsQueryResultAvailable / GetQueryResultU32|64
+        // (and the conditional-render gate). `wait` picks the blocking form
+        // (GL's glGetQueryObject*v(GL_QUERY_RESULT) semantics); false is the
+        // availability probe. Returns false — leaving `outValue` 0 — for a
+        // stale handle or one no command buffer has written yet.
+        [[nodiscard]] bool ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const;
 
         RenderingScope m_Scope;
         std::unordered_map<u64, FramebufferAttachmentSelection> m_FramebufferSelections;
@@ -400,6 +481,20 @@ namespace OloEngine
         // the draw front-end, not by the setter — see SetScissorBox).
         VkRect2D m_ScissorRect{};
         bool m_ScissorRectSet = false;
+        // The occlusion query BeginQuery opened (GL keeps one per target;
+        // EndQuery carries no handle, so the pair is tracked here).
+        struct ActiveQuery
+        {
+            VkQueryPool Pool = VK_NULL_HANDLE;
+            u32 Index = 0;
+        };
+        ActiveQuery m_ActiveQuery{};
+        // Host-side conditional-render predicate: true between
+        // BeginConditionalRender(occluded query) and EndConditionalRender, and
+        // every draw in that window is skipped (see BeginConditionalRender for
+        // why the predicate is evaluated on the host, not in a VK_EXT buffer).
+        bool m_ConditionalRenderSkip = false;
+        u32 m_ConditionallySkippedDrawsThisRecording = 0;
 
         VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
         VulkanImageLayoutTracker m_LayoutTracker;

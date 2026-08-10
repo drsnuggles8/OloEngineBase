@@ -57,6 +57,14 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Commands/DrawKey.h"
+#include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
+#include "OloEngine/Renderer/Passes/DecalRenderPass.h"
+#include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/Passes/FluidCompositePass.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
@@ -6697,6 +6705,1047 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
     // fixture tears the device down.
     vkDeviceWaitIdle(m_Device->GetDevice());
     ParticleBatchRenderer::Shutdown();
+}
+
+namespace
+{
+    // -------------------------------------------------------------------------
+    // Decal scaffolding (#691 Wave C item 9).
+    //
+    // The packets a decal pass drains are ordinary CommandPackets, but
+    // CommandDispatch::DrawDecal reaches for Renderer3D's OWN per-frame objects
+    // (GetDecalUBO, the SSBO-15 InstanceBuffer) — and mid-suite those exist and
+    // are GL-currency, so the dispatch would bind foreign handles over this
+    // fixture's Vulkan ones and there is no setter to re-home them. The pass
+    // under test is ExecuteOnGBuffer, whose whole content is the ATTACHMENT-MAP
+    // MATRIX (draw-buffer selection + per-attachment colour mask + additive
+    // blend on RT2); the dispatch is scaffolding. So the packets carry a
+    // FIXTURE dispatch function — same binds, same draw, this fixture's Vulkan
+    // buffers — and the pass body runs completely unmodified.
+    //
+    // CommandDispatchFn is a plain function pointer (no capture), so the
+    // scaffolding's state hangs off a file-scope pointer, exactly as
+    // CommandDispatch's own s_Data does.
+    // -------------------------------------------------------------------------
+    struct DecalDispatchScaffold
+    {
+        Ref<Shader> AlbedoShader;
+        Ref<Shader> NormalShader;
+        Ref<Shader> RmaShader;
+        Ref<Shader> EmissiveShader;
+        Ref<StorageBuffer> InstanceSSBO;
+        Ref<UniformBuffer> DecalUbo;
+        Ref<VertexArray> ProxyVao;
+        u32 ProxyIndexCount = 0;
+        u32 Draws = 0;
+
+        [[nodiscard]] Ref<Shader> ShaderFor(DrawDecalCommand::DecalMode mode) const
+        {
+            switch (mode)
+            {
+                case DrawDecalCommand::DecalMode::Normal:
+                    return NormalShader;
+                case DrawDecalCommand::DecalMode::RMA:
+                    return RmaShader;
+                case DrawDecalCommand::DecalMode::Emissive:
+                    return EmissiveShader;
+                case DrawDecalCommand::DecalMode::Albedo:
+                default:
+                    return AlbedoShader;
+            }
+        }
+    };
+    DecalDispatchScaffold* g_DecalScaffold = nullptr;
+
+    void FixtureDecalDispatch(const void* data, RendererAPI& api)
+    {
+        const auto* cmd = static_cast<const DrawDecalCommand*>(data);
+        if (cmd == nullptr || g_DecalScaffold == nullptr)
+        {
+            return;
+        }
+        auto& scaffold = *g_DecalScaffold;
+        auto shader = scaffold.ShaderFor(cmd->mode);
+        if (!shader || !scaffold.ProxyVao)
+        {
+            return;
+        }
+        shader->Bind();
+
+        // SSBO 15 — InstanceBlock_Vertex's u_Model (CommandDispatch's
+        // UploadModelInstance, minus the render-origin shift: this fixture
+        // renders at the origin).
+        InstanceData instance{};
+        instance.Transform = cmd->decalTransform;
+        instance.Normal = glm::transpose(glm::inverse(cmd->decalTransform));
+        instance.PrevTransform = cmd->decalTransform;
+        instance.EntityID = cmd->entityID;
+        scaffold.InstanceSSBO->SetData(&instance, sizeof(instance));
+        scaffold.InstanceSSBO->Bind();
+
+        // UBO 21 — DecalParams (the projection + colour the fragment reads).
+        ShaderBindingLayout::DecalUBO decalData{};
+        decalData.InverseDecalTransform = cmd->inverseDecalTransform;
+        decalData.InverseViewProjection = cmd->inverseViewProjection;
+        decalData.DecalColor = cmd->decalColor;
+        decalData.DecalParams = cmd->decalParams;
+        scaffold.DecalUbo->SetData(&decalData, ShaderBindingLayout::DecalUBO::GetSize());
+        api.BindUniformBuffer(ShaderBindingLayout::UBO_DECAL, scaffold.DecalUbo->GetRHIHandle());
+
+        if (cmd->albedoTextureID.IsValid())
+            api.BindTexture(ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID);
+        if (cmd->normalTextureID.IsValid())
+            api.BindTexture(ShaderBindingLayout::TEX_USER_1, cmd->normalTextureID);
+        if (cmd->rmaTextureID.IsValid())
+            api.BindTexture(ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID);
+
+        // Renderer3D::DrawDecal's PODRenderState, verbatim except culling:
+        // the proxy here is a single quad (see the tenant header), so there is
+        // no back face to cull and no winding to depend on.
+        api.SetDepthTest(true);
+        api.SetDepthFunc(RHI::CompareOp::LessOrEqual);
+        api.SetDepthMask(false);
+        const bool blendForThisMode = cmd->mode == DrawDecalCommand::DecalMode::Albedo;
+        api.SetBlendState(blendForThisMode);
+        if (blendForThisMode)
+        {
+            // ONLY when blending is on — ApplyPODRenderState guards it the same
+            // way, and that guard is load-bearing: a GLOBAL SetBlendFunc
+            // overwrites every draw buffer's factors (glBlendFunc semantics,
+            // which the recorded state mirrors via AttachmentBlendFuncSet), so
+            // an unconditional call here would silently replace the One/One
+            // the Emissive mode installed on RT2 with SrcAlpha/OneMinusSrcAlpha
+            // — and the emissive shader writes alpha 0, so the decal would
+            // blend to exactly the destination and vanish.
+            api.SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+        }
+        api.DisableCulling();
+
+        api.BindVertexArrayRaw(scaffold.ProxyVao->GetRHIHandle());
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0u);
+        ++scaffold.Draws;
+    }
+
+    // A quad in the ENGINE Vertex layout (V1: 32 B {vec3 position, vec3 normal,
+    // vec2 uv} => the 8-float pull stride) at a fixed NDC z. The decal tenant
+    // wants one WIDER than the projected decal box on purpose — the box
+    // discard is what has to carve the footprint out, so a proxy that already
+    // matched it would prove nothing; the occlusion tenant wants offset ones.
+    Ref<VertexArray> MakeV1Quad(f32 x0, f32 x1, f32 y0, f32 y1, f32 z)
+    {
+        struct EngineVertex
+        {
+            glm::vec3 Position;
+            glm::vec3 Normal;
+            glm::vec2 TexCoord;
+        };
+        static_assert(sizeof(EngineVertex) == 32, "V1 stride is 32 bytes / 8 floats");
+        std::array<EngineVertex, 4> vertices{
+            EngineVertex{ { x0, y0, z }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f } },
+            EngineVertex{ { x1, y0, z }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
+            EngineVertex{ { x1, y1, z }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
+            EngineVertex{ { x0, y1, z }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
+        };
+        u32 indices[] = { 0u, 1u, 2u, 2u, 3u, 0u };
+        auto vao = VertexArray::Create();
+        auto vb = VertexBuffer::Create(reinterpret_cast<f32*>(vertices.data()),
+                                       static_cast<u32>(sizeof(vertices)));
+        vb->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                        { ShaderDataType::Float3, "a_Normal" },
+                        { ShaderDataType::Float2, "a_TexCoord" } });
+        vao->AddVertexBuffer(vb);
+        vao->SetIndexBuffer(IndexBuffer::Create(indices, 6));
+        return vao;
+    }
+
+    // Submit one decal packet into a pass's own bucket. The bucket allocates
+    // through the pass's CommandAllocator, so nothing here needs Renderer3D's
+    // per-frame arena.
+    void SubmitDecalPacket(DecalRenderPass& pass, const DrawDecalCommand& command)
+    {
+        PacketMetadata metadata;
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, 1u, 0u, 0u);
+        CommandPacket* packet = pass.GetCommandBucket().Submit(command, metadata);
+        ASSERT_NE(packet, nullptr);
+        packet->SetCommandType(CommandType::DrawDecal);
+        packet->SetDispatchFunction(&FixtureDecalDispatch);
+    }
+} // namespace
+
+// =============================================================================
+// Decal (#691 Wave C item 9): the ATTACHMENT-MAP MATRIX (ADR item A4).
+//
+// DecalRenderPass::ExecuteOnGBuffer switches between FIVE draw-attachment maps
+// (each 5 entries wide, RHI::NoAttachment for the holes) plus per-attachment
+// colour masks plus additive blend on RT2, once per decal MODE, so a decal
+// writes only the G-Buffer channels its mode owns and leaves every other one —
+// and every non-masked component of its own — exactly as the underlying
+// surface left it. That is the contract this tenant pins, and it is the first
+// thing on Vulkan to need VK_ATTACHMENT_UNUSED holes in a VkRenderingInfo
+// array, per-attachment colourWriteMask, and per-attachment blendEnable all at
+// once (the last two also being why VulkanDevice now enables independentBlend
+// — without it every pAttachments element must be IDENTICAL and the whole
+// facade family is undefined).
+//
+// Contract shape: "untouched" is asserted BYTE-EXACT and IN-FRAME, by
+// comparing footprint texels against texels outside the footprint of the SAME
+// attachment. The decal covers only the box's projection, so a leaked write
+// separates the two; a clear-vs-clear comparison could not tell a masked write
+// from a no-op draw, which is why the targeted RT is asserted to DIFFER in the
+// same breath.
+//
+// Geometry: the projection is depth-driven (screenUV -> depth -> world ->
+// decal-local, discard outside [-0.5, 0.5]^3), so with an identity
+// inverse-view-projection and a uniform 0.749 depth the world point is
+// (u*2-1, v*2-1, 0.498) and a box at translate(0,0,0.5) carves the central
+// 64x64 square out of a WIDER proxy quad. One quad, not the production cube:
+// coverage exactly once is what the additive emissive mode needs, and it takes
+// the front-face-winding question off the table.
+//
+// DEFECT FOUND (documented, not fixed): Normal-mode decals write NOTHING, on
+// EITHER backend. Decal_GBuffer_Normal.glsl declares its output at
+// `layout(location = 0)` while the mode's draw map is {NONE, 1, NONE, NONE,
+// NONE} — location 0 is mapped to no attachment and location 1 is never
+// written. The other three modes' locations and maps agree. The Vulkan
+// validation layer says it in as many words while this tenant runs ("writes to
+// [Output variable, Location 0, \"gNormalRoughAO\"] but there is no
+// VkRenderingInfo::pColorAttachments[0] ... and this write is unused" — a
+// WARNING, so it does not trip the zero-error gate), which is corroboration
+// from outside the engine. Pinned below as the observed behaviour so the fix
+// (move the output to location 1) fails this assertion loudly instead of
+// passing silently.
+// =============================================================================
+TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    // --- the four G-Buffer decal variants + the two forward ones ------------
+    DecalDispatchScaffold scaffold;
+    scaffold.AlbedoShader = Shader::Create("assets/shaders/Decal_GBuffer.glsl");
+    scaffold.NormalShader = Shader::Create("assets/shaders/Decal_GBuffer_Normal.glsl");
+    scaffold.RmaShader = Shader::Create("assets/shaders/Decal_GBuffer_RMA.glsl");
+    scaffold.EmissiveShader = Shader::Create("assets/shaders/Decal_GBuffer_Emissive.glsl");
+    ASSERT_TRUE(scaffold.AlbedoShader && scaffold.NormalShader && scaffold.RmaShader && scaffold.EmissiveShader);
+    for (const auto& shader : { scaffold.AlbedoShader, scaffold.NormalShader, scaffold.RmaShader,
+                                scaffold.EmissiveShader })
+    {
+        ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+            << "every decal G-Buffer variant must compile through shaderc (V1 pull branch)";
+    }
+    // The two forward-path variants ride the same V1 pull branch; their pass
+    // shape (scene colour / WB-OIT) is the OIT machinery earlier tenants
+    // already pin, so here they are compile-level.
+    for (const char* forward : { "assets/shaders/Decal.glsl", "assets/shaders/Decal_OIT.glsl" })
+    {
+        auto shader = Shader::Create(forward);
+        ASSERT_TRUE(shader);
+        EXPECT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+            << forward << " must compile through shaderc (V1 pull branch)";
+    }
+
+    // --- scaffolding resources ----------------------------------------------
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    scaffold.InstanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    scaffold.DecalUbo = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
+    scaffold.ProxyVao = MakeV1Quad(-1.0f, 1.0f, -1.0f, 1.0f, 0.5f);
+    scaffold.ProxyIndexCount = 6;
+    ASSERT_TRUE(scaffold.InstanceSSBO && scaffold.DecalUbo && scaffold.ProxyVao);
+    g_DecalScaffold = &scaffold;
+
+    // Decal source textures: white everywhere (the mode's channel routing, not
+    // the texture content, is what is under test). RMA reads R=roughness,
+    // G=metallic, B=AO; the normal map's (0.5, 0.5, 1) is the flat tangent
+    // normal.
+    auto whiteTexture = MakeSolidTexture(8, 255, 255, 255, 255);
+    auto rmaTexture = MakeSolidTexture(8, 255, 255, 255, 255);
+    auto normalTexture = MakeSolidTexture(8, 128, 128, 255, 255);
+    ASSERT_TRUE(whiteTexture && rmaTexture && normalTexture);
+
+    // --- the G-Buffer and its (separate) depth source -----------------------
+    auto gbuffer = GBuffer::Create(kSize, kSize, 1);
+    ASSERT_TRUE(gbuffer);
+    Ref<Framebuffer> gbufferFB = gbuffer->GetSamplingFramebuffer();
+
+    // The production per-sample call passes a DIFFERENT framebuffer for depth
+    // sampling than for writing; this tenant uses that same two-argument form
+    // deliberately. Sampling the write target's OWN depth while it is attached
+    // is the documented mid-pass layout gap (a descriptor baked
+    // SHADER_READ_ONLY against an image the scope holds in
+    // DEPTH_STENCIL_ATTACHMENT_OPTIMAL) — out of scope here and not what the
+    // attachment-map matrix is about.
+    FramebufferSpecification depthSpec;
+    depthSpec.Width = kSize;
+    depthSpec.Height = kSize;
+    depthSpec.Attachments = { FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> depthSourceFB = Framebuffer::Create(depthSpec);
+    ASSERT_TRUE(depthSourceFB);
+
+    auto decalPass = Ref<DecalRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    decalPass->SetupFramebuffer(kSize, kSize);
+
+    // Cleared G-Buffer state every chain starts from: a mid grey on the float
+    // RTs (0.25 -> 64/255 on RT0) and entity id 7.
+    constexpr f32 kClear = 0.25f;
+    constexpr int kClearEntity = 7;
+    // The world point the depth sample reconstructs: 0.749 * 2 - 1 = 0.498,
+    // which sits in the middle of a box spanning z in [0, 1].
+    constexpr f32 kSceneDepth = 191.0f / 255.0f;
+
+    const auto makeCommand = [&](DrawDecalCommand::DecalMode mode)
+    {
+        DrawDecalCommand command{};
+        command.header.type = CommandType::DrawDecal;
+        command.vertexArrayID = scaffold.ProxyVao->GetRHIHandle();
+        command.indexCount = scaffold.ProxyIndexCount;
+        command.shaderRendererID = scaffold.ShaderFor(mode)->GetRHIHandle();
+        command.decalTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.5f));
+        command.inverseDecalTransform = glm::inverse(command.decalTransform);
+        command.inverseViewProjection = glm::mat4(1.0f);
+        command.decalColor = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+        // fadeDistance 0.001: the edge smoothstep saturates to 1 everywhere
+        // except a sub-texel rim, so the footprint is a hard square.
+        command.decalParams = glm::vec4(0.001f, 0.0f, 0.0f, 0.0f);
+        command.albedoTextureID = whiteTexture->GetRHIHandle();
+        command.normalTextureID = normalTexture->GetRHIHandle();
+        command.rmaTextureID = rmaTexture->GetRHIHandle();
+        command.mode = mode;
+        command.transparent = 0;
+        command.entityID = 42;
+        return command;
+    };
+
+    auto* vkGbuffer = static_cast<VulkanFramebuffer*>(gbufferFB.Raw());
+
+    // Readback of one attachment, plus the two probe texels: (64, 64) is dead
+    // centre of the decal footprint, (8, 8) is far outside it.
+    struct AttachmentReadback
+    {
+        std::vector<u8> Bytes;
+        u32 BytesPerPixel = 4;
+    };
+    const auto readAttachment = [&](u32 index, u32 bytesPerPixel)
+    {
+        AttachmentReadback out;
+        out.BytesPerPixel = bytesPerPixel;
+        EXPECT_TRUE(vkGbuffer->GetColorAttachmentImage(index)->GetData(out.Bytes, 0))
+            << "G-Buffer RT" << index << " readback failed";
+        return out;
+    };
+    const auto texel = [&](const AttachmentReadback& rb, u32 x, u32 y)
+    {
+        const sizet offset = (static_cast<sizet>(y) * kSize + x) * rb.BytesPerPixel;
+        return std::vector<u8>(rb.Bytes.begin() + static_cast<std::ptrdiff_t>(offset),
+                               rb.Bytes.begin() + static_cast<std::ptrdiff_t>(offset + rb.BytesPerPixel));
+    };
+
+    // Which attachments the mode's draw MAP puts in the rendering scope. Note
+    // this is the map, NOT the shader's outputs: an attached-but-unwritten
+    // attachment still takes a COLOR_ATTACHMENT_WRITE from the storeOp at
+    // vkCmdEndRendering (which is exactly how its content survives), so its
+    // readback barrier must name that as the source scope. Naming the transfer
+    // clear instead is a WRITE_AFTER_WRITE the sync validation reports — and
+    // the Normal mode, whose map ATTACHES RT1 while its shader writes location
+    // 0 and therefore touches nothing, is the case that separates the two.
+    const auto attachedBy = [](DrawDecalCommand::DecalMode mode)
+    {
+        switch (mode)
+        {
+            case DrawDecalCommand::DecalMode::Normal: // { NONE, 1, NONE, NONE, NONE }
+                return std::array<bool, 5>{ false, true, false, false, false };
+            case DrawDecalCommand::DecalMode::RMA: // { 0, 1, NONE, NONE, NONE }
+                return std::array<bool, 5>{ true, true, false, false, false };
+            case DrawDecalCommand::DecalMode::Emissive: // { NONE, NONE, 2, NONE, NONE }
+                return std::array<bool, 5>{ false, false, true, false, false };
+            case DrawDecalCommand::DecalMode::Albedo: // { 0, NONE, NONE, NONE, NONE }
+            default:
+                return std::array<bool, 5>{ true, false, false, false, false };
+        }
+    };
+
+    const auto runMode = [&](DrawDecalCommand::DecalMode mode)
+    {
+        decalPass->ResetCommandBucket();
+        SubmitDecalPacket(*decalPass, makeCommand(mode));
+        scaffold.Draws = 0;
+        const auto attached = attachedBy(mode);
+
+        SubmitFrame(
+            [&]()
+            {
+                // Author the frame's starting state INSIDE the bracket: the
+                // facade transfer clears are recorded commands.
+                gbufferFB->ClearAllAttachments(glm::vec4(kClear), kClearEntity);
+                RenderCommand::ClearFramebufferDepth(gbufferFB->GetRHIHandle(), 1.0f);
+                RenderCommand::ClearFramebufferDepth(depthSourceFB->GetRHIHandle(), kSceneDepth);
+
+                decalPass->ExecuteOnGBuffer(gbufferFB, depthSourceFB);
+
+                // Every colour attachment plus the entity RT to the readback
+                // layout, each naming its OWN last producer as the barrier's
+                // source scope (the decal's attachment write where the mode's
+                // map routed an output, the transfer clear everywhere else).
+                for (u32 attachment = 0; attachment < 5u; ++attachment)
+                {
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = gbufferFB->GetColorAttachmentHandle(attachment);
+                    toSampled.Before = attached[attachment] ? RHI::Access::ColorAttachmentWrite
+                                                            : RHI::Access::TransferWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                }
+            });
+
+        EXPECT_EQ(scaffold.Draws, 1u) << "the mode's single decal packet must reach the dispatch";
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a decal draw dropped silently";
+    };
+
+    // --- Albedo: RT0.rgb only -----------------------------------------------
+    {
+        runMode(DrawDecalCommand::DecalMode::Albedo);
+        const auto rt0 = readAttachment(0, 4);
+        const auto inside = texel(rt0, 64, 64);
+        const auto outside = texel(rt0, 8, 8);
+        EXPECT_EQ(inside[0], 255) << "RT0.r takes the decal colour inside the projected box";
+        EXPECT_EQ(inside[1], 0);
+        EXPECT_EQ(inside[2], 0);
+        EXPECT_EQ(inside[3], outside[3]) << "RT0.a (metallic) is masked out and must survive";
+        EXPECT_EQ(outside[0], 64) << "outside the box the clear survives (0.25 -> 64)";
+
+        for (const auto& [attachment, bytesPerPixel] :
+             { std::pair<u32, u32>{ 1u, 8u }, { 2u, 8u }, { 3u, 4u }, { 4u, 4u } })
+        {
+            const auto rb = readAttachment(attachment, bytesPerPixel);
+            EXPECT_EQ(texel(rb, 64, 64), texel(rb, 8, 8))
+                << "Albedo mode must leave RT" << attachment << " byte-exact (NoAttachment hole)";
+        }
+    }
+
+    // --- Emissive: RT2.rgb only, ADDITIVE, RT2.a preserved ------------------
+    {
+        runMode(DrawDecalCommand::DecalMode::Emissive);
+        const auto rt2 = readAttachment(2, 8);
+        const auto* halves = reinterpret_cast<const u16*>(rt2.Bytes.data());
+        const auto emissiveAt = [&](u32 x, u32 y)
+        {
+            const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
+            return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
+                                       HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
+        };
+        const auto inside = emissiveAt(64, 64);
+        const auto outside = emissiveAt(8, 8);
+        // The emissive decal is white * u_DecalColor (1,0,0) and RT2 blends
+        // One/One over the 0.25 clear => 1.25 on red, clear elsewhere.
+        EXPECT_NEAR(inside[0], kClear + 1.0f, 0.01f) << "RT2.r accumulates ADDITIVELY over the clear";
+        EXPECT_NEAR(inside[1], kClear, 0.01f) << "the decal's green is 0 and the blend is additive";
+        EXPECT_NEAR(inside[2], kClear, 0.01f);
+        EXPECT_NEAR(inside[3], outside[3], 1e-4f) << "RT2.a (the unlit flag) is masked out";
+        EXPECT_NEAR(outside[0], kClear, 0.01f);
+
+        for (const auto& [attachment, bytesPerPixel] :
+             { std::pair<u32, u32>{ 0u, 4u }, { 1u, 8u }, { 3u, 4u }, { 4u, 4u } })
+        {
+            const auto rb = readAttachment(attachment, bytesPerPixel);
+            EXPECT_EQ(texel(rb, 64, 64), texel(rb, 8, 8))
+                << "Emissive mode must leave RT" << attachment << " byte-exact";
+        }
+    }
+
+    // --- RMA: RT0.a + RT1.zw, across TWO attachments ------------------------
+    {
+        runMode(DrawDecalCommand::DecalMode::RMA);
+        const auto rt0 = readAttachment(0, 4);
+        const auto inside0 = texel(rt0, 64, 64);
+        const auto outside0 = texel(rt0, 8, 8);
+        EXPECT_EQ(inside0[0], outside0[0]) << "RT0.rgb (albedo) is masked out under RMA";
+        EXPECT_EQ(inside0[1], outside0[1]);
+        EXPECT_EQ(inside0[2], outside0[2]);
+        EXPECT_NE(inside0[3], outside0[3]) << "RT0.a (metallic) is the RMA mode's own channel";
+
+        const auto rt1 = readAttachment(1, 8);
+        const auto* halves = reinterpret_cast<const u16*>(rt1.Bytes.data());
+        const auto normalAt = [&](u32 x, u32 y)
+        {
+            const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
+            return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
+                                       HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
+        };
+        const auto inside1 = normalAt(64, 64);
+        const auto outside1 = normalAt(8, 8);
+        EXPECT_NEAR(inside1[0], outside1[0], 1e-4f) << "RT1.xy (the oct normal) is masked out under RMA";
+        EXPECT_NEAR(inside1[1], outside1[1], 1e-4f);
+        EXPECT_GT(std::abs(inside1[2] - outside1[2]) + std::abs(inside1[3] - outside1[3]), 0.01f)
+            << "RT1.zw (roughness, AO) is the RMA mode's second channel pair";
+
+        for (const auto& [attachment, bytesPerPixel] : { std::pair<u32, u32>{ 2u, 8u }, { 3u, 4u }, { 4u, 4u } })
+        {
+            const auto rb = readAttachment(attachment, bytesPerPixel);
+            EXPECT_EQ(texel(rb, 64, 64), texel(rb, 8, 8))
+                << "RMA mode must leave RT" << attachment << " byte-exact";
+        }
+    }
+
+    // --- Normal: the DEFECT (see the tenant header) -------------------------
+    {
+        runMode(DrawDecalCommand::DecalMode::Normal);
+        for (const auto& [attachment, bytesPerPixel] :
+             { std::pair<u32, u32>{ 0u, 4u }, { 1u, 8u }, { 2u, 8u }, { 3u, 4u }, { 4u, 4u } })
+        {
+            const auto rb = readAttachment(attachment, bytesPerPixel);
+            EXPECT_EQ(texel(rb, 64, 64), texel(rb, 8, 8))
+                << "DEFECT PIN: Decal_GBuffer_Normal.glsl writes location 0 while the Normal draw "
+                   "map is {NONE, 1, NONE, NONE, NONE}, so the mode lands on NO attachment (RT"
+                << attachment << "). Move the output to location 1 and flip this to an RT1 "
+                                 "assertion.";
+        }
+    }
+
+    // The entity RT is never in any decal draw map — decals must not stamp
+    // their pickability over the underlying mesh.
+    {
+        const auto rt4 = readAttachment(4, 4);
+        const auto* ids = reinterpret_cast<const i32*>(rt4.Bytes.data());
+        EXPECT_EQ(ids[static_cast<sizet>(64) * kSize + 64], kClearEntity)
+            << "RT4 (entity id) is outside every decal draw map";
+    }
+
+    g_DecalScaffold = nullptr;
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "the attachment-map matrix must ride real implementations, not stubs";
+}
+
+// =============================================================================
+// DeferredOpaqueDecal (#691 Wave C item 9, second half): the graph node that
+// owns the drain and the G-Buffer EXPORTS.
+//
+// The node declares TransferDest writes on the blackboard's G-Buffer texture
+// slots, drains the opaque decals into the G-Buffer, then CopyImageSubData's
+// the attachments into those exported textures — which is how downstream
+// passes read the G-Buffer without importing the pass's own attachments. This
+// tenant runs the UNMODIFIED node in the real graph and pins the EXPORT half:
+// a seeded export target must come back carrying the G-Buffer's content, which
+// only happens if Setup declared the slot, Execute resolved it, and the copy
+// ran with the right extents.
+//
+// The DRAIN half is pinned by the ExecuteOnGBuffer tenant above and cannot be
+// re-pinned here at ONE sample: in that configuration the node hands
+// ExecuteOnGBuffer the same framebuffer for writing AND for depth sampling, so
+// the decal fragment samples the very depth attachment the rendering scope
+// holds — a descriptor baked SHADER_READ_ONLY against an image in
+// DEPTH_STENCIL_ATTACHMENT_OPTIMAL. That is the already-documented mid-pass
+// layout gap (its real fix is a read-only depth attachment layout the scope
+// builder would have to choose from the depth-write state), not something to
+// paper over with a tolerance: the sampled value is undefined, so the decal's
+// footprint is not deterministic. The bucket is therefore left EMPTY here and
+// the gap is reported.
+//
+// The multisample arm (GetSampleCount() > 1 + PerSampleLighting — which is
+// also the configuration that would give the drain a separate depth
+// framebuffer — needs multisample VulkanTexture2D attachments, the MS
+// CopyImageSubData pair and GBuffer::Resolve, none of which this backend has
+// yet. Reported, not worked around.
+// =============================================================================
+TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto gbuffer = GBuffer::Create(kSize, kSize, 1);
+    ASSERT_TRUE(gbuffer);
+    Ref<Framebuffer> gbufferFB = gbuffer->GetSamplingFramebuffer();
+
+    // Export targets: caller-owned textures imported under the blackboard names
+    // the node writes, so they survive the frame for readback. Each is seeded
+    // with a value the copy has to overwrite — an untouched target and a
+    // correctly copied one must not be able to look the same.
+    const auto makeSeededExport = [&](ImageFormat format, u32 bytesPerPixel, u8 seedValue)
+    {
+        TextureSpecification exportSpec;
+        exportSpec.Width = kSize;
+        exportSpec.Height = kSize;
+        exportSpec.Format = format;
+        exportSpec.GenerateMips = false;
+        auto texture = Texture2D::Create(exportSpec);
+        if (texture)
+        {
+            std::vector<u8> seed(static_cast<sizet>(kSize) * kSize * bytesPerPixel, seedValue);
+            texture->SetData(seed.data(), static_cast<u32>(seed.size()));
+        }
+        return texture;
+    };
+    // Each export target must be TEXEL-SIZE COMPATIBLE with the G-Buffer
+    // attachment it copies from (VUID-vkCmdCopyImage-srcImage-01548): albedo
+    // is RGBA8 (RT0), normals are RGBA16F (RT1). A copy is not a conversion.
+    auto exportedAlbedo = makeSeededExport(ImageFormat::RGBA8, 4u, 17u);
+    auto exportedNormals = makeSeededExport(ImageFormat::RGBA16F, 8u, 19u);
+    ASSERT_TRUE(exportedAlbedo && exportedNormals);
+
+    auto decalPass = Ref<DecalRenderPass>::Create();
+    decalPass->SetupFramebuffer(kSize, kSize);
+
+    auto opaqueDecalPass = Ref<DeferredOpaqueDecalPass>::Create();
+    opaqueDecalPass->SetGBuffer(gbuffer);
+    opaqueDecalPass->SetDecalPass(decalPass);
+    opaqueDecalPass->SetPerSampleLighting(false);
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc importDesc;
+    importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    importDesc.Format = RGResourceFormat::RGBA8UNorm;
+    importDesc.Width = kSize;
+    importDesc.Height = kSize;
+    blackboard.GBuffer.GBufferAlbedo =
+        graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, exportedAlbedo->GetRHIHandle(), importDesc);
+    // SceneNormals copies the G-Buffer NORMAL attachment (RGBA16F) — the
+    // node's second, independently-declared export slot.
+    RGResourceDesc normalDesc = importDesc;
+    normalDesc.Format = RGResourceFormat::RGBA16Float;
+    blackboard.Scene.SceneNormals =
+        graph.ImportTextureHandle(ResourceNames::SceneNormals, exportedNormals->GetRHIHandle(), normalDesc);
+
+    graph.AddNode(opaqueDecalPass);
+    graph.SetFinalPass("DeferredOpaqueDecalPass");
+    graph.BuildFrameGraph();
+
+    SubmitFrame(
+        [&]()
+        {
+            // Authored G-Buffer content the exports must carry: albedo 0.25 on
+            // every channel (-> 64) and entity id 7.
+            gbufferFB->ClearAllAttachments(glm::vec4(0.25f), 7);
+
+            graph.Execute();
+
+            for (const auto& handle : { exportedAlbedo->GetRHIHandle(), exportedNormals->GetRHIHandle() })
+            {
+                RHI::Barrier toSampled{};
+                toSampled.Resource = handle;
+                toSampled.Before = RHI::Access::TransferWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            }
+        });
+
+    EXPECT_TRUE(opaqueDecalPass->GetTarget()) << "the node early-returned";
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "DeferredOpaqueDecal resolve failure: pass='" << failure.PassName << "' reason='"
+                      << failure.Reason << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> exported;
+    ASSERT_TRUE(exportedAlbedo->GetData(exported, 0));
+    ASSERT_EQ(exported.size(), static_cast<sizet>(kSize) * kSize * 4);
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        EXPECT_EQ(exported[i], 64) << "the exported albedo must carry the G-Buffer's content at (" << x << ","
+                                   << y << ")";
+        EXPECT_NE(exported[i], 17) << "the seed must have been overwritten — the copy has to have run";
+    }
+
+    std::vector<u8> exportedNormalBytes;
+    ASSERT_TRUE(exportedNormals->GetData(exportedNormalBytes, 0));
+    ASSERT_EQ(exportedNormalBytes.size(), static_cast<sizet>(kSize) * kSize * 8);
+    {
+        const auto* halves = reinterpret_cast<const u16*>(exportedNormalBytes.data());
+        EXPECT_NEAR(HalfToFloat(halves[(static_cast<sizet>(64) * kSize + 64) * 4]), 0.25f, 1e-3f)
+            << "the SceneNormals export is a SECOND declared slot — its RGBA16F copy must run too";
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+}
+
+// =============================================================================
+// Occlusion queries (#691 Wave C item 10, second half — ADR item A6).
+//
+// The facade's query family is GL's: N independent query names, glBeginQuery /
+// glEndQuery around the proxy draws, a host read next frame. Vulkan's is one
+// VkQueryPool with N slots and three disciplines GL has no equivalent of — a
+// per-slot vkCmdResetQueryPool before the write, a begin/end pair that may not
+// straddle a render pass instance boundary, and a WAIT read that deadlocks on
+// a slot no command buffer ever wrote. VulkanQueryRegistry + the scope-ending
+// Begin/EndQuery are those three; this tenant is what proves them.
+//
+// Chain 1 (the counts): an occluder quad at z = 0.3 covering the LEFT half
+// writes depth; two proxies at z = 0.6 are then drawn under Less with depth
+// writes off, each inside its own query. The left proxy sits behind the
+// occluder (zero samples pass); the right one is unoccluded (thousands do).
+// The pair is what makes the assertion meaningful — "zero" alone is also what
+// a query that never ran returns.
+//
+// Chain 2 (conditional rendering): BeginConditionalRender over the OCCLUDED
+// query must skip the draws that follow, and over the VISIBLE one must not.
+// The predicate is evaluated HOST-side here rather than through
+// VK_EXT_conditional_rendering (see VulkanRendererAPI::BeginConditionalRender
+// for why); the engine's only caller passes the previous frame's query, whose
+// result is already resolved on the host, so the two are equivalent for it.
+// Each framebuffer takes an UNCONDITIONAL baseline draw first: a pending clear
+// with no draw behind it never materialises on Vulkan (the lazy scope folds it
+// into a loadOp that never opens), so a skipped-only target has no defined
+// content to assert against.
+// =============================================================================
+TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto depthOnlyShader = Shader::Create("assets/shaders/DepthPrepass.glsl");
+    auto proxyShader = Shader::Create("assets/shaders/OcclusionProxy.glsl");
+    ASSERT_TRUE(depthOnlyShader && proxyShader);
+    ASSERT_EQ(depthOnlyShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+        << "DepthPrepass.glsl must compile through shaderc (V1 pull branch)";
+    ASSERT_EQ(proxyShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+        << "OcclusionProxy.glsl must compile through shaderc (V1 pull branch)";
+    // The masked prepass variant rides the same branch with SPARSE attribute
+    // locations (0 and 2, no normal) — compile-pinned here.
+    {
+        auto maskShader = Shader::Create("assets/shaders/DepthPrepass_Mask.glsl");
+        ASSERT_TRUE(maskShader);
+        EXPECT_EQ(maskShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+            << "DepthPrepass_Mask.glsl must compile (sparse locations 0 and 2 over the same 8-float stride)";
+    }
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    auto occluder = MakeV1Quad(-1.0f, 0.0f, -1.0f, 1.0f, 0.3f);
+    auto occludedProxy = MakeV1Quad(-0.8f, -0.2f, -0.5f, 0.5f, 0.6f);
+    auto visibleProxy = MakeV1Quad(0.2f, 0.8f, -0.5f, 0.5f, 0.6f);
+    ASSERT_TRUE(occluder && occludedProxy && visibleProxy);
+
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    std::array<RHI::ResourceHandle, 2> queries{ RHI::NullResource, RHI::NullResource };
+    RenderCommand::CreateQueries(RHI::QueryType::OcclusionAnySamples, queries);
+    ASSERT_TRUE(queries[0].IsValid()) << "CreateQueries must mint a real VkQueryPool-backed identity";
+    ASSERT_TRUE(queries[1].IsValid());
+    EXPECT_FALSE(RenderCommand::IsQueryResultAvailable(queries[0]))
+        << "a query no command buffer has written must never report a result (the WAIT-deadlock guard)";
+
+    // --- chain 1: the counts -------------------------------------------------
+    SubmitFrame(
+        [&]()
+        {
+            sceneFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear(); // colour + depth -> 1.0, folded into the first draw's loadOp
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+
+            // The occluder writes depth 0.3 over the left half.
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+            depthOnlyShader->Bind();
+            occluder->Bind();
+            RenderCommand::DrawIndexed(occluder, 6);
+
+            // Proxies read depth, never write it (the production shape).
+            RenderCommand::SetDepthMask(false);
+            proxyShader->Bind();
+
+            RenderCommand::BeginQuery(RHI::QueryType::OcclusionAnySamples, queries[0]);
+            occludedProxy->Bind();
+            RenderCommand::DrawIndexed(occludedProxy, 6);
+            RenderCommand::EndQuery(RHI::QueryType::OcclusionAnySamples);
+
+            RenderCommand::BeginQuery(RHI::QueryType::OcclusionAnySamples, queries[1]);
+            visibleProxy->Bind();
+            RenderCommand::DrawIndexed(visibleProxy, 6);
+            RenderCommand::EndQuery(RHI::QueryType::OcclusionAnySamples);
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u) << "occluder + two proxies";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    ASSERT_TRUE(RenderCommand::IsQueryResultAvailable(queries[0]))
+        << "a submitted+fenced occlusion query must report available";
+    ASSERT_TRUE(RenderCommand::IsQueryResultAvailable(queries[1]));
+    EXPECT_EQ(RenderCommand::GetQueryResultU32(queries[0]), 0u)
+        << "the proxy behind the occluder must pass ZERO samples";
+    const u32 visibleSamples = RenderCommand::GetQueryResultU32(queries[1]);
+    EXPECT_GT(visibleSamples, 0u) << "the unoccluded proxy must pass samples (a zero here would make the "
+                                     "occluded assertion above vacuous)";
+    EXPECT_EQ(RenderCommand::GetQueryResultU64(queries[1]), static_cast<u64>(visibleSamples))
+        << "the 64-bit read must agree with the 32-bit one";
+
+    // --- chain 2: the conditional-render gate --------------------------------
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto blackTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    auto redTexture = MakeSolidTexture(kSize, 255, 0, 0, 255);
+    ASSERT_TRUE(blackTexture && redTexture);
+
+    FramebufferSpecification flatSpec;
+    flatSpec.Width = kSize;
+    flatSpec.Height = kSize;
+    flatSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    Ref<Framebuffer> skippedTarget = Framebuffer::Create(flatSpec);
+    Ref<Framebuffer> drawnTarget = Framebuffer::Create(flatSpec);
+    ASSERT_TRUE(skippedTarget && drawnTarget);
+
+    SubmitFrame(
+        [&]()
+        {
+            const auto drawPattern = [&](const Ref<Texture2D>& pattern)
+            {
+                blitShader->Bind();
+                RenderCommand::BindTexture(0, pattern->GetRHIHandle());
+                const auto va = MeshPrimitives::GetFullscreenTriangle();
+                va->Bind();
+                RenderCommand::DrawIndexed(va);
+            };
+
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetDepthMask(false);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+
+            // Plain array, not an initializer_list: its elements are const and
+            // Ref<T> const-propagates, so Bind() would be unreachable.
+            std::array<std::pair<Ref<Framebuffer>, RHI::ResourceHandle>, 2> chains{
+                std::pair<Ref<Framebuffer>, RHI::ResourceHandle>{ skippedTarget, queries[0] },
+                std::pair<Ref<Framebuffer>, RHI::ResourceHandle>{ drawnTarget, queries[1] }
+            };
+            for (auto& [target, query] : chains)
+            {
+                target->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                drawPattern(blackTexture); // unconditional baseline
+                RenderCommand::BeginConditionalRender(query);
+                drawPattern(redTexture);
+                RenderCommand::EndConditionalRender();
+                target->Unbind();
+            }
+
+            for (const auto& target : { skippedTarget, drawnTarget })
+            {
+                RHI::Barrier toSampled{};
+                toSampled.Resource = target->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            }
+        });
+
+    EXPECT_EQ(api.GetConditionallySkippedDrawsThisRecording(), 1u)
+        << "exactly the draw predicated on the fully-occluded query";
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u) << "two baselines + the one un-predicated draw";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a conditional skip is not a drop";
+
+    {
+        std::vector<u8> skipped;
+        std::vector<u8> drawn;
+        auto* vkSkipped = static_cast<VulkanFramebuffer*>(skippedTarget.Raw());
+        auto* vkDrawn = static_cast<VulkanFramebuffer*>(drawnTarget.Raw());
+        ASSERT_TRUE(vkSkipped->GetColorAttachmentImage(0)->GetData(skipped, 0));
+        ASSERT_TRUE(vkDrawn->GetColorAttachmentImage(0)->GetData(drawn, 0));
+        const sizet centre = ((static_cast<sizet>(64) * kSize) + 64) * 4;
+        EXPECT_EQ(skipped[centre + 0], 0) << "the occluded predicate must have skipped the red draw";
+        EXPECT_EQ(drawn[centre + 0], 255) << "the visible predicate must have let the red draw through";
+        EXPECT_EQ(drawn[centre + 1], 0);
+    }
+
+    // Query pools are device objects: retire them before the fixture's device
+    // teardown or the object tracker reports the leak as a validation error.
+    vkDeviceWaitIdle(m_Device->GetDevice());
+    RenderCommand::DeleteQueries(queries);
+    EXPECT_FALSE(RenderCommand::IsQueryResultAvailable(queries[0]))
+        << "a deleted query's handle must be stale, never a silent zero";
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "the query family must ride real VkQueryPool implementations, not stubs";
+}
+
+// =============================================================================
+// SceneRenderPass (#691 Wave C item 10, first half): the Deferred FLOOR.
+//
+// The full opaque bucket is DISPROPORTIONATE here and this is exactly what it
+// would take: CommandDispatch::DrawMesh reads Renderer3D's own per-frame
+// objects (s_Data.CameraUBO / MaterialUBO / BoneMatricesUBO, the SSBO-15
+// InstanceBuffer) through CommandDispatch::SetUBOReferences, and mid-suite
+// those are live GL-currency objects with no setter to re-home them onto this
+// device — so a packet-path bucket would bind foreign handles over the
+// fixture's Vulkan ones. Seeding it needs either a Renderer3D re-home on
+// Vulkan (the ParticleBatchRenderer discipline, but for the whole renderer) or
+// a fixture dispatch like the decal tenant's; the material half additionally
+// wants CommandDispatch::UploadMaterialForDirectDraw. Documented, not faked.
+//
+// What this tenant DOES run is the rest of SceneRenderPass::Execute, unmodified
+// and in the real graph, on the Deferred path with DebugChannel 3:
+//   * the deferred resource preparation — a real 6-attachment GBuffer created
+//     by the pass itself at the Init spec's size;
+//   * BOTH clears the pass owes (the scene FB's, which exists so a Forward ->
+//     Deferred switch cannot leave stale entity-ID / normal attachments, and
+//     the G-Buffer's);
+//   * BlitGBufferDebug(3) — the RMA channel, which is a REAL fullscreen draw
+//     (DebugGBuffer_RMA.glsl, whose V3 pull branch is this batch's sibling
+//     change) narrowed onto attachment 0 by SetFramebufferDrawAttachments,
+//     followed by RestoreAllFramebufferDrawAttachments and a depth
+//     BlitFramebuffer from the G-Buffer;
+//   * the pass's shader/VAO unbind hygiene (BindShaderProgram(NullResource)).
+//
+// The contract is arithmetic, not "it drew something": the RMA shader gathers
+// (RT1.z, RT0.a, RT1.w) = (roughness, metallic, ao), and the G-Buffer clear the
+// pass itself performs is (0.1, 0.1, 0.1, 1.0) — so attachment 0 must come out
+// (0.1, 1.0, 1.0) exactly. A narrowing that failed to restore, a blit that hit
+// the wrong attachment, or a G-Buffer that was never cleared all move it.
+// =============================================================================
+TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebugChannel)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    // The pass branches on process-global renderer settings; force the
+    // Deferred + RMA-debug configuration and restore on exit.
+    auto& settings = Renderer3D::GetRendererSettings();
+    const RenderingPath prevPath = settings.Path;
+    const u32 prevDebugChannel = settings.Deferred.DebugChannel;
+    const u32 prevSamples = settings.Deferred.MSAASampleCount;
+    const bool prevPerSample = settings.Deferred.PerSampleLighting;
+    settings.Path = RenderingPath::Deferred;
+    settings.Deferred.DebugChannel = 3; // the RMA gather — the one channel that is a DRAW
+    settings.Deferred.MSAASampleCount = 1;
+    settings.Deferred.PerSampleLighting = false;
+
+    // The scene FB the graph hands the pass: colour + an entity-ID attachment
+    // (so the "clear the scene FB even in Deferred" half has something to
+    // prove) + depth for the debug blit's destination.
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
+                              FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    auto scenePass = Ref<SceneRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
+                             FramebufferTextureFormat::Depth };
+    scenePass->Init(initSpec);
+
+    RenderGraph graph;
+    graph.SetTransientMaterializationEnabled(true);
+    auto& blackboard = graph.GetBlackboard();
+
+    RGResourceDesc sceneDesc;
+    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+    sceneDesc.Width = kSize;
+    sceneDesc.Height = kSize;
+    blackboard.Scene.SceneColor =
+        graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+    // Scene.SceneDepth / GBuffer.Velocity are deliberately left unset: those
+    // export slots lower to CopyImageSubData, and a D24S8 -> RGBA8 copy is a
+    // format-incompatible transfer (a depth/stencil source demands an exactly
+    // matching destination). Exporting into real depth-format transients is
+    // the graph's production shape and a separate concern from this floor.
+
+    graph.AddNode(scenePass);
+    graph.SetFinalPass("SceneRenderPass");
+    graph.BuildFrameGraph();
+
+    SubmitFrame(
+        [&]()
+        {
+            graph.Execute();
+
+            RHI::Barrier colorToSampled{};
+            colorToSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+            colorToSampled.Before = RHI::Access::ColorAttachmentWrite;
+            colorToSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &colorToSampled, 1 });
+
+            RHI::Barrier entityToSampled{};
+            entityToSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(1);
+            entityToSampled.Before = RHI::Access::TransferWrite; // its last write is the pass's clear
+            entityToSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &entityToSampled, 1 });
+        });
+
+    EXPECT_TRUE(scenePass->GetTarget()) << "the pass early-returned before resolving its target";
+    ASSERT_TRUE(scenePass->GetGBuffer()) << "the Deferred path must have created a G-Buffer";
+    EXPECT_EQ(scenePass->GetGBuffer()->GetWidth(), kSize);
+    for (const auto& failure : graph.GetResolveFailures())
+    {
+        ADD_FAILURE() << "ScenePass resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
+                      << "' x" << failure.Count;
+    }
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "exactly the RMA debug gather";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> rendered;
+    auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        EXPECT_NEAR(rendered[i + 0], 26, 1) << "RMA red = roughness = the G-Buffer RT1.z clear (0.1) at (" << x
+                                            << "," << y << ")";
+        EXPECT_EQ(rendered[i + 1], 255) << "RMA green = metallic = the G-Buffer RT0.a clear (1.0)";
+        EXPECT_EQ(rendered[i + 2], 255) << "RMA blue = ao = the G-Buffer RT1.w clear (1.0)";
+    }
+
+    std::vector<u8> entityBytes;
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(1)->GetData(entityBytes, 0));
+    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.data());
+    EXPECT_EQ(entityIds[static_cast<sizet>(64) * kSize + 64], -1)
+        << "the Deferred path still clears the SCENE framebuffer's non-colour attachments";
+
+    settings.Path = prevPath;
+    settings.Deferred.DebugChannel = prevDebugChannel;
+    settings.Deferred.MSAASampleCount = prevSamples;
+    settings.Deferred.PerSampleLighting = prevPerSample;
 }
 
 #endif // OLO_WITH_VULKAN

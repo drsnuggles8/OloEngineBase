@@ -472,6 +472,17 @@ namespace OloEngine
         // (#691 Phase 7 Wave C batch 2, when-supported rule as above).
         enabledFeatures.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;
         enabledFeatures.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
+        // independentBlend: WITHOUT it every element of
+        // VkPipelineColorBlendStateCreateInfo::pAttachments must be IDENTICAL
+        // (VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605), and
+        // the same rule applies to the EDS3 dynamic-blend setters. The facade's
+        // whole per-attachment family — SetBlendStateForAttachment /
+        // SetBlendFuncForAttachment / SetColorMaskForAttachment, i.e. GL's
+        // glEnablei/glBlendFunci/glColorMaski — exists to make those elements
+        // DIFFER (WB-OIT's accum-vs-revealage split, and the decal G-Buffer
+        // mode matrix's per-RT colour masks). Enabled when supported, never a
+        // gate row (#691 Phase 7 Wave C batch 3).
+        enabledFeatures.independentBlend = supported.independentBlend;
         m_TessellationShaderEnabled = supported.tessellationShader == VK_TRUE;
         m_GeometryShaderEnabled = supported.geometryShader == VK_TRUE;
         m_MultiDrawIndirectEnabled = supported.multiDrawIndirect == VK_TRUE;

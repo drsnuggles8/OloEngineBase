@@ -7,11 +7,28 @@
 #type vertex
 #version 450 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): V3 fullscreen-triangle pull (20 B
+// {vec3 position, vec2 uv} => 5 floats per vertex) on the engine-wide vertex
+// binding 57 — byte-identical to FullscreenBlit.glsl's branch. The uv lane is
+// declared but unused here (this shader texelFetches by gl_FragCoord), exactly
+// as on the GL side.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec2 a_TexCoord;
+#endif
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    int vertBase = gl_VertexIndex * 5;
+    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+#endif
     gl_Position = vec4(a_Position, 1.0);
 }
 

@@ -461,6 +461,15 @@ namespace OloEngine
         m_Entries.push_back({ .View = view, .EnqueuedAtGeneration = m_Generation });
     }
 
+    void VulkanDeferredReclaim::Enqueue(VkQueryPool queryPool)
+    {
+        if (queryPool == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        m_Entries.push_back({ .QueryPool = queryPool, .EnqueuedAtGeneration = m_Generation });
+    }
+
     void VulkanDeferredReclaim::DestroyEntry(const Entry& entry)
     {
         // Image metadata retires at ACTUAL destroy time — a barrier emitted for
@@ -503,6 +512,10 @@ namespace OloEngine
         else if (entry.View != VK_NULL_HANDLE)
         {
             vkDestroyImageView(device->GetDevice(), entry.View, nullptr);
+        }
+        else if (entry.QueryPool != VK_NULL_HANDLE)
+        {
+            vkDestroyQueryPool(device->GetDevice(), entry.QueryPool, nullptr);
         }
         else if (entry.Allocation != VK_NULL_HANDLE)
         {
