@@ -88,6 +88,13 @@ out/build/x64-Debug/VSInheritEnvironments.txt
 # CodeQL artifacts
 _codeql_detected_source_root
 
+# vcpkg spike (issue #774) — build/install trees and logs, not the triplets/overlay/manifest
+/spike/build-vs/
+/spike/build-ninja-mc/
+/spike/vcpkg_installed*/
+/spike/fetchcontent-baseline/build-vs/
+/spike/*.log
+
 # Game build output
 GameBuilds/
 build-*/
