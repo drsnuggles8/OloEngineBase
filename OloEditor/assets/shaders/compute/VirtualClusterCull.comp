@@ -151,12 +151,45 @@ layout(std140, binding = 0) uniform CameraMatrices
     float _padding0;
 };
 
-uniform uint u_InstanceIndex;
-uniform float u_ViewportHeight;           // pixels
-uniform float u_SwRasterThresholdPixels;  // projected-radius routing threshold; 0 disables the SW path
-uniform int u_OrthoMode;                  // 1 = orthographic view (shadow cascades): constant error scale,
-                                          //     no cone/backface or SW routing (shadows need back faces)
-uniform float u_OrthoErrorScale;          // ortho mode: pixels per world-space error unit
+// ---------------------------------------------------------------------------
+// Cull parameters — ONE block for the whole shader.
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// The three former runs of bare uniforms (view/LOD routing, the Hi-Z occlusion
+// set, the two-phase + debug controls) are collapsed here; their original
+// comment blocks stay at their old sites to explain the mechanisms. Refilled
+// PER DISPATCH — the main view loops one dispatch per instance with
+// u_InstanceIndex changing, and the shadow path re-fills the whole block in
+// ortho mode. C++ twin: UBOStructures::VirtualClusterCullUBO
+// (ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL).
+// ---------------------------------------------------------------------------
+layout(std140, binding = 69) uniform VirtualClusterCullParams
+{
+    mat4  u_OcclusionViewProjection; // 0   — the VP the bound pyramid was rendered with
+    vec2  u_HZBSize;                 // 64  — HZB texture size in texels (power-of-2)
+    vec2  u_HZBUVFactor;             // 72  — viewport / HZB size — screenUV -> HZB UV
+    uint  u_InstanceIndex;           // 80
+    float u_ViewportHeight;          // 84  — pixels
+    float u_SwRasterThresholdPixels; // 88  — projected-radius routing threshold; 0 disables the SW path
+    int   u_OrthoMode;               // 92  — 1 = orthographic view (shadow cascades): constant error
+                                     //        scale, no cone/backface or SW routing (shadows need back faces)
+    float u_OrthoErrorScale;         // 96  — ortho mode: pixels per world-space error unit
+    int   u_OcclusionEnabled;        // 100 — 0 = skip the Hi-Z test entirely
+    int   u_HZBMipCount;             // 104 — mip levels in the HZB pyramid
+    float u_OcclusionDepthBias;      // 108 — device-Z slack before a reject fires
+    int   u_WriteRejected;           // 112 — phase 1: defer an occluded cluster instead of dropping it
+    int   u_Phase2;                  // 116 — 1 = re-test the reject list against the fresh pyramid
+    uint  u_RejectCapacity;          // 120 — reject-list record capacity (this frame's cluster count)
+    uint  u_CommandSlotBase;         // 124 — added to inst.CommandBase (0 / the frame's cluster count)
+    uint  u_ArgsSlotBase;            // 128 — added to the instance index when indexing args[]
+    int   u_DebugDrawClusters;       // 132 — cluster-bounds debug bit field, 0 = off (issue #725)
+    uint  u_DebugDrawClusterStride;  // 136 — emit only every Nth cluster
+    int   _vccPad0;                  // 140
+};
 
 // Hi-Z occlusion (issue #629, made two-phase by #682): reject clusters whose
 // screen-space bounding rectangle is entirely behind a max-reduction scene-depth
@@ -184,21 +217,15 @@ uniform float u_OrthoErrorScale;          // ortho mode: pixels per world-space 
 #else
 layout(binding = 0) uniform sampler2D u_HZB; // max-reduction depth pyramid (device-Z, smaller = nearer)
 #endif
-uniform int   u_OcclusionEnabled;    // 0 = skip the Hi-Z test entirely
-uniform mat4  u_OcclusionViewProjection; // the VP the bound pyramid was rendered with
-uniform vec2  u_HZBSize;             // HZB texture size in texels (power-of-2)
-uniform vec2  u_HZBUVFactor;         // viewport / HZB size — screenUV -> HZB UV
-uniform int   u_HZBMipCount;         // mip levels in the HZB pyramid
-uniform float u_OcclusionDepthBias;  // device-Z slack before a reject fires
+// (u_OcclusionEnabled / u_OcclusionViewProjection / u_HZBSize / u_HZBUVFactor /
+//  u_HZBMipCount / u_OcclusionDepthBias now live in VirtualClusterCullParams
+//  above — issue #691 Phase 7.)
 
 // ── Two-phase controls (issue #682). All default to 0, so the shadow cascades
 // and the GPU/CPU parity test — which set none of them — keep the exact
 // single-phase behaviour and never touch the reject buffer. ──
-uniform int  u_WriteRejected;    // phase 1: defer an occluded cluster to the reject list instead of dropping it
-uniform int  u_Phase2;           // 1 = re-test the reject list against the freshly built pyramid
-uniform uint u_RejectCapacity;   // reject-list record capacity (this frame's total cluster count)
-uniform uint u_CommandSlotBase;  // added to inst.CommandBase — 0 in phase 1, the frame's cluster count in phase 2
-uniform uint u_ArgsSlotBase;     // added to the instance index when indexing args[] — 0 / the frame's instance count
+// (u_WriteRejected / u_Phase2 / u_RejectCapacity / u_CommandSlotBase /
+//  u_ArgsSlotBase now live in VirtualClusterCullParams above — #691 Phase 7.)
 
 // ── Cluster-bounds debug visualization (issue #725) ──
 // Bit field, 0 = off:
@@ -209,12 +236,12 @@ uniform uint u_ArgsSlotBase;     // added to the instance index when indexing ar
 // Only ever set for the main perspective view (the shadow cascades bind the same
 // program with u_OrthoMode = 1 and would otherwise emit a second, differently
 // culled set on top of the first).
-uniform int u_DebugDrawClusters;
+// (u_DebugDrawClusters lives in VirtualClusterCullParams above — #691 Phase 7.)
 // Emit only every Nth cluster. A Nanite-class scene selects tens of thousands of
 // clusters per frame and the channel holds a few thousand, so the useful setting
 // is almost never 1 — and an overflow, while reported rather than silent, is
 // still a picture of an arbitrary prefix rather than of the scene.
-uniform uint u_DebugDrawClusterStride;
+// (u_DebugDrawClusterStride lives in VirtualClusterCullParams above — #691 Phase 7.)
 
 const uint kNoRefinedGroup = 0xFFFFFFFFu;
 

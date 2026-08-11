@@ -8,7 +8,6 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
-#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 
 #include <span>
 
@@ -162,12 +161,6 @@ namespace OloEngine
         if (!sceneDepthTextureID.IsValid())
             return; // Fog pass requires depth.
 
-        // Placeholder sampler2DArrayShadow when no real CSM bound — shader's
-        // u_DirectionalShadowEnabled still gates the actual sample.
-        const RHI::ResourceHandle shadowCSMTextureID = m_SelectedShadowCSMTexture.IsValid()
-                                                           ? context.ResolveTextureHandle(m_SelectedShadowCSMTexture)
-                                                           : ShadowMap::GetCSMPlaceholderHandle();
-
         // Re-bind PostProcessUBO at binding 7 — IBL precompute and bloom-mip
         // updates can transiently claim this slot before the post-process chain.
         if (m_PostProcessUBO)
@@ -212,19 +205,10 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
                                         RHI::HeapSlotLifetime::FrameTransient);
 
-        // CSM shadow map for volumetric light shafts (slot TEX_SHADOW = 8).
-        //
-        // STAYS A REAL BIND, PERMANENTLY, and this is the seam's rule protecting
-        // the pass rather than tripping it. PostProcess_Fog.glsl is a bindless
-        // VARIANT (its depth and froxel inputs are converted), but the shadow
-        // array is declared in the shared DeferredLightingShared.glsl and cannot
-        // be `#define`d away without rewriting that header's declaration in every
-        // shader that includes it. A converted declaration is what makes a seam
-        // call correct; without one, BindTextureOrHeapOffset here would record an
-        // offset, skip the bind, and leave the sampler dark
-        // (glsl-shaders.md §5c). Convert this only when TEX_SHADOW moves in the
-        // shared header, and then in one step across every consumer.
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadowCSMTextureID);
+        // (The old TEX_SHADOW CSM bind is gone: the per-pixel light-shaft
+        // lookup moved into FroxelFogScatter.comp with the raymarch (issue
+        // #435), and PostProcess_Fog.glsl declares no shadow sampler — the
+        // bind fed a slot no shader read. #691 Phase 7 Wave A.)
 
         // Integrated froxel fog volume (issue #435): the shader's volumetric
         // branch fetches it with one trilinear tap per pixel. When the froxel

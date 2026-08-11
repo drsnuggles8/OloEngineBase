@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -355,7 +356,10 @@ namespace OloEngine
         // filled by FillMaterialBlock before RenderInto was called.
         block.Model = rig.Model;
         block.View = glm::lookAt(rig.EyePos, rig.LookAt, glm::vec3(0.0f, 1.0f, 0.0f));
-        block.Projection = glm::perspective(glm::radians(rig.FovYDeg), 1.0f, rig.NearClip, rig.FarClip);
+        // A8 seam, rasterizer flavour (the preview vertex stage feeds
+        // Projection * View * Model to gl_Position).
+        block.Projection = RHI::AdjustProjectionForBackend(
+            glm::perspective(glm::radians(rig.FovYDeg), 1.0f, rig.NearClip, rig.FarClip));
         block.CameraPosition = rig.EyePos;
 
         // Save the host's stencil-test state. The host renderer manages

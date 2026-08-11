@@ -60,7 +60,7 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        const std::array<KnownBlock, 22> kKnownBlocks = { {
+        const std::array<KnownBlock, 33> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -83,6 +83,24 @@ namespace OloEngine::Tests
             { "IBLParameters", sizeof(UBOStructures::IBLParametersUBO) },
             { "UnderwaterFogBlock", sizeof(UnderwaterFogUBOData) },
             { "FroxelFogData", sizeof(UBOStructures::FroxelFogUBO) },
+            // The compute-shader params blocks introduced when issue #691
+            // Phase 7 migrated bare default-block uniforms into std140 blocks
+            // (SPIR-V cannot express a bare uniform). Listed here deliberately:
+            // an unlisted block lands in `blocksSkippedUnknown` and is SKIPPED,
+            // so without these entries the one test that compares a reflected
+            // GLSL block size against its C++ twin silently covered none of
+            // them — and six have no other GLSL<->C++ guard at all.
+            { "AutoExposureParams", sizeof(UBOStructures::AutoExposureUBO) },
+            { "HZBParams", sizeof(UBOStructures::HZBParamsUBO) },
+            { "GTAODenoiseParams", sizeof(UBOStructures::GTAODenoiseUBO) },
+            { "ParticleSimParams", sizeof(UBOStructures::GPUParticleParamsUBO) },
+            { "WindGenerateParams", sizeof(UBOStructures::WindGenerateUBO) },
+            { "SnowComputeParams", sizeof(UBOStructures::SnowComputeUBO) },
+            { "TerrainErosionParams", sizeof(UBOStructures::TerrainErosionUBO) },
+            { "LightCullingParams", sizeof(UBOStructures::LightCullingUBO) },
+            { "VirtualClusterCullParams", sizeof(UBOStructures::VirtualClusterCullUBO) },
+            { "VirtualRasterParams", sizeof(UBOStructures::VirtualRasterUBO) },
+            { "InstanceCullParams", sizeof(UBOStructures::InstanceCullUBO) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)

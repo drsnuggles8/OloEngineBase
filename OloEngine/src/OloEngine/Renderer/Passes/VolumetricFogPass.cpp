@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -148,11 +149,17 @@ namespace OloEngine
         const f32 fogFar = std::min(std::clamp(fog.End, 20.0f, 500.0f), cameraFar);
         const f32 fogNear = std::max(cameraNear, ClusteredLighting::kMinNearPlane);
 
-        // Upload the froxel UBO
+        // Upload the froxel UBO.
+        // A8 seam, shader-reconstruction flavour: the scatter compute builds
+        // froxel ndc by GL-shaped `*2-1` math and reprojects history through
+        // PrevViewProjection's `.xy*0.5+0.5` — so the inverse is recomputed
+        // from the ROW-flipped projection (never the rasterizer form, never
+        // invert-then-flip). InverseView is a rigid transform — untouched.
         UBOStructures::FroxelFogUBO ubo{};
         ubo.InverseView = glm::inverse(viewRelative);
-        ubo.InverseProjection = glm::inverse(projection);
-        ubo.PrevViewProjection = m_PrevViewProjectionValid ? m_PrevViewProjection : viewProjectionAbsolute;
+        ubo.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(projection);
+        ubo.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(
+            m_PrevViewProjectionValid ? m_PrevViewProjection : viewProjectionAbsolute);
         ubo.Dims = glm::vec4(static_cast<f32>(kVolumeWidth), static_cast<f32>(kVolumeHeight),
                              static_cast<f32>(kVolumeDepth),
                              m_HistoryValid ? 0.9f : 0.0f);

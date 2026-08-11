@@ -6,6 +6,23 @@
 #type vertex
 #version 450 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): V5+V6 particle pull. Stream 0 = the 8-byte
+// {vec2 a_QuadPos} unit quad on the engine-wide binding 57; stream 1 =
+// ParticleBatchRenderer's 96-byte ParticleInstance on the reserved stream-1
+// binding 63 (24 float lanes; EntityID is an int lane, floatBitsToInt),
+// indexed by gl_InstanceIndex. Pulled locals under the attribute names in
+// main() keep the body shared; the GL attribute branch below is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+	float v[];
+} b_Vertices;
+layout(std430, binding = 63) readonly buffer OloBonePull
+{
+	float v[];
+} b_Instances;
+#define OLO_PULLED_VERTEX 1
+#else
 // Per-vertex (unit quad)
 layout(location = 0) in vec2 a_QuadPos;
 
@@ -20,6 +37,7 @@ layout(location = 6) in int a_EntityID;
 layout(location = 7) in vec4 a_PrevPosition;
 layout(location = 8) in float a_PrevRotation;   // previous-frame rotation (radians)
 layout(location = 9) in float a_Pad0;            // padding for 16-byte instance alignment
+#endif
 
 layout(std140, binding = 0) uniform Camera
 {
@@ -57,6 +75,23 @@ layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+	vec2 a_QuadPos = vec2(b_Vertices.v[gl_VertexIndex * 2 + 0], b_Vertices.v[gl_VertexIndex * 2 + 1]);
+	int instBase = gl_InstanceIndex * 24;
+	vec4 a_PositionSize = vec4(b_Instances.v[instBase + 0], b_Instances.v[instBase + 1],
+	                           b_Instances.v[instBase + 2], b_Instances.v[instBase + 3]);
+	vec4 a_Color = vec4(b_Instances.v[instBase + 4], b_Instances.v[instBase + 5],
+	                    b_Instances.v[instBase + 6], b_Instances.v[instBase + 7]);
+	vec4 a_UVRect = vec4(b_Instances.v[instBase + 8], b_Instances.v[instBase + 9],
+	                     b_Instances.v[instBase + 10], b_Instances.v[instBase + 11]);
+	vec4 a_VelocityRotation = vec4(b_Instances.v[instBase + 12], b_Instances.v[instBase + 13],
+	                               b_Instances.v[instBase + 14], b_Instances.v[instBase + 15]);
+	float a_StretchFactor = b_Instances.v[instBase + 16];
+	int a_EntityID = floatBitsToInt(b_Instances.v[instBase + 17]);
+	vec4 a_PrevPosition = vec4(b_Instances.v[instBase + 18], b_Instances.v[instBase + 19],
+	                           b_Instances.v[instBase + 20], b_Instances.v[instBase + 21]);
+	float a_PrevRotation = b_Instances.v[instBase + 22];
+#endif
 	vec3 position = a_PositionSize.xyz;
 	float size = a_PositionSize.w;
 	float rotation = a_VelocityRotation.w;

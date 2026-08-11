@@ -93,7 +93,7 @@ layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
 // the shared one is wrong.
 layout(std140, binding = 56) uniform OloHeapOffsetBlock
 {
-    uvec4 g_OloHeapOffsets[18];
+    uvec4 g_OloHeapOffsets[19];
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
@@ -204,8 +204,9 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // zero, so image unit `u` lives at table index OLO_HEAP_IMAGE_BASE + u. Without
 // the rebase a compute pass writing image unit 0 would overwrite TEX_DIFFUSE's
 // offset and each would silently render the other's resource. The base must
-// match ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE.
-#define OLO_HEAP_IMAGE_BASE 64u
+// match ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE (66 since the A2 renumber
+// moved TEX_DDGI_VISIBILITY to 64 and the shader-graph base to 65).
+#define OLO_HEAP_IMAGE_BASE 66u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 
 // Pass this as `mem` for an image you both read and write, or for one with no

@@ -123,9 +123,14 @@ namespace OloEngine
                                                       ShaderBindingLayout::SSBO_AUTO_EXPOSURE_HISTOGRAM,
                                                       StorageBufferUsage::DynamicCopy);
         }
+        if (!m_AutoExposureUBO)
+        {
+            m_AutoExposureUBO = UniformBuffer::Create(UBOStructures::AutoExposureUBO::GetSize(),
+                                                      ShaderBindingLayout::UBO_AUTO_EXPOSURE);
+        }
         const bool histogramReady = m_HistogramShader && m_HistogramShader->IsValid();
         const bool averageReady = m_AverageShader && m_AverageShader->IsValid();
-        return histogramReady && averageReady && m_HistogramBuffer && m_ExposureStateBuffer;
+        return histogramReady && averageReady && m_HistogramBuffer && m_ExposureStateBuffer && m_AutoExposureUBO;
     }
 
     void ToneMapRenderPass::RunAutoExposureMetering(const RGCommandContext& context, RHI::ResourceHandle hdrTextureID,
@@ -152,6 +157,28 @@ namespace OloEngine
         const u32 meterW = std::min(width, kMeterDimCap);
         const u32 meterH = std::min(height, kMeterDimCap);
 
+        // One std140 upload feeds BOTH dispatches below — these were bare
+        // uniforms via ComputeShader::Set*, a deliberate no-op on the Vulkan
+        // route (issue #691 Phase 7); a NaN reaching the persistent exposure
+        // SSBO latches forever, so the percentile defence stays (defaults
+        // match SanitizeAutoExposure's — RenderPipeline copies straight out
+        // of PostProcessSettings without routing through it).
+        UBOStructures::AutoExposureUBO aeParams{};
+        aeParams.MeterSize = glm::vec2(static_cast<f32>(meterW), static_cast<f32>(meterH));
+        aeParams.MinLogLum = minLogLum;
+        aeParams.InvLogLumRange = invLogLumRange;
+        aeParams.LogLumRange = logLumRange;
+        aeParams.Dt = std::max(m_AutoExposure.DeltaTime, 0.0f);
+        aeParams.SpeedUp = m_AutoExposure.SpeedUp;
+        aeParams.SpeedDown = m_AutoExposure.SpeedDown;
+        aeParams.ExposureCompensation = m_AutoExposure.Compensation;
+        aeParams.MinExposure = m_AutoExposure.MinExposure;
+        aeParams.MaxExposure = m_AutoExposure.MaxExposure;
+        aeParams.LowPercentile = std::isfinite(m_AutoExposure.LowPercentile) ? m_AutoExposure.LowPercentile : 0.80f;
+        aeParams.HighPercentile = std::isfinite(m_AutoExposure.HighPercentile) ? m_AutoExposure.HighPercentile : 0.98f;
+        m_AutoExposureUBO->SetData(&aeParams, sizeof(aeParams));
+        m_AutoExposureUBO->Bind();
+
         // --- Histogram pass: bin every metered texel by log-luminance ---
         m_HistogramBuffer->ClearData();
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
@@ -159,9 +186,6 @@ namespace OloEngine
         m_HistogramShader->Bind();
         // FrameTransient: graph-resolved HDR colour (issue #691 Phase 3).
         context.BindTextureOrHeapOffset(0, hdrTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        m_HistogramShader->SetFloat2("u_MeterSize", glm::vec2(static_cast<f32>(meterW), static_cast<f32>(meterH)));
-        m_HistogramShader->SetFloat("u_MinLogLum", minLogLum);
-        m_HistogramShader->SetFloat("u_InvLogLumRange", invLogLumRange);
         m_HistogramBuffer->Bind();
         // Publish before the dispatch that reads it.
         context.FlushHeapOffsets();
@@ -173,24 +197,6 @@ namespace OloEngine
         m_AverageShader->Bind();
         m_HistogramBuffer->Bind();
         m_ExposureStateBuffer->Bind();
-        m_AverageShader->SetFloat("u_MinLogLum", minLogLum);
-        m_AverageShader->SetFloat("u_LogLumRange", logLumRange);
-        m_AverageShader->SetFloat("u_Dt", std::max(m_AutoExposure.DeltaTime, 0.0f));
-        m_AverageShader->SetFloat("u_SpeedUp", m_AutoExposure.SpeedUp);
-        m_AverageShader->SetFloat("u_SpeedDown", m_AutoExposure.SpeedDown);
-        m_AverageShader->SetFloat("u_ExposureCompensation", m_AutoExposure.Compensation);
-        m_AverageShader->SetFloat("u_MinExposure", m_AutoExposure.MinExposure);
-        m_AverageShader->SetFloat("u_MaxExposure", m_AutoExposure.MaxExposure);
-        // Same defence as the metering window above: RenderPipeline copies these
-        // straight out of PostProcessSettings without routing through
-        // SanitizeAutoExposure, so a script/MCP/editor write can hand us a NaN.
-        // The exposure state SSBO is PERSISTENT across frames, so a single NaN
-        // frame does not just render wrong — it latches, and every later frame
-        // adapts from a NaN. Defaults match SanitizeAutoExposure's.
-        const f32 lowPercentile = std::isfinite(m_AutoExposure.LowPercentile) ? m_AutoExposure.LowPercentile : 0.80f;
-        const f32 highPercentile = std::isfinite(m_AutoExposure.HighPercentile) ? m_AutoExposure.HighPercentile : 0.98f;
-        m_AverageShader->SetFloat("u_LowPercentile", lowPercentile);
-        m_AverageShader->SetFloat("u_HighPercentile", highPercentile);
         RenderCommand::DispatchCompute(1u, 1u, 1u);
         // Make the exposure write visible to the tone-map fragment shader's SSBO read.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);

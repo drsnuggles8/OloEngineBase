@@ -68,9 +68,34 @@ layout(std140, binding = 0) uniform CameraMatrices
     float _padding0;
 };
 
-uniform uint u_InstanceCount;
-uniform vec4 u_LocalBoundingSphere; // xyz = center, w = radius (pre-expansion)
-uniform float u_RadiusExpansion;    // Pre-multiplied on CPU: 1.3 × 1.05 = 1.365 for static draws
+// ---- Instance cull parameters ----
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// Declared VERBATIM in InstanceOcclusionCull.comp and InstanceFrustumCull.comp:
+// the frustum-only variant reads the first three members and ignores the
+// occlusion tail, which the C++ side leaves at zero (u_OcclusionEnabled == 0 is
+// exactly the frustum-only behaviour the old "just don't call Set*" path relied
+// on). C++ twin: UBOStructures::InstanceCullUBO
+// (ShaderBindingLayout::UBO_INSTANCE_CULL).
+layout(std140, binding = 71) uniform InstanceCullParams
+{
+    mat4  u_PrevViewProjection;  // 0   — the VP matching the bound HZB
+    vec4  u_LocalBoundingSphere; // 64  — xyz = center, w = radius (pre-expansion)
+    vec2  u_HZBSize;             // 80  — HZB texture size in texels (power-of-2)
+    vec2  u_HZBUVFactor;         // 88  — viewport / HZB size — screenUV -> HZB UV
+    uint  u_InstanceCount;       // 96
+    float u_RadiusExpansion;     // 100 — pre-multiplied on CPU: 1.3 × 1.05 = 1.365 for static draws
+    int   u_OcclusionEnabled;    // 104 — 0 = frustum only, 1 = + HZB occlusion
+    int   u_HZBMipCount;         // 108 — mip levels in the HZB
+    float u_OcclusionDepthBias;  // 112 — device-Z slack before a reject fires
+    int   u_WriteRejected;       // 116 — phase 1: append occluded survivors to the reject list
+    int   u_Phase2;              // 120 — phase 2: bound the dispatch by the reject-list length
+    int   _instCullPad0;         // 124
+};
 
 // Extract a single frustum plane from a row-of-VP combination.
 // `colSign` is +1 (Left/Bottom/Near) or -1 (Right/Top/Far); `col` is 0/1/2.

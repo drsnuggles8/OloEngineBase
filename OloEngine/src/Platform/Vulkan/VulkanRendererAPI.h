@@ -31,11 +31,31 @@
 
 #include <volk.h>
 
+#include <array>
+#include <span>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace OloEngine
 {
+    class VulkanFramebuffer;
+    class VulkanVertexArray;
+    struct VulkanRootDataLayout;
+
+    // The render-target half of a thin PSO's baked state (attachment
+    // formats + sample count). Lives HERE beside VulkanRecordedPipelineState
+    // — both are recorded state VulkanPipelineBuilder consumes, and the
+    // builder's header includes this one (declaring it there would cycle).
+    struct VulkanRenderTargetDesc
+    {
+        u32 ColorCount = 0;
+        std::array<VkFormat, 8> ColorFormats{};
+        VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
+        u32 Samples = 1;
+    };
+
     // Pipeline-key state recorded from the facade's state-setter entry
     // points. Vulkan bakes nearly all of this into the VkPipeline, so
     // Phase 5 RECORDS it for Phase 6's pipeline-key derivation instead of
@@ -81,7 +101,84 @@ namespace OloEngine
         bool AttachmentBlend[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendSrc[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendDst[kMaxAttachments] = {};
+        // GL parity (#691 Phase 7 Wave A, found by the OITResolve tenant):
+        // glEnablei(GL_BLEND, i) alone does NOT give buffer i its own blend
+        // func — the GLOBAL glBlendFunc applies until glBlendFunci names the
+        // buffer. A pass that per-attachment-ENABLES but sets only the global
+        // func (OITResolve) must therefore blend with the global factors, not
+        // the never-written per-attachment defaults (Zero/Zero). This flag
+        // records "SetBlendFuncForAttachment was called for i"; the global
+        // SetBlendFunc/SetBlendFuncSeparate clear it (glBlendFunc overwrites
+        // every buffer's func in GL).
+        bool AttachmentBlendFuncSet[kMaxAttachments] = {};
         u8 AttachmentColorMask[kMaxAttachments] = { 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF };
+    };
+
+    // -------------------------------------------------------------------------
+    // VulkanQueryRegistry — the object-less occlusion-query family behind the
+    // CreateQueries / BeginQuery / EndQuery / GetQueryResult* / DeleteQueries
+    // facade entries (#691 Phase 7 Wave C, ADR item A6).
+    //
+    // GL's shape is N independent query NAMES; Vulkan's is one VkQueryPool with
+    // N slots. `CreateQueries` is the natural pool boundary — OcclusionQueryPool
+    // calls it once per double-buffer half with the full capacity — so one
+    // VkQueryPool backs one CreateQueries call and each minted handle names a
+    // (pool, index) pair. There is no engine-side C++ object to hang the pool
+    // off, hence this side table (the VulkanRawBufferRegistry shape).
+    //
+    // `Recorded` is the frame-crossing guard: `vkGetQueryPoolResults` on a slot
+    // that was reset but never written blocks forever under WAIT, and reading a
+    // slot that was never reset at all is undefined. Nothing may be read until
+    // a Begin/End pair has actually reached a command buffer.
+    //
+    // Render-thread only, same as everything else here.
+    // -------------------------------------------------------------------------
+    class VulkanQueryRegistry
+    {
+      public:
+        struct Entry
+        {
+            VkQueryPool Pool = VK_NULL_HANDLE;
+            u32 Index = 0;
+            bool Recorded = false; ///< a Begin/End pair reached a command buffer
+        };
+
+        [[nodiscard]] static VulkanQueryRegistry& Get();
+
+        // Mints one identity per element of `outQueries`, all backed by a
+        // single VkQueryPool of that size. Elements are set to
+        // RHI::NullResource on failure (the GL twin's contract).
+        void CreatePool(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries);
+        // Null when the handle was never minted here (or is stale).
+        [[nodiscard]] Entry* Lookup(RHI::ResourceHandle handle);
+        // Retires the identities; the backing pool is deferred-reclaimed once
+        // its last live handle goes away. Safe on foreign/stale handles.
+        void Destroy(std::span<const RHI::ResourceHandle> queries);
+        // Teardown net: destroy every remaining pool (caller guarantees idle).
+        void ReleaseAll();
+        // Diagnostic/test affordance.
+        [[nodiscard]] sizet GetLivePoolCount() const
+        {
+            return m_Pools.size();
+        }
+
+      private:
+        VulkanQueryRegistry() = default;
+
+        [[nodiscard]] static u64 Key(RHI::ResourceHandle handle)
+        {
+            return (static_cast<u64>(handle.Generation) << 32) | handle.Index;
+        }
+
+        struct Pool
+        {
+            VkQueryPool Handle = VK_NULL_HANDLE;
+            u32 Count = 0;
+            u32 LiveQueries = 0;
+        };
+
+        std::unordered_map<u64, Entry> m_Entries;
+        std::vector<Pool> m_Pools;
     };
 
     class VulkanRendererAPI : public RendererAPI
@@ -107,11 +204,91 @@ namespace OloEngine
             return m_LayoutTracker;
         }
 
+        // --- The default framebuffer (#691 Phase 7, Final pass) -----------
+        // GL's "default framebuffer" is a fixed object (name 0) that outlives
+        // every frame; Vulkan's is a DIFFERENT image every frame — whichever
+        // one vkAcquireNextImageKHR just handed the swap loop. So the backend
+        // cannot own it: the frame recorder publishes it for the duration of
+        // one recording bracket, and BindDefaultFramebuffer (i.e. GL's
+        // glBindFramebuffer(0), which is also VulkanFramebuffer::Unbind)
+        // resolves to whatever is published.
+        //
+        // "No framebuffer bound AND a backbuffer published" IS the default
+        // framebuffer — there is deliberately no extra selected/unselected
+        // flag, because that is exactly GL's rule and it keeps Unbind() and
+        // BindDefaultFramebuffer() the same operation. With nothing published
+        // (every headless test, and the live loop outside the callback) the
+        // old behaviour stands: a draw with no target is dropped with the
+        // warn-once.
+        struct FrameBackbuffer
+        {
+            RHI::ResourceHandle Handle{}; ///< The neutral identity (barriers, layout tracking).
+            VkImage Image = VK_NULL_HANDLE;
+            VkImageView View = VK_NULL_HANDLE; ///< Attachment view; owned by the publisher.
+            VkFormat Format = VK_FORMAT_UNDEFINED;
+            u32 Width = 0;
+            u32 Height = 0;
+
+            [[nodiscard]] bool IsValid() const
+            {
+                return Image != VK_NULL_HANDLE && View != VK_NULL_HANDLE;
+            }
+        };
+        /// Publish the acquired image as this recording's default framebuffer.
+        /// The view is passed explicitly because it is the one piece the
+        /// registries do not carry (VulkanImageInfo has no view); everything
+        /// else is derived from `handle`. Publishing an invalid handle, or a
+        /// null view, clears the publication.
+        void SetFrameBackbuffer(RHI::ResourceHandle handle, VkImageView view, u32 width, u32 height);
+        void ClearFrameBackbuffer();
+        [[nodiscard]] const FrameBackbuffer& GetFrameBackbuffer() const
+        {
+            return m_Backbuffer;
+        }
+        /// True once this recording opened a rendering scope against the
+        /// published backbuffer (i.e. the frame actually targeted the screen).
+        [[nodiscard]] bool BackbufferWasWrittenThisRecording() const
+        {
+            return m_BackbufferWritten;
+        }
+        /// Close the frame's backbuffer work and leave it presentable.
+        ///
+        /// `frameRendered` is the recorder's own verdict. When it is true a
+        /// still-PENDING clear is materialised as an empty CLEAR-loadOp scope
+        /// — GL clears immediately, this backend folds the clear into the next
+        /// draw's loadOp, so a pass that clears the screen and then bails
+        /// (FinalRenderPass with no resolvable input) would otherwise present
+        /// undefined memory. Returns true when the backbuffer holds defined
+        /// content and has been transitioned to Present; false means nothing
+        /// touched it and the caller's clear-only fallback is both safe and
+        /// necessary.
+        [[nodiscard]] bool FinalizeBackbufferForPresent(bool frameRendered);
+
         // Observability for the execution test: how many packets/entry points
         // hit a Phase 6 stub (nothing may fall through silently).
         [[nodiscard]] u64 GetPhase6StubHitCount() const
         {
             return m_Phase6StubHits;
+        }
+
+        // Draw observability (issue #691 Phase 7): PrepareDraw's failure
+        // paths drop the draw with at most a warn-once — a fixture asserting
+        // "N draws prepared, 0 dropped" turns a silently black frame into a
+        // named failure. Reset by BeginRecording.
+        [[nodiscard]] u32 GetPreparedDrawsThisRecording() const
+        {
+            return m_PreparedDrawsThisRecording;
+        }
+        [[nodiscard]] u32 GetDroppedDrawsThisRecording() const
+        {
+            return m_DroppedDrawsThisRecording;
+        }
+        // Draws the host-side conditional-render predicate skipped. Kept apart
+        // from the dropped counter on purpose: a conditional skip is the
+        // requested behaviour, a drop is a failure.
+        [[nodiscard]] u32 GetConditionallySkippedDrawsThisRecording() const
+        {
+            return m_ConditionallySkippedDrawsThisRecording;
         }
 
         // --- RendererAPI ---------------------------------------------------
@@ -256,6 +433,154 @@ namespace OloEngine
         // Const: several facade getters are const-qualified and still must
         // count their stub hit (nothing may fall through silently).
         void Phase6Stub(const char* entryPoint) const;
+
+        // --- Phase 7: lazy dynamic-rendering scope + draw assembly ----------
+        //
+        // GL passes freely interleave framebuffer binds, state calls, clears,
+        // draws, barriers and copies; Vulkan forbids most non-draw commands
+        // inside a vkCmdBeginRendering scope. The scope is therefore LAZY:
+        // vkCmdBeginRendering is deferred to the first draw against the
+        // currently-published framebuffer (VulkanBindingState), Clear()
+        // before that folds into the attachments' loadOp, and any barrier /
+        // clear-resource / copy / dispatch / target-change ENDS the scope
+        // (the next draw resumes with LOAD_OP_LOAD). This is what lets
+        // unmodified GL-shaped pass bodies record legal Vulkan.
+        struct RenderingScope
+        {
+            bool Active = false;
+            VulkanFramebuffer* Target = nullptr; ///< The scope's framebuffer (null iff TargetIsBackbuffer).
+            /// The scope renders into the published swapchain image rather
+            /// than a VulkanFramebuffer (see FrameBackbuffer). BackbufferView
+            /// is part of the scope's identity for the same reason
+            /// DepthArrayView is: the publication changes per frame.
+            bool TargetIsBackbuffer = false;
+            VkImageView BackbufferView = VK_NULL_HANDLE;
+            bool PendingClearColor = false; ///< Fold into loadOp at scope begin.
+            bool PendingClearDepth = false;
+            /// The per-layer depth view this scope was opened with, or
+            /// VK_NULL_HANDLE when the target's OWN depth attachment was used
+            /// (#691 Wave C §4). A shadow pass walks N cascades against ONE
+            /// framebuffer object, so "same Target" is NOT enough to reuse the
+            /// scope — see ScopeMatchesCurrentTarget.
+            VkImageView DepthArrayView = VK_NULL_HANDLE;
+        };
+
+        /// True when the live scope still describes what a draw/clear would
+        /// target right now: same framebuffer AND same depth-array layer
+        /// selection. Used by both the scope-open path and the clear paths.
+        [[nodiscard]] bool ScopeMatchesCurrentTarget() const;
+
+        /// True when a draw right now would target the published backbuffer:
+        /// nothing bound (GL's framebuffer 0) and a publication live.
+        [[nodiscard]] bool ShouldTargetBackbuffer() const;
+        /// The live scope's render area — the framebuffer's spec, or the
+        /// published backbuffer's extent. {0,0} when no scope is open.
+        [[nodiscard]] VkExtent2D ScopeExtent() const;
+
+        // GL's glNamedFramebufferDrawBuffers / ReadBuffer are PER-FRAMEBUFFER
+        // PERSISTENT state, and both the bound form (SetDrawBuffers) and the
+        // raw-handle form (SetFramebufferDrawAttachments) mutate the SAME
+        // state on GL — so this backend models one map, keyed by the FB's
+        // RHI handle, that both forms write (#691 Phase 7 Wave C; replaces
+        // the earlier scope-transient DrawList, which forgot the selection on
+        // every target switch and could not express the raw form at all).
+        // The scope build consumes DrawList at vkCmdBeginRendering; blits
+        // consume ReadAttachment (src) and DrawList (dst fan-out).
+        // Entries for destroyed framebuffers linger harmlessly: the key packs
+        // the generation, so a recycled FB index gets a fresh entry.
+        struct FramebufferAttachmentSelection
+        {
+            // DrawList[i] = attachment index feeding fragment output location
+            // i (RHI::NoAttachment → UNUSED). Count 0 = identity over every
+            // color attachment (the engine-FB creation default on GL).
+            std::array<u32, 8> DrawList{};
+            u32 DrawListCount = 0;
+            u32 ReadAttachment = 0; ///< glNamedFramebufferReadBuffer's selection.
+        };
+
+        // End the scope if active (barriers/copies/dispatches are illegal
+        // inside a rendering instance).
+        void EndRenderingScope();
+        // Begin (or continue) the scope for the published framebuffer.
+        // Returns false when no target is published or attachment views
+        // cannot be built. Fills m_ScopeTargets for the PSO fetch.
+        [[nodiscard]] bool EnsureRenderingScopeForDraw();
+        // Shared draw-front-end: resolve the current shader + root layout,
+        // ensure the scope, fetch + bind the thin PSO, flush dynamic state,
+        // set the topology, bind the resource heap once per recording,
+        // assemble the root struct from VulkanBindingState + the vertex
+        // array, arena-push it, and vkCmdPushDataEXT the 8-byte address.
+        // Returns false (warn-once, dropped draw) on any missing piece.
+        [[nodiscard]] bool PrepareDraw(const VulkanVertexArray* vao, VkPrimitiveTopology topology);
+        // Bind the VAO's index buffer if it changed (redundant-bind cache,
+        // reset per recording). False when the VAO has no index buffer.
+        [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
+        // Handle -> VkBuffer for the indirect-draw family (#691 Wave C). Any
+        // Vulkan-backend buffer identity resolves (its registry native IS the
+        // VkBuffer); null + a counted stub on kind mismatch / stale handles.
+        [[nodiscard]] VkBuffer ResolveIndirectBuffer(RHI::ResourceHandle indirectBuffer, const char* entryPoint) const;
+        // Root-struct assembly + arena push + vkCmdPushDataEXT — shared by
+        // draws and dispatches (§4: one contract, no compute special case).
+        // Kind-aware: CombinedImageSampler bindings read the TEXTURE slot
+        // table, StorageImage bindings the IMAGE-UNIT table (amendment (29):
+        // two namespaces), buffers the bind-point tables (57 = vertex pull).
+        [[nodiscard]] bool AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
+                                                   const VulkanVertexArray* vao);
+
+        // Selection-map plumbing (see FramebufferAttachmentSelection above).
+        [[nodiscard]] static u64 SelectionKey(RHI::ResourceHandle framebuffer)
+        {
+            return (static_cast<u64>(framebuffer.Generation) << 32) | framebuffer.Index;
+        }
+        [[nodiscard]] FramebufferAttachmentSelection* FindSelection(RHI::ResourceHandle framebuffer);
+        // Ends the live rendering scope when it targets `framebuffer` — a
+        // draw-list change re-shapes the attachment array, so the next draw
+        // must re-open the scope with the new mapping.
+        void EndScopeIfTargets(RHI::ResourceHandle framebuffer);
+        // Shared exact-oldLayout transfer-transition shape (the
+        // ClearTextureFloat / CopyImageSubData discipline): stage per-layout-run
+        // barriers into `out` and advance the tracker to `newLayout`.
+        void StageTransferTransition(VkImage image, const VkImageSubresourceRange& range, VkImageLayout newLayout,
+                                     VkAccessFlags2 dstAccess, std::vector<VkImageMemoryBarrier2>& out);
+        // Shared read path for IsQueryResultAvailable / GetQueryResultU32|64
+        // (and the conditional-render gate). `wait` picks the blocking form
+        // (GL's glGetQueryObject*v(GL_QUERY_RESULT) semantics); false is the
+        // availability probe. Returns false — leaving `outValue` 0 — for a
+        // stale handle or one no command buffer has written yet.
+        [[nodiscard]] bool ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const;
+
+        RenderingScope m_Scope;
+        FrameBackbuffer m_Backbuffer;     ///< Live only inside a frame-callback recording.
+        bool m_BackbufferWritten = false; ///< A backbuffer scope opened this recording.
+        std::unordered_map<u64, FramebufferAttachmentSelection> m_FramebufferSelections;
+        // CreateDepthArrayCompareOffViewHandle's per-image cache (see the
+        // definition for the lifetime contract).
+        std::unordered_map<u64, RHI::ResourceHandle> m_CompareOffViewHandles;
+        VulkanRenderTargetDesc m_ScopeTargets; ///< Valid while m_Scope.Active.
+        VkBuffer m_BoundIndexBuffer = VK_NULL_HANDLE;
+        bool m_HeapBoundThisRecording = false;
+        u32 m_PreparedDrawsThisRecording = 0;
+        u32 m_DroppedDrawsThisRecording = 0;
+        VulkanVertexArray* m_BoundVertexArray = nullptr; ///< BindVertexArrayRaw's publication.
+        std::vector<u8> m_RootScratch;
+        // Recorded scissor box (the WITH_COUNT dynamic state is emitted by
+        // the draw front-end, not by the setter — see SetScissorBox).
+        VkRect2D m_ScissorRect{};
+        bool m_ScissorRectSet = false;
+        // The occlusion query BeginQuery opened (GL keeps one per target;
+        // EndQuery carries no handle, so the pair is tracked here).
+        struct ActiveQuery
+        {
+            VkQueryPool Pool = VK_NULL_HANDLE;
+            u32 Index = 0;
+        };
+        ActiveQuery m_ActiveQuery{};
+        // Host-side conditional-render predicate: true between
+        // BeginConditionalRender(occluded query) and EndConditionalRender, and
+        // every draw in that window is skipped (see BeginConditionalRender for
+        // why the predicate is evaluated on the host, not in a VK_EXT buffer).
+        bool m_ConditionalRenderSkip = false;
+        u32 m_ConditionallySkippedDrawsThisRecording = 0;
 
         VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
         VulkanImageLayoutTracker m_LayoutTracker;

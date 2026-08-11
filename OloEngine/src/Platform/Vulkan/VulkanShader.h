@@ -37,12 +37,18 @@
 #include <volk.h>
 
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace OloEngine
 {
+    // Declared in VulkanPipelineBuilder.h (which includes this header, so a
+    // forward declaration breaks the cycle; the accessor's definition lives
+    // in the .cpp, which includes the builder).
+    struct VulkanRootDataLayout;
+
     // One reflected set/binding declaration — the pipeline builder's input
     // for the §4 mapping array.
     struct VulkanShaderBinding
@@ -131,6 +137,12 @@ namespace OloEngine
         {
             return m_Bindings;
         }
+        // The shader's root-data layout, built lazily from the reflected
+        // bindings and cached; a successful Reload/rebuild resets it (the
+        // bindings may have changed). This is THE layout the draw path
+        // assembles root structs against — one owner, so the writer and the
+        // pipeline's mapping array cannot drift (#691 Phase 7).
+        [[nodiscard]] const VulkanRootDataLayout& GetRootDataLayout();
         [[nodiscard]] const std::unordered_map<VkShaderStageFlagBits, std::vector<u32>>& GetSPIRV() const
         {
             return m_SPIRV;
@@ -164,6 +176,10 @@ namespace OloEngine
         std::unordered_map<VkShaderStageFlagBits, std::vector<u32>> m_SPIRV;
         std::unordered_map<VkShaderStageFlagBits, VkShaderModule> m_Modules;
         std::vector<VulkanShaderBinding> m_Bindings;
+        // Lazily-built root layout (see GetRootDataLayout); reset whenever a
+        // rebuild replaces m_Bindings. unique_ptr of a forward-declared type
+        // — the out-of-line dtor already exists.
+        std::unique_ptr<VulkanRootDataLayout> m_RootLayout;
         RHI::ScopedResourceHandle m_RHIHandle;
         ShaderCompilationStatus m_Status = ShaderCompilationStatus::Pending;
         bool m_IsDeferredCapable = false;

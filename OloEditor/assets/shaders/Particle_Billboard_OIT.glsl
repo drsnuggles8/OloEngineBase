@@ -10,6 +10,20 @@
 #type vertex
 #version 450 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): same V5+V6 pull as Particle_Billboard.glsl —
+// the instance BUFFER keeps its full 96-byte stride even though this variant
+// only reads through a_StretchFactor (locs 6-9 simply go unpulled).
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+	float v[];
+} b_Vertices;
+layout(std430, binding = 63) readonly buffer OloBonePull
+{
+	float v[];
+} b_Instances;
+#define OLO_PULLED_VERTEX 1
+#else
 // Per-vertex (unit quad)
 layout(location = 0) in vec2 a_QuadPos;
 
@@ -20,6 +34,7 @@ layout(location = 3) in vec4 a_UVRect;              // minU, minV, maxU, maxV
 layout(location = 4) in vec4 a_VelocityRotation;    // xyz = velocity, w = rotation (radians)
 layout(location = 5) in float a_StretchFactor;      // 0 = billboard, >0 = stretched
 layout(location = 6) in int a_EntityID;             // unused in OIT variant
+#endif
 
 layout(std140, binding = 0) uniform Camera
 {
@@ -49,6 +64,19 @@ layout(location = 0) out VertexOutput Output;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+	vec2 a_QuadPos = vec2(b_Vertices.v[gl_VertexIndex * 2 + 0], b_Vertices.v[gl_VertexIndex * 2 + 1]);
+	int instBase = gl_InstanceIndex * 24;
+	vec4 a_PositionSize = vec4(b_Instances.v[instBase + 0], b_Instances.v[instBase + 1],
+	                           b_Instances.v[instBase + 2], b_Instances.v[instBase + 3]);
+	vec4 a_Color = vec4(b_Instances.v[instBase + 4], b_Instances.v[instBase + 5],
+	                    b_Instances.v[instBase + 6], b_Instances.v[instBase + 7]);
+	vec4 a_UVRect = vec4(b_Instances.v[instBase + 8], b_Instances.v[instBase + 9],
+	                     b_Instances.v[instBase + 10], b_Instances.v[instBase + 11]);
+	vec4 a_VelocityRotation = vec4(b_Instances.v[instBase + 12], b_Instances.v[instBase + 13],
+	                               b_Instances.v[instBase + 14], b_Instances.v[instBase + 15]);
+	float a_StretchFactor = b_Instances.v[instBase + 16];
+#endif
 	vec3 position = a_PositionSize.xyz;
 	float size = a_PositionSize.w;
 	float rotation = a_VelocityRotation.w;

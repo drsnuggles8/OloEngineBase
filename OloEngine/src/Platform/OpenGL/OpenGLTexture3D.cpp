@@ -113,10 +113,7 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TextureBinds, 1);
     }
 
-    // Factory
-    Ref<Texture3D> Texture3D::Create(const Texture3DSpecification& spec)
-    {
-        OLO_PROFILE_FUNCTION();
-        return Ref<OpenGLTexture3D>::Create(spec);
-    }
+    // (The Texture3D::Create factory moved to Renderer/Texture3D.cpp — the
+    // backend switch cannot live in a Platform/OpenGL/ TU once a second
+    // backend exists, issue #691 Phase 7.)
 } // namespace OloEngine

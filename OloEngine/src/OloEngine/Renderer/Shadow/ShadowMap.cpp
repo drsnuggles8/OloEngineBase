@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -360,11 +361,22 @@ namespace OloEngine
         // pass applies the identical shift to the same matrices + casters,
         // keeping rendered depth and sampled depth in the same space. No-op near
         // origin.
+        // A8 seam, shader-reconstruction flavour (#691 Phase 7): these are the
+        // SAMPLING half of the contract ShadowRenderPass's render half applies.
+        // Consumers do `lightSpacePos.xyz / w * 0.5 + 0.5` (PBRCommon,
+        // DeferredLighting(_MSAA), DDGI_Relight, FroxelFogScatter) to index a
+        // map that ShadowRenderPass rendered through the RASTERIZER flavour —
+        // so its rows are mirrored on Vulkan and the lookup must mirror with
+        // them. Row flip ONLY: the z half would double-apply, since F already
+        // made the stored depth GL-shaped and `*0.5+0.5` reproduces exactly
+        // that. Identity on GL.
         for (u32 c = 0; c < MAX_CSM_CASCADES; ++c)
-            data.DirectionalLightSpaceMatrices[c] = MakeViewProjectionRelative(m_UBOData.DirectionalLightSpaceMatrices[c], renderOrigin);
+            data.DirectionalLightSpaceMatrices[c] = RHI::AdjustProjectionForShaderReconstruction(
+                MakeViewProjectionRelative(m_UBOData.DirectionalLightSpaceMatrices[c], renderOrigin));
         const u32 entryCount = std::min(static_cast<u32>(m_UBOData.AtlasEntryCount), MAX_SHADOW_ATLAS_ENTRIES);
         for (u32 e = 0; e < entryCount; ++e)
-            data.AtlasEntryMatrices[e] = MakeViewProjectionRelative(m_AtlasEntryWorldMatrices[e], renderOrigin);
+            data.AtlasEntryMatrices[e] = RHI::AdjustProjectionForShaderReconstruction(
+                MakeViewProjectionRelative(m_AtlasEntryWorldMatrices[e], renderOrigin));
 
         m_ShadowUBO->SetData(&data, UBOStructures::ShadowUBO::GetSize());
         // Re-establish binding point 6 every frame to guard against

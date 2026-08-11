@@ -32,6 +32,9 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Texture2DArray.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/Texture3D.h"
 
 #include <string>
 #include <unordered_map>
@@ -59,6 +62,11 @@ namespace OloEngine
         u32 ArrayLayers = 1;
         bool HasDepth = false;
         bool HasStencil = false;
+        // The default whole-image sampled-view dimensionality. 2D for every
+        // texture/attachment; 3D volumes (Texture3D — froxel fog, noise
+        // fields) register VK_IMAGE_VIEW_TYPE_3D so the bind paths build the
+        // right view instead of hardcoding 2D (issue #691 Phase 7 Wave B).
+        VkImageViewType ViewType = VK_IMAGE_VIEW_TYPE_2D;
 
         // Stamped by Register() from a process-wide monotonic counter. A
         // destroyed VkImage's handle VALUE can be recycled by the driver for
@@ -68,6 +76,15 @@ namespace OloEngine
         // stamp is how a tracker detects "same handle value, different
         // image" — the same recycled-name lesson as RHI handle generations.
         u64 RegistrationId = 0;
+
+        // The layout the image sits in BEFORE the graph's layout tracker
+        // first sees it. UNDEFINED for attachment/storage images (first use
+        // discards); SHADER_READ_ONLY_OPTIMAL for content uploaded by a
+        // load-time one-shot (#691 Phase 7) — without this, the tracker's
+        // first barrier would use oldLayout = UNDEFINED and LEGALLY discard
+        // the uploaded pixels. Updated via SetInitialLayout, which does NOT
+        // bump RegistrationId (the image is the same image).
+        VkImageLayout InitialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 
     class VulkanImageInfoRegistry
@@ -84,6 +101,12 @@ namespace OloEngine
         // Unregister — copy out, don't hold.
         [[nodiscard]] const VulkanImageInfo* Lookup(VkImage image) const;
         void Unregister(VkImage image);
+
+        // Record the layout an upload left the image in (see
+        // VulkanImageInfo::InitialLayout). No-op for an unregistered image.
+        // Only affects trackers that have NOT yet registered the image —
+        // a tracker already following it keeps its own (fresher) state.
+        void SetInitialLayout(VkImage image, VkImageLayout layout);
 
       private:
         VulkanImageInfoRegistry() = default;
@@ -129,6 +152,14 @@ namespace OloEngine
         // hot-reload destruction is deferred, never inline).
         void Enqueue(VkSemaphore semaphore);
         void Enqueue(VkPipeline pipeline);
+        // Phase 7: attachment views (vkCmdBeginRendering references them from
+        // in-flight command buffers exactly like pipelines).
+        void Enqueue(VkImageView view);
+        // Phase 7 Wave C: occlusion query pools. vkCmdResetQueryPool /
+        // vkCmdBeginQuery reference the pool from in-flight command buffers,
+        // and DeleteQueries is called from a frame that may still have the
+        // previous one submitted — same generation discipline as pipelines.
+        void Enqueue(VkQueryPool queryPool);
 
         // Called by the frame loop once per completed frame. Destroys every
         // entry enqueued >= 2 notifications ago; also unregisters images from
@@ -150,10 +181,12 @@ namespace OloEngine
 
         struct Entry
         {
-            VkImage Image = VK_NULL_HANDLE; // exactly one of Image/Buffer/Semaphore/Pipeline is set
+            VkImage Image = VK_NULL_HANDLE; // exactly one of Image/Buffer/Semaphore/Pipeline/View/QueryPool is set
             VkBuffer Buffer = VK_NULL_HANDLE;
             VkSemaphore Semaphore = VK_NULL_HANDLE;
             VkPipeline Pipeline = VK_NULL_HANDLE;
+            VkImageView View = VK_NULL_HANDLE;
+            VkQueryPool QueryPool = VK_NULL_HANDLE;
             VmaAllocation Allocation = VK_NULL_HANDLE; // set only for Image/Buffer entries
             u64 EnqueuedAtGeneration = 0;
         };
@@ -181,6 +214,10 @@ namespace OloEngine
     {
       public:
         explicit VulkanTexture2D(const TextureSpecification& specification);
+        // File load (#691 Phase 7): stbi with the SAME thread-local vertical
+        // flip the GL twin uses — asset bytes must be identical across
+        // backends, since UV sampling is convention-free.
+        VulkanTexture2D(const std::string& path, bool srgb);
         ~VulkanTexture2D() override;
 
         const TextureSpecification& GetSpecification() const override
@@ -211,10 +248,13 @@ namespace OloEngine
             return m_Path;
         }
 
-        // Phase 6 concerns (upload/bind/readback) — warn-once no-ops.
+        // Real upload/readback paths (#691 Phase 7): one-shot staged copies,
+        // mip generation via a blit chain, final layout SHADER_READ_ONLY
+        // recorded through VulkanImageInfoRegistry::SetInitialLayout.
         void SetData(void* data, u32 size) override;
         void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) override;
         void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
+        // Bind is meaningless on this backend (heap-bindless): warn-once no-op.
         void Bind(u32 slot) const override;
         bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
 
@@ -246,12 +286,23 @@ namespace OloEngine
             return m_Image;
         }
 
+        // Lazily-created whole-image VkImageView for dynamic-rendering
+        // attachment use (the ONE place view objects still exist on this
+        // backend — sampled use goes through descriptor-heap view
+        // DESCRIPTIONS). Cached; released with the image (Resize mints a new
+        // one). VK_NULL_HANDLE on failure.
+        [[nodiscard]] VkImageView GetOrCreateAttachmentView();
+
       private:
         void CreateImage();
         void ReleaseImage();
+        // Full-image base-level upload + optional blit-chain mip generation,
+        // leaving every mip in SHADER_READ_ONLY_OPTIMAL. `data` is tightly
+        // packed rows in the spec's format.
+        bool UploadPixels(const void* data, u64 sizeBytes);
 
         TextureSpecification m_Specification;
-        std::string m_Path; // always empty — transient textures have no source file
+        std::string m_Path; // set by the file ctor; empty for transient/spec textures
         u32 m_Width = 0;
         u32 m_Height = 0;
         u32 m_MipLevels = 1;
@@ -259,9 +310,203 @@ namespace OloEngine
 
         VkImage m_Image = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;
+        VkImageView m_AttachmentView = VK_NULL_HANDLE; ///< See GetOrCreateAttachmentView.
         // Generation-checked identity for m_Image, kept in lockstep by
         // m_RHIHandle.Sync at every site that assigns the native handle —
         // same pattern as the GL twin (issue #691).
+        RHI::ScopedResourceHandle m_RHIHandle;
+    };
+
+    // -------------------------------------------------------------------------
+    // VulkanTexture3D — the Texture3D backend twin (issue #691 Phase 7
+    // Wave B: froxel-fog volumes, 3D noise fields). Sampled (sampler3D) +
+    // storage (image3D) usage in one image; registers
+    // VK_IMAGE_VIEW_TYPE_3D in VulkanImageInfoRegistry so both bind paths
+    // build 3D views instead of the 2D default.
+    // -------------------------------------------------------------------------
+    class VulkanTexture3D : public Texture3D
+    {
+      public:
+        explicit VulkanTexture3D(const Texture3DSpecification& spec);
+        ~VulkanTexture3D() override;
+
+        [[nodiscard]] u32 GetWidth() const override
+        {
+            return m_Specification.Width;
+        }
+        [[nodiscard]] u32 GetHeight() const override
+        {
+            return m_Specification.Height;
+        }
+        [[nodiscard]] u32 GetDepth() const override
+        {
+            return m_Specification.Depth;
+        }
+        [[nodiscard]] u32 GetRendererID() const override
+        {
+            return 0; // no GL name exists; identity is the RHI handle
+        }
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
+        }
+        [[nodiscard]] const Texture3DSpecification& GetSpecification() const override
+        {
+            return m_Specification;
+        }
+        [[nodiscard]] VkImage GetVkImage() const
+        {
+            return m_Image;
+        }
+
+        void Bind(u32 slot) const override;
+
+      private:
+        Texture3DSpecification m_Specification;
+        VkImage m_Image = VK_NULL_HANDLE;
+        VmaAllocation m_Allocation = VK_NULL_HANDLE;
+        RHI::ScopedResourceHandle m_RHIHandle;
+    };
+
+    // -------------------------------------------------------------------------
+    // VulkanTexture2DArray — the Texture2DArray backend twin (issue #691
+    // Phase 7 Wave B). First consumer: ShadowMap's CSM/atlas placeholder
+    // (sampler2DArrayShadow), which VolumetricFogPass::Execute materialises
+    // lazily — under --rhi=vulkan the old GL-only factory constructed an
+    // OpenGLTexture2DArray whose glCreateTextures call went through a null
+    // glad pointer in any GL-context-free process (an access violation, found
+    // by VulkanPassSuiteTest's fog tenant in an isolated run). Registers
+    // VK_IMAGE_VIEW_TYPE_2D_ARRAY so both bind paths build array views
+    // (sampler2DArrayShadow needs the array dimensionality, not the 2D
+    // default). Allocation/identity/lifetime are full; the upload/mip
+    // virtuals are warn-once no-ops until the Wave C shadow work needs them.
+    // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // VulkanTextureCubemap — a 6-layer 2D image with a CUBE view type.
+    //
+    // Brought up for #691 Phase 7's live bring-up: Renderer3D::Init reaches
+    // EnvironmentMap::InitializeIBLSystem, which creates cubemaps eagerly, so
+    // WITHOUT this class the factory's assert killed the editor before the
+    // first frame. Scope matches VulkanTexture2DArray's: a real image with a
+    // real identity (so binds, barriers and the layout tracker all work), with
+    // the CPU upload / mip-generation / readback halves warn-once no-ops —
+    // the IBL bake path that fills those faces is GPU-side and is Phase 8
+    // work (SkyCubemapBake / IBLPrecompute still need the capture seam).
+    // -------------------------------------------------------------------------
+    class VulkanTextureCubemap : public TextureCubemap
+    {
+      public:
+        explicit VulkanTextureCubemap(const CubemapSpecification& spec);
+        ~VulkanTextureCubemap() override;
+
+        [[nodiscard]] const TextureSpecification& GetSpecification() const override
+        {
+            return m_Specification;
+        }
+        [[nodiscard]] u32 GetWidth() const override
+        {
+            return m_CubemapSpecification.Width;
+        }
+        [[nodiscard]] u32 GetHeight() const override
+        {
+            return m_CubemapSpecification.Height;
+        }
+        [[nodiscard]] u32 GetRendererID() const override
+        {
+            return 0; // no GL name exists; identity is the RHI handle
+        }
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
+        }
+        [[nodiscard]] const std::string& GetPath() const override
+        {
+            return m_Path;
+        }
+        [[nodiscard]] bool IsLoaded() const override
+        {
+            return m_Image != VK_NULL_HANDLE;
+        }
+        [[nodiscard]] bool HasAlphaChannel() const override
+        {
+            return true;
+        }
+        [[nodiscard]] const CubemapSpecification& GetCubemapSpecification() const override
+        {
+            return m_CubemapSpecification;
+        }
+        [[nodiscard]] u32 GetMipLevelCount() const override
+        {
+            return m_MipLevels;
+        }
+        [[nodiscard]] VkImage GetVkImage() const
+        {
+            return m_Image;
+        }
+
+        void Bind(u32 slot) const override;
+        void SetData(void* data, u32 size) override;
+        void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
+        void SetFaceData(u32 faceIndex, void* data, u32 size) override;
+        bool SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size) override;
+        void GenerateMipmaps() const override;
+        bool GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel = 0) const override;
+        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
+
+      private:
+        TextureSpecification m_Specification;
+        CubemapSpecification m_CubemapSpecification;
+        std::string m_Path;
+        u32 m_MipLevels = 1;
+        VkImage m_Image = VK_NULL_HANDLE;
+        VmaAllocation m_Allocation = VK_NULL_HANDLE;
+        RHI::ScopedResourceHandle m_RHIHandle;
+    };
+
+    class VulkanTexture2DArray : public Texture2DArray
+    {
+      public:
+        explicit VulkanTexture2DArray(const Texture2DArraySpecification& spec);
+        ~VulkanTexture2DArray() override;
+
+        [[nodiscard]] u32 GetWidth() const override
+        {
+            return m_Specification.Width;
+        }
+        [[nodiscard]] u32 GetHeight() const override
+        {
+            return m_Specification.Height;
+        }
+        [[nodiscard]] u32 GetLayers() const override
+        {
+            return m_Specification.Layers;
+        }
+        [[nodiscard]] u32 GetRendererID() const override
+        {
+            return 0; // no GL name exists; identity is the RHI handle
+        }
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
+        }
+        [[nodiscard]] const Texture2DArraySpecification& GetSpecification() const override
+        {
+            return m_Specification;
+        }
+        [[nodiscard]] VkImage GetVkImage() const
+        {
+            return m_Image;
+        }
+
+        void Bind(u32 slot) const override;
+        void SetLayerData(u32 layer, const void* data, u32 width, u32 height) override;
+        void GenerateMipmaps() override;
+
+      private:
+        Texture2DArraySpecification m_Specification;
+        u32 m_MipLevels = 1;
+        VkImage m_Image = VK_NULL_HANDLE;
+        VmaAllocation m_Allocation = VK_NULL_HANDLE;
         RHI::ScopedResourceHandle m_RHIHandle;
     };
 
@@ -281,6 +526,13 @@ namespace OloEngine
       public:
         explicit VulkanFramebuffer(const FramebufferSpecification& spec);
         ~VulkanFramebuffer() override;
+
+        // Retire every cached per-cascade depth view built over `image`, in
+        // EVERY live framebuffer. Called from VulkanDeferredReclaim's destroy
+        // pass, before the image is destroyed — a VkImageView must never
+        // outlive the VkImage it views. (Framebuffers self-register for this;
+        // see m_DepthArrayViews for what goes wrong without it.)
+        static void ReleaseCachedDepthViewsForImage(VkImage image);
 
         // Will become meaningful when the orchestrator's VulkanRendererAPI
         // current-render-target state lands — warn-once no-ops until then.
@@ -335,7 +587,36 @@ namespace OloEngine
 
         void AttachDepthTextureArrayLayer(RHI::ResourceHandle textureArray, u32 layer) override;
 
+        // #691 Phase 7 Wave C §4 (layered shadow depth): the GL twin re-points
+        // the FBO's depth attachment at ONE LAYER of a depth texture array
+        // (glNamedFramebufferTextureLayer), then clears + renders a cascade
+        // into it. Under dynamic rendering there is no FBO object to re-point,
+        // so AttachDepthTextureArrayLayer instead SELECTS which cached
+        // single-layer depth VIEW the next rendering scope opens against
+        // (baseArrayLayer = the cascade, layerCount = 1). The scope-open path
+        // (VulkanRendererAPI::EnsureRenderingScopeForDraw) consults this
+        // override before falling back to the framebuffer's own depth
+        // attachment; the layer number also rides the scope's depth barrier so
+        // the layout tracker stays per-layer exact.
+        struct DepthArrayLayerAttachment
+        {
+            VkImage Image = VK_NULL_HANDLE;
+            VkImageView View = VK_NULL_HANDLE;
+            VkFormat Format = VK_FORMAT_UNDEFINED;
+            RHI::ResourceHandle Handle{};
+            u32 Layer = 0;
+            bool Active = false;
+        };
+        [[nodiscard]] const DepthArrayLayerAttachment& GetDepthArrayAttachment() const
+        {
+            return m_DepthArrayAttachment;
+        }
+
         [[nodiscard]] Ref<VulkanTexture2D> GetColorAttachmentImage(u32 index) const;
+        [[nodiscard]] u32 GetColorAttachmentCount() const
+        {
+            return static_cast<u32>(m_ColorAttachments.size());
+        }
         [[nodiscard]] Ref<VulkanTexture2D> GetDepthAttachmentImage() const
         {
             return m_DepthAttachment;
@@ -362,6 +643,29 @@ namespace OloEngine
         // reset to zero by Resize().
         u32 m_RenderViewportWidth = 0;
         u32 m_RenderViewportHeight = 0;
+
+        // The selected layer (see GetDepthArrayAttachment) plus the per-layer
+        // view cache that backs it, keyed by (image, layer) — a shadow pass
+        // walks the same N cascades every frame, so the views are created once
+        // and reused.
+        //
+        // The SOURCE IMAGE is stored alongside each view because these views
+        // are built over an EXTERNAL array texture this framebuffer does not
+        // own. Destroying them only in ~VulkanFramebuffer was wrong twice
+        // over: a long-lived shadow framebuffer outlives the array across a
+        // resolution change (ShadowMap::SetSettings destroys and recreates it),
+        // so the views outlived their image — and once the driver recycled that
+        // VkImage handle VALUE, the identical cache key handed a DEAD view to
+        // vkCmdBeginRendering. ReleaseCachedDepthViewsForImage retires them at
+        // the one moment that is correct: the reclaim pass, before the image
+        // itself is destroyed.
+        DepthArrayLayerAttachment m_DepthArrayAttachment;
+        struct CachedDepthArrayView
+        {
+            VkImageView View = VK_NULL_HANDLE;
+            VkImage SourceImage = VK_NULL_HANDLE;
+        };
+        std::unordered_map<u64, CachedDepthArrayView> m_DepthArrayViews;
     };
 
     // -------------------------------------------------------------------------
@@ -373,9 +677,12 @@ namespace OloEngine
         VulkanStorageBuffer(u32 size, u32 binding, StorageBufferUsage usage = StorageBufferUsage::DynamicDraw);
         ~VulkanStorageBuffer() override;
 
-        // Phase 6 concerns (bind/upload/readback/fill) — warn-once no-ops.
+        // Bind is meaningless on this backend (buffers travel as device
+        // addresses in root data): silent no-ops.
         void Bind() const override;
         void Unbind() const override;
+        // Real paths (#691 Phase 7): mapped write-through (BAR/UMA) or a
+        // staged one-shot copy; readback via a one-shot copy to host memory.
         void SetData(const void* data, u32 size, u32 offset = 0) override;
         void GetData(void* outData, u32 size, u32 offset = 0) const override;
         void ClearData() override;
@@ -407,6 +714,12 @@ namespace OloEngine
         {
             return m_Buffer;
         }
+        // The address the root-data writer embeds (ADR 0011 §4). Stable for
+        // the buffer's life; Resize mints a new one.
+        [[nodiscard]] VkDeviceAddress GetDeviceAddress() const
+        {
+            return m_DeviceAddress;
+        }
 
       private:
         void CreateBuffer();
@@ -414,6 +727,9 @@ namespace OloEngine
 
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;
+        void* m_Mapped = nullptr; ///< Non-null when VMA gave a host-visible placement.
+        bool m_NeedsFlush = false;
+        VkDeviceAddress m_DeviceAddress = 0;
         // Generation-checked identity for m_Buffer, kept in lockstep by
         // m_RHIHandle.Sync — same pattern as the GL twin (issue #691).
         RHI::ScopedResourceHandle m_RHIHandle;

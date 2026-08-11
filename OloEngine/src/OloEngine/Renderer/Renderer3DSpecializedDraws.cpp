@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -121,7 +122,13 @@ namespace OloEngine
         // then maps it into the decal box with the world-space inverseDecalTransform.
         cmd->decalTransform = decalTransform;
         cmd->inverseDecalTransform = inverseDecalTransform;
-        cmd->inverseViewProjection = s_Data.InverseViewProjectionMatrix;
+        // A8 seam, shader-reconstruction flavour (#691 Phase 7): the shader
+        // builds `ndc = vec3(screenUV*2-1, depth*2-1)` and multiplies by this,
+        // so it needs inverse(Y * VP), not inverse(VP). Recomputed from the
+        // flipped forward rather than flipping the stored inverse — inverting
+        // first is the drift this helper exists to prevent. Identity on GL, so
+        // it stays bit-identical to s_Data.InverseViewProjectionMatrix there.
+        cmd->inverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(s_Data.ViewProjectionMatrix);
         cmd->decalColor = decalColor;
         cmd->decalParams = decalParams;
         cmd->albedoTextureID = albedoTextureID;

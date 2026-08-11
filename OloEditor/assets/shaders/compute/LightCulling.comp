@@ -61,17 +61,29 @@ layout(std430, binding = 13) buffer GlobalIndexBuf               { uint globalIn
 layout(std430, binding = 18) readonly buffer SphereAreaLightBuf  { GPUSphereAreaLight sphereAreaLights[]; };
 
 // ---------------------------------------------------------------------------
-// Uniforms
+// Cull parameters
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// Distinct from the ForwardPlus block at binding 25, which carries the
+// SHADING-side slice scale/bias. C++ twin: UBOStructures::LightCullingUBO
+// (ShaderBindingLayout::UBO_LIGHT_CULLING).
 // ---------------------------------------------------------------------------
-
-uniform mat4  u_ViewMatrix;
-uniform mat4  u_InverseProjectionMatrix;
-uniform uint  u_PointLightCount;
-uniform uint  u_SpotLightCount;
-uniform uint  u_SphereAreaLightCount;
-uniform uint  u_MaxLightsPerCluster;
-uniform float u_NearPlane;   // camera near (positive distance)
-uniform float u_FarPlane;    // camera far  (positive distance)
+layout(std140, binding = 68) uniform LightCullingParams
+{
+    mat4  u_ViewMatrix;              // 0
+    mat4  u_InverseProjectionMatrix; // 64
+    uint  u_PointLightCount;         // 128
+    uint  u_SpotLightCount;          // 132
+    uint  u_SphereAreaLightCount;    // 136
+    uint  u_MaxLightsPerCluster;     // 140
+    float u_NearPlane;               // 144 — camera near (positive distance)
+    float u_FarPlane;                // 148 — camera far  (positive distance)
+    vec2  _lightCullPad0;            // 152
+};
 
 // ---------------------------------------------------------------------------
 // Packed light-index encoding

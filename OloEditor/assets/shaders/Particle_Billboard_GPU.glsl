@@ -6,8 +6,19 @@
 #type vertex
 #version 450 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): V5 pull — the 8-byte {vec2 a_QuadPos} unit
+// quad on the engine-wide binding 57. Everything per-particle already rides
+// the GPU-particle SSBOs below, indexed by gl_InstanceIndex.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+	float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 // Per-vertex (unit quad)
 layout(location = 0) in vec2 a_QuadPos;
+#endif
 
 // Per-particle data in SSBO
 struct GPUParticle
@@ -78,6 +89,9 @@ layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+	vec2 a_QuadPos = vec2(b_Vertices.v[gl_VertexIndex * 2 + 0], b_Vertices.v[gl_VertexIndex * 2 + 1]);
+#endif
 	// Look up which particle this instance refers to (via compacted alive index)
 	uint particleIdx = aliveIndices[gl_InstanceIndex];
 	GPUParticle p = particles[particleIdx];

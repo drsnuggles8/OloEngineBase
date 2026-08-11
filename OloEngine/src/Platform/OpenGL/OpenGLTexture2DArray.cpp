@@ -3,6 +3,14 @@
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/RendererAPI.h"
+
+#if OLO_WITH_VULKAN
+// OLO_WITH_VULKAN-guarded factory TU may see Platform/Vulkan/ headers (the
+// sanctioned factory-include pattern, rhi-abstraction-boundary.md).
+#include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanTransientResources.h"
+#endif
 
 #include <glad/gl.h>
 
@@ -163,10 +171,40 @@ namespace OloEngine
         glGenerateTextureMipmap(m_RendererID);
     }
 
-    // Factory
+    // Factory. Backend-switched (issue #691 Phase 7 Wave B): this was the
+    // one texture factory with no Vulkan arm, so ShadowMap's lazily-created
+    // CSM/atlas placeholder — the first Texture2DArray any Vulkan frame
+    // touches, via VolumetricFogPass::Execute — constructed a GL object
+    // whose glCreateTextures call is an access violation in any process
+    // that never loaded a GL context (VulkanPassSuiteTest isolated runs).
     Ref<Texture2DArray> Texture2DArray::Create(const Texture2DArraySpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
-        return Ref<OpenGLTexture2DArray>::Create(spec);
+        switch (RendererAPI::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return nullptr;
+            }
+            case RendererAPI::API::Vulkan:
+            {
+#if OLO_WITH_VULKAN
+                // A Vulkan resource cannot exist without a device, so fall
+                // through to the assert when none is up.
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<VulkanTexture2DArray>::Create(spec);
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out) — cannot create a Vulkan 2D texture array!");
+                return nullptr;
+            }
+            case RendererAPI::API::OpenGL:
+                return Ref<OpenGLTexture2DArray>::Create(spec);
+        }
+
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
     }
 } // namespace OloEngine

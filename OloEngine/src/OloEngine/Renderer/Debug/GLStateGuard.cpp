@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 
 #include <glad/gl.h>
 
@@ -83,6 +84,15 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         GLStateSnapshot s;
+
+        // Same backend gate as the guard's ctor and ApplyCore (#691): every
+        // read below is a raw glad call, and this entry point is PUBLIC — the
+        // ctor's inertness promise has to hold here too, or a direct
+        // Capture()/DetectLeaks() sails past it into null function pointers.
+        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            return s;
+        }
 
         s.m_DepthTest = GlGetBoolean(GL_DEPTH_TEST);
         GLboolean dm = GL_TRUE;
@@ -281,6 +291,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Same backend gate as the GLStateGuard constructor, and for the same
+        // reason: this is a GL-STATE instrument. The ctor's guard covers the
+        // ctor/dtor path, but a pass may call ApplyCore() DIRECTLY on the
+        // guard's entry snapshot to roll its own reconfiguration back before
+        // the dtor's diff runs — PlanarReflectionRenderPass does exactly that
+        // (#691 Phase 7 Wave C). On a non-GL backend that snapshot is the
+        // default-constructed one the inert ctor left behind, so the raw GL
+        // calls below are at best meaningless and at worst fatal: in a
+        // Vulkan-only process the glad pointers are NULL, and mid-suite (a GL
+        // context alive alongside the Vulkan device) they would stomp the GL
+        // context's real state with a snapshot that was never captured.
+        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            return;
+        }
+
         // FBO bindings FIRST — subsequent state-setting calls are global so
         // their order doesn't matter, but `glNamedFramebuffer*` DSA calls
         // (not used here) would still target the snapshot's FBO regardless.
@@ -364,13 +390,26 @@ namespace OloEngine
     // -------------------------------------------------------------------------
 
     GLStateGuard::GLStateGuard(std::string_view passName, Policy policy)
-        : m_PassName(passName), m_EntryState(GLStateSnapshot::Capture()), m_Policy(policy)
+        : m_PassName(passName), m_Policy(policy)
     {
+        // The guard is a GL-STATE instrument: on any other backend there is
+        // no GL state to capture and the glad pointers may be NULL (a
+        // Vulkan-only process never loads GL), so Capture() would fault.
+        // Finalise immediately — ctor and dtor become inert (#691 Phase 7
+        // Wave C: DeferredLighting / FluidComposite / Overdraw are the first
+        // guard-carrying pass bodies to execute on the Vulkan backend).
+        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            m_Finalized = true;
+            return;
+        }
+
         // Note: we always capture on construction regardless of Policy.
         // Policy::Ignore still needs a valid m_EntryState because callers may
         // opt back into diff work via DetectLeaks() (see
         // GLStateGuardTest.EmptyRegionHasNoLeaks). The destructor alone is
         // what Policy::Ignore suppresses.
+        m_EntryState = GLStateSnapshot::Capture();
     }
 
     GLStateGuard::~GLStateGuard()

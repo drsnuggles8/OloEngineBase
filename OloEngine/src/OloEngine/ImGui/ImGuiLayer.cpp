@@ -4,6 +4,7 @@
 #include "OloEngine/ImGui/FontAwesome.h"
 #include "OloEngine/ImGui/ImGuiFonts.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -14,6 +15,23 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // #691 Phase 7: the ImGui RENDERER backend is imgui_impl_opengl3 and
+        // stays GL-only until Phase 8. Under --rhi=vulkan the layer therefore
+        // runs PLATFORM-ONLY: the context, the GLFW input backend and every
+        // panel's ImGui code work exactly as on GL, and only the draw-data
+        // submission is absent. That is what lets the editor layer — and its
+        // ImGui-touching update-path code (DrainMcpInputQueue's io.AddKeyEvent,
+        // the viewport's ImGui::GetMousePos) — run at all on this backend, so
+        // the render graph has a scene to draw. A context-less "just skip
+        // ImGui" would crash in those calls instead (GImGui is asserted).
+        [[nodiscard]] bool ImGuiRendererBackendAvailable()
+        {
+            return RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+        }
+    } // namespace
+
     ImGuiLayer::ImGuiLayer()
         : Layer("ImGuiLayer")
     {
@@ -29,8 +47,12 @@ namespace OloEngine
         (void)io;
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
         // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;   // Enable Docking
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
+        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable Docking
+        // Multi-viewport spawns real OS windows that a platform-only ImGui
+        // could never paint — an empty white frame per undocked panel. Kept
+        // off until the Vulkan renderer backend lands (Phase 8).
+        if (ImGuiRendererBackendAvailable())
+            io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
         // io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoTaskBarIcons;
         // io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoMerge;
 
@@ -109,15 +131,36 @@ namespace OloEngine
         auto* const window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());
 
         // Setup Platform/Renderer bindings
-        ::ImGui_ImplGlfw_InitForOpenGL(window, true);
-        ::ImGui_ImplOpenGL3_Init("#version 430");
+        if (ImGuiRendererBackendAvailable())
+        {
+            ::ImGui_ImplGlfw_InitForOpenGL(window, true);
+            ::ImGui_ImplOpenGL3_Init("#version 430");
+        }
+        else
+        {
+            // InitForOther installs the same input callbacks but leaves
+            // Platform_RenderWindow/SwapBuffers unset, so no path reaches a
+            // GL call. See ImGuiRendererBackendAvailable.
+            ::ImGui_ImplGlfw_InitForOther(window, true);
+            // ImGui 1.92's texture protocol: a renderer backend either sets
+            // this flag and services io.Textures, or it must build the legacy
+            // font atlas itself. With NEITHER, ImGui::Render() asserts
+            // ("font atlas is not built") on the first frame — which is
+            // exactly what a platform-only layer would hit. Claiming the flag
+            // is honest here: there IS no renderer to feed, the draw data is
+            // discarded, and no texture request ever needs servicing.
+            ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+            OLO_CORE_INFO("[ImGui] Platform-only mode (#691 Phase 7): the GL renderer backend is skipped under "
+                          "--rhi=vulkan — panel logic runs, nothing is drawn until Phase 8");
+        }
     }
 
     void ImGuiLayer::OnDetach()
     {
         OLO_PROFILE_FUNCTION();
 
-        ::ImGui_ImplOpenGL3_Shutdown();
+        if (ImGuiRendererBackendAvailable())
+            ::ImGui_ImplOpenGL3_Shutdown();
         ::ImGui_ImplGlfw_Shutdown();
         UI::Fonts::ClearFonts();
         ImGui::DestroyContext();
@@ -137,7 +180,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        ::ImGui_ImplOpenGL3_NewFrame();
+        if (ImGuiRendererBackendAvailable())
+            ::ImGui_ImplOpenGL3_NewFrame();
         ::ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         ImGuizmo::BeginFrame();
@@ -154,7 +198,8 @@ namespace OloEngine
 
         // Rendering
         ImGui::Render();
-        ::ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if (ImGuiRendererBackendAvailable())
+            ::ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {

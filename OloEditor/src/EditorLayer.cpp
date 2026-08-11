@@ -306,9 +306,25 @@ namespace OloEngine
         fbSpec.Height = 720;
         m_Framebuffer = Framebuffer::Create(fbSpec);
 
+        // The project path is the first POSITIONAL argument. Skipping the
+        // `--flag` family matters as soon as the app takes any flag of its own
+        // (`--rhi=vulkan`, `--smoke-test`): argv[1] was read unconditionally, so
+        // a leading flag was opened as a project file and the editor came up
+        // with no project at all ("Failed to load project file '--rhi=vulkan'").
+        const char* projectFilePath = nullptr;
         if (const auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs; commandLineArgs.Count > 1)
         {
-            auto* projectFilePath = commandLineArgs[1];
+            for (int i = 1; i < commandLineArgs.Count; ++i)
+            {
+                if (const char* arg = commandLineArgs[i]; arg != nullptr && arg[0] != '-')
+                {
+                    projectFilePath = arg;
+                    break;
+                }
+            }
+        }
+        if (projectFilePath != nullptr)
+        {
             OpenProject(projectFilePath);
         }
         else
@@ -701,6 +717,18 @@ namespace OloEngine
 
     void EditorLayer::InitEntityPicking()
     {
+        // Raw GL: PBO-backed async readback of the entity-ID attachment. The
+        // whole path (init, per-frame read, teardown) is glad calls, so under
+        // any non-GL backend it is skipped entirely and m_PickingPBOInitialized
+        // stays false — which is already the "no picking this frame" gate in
+        // OnUpdate. Hover-picking on Vulkan needs the RHI readback path
+        // (#691 Phase 8), not a port of this one.
+        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            OLO_CORE_INFO("[RHI] Editor entity picking disabled: the PBO readback path is OpenGL-only "
+                          "(#691 Phase 8)");
+            return;
+        }
         glCreateBuffers(2, m_PickingPBOs);
         for (auto pbo : m_PickingPBOs)
         {

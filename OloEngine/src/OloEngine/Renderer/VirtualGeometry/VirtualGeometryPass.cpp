@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -90,6 +91,28 @@ namespace OloEngine
                 OLO_CORE_INFO("VirtualGeometryPass: using single-pass 64-bit atomic software rasterizer");
             }
         }
+    }
+
+    void VirtualGeometryPass::UploadCullParams(const UBOStructures::VirtualClusterCullUBO& params)
+    {
+        if (!m_CullParamsUBO)
+        {
+            m_CullParamsUBO = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(),
+                                                    ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
+        }
+        m_CullParamsUBO->SetData(&params, sizeof(params));
+        m_CullParamsUBO->Bind();
+    }
+
+    void VirtualGeometryPass::UploadRasterParams(const UBOStructures::VirtualRasterUBO& params)
+    {
+        if (!m_RasterParamsUBO)
+        {
+            m_RasterParamsUBO = UniformBuffer::Create(UBOStructures::VirtualRasterUBO::GetSize(),
+                                                      ShaderBindingLayout::UBO_VIRTUAL_RASTER);
+        }
+        m_RasterParamsUBO->SetData(&params, sizeof(params));
+        m_RasterParamsUBO->Bind();
     }
 
     void VirtualGeometryPass::Setup(RGBuilder& builder, FrameBlackboard& board)
@@ -242,6 +265,12 @@ namespace OloEngine
         bool const twoPhase = prevHZB.IsUsable();
 
         // ── 1. DAG-cut + cull compute, one dispatch per instance ──
+        // The cull program's whole parameter set (issue #691 Phase 7): what
+        // used to be ~18 bare uniforms poked through ComputeShader::Set* is one
+        // std140 block re-uploaded before every dispatch. Declared out here
+        // because both phases and the occlusion lambda below fill it.
+        UBOStructures::VirtualClusterCullUBO cullParams{};
+
         // Re-bind every SSBO the dispatch touches: binding points are
         // process-global GL state shared with other subsystems.
         const auto bindCullResources = [&registry]()
@@ -271,9 +300,9 @@ namespace OloEngine
         // slot 0 still holds the last albedo it bound — and then SKIP the real bind for any
         // material whose albedo has that same GL ID, leaving the HZB depth pyramid live in
         // u_AlbedoMap. Tell the cache the slot is dirty so the next material bind is real.
-        const auto bindOcclusionInputs = [this](const GPUFrustumCuller::HZBOcclusionInputs& hzb)
+        const auto bindOcclusionInputs = [this, &cullParams](const GPUFrustumCuller::HZBOcclusionInputs& hzb)
         {
-            m_CullShader->SetInt("u_OcclusionEnabled", hzb.IsUsable() ? 1 : 0);
+            cullParams.OcclusionEnabled = hzb.IsUsable() ? 1 : 0;
             if (!hzb.IsUsable())
                 return;
             // Persistent: the retained occlusion pyramid is renderer-owned, not
@@ -289,11 +318,15 @@ namespace OloEngine
             // The SetInt('u_HZB', 0) companion is gone: redundant against the
             // shader's own layout(binding = 0), and a per-frame 'uniform not found'
             // warning under the bindless variant where the name is a #define.
-            m_CullShader->SetMat4("u_OcclusionViewProjection", hzb.PrevViewProjection);
-            m_CullShader->SetFloat2("u_HZBSize", hzb.HZBSize);
-            m_CullShader->SetFloat2("u_HZBUVFactor", hzb.HZBUVFactor);
-            m_CullShader->SetInt("u_HZBMipCount", static_cast<i32>(hzb.MipCount));
-            m_CullShader->SetFloat("u_OcclusionDepthBias", hzb.DepthBias);
+            // A8 seam, shader-reconstruction flavour (#691 Phase 7): same
+            // contract as GPUFrustumCuller's uploads — VirtualClusterCull.comp
+            // samples the HZB at `ndc.xy * 0.5 + 0.5` against a pyramid built
+            // from row-mirrored depth. Row flip only. Identity on GL.
+            cullParams.OcclusionViewProjection = RHI::AdjustProjectionForShaderReconstruction(hzb.PrevViewProjection);
+            cullParams.HZBSize = hzb.HZBSize;
+            cullParams.HZBUVFactor = hzb.HZBUVFactor;
+            cullParams.HZBMipCount = static_cast<i32>(hzb.MipCount);
+            cullParams.OcclusionDepthBias = hzb.DepthBias;
         };
 
         // Software-raster routing threshold: 0 disables (all clusters take the
@@ -345,19 +378,25 @@ namespace OloEngine
         // than a drop, so it is only set when phase 2 is actually going to run:
         // a reject nobody re-tests would be a hole. ──
         m_CullShader->Bind();
-        m_CullShader->SetFloat("u_ViewportHeight", static_cast<f32>(gbuffer->GetHeight()));
-        m_CullShader->SetFloat("u_SwRasterThresholdPixels", swThresholdPixels);
-        m_CullShader->SetInt("u_Phase2", 0);
-        m_CullShader->SetInt("u_WriteRejected", twoPhase ? 1 : 0);
+        // The former bare uniforms, now ONE std140 block refilled per dispatch
+        // (issue #691 Phase 7). Note this is a FRESH struct per phase, so a
+        // control the phase does not set reads 0 — which is what the old
+        // per-program uniform state gave only by accident, and is why phase 2
+        // had to explicitly zero u_DebugDrawClusters below.
+        cullParams = UBOStructures::VirtualClusterCullUBO{};
+        cullParams.ViewportHeight = static_cast<f32>(gbuffer->GetHeight());
+        cullParams.SwRasterThresholdPixels = swThresholdPixels;
+        cullParams.Phase2 = 0;
+        cullParams.WriteRejected = twoPhase ? 1 : 0;
         // Cluster-bounds visualization (#725) — phase 1 only. Phase 2 re-tests an
         // already-classified subset, so emitting there would draw a second sphere
         // over most of the same clusters and make the "drawn" set look larger
         // than the cut actually is.
-        m_CullShader->SetInt("u_DebugDrawClusters", static_cast<i32>(m_ClusterBoundsDebugMode));
-        m_CullShader->SetUint("u_DebugDrawClusterStride", std::max(m_ClusterBoundsDebugStride, 1u));
-        m_CullShader->SetUint("u_RejectCapacity", frameClusterCount);
-        m_CullShader->SetUint("u_CommandSlotBase", 0u);
-        m_CullShader->SetUint("u_ArgsSlotBase", 0u);
+        cullParams.DebugDrawClusters = static_cast<i32>(m_ClusterBoundsDebugMode);
+        cullParams.DebugDrawClusterStride = std::max(m_ClusterBoundsDebugStride, 1u);
+        cullParams.RejectCapacity = frameClusterCount;
+        cullParams.CommandSlotBase = 0u;
+        cullParams.ArgsSlotBase = 0u;
         bindOcclusionInputs(prevHZB);
         // Once, before the loop. bindOcclusionInputs stages the HZB offset a
         // single time above, so re-publishing it per instance uploaded the same
@@ -365,7 +404,8 @@ namespace OloEngine
         HeapBinding::FlushOffsets();
         for (sizet i = 0; i < instances.size(); ++i)
         {
-            m_CullShader->SetUint("u_InstanceIndex", static_cast<u32>(i));
+            cullParams.InstanceIndex = static_cast<u32>(i);
+            UploadCullParams(cullParams);
             u32 const groups = (instances[i].Gpu.ClusterCount + 63u) / 64u;
             RenderCommand::DispatchCompute(groups, 1, 1);
         }
@@ -519,17 +559,19 @@ namespace OloEngine
             // The HZB build bound its own program / SSBOs / images.
             bindCullResources();
             m_CullShader->Bind();
-            m_CullShader->SetFloat("u_ViewportHeight", static_cast<f32>(gbuffer->GetHeight()));
-            m_CullShader->SetFloat("u_SwRasterThresholdPixels", swThresholdPixels);
-            m_CullShader->SetInt("u_Phase2", 1);
-            m_CullShader->SetInt("u_WriteRejected", 0);
-            // Explicitly OFF for phase 2 — uniform state is per program and
-            // persists across dispatches, so leaving phase 1's value set would
-            // double-emit every disoccluded cluster.
-            m_CullShader->SetInt("u_DebugDrawClusters", 0);
-            m_CullShader->SetUint("u_RejectCapacity", frameClusterCount);
-            m_CullShader->SetUint("u_CommandSlotBase", frameClusterCount);
-            m_CullShader->SetUint("u_ArgsSlotBase", instanceCount);
+            cullParams = UBOStructures::VirtualClusterCullUBO{};
+            cullParams.ViewportHeight = static_cast<f32>(gbuffer->GetHeight());
+            cullParams.SwRasterThresholdPixels = swThresholdPixels;
+            cullParams.Phase2 = 1;
+            cullParams.WriteRejected = 0;
+            // Explicitly OFF for phase 2: emitting here would draw a second
+            // sphere over every disoccluded cluster. Since #691 Phase 7 the
+            // fresh struct already zeroes it — this assignment stays as the
+            // statement of intent, not as the mechanism.
+            cullParams.DebugDrawClusters = 0;
+            cullParams.RejectCapacity = frameClusterCount;
+            cullParams.CommandSlotBase = frameClusterCount;
+            cullParams.ArgsSlotBase = instanceCount;
             // If the rebuild failed, occlusion goes off for phase 2 and EVERY
             // reject is emitted — a phase-1 reject that is never re-tested is
             // exactly the hole this scheme must not have.
@@ -549,6 +591,12 @@ namespace OloEngine
                 // Publish the HZB offset staged by bindOcclusionInputs before the
                 // dispatch reads it (issue #691 Phase 3).
                 HeapBinding::FlushOffsets();
+                // One dispatch, one refill. u_InstanceIndex stays 0 here and
+                // that is correct: Phase2() returns before main() ever reads it
+                // — the reject record carries its own InstanceIndex. Under the
+                // old bare uniforms this slot merely retained whatever the last
+                // phase-1 instance had left in the program.
+                UploadCullParams(cullParams);
                 RenderCommand::DispatchCompute(groupsX, groupsY, 1);
             }
 
@@ -581,13 +629,17 @@ namespace OloEngine
             const Ref<ComputeShader>& rasterShader = useInt64 ? m_RasterShaderInt64 : m_RasterShader;
 
             rasterShader->Bind();
-            rasterShader->SetUint("u_ViewportWidth", registry.GetVisbufferWidth());
-            rasterShader->SetUint("u_ViewportHeight", registry.GetVisbufferHeight());
+            // Former bare uniforms, one std140 block (issue #691 Phase 7).
+            UBOStructures::VirtualRasterUBO rasterParams{};
+            rasterParams.ViewportWidth = registry.GetVisbufferWidth();
+            rasterParams.ViewportHeight = registry.GetVisbufferHeight();
             if (useInt64)
             {
                 // One atomicMin per covered pixel resolves depth + payload
-                // together. u_Phase is compiled out of this variant, so don't set
-                // it (would warn on a stripped uniform every frame).
+                // together. u_Phase is unread by this variant; the shared block
+                // still carries it (declared verbatim in both), so it simply
+                // stays at its zeroed value.
+                UploadRasterParams(rasterParams);
                 RenderCommand::DispatchCompute(groupsX, groupsY, 1);
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
             }
@@ -595,10 +647,12 @@ namespace OloEngine
             {
                 // Phase 0 atomic-min-compacts the depth word; phase 1 plain-writes
                 // the winning payload where the depth bits match.
-                rasterShader->SetUint("u_Phase", 0);
+                rasterParams.Phase = 0;
+                UploadRasterParams(rasterParams);
                 RenderCommand::DispatchCompute(groupsX, groupsY, 1);
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
-                rasterShader->SetUint("u_Phase", 1);
+                rasterParams.Phase = 1;
+                UploadRasterParams(rasterParams);
                 RenderCommand::DispatchCompute(groupsX, groupsY, 1);
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
             }
@@ -662,9 +716,13 @@ namespace OloEngine
             // describes the program in flight. Binding the images first would take the
             // fallback path even with the heap enabled.
             m_ColorizeShader->Bind();
-            m_ColorizeShader->SetUint("u_Width", registry.GetDebugWidth());
-            m_ColorizeShader->SetUint("u_Height", registry.GetDebugHeight());
-            m_ColorizeShader->SetFloat("u_OverdrawScale", 8.0f);
+            // Shares VirtualRasterParams with the SW raster (issue #691 Phase 7);
+            // the colorize's former u_Width/u_Height ARE ViewportWidth/Height.
+            UBOStructures::VirtualRasterUBO colorizeParams{};
+            colorizeParams.ViewportWidth = registry.GetDebugWidth();
+            colorizeParams.ViewportHeight = registry.GetDebugHeight();
+            colorizeParams.OverdrawScale = 8.0f;
+            UploadRasterParams(colorizeParams);
             // Persistent: the debug targets are registry-owned and survive the frame.
             HeapBinding::BindImageOrOffset(0, registry.GetDebugColorTexture(), 0, false, 0,
                                            RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm,

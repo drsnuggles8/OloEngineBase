@@ -43,10 +43,23 @@ namespace OloEngine
         [[nodiscard]] bool EnsureCreated();
 
         // Bump-allocate the next free slot. Returns InvalidSlot when the heap
-        // is full or absent. (Slot free-listing arrives with the Phase 7
-        // engine-heap integration; Phase 6's consumers hold a handful.)
+        // is full or absent. Free-listing of DYNAMIC slots lives in
+        // VulkanDescriptorSlotCache; the engine RHI::DescriptorHeap manages
+        // its own reserved range below.
         [[nodiscard]] u32 AllocateSlot();
         static constexpr u32 InvalidSlot = 0xFFFFFFFFu;
+
+        // Reserve slots [0, count) for an EXTERNAL slot manager (the engine
+        // RHI::DescriptorHeap, #691 Phase 7): bump allocation then starts at
+        // `count`, so the two spaces cannot collide. Idempotent; false when
+        // the heap is absent, count exceeds capacity, or dynamic allocation
+        // already handed out a slot below `count` (install the engine heap
+        // FIRST — a retroactive reservation would alias live slots).
+        [[nodiscard]] bool ReserveSlotRange(u32 count);
+        [[nodiscard]] u32 GetReservedSlots() const
+        {
+            return m_ReservedSlots;
+        }
 
         // Write a SAMPLED_IMAGE descriptor into `slot` from a view
         // DESCRIPTION (no VkImageView object — the extension writes
@@ -55,6 +68,10 @@ namespace OloEngine
         // embedded per pipeline (VulkanPipelineBuilder). Returns false on
         // failure.
         [[nodiscard]] bool WriteSampledImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout);
+        // The STORAGE_IMAGE sibling (#691 Phase 7 — compute/imageStore
+        // bindings). `layout` is GENERAL in every current use (the barrier
+        // lowering puts storage accesses there).
+        [[nodiscard]] bool WriteStorageImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout);
 
         // Record the heap bind into a command buffer. Must run before any draw
         // whose pipeline carries heap mappings; re-recorded per command buffer
@@ -81,7 +98,14 @@ namespace OloEngine
       private:
         VulkanResourceHeap() = default;
 
-        static constexpr u32 kSlotCapacity = 4096;
+        [[nodiscard]] bool WriteImageDescriptor(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout,
+                                                VkDescriptorType type);
+
+        // 5120 engine-heap slots (kDescriptorHeapSlots — persistent 4096 +
+        // transient ring 1024, the GL-parity capacities) + headroom for the
+        // draw-path slot cache. 8192 x 32 B stride ≈ 256 KiB — trivial.
+        static constexpr u32 kSlotCapacity = 8192;
+        u32 m_ReservedSlots = 0; ///< [0, m_ReservedSlots) belongs to the engine heap.
 
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;

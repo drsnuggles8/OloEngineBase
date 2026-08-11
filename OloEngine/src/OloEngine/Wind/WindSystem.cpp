@@ -71,6 +71,7 @@ namespace OloEngine
         s_Data.m_GenerateShader = nullptr;
         s_Data.m_WindField = nullptr;
         s_Data.m_WindUBO = nullptr;
+        s_Data.m_GenerateUBO = nullptr;
         s_Data.m_Initialized = false;
 
         OLO_CORE_INFO("WindSystem shut down");
@@ -133,17 +134,28 @@ namespace OloEngine
         // --- Dispatch compute shader to regenerate the wind field ---
         s_Data.m_GenerateShader->Bind();
 
-        // Set uniforms for the compute shader
-        s_Data.m_GenerateShader->SetFloat3("u_GridMin", gridMin);
-        s_Data.m_GenerateShader->SetFloat("u_GridWorldSize", settings.GridWorldSize);
-        s_Data.m_GenerateShader->SetInt("u_GridResolution", static_cast<i32>(resolvedResolution));
-        s_Data.m_GenerateShader->SetFloat3("u_WindDirection", safeDir);
-        s_Data.m_GenerateShader->SetFloat("u_WindSpeed", settings.Speed);
-        s_Data.m_GenerateShader->SetFloat("u_GustStrength", settings.GustStrength);
-        s_Data.m_GenerateShader->SetFloat("u_GustFrequency", settings.GustFrequency);
-        s_Data.m_GenerateShader->SetFloat("u_TurbulenceIntensity", settings.TurbulenceIntensity);
-        s_Data.m_GenerateShader->SetFloat("u_TurbulenceScale", settings.TurbulenceScale);
-        s_Data.m_GenerateShader->SetFloat("u_Time", s_Data.m_AccumulatedTime);
+        // Generation parameters. Formerly bare uniforms driven by
+        // ComputeShader::Set*, which GLSL-for-Vulkan cannot express and whose
+        // Set* is a deliberate no-op on that route — one std140 refill per
+        // generation instead (issue #691 Phase 7).
+        if (!s_Data.m_GenerateUBO)
+        {
+            s_Data.m_GenerateUBO = UniformBuffer::Create(UBOStructures::WindGenerateUBO::GetSize(),
+                                                         ShaderBindingLayout::UBO_WIND_GENERATE);
+        }
+        UBOStructures::WindGenerateUBO genParams{};
+        genParams.GridMin = gridMin;
+        genParams.GridWorldSize = settings.GridWorldSize;
+        genParams.GridResolution = static_cast<i32>(resolvedResolution);
+        genParams.WindDirection = safeDir;
+        genParams.WindSpeed = settings.Speed;
+        genParams.GustStrength = settings.GustStrength;
+        genParams.GustFrequency = settings.GustFrequency;
+        genParams.TurbulenceIntensity = settings.TurbulenceIntensity;
+        genParams.TurbulenceScale = settings.TurbulenceScale;
+        genParams.Time = s_Data.m_AccumulatedTime;
+        s_Data.m_GenerateUBO->SetData(&genParams, sizeof(genParams));
+        s_Data.m_GenerateUBO->Bind();
 
         // Bind wind field as image for writing (unit 0, mip 0, layered for 3D)
         // Persistent: the wind field is a system-owned 3D texture that outlives every

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MeshPrimitives.h"
 #include "MeshSource.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 
@@ -81,13 +82,21 @@ namespace OloEngine
 
     // Static shared fullscreen triangle VAO (lazy-initialized)
     static Ref<VertexArray> s_FullscreenTriangleVA;
+    // The backend that built the cached triangle. Backend selection is a
+    // runtime switch (ADR 0011 §2) and one process can construct both
+    // backends across its lifetime (the test suite does, per test) — handing
+    // a GL-built VAO to the Vulkan draw path (or vice versa) is a silent
+    // wrong-type cast, so a backend mismatch drops the cache and rebuilds
+    // (#691 Phase 7).
+    static RendererAPI::API s_FullscreenTriangleAPI = RendererAPI::API::None;
 
     Ref<VertexArray> MeshPrimitives::GetFullscreenTriangle()
     {
-        if (s_FullscreenTriangleVA)
+        if (s_FullscreenTriangleVA && s_FullscreenTriangleAPI == RendererAPI::GetAPI())
         {
             return s_FullscreenTriangleVA;
         }
+        s_FullscreenTriangleVA.Reset();
 
         struct FullscreenVertex
         {
@@ -119,6 +128,7 @@ namespace OloEngine
 
         s_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
         s_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
+        s_FullscreenTriangleAPI = RendererAPI::GetAPI();
 
         return s_FullscreenTriangleVA;
     }

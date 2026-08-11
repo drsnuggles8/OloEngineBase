@@ -233,6 +233,12 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
     auto cameraUBO = UniformBuffer::Create(sizeof(CameraBlock), ShaderBindingLayout::UBO_CAMERA);
     cameraUBO->SetData(&camera, sizeof(CameraBlock));
 
+    // VirtualClusterCull.comp's parameters (issue #691 Phase 7): one std140
+    // block where the shader used to declare ~18 bare uniforms. Refilled before
+    // each dispatch below.
+    auto cullParamsUBO = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(),
+                                               ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
+
     // Static pools
     auto clusterBuffer = StorageBuffer::Create(static_cast<u32>(packed.Clusters.size() * sizeof(VirtualClusterGpuRecord)),
                                                ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS, StorageBufferUsage::DynamicDraw);
@@ -322,9 +328,19 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
             cameraUBO->Bind();
 
             cullShader->Bind();
-            cullShader->SetUint("u_InstanceIndex", 0);
-            cullShader->SetFloat("u_ViewportHeight", kViewportHeight);
-            cullShader->SetFloat("u_SwRasterThresholdPixels", 0.0f);
+            // The cull's parameters moved into the VirtualClusterCullParams
+            // std140 block at UBO_VIRTUAL_CLUSTER_CULL (issue #691 Phase 7 —
+            // GLSL-for-Vulkan forbids default-block uniforms). The block is
+            // value-initialised, so every control this parity case does not set
+            // (ortho mode, occlusion, the two-phase and debug flags) is a
+            // deterministic 0 — which is exactly the single-phase, no-occlusion
+            // configuration it means to test.
+            UBOStructures::VirtualClusterCullUBO cullParams{};
+            cullParams.InstanceIndex = 0;
+            cullParams.ViewportHeight = kViewportHeight;
+            cullParams.SwRasterThresholdPixels = 0.0f;
+            cullParamsUBO->SetData(&cullParams, sizeof(cullParams));
+            cullParamsUBO->Bind();
             RenderCommand::DispatchCompute((clusterCount + 63u) / 64u, 1, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
 

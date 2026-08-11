@@ -115,6 +115,9 @@ namespace OloEngine
         Ref<ComputeShader> m_AverageShader;
         Ref<StorageBuffer> m_HistogramBuffer;
         Ref<StorageBuffer> m_ExposureStateBuffer;
+        // One std140 block feeds BOTH computes (the former bare uniforms —
+        // ComputeShader::Set* is a no-op on the Vulkan route, issue #691).
+        Ref<UniformBuffer> m_AutoExposureUBO;
         AutoExposureFrameParams m_AutoExposure;
         bool m_AutoExposureActiveLastFrame = false;
 

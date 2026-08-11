@@ -35,9 +35,28 @@ layout(std430, binding = 19) buffer HistogramBuffer
     uint histogram[NUM_BINS];
 };
 
-uniform vec2 u_MeterSize;       // metering grid dimensions (capped, see ToneMapRenderPass)
-uniform float u_MinLogLum;      // histogram lower bound (log2 luminance)
-uniform float u_InvLogLumRange; // 1.0 / (maxLogLum - minLogLum)
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7): the
+// Vulkan SPIR-V route cannot express non-block uniforms and its
+// ComputeShader::Set* calls are deliberate no-ops. The block is shared
+// VERBATIM with AutoExposureAverage.comp (one C++ struct fills both;
+// members this shader ignores are simply unread).
+layout(std140, binding = 72) uniform AutoExposureParams
+{
+    vec2  u_MeterSize;              // metering grid dimensions (capped, see ToneMapRenderPass)
+    float u_MinLogLum;              // histogram lower bound (log2 luminance)
+    float u_InvLogLumRange;         // 1.0 / (maxLogLum - minLogLum)
+    float u_LogLumRange;            // maxLogLum - minLogLum
+    float u_Dt;                     // frame delta time (seconds)
+    float u_SpeedUp;                // adaptation rate when brightening
+    float u_SpeedDown;              // adaptation rate when darkening
+    float u_ExposureCompensation;
+    float u_MinExposure;
+    float u_MaxExposure;
+    float u_LowPercentile;
+    float u_HighPercentile;
+    float _aePad0;
+    vec2  _aePad1;
+};
 
 const vec3 RGB_TO_LUM = vec3(0.2126, 0.7152, 0.0722); // Rec.709, matches AutoExposure.h
 const float BLACK_THRESHOLD = 0.0001;                 // AutoExposure::kBlackThreshold

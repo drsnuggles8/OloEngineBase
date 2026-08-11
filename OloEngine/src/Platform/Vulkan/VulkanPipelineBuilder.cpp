@@ -16,6 +16,41 @@ namespace OloEngine
 {
     namespace
     {
+        // An integer colour format carries no COLOR_ATTACHMENT_BLEND format
+        // feature on any implementation (blending is defined on floating-point
+        // and normalized formats only), so blendEnable MUST be false against
+        // one — VUID-vkCmdDraw-blendEnable-04727. Enumerated rather than
+        // queried because the set is closed and this runs per draw: it is the
+        // formats VulkanFramebuffer can actually create for an integer
+        // attachment (RED_INTEGER / RG*_INTEGER family).
+        [[nodiscard]] bool IsIntegerFormat(const VkFormat format)
+        {
+            switch (format)
+            {
+                case VK_FORMAT_R8_UINT:
+                case VK_FORMAT_R8_SINT:
+                case VK_FORMAT_R16_UINT:
+                case VK_FORMAT_R16_SINT:
+                case VK_FORMAT_R32_UINT:
+                case VK_FORMAT_R32_SINT:
+                case VK_FORMAT_R8G8_UINT:
+                case VK_FORMAT_R8G8_SINT:
+                case VK_FORMAT_R16G16_UINT:
+                case VK_FORMAT_R16G16_SINT:
+                case VK_FORMAT_R32G32_UINT:
+                case VK_FORMAT_R32G32_SINT:
+                case VK_FORMAT_R8G8B8A8_UINT:
+                case VK_FORMAT_R8G8B8A8_SINT:
+                case VK_FORMAT_R16G16B16A16_UINT:
+                case VK_FORMAT_R16G16B16A16_SINT:
+                case VK_FORMAT_R32G32B32A32_UINT:
+                case VK_FORMAT_R32G32B32A32_SINT:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         // --- RHI → Vk state-enum lowering ------------------------------------
         [[nodiscard]] VkCompareOp ToVk(RHI::CompareOp op)
         {
@@ -282,7 +317,146 @@ namespace OloEngine
         hash = HashCombine(hash, key.BakedBlendHash);
         hash = HashCombine(hash, key.SamplerHash);
         hash = HashCombine(hash, key.LayoutHash);
+        hash = HashCombine(hash, key.PatchControlPoints);
         return static_cast<sizet>(hash);
+    }
+
+    std::vector<VkDescriptorSetAndBindingMappingEXT>
+    VulkanPipelineBuilder::BuildBindingMappings(const VulkanRootDataLayout& layout, const VkSamplerCreateInfo& sampler)
+    {
+        std::vector<VkDescriptorSetAndBindingMappingEXT> mappings;
+        mappings.reserve(layout.Fields.size());
+        const u32 heapStride = static_cast<u32>(VulkanResourceHeap::Get().GetDescriptorStride());
+        for (const auto& field : layout.Fields)
+        {
+            VkDescriptorSetAndBindingMappingEXT mapping{};
+            mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            mapping.descriptorSet = field.Binding.Set;
+            mapping.firstBinding = field.Binding.Binding;
+            mapping.bindingCount = 1;
+            // The mask is PER RESOURCE KIND, never ALL. GL keeps texture
+            // slots, image units, UBO and SSBO binding points in four
+            // disjoint namespaces (amendment (29)), so a shader may declare
+            // a sampler and a storage image — or a UBO and an SSBO — at the
+            // SAME numeric binding. Two ALL-masked mappings at one
+            // (set, binding) violate VUID-11244 and fail pipeline creation
+            // outright; kind-scoped masks are exactly how the extension
+            // expresses coexisting namespaces. First tripped by
+            // FroxelFogScatter.comp (sampler2DArrayShadow @0 + image3D @0)
+            // — every earlier shader happened to use disjoint numbers.
+            switch (field.Binding.BindingKind)
+            {
+                case VulkanShaderBinding::Kind::UniformBuffer:
+                case VulkanShaderBinding::Kind::StorageBuffer:
+                {
+                    mapping.resourceMask =
+                        field.Binding.BindingKind == VulkanShaderBinding::Kind::UniformBuffer
+                            ? VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT
+                            : (VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT |
+                               VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT);
+                    // Block address lives in the root struct at Field.Offset;
+                    // the root struct's own address is push data offset 0.
+                    mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT;
+                    mapping.sourceData.indirectAddress = {
+                        .pushOffset = 0,
+                        .addressOffset = field.Offset,
+                    };
+                    break;
+                }
+                case VulkanShaderBinding::Kind::CombinedImageSampler:
+                case VulkanShaderBinding::Kind::StorageImage:
+                {
+                    mapping.resourceMask =
+                        field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler
+                            ? VK_SPIRV_RESOURCE_TYPE_COMBINED_SAMPLED_IMAGE_BIT_EXT
+                            : (VK_SPIRV_RESOURCE_TYPE_READ_ONLY_IMAGE_BIT_EXT |
+                               VK_SPIRV_RESOURCE_TYPE_READ_WRITE_IMAGE_BIT_EXT);
+                    // Heap slot index lives in the root struct at Field.Offset;
+                    // the sampler half is embedded (see header).
+                    mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;
+                    mapping.sourceData.indirectIndex = {
+                        .heapOffset = static_cast<u32>(VulkanResourceHeap::Get().GetSlotRegionOffset()),
+                        .pushOffset = 0,
+                        .addressOffset = field.Offset,
+                        .heapIndexStride = heapStride,
+                        .heapArrayStride = heapStride,
+                        .pEmbeddedSampler =
+                            field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler ? &sampler
+                                                                                                         : nullptr,
+                        .useCombinedImageSamplerIndex = VK_FALSE,
+                        .samplerHeapOffset = 0,
+                        .samplerPushOffset = 0,
+                        .samplerAddressOffset = 0,
+                        .samplerHeapIndexStride = 0,
+                        .samplerHeapArrayStride = 0,
+                    };
+                    break;
+                }
+            }
+            mappings.push_back(mapping);
+        }
+        return mappings;
+    }
+
+    VkPipeline VulkanPipelineBuilder::GetOrCreateCompute(const u64 shaderKey, const VkShaderModule module,
+                                                         const VulkanRootDataLayout& layout,
+                                                         const VkSamplerCreateInfo* embeddedSampler)
+    {
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || module == VK_NULL_HANDLE)
+        {
+            return VK_NULL_HANDLE;
+        }
+
+        const VkSamplerCreateInfo sampler = embeddedSampler != nullptr ? *embeddedSampler : DefaultEmbeddedSampler();
+
+        Key key;
+        key.ShaderKey = shaderKey;
+        key.SamplerHash = HashSampler(sampler);
+        key.LayoutHash = HashLayout(layout);
+        // Target/blend fields stay zero — compute has neither, and shader
+        // keys are process-unique so no graphics key can collide.
+
+        if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
+        {
+            return it->second;
+        }
+
+        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout, sampler);
+        VkShaderDescriptorSetAndBindingMappingInfoEXT mappingInfo{};
+        mappingInfo.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+        mappingInfo.mappingCount = static_cast<u32>(mappings.size());
+        mappingInfo.pMappings = mappings.data();
+
+        VkPipelineShaderStageCreateInfo stage{};
+        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage.pNext = &mappingInfo;
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = module;
+        stage.pName = "main";
+
+        VkPipelineCreateFlags2CreateInfo flags2{};
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        flags2.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+
+        VkComputePipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineInfo.pNext = &flags2;
+        pipelineInfo.stage = stage;
+        pipelineInfo.layout = VK_NULL_HANDLE; // heap-bindless: no pipeline layout exists
+
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        const VkResult result = vkCreateComputePipelines(device->GetDevice(), VulkanPipelineCache::Get().Handle(), 1,
+                                                         &pipelineInfo, nullptr, &pipeline);
+        if (result != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanPipelineBuilder: compute pipeline creation failed (VkResult {})",
+                           static_cast<int>(result));
+            return VK_NULL_HANDLE;
+        }
+
+        m_Pipelines[key] = pipeline;
+        return pipeline;
     }
 
     VkPipeline VulkanPipelineBuilder::GetOrCreateGraphics(VulkanShader& shader, const VulkanRootDataLayout& layout,
@@ -313,6 +487,12 @@ namespace OloEngine
         key.Samples = safeTargets.Samples;
         key.SamplerHash = HashSampler(sampler);
         key.LayoutHash = HashLayout(layout);
+        // A10 (#691 Wave C): a shader carrying a tessellation-control stage is
+        // a PATCH pipeline — VK_PRIMITIVE_TOPOLOGY_PATCH_LIST is then the ONLY
+        // legal topology (VUID-…-pStages-00736) and the patch size must be
+        // baked, so it joins the key.
+        const bool tessellated = shader.GetModule(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != VK_NULL_HANDLE;
+        key.PatchControlPoints = tessellated ? std::max(state.PatchVertexCount, 1u) : 0u;
         if (!dynamicBlend)
         {
             // Blend is a baked axis only where EDS3 is absent (§5's fallback
@@ -334,6 +514,7 @@ namespace OloEngine
             for (u32 i = 0; i < safeTargets.ColorCount; ++i)
             {
                 blendHash = HashCombine(blendHash, state.AttachmentBlend[i] ? 1u : 0u);
+                blendHash = HashCombine(blendHash, state.AttachmentBlendFuncSet[i] ? 1u : 0u);
                 blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendSrc[i]));
                 blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendDst[i]));
                 blendHash = HashCombine(blendHash, state.AttachmentColorMask[i]);
@@ -350,58 +531,7 @@ namespace OloEngine
         // The mapping array is identical across stages (the root struct is one
         // object per draw); resourceMask ALL lets one mapping per binding
         // cover whatever SPIR-V resource type the stage declares there.
-        std::vector<VkDescriptorSetAndBindingMappingEXT> mappings;
-        mappings.reserve(layout.Fields.size());
-        const u32 heapStride = static_cast<u32>(VulkanResourceHeap::Get().GetDescriptorStride());
-        for (const auto& field : layout.Fields)
-        {
-            VkDescriptorSetAndBindingMappingEXT mapping{};
-            mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-            mapping.descriptorSet = field.Binding.Set;
-            mapping.firstBinding = field.Binding.Binding;
-            mapping.bindingCount = 1;
-            mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
-            switch (field.Binding.BindingKind)
-            {
-                case VulkanShaderBinding::Kind::UniformBuffer:
-                case VulkanShaderBinding::Kind::StorageBuffer:
-                {
-                    // Block address lives in the root struct at Field.Offset;
-                    // the root struct's own address is push data offset 0.
-                    mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT;
-                    mapping.sourceData.indirectAddress = {
-                        .pushOffset = 0,
-                        .addressOffset = field.Offset,
-                    };
-                    break;
-                }
-                case VulkanShaderBinding::Kind::CombinedImageSampler:
-                case VulkanShaderBinding::Kind::StorageImage:
-                {
-                    // Heap slot index lives in the root struct at Field.Offset;
-                    // the sampler half is embedded (see header).
-                    mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;
-                    mapping.sourceData.indirectIndex = {
-                        .heapOffset = static_cast<u32>(VulkanResourceHeap::Get().GetSlotRegionOffset()),
-                        .pushOffset = 0,
-                        .addressOffset = field.Offset,
-                        .heapIndexStride = heapStride,
-                        .heapArrayStride = heapStride,
-                        .pEmbeddedSampler =
-                            field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler ? &sampler
-                                                                                                         : nullptr,
-                        .useCombinedImageSamplerIndex = VK_FALSE,
-                        .samplerHeapOffset = 0,
-                        .samplerPushOffset = 0,
-                        .samplerAddressOffset = 0,
-                        .samplerHeapIndexStride = 0,
-                        .samplerHeapArrayStride = 0,
-                    };
-                    break;
-                }
-            }
-            mappings.push_back(mapping);
-        }
+        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout, sampler);
 
         VkShaderDescriptorSetAndBindingMappingInfoEXT mappingInfo{};
         mappingInfo.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
@@ -440,7 +570,15 @@ namespace OloEngine
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // dynamic
+        inputAssembly.topology =
+            key.PatchControlPoints != 0 ? VK_PRIMITIVE_TOPOLOGY_PATCH_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        // A10: the tessellation state exists ONLY on a patch pipeline; the
+        // draw front-end sets PATCH_LIST through the dynamic topology so the
+        // baked value above and the recorded one agree.
+        VkPipelineTessellationStateCreateInfo tessellation{};
+        tessellation.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
+        tessellation.patchControlPoints = key.PatchControlPoints;
 
         VkPipelineViewportStateCreateInfo viewport{};
         viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -478,15 +616,23 @@ namespace OloEngine
                 // dynamic path in FlushDynamicState — the two lowering routes
                 // must produce identical blend behaviour for one recorded
                 // state, and every field read here is in BakedBlendHash.
-                const bool useAttachment = state.AttachmentBlend[i];
-                attachment.blendEnable = (useAttachment || state.Blend) ? VK_TRUE : VK_FALSE;
-                attachment.srcColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
-                attachment.dstColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstRGB);
+                // ENABLE and FUNC divert independently (GL parity, see the
+                // AttachmentBlendFuncSet comment): glEnablei alone keeps the
+                // GLOBAL blend func; only glBlendFunci diverts the factors.
+                const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
+                // Integer attachments cannot blend — see the identical mask
+                // in FlushDynamicState (the two routes must agree).
+                attachment.blendEnable = (!IsIntegerFormat(safeTargets.ColorFormats[i]) &&
+                                          (state.AttachmentBlend[i] || state.Blend))
+                                             ? VK_TRUE
+                                             : VK_FALSE;
+                attachment.srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
+                attachment.dstColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstRGB);
                 attachment.colorBlendOp = ToVk(state.BlendEquation);
                 attachment.srcAlphaBlendFactor =
-                    ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha);
+                    ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha);
                 attachment.dstAlphaBlendFactor =
-                    ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstAlpha);
+                    ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstAlpha);
                 attachment.alphaBlendOp = ToVk(state.BlendEquation);
                 const VkColorComponentFlags globalMask = (state.ColorMask[0] ? VK_COLOR_COMPONENT_R_BIT : 0u) |
                                                          (state.ColorMask[1] ? VK_COLOR_COMPONENT_G_BIT : 0u) |
@@ -534,6 +680,16 @@ namespace OloEngine
         rendering.colorAttachmentCount = safeTargets.ColorCount;
         rendering.pColorAttachmentFormats = safeTargets.ColorFormats.data();
         rendering.depthAttachmentFormat = safeTargets.DepthFormat;
+        // A combined depth/stencil target shares the attachment for both
+        // aspects (EnsureRenderingScopeForDraw passes pStencilAttachment for
+        // it), and VUID-08917 requires the PSO's stencil format to match the
+        // rendering info's — the first D24S8/D32S8 scene FB on this backend
+        // (#691 Wave C: OITPrepare / DeferredLighting) tripped it.
+        rendering.stencilAttachmentFormat =
+            (safeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+             safeTargets.DepthFormat == VK_FORMAT_D24_UNORM_S8_UINT)
+                ? safeTargets.DepthFormat
+                : VK_FORMAT_UNDEFINED;
 
         VkPipelineCreateFlags2CreateInfo createFlags{};
         createFlags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
@@ -547,6 +703,7 @@ namespace OloEngine
         pipelineInfo.pStages = stages.data();
         pipelineInfo.pVertexInputState = &vertexInput;
         pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pTessellationState = key.PatchControlPoints != 0 ? &tessellation : nullptr;
         pipelineInfo.pViewportState = &viewport;
         pipelineInfo.pRasterizationState = &raster;
         pipelineInfo.pMultisampleState = &multisample;
@@ -590,6 +747,31 @@ namespace OloEngine
                                                   const VulkanRenderTargetDesc& targets)
     {
         vkCmdSetCullMode(cmd, ToVk(state.CullFace, state.Culling));
+        // A1/A8 (issue #691 Phase 7): the recorded GL winding translates to the
+        // SAME VkFrontFace — no swap.
+        //
+        // Batch 1 shipped the opposite (recorded CCW -> VK_FRONT_FACE_CLOCKWISE)
+        // on the reasoning that the projection seam's Y flip mirrors every
+        // triangle's apparent winding. Half of that is true and it is the half
+        // that cancels: the seam DOES negate clip y, but Vulkan's facing
+        // determinant is computed in FRAMEBUFFER coordinates, whose y already
+        // points DOWN where GL's window y points UP. The two inversions
+        // compose to identity — a triangle GL calls front-facing has the same
+        // facing here — so applying a third one made every solid mesh
+        // inside-out on Vulkan: back-face culling removed exactly the
+        // triangles GL keeps.
+        //
+        // Nothing caught it until now because the only Vulkan tenants that
+        // recorded a winding drew with culling OFF (every fullscreen pass, the
+        // decal/particle/foliage bodies), where front-face state is inert. The
+        // planar-reflection tenant is the first to cull real geometry, and it
+        // pins all four cells of the matrix — {direct, mirrored} x {CCW, CW} —
+        // so an inversion here fails loudly in both directions rather than
+        // being masked by the reflection's own handedness reversal.
+        //
+        // Composed HERE, in the backend's one state-translation point, never at
+        // call sites: a pass-local override (PlanarReflection's Clockwise for
+        // the mirrored replay) then means exactly what it means on GL.
         vkCmdSetFrontFace(cmd, state.FrontFaceWinding == RHI::FrontFace::Clockwise ? VK_FRONT_FACE_CLOCKWISE
                                                                                    : VK_FRONT_FACE_COUNTER_CLOCKWISE);
         vkCmdSetPrimitiveTopology(cmd, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
@@ -626,17 +808,31 @@ namespace OloEngine
             for (u32 i = 0; i < colorCount; ++i)
             {
                 // Per-attachment state where the pass set it, the global
-                // recorded state otherwise (AttachmentBlendSrc/Dst default to
-                // enum 0 — only meaningful when AttachmentBlend[i] is true).
-                const bool useAttachment = state.AttachmentBlend[i];
-                const bool enabled = useAttachment || state.Blend;
+                // recorded state otherwise. ENABLE and FUNC divert
+                // independently (GL parity, see the AttachmentBlendFuncSet
+                // comment): glEnablei alone keeps the GLOBAL blend func; only
+                // glBlendFunci diverts the factors — AttachmentBlendSrc/Dst
+                // are meaningful only when AttachmentBlendFuncSet[i] is true.
+                const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
+                // An INTEGER attachment can never blend: R32_SINT (the
+                // engine's entity-ID render target) carries no
+                // COLOR_ATTACHMENT_BLEND format feature, and enabling blend
+                // against it is VUID-vkCmdDraw-blendEnable-04727. GL has the
+                // same rule but expresses it silently (blending is ignored
+                // for integer attachments), so every pass that flips the
+                // GLOBAL blend switch with an ID target attached — the whole
+                // forward/G-buffer family — tripped this on the first live
+                // frame. Masking it here keeps GL's "just ignore it"
+                // behaviour and costs the caller nothing.
+                const bool blendableFormat = !IsIntegerFormat(targets.ColorFormats[i]);
+                const bool enabled = blendableFormat && (state.AttachmentBlend[i] || state.Blend);
                 enables[i] = enabled ? VK_TRUE : VK_FALSE;
                 equations[i] = {
-                    .srcColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB),
-                    .dstColorBlendFactor = ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstRGB),
+                    .srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB),
+                    .dstColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstRGB),
                     .colorBlendOp = ToVk(state.BlendEquation),
-                    .srcAlphaBlendFactor = ToVk(useAttachment ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha),
-                    .dstAlphaBlendFactor = ToVk(useAttachment ? state.AttachmentBlendDst[i] : state.BlendDstAlpha),
+                    .srcAlphaBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha),
+                    .dstAlphaBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstAlpha),
                     .alphaBlendOp = ToVk(state.BlendEquation),
                 };
                 writeMasks[i] = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]) & globalMask;

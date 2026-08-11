@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 
 #include "OloEngine/Renderer/PlanarReflection.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -138,7 +139,13 @@ namespace OloEngine
         const glm::vec4 plane = PlanarReflection::NormalizePlane(m_ReflectionPlane);
         const auto m = PlanarReflection::BuildReflectionMatrices(realView, realProj, realPos, plane);
 
-        ubo.ViewProjection = m.ViewProjection;
+        // A8 seam, shader-reconstruction flavour (#691 Phase 7): Water.glsl
+        // looks the reflection up as `(clip.xy / clip.w) * 0.5 + 0.5`, and the
+        // target it samples was rendered below through UploadCameraUBO's
+        // RASTERIZER flavour — so its rows are mirrored on Vulkan and the
+        // lookup must mirror with them, or the water reflects the wrong half
+        // of the render. Row flip only; nothing here reads depth. Identity on GL.
+        ubo.ViewProjection = RHI::AdjustProjectionForShaderReconstruction(m.ViewProjection);
         ubo.Params = glm::vec4(1.0f, m_Intensity, m_Distortion, 0.0f);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();

@@ -28,6 +28,8 @@
 
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -152,15 +154,25 @@ namespace OloEngine::Tests
             ::glBindTextureUnit(0, hzbTex);
 
             cs.Bind();
-            cs.SetUint("u_InstanceCount", count);
-            cs.SetFloat4("u_LocalBoundingSphere", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-            cs.SetFloat("u_RadiusExpansion", 1.3f * 1.05f);
-            cs.SetInt("u_OcclusionEnabled", occlusionEnabled ? 1 : 0);
-            cs.SetMat4("u_PrevViewProjection", vp);
-            cs.SetFloat2("u_HZBSize", glm::vec2(static_cast<f32>(kHZBSize)));
-            cs.SetFloat2("u_HZBUVFactor", glm::vec2(1.0f));
-            cs.SetInt("u_HZBMipCount", static_cast<int>(kHZBMips));
-            cs.SetFloat("u_OcclusionDepthBias", 0.0f);
+            // The cull's parameters moved from bare uniforms into the
+            // InstanceCullParams std140 block at UBO_INSTANCE_CULL (issue #691
+            // Phase 7 — GLSL-for-Vulkan forbids default-block uniforms). Fill
+            // it exactly as GPUFrustumCuller does, or every value reads zero
+            // and the shader culls everything.
+            UBOStructures::InstanceCullUBO cullParams{};
+            cullParams.InstanceCount = count;
+            cullParams.LocalBoundingSphere = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            cullParams.RadiusExpansion = 1.3f * 1.05f;
+            cullParams.OcclusionEnabled = occlusionEnabled ? 1 : 0;
+            cullParams.PrevViewProjection = vp;
+            cullParams.HZBSize = glm::vec2(static_cast<f32>(kHZBSize));
+            cullParams.HZBUVFactor = glm::vec2(1.0f);
+            cullParams.HZBMipCount = static_cast<i32>(kHZBMips);
+            cullParams.OcclusionDepthBias = 0.0f;
+            auto cullParamsUBO = UniformBuffer::Create(UBOStructures::InstanceCullUBO::GetSize(),
+                                                       ShaderBindingLayout::UBO_INSTANCE_CULL);
+            cullParamsUBO->SetData(&cullParams, sizeof(cullParams));
+            cullParamsUBO->Bind();
 
             constexpr u32 kLocalSize = 256;
             ::glDispatchCompute((count + kLocalSize - 1) / kLocalSize, 1, 1);
@@ -181,6 +193,9 @@ namespace OloEngine::Tests
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 16, 0);
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 17, 0);
             ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, 0);
+            // The #691 Phase 7 cull-params block, same discipline: never leave a
+            // binding pointing at a buffer this scope is about to release.
+            ::glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_INSTANCE_CULL, 0);
             ::glUseProgram(0);
 
             ::glDeleteBuffers(1, &inBuf);
@@ -330,17 +345,29 @@ namespace OloEngine::Tests
         ::glNamedBufferStorage(camUBO, static_cast<GLsizeiptr>(cameraData.size() * sizeof(glm::mat4)), cameraData.data(), 0);
         ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, camUBO);
 
+        // The cull's parameters are one std140 block since issue #691 Phase 7
+        // (InstanceCullParams @ UBO_INSTANCE_CULL); the two phases differ only
+        // in WriteRejected/Phase2, so seed the shared part once and upload per
+        // phase — the same shape GPUFrustumCuller uses.
+        UBOStructures::InstanceCullUBO cullParams{};
+        auto cullParamsUBO = UniformBuffer::Create(UBOStructures::InstanceCullUBO::GetSize(),
+                                                   ShaderBindingLayout::UBO_INSTANCE_CULL);
         const auto setCommon = [&]()
         {
-            cs->SetUint("u_InstanceCount", count);
-            cs->SetFloat4("u_LocalBoundingSphere", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-            cs->SetFloat("u_RadiusExpansion", 1.3f * 1.05f);
-            cs->SetInt("u_OcclusionEnabled", 1);
-            cs->SetMat4("u_PrevViewProjection", vp);
-            cs->SetFloat2("u_HZBSize", glm::vec2(static_cast<f32>(kHZBSize)));
-            cs->SetFloat2("u_HZBUVFactor", glm::vec2(1.0f));
-            cs->SetInt("u_HZBMipCount", static_cast<int>(kHZBMips));
-            cs->SetFloat("u_OcclusionDepthBias", 0.0f);
+            cullParams.InstanceCount = count;
+            cullParams.LocalBoundingSphere = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            cullParams.RadiusExpansion = 1.3f * 1.05f;
+            cullParams.OcclusionEnabled = 1;
+            cullParams.PrevViewProjection = vp;
+            cullParams.HZBSize = glm::vec2(static_cast<f32>(kHZBSize));
+            cullParams.HZBUVFactor = glm::vec2(1.0f);
+            cullParams.HZBMipCount = static_cast<i32>(kHZBMips);
+            cullParams.OcclusionDepthBias = 0.0f;
+        };
+        const auto uploadParams = [&]()
+        {
+            cullParamsUBO->SetData(&cullParams, sizeof(cullParams));
+            cullParamsUBO->Bind();
         };
         const u32 groups = (count + 255u) / 256u;
 
@@ -353,8 +380,9 @@ namespace OloEngine::Tests
         ::glBindTextureUnit(0, wallHZB);
         cs->Bind();
         setCommon();
-        cs->SetInt("u_WriteRejected", 1);
-        cs->SetInt("u_Phase2", 0);
+        cullParams.WriteRejected = 1;
+        cullParams.Phase2 = 0;
+        uploadParams();
         ::glDispatchCompute(groups, 1, 1);
         ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
 
@@ -374,8 +402,9 @@ namespace OloEngine::Tests
         ::glBindTextureUnit(0, emptyHZB);
         cs->Bind();
         setCommon();
-        cs->SetInt("u_WriteRejected", 0);
-        cs->SetInt("u_Phase2", 1);
+        cullParams.WriteRejected = 0;
+        cullParams.Phase2 = 1;
+        uploadParams();
         ::glDispatchCompute(groups, 1, 1);
         ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
 
@@ -394,6 +423,9 @@ namespace OloEngine::Tests
         for (const u32 slot : { 15u, 16u, 17u, 18u, 19u })
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, 0);
         ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, 0);
+        // The #691 Phase 7 cull-params block, same discipline: never leave a
+        // binding pointing at a buffer this scope is about to release.
+        ::glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_INSTANCE_CULL, 0);
         ::glUseProgram(0);
 
         const std::array<GLuint, 8> buffers{ inBuf, p1Out, rejBuf, p2Out, p1Ind, p2Ind, rejCnt, camUBO };

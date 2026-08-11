@@ -7,6 +7,24 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): V8 foliage two-stream pull. Stream 0 is the
+// 20-byte {vec3 position, vec2 uv} card quad on the engine-wide binding 57;
+// stream 1 is FoliageRenderer's 48-byte per-instance VB {PositionScale,
+// RotationHeight, ColorAlpha} riding binding 63 (the reserved stream-1 pull
+// binding — bone influences are just its first tenant), indexed by
+// gl_InstanceIndex. Pulled locals under the attribute names in main() keep
+// the body shared; the GL attribute branch below is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+layout(std430, binding = 63) readonly buffer OloBonePull
+{
+    float v[];
+} b_Instances;
+#define OLO_PULLED_VERTEX 1
+#else
 // Per-vertex attributes (unit quad)
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec2 a_TexCoord;
@@ -15,6 +33,7 @@ layout(location = 1) in vec2 a_TexCoord;
 layout(location = 2) in vec4 a_PositionScale;   // xyz = world pos, w = scale
 layout(location = 3) in vec4 a_RotationHeight;  // x = Y rotation (rad), y = height, z = fade, w = unused
 layout(location = 4) in vec4 a_ColorAlpha;       // rgb = tint, a = alpha cutoff
+#endif
 
 // Camera UBO (binding 0)
 layout(std140, binding = 0) uniform CameraMatrices
@@ -64,6 +83,18 @@ layout(location = 6) out vec3 v_PrevWorldPos;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    int vertBase = gl_VertexIndex * 5;
+    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+    vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4]);
+    int instBase = gl_InstanceIndex * 12;
+    vec4 a_PositionScale = vec4(b_Instances.v[instBase + 0], b_Instances.v[instBase + 1],
+                                b_Instances.v[instBase + 2], b_Instances.v[instBase + 3]);
+    vec4 a_RotationHeight = vec4(b_Instances.v[instBase + 4], b_Instances.v[instBase + 5],
+                                 b_Instances.v[instBase + 6], b_Instances.v[instBase + 7]);
+    vec4 a_ColorAlpha = vec4(b_Instances.v[instBase + 8], b_Instances.v[instBase + 9],
+                             b_Instances.v[instBase + 10], b_Instances.v[instBase + 11]);
+#endif
     OLO_INSTANCE_FORWARD();
     float scale = a_PositionScale.w;
     float rotation = a_RotationHeight.x;

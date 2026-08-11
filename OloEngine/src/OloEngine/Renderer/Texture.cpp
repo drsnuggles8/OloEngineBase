@@ -56,7 +56,18 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+                // Block-compressed upload (the BCn staging path) is #691
+                // Phase 8. Degrading to null rather than asserting keeps an
+                // asset that happens to be compressed from killing the app —
+                // the caller falls back to its missing-texture handling
+                // (see asset-degradation-and-constructor-preconditions.md).
+                static bool s_Warned = false;
+                if (!s_Warned)
+                {
+                    s_Warned = true;
+                    OLO_CORE_WARN("[RHI/Vulkan] compressed-texture upload is not implemented (#691 Phase 8) — "
+                                  "these textures load as null");
+                }
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:
@@ -80,7 +91,14 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+#if OLO_WITH_VULKAN
+                // #691 Phase 7: file-load arm (stbi + one-shot upload).
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<VulkanTexture2D>::Create(path, srgb);
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out)!");
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:

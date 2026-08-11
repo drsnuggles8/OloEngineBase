@@ -36,7 +36,38 @@ layout(std430, binding = 3) buffer FreeListBuffer
     uint freeList[];
 };
 
-uniform uint u_MaxParticles;
+// ---------------------------------------------------------------------------
+// Particle simulation parameters.
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// Declared VERBATIM in Particle_Simulate/_Emit/_Compact.comp — one binding, one
+// layout, each shader reading only the members it needs. C++ twin:
+// UBOStructures::GPUParticleParamsUBO (ShaderBindingLayout::UBO_PARTICLE_SIM).
+// ---------------------------------------------------------------------------
+layout(std140, binding = 61) uniform ParticleSimParams
+{
+    vec3  u_Gravity;               // 0
+    float u_DeltaTime;             // 12
+    float u_DragCoefficient;       // 16
+    uint  u_MaxParticles;          // 20
+    int   u_EmitCount;             // 24
+    int   u_EnableGravity;         // 28
+    int   u_EnableDrag;            // 32
+    int   u_EnableWind;            // 36
+    float u_WindInfluence;         // 40
+    int   u_EnableNoise;           // 44
+    float u_NoiseStrength;         // 48
+    float u_NoiseFrequency;        // 52
+    int   u_EnableGroundCollision; // 56
+    float u_GroundY;               // 60
+    float u_CollisionBounce;       // 64
+    float u_CollisionFriction;     // 68
+    vec2  _particlePad0;           // 72
+};
 
 void main()
 {

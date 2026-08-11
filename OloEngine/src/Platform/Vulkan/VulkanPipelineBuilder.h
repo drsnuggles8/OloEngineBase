@@ -59,13 +59,9 @@ namespace OloEngine
         [[nodiscard]] const Field* Find(u32 set, u32 binding) const;
     };
 
-    struct VulkanRenderTargetDesc
-    {
-        u32 ColorCount = 0;
-        std::array<VkFormat, 8> ColorFormats{};
-        VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
-        u32 Samples = 1;
-    };
+    // VulkanRenderTargetDesc moved to VulkanRendererAPI.h (#691 Phase 7):
+    // the draw path's rendering scope holds one, and this header includes
+    // that one — declaring it here would cycle.
 
     class VulkanPipelineBuilder
     {
@@ -80,6 +76,18 @@ namespace OloEngine
                                                      const VulkanRecordedPipelineState& state,
                                                      const VulkanRenderTargetDesc& targets,
                                                      const VkSamplerCreateInfo* embeddedSampler = nullptr);
+
+        // The compute sibling (#691 Phase 7): same mapping chain, same
+        // VK_NULL_HANDLE layout + DESCRIPTOR_HEAP flag, no fixed-function
+        // state at all. Keyed on (shaderKey, layout, sampler) — target and
+        // blend fields stay zero, and shader keys are process-unique so a
+        // compute key can never collide with a graphics one. `shaderKey` and
+        // `module` are passed directly so this header needs no
+        // VulkanComputeShader dependency; InvalidateShader(shaderKey) covers
+        // compute pipelines through the same reverse index.
+        [[nodiscard]] VkPipeline GetOrCreateCompute(u64 shaderKey, VkShaderModule module,
+                                                    const VulkanRootDataLayout& layout,
+                                                    const VkSamplerCreateInfo* embeddedSampler = nullptr);
 
         // Issue every vkCmdSet* for the states the pipelines above declare
         // dynamic, from the recorded state. Must run after vkCmdBindPipeline,
@@ -109,6 +117,12 @@ namespace OloEngine
       private:
         VulkanPipelineBuilder() = default;
 
+        // The §4 mapping array for one root layout — shared verbatim by the
+        // graphics and compute paths so the two cannot drift. `sampler` must
+        // outlive pipeline creation (pEmbeddedSampler points at it).
+        [[nodiscard]] static std::vector<VkDescriptorSetAndBindingMappingEXT>
+        BuildBindingMappings(const VulkanRootDataLayout& layout, const VkSamplerCreateInfo& sampler);
+
         struct Key
         {
             u64 ShaderKey = 0;
@@ -119,6 +133,11 @@ namespace OloEngine
             u64 BakedBlendHash = 0; ///< 0 when blend is dynamic (EDS3 present).
             u64 SamplerHash = 0;
             u64 LayoutHash = 0; ///< Root-data layout — drives the baked binding mappings.
+            /// Baked patch size for a tessellated pipeline; 0 when the shader
+            /// has no TCS/TES stage. patchControlPoints is only dynamic under
+            /// extendedDynamicState2PatchControlPoints, which is NOT on the
+            /// ADR 0010 floor — so it is a PSO axis here (#691 Wave C, A10).
+            u32 PatchControlPoints = 0;
 
             bool operator==(const Key&) const = default;
         };

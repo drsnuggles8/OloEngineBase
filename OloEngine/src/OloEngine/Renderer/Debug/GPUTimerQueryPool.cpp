@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "GPUTimerQueryPool.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 
 #include <glad/gl.h>
 
@@ -22,6 +23,20 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         if (m_Initialized)
             return;
+
+        // GL_TIME_ELAPSED queries, called directly rather than through the
+        // facade — GL-only until the Vulkan timestamp-query path exists (#691
+        // Phase 8). Staying UNinitialized is the complete disable: BeginFrame
+        // returns false and every other entry point gates on m_Active, which
+        // only BeginFrame can set. (The sibling GPUPassTimerPool has the same
+        // gate; this pool was simply never given one, and CommandBucket::
+        // ExecuteWithGPUTiming lazily Initializes it the moment a frame
+        // capture is armed.)
+        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            OLO_CORE_INFO("GPUTimerQueryPool: disabled — GL elapsed-time queries only (#691 Phase 8)");
+            return;
+        }
 
         m_MaxQueries = maxQueries;
 

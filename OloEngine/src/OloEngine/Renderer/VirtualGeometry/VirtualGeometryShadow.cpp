@@ -25,6 +25,9 @@ namespace OloEngine::VirtualGeometryShadow
         // main pass's so the ortho-mode uniforms never leak between the two
         // program objects.
         Ref<ComputeShader> s_CullShader;
+        // VirtualClusterCull.comp's former bare uniforms (issue #691 Phase 7),
+        // at UBO_VIRTUAL_CLUSTER_CULL. Refilled per instance dispatch.
+        Ref<UniformBuffer> s_CullParamsUBO;
         Ref<Shader> s_DepthShader;
         Ref<UniformBuffer> s_DrawInfoUBO;
     } // namespace
@@ -85,16 +88,29 @@ namespace OloEngine::VirtualGeometryShadow
         f32 const orthoErrorScale = 0.5f * static_cast<f32>(shadowResolution) * std::max(rowScaleX, rowScaleY);
 
         s_CullShader->Bind();
-        s_CullShader->SetInt("u_OrthoMode", 1);
-        s_CullShader->SetInt("u_OcclusionEnabled", 0); // shadows rasterize every caster (also gated by ortho mode)
-        s_CullShader->SetFloat("u_OrthoErrorScale", orthoErrorScale);
-        s_CullShader->SetFloat("u_ViewportHeight", static_cast<f32>(shadowResolution));
-        s_CullShader->SetFloat("u_SwRasterThresholdPixels", 0.0f);
+        // Former bare uniforms, now one std140 block refilled per dispatch
+        // (issue #691 Phase 7). The struct is value-initialised, so every
+        // two-phase / debug control this path never set is a deterministic 0 —
+        // which is exactly the single-phase, no-debug behaviour the shadow cull
+        // relied on when it simply skipped those Set* calls.
+        if (!s_CullParamsUBO)
+        {
+            s_CullParamsUBO = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(),
+                                                    ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
+        }
+        UBOStructures::VirtualClusterCullUBO cullParams{};
+        cullParams.OrthoMode = 1;
+        cullParams.OcclusionEnabled = 0; // shadows rasterize every caster (also gated by ortho mode)
+        cullParams.OrthoErrorScale = orthoErrorScale;
+        cullParams.ViewportHeight = static_cast<f32>(shadowResolution);
+        cullParams.SwRasterThresholdPixels = 0.0f;
         for (sizet i = 0; i < instances.size(); ++i)
         {
             if (!instances[i].CastShadows)
                 continue;
-            s_CullShader->SetUint("u_InstanceIndex", static_cast<u32>(i));
+            cullParams.InstanceIndex = static_cast<u32>(i);
+            s_CullParamsUBO->SetData(&cullParams, sizeof(cullParams));
+            s_CullParamsUBO->Bind();
             u32 const groups = (instances[i].Gpu.ClusterCount + 63u) / 64u;
             RenderCommand::DispatchCompute(groups, 1, 1);
         }
@@ -125,6 +141,7 @@ namespace OloEngine::VirtualGeometryShadow
     void Shutdown()
     {
         s_CullShader = nullptr;
+        s_CullParamsUBO = nullptr;
         s_DepthShader = nullptr;
         s_DrawInfoUBO = nullptr;
     }

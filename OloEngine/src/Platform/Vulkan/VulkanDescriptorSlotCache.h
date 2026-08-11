@@ -1,0 +1,98 @@
+#pragma once
+
+#include "OloEngine/Core/Base.h"
+
+#if OLO_WITH_VULKAN
+
+// =============================================================================
+// VulkanDescriptorSlotCache — get-or-create heap slots per (image, view,
+// descriptor kind, layout). Issue #691 Phase 7.
+//
+// The draw path's BindTexture(slot, handle) needs "the heap slot whose
+// descriptor samples this texture" — one stable slot per view for the
+// texture's life, written once, recycled when the image is destroyed. This
+// cache is that mapping, layered over VulkanResourceHeap's dumb primitive
+// (bump allocation + descriptor writes) so the primitive stays as Phase 6
+// shipped it.
+//
+// The LAYOUT is part of the key on purpose: a descriptor bakes the layout
+// the image will be in when accessed (SHADER_READ_ONLY for ordinary sampling,
+// DEPTH_STENCIL_READ_ONLY for the read-while-attached PCSS case, GENERAL for
+// storage), and one image legitimately needs different descriptors for
+// different access patterns — folding them would hand a pass a descriptor
+// whose baked layout disagrees with the barrier plan, which is a validation
+// error at best.
+//
+// Slot recycling is safe WITHOUT a frames-in-flight delay because release
+// happens only from VulkanDeferredReclaim's destroy pass — which already
+// waited kFramesInFlight generations past the image's last possible use, so
+// no in-flight frame can still index the freed slots. A freed slot's next
+// tenant writes its descriptor before any draw references it.
+//
+// Relationship to RHI::DescriptorHeap (ADR 0011 amendment (56)): this is the
+// backend-internal half of the deferred "engine DescriptorHeap backend over
+// VulkanResourceHeap" item — the slot bookkeeping Waves A/B need. The full
+// IDescriptorHeapBackend composition (generations, poisoning, the
+// frame-transient ring) layers over the same primitive when its machinery
+// buys something real on this backend; the seam is recorded, not abandoned.
+//
+// Thread-safety: NONE, deliberately — render thread only.
+// =============================================================================
+
+#include "Platform/Vulkan/VulkanDevice.h"
+
+#include <unordered_map>
+#include <vector>
+
+namespace OloEngine
+{
+    class VulkanDescriptorSlotCache
+    {
+      public:
+        [[nodiscard]] static VulkanDescriptorSlotCache& Get();
+
+        // Get-or-create the slot whose descriptor realises (image, view,
+        // type, layout). `type` must be VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE or
+        // VK_DESCRIPTOR_TYPE_STORAGE_IMAGE. Returns
+        // VulkanResourceHeap::InvalidSlot on failure.
+        [[nodiscard]] u32 AcquireSlot(VkImage image, const VkImageViewCreateInfo& viewInfo, VkDescriptorType type,
+                                      VkImageLayout layout);
+
+        // Free every cached slot for `image` into the free list. Called from
+        // VulkanDeferredReclaim's destroy pass (see the recycling note above
+        // for why no extra delay is needed).
+        void ReleaseSlotsForImage(VkImage image);
+
+        // Drop all cache state (heap teardown / device loss). Slots are NOT
+        // returned to the heap — the heap itself is being released.
+        void Reset();
+
+        // Diagnostic/test affordances.
+        [[nodiscard]] sizet GetCachedSlotCount() const
+        {
+            return m_SlotByKey.size();
+        }
+        [[nodiscard]] sizet GetFreeSlotCount() const
+        {
+            return m_FreeSlots.size();
+        }
+
+      private:
+        VulkanDescriptorSlotCache() = default;
+
+        [[nodiscard]] static u64 HashKey(VkImage image, const VkImageViewCreateInfo& viewInfo, VkDescriptorType type,
+                                         VkImageLayout layout);
+
+        struct SlotEntry
+        {
+            u32 Slot = 0;
+            VkDescriptorType Type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        };
+
+        std::unordered_map<u64, SlotEntry> m_SlotByKey;
+        std::unordered_map<VkImage, std::vector<u64>> m_KeysByImage;
+        std::vector<u32> m_FreeSlots;
+    };
+} // namespace OloEngine
+
+#endif // OLO_WITH_VULKAN

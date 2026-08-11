@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "TerrainErosion.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
@@ -59,20 +61,33 @@ namespace OloEngine
         // take the fallback path even with the heap enabled, and the offset table
         // would keep whatever this unit pointed at last.
         m_ErosionShader->Bind();
-        m_ErosionShader->SetUint("u_Resolution", resolution);
-        m_ErosionShader->SetUint("u_MaxDropletSteps", settings.MaxDropletSteps);
-        m_ErosionShader->SetFloat("u_Inertia", settings.Inertia);
-        m_ErosionShader->SetFloat("u_SedimentCapacity", settings.SedimentCapacity);
-        m_ErosionShader->SetFloat("u_MinSedimentCapacity", settings.MinSedimentCapacity);
-        m_ErosionShader->SetFloat("u_DepositSpeed", settings.DepositSpeed);
-        m_ErosionShader->SetFloat("u_ErodeSpeed", settings.ErodeSpeed);
-        m_ErosionShader->SetFloat("u_EvaporateSpeed", settings.EvaporateSpeed);
-        m_ErosionShader->SetFloat("u_Gravity", settings.Gravity);
-        m_ErosionShader->SetFloat("u_InitialWater", settings.InitialWater);
-        m_ErosionShader->SetFloat("u_InitialSpeed", settings.InitialSpeed);
-        m_ErosionShader->SetInt("u_ErosionRadius", static_cast<i32>(settings.ErosionRadius));
-        m_ErosionShader->SetUint("u_Seed", m_IterationSeed);
-        m_ErosionShader->SetUint("u_DropletCount", settings.DropletCount);
+
+        // Droplet parameters. Formerly bare uniforms fed by
+        // ComputeShader::Set*, which GLSL-for-Vulkan cannot express and whose
+        // Set* is a deliberate no-op on that route — one std140 refill per
+        // iteration instead (issue #691 Phase 7; the seed advances per call).
+        if (!m_ParamsUBO)
+        {
+            m_ParamsUBO = UniformBuffer::Create(UBOStructures::TerrainErosionUBO::GetSize(),
+                                                ShaderBindingLayout::UBO_TERRAIN_EROSION);
+        }
+        UBOStructures::TerrainErosionUBO erosionParams{};
+        erosionParams.Resolution = resolution;
+        erosionParams.MaxDropletSteps = settings.MaxDropletSteps;
+        erosionParams.Seed = m_IterationSeed;
+        erosionParams.DropletCount = settings.DropletCount;
+        erosionParams.Inertia = settings.Inertia;
+        erosionParams.SedimentCapacity = settings.SedimentCapacity;
+        erosionParams.MinSedimentCapacity = settings.MinSedimentCapacity;
+        erosionParams.DepositSpeed = settings.DepositSpeed;
+        erosionParams.ErodeSpeed = settings.ErodeSpeed;
+        erosionParams.EvaporateSpeed = settings.EvaporateSpeed;
+        erosionParams.Gravity = settings.Gravity;
+        erosionParams.InitialWater = settings.InitialWater;
+        erosionParams.InitialSpeed = settings.InitialSpeed;
+        erosionParams.ErosionRadius = static_cast<i32>(settings.ErosionRadius);
+        m_ParamsUBO->SetData(&erosionParams, sizeof(erosionParams));
+        m_ParamsUBO->Bind();
 
         // Bind the heightmap as image unit 0 for read/write. Persistent: the
         // heightmap is an editor-owned terrain asset, not a graph-owned target.

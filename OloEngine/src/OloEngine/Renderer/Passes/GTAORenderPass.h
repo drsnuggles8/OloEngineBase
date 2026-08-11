@@ -99,6 +99,9 @@ namespace OloEngine
 
         Ref<ComputeShader> m_GTAOShader;
         Ref<ComputeShader> m_DenoiseShader;
+        // Per-ping-pong-pass blur axis (former bare uniform — no-op Set* on
+        // the Vulkan route, issue #691); lazily created at first denoise.
+        Ref<UniformBuffer> m_DenoiseUBO;
 
         Ref<Texture2D> m_HilbertLUT; // 64×64 R16UI Hilbert curve index
 

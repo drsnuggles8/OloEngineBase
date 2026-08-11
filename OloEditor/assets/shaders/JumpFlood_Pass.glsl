@@ -1,8 +1,21 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 7 (ADR 0011 §5): vertex pulling from the engine-wide binding 57
+// (standard 20-byte {vec3 position, vec2 uv} stream). Only the INPUT source
+// changes; the 11 varyings and the vertex-stage JumpFloodUBO below are shared
+// with the GL branch — this is the one vertex stage in the post suite that
+// carries a descriptor binding of its own.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec2 a_TexCoord;
+#endif
 
 layout(location = 0) out vec2 v_TexCoord;
 layout(location = 1) out vec2 v_TexelSize;
@@ -28,6 +41,13 @@ layout(std140, binding = 29) uniform JumpFloodUBO
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    // Pulled locals under the attribute names — the body below is shared
+    // verbatim with the GL branch.
+    int base = gl_VertexIndex * 5;
+    vec3 a_Position = vec3(b_Vertices.v[base + 0], b_Vertices.v[base + 1], b_Vertices.v[base + 2]);
+    vec2 a_TexCoord = vec2(b_Vertices.v[base + 3], b_Vertices.v[base + 4]);
+#endif
     v_TexCoord = a_TexCoord;
     v_TexelSize = u_TexelSize.xy;
 

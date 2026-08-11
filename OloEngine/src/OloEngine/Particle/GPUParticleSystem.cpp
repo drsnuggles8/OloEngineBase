@@ -32,7 +32,9 @@ namespace OloEngine
           m_EmitShader(std::move(other.m_EmitShader)),
           m_SimulateShader(std::move(other.m_SimulateShader)),
           m_CompactShader(std::move(other.m_CompactShader)),
-          m_BuildIndirectShader(std::move(other.m_BuildIndirectShader))
+          m_BuildIndirectShader(std::move(other.m_BuildIndirectShader)),
+          m_ParamsUBO(std::move(other.m_ParamsUBO)),
+          m_Params(other.m_Params)
     {
         other.m_Initialized = false;
         other.m_MaxParticles = 0;
@@ -56,6 +58,8 @@ namespace OloEngine
             m_SimulateShader = std::move(other.m_SimulateShader);
             m_CompactShader = std::move(other.m_CompactShader);
             m_BuildIndirectShader = std::move(other.m_BuildIndirectShader);
+            m_ParamsUBO = std::move(other.m_ParamsUBO);
+            m_Params = other.m_Params;
             other.m_Initialized = false;
             other.m_MaxParticles = 0;
         }
@@ -192,7 +196,19 @@ namespace OloEngine
         m_SimulateShader = nullptr;
         m_CompactShader = nullptr;
         m_BuildIndirectShader = nullptr;
+        m_ParamsUBO = nullptr;
         m_Initialized = false;
+    }
+
+    void GPUParticleSystem::UploadParams()
+    {
+        if (!m_ParamsUBO)
+        {
+            m_ParamsUBO = UniformBuffer::Create(UBOStructures::GPUParticleParamsUBO::GetSize(),
+                                                ShaderBindingLayout::UBO_PARTICLE_SIM);
+        }
+        m_ParamsUBO->SetData(&m_Params, sizeof(m_Params));
+        m_ParamsUBO->Bind();
     }
 
     void GPUParticleSystem::EmitParticles(std::span<const GPUParticle> newParticles)
@@ -216,10 +232,15 @@ namespace OloEngine
         m_FreeListSSBO->Bind();
         m_PrevPositionSSBO->Bind();
 
-        // Dispatch emission compute
+        // Dispatch emission compute. One std140 refill per dispatch — the
+        // former bare uniforms (issue #691 Phase 7). Legal on both backends:
+        // GL re-uploads the bound buffer, the Vulkan arena mints a fresh
+        // per-dispatch address on every SetData.
         m_EmitShader->Bind();
-        m_EmitShader->SetInt("u_EmitCount", static_cast<int>(emitCount));
-        m_EmitShader->SetUint("u_MaxParticles", m_MaxParticles);
+        m_Params = UBOStructures::GPUParticleParamsUBO{};
+        m_Params.MaxParticles = m_MaxParticles;
+        m_Params.EmitCount = static_cast<i32>(emitCount);
+        UploadParams();
 
         u32 groups = (emitCount + EMIT_WORKGROUP_SIZE - 1) / EMIT_WORKGROUP_SIZE;
         RenderCommand::DispatchCompute(groups, 1, 1);
@@ -239,29 +260,26 @@ namespace OloEngine
         m_ParticleSSBO->Bind();
         m_PrevPositionSSBO->Bind();
 
-        // Set simulation uniforms
+        // Simulation parameters — one std140 refill per dispatch (the former
+        // bare uniforms, issue #691 Phase 7).
         m_SimulateShader->Bind();
-        m_SimulateShader->SetFloat("u_DeltaTime", params.DeltaTime);
-        m_SimulateShader->SetFloat3("u_Gravity", params.Gravity);
-        m_SimulateShader->SetFloat("u_DragCoefficient", params.DragCoefficient);
-        m_SimulateShader->SetUint("u_MaxParticles", m_MaxParticles);
-        m_SimulateShader->SetInt("u_EnableGravity", params.EnableGravity);
-        m_SimulateShader->SetInt("u_EnableDrag", params.EnableDrag);
-
-        // Wind uniforms
-        m_SimulateShader->SetInt("u_EnableWind", params.EnableWind);
-        m_SimulateShader->SetFloat("u_WindInfluence", params.WindInfluence);
-
-        // Noise turbulence uniforms
-        m_SimulateShader->SetInt("u_EnableNoise", params.EnableNoise);
-        m_SimulateShader->SetFloat("u_NoiseStrength", params.NoiseStrength);
-        m_SimulateShader->SetFloat("u_NoiseFrequency", params.NoiseFrequency);
-
-        // Ground collision uniforms
-        m_SimulateShader->SetInt("u_EnableGroundCollision", params.EnableGroundCollision);
-        m_SimulateShader->SetFloat("u_GroundY", params.GroundY);
-        m_SimulateShader->SetFloat("u_CollisionBounce", params.CollisionBounce);
-        m_SimulateShader->SetFloat("u_CollisionFriction", params.CollisionFriction);
+        m_Params = UBOStructures::GPUParticleParamsUBO{};
+        m_Params.DeltaTime = params.DeltaTime;
+        m_Params.Gravity = params.Gravity;
+        m_Params.DragCoefficient = params.DragCoefficient;
+        m_Params.MaxParticles = m_MaxParticles;
+        m_Params.EnableGravity = params.EnableGravity;
+        m_Params.EnableDrag = params.EnableDrag;
+        m_Params.EnableWind = params.EnableWind;
+        m_Params.WindInfluence = params.WindInfluence;
+        m_Params.EnableNoise = params.EnableNoise;
+        m_Params.NoiseStrength = params.NoiseStrength;
+        m_Params.NoiseFrequency = params.NoiseFrequency;
+        m_Params.EnableGroundCollision = params.EnableGroundCollision;
+        m_Params.GroundY = params.GroundY;
+        m_Params.CollisionBounce = params.CollisionBounce;
+        m_Params.CollisionFriction = params.CollisionFriction;
+        UploadParams();
 
         u32 groups = (m_MaxParticles + SIM_WORKGROUP_SIZE - 1) / SIM_WORKGROUP_SIZE;
         RenderCommand::DispatchCompute(groups, 1, 1);
@@ -292,7 +310,9 @@ namespace OloEngine
         m_FreeListSSBO->Bind();
 
         m_CompactShader->Bind();
-        m_CompactShader->SetUint("u_MaxParticles", m_MaxParticles);
+        m_Params = UBOStructures::GPUParticleParamsUBO{};
+        m_Params.MaxParticles = m_MaxParticles;
+        UploadParams();
 
         u32 groups = (m_MaxParticles + COMPACT_WORKGROUP_SIZE - 1) / COMPACT_WORKGROUP_SIZE;
         RenderCommand::DispatchCompute(groups, 1, 1);

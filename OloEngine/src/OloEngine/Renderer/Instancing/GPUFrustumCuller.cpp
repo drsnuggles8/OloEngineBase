@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
@@ -49,6 +50,17 @@ namespace OloEngine
 
     GPUFrustumCuller::GPUFrustumCuller() = default;
     GPUFrustumCuller::~GPUFrustumCuller() = default;
+
+    void GPUFrustumCuller::UploadCullParams(const UBOStructures::InstanceCullUBO& params)
+    {
+        if (!m_CullParamsUBO)
+        {
+            m_CullParamsUBO = UniformBuffer::Create(UBOStructures::InstanceCullUBO::GetSize(),
+                                                    ShaderBindingLayout::UBO_INSTANCE_CULL);
+        }
+        m_CullParamsUBO->SetData(&params, sizeof(params));
+        m_CullParamsUBO->Bind();
+    }
 
     void GPUFrustumCuller::EnsureInitialised()
     {
@@ -173,9 +185,14 @@ namespace OloEngine
         const Ref<ComputeShader>& cullShader = useOcclusion ? m_OcclusionCullShader : m_CullShader;
 
         cullShader->Bind();
-        cullShader->SetUint("u_InstanceCount", inputCount);
-        cullShader->SetFloat4("u_LocalBoundingSphere", localBoundingSphere);
-        cullShader->SetFloat("u_RadiusExpansion", radiusExpansion);
+        // One std140 refill per dispatch — the former bare uniforms (issue #691
+        // Phase 7). Fresh struct, so the occlusion tail is zero on the
+        // frustum-only path (u_OcclusionEnabled == 0), exactly as the old
+        // "just don't call Set*" code behaved.
+        UBOStructures::InstanceCullUBO cullParams{};
+        cullParams.InstanceCount = inputCount;
+        cullParams.LocalBoundingSphere = localBoundingSphere;
+        cullParams.RadiusExpansion = radiusExpansion;
 
         if (useOcclusion)
         {
@@ -188,13 +205,20 @@ namespace OloEngine
             // not acquired from the graph's transient pool (issue #691 Phase 3).
             HeapBinding::BindTextureOrOffset(0, m_Occlusion.HZBTexture,
                                              RHI::HeapSlotLifetime::Persistent);
-            cullShader->SetInt("u_OcclusionEnabled", 1);
-            cullShader->SetMat4("u_PrevViewProjection", m_Occlusion.PrevViewProjection);
-            cullShader->SetFloat2("u_HZBSize", m_Occlusion.HZBSize);
-            cullShader->SetFloat2("u_HZBUVFactor", m_Occlusion.HZBUVFactor);
-            cullShader->SetInt("u_HZBMipCount", static_cast<int>(m_Occlusion.MipCount));
-            cullShader->SetFloat("u_OcclusionDepthBias", m_Occlusion.DepthBias);
+            cullParams.OcclusionEnabled = 1;
+            // A8 seam, shader-reconstruction flavour (#691 Phase 7): the cull
+            // samples the HZB at `ndc.xy * 0.5 + 0.5`, and that pyramid reduces
+            // the row-mirrored scene depth — so the reprojection must mirror
+            // with it. Row flip only: `ndc.z * 0.5 + 0.5` is already right
+            // against GL-shaped stored depth. Applied HERE, at the upload, not
+            // at the producer — three producers feed this field. Identity on GL.
+            cullParams.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(m_Occlusion.PrevViewProjection);
+            cullParams.HZBSize = m_Occlusion.HZBSize;
+            cullParams.HZBUVFactor = m_Occlusion.HZBUVFactor;
+            cullParams.HZBMipCount = static_cast<i32>(m_Occlusion.MipCount);
+            cullParams.OcclusionDepthBias = m_Occlusion.DepthBias;
         }
+        UploadCullParams(cullParams);
 
         if (const u32 groups = (inputCount + kCullWorkgroupSize - 1) / kCullWorkgroupSize; groups > 0)
         {
@@ -302,23 +326,32 @@ namespace OloEngine
         const Ref<ComputeShader>& shader = occlusionActive ? m_OcclusionCullShader : m_CullShader;
 
         shader->Bind();
-        shader->SetUint("u_InstanceCount", inputCount);
-        shader->SetFloat4("u_LocalBoundingSphere", localBoundingSphere);
-        shader->SetFloat("u_RadiusExpansion", radiusExpansion);
+        // One std140 refill per dispatch (issue #691 Phase 7).
+        UBOStructures::InstanceCullUBO cullParams{};
+        cullParams.InstanceCount = inputCount;
+        cullParams.LocalBoundingSphere = localBoundingSphere;
+        cullParams.RadiusExpansion = radiusExpansion;
         if (occlusionActive)
         {
             // Persistent — culler-owned pyramid.
             HeapBinding::BindTextureOrOffset(0, m_Occlusion.HZBTexture,
                                              RHI::HeapSlotLifetime::Persistent); // previous-frame HZB
-            shader->SetInt("u_OcclusionEnabled", 1);
-            shader->SetMat4("u_PrevViewProjection", m_Occlusion.PrevViewProjection);
-            shader->SetFloat2("u_HZBSize", m_Occlusion.HZBSize);
-            shader->SetFloat2("u_HZBUVFactor", m_Occlusion.HZBUVFactor);
-            shader->SetInt("u_HZBMipCount", static_cast<int>(m_Occlusion.MipCount));
-            shader->SetFloat("u_OcclusionDepthBias", m_Occlusion.DepthBias);
-            shader->SetInt("u_WriteRejected", 1); // defer occluded instances to phase 2
-            shader->SetInt("u_Phase2", 0);
+            cullParams.OcclusionEnabled = 1;
+            // A8 seam, shader-reconstruction flavour (#691 Phase 7): the cull
+            // samples the HZB at `ndc.xy * 0.5 + 0.5`, and that pyramid reduces
+            // the row-mirrored scene depth — so the reprojection must mirror
+            // with it. Row flip only: `ndc.z * 0.5 + 0.5` is already right
+            // against GL-shaped stored depth. Applied HERE, at the upload, not
+            // at the producer — three producers feed this field. Identity on GL.
+            cullParams.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(m_Occlusion.PrevViewProjection);
+            cullParams.HZBSize = m_Occlusion.HZBSize;
+            cullParams.HZBUVFactor = m_Occlusion.HZBUVFactor;
+            cullParams.HZBMipCount = static_cast<i32>(m_Occlusion.MipCount);
+            cullParams.OcclusionDepthBias = m_Occlusion.DepthBias;
+            cullParams.WriteRejected = 1; // defer occluded instances to phase 2
+            cullParams.Phase2 = 0;
         }
+        UploadCullParams(cullParams);
 
         if (const u32 groups = (inputCount + kCullWorkgroupSize - 1) / kCullWorkgroupSize; groups > 0)
         {
@@ -389,19 +422,22 @@ namespace OloEngine
                                          RHI::HeapSlotLifetime::Persistent); // current-frame HZB
         // Dispatch the worst case (whole batch); the shader clamps to the live
         // reject count read from binding 19.
-        m_OcclusionCullShader->SetUint("u_InstanceCount", result.InputCount);
-        m_OcclusionCullShader->SetFloat4("u_LocalBoundingSphere", result.LocalBoundingSphere);
-        m_OcclusionCullShader->SetFloat("u_RadiusExpansion", result.RadiusExpansion);
-        m_OcclusionCullShader->SetInt("u_OcclusionEnabled", 1);
+        UBOStructures::InstanceCullUBO cullParams{};
+        cullParams.InstanceCount = result.InputCount;
+        cullParams.LocalBoundingSphere = result.LocalBoundingSphere;
+        cullParams.RadiusExpansion = result.RadiusExpansion;
+        cullParams.OcclusionEnabled = 1;
         // Current-frame HZB is in CURRENT screen space → reproject with the
         // current VP (the caller stores it in PrevViewProjection).
-        m_OcclusionCullShader->SetMat4("u_PrevViewProjection", currentHZB.PrevViewProjection);
-        m_OcclusionCullShader->SetFloat2("u_HZBSize", currentHZB.HZBSize);
-        m_OcclusionCullShader->SetFloat2("u_HZBUVFactor", currentHZB.HZBUVFactor);
-        m_OcclusionCullShader->SetInt("u_HZBMipCount", static_cast<int>(currentHZB.MipCount));
-        m_OcclusionCullShader->SetFloat("u_OcclusionDepthBias", currentHZB.DepthBias);
-        m_OcclusionCullShader->SetInt("u_WriteRejected", 0);
-        m_OcclusionCullShader->SetInt("u_Phase2", 1);
+        // Same A8 seam as the phase-1 uploads above (row flip only).
+        cullParams.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(currentHZB.PrevViewProjection);
+        cullParams.HZBSize = currentHZB.HZBSize;
+        cullParams.HZBUVFactor = currentHZB.HZBUVFactor;
+        cullParams.HZBMipCount = static_cast<i32>(currentHZB.MipCount);
+        cullParams.OcclusionDepthBias = currentHZB.DepthBias;
+        cullParams.WriteRejected = 0;
+        cullParams.Phase2 = 1;
+        UploadCullParams(cullParams);
 
         if (const u32 groups = (result.InputCount + kCullWorkgroupSize - 1) / kCullWorkgroupSize; groups > 0)
         {

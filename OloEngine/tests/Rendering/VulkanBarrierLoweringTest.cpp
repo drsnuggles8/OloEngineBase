@@ -64,14 +64,20 @@ TEST(VulkanBarrierLowering, UndefinedLowersToNoStageNoAccess)
 
 TEST(VulkanBarrierLowering, AttachmentAccessesLowerToAttachmentStages)
 {
+    // The WRITE accesses lower to READ|WRITE: the loadOp/blend (color) and
+    // depth-test (depth) READ halves ride along with an attachment write, and
+    // a transition into the attachment scope must cover them or loadOp LOAD
+    // trips sync validation (VulkanPassSuiteTest's first full-graph frame).
     const auto colorWrite = VBL::LowerAccess(RHI::Access::ColorAttachmentWrite, kGfx, kColor);
     EXPECT_EQ(colorWrite.StageMask, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
-    EXPECT_EQ(colorWrite.AccessMask, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+    EXPECT_EQ(colorWrite.AccessMask,
+              VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
     const auto depthWrite = VBL::LowerAccess(RHI::Access::DepthStencilAttachmentWrite, kGfx, kDepthStencil);
     EXPECT_EQ(depthWrite.StageMask,
               VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT);
-    EXPECT_EQ(depthWrite.AccessMask, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+    EXPECT_EQ(depthWrite.AccessMask,
+              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 }
 
 TEST(VulkanBarrierLowering, ComputeLaneNarrowsShaderStagesToComputeOnly)
@@ -166,7 +172,7 @@ TEST(VulkanBarrierLowering, ImageBarrierAssemblesBothSidesAndLayouts)
     EXPECT_EQ(out.sType, VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2);
     EXPECT_EQ(out.image, image);
     EXPECT_EQ(out.srcStageMask, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
-    EXPECT_EQ(out.srcAccessMask, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+    EXPECT_EQ(out.srcAccessMask, VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
     EXPECT_EQ(out.oldLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     EXPECT_EQ(out.newLayout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     EXPECT_EQ(out.srcQueueFamilyIndex, static_cast<u32>(VK_QUEUE_FAMILY_IGNORED));

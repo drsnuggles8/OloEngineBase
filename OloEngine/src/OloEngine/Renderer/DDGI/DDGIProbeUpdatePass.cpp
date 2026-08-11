@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -667,13 +668,19 @@ namespace OloEngine
             const glm::mat4 view = glm::lookAt(probeRel, probeRel + kFaceTargets[face], kFaceUps[face]);
             const glm::mat4 vp = proj * view;
 
+            // A8 seam, CAPTURE flavour (#691 Wave C item 15): the z remap
+            // without the y flip. The atlas is DIRECTION-addressed by the
+            // relight, so the screen-space y flip would store every face
+            // row-mirrored relative to the GL bake while direction->texel
+            // addressing stayed API-identical — see
+            // RHIProjectionSeam.h's AdjustCaptureProjectionForBackend.
             UBOStructures::CameraUBO camera{};
-            camera.ViewProjection = vp;
+            camera.ViewProjection = RHI::AdjustCaptureProjectionForBackend(vp);
             camera.View = view;
-            camera.Projection = proj;
+            camera.Projection = RHI::AdjustCaptureProjectionForBackend(proj);
             camera.Position = probeRel;
             camera._padding0 = 0.0f;
-            camera.PrevViewProjection = vp;
+            camera.PrevViewProjection = RHI::AdjustCaptureProjectionForBackend(vp);
             camera.RenderOrigin = m_RenderOrigin;
             m_CaptureCameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
 

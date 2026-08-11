@@ -78,10 +78,15 @@ namespace OloEngine
                           backend.Api == RendererAPI::API::Vulkan ? "Vulkan" : "OpenGL", backend.Source);
         }
 
-        // Phase 4 bring-up scope: under --rhi=vulkan the window clears + presents
-        // and NOTHING else — Renderer::Init, the GL debug tools and the ImGui
-        // layer (imgui_impl_opengl3, GL-bound until Phase 8) are all skipped.
-        const bool vulkanBringUp = RendererAPI::GetAPI() == RendererAPI::API::Vulkan;
+        // #691 Phase 7 (Final): the renderer now comes up on BOTH backends —
+        // the whole pass suite is ported and the swapchain is importable, so
+        // Renderer::Init and the layer stack run under --rhi=vulkan and the
+        // render graph draws the real frame. What is still GL-only, and so
+        // still gated, is (a) the GL debug tools (GPUResourceInspector /
+        // ShaderDebugger are glad-call sites) and (b) the ImGui RENDERER
+        // backend — the ImGui layer itself is pushed either way and runs
+        // platform-only under Vulkan (see ImGuiLayer::OnAttach).
+        const bool glOnlyTooling = RendererAPI::GetAPI() != RendererAPI::API::Vulkan;
 
         // Register the application name with the crash reporter
         CrashReporter::SetApplicationInfo(m_Specification.Name, OLO_ENGINE_VERSION);
@@ -94,7 +99,7 @@ namespace OloEngine
                 m_Window = Window::Create(WindowProps(m_Specification.Name));
                 m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 
-                if (!vulkanBringUp)
+                if (glOnlyTooling)
                 {
 // Initialize debug tools before Renderer to catch all resource creation
 #ifdef OLO_DEBUG
@@ -102,15 +107,39 @@ namespace OloEngine
                     ShaderDebugger::GetInstance().Initialize();
                     OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
 #endif
-
-                    m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
-                    Renderer::Init(m_Specification.PreferredRenderer, m_Window.get());
-                    m_Window->SetTitle(m_Specification.Name);
                 }
                 else
                 {
-                    OLO_CORE_INFO("[RHI] Vulkan bring-up (#691 Phase 4): Renderer::Init, GL debug tools "
-                                  "and the ImGui layer are skipped — the window clears + presents only");
+                    OLO_CORE_INFO("[RHI] Vulkan (#691 Phase 7): the GL debug tools and the ImGui renderer "
+                                  "backend are skipped; the renderer and the render graph run");
+                }
+
+                m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
+                Renderer::Init(m_Specification.PreferredRenderer, m_Window.get());
+                m_Window->SetTitle(m_Specification.Name);
+
+                // #691 Phase 7 (Final): a backend whose swap path owns frame
+                // recording (Vulkan: acquire → record → submit → present)
+                // cannot have the frame drawn before SwapBuffers — there is
+                // no open command buffer then, and no acquired backbuffer to
+                // resolve "the default framebuffer" to. Hand it the frame's
+                // layer work instead; Run() then skips the inline call.
+                if (auto* context = m_Window->GetGraphicsContext(); context != nullptr)
+                {
+                    m_BackendDrivesFrameRendering = !glOnlyTooling;
+                    if (m_BackendDrivesFrameRendering)
+                    {
+                        context->SetFrameRenderCallback(
+                            [this](const GraphicsContext::FrameRenderTarget& target) -> bool
+                            {
+                                // Declined until the main loop owns the frame
+                                // (see m_FrameLoopStarted) — startup presents
+                                // from inside OnAttach/Renderer3D::Init.
+                                if (!m_FrameLoopStarted || target.Width == 0 || target.Height == 0)
+                                    return false;
+                                return RenderFrameLayers(m_PendingFrameTimestep);
+                            });
+                    }
                 }
 
                 if (!AudioEngine::Init())
@@ -122,17 +151,17 @@ namespace OloEngine
                 GamepadManager::Initialize();
                 InputActionManager::Init();
 
-                if (!vulkanBringUp)
-                {
-                    // Non-owning pointer — ownership is transferred to LayerStack
-                    // via PushOverlay; kept here for convenient access.
-                    m_ImGuiLayer = new ImGuiLayer();
-                    PushOverlay(std::unique_ptr<Layer>(m_ImGuiLayer));
+                // Non-owning pointer — ownership is transferred to LayerStack
+                // via PushOverlay; kept here for convenient access. Pushed on
+                // both backends: under Vulkan the layer is platform-only, and
+                // the editor's update path calls into ImGui (input drain,
+                // viewport mouse) whether or not anything is drawn.
+                m_ImGuiLayer = new ImGuiLayer();
+                PushOverlay(std::unique_ptr<Layer>(m_ImGuiLayer));
 
-                    // Debug/performance overlay layers (toggle with F3/F4)
-                    PushOverlay(std::make_unique<DebugOverlayLayer>());
-                    PushOverlay(std::make_unique<PerformanceLayer>());
-                }
+                // Debug/performance overlay layers (toggle with F3/F4)
+                PushOverlay(std::make_unique<DebugOverlayLayer>());
+                PushOverlay(std::make_unique<PerformanceLayer>());
             }
             else
             {
@@ -168,13 +197,10 @@ namespace OloEngine
             if (!m_Specification.IsHeadless)
             {
                 AudioEngine::Shutdown();
-                // Under Vulkan bring-up neither the renderer nor the GL debug tools
-                // ever initialized — and Renderer::Shutdown routes through the
-                // never-Init'ed GL RendererAPI (null glad pointers, no context).
-                if (!vulkanBringUp)
+                Renderer::Shutdown();
+                // The GL debug tools only initialized on the GL backend.
+                if (glOnlyTooling)
                 {
-                    Renderer::Shutdown();
-
 #ifdef OLO_DEBUG
                     ShaderDebugger::GetInstance().Shutdown();
                     GPUResourceInspector::GetInstance().Shutdown();
@@ -210,10 +236,10 @@ namespace OloEngine
         NetworkManager::Shutdown();
         if (!m_Specification.IsHeadless)
         {
+            // Before StopWorkers() below: this is what joins the audio thread.
             AudioEngine::Shutdown();
-            // Under Vulkan bring-up (#691 Phase 4) neither the renderer nor the GL
-            // debug tools ever initialized; Renderer::Shutdown would route through
-            // the never-Init'ed GL RendererAPI (null glad pointers, no context).
+            // The GL debug tools only initialized on the GL backend (#691
+            // Phase 7); the renderer itself now comes up on both.
             if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
             {
                 // Shutdown debug tools before Renderer
@@ -222,9 +248,8 @@ namespace OloEngine
                 GPUResourceInspector::GetInstance().Shutdown();
                 OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
 #endif
-
-                Renderer::Shutdown();
             }
+            Renderer::Shutdown();
         }
 
         // Shutdown task scheduler
@@ -322,6 +347,69 @@ namespace OloEngine
         }
     }
 
+    bool Application::RenderFrameLayers(const Timestep timestep)
+    {
+        if (m_Minimized)
+        {
+            return false;
+        }
+
+        // RE-ENTRANCY. On a backend that records the frame inside SwapBuffers
+        // this function runs from the swap path — and the engine presents from
+        // places that are NOT the frame loop: ShaderWarmup::RenderProgressFrame
+        // calls Window::SwapBuffers per compiled shader, from inside
+        // Renderer3D::Init, which the editor triggers LAZILY from its own
+        // OnUpdate. Without this latch that nested swap re-enters the layer
+        // loop against a half-built renderer — an access violation on the
+        // first 3D progress frame, which is exactly how this was found.
+        // Declining the nested frame makes the backend present its clear
+        // (the loading screen's own draw is still recorded and shown by the
+        // outer frame).
+        if (m_FrameLayersInProgress)
+        {
+            return false;
+        }
+        struct ReentrancyLatch
+        {
+            bool& Flag;
+            explicit ReentrancyLatch(bool& flag)
+                : Flag(flag)
+            {
+                Flag = true;
+            }
+            ~ReentrancyLatch()
+            {
+                Flag = false;
+            }
+        } latch{ m_FrameLayersInProgress };
+
+        {
+            OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");
+            for (Layer* const layer : m_LayerStack)
+            {
+                layer->OnUpdate(timestep);
+            }
+            OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
+        }
+
+        // Null only in headless / early-failure paths — the layer is pushed on
+        // both backends now (platform-only under Vulkan, see ImGuiLayer).
+        if (m_ImGuiLayer != nullptr)
+        {
+            OloEngine::ImGuiLayer::Begin();
+            {
+                OLO_PROFILE_FRAMEMARK_START("LayerStack OnImGuiRender");
+                for (Layer* const layer : m_LayerStack)
+                {
+                    layer->OnImGuiRender();
+                }
+                OLO_PROFILE_FRAMEMARK_END("LayerStack OnImGuiRender");
+            }
+            OloEngine::ImGuiLayer::End();
+        }
+        return true;
+    }
+
     void Application::Run()
     {
         OLO_PROFILE_FUNCTION();
@@ -329,6 +417,8 @@ namespace OloEngine
         // Seed the frame timer so the first iteration doesn't include
         // the entire startup/attach time as one gigantic delta.
         m_LastFrameTime = Time::GetTime();
+        // From here on a swap IS a frame (see m_FrameLoopStarted).
+        m_FrameLoopStarted = true;
 
         while (m_Running)
         {
@@ -370,33 +460,15 @@ namespace OloEngine
             // Process tasks targeted at the Game Thread
             Tasks::FNamedThreadManager::Get().ProcessTasks(true);
 
-            if (!m_Minimized)
+            // #691 Phase 7: with a backend that owns frame recording the layer
+            // work happens inside SwapBuffers, in the backend's command-buffer
+            // bracket, against the acquired backbuffer — so it is HANDED OVER
+            // here rather than run. Everything above (input, tasks) still runs
+            // at the top of the frame exactly as before.
+            m_PendingFrameTimestep = timestep;
+            if (!m_BackendDrivesFrameRendering)
             {
-                {
-                    OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");
-                    for (Layer* const layer : m_LayerStack)
-                    {
-                        layer->OnUpdate(timestep);
-                    }
-                    OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
-                }
-
-                // Null under Vulkan bring-up (#691 Phase 4): the ImGui layer was
-                // never pushed (its backend is imgui_impl_opengl3 until Phase 8),
-                // so no ImGui context exists to Begin()/End() against.
-                if (m_ImGuiLayer != nullptr)
-                {
-                    OloEngine::ImGuiLayer::Begin();
-                    {
-                        OLO_PROFILE_FRAMEMARK_START("LayerStack OnImGuiRender");
-                        for (Layer* const layer : m_LayerStack)
-                        {
-                            layer->OnImGuiRender();
-                        }
-                        OLO_PROFILE_FRAMEMARK_END("LayerStack OnImGuiRender");
-                    }
-                    OloEngine::ImGuiLayer::End();
-                }
+                (void)RenderFrameLayers(timestep);
             }
 
             // Timed separately from the FRAMEMARK scope: SwapBuffers is the
@@ -542,14 +614,11 @@ namespace OloEngine
         OLO_CORE_INFO("Application::OnWindowResize - Window: {}x{}, Framebuffer: {}x{}",
                       e.GetWidth(), e.GetHeight(), fbWidth, fbHeight);
 
-        // Under Vulkan bring-up (#691 Phase 4) the renderer never initialized;
-        // the swapchain recreates itself inside VulkanContext::SwapBuffers on
-        // VK_ERROR_OUT_OF_DATE_KHR, so resize needs no engine-side plumbing yet.
-        if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
-        {
-            // Use framebuffer size for renderer
-            Renderer::OnWindowResize(fbWidth, fbHeight);
-        }
+        // Use framebuffer size for renderer. On Vulkan the SWAPCHAIN half is
+        // still the context's own business (it recreates on
+        // VK_ERROR_OUT_OF_DATE_KHR inside SwapBuffers); this is the engine
+        // half — the render graph's own targets (#691 Phase 7).
+        Renderer::OnWindowResize(fbWidth, fbHeight);
 
         return false;
     }

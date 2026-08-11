@@ -14,6 +14,33 @@ namespace OloEngine::VulkanBarrierLowering
                    aspect == RHI::TextureAspect::DepthStencil;
         }
 
+        // RenderGraph's framebuffer fan-out (BuildRHIBarriers) re-uses ONE
+        // access prototype for EVERY attachment of the framebuffer — the
+        // depth attachment included — and documents that "the backend
+        // derives each attachment's aspect/layout from its own image
+        // format". Honour that contract here: an attachment access arriving
+        // with a depth-like aspect IS the depth-stencil attachment access in
+        // disguise, and remapping the enum (instead of special-casing each
+        // switch) keeps LowerAccess and LayoutFor consistent by
+        // construction. Lowered aspect-blind, a graph WAW between two
+        // passes writing the same depth-carrying framebuffer emitted
+        // COLOR_ATTACHMENT_OPTIMAL on the depth image — illegal without
+        // COLOR_ATTACHMENT usage (VUID-VkImageMemoryBarrier2-oldLayout-
+        // 01208) — and then poisoned the layout tracker so the next
+        // scope-open emitted the inverse oldLayout error (found by the
+        // pass-suite ShaderDebugDraw/Particle tenants, #691 Wave C).
+        [[nodiscard]] RHI::Access NormalizeAttachmentAccessForAspect(const RHI::Access access,
+                                                                     const RHI::TextureAspect aspect)
+        {
+            if (!IsDepthLikeAspect(aspect))
+                return access;
+            if (access == RHI::Access::ColorAttachmentRead)
+                return RHI::Access::DepthStencilAttachmentRead;
+            if (access == RHI::Access::ColorAttachmentWrite)
+                return RHI::Access::DepthStencilAttachmentWrite;
+            return access;
+        }
+
         // The shader-stage union one lane's shader access can touch. The
         // Graphics union includes COMPUTE deliberately — this engine's
         // Graphics-work-type passes dispatch compute mid-pass (bloom chain,
@@ -45,7 +72,7 @@ namespace OloEngine::VulkanBarrierLowering
 
     StageAccess LowerAccess(const RHI::Access access, const RHI::QueueType queue, const RHI::TextureAspect aspect)
     {
-        switch (access)
+        switch (NormalizeAttachmentAccessForAspect(access, aspect))
         {
             case RHI::Access::Undefined:
                 // No prior access to make available — pairs with an UNDEFINED
@@ -74,11 +101,22 @@ namespace OloEngine::VulkanBarrierLowering
             case RHI::Access::ColorAttachmentRead:
                 return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT };
             case RHI::Access::ColorAttachmentWrite:
-                return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
+                // READ|WRITE, not WRITE alone: an attachment-write access
+                // carries the loadOp/blend READ half with it — a transition
+                // INTO the attachment scope must make the image visible to
+                // loadOp LOAD's ATTACHMENT_READ or sync validation flags the
+                // begin-rendering read (found by VulkanPassSuiteTest). As a
+                // SOURCE scope the extra read bit is ignored by the
+                // availability rules, so one spelling serves both directions.
+                return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT };
             case RHI::Access::DepthStencilAttachmentRead:
                 return { kDepthStencilTestStages, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT };
             case RHI::Access::DepthStencilAttachmentWrite:
-                return { kDepthStencilTestStages, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
+                // READ|WRITE for the same reason as ColorAttachmentWrite: the
+                // depth test's read half rides along with the write access.
+                return { kDepthStencilTestStages,
+                         VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
             case RHI::Access::InputAttachmentRead:
                 return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_INPUT_ATTACHMENT_READ_BIT };
 
@@ -108,7 +146,7 @@ namespace OloEngine::VulkanBarrierLowering
 
     VkImageLayout LayoutFor(const RHI::Access access, const RHI::TextureAspect aspect, const bool readWhileAttached)
     {
-        switch (access)
+        switch (NormalizeAttachmentAccessForAspect(access, aspect))
         {
             case RHI::Access::Undefined:
                 return VK_IMAGE_LAYOUT_UNDEFINED;
@@ -265,6 +303,60 @@ namespace OloEngine::VulkanBarrierLowering
         out.size = VK_WHOLE_SIZE;
         return out;
     }
+    VkFormat ToVkFormat(const RHI::Format format)
+    {
+        switch (format)
+        {
+            case RHI::Format::Unknown:
+                return VK_FORMAT_UNDEFINED;
+            case RHI::Format::R8UNorm:
+                return VK_FORMAT_R8_UNORM;
+            case RHI::Format::R8UInt:
+                return VK_FORMAT_R8_UINT;
+            case RHI::Format::RG8UNorm:
+                return VK_FORMAT_R8G8_UNORM;
+            case RHI::Format::RGB8UNorm:
+                return VK_FORMAT_R8G8B8A8_UNORM; // widened, matching image allocation
+            case RHI::Format::RGBA8UNorm:
+                return VK_FORMAT_R8G8B8A8_UNORM;
+            case RHI::Format::RGBA8SRGB:
+                return VK_FORMAT_R8G8B8A8_SRGB;
+            case RHI::Format::R16UInt:
+                return VK_FORMAT_R16_UINT;
+            case RHI::Format::RG16UInt:
+                return VK_FORMAT_R16G16_UINT;
+            case RHI::Format::RG16Float:
+                return VK_FORMAT_R16G16_SFLOAT;
+            case RHI::Format::RGBA16Float:
+                return VK_FORMAT_R16G16B16A16_SFLOAT;
+            case RHI::Format::R32Float:
+                return VK_FORMAT_R32_SFLOAT;
+            case RHI::Format::R32Int:
+                return VK_FORMAT_R32_SINT;
+            case RHI::Format::R32UInt:
+                return VK_FORMAT_R32_UINT;
+            case RHI::Format::RG32Float:
+                return VK_FORMAT_R32G32_SFLOAT;
+            case RHI::Format::RGB32Float:
+                return VK_FORMAT_R32G32B32A32_SFLOAT; // widened
+            case RHI::Format::RGBA32Float:
+                return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case RHI::Format::D24UNormS8UInt:
+                return VK_FORMAT_D32_SFLOAT_S8_UINT; // what the allocator actually creates
+            case RHI::Format::D32Float:
+                return VK_FORMAT_D32_SFLOAT;
+            case RHI::Format::BC7UNorm:
+                return VK_FORMAT_BC7_UNORM_BLOCK;
+            case RHI::Format::BC7SRGB:
+                return VK_FORMAT_BC7_SRGB_BLOCK;
+            case RHI::Format::BC5UNorm:
+                return VK_FORMAT_BC5_UNORM_BLOCK;
+            case RHI::Format::BC6HUFloat:
+                return VK_FORMAT_BC6H_UFLOAT_BLOCK;
+        }
+        return VK_FORMAT_UNDEFINED;
+    }
+
 } // namespace OloEngine::VulkanBarrierLowering
 
 #endif // OLO_WITH_VULKAN

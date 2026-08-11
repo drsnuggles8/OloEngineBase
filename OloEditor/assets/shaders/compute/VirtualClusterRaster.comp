@@ -110,9 +110,26 @@ layout(std140, binding = 0) uniform CameraMatrices
     float _padding0;
 };
 
-uniform uint u_Phase;          // portable mode: 0 = depth atomicMin, 1 = payload write (ignored in INT64 mode)
-uniform uint u_ViewportWidth;  // visibility-buffer dimensions in pixels
-uniform uint u_ViewportHeight;
+// ---- Visibility-buffer / debug-target parameters ----
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
+// declaration does not fork per backend.
+// Declared VERBATIM in VirtualClusterRaster.comp (both the portable and the
+// INT64 variant of that one file) and VirtualDebugColorize.comp — whose former
+// u_Width/u_Height ARE these u_ViewportWidth/u_ViewportHeight, renamed so one
+// block serves both. C++ twin: UBOStructures::VirtualRasterUBO
+// (ShaderBindingLayout::UBO_VIRTUAL_RASTER).
+layout(std140, binding = 70) uniform VirtualRasterParams
+{
+    uint  u_ViewportWidth;  // 0  — visibility-buffer / debug-target width in pixels
+    uint  u_ViewportHeight; // 4
+    uint  u_Phase;          // 8  — portable raster: 0 = depth atomicMin, 1 = payload write
+                            //      (ignored in INT64 mode)
+    float u_OverdrawScale;  // 12 — colorize: count that maps to the hot end of the ramp
+};
 
 // Bounded micro-triangle raster: SW-routed clusters have small projected
 // coverage, so a hard per-triangle bounding-box cap both bounds worst-case

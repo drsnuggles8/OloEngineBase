@@ -3,6 +3,8 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
+#include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 namespace OloEngine
@@ -75,9 +77,17 @@ namespace OloEngine
         allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
         allocInfo.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
+        // vkCmdBindResourceHeapEXT requires heapRange.address to be a
+        // multiple of resourceHeapAlignment (VUID-11235) — a plain
+        // vmaCreateBuffer only honours the buffer's own memory requirement,
+        // and a suballocation that lands 16-aligned binds a misaligned heap.
+        // Latent through Phase 6 (the pilot's allocation happened to land
+        // aligned); surfaced the moment the allocation order changed.
+        const VkDeviceSize heapAlignment = std::max<VkDeviceSize>(heapProps.resourceHeapAlignment, 1);
+
         VmaAllocationInfo resultInfo{};
-        if (vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &resultInfo) !=
-            VK_SUCCESS)
+        if (vmaCreateBufferWithAlignment(device->GetAllocator(), &bufferInfo, &allocInfo, heapAlignment, &m_Buffer,
+                                         &m_Allocation, &resultInfo) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanResourceHeap: heap buffer creation failed ({} B)", m_TotalSize);
             m_Buffer = VK_NULL_HANDLE;
@@ -125,7 +135,45 @@ namespace OloEngine
         return m_NextSlot++;
     }
 
+    bool VulkanResourceHeap::ReserveSlotRange(const u32 count)
+    {
+        if (!EnsureCreated() || count > kSlotCapacity)
+        {
+            return false;
+        }
+        if (m_ReservedSlots == count)
+        {
+            return true; // idempotent re-install
+        }
+        if (m_NextSlot > m_ReservedSlots)
+        {
+            // Dynamic allocation already ran past the previous reservation —
+            // a retroactive widen would alias live slots.
+            if (count > m_NextSlot)
+            {
+                OLO_CORE_ERROR("VulkanResourceHeap: reserve of {} slots after dynamic allocation reached {} — "
+                               "install the engine heap before any draw-path slot use",
+                               count, m_NextSlot);
+                return false;
+            }
+        }
+        m_ReservedSlots = count;
+        m_NextSlot = std::max(m_NextSlot, count);
+        return true;
+    }
+
     bool VulkanResourceHeap::WriteSampledImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout)
+    {
+        return WriteImageDescriptor(slot, viewInfo, layout, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+    }
+
+    bool VulkanResourceHeap::WriteStorageImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout)
+    {
+        return WriteImageDescriptor(slot, viewInfo, layout, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    }
+
+    bool VulkanResourceHeap::WriteImageDescriptor(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout,
+                                                  VkDescriptorType type)
     {
         if (!EnsureCreated() || slot >= kSlotCapacity || viewInfo.image == VK_NULL_HANDLE)
         {
@@ -144,7 +192,7 @@ namespace OloEngine
 
         VkResourceDescriptorInfoEXT resourceInfo{};
         resourceInfo.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
-        resourceInfo.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        resourceInfo.type = type;
         resourceInfo.data.pImage = &imageInfo;
 
         VkHostAddressRangeEXT dst{};
@@ -154,8 +202,8 @@ namespace OloEngine
         const VkResult result = vkWriteResourceDescriptorsEXT(device->GetDevice(), 1, &resourceInfo, &dst);
         if (result != VK_SUCCESS)
         {
-            OLO_CORE_ERROR("VulkanResourceHeap: vkWriteResourceDescriptorsEXT failed (slot {}, VkResult {})", slot,
-                           static_cast<int>(result));
+            OLO_CORE_ERROR("VulkanResourceHeap: vkWriteResourceDescriptorsEXT failed (slot {}, type {}, VkResult {})",
+                           slot, static_cast<int>(type), static_cast<int>(result));
             return false;
         }
         return true;
@@ -186,7 +234,14 @@ namespace OloEngine
         m_Mapped = nullptr;
         m_BaseAddress = 0;
         m_NextSlot = 0;
+        m_ReservedSlots = 0;
         m_OwningDevice = VK_NULL_HANDLE;
+        // Slot indices are meaningless once the heap they index is gone —
+        // the amendment (33) family: state must not outlive what gives it
+        // meaning. The backend's null images die with the heap too (the
+        // descriptors pointing at them just did).
+        VulkanDescriptorSlotCache::Get().Reset();
+        VulkanDescriptorHeapBackend::Get().ReleaseDeviceObjects();
     }
 } // namespace OloEngine
 

@@ -117,13 +117,14 @@ namespace OloEngine
         // while the registry had grown past both). Clamp the capture loop
         // against the driver's actual limit in case it reports fewer.
         static constexpr u32 kTextureSlots = ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS;
-        // MUST name the HIGHEST registered UBO binding, not merely a high one.
-        // This drifted once already (see above) and drifted again when #691 added
-        // UBO_HEAP_OFFSETS at 56 above the then-highest UBO_FLUID_RENDER at 48 —
-        // leaving the heap offset table, the one binding every converted pass
-        // depends on, invisible to the leak detector built to catch exactly this.
-        // When you add a UBO binding above this one, move this constant.
-        static constexpr u32 kUboSlots = ShaderBindingLayout::UBO_HEAP_OFFSETS + 1;
+        // MUST cover the HIGHEST registered UBO binding, not merely a high one.
+        // This drifted twice by naming a specific constant — first when #691
+        // added UBO_HEAP_OFFSETS at 56 above the then-highest UBO_FLUID_RENDER
+        // at 48, then again when #705/#691-Phase-7 added thirteen bindings
+        // above 56 — each time leaving bindings invisible to the leak detector
+        // built to catch exactly this. It is now DERIVED, so an addition cannot
+        // silently escape the snapshot.
+        static constexpr u32 kUboSlots = ShaderBindingLayout::UBO_BINDING_LIMIT;
         // Per-texture-unit bindings for every target the engine actually
         // binds. 2D covers colour/normal/roughness/AO; 2D_ARRAY is used by
         // CSM shadow maps; CUBE_MAP by IBL / environment maps. A pass

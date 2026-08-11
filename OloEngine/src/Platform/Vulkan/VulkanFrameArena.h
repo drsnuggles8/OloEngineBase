@@ -109,6 +109,15 @@ namespace OloEngine
         {
             return m_CurrentSlot;
         }
+        // Monotonic BeginFrame counter (never wraps back like the slot index
+        // does). Per-object lazy-push caches (VulkanUniformBuffer's
+        // "already pushed this frame" check) key on this: the slot index
+        // alone would alias frame N with frame N+2 and hand out an address
+        // into a REWOUND slot. 0 = no frame has begun yet.
+        [[nodiscard]] u64 GetFrameGeneration() const
+        {
+            return m_FrameGeneration;
+        }
         // The slot's backing buffer — for transfer commands that stage
         // through the arena (vkCmdCopyBufferToImage of a Push()ed payload).
         [[nodiscard]] VkBuffer GetSlotBuffer(u32 frameSlot) const
@@ -143,6 +152,7 @@ namespace OloEngine
 
         std::array<Slot, kFramesInFlight> m_Slots{};
         u32 m_CurrentSlot = 0;
+        u64 m_FrameGeneration = 0;
         u64 m_AllocationsThisFrame = 0;
         u64 m_OverflowCount = 0;
         bool m_OverflowWarned = false;
