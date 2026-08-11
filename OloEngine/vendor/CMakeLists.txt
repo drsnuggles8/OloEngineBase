@@ -296,8 +296,14 @@ set(ATOMIC_QUEUE_INCLUDE_DIR "${atomic_queue_SOURCE_DIR}/include" CACHE INTERNAL
 # Tracy's own macros — only define when the CMake option is on. With this off
 # the entire Profiler ctor (and its worker threads) compile out, which avoids
 # the static-init race that TSan trips on (see CMakePresets.json linux-tsan).
+# TRACY_ON_DEMAND MUST match the consumer side (cmake/CommonProperties.cmake) —
+# since Tracy v0.14.0 the on-demand flag is baked into the mangled GetProfiler
+# symbol (GetProfiler_CFG_E1_OD1_…), so a TracyClient built without it exports
+# the OD0 variant while the engine references OD1, giving an LNK2001 at link.
 if(TRACY_ENABLE)
-    target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
+    target_compile_definitions("TracyClient" PRIVATE
+        $<$<CONFIG:Release>:TRACY_ENABLE>
+        $<$<CONFIG:Release>:TRACY_ON_DEMAND>)
 endif()
 
 glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
