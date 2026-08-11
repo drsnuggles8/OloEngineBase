@@ -48,21 +48,31 @@ auto ElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(End - Sta
 EXPECT_GE(ElapsedUs, 5000) << "TryAcquireFor(10ms) returned far too early: elapsed=" << ElapsedUs << "us";
 ```
 
-Generalisable rule for any test asserting a lower bound on a short timed wait:
+Generalisable *process*, not a generalisable bound, for any test asserting a lower bound on a short
+timed wait — the one-sided assertion is a claim about a specific implementation, not a property of
+"semaphores" or "timed waits" in general, and must be re-verified per platform/wrapper rather than
+inherited from a sibling's evidence:
 
 - **Measure in microseconds**, not milliseconds, whenever the measured value is small enough that a
   1ms truncation is a meaningful fraction of it.
-- **Assert one-sided** when the underlying primitive's failure mode can only ever delay, never
-  shorten, the wait — state *why* in a comment (which OS primitive, why it has no spurious-wake state)
-  so a future reader doesn't have to re-derive it.
+- **Verify *this* wrapper's timed-wait contract before asserting one-sided** — confirm whether it can
+  report "not acquired"/timed-out before its real deadline for a reason that isn't a genuine timeout
+  (a spurious wake it fails to loop out of, or a spec-permitted spurious failure), and restrict the
+  one-sided pattern to implementations you've confirmed can't. Two OS-specific primitives were checked
+  here and behave differently: a kernel dispatcher-object wait (`WaitForSingleObject` on a Win32
+  semaphore/event handle, `FWindowsSemaphore::TryAcquireFor`) has no spurious-wake state and can't; a
+  futex/`WaitOnAddress`-style wait needs its own re-wait loop, which `FPlatformManualResetEvent::WaitForSlow`
+  has. **`FLinuxSemaphore::TryAcquireFor` (`OloEngine/src/Platform/Linux/LinuxSemaphore.h`) delegates to
+  `std::counting_semaphore<>::try_acquire_for` — a third, unaudited code path.** The standard explicitly
+  allows the *untimed* `try_acquire()` to "fail spuriously" even when a resource is available; whether
+  that allowance leaks into a given standard library's `try_acquire_for` retry loop is an implementation
+  detail this investigation never checked. Do not assume the Windows evidence above transfers — the
+  Linux path needs its own repeat-run verification (idle + artificial contention, same method used for
+  Windows above) before `SemaphoreTest.cpp`'s one-sided assertion can be trusted there too.
 - **State the jitter budget and where it came from** — a bound backed by an actual measured floor
   under artificial contention, not a round number picked for comfort.
 - **Print the measured value on failure** (`<< "elapsed=" << ElapsedUs`) so a future flake reports how
   far off it was instead of just that it was off — turns a mystery report into a data point.
-- Before accepting "it's just test tolerance," check whether the primitive's own implementation has a
-  spurious-wakeup re-wait loop where one is needed (futex/`WaitOnAddress`-style waits do; kernel
-  dispatcher-object waits like `WaitForSingleObject` on a semaphore/event handle don't need one and
-  don't have the bug class to begin with).
 
 See also [testing-architecture.md](testing-architecture.md) for the broader test classification rules;
 this file is specifically about the timing-assertion trap, not test placement.
