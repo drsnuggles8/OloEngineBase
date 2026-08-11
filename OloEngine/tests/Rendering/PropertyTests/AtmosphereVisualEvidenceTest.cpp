@@ -41,8 +41,10 @@
 // #754 is exactly what happens when that coupling is ignored: f4fef24b (star
 // hash) and dfd100ef (grid bias) both landed without rebaking these goldens,
 // so NightClear/NightOvercast sat red for 10 days and the failure normalised
-// as "the expected 1 failure" — masking any genuine new regression. A cheap
-// CPU contract test was considered (per the issue) and deliberately NOT added:
+// as "the expected 1 failure" — masking any genuine new regression. An
+// ADDITIONAL CPU contract test (one that only re-detects the star relocation)
+// was considered (per the issue) and deliberately NOT added — the existing
+// AtmosphereSkyMathTest CPU mirror and the band contracts below stay:
 // "these goldens must be rebaked" ≡ "the night frame changed visibly", which
 // is precisely what this golden already measures; the star POSITIONS are
 // bit-exact but their brightness carries cross-vendor/compiler ULP variance
