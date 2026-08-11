@@ -42,6 +42,13 @@ TEST_F(ManualResetEventTest, NotifyAndWait)
     Event.Wait(); // Should still return immediately
 }
 
+// issue #753: same class of flaky lower-bound assertion as
+// SemaphoreTest.TryAcquireForWithTimeout - duration_cast<milliseconds> truncates
+// toward zero, and a tight two-sided-in-effect bound is vulnerable to scheduler
+// jitter that can only ever add delay, never remove it, for a correctly
+// functioning timed wait. See SemaphoreTest.cpp for the full investigation; the
+// fix here is the same: microsecond precision, one-sided assertion, documented
+// jitter budget.
 TEST_F(ManualResetEventTest, WaitForUnset)
 {
     FManualResetEvent Event;
@@ -52,9 +59,8 @@ TEST_F(ManualResetEventTest, WaitForUnset)
 
     EXPECT_FALSE(Result);
 
-    // Should have waited approximately 10ms
-    auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start).count();
-    EXPECT_GE(ElapsedMs, 5);
+    auto ElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(End - Start).count();
+    EXPECT_GE(ElapsedUs, 5000) << "WaitFor(10ms) returned far too early: elapsed=" << ElapsedUs << "us";
 }
 
 TEST_F(ManualResetEventTest, WaitForSet)

@@ -54,6 +54,20 @@ TEST_F(SemaphoreTest, TryAcquireWhenEmpty)
     EXPECT_FALSE(Sem.TryAcquire());
 }
 
+// issue #753: this test was flaky (~1-in-3 in isolation) because
+// duration_cast<milliseconds> truncates toward zero (a genuine 4.9ms wait reads as
+// "4" and trips a ">= 5" bound) and the bound was two-sided in effect even though
+// only one direction is meaningful. TryAcquireFor on Windows resolves to a single
+// WaitForSingleObject on a real kernel semaphore object, which has no spurious-wake
+// state (unlike a futex/WaitOnAddress based wait) - it can only return
+// WAIT_OBJECT_0 or WAIT_TIMEOUT, so it cannot report "not acquired" before the
+// deadline due to a logic error in our code. Confirmed empirically: 500+ repeat
+// runs here, including under 20 concurrent CPU-bound processes to reproduce the
+// scheduler contention this box normally sees from its CI runners, never returned
+// before 9ms against the 10ms request, and contention only ever pushed it later
+// (up to 25ms), never earlier. So the assertion below is one-sided (jitter can only
+// add delay, never remove it) with a generous 50% jitter budget, and measures in
+// microseconds so a future failure reports precisely how early the return was.
 TEST_F(SemaphoreTest, TryAcquireForWithTimeout)
 {
     FSemaphore Sem(0);
@@ -64,19 +78,27 @@ TEST_F(SemaphoreTest, TryAcquireForWithTimeout)
 
     EXPECT_FALSE(Result);
 
-    // Should have waited approximately 10ms (with some tolerance)
-    auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start).count();
-    EXPECT_GE(ElapsedMs, 5); // At least some wait
+    auto ElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(End - Start).count();
+    EXPECT_GE(ElapsedUs, 5000) << "TryAcquireFor(10ms) returned far too early: elapsed=" << ElapsedUs << "us";
 }
 
+// Sibling of TryAcquireForWithTimeout above (TryAcquireUntil delegates to
+// TryAcquireFor on Windows) - previously asserted only EXPECT_FALSE(Result), which
+// would silently pass through an early return. See the comment above for why this
+// is one-sided, microsecond-precision, and what jitter budget it encodes.
 TEST_F(SemaphoreTest, TryAcquireUntilWithTimeout)
 {
     FSemaphore Sem(0);
 
+    auto Start = std::chrono::steady_clock::now();
     auto Deadline = FMonotonicTimePoint::Now() + FMonotonicTimeSpan::FromMilliseconds(10.0);
     bool Result = Sem.TryAcquireUntil(Deadline);
+    auto End = std::chrono::steady_clock::now();
 
     EXPECT_FALSE(Result);
+
+    auto ElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(End - Start).count();
+    EXPECT_GE(ElapsedUs, 5000) << "TryAcquireUntil(+10ms) returned far too early: elapsed=" << ElapsedUs << "us";
 }
 
 TEST_F(SemaphoreTest, AcquireAndRelease)
