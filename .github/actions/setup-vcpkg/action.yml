@@ -19,6 +19,25 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    # Ports that build through autotools need the autotools themselves from the
+    # system package manager -- vcpkg does not vendor them. libsodium is the one
+    # that bites here (its Linux path is autotools; only its Windows/MSVC path is
+    # an msbuild solution), and it fails with an explicit list:
+    #
+    #   libsodium currently requires the following programs from the system package
+    #   manager: autoconf autoconf-archive automake libtoolize
+    #
+    # `autoconf-archive` in particular is NOT on the GitHub Ubuntu image. pkg-config
+    # is included because vcpkg_fixup_pkgconfig and several ports expect it.
+    - name: Install autotools (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          autoconf autoconf-archive automake libtool pkg-config
+
     - name: Resolve vcpkg root
       shell: bash
       run: |
@@ -112,12 +131,25 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        args="-DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        # Normalise BOTH paths to forward slashes before they go anywhere near a
+        # command line. On Windows runners GITHUB_WORKSPACE is
+        # `D:\a\OloEngineBase\OloEngineBase` and VCPKG_ROOT is `C:\vcpkg`; these
+        # args are consumed unquoted by the caller's `shell: bash` step, where
+        # bash eats each backslash as an escape — `\a\O\O` collapses to `aOO`,
+        # the result no longer looks absolute, and it gets re-rooted against the
+        # CWD. The observed failure was:
+        #   Overlay path "D:\a\...\OloEngineBase\aOloEngineBaseOloEngineBase/cmake/overlay-ports"
+        #     must be an existing directory.
+        # Forward slashes are accepted by CMake on Windows and are not touched by
+        # bash or by MSYS path conversion (which only rewrites leading-slash args).
+        ws="${GITHUB_WORKSPACE//\\//}"
+        vr="${VCPKG_ROOT//\\//}"
+        args="-DCMAKE_TOOLCHAIN_FILE=${vr}/scripts/buildsystems/vcpkg.cmake"
         args="$args -DVCPKG_TARGET_TRIPLET=${{ inputs.triplet }}"
-        args="$args -DVCPKG_OVERLAY_PORTS=${GITHUB_WORKSPACE}/cmake/overlay-ports"
+        args="$args -DVCPKG_OVERLAY_PORTS=${ws}/cmake/overlay-ports"
         case "${{ inputs.triplet }}" in
           x64-windows-static-md)
-            args="$args -DVCPKG_OVERLAY_TRIPLETS=${GITHUB_WORKSPACE}/cmake/triplets"
+            args="$args -DVCPKG_OVERLAY_TRIPLETS=${ws}/cmake/triplets"
             args="$args -DVCPKG_HOST_TRIPLET=x64-windows-static-md"
             ;;
         esac
