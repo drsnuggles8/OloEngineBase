@@ -106,15 +106,15 @@ jobs:
       # the SCCACHE_GHA_ENABLED env var, -DOLO_ENABLE_COMPILER_CACHE=ON below,
       # and the "Show sccache stats" step.
 
-      # Third-party deps come from the vcpkg manifest (issue #773). The ports are
-      # built by the triplet's own clang-cl, not the pinned standalone LLVM used for
-      # the engine itself — it is the engine's fuzz instrumentation that needs the
-      # pinned toolchain, and third-party code is deliberately not instrumented.
+      # Third-party deps come from the vcpkg manifest (issue #773). Ports use the plain
+      # MSVC triplet and are shared with the cl.exe jobs — only the engine is built with
+      # the pinned standalone LLVM, which is what fuzz instrumentation needs; third-party
+      # code is deliberately not instrumented.
       - name: Setup vcpkg
         id: vcpkg
         uses: ./.github/actions/setup-vcpkg
         with:
-          triplet: x64-windows-static-md-clangcl
+          triplet: x64-windows-static-md
 
       - name: Configure CMake (standalone clang-cl via Ninja Multi-Config)
         # We replicate the `clangcl` CMake preset's settings inline instead

@@ -32,13 +32,13 @@
 		{
 			"name": "clangcl",
 			"displayName": "ClangCL (Clang with MSVC ABI)",
-			"description": "Clang-cl compiler via Ninja — catches Clang warnings with MSVC ABI. Under vcpkg the clang-cl toolchain is CHAINLOADED (VCPKG_CHAINLOAD_TOOLCHAIN_FILE) rather than being the toolchainFile, because the toolchainFile slot now belongs to vcpkg.cmake.",
+			"description": "Clang-cl compiler via Ninja — catches Clang warnings with MSVC ABI. The clang-cl toolchain is CHAINLOADED (VCPKG_CHAINLOAD_TOOLCHAIN_FILE) rather than being the toolchainFile, because that slot now belongs to vcpkg.cmake. NOTE the triplet is the plain MSVC one: this preset compiles OUR code with clang-cl, but the third-party PORTS are shared with the msvc tree — see docs/agent-rules/vcpkg-dependency-management.md for the evidence behind that.",
 			"inherits": "vcpkg-base",
 			"generator": "Ninja Multi-Config",
 			"binaryDir": "${sourceDir}/build-clang",
 			"cacheVariables": {
 				"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/cmake/ClangCLToolchain.cmake",
-				"VCPKG_TARGET_TRIPLET": "x64-windows-static-md-clangcl",
+				"VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
 				"FETCHCONTENT_BASE_DIR": "${sourceDir}/OloEngine/vendor/clang",
 				"BUILD_TESTS": "ON"
 			}

@@ -76,33 +76,45 @@ A CRT mismatch between a vcpkg-built static lib and the engine is **heap
 corruption across a library boundary at runtime, not a link error.** Nothing in
 the build output flags it.
 
-## Trap 3 — `VCPKG_ENV_PASSTHROUGH` bakes the variable's *value* into the ABI hash
+## Trap 3 — build ports ONCE, with cl.exe, for both Windows trees
 
-Found by the #774 spike, and the single most important line in the whole
-migration, because cross-worktree cache sharing is the entire point of #773.
+The `clangcl` preset compiles **our** code with clang-cl and links with lld-link, but its
+`VCPKG_TARGET_TRIPLET` is the plain `x64-windows-static-md` — the same ports the `msvc`
+tree uses. That is deliberate and evidence-backed; do not "fix" it by adding a clang-cl
+triplet back.
 
-`cmake/triplets/x64-windows-static-md-clangcl.cmake` chainloads
-`cmake/ClangCLToolchain.cmake`, which names the compiler as the bare string
-`clang-cl` and relies on `PATH`. vcpkg builds each port in a curated, sanitized
-environment that does **not** pass the invoking shell's `PATH` through, so every
-port fails at `enable_language()`:
+The #774 spike built a clang-cl-chainloaded triplet
+(`x64-windows-static-md-clangcl`) and proved the mechanism works. In the full migration it
+turned out to cost more than it was worth:
 
-```
-CMake Error at CMakeLists.txt:11 (enable_language):
-  The CMAKE_C_COMPILER: clang-cl
-  is not a full path and was not found in the PATH.
-```
+- **It broke MaterialX.** With ports built by clang-cl,
+  `MeshInterchangeTest.MaterialXReadsStandardSurfaceFactors` fails — `.mtlx` parsing
+  silently returns constructor defaults instead of the authored values. Same engine code,
+  same lld-link, ports rebuilt with cl.exe: the test passes, and the full suite comes back
+  **5688 / 6 / 2, byte-for-byte identical to the msvc tree**. The fault is in third-party
+  code compiled by clang-cl, not in our code or the linker.
+- **It broke libsodium**, whose non-MSVC autotools path fails under a chainloaded clang-cl
+  at `configure: error: C compiler cannot create executables` (vcpkg-make hands libtool's
+  `compile` wrapper a mangled command line). That needed a per-port triplet exception.
+- **It doubled the cost**: a second full set of ~45 packages, a second ~8 min cold install,
+  a second 2.75 GB install tree, and zero shared binary-cache entries between the trees.
+- **It bought nothing measurable.** The clangcl preset exists to catch Clang warnings in
+  *our* code. Third-party code was always `-Wno-error`'d out of that, and post-#773 it is
+  not compiled by us at all.
 
-That failure is loud. The fix's *second-order* failure is not: plain
-`set(VCPKG_ENV_PASSTHROUGH PATH)` folds `PATH`'s value into the port's ABI hash,
-and `PATH` differs byte-for-byte across worktrees, shells and CI runners even
-when it resolves to the same `clang-cl.exe` (different ordering, an extra
-prepended entry, different drive-letter casing). Every such difference is a
-cache **miss** — builds still succeed, they are just orders of magnitude slower
-than a restore, and nothing in the log says so.
+Mixing is safe by construction: clang-cl targets the MSVC ABI on purpose, which is the
+entire reason it exists. The whole-suite run above is the empirical confirmation.
 
-**Always use `set(VCPKG_ENV_PASSTHROUGH_UNTRACKED PATH)`.** It makes the
-variable visible to the build without hashing its value.
+### The gotcha to remember if a chainloaded triplet ever comes back
+
+`VCPKG_ENV_PASSTHROUGH` folds the passed-through variable's **value** into each port's ABI
+hash. A chainloaded toolchain that names its compiler by bare name (as
+`cmake/ClangCLToolchain.cmake` does) needs `PATH` passed through to resolve it at all —
+but `PATH` differs byte-for-byte across worktrees, shells and CI runners even when it
+resolves to the same `clang-cl.exe`. With the plain form, every such difference is a cache
+**miss**: builds still succeed, they are just orders of magnitude slower than a restore,
+and nothing in the log says so. Use `VCPKG_ENV_PASSTHROUGH_UNTRACKED` — it makes the
+variable visible without hashing its value.
 
 ## Trap 4 — a project-local configuration silently links Debug third-party libs
 
@@ -166,21 +178,20 @@ and batch triplet edits rather than iterating one flag at a time.
 
 ## Per-port exceptions live in the triplet, not in a forked portfile
 
-A triplet is loaded once *per port*, with `PORT` set — so it can carry a targeted
-exception without forking upstream's portfile. `x64-windows-static-md-clangcl.cmake`
-uses this to clear `VCPKG_CHAINLOAD_TOOLCHAIN_FILE` for `libsodium` only: that port
-picks its build system by sniffing the detected C compiler, and its non-MSVC
-(autotools) path fails at `configure: error: C compiler cannot create executables`
-under a chainloaded clang-cl, because vcpkg-make hands libtool's `compile` wrapper a
-mangled command line. Clearing the chainload makes vcpkg detect `cl.exe` and take the
-bundled MSBuild solution instead.
+A triplet is loaded once *per port*, with `PORT` set, so it can carry a targeted exception
+without forking upstream's portfile:
 
-Prefer this to an overlay port when the fix is "build this one port differently"
-rather than "this port's options are wrong" — an overlay means copying the portfile,
-its patches and its config templates, and re-diffing all of them on every baseline
-bump. **But** only do it when the mixed-toolchain result is actually safe: libsodium
-qualifies because it is pure C consumed across the platform C ABI with the same
-dynamic CRT on both sides. A C++ port would need a much harder look.
+```cmake
+if(PORT STREQUAL "somelib")
+    set(VCPKG_BUILD_TYPE release)   # or unset a chainload, change linkage, …
+endif()
+```
+
+Prefer this to an overlay port when the fix is "build this one port differently" rather
+than "this port's options are wrong" — an overlay means copying the portfile, its patches
+and its config templates, and re-diffing all of them on every baseline bump. Nothing needs
+it today (the one user, libsodium, went away with the clang-cl triplet), but it is the
+right first reach.
 
 ## The two overlay ports we own
 
@@ -244,50 +255,37 @@ cache and the port is one of the registry's longest builds, OpenUSD because its
 port opens with `vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)` and we need the
 static-monolithic `usd_m` + `/WHOLEARCHIVE`.
 
-## KNOWN OPEN — the assimp/MaterialX pugixml merge is no longer safe under lld-link
+## The assimp/MaterialX pugixml merge is a live hazard — check it when you touch either
 
-**Symptom:** `MeshInterchangeTest.MaterialXReadsStandardSurfaceFactors` fails in the
-**clangcl tree only**. The `.mtlx` parse silently returns constructor defaults
-(base colour 1,1,1; metallic 0; roughness 0.5) instead of the authored
-0.2/0.4/0.6/0.3/0.7. The MSVC tree passes the same test.
-
-**Cause, confirmed at the symbol level:**
+`MaterialXFormat` statically compiles its own **pugixml 1.9**; assimp pulls in **pugixml
+1.16** (a bundled copy before #773, the vcpkg `pugixml` port after it — the port unbundles
+it and takes a real dependency). Both export the same ~794 global `pugi::` symbols:
 
 ```
-llvm-nm --defined-only pugixml.lib        -> 794 pugi:: symbols
-llvm-nm --defined-only MaterialXFormat.lib -> the SAME 794, incl.
+llvm-nm --defined-only pugixml.lib         -> 794 pugi:: symbols
+llvm-nm --defined-only MaterialXFormat.lib -> the same 794, incl.
                                               ?_create@xml_document@pugi@@AEAAXXZ
 ```
 
-`OloEngine/CMakeLists.txt` links both under `/FORCE:MULTIPLE`, which keeps the *first*
-definition. This collision is not new — the repo has carried it since MaterialX was
-vendored — but the migration changed **which two copies collide**: previously assimp's
-bundled pugixml vs MaterialX's bundled one; now the vcpkg **`pugixml` port** (assimp's
-port unbundles pugixml and takes a real dependency on it) vs MaterialX's bundled copy.
-That flipped the outcome under `lld-link`, which resolves the duplicate differently from
-`link.exe`.
+MaterialX's own CMake tries to contain this with `CXX_VISIBILITY_PRESET hidden`, which is
+an ELF concept and a **no-op on the MSVC ABI**. So `OloEngine` links both under
+`/FORCE:MULTIPLE`, which keeps the first definition, and
+`MeshInterchangeTest.MaterialXReadsStandardSurfaceFactors` is the only thing standing
+between that merge and silently wrong materials.
 
-MaterialX cannot be pointed at an external pugixml: 1.39's
-`source/MaterialXFormat/CMakeLists.txt` does an unconditional
-`add_subdirectory(External/PugiXML)` and compiles it straight into `MaterialXFormat`.
+Two things were established while chasing a MaterialX failure here, both worth keeping:
 
-**Fix options, in preference order:**
+- **Link order is not the lever.** Putting MaterialX ahead of assimp changes which copy
+  wins and does not change the outcome either way.
+- **The compiler is.** The failure tracked exactly one variable — whether the ports were
+  built by clang-cl or cl.exe — which is why the fix was Trap 3's shared MSVC triplet, not
+  anything to do with pugixml.
 
-1. **Overlay the `assimp` port to keep its bundled pugixml** (revert the registry
-   port's unbundling, which lives in its `build_fixes.patch`). This restores the exact
-   two-bundled-copies shape both linkers demonstrably handled before, and keeps assimp's
-   ~2.3 min port build in the binary cache.
-2. **Keep assimp on FetchContent.** Same restoration, no forked patch to maintain, but
-   gives up the largest single non-protobuf cache win.
-3. *Not recommended:* reordering the link so MaterialX's copy wins. It only moves the
-   version mismatch onto assimp's own XML importers, and it is the same
-   "pugixml's public ABI is stable across versions" bet that just lost.
-
-**The generalisable lesson:** a `/FORCE:MULTIPLE` duplicate-symbol merge is a bet on
-*which specific two copies* collide. Changing where either copy comes from — which is
-exactly what moving a dependency to a registry port does — re-rolls that bet, and it can
-come up differently per linker. Before moving a dependency that participates in a forced
-symbol merge, check whether the port unbundles anything the merge depends on.
+**Generalisable:** a `/FORCE:MULTIPLE` duplicate-symbol merge is a standing bet on which
+two specific copies collide. Moving either participant to a registry port re-rolls it, and
+the port may unbundle something the merge depended on. Before moving a dependency that
+participates in a forced symbol merge, check what its port unbundles — and keep the test
+that proves the merge is safe.
 
 ## Cost characteristics — measure, don't assume
 
@@ -330,15 +328,19 @@ worth knowing before assuming the migration relieves disk pressure:
 
 | Path | Measured |
 |---|---|
-| `build/vcpkg_installed/` (msvc triplet + host) | 4.03 GB |
-| `build-clang/vcpkg_installed/` (clang-cl triplet + host) | 2.75 GB |
-| `$VCPKG_DEFAULT_BINARY_CACHE` (machine-global, both triplets) | 1.10 GB |
+| `build/vcpkg_installed/` | 4.03 GB |
+| `build-clang/vcpkg_installed/` (same triplet, so a pure cache restore — but its own copy on disk) | ~4 GB |
+| `$VCPKG_DEFAULT_BINARY_CACHE` (machine-global, shared by every tree and worktree) | 1.10 GB |
 
-So ~6.8 GB of installed trees **per worktree**, because the two build trees use different
-triplets and cannot share. Against that, `OloEngine/vendor/` no longer carries sources or
-build output for the 18 migrated dependencies. The binary cache and
-`$VCPKG_ROOT/{downloads,buildtrees,packages}` are shared across every worktree; prune
-`buildtrees` freely, it is intermediate object files regenerable from the cache.
+So ~8 GB of installed trees **per worktree**. `vcpkg_installed` is per-`binaryDir`, so the
+two Windows trees each materialise a copy even though (since Trap 3) they now install the
+*identical* package set. Pointing both at one `VCPKG_INSTALLED_DIR` would halve that; it is
+not wired up because two configures writing one installed tree is a race, and the project
+already forbids building the two trees concurrently for other reasons.
+
+Against that, `OloEngine/vendor/` no longer carries sources or build output for the 21
+migrated dependencies. `$VCPKG_ROOT/{downloads,buildtrees,packages}` is shared across every
+worktree; prune `buildtrees` freely, it is intermediate object files regenerable from the cache.
 
 If the binding constraint on the dev drive is space rather than time, this migration does
 not help and may hurt.

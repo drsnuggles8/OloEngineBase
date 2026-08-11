@@ -6,7 +6,7 @@ description: >
   cmake configure line.
 inputs:
   triplet:
-    description: 'Target triplet (x64-windows-static-md, x64-windows-static-md-clangcl, x64-linux)'
+    description: 'Target triplet (x64-windows-static-md on Windows for BOTH cl.exe and clang-cl jobs, x64-linux on Linux)'
     required: true
   read-only:
     description: 'Restore from the binary cache but do not write to it (use on fork PRs, which cannot write caches)'
@@ -103,7 +103,7 @@ runs:
         args="$args -DVCPKG_TARGET_TRIPLET=${{ inputs.triplet }}"
         args="$args -DVCPKG_OVERLAY_PORTS=${GITHUB_WORKSPACE}/cmake/overlay-ports"
         case "${{ inputs.triplet }}" in
-          x64-windows-static-md*)
+          x64-windows-static-md)
             args="$args -DVCPKG_OVERLAY_TRIPLETS=${GITHUB_WORKSPACE}/cmake/triplets"
             args="$args -DVCPKG_HOST_TRIPLET=x64-windows-static-md"
             ;;

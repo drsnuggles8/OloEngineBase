@@ -151,7 +151,10 @@ jobs:
     # future sccache release fixes the Windows large-object crash, restore the Setup sccache +
     # Cache steps and re-add -DOLO_ENABLE_COMPILER_CACHE=ON below.
 
-    # Third-party deps come from the vcpkg manifest (issue #773). NOTE: vcpkg ports
+    # Third-party deps come from the vcpkg manifest (issue #773). The triplet is the
+    # plain MSVC one even though this job compiles with clang-cl: ports are shared with
+    # the cl.exe jobs, which halves the cache and avoids a clang-cl-built-MaterialX bug
+    # (see docs/agent-rules/vcpkg-dependency-management.md). NOTE: vcpkg ports
     # are NOT sanitizer-instrumented — which is what this job wants. The ~40 lines
     # that used to de-instrument protobuf/abseil by hand (so an instrumented protoc
     # would stop aborting mid-build) are gone because nothing third-party is compiled
@@ -160,7 +163,7 @@ jobs:
       id: vcpkg
       uses: ./.github/actions/setup-vcpkg
       with:
-        triplet: x64-windows-static-md-clangcl
+        triplet: x64-windows-static-md
 
     - name: Configure CMake (ASan enabled)
       # --toolchain cmake/ClangCLToolchain.cmake: build with clang-cl + lld-link

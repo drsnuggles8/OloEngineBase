@@ -9,7 +9,9 @@
 #      diagnostics. Under clang-cl the diagnostic text does not match what the regex
 #      expects, so _TARGET_ARCH comes out empty and the module hard-fails:
 #          the unknown architecture is not supported by Findsodium.cmake.
-#      That is what broke the x64-windows-static-md-clangcl triplet.
+#      That broke the clang-cl-chainloaded triplet the #774 spike used. That triplet is
+#      gone now (ports are built once with cl.exe and shared), but the module is still
+#      wrong for a vcpkg tree for reason 2, so the replacement stays.
 #   2. Even when the arch check passes, it then searches a vendor-SDK layout
 #      (`<root>/x64/<Config>/v143/static/`) that a vcpkg install does not have, and
 #      declares BOTH the debug and release library paths as REQUIRED_VARS — so a
