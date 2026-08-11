@@ -57,6 +57,13 @@
 //
 // Usage:
 //   OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> <savegame_out_dir>
+//                 <mcp_out_dir> [--depfile <path> --stamp <path>]
+//
+// The two options build-graph-integrate the tool (issue #758): --depfile records
+// the directory tree the scan actually depends on so `add_custom_command(DEPFILE)`
+// can skip the scan when nothing changed, and --stamp gives that rule an output it
+// can settle on. Both are opt-in; without them the tool behaves exactly as before
+// and stays usable standalone.
 
 #include <algorithm>
 #include <cctype>
@@ -622,27 +629,91 @@ static bool SerializeArgsClampBounds(const std::string& args, std::optional<std:
     return hasClamp;
 }
 
+// ─── Scan Input Tracking (depfile emission, issue #758) ────────────────────────
+//
+// Every collector below walks `scanDir` recursively, so the tool's real input is a
+// *directory tree*, not a file list a build system could hard-code. The tool
+// therefore records what it actually looked at and writes a Make-format depfile for
+// `add_custom_command(... DEPFILE ...)`, so the build graph re-runs codegen exactly
+// when one of those headers changes instead of on every build.
+//
+// What the depfile records is precisely the set of headers READ, which covers
+// EDITING one. It cannot cover a header being ADDED or DELETED — a depfile can only
+// name paths that existed during the last run — so that case is handled separately
+// by a CONFIGURE_DEPENDS glob in tools/OloHeaderTool/CMakeLists.txt. Splitting the
+// job this way is deliberate, and follows from a measurement:
+//
+//   The obvious depfile trick for "the file set changed" is to also list every
+//   visited DIRECTORY, since a directory's mtime moves when an entry is created or
+//   removed inside it. That works perfectly under Ninja. Under the Visual Studio
+//   generator it breaks the rule completely: CMake funnels the depfile into
+//   MSBuild's AdditionalInputs, whose up-to-date check cannot satisfy a directory
+//   entry, so the CustomBuild is considered out of date on EVERY build and the scan
+//   never stops running — the exact cost this whole change exists to remove.
+//   Measured on VS 18 2026: 4.3 s per no-op build with directories listed, 1.0 s
+//   without. So the depfile carries files only, on every generator.
+//
+// The walk is cached and shared: the five collectors used to walk the tree five
+// times over. Order is deliberately left exactly as `recursive_directory_iterator`
+// produced it — CollectStructBodies and CollectAssetTypes are both
+// first-definition-wins, so sorting the header list could silently change which
+// definition of an ambiguous leaf name lands in the generated output.
+namespace
+{
+    std::set<fs::path> g_ScannedFiles;
+
+    // Absolute, forward-slash spelling of `p` for the depfile. Forward slashes
+    // are deliberate: CMake reads any slash or backslash as a directory
+    // separator, but a backslash is ALSO the depfile grammar's escape character,
+    // so a Windows-native path is ambiguous where a generic one is not.
+    std::string DepPath(const fs::path& p)
+    {
+        std::error_code ec;
+        fs::path abs = fs::absolute(p, ec);
+        if (ec)
+            abs = p;
+        return abs.lexically_normal().generic_string();
+    }
+
+    // Recursively enumerate every header the collectors read, recording each one
+    // for the depfile. Cached — every collector shares one walk.
+    const std::vector<fs::path>& ScannedHeaders(const fs::path& scanDir)
+    {
+        static std::vector<fs::path> headers;
+        static bool walked = false;
+        if (walked)
+            return headers;
+        walked = true;
+
+        for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+        {
+            if (!entry.is_regular_file())
+                continue;
+            if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
+                continue;
+            headers.push_back(entry.path());
+            g_ScannedFiles.insert(entry.path());
+        }
+        return headers;
+    }
+} // namespace
+
 // ─── Header Parser ─────────────────────────────────────────────────────────────
 
 static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
 {
     std::vector<ComponentDef> components;
 
-    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    for (auto const& headerPath : ScannedHeaders(scanDir))
     {
-        if (!entry.is_regular_file())
-            continue;
-        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
-            continue;
-
         // Skip the header that DEFINES the marker macros. It mentions
         // OLO_PROPERTY in its #define and in its doc comments, none of which sit
         // inside a component struct, so scanning it only ever produces a bogus
         // "OLO_PROPERTY found outside struct" warning.
-        if (entry.path().filename() == "ComponentReflection.h")
+        if (headerPath.filename() == "ComponentReflection.h")
             continue;
 
-        std::ifstream file(entry.path());
+        std::ifstream file(headerPath);
         if (!file.is_open())
             continue;
 
@@ -783,7 +854,7 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                 if (depth > 0)
                 {
                     std::cerr << "WARNING: Unterminated OLO_PROPERTY( in "
-                              << entry.path().filename().string() << "\n";
+                              << headerPath.filename().string() << "\n";
                     if (streamExhausted)
                         break; // Exit the outer file-reading loop
                     continue;
@@ -799,7 +870,7 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                 if (currentComponent.empty())
                 {
                     std::cerr << "WARNING: OLO_PROPERTY found outside struct in "
-                              << entry.path().filename().string() << "\n";
+                              << headerPath.filename().string() << "\n";
                     pendingMetadataList.clear();
                     continue;
                 }
@@ -894,7 +965,7 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
                     if (inserted)
                     {
                         components.push_back({ currentComponent,
-                                               entry.path().filename().string(),
+                                               headerPath.filename().string(),
                                                {} });
                     }
                     components[it->second].properties.push_back(prop);
@@ -1289,14 +1360,9 @@ static std::set<std::string> CollectComponentStructs(const fs::path& scanDir)
 {
     std::set<std::string> names;
 
-    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    for (auto const& headerPath : ScannedHeaders(scanDir))
     {
-        if (!entry.is_regular_file())
-            continue;
-        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
-            continue;
-
-        std::ifstream file(entry.path());
+        std::ifstream file(headerPath);
         if (!file.is_open())
             continue;
 
@@ -1686,14 +1752,9 @@ static std::set<std::string> CollectEnumTypes(const fs::path& scanDir)
     // plain identifier; an opaque-enum colon (`: u8`), `{`, or `;` ends it.
     static const std::regex enumRe(R"(\benum\s+(?:class\s+|struct\s+)?([A-Za-z_]\w*))");
 
-    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    for (auto const& headerPath : ScannedHeaders(scanDir))
     {
-        if (!entry.is_regular_file())
-            continue;
-        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
-            continue;
-
-        std::ifstream file(entry.path());
+        std::ifstream file(headerPath);
         if (!file.is_open())
             continue;
         std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -1747,14 +1808,9 @@ static std::set<std::string> CollectAssetTypes(const fs::path& scanDir)
     static const std::regex classRe(
         R"(\bclass\s+([A-Za-z_]\w*)\s*:\s*(?:public\s+|private\s+|protected\s+)?([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*))");
 
-    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    for (auto const& headerPath : ScannedHeaders(scanDir))
     {
-        if (!entry.is_regular_file())
-            continue;
-        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
-            continue;
-
-        std::ifstream file(entry.path());
+        std::ifstream file(headerPath);
         if (!file.is_open())
             continue;
         std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -2387,14 +2443,9 @@ static std::map<std::string, StructDef> CollectStructBodies(const fs::path& scan
     std::map<std::string, StructDef> result;
     static const std::regex recordRe(R"(\b(struct|class)\s+([A-Za-z_]\w*)\b)");
 
-    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    for (auto const& headerPath : ScannedHeaders(scanDir))
     {
-        if (!entry.is_regular_file())
-            continue;
-        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
-            continue;
-
-        std::ifstream file(entry.path());
+        std::ifstream file(headerPath);
         if (!file.is_open())
             continue;
         std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -4334,20 +4385,208 @@ static WriteResult WriteIfChanged(const fs::path& path, const std::string& conte
         return WriteResult::Failed;
     }
 
-    std::ofstream out(path);
-    if (!out.is_open())
+    // Write-to-temp-then-rename rather than writing in place (issue #758).
+    //
+    // Every build tree — build/ (msvc) and build-clang/ (clangcl) — runs this
+    // tool against the SAME source tree, so two of them can be writing the same
+    // .inl at the same moment. Writing in place made that a hard failure and,
+    // worse, a *partial* one: CLAUDE.md documents both `CUSTOMBUILD : error :
+    // Failed to open "...McpFieldRegistry.Generated.inl" for writing` and the
+    // quieter case where the other tree compiles a half-written file.
+    //
+    // A rename is an atomic replace on both Windows (MoveFileEx) and POSIX, so a
+    // reader now sees either the complete old file or the complete new one, never
+    // a truncated one. Both trees generate identical content, so whichever lands
+    // last is correct either way. The temp lives beside the target because rename
+    // is only atomic within one filesystem.
+    //
+    // NOTE: creating the temp bumps the parent directory's mtime, which is a
+    // recorded depfile dependency. That is safe only because the stamp is written
+    // AFTER every generated file — keep it that way, or the rule re-runs forever.
+    const fs::path tempPath = path.parent_path() / (path.filename().string() + ".oht-tmp");
     {
-        std::cerr << "ERROR: Failed to open " << path << " for writing\n";
-        return WriteResult::Failed;
+        // Text mode, exactly as the in-place write was: on Windows that means the
+        // generated files keep their CRLF line endings. Switching to binary here
+        // would silently rewrite all fifteen tracked artefacts to LF.
+        std::ofstream out(tempPath);
+        if (!out.is_open())
+        {
+            std::cerr << "ERROR: Failed to open " << tempPath << " for writing\n";
+            return WriteResult::Failed;
+        }
+        out << normalized;
+        out.flush();
+        if (!out.good())
+        {
+            std::cerr << "ERROR: Failed to write to " << tempPath << "\n";
+            out.close();
+            fs::remove(tempPath, ec);
+            return WriteResult::Failed;
+        }
     }
-    out << normalized;
-    out.flush();
-    if (!out.good())
+
+    fs::rename(tempPath, path, ec);
+    if (ec)
     {
-        std::cerr << "ERROR: Failed to write to " << path << "\n";
+        std::cerr << "ERROR: Failed to replace " << path << " with " << tempPath << ": "
+                  << ec.message() << "\n";
+        std::error_code cleanupEc;
+        fs::remove(tempPath, cleanupEc);
         return WriteResult::Failed;
     }
     return WriteResult::Written;
+}
+
+// ─── Depfile / Stamp (build-graph integration, issue #758) ─────────────────────
+
+// Escape one path for the Make-style depfile grammar CMake documents for
+// `add_custom_command(DEPFILE)`: a space becomes "\ ". Paths are emitted with
+// forward slashes (see DepPath), so no backslash ever reaches this function as a
+// directory separator — which matters, because a backslash is simultaneously the
+// grammar's escape character.
+//
+// '#' and '$' are deliberately NOT escaped here: they are never emitted at all.
+// See IsDepfileRepresentable.
+static std::string EscapeDepfilePath(const std::string& path)
+{
+    std::string out;
+    out.reserve(path.size() + 8);
+    for (char c : path)
+    {
+        if (c == ' ')
+            out += "\\ ";
+        else
+            out.push_back(c);
+    }
+    return out;
+}
+
+// Whether a path can survive the trip from this depfile into the build tool's
+// dependency database. It cannot if it contains '#' or '$'.
+//
+// This is worth stating in full, because the failure is completely invisible. The
+// depfile grammar escapes those two as "\#" and "$$"; ninja's own depfile parser
+// handles both correctly, and so does CMake's depfile *reader*. But CMake's
+// `cmake_transform_depfile` un-escapes them on read and does NOT re-escape them on
+// write. Ninja then reads the bare '#' as a token terminator and splits the path:
+//
+//     .../Scripting/C#/ScriptGlue.h   ->   ".../Scripting/C"  +  "/ScriptGlue.h"
+//
+// Neither fragment exists, so ninja considers the edge dirty forever and codegen
+// re-runs on EVERY build — no error, no warning, nothing pointing at the path.
+// Measured against CMake 4.2 + Ninja Multi-Config; no escaping on this side can
+// avoid it, since the un-escape happens after we hand the file over. The Visual
+// Studio generator's MSBuildAdditionalInputs transform emits a ';'-separated list
+// and is unaffected, but the tool cannot know which generator invoked it, so it
+// declines uniformly.
+//
+// Silently dropping such a path would be a dependency hole — exactly what this
+// depfile exists to close — so WriteDepfile reports every path it drops, and
+// tools/OloHeaderTool/CMakeLists.txt re-adds them as explicit DEPENDS.
+static bool IsDepfileRepresentable(const std::string& path)
+{
+    return path.find('#') == std::string::npos && path.find('$') == std::string::npos;
+}
+
+// Write the depfile: one rule, one target (the stamp — the custom command's only
+// declared OUTPUT), listing every header read.
+//
+// One target, not fifteen, is deliberate. Ninja checks that the depfile's FIRST
+// target matches the edge's first output and quietly marks the edge dirty when it
+// doesn't — which presents as "codegen re-runs on every build" with no diagnostic
+// at all. A single stamp removes the chance of that mismatch.
+//
+// Written unconditionally (not via WriteIfChanged): ninja consumes and may delete
+// the depfile after folding it into its deps log, so "already up to date" is not a
+// meaningful state for this file.
+static bool WriteDepfile(const fs::path& depfilePath, const fs::path& stampPath)
+{
+    std::error_code ec;
+    fs::create_directories(depfilePath.parent_path(), ec);
+    if (ec)
+    {
+        std::cerr << "ERROR: Failed to create directories for " << depfilePath << ": " << ec.message() << "\n";
+        return false;
+    }
+
+    std::ofstream out(depfilePath, std::ios::binary);
+    if (!out.is_open())
+    {
+        std::cerr << "ERROR: Failed to open depfile " << depfilePath << " for writing\n";
+        return false;
+    }
+
+    std::vector<std::string> dropped;
+    std::size_t emittedFiles = 0;
+
+    out << EscapeDepfilePath(DepPath(stampPath)) << ":";
+    for (auto const& file : g_ScannedFiles)
+    {
+        const std::string path = DepPath(file);
+        if (!IsDepfileRepresentable(path))
+        {
+            dropped.push_back(path);
+            continue;
+        }
+        out << " \\\n  " << EscapeDepfilePath(path);
+        ++emittedFiles;
+    }
+    out << "\n";
+
+    out.flush();
+    if (!out.good())
+    {
+        std::cerr << "ERROR: Failed to write depfile " << depfilePath << "\n";
+        return false;
+    }
+    std::cout << "OloHeaderTool: depfile — " << emittedFiles << " headers -> " << depfilePath << "\n";
+    if (!dropped.empty())
+    {
+        // Not an error: the build is still correct, because CMakeLists.txt lists
+        // these as explicit DEPENDS. Reported so the gap is never invisible if
+        // that pairing is ever dropped — see IsDepfileRepresentable.
+        std::cout << "OloHeaderTool: depfile — " << dropped.size()
+                  << " path(s) omitted (a '#' or '$' cannot survive CMake's depfile transform); "
+                     "these are covered by explicit DEPENDS in tools/OloHeaderTool/CMakeLists.txt:\n";
+        for (auto const& path : dropped)
+            std::cout << "    " << path << "\n";
+    }
+    return true;
+}
+
+// Refresh the stamp — the custom command's declared OUTPUT, written only on a
+// fully successful run so a failure leaves the rule dirty and re-runs next build.
+//
+// The stamp exists because the generated files themselves are written only when
+// their CONTENT changes (WriteIfChanged), which is what keeps a header edit from
+// recompiling the whole engine through Components.h. That same property makes
+// them unusable as build-graph outputs: an unchanged output stays older than the
+// input that triggered the run, so the rule would never settle and the scan would
+// re-run on every build forever. The stamp is the one thing that is always newer.
+static bool WriteStamp(const fs::path& stampPath)
+{
+    std::error_code ec;
+    fs::create_directories(stampPath.parent_path(), ec);
+    if (ec)
+    {
+        std::cerr << "ERROR: Failed to create directories for " << stampPath << ": " << ec.message() << "\n";
+        return false;
+    }
+
+    std::ofstream out(stampPath, std::ios::binary | std::ios::trunc);
+    if (!out.is_open())
+    {
+        std::cerr << "ERROR: Failed to open stamp " << stampPath << " for writing\n";
+        return false;
+    }
+    out << "OloHeaderTool codegen stamp — see tools/OloHeaderTool/CMakeLists.txt\n";
+    out.flush();
+    if (!out.good())
+    {
+        std::cerr << "ERROR: Failed to write stamp " << stampPath << "\n";
+        return false;
+    }
+    return true;
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────────
@@ -4528,12 +4767,25 @@ static bool WriteMcpFieldRegistry(const fs::path& mcpOutDir, const std::map<std:
     return ReportWrite(mcpOutDir / "McpFieldRegistry.Generated.inl", ss.str());
 }
 
+static void PrintUsage()
+{
+    std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> "
+                 "<savegame_out_dir> <mcp_out_dir> [options]\n"
+                 "\n"
+                 "Options (both opt-in, so the tool stays usable standalone):\n"
+                 "  --depfile <path>  Write a Make-format depfile naming every directory and\n"
+                 "                    header the scan depends on, for add_custom_command(DEPFILE).\n"
+                 "                    Requires --stamp, which supplies the rule's target.\n"
+                 "  --stamp <path>    Refresh a stamp file on success — the custom command's\n"
+                 "                    declared OUTPUT (the generated files themselves are only\n"
+                 "                    rewritten when their content changes, so they cannot serve).\n";
+}
+
 int main(int argc, char* argv[])
 {
     if (argc < 7)
     {
-        std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> "
-                     "<savegame_out_dir> <mcp_out_dir>\n";
+        PrintUsage();
         return 1;
     }
 
@@ -4544,6 +4796,40 @@ int main(int argc, char* argv[])
     fs::path saveGameOutDir = argv[5];
     fs::path mcpOutDir = argv[6];
 
+    fs::path depfilePath;
+    fs::path stampPath;
+    for (int i = 7; i < argc; ++i)
+    {
+        const std::string_view arg = argv[i];
+        fs::path* target = nullptr;
+        if (arg == "--depfile")
+            target = &depfilePath;
+        else if (arg == "--stamp")
+            target = &stampPath;
+        else
+        {
+            std::cerr << "ERROR: Unknown option '" << arg << "'\n";
+            PrintUsage();
+            return 1;
+        }
+        if (i + 1 >= argc)
+        {
+            std::cerr << "ERROR: " << arg << " requires a path argument\n";
+            return 1;
+        }
+        *target = argv[++i];
+    }
+
+    // A depfile needs exactly one rule target, and that target must be the custom
+    // command's first declared OUTPUT or the build tool silently treats the rule as
+    // permanently dirty. The stamp is that output, so refuse the half-configured
+    // combination rather than emitting a depfile nothing will match.
+    if (!depfilePath.empty() && stampPath.empty())
+    {
+        std::cerr << "ERROR: --depfile requires --stamp (the depfile's rule target)\n";
+        return 1;
+    }
+
     if (!fs::exists(scanDir))
     {
         std::cerr << "ERROR: Scan directory does not exist: " << scanDir << "\n";
@@ -4551,6 +4837,19 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "OloHeaderTool: Scanning " << scanDir << " ...\n";
+
+    // Both exits below (the no-OLO_PROPERTY early-out and the normal end) funnel
+    // through this, so the build-graph bookkeeping cannot be skipped by adding a
+    // return path. The depfile is written even on failure — it is what tells the
+    // build tool to try again — while the stamp is written only on success.
+    auto FinishBuildGraphOutputs = [&](bool errors) -> int
+    {
+        if (!depfilePath.empty() && !WriteDepfile(depfilePath, stampPath))
+            errors = true;
+        if (!errors && !stampPath.empty() && !WriteStamp(stampPath))
+            errors = true;
+        return errors ? 1 : 0;
+    };
 
     auto components = ParseHeaders(scanDir);
 
@@ -4621,7 +4920,7 @@ int main(int argc, char* argv[])
             errors = true;
         if (WriteIfChanged(csOutDir / "InternalCalls.Generated.cs", stub) == WriteResult::Failed)
             errors = true;
-        return errors ? 1 : 0;
+        return FinishBuildGraphOutputs(errors);
     }
 
     // Count stats
@@ -4713,5 +5012,5 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "OloHeaderTool: Done.\n";
-    return errors ? 1 : 0;
+    return FinishBuildGraphOutputs(errors);
 }
