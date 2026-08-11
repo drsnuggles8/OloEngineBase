@@ -55,8 +55,9 @@
       // Style 2 — pinned to a release tag, e.g. "GIT_TAG v3.0.0".
       // Tags here always contain a "." (v3.0.0, 3.4, 1.0.20-RELEASE, ...) while
       // the digest pins above are dot-free hex, so requiring a "." in the value
-      // cleanly separates the two styles (and skips bare-SHA pins like Jolt,
-      // which carry no branch hint and can't be auto-tracked — left manual).
+      // cleanly separates the two styles (and skips a bare SHA with no trailing
+      // comment at all, which carries no branch/tag hint and can't be
+      // auto-tracked — left manual; no vendored dep is pinned that way today).
       customType: "regex",
       managerFilePatterns: ["/^OloEngine/vendor/CMakeLists\\.txt$/"],
       datasourceTemplate: "github-tags",

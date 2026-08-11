@@ -81,17 +81,17 @@ FetchContent_Declare(
 # Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
 # makes builds non-deterministic — CI can fetch a newer Jolt than any dev with zero
 # repo changes, which is exactly how the #281 flaky physics crash hid (CI and local
-# ran different Jolt commits). We can't pin to a release tag: the engine uses
-# JPH::CharacterContact (JoltCharacterController.h), a CharacterVirtual contact-listener
-# type added after the latest release (v5.5.0). 6cef2a22 is the master HEAD as of
-# 2026-06-01 that 100/100 Release runs pass against locally. Bump deliberately after
+# ran different Jolt commits). v5.6.0 is a tested release tag that carries
+# JPH::CharacterContact (JoltCharacterController.h uses it as a CharacterVirtual
+# contact-listener type) — deliberate release pin per #294 (gold-standard form:
+# SHA + "# <tag>" comment, same shape as cpp_httplib above). Bump deliberately after
 # re-testing the JoltScene/JoltJobSystemAdapter integration.
 # NOTE: GIT_SHALLOW must be FALSE when GIT_TAG is a commit SHA — a shallow fetch only
 # pulls branch tips, so it can't resolve an arbitrary historical commit.
 FetchContent_Declare(
 	joltphysics
 	GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
-	GIT_TAG 6cef2a2214741a77fff8771e233c84da6b875ed5
+	GIT_TAG e77f175595e64cb44218cc9d9d56fc365ad0e36a  # v5.6.0
 	GIT_SHALLOW		FALSE
 	SOURCE_SUBDIR Build
 )
