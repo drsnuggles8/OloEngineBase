@@ -54,18 +54,31 @@ runs:
         # registry benefits from it.
         git -C "$VCPKG_ROOT" config core.fsmonitor false
 
-        # The runner's preinstalled clone is pinned to whatever commit the image was
-        # built at, which is almost never our baseline. Fetch just that commit.
+        # The runner's preinstalled clone sits at whatever commit the image was built
+        # at, which is almost never our baseline. It is NOT enough to fetch that
+        # commit: vcpkg reads `versions/baseline.json` from git AT the baseline, but
+        # reads each port's version database (`versions/<x>-/<port>.json`) from the
+        # WORKING TREE. An older tree then cannot resolve what the baseline names:
+        #
+        #   error: no version database entry for zlib at 1.3.2#2.
+        #   Available versions: 1.3.2#1, 1.3.2, 1.3.1, …
+        #
+        # So the tree has to be checked out at the baseline, not merely aware of it.
+        # (This does not reproduce on a dev box whose clone is already AT the
+        # baseline — which is exactly how it reached CI unnoticed.)
         if ! git -C "$VCPKG_ROOT" cat-file -e "${baseline}^{commit}" 2>/dev/null; then
           git -C "$VCPKG_ROOT" fetch --depth 1 origin "$baseline"
         fi
+        git -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
+        git -C "$VCPKG_ROOT" rev-parse HEAD
 
-        if [ ! -x "$VCPKG_ROOT/vcpkg" ] && [ ! -f "$VCPKG_ROOT/vcpkg.exe" ]; then
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
-          else
-            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
-          fi
+        # Bootstrap unconditionally: the tool version is pinned per registry commit
+        # (scripts/vcpkg-tool-metadata.txt), so the image's prebuilt binary can be
+        # older than the baseline expects. The script no-ops when it already matches.
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+        else
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
         fi
 
     # vcpkg's `x-gha` binary source talks to the Actions cache service directly and
