@@ -32,7 +32,8 @@ stops immediately with a pointer to this section.
 # Windows
 git clone https://github.com/microsoft/vcpkg D:\vcpkg
 D:\vcpkg\bootstrap-vcpkg.bat
-setx VCPKG_ROOT D:\vcpkg
+setx VCPKG_ROOT D:\vcpkg                                # persists for FUTURE shells only
+$env:VCPKG_ROOT = "D:\vcpkg"                            # ...so set it here too, or reopen the shell
 setx VCPKG_DEFAULT_BINARY_CACHE D:\vcpkg-binary-cache   # optional, but see below
 git -C D:\vcpkg config core.fsmonitor false             # REQUIRED, see below
 ```
@@ -41,7 +42,7 @@ git -C D:\vcpkg config core.fsmonitor false             # REQUIRED, see below
 # Linux
 git clone https://github.com/microsoft/vcpkg ~/vcpkg
 ~/vcpkg/bootstrap-vcpkg.sh
-export VCPKG_ROOT=~/vcpkg          # add to your shell profile
+export VCPKG_ROOT=~/vcpkg          # exports into THIS shell; add to your profile to persist
 git -C ~/vcpkg config core.fsmonitor false
 ```
 
@@ -129,7 +130,7 @@ The following development libraries and tools are required on Linux:
 Most other dependencies (GLFW, GLM, Jolt, protobuf, libsodium, assimp, …) come from the
 vcpkg manifest and are built once into the machine-global binary cache — see the vcpkg
 prerequisite above; the Linux presets use vcpkg's stock `x64-linux` triplet. A handful
-(ImGui, entt, Tracy, glad, Lua, stb, …) are still fetched in-tree via FetchContent/CPM;
+(ImGui, ImGuizmo, glad, Lua, sol2, stb, filewatch, …) are still fetched in-tree via FetchContent/CPM;
 `OloEngine/vendor/CMakeLists.txt`'s header comment names each one and why it did not move.
 
 Note vcpkg builds `libx11` and friends from source on Linux, so the *first* configure on

@@ -171,6 +171,17 @@ if(OLO_WITH_VULKAN)
     # older SDK win. VulkanContext.cpp's static_assert on VK_HEADER_VERSION is the
     # backstop if this ever regresses.
     get_target_property(OLO_VULKAN_HEADERS_INCLUDE_DIR Vulkan::Headers INTERFACE_INCLUDE_DIRECTORIES)
+    # Fail loudly rather than propagate an empty string or a literal
+    # "OLO_VULKAN_HEADERS_INCLUDE_DIR-NOTFOUND" into an include path: either would
+    # silently drop the pinned headers and let the installed SDK win the
+    # <vulkan/vulkan_core.h> lookup, which is the exact ordering this variable
+    # exists to guarantee.
+    if(NOT OLO_VULKAN_HEADERS_INCLUDE_DIR OR OLO_VULKAN_HEADERS_INCLUDE_DIR MATCHES "NOTFOUND")
+        message(FATAL_ERROR
+            "Vulkan::Headers exposed no INTERFACE_INCLUDE_DIRECTORIES "
+            "(got '${OLO_VULKAN_HEADERS_INCLUDE_DIR}'). The pinned 1.4.357 headers would "
+            "silently lose the include-order race against the installed Vulkan SDK.")
+    endif()
     set(OLO_VULKAN_HEADERS_INCLUDE_DIR "${OLO_VULKAN_HEADERS_INCLUDE_DIR}" PARENT_SCOPE)
 
     message(STATUS "OLO_WITH_VULKAN: Vulkan backend deps enabled (Vulkan-Headers + volk + VMA from vcpkg)")

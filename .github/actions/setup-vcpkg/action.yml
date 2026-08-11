@@ -85,8 +85,16 @@ runs:
         # So the tree has to be checked out at the baseline, not merely aware of it.
         # (This does not reproduce on a dev box whose clone is already AT the
         # baseline — which is exactly how it reached CI unnoticed.)
+        # Blobless, NOT --depth 1. A shallow fetch leaves the registry without the
+        # git-tree objects that a vcpkg.json "overrides" entry resolves through, so
+        # holding a single port back at an older version would fail with an
+        # unresolvable version. --filter=blob:none keeps the full commit/tree history
+        # (which is what version resolution walks) and defers blobs until read, so it
+        # costs little more than a shallow fetch. Matches the clone above, and the
+        # "do not clone vcpkg shallow" rule in
+        # docs/agent-rules/vcpkg-dependency-management.md.
         if ! git -C "$VCPKG_ROOT" cat-file -e "${baseline}^{commit}" 2>/dev/null; then
-          git -C "$VCPKG_ROOT" fetch --depth 1 origin "$baseline"
+          git -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
         fi
         git -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
         git -C "$VCPKG_ROOT" rev-parse HEAD
@@ -117,6 +125,16 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # `x-gha` reaches the Actions cache service directly and needs the runtime
+        # token plus a service URL, which only the github-script step above can
+        # export. If either is missing the provider cannot work — and the whole
+        # point of issue #773 is cross-run cache reuse, so a cache that quietly
+        # does nothing is the failure we are trying to prevent, not an acceptable
+        # degradation. Fail here rather than let a 35-minute cold build look normal.
+        if [ -z "${ACTIONS_RUNTIME_TOKEN:-}" ] ||            { [ -z "${ACTIONS_RESULTS_URL:-}" ] && [ -z "${ACTIONS_CACHE_URL:-}" ]; }; then
+          echo "::error::vcpkg binary caching unavailable - ACTIONS_RUNTIME_TOKEN and/or the"                "Actions cache service URL were not exported. Ports would be rebuilt from"                "source on every run. See .github/actions/setup-vcpkg."
+          exit 1
+        fi
         if [ "${{ inputs.read-only }}" = "true" ]; then
           echo "VCPKG_BINARY_SOURCES=clear;x-gha,read" >> "$GITHUB_ENV"
         else

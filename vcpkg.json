@@ -23,6 +23,8 @@
     {
       "name": "joltphysics",
       "features": [
+        "debugrenderer",
+        "profiler",
         "rtti"
       ]
     },

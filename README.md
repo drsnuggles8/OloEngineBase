@@ -219,8 +219,8 @@ Most dependencies come from the [`vcpkg.json`](vcpkg.json) manifest, pinned as a
 `builtin-baseline` registry commit and built into vcpkg's binary cache. The ones marked **(in-tree)**
 below are still fetched via `FetchContent`/CPM into `OloEngine/vendor/`, each for a specific reason
 documented in that file's header comment — briefly: sol2 and Lua are pinned to a tested pair, stb's port is ~2 years behind on an
-image decoder, ImGuizmo's port would drag in a second Dear ImGui, stb's port is ~2 years behind on an image
-decoder, and the single-header / forked / generator-driven ones have no port at all.
+image decoder, ImGuizmo's port would drag in a second Dear ImGui, and the single-header /
+forked / generator-driven ones have no port at all.
 OpenUSD and FFmpeg have their own build paths (see [CLAUDE.md](CLAUDE.md)).
 
 **Core** — [entt](https://github.com/skypjack/entt) (ECS) · [glm](https://github.com/g-truc/glm) (math) · [spdlog](https://github.com/gabime/spdlog) (logging) · [yaml-cpp](https://github.com/jbeder/yaml-cpp) (serialization) · [nlohmann/json](https://github.com/nlohmann/json) (tools / IPC) · [choc](https://github.com/Tracktion/choc) (utilities, **in-tree**) · [atomic_queue](https://github.com/max0x7ba/atomic_queue) (lock-free MPMC queue) · [meshoptimizer](https://github.com/zeux/meshoptimizer)

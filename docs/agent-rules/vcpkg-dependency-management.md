@@ -25,7 +25,8 @@ one and why.
 git clone https://github.com/microsoft/vcpkg D:\vcpkg
 D:\vcpkg\bootstrap-vcpkg.bat
 
-setx VCPKG_ROOT D:\vcpkg
+setx VCPKG_ROOT D:\vcpkg                                # persists for FUTURE shells only
+$env:VCPKG_ROOT = "D:\vcpkg"                            # ...so set it here too, or reopen the shell
 setx VCPKG_DEFAULT_BINARY_CACHE D:\vcpkg-binary-cache   # optional; defaults under %LOCALAPPDATA%
 ```
 
@@ -44,7 +45,7 @@ simply is not in the object database. `git fetch --unshallow` if you hit that.
 Symptom, on every `vcpkg install` in this repo, at whichever port happens to be
 checked out first:
 
-```
+```text
 error: rename_or_delete("…/buildtrees/versioning_/versions/assimp/<tree>_35780.tmp",
                         "…/buildtrees/versioning_/versions/assimp/<tree>"):
   The process cannot access the file because it is being used by another process.
@@ -129,6 +130,52 @@ build log.
 `cmake/SetupConfigurations.cmake` sets `CMAKE_MAP_IMPORTED_CONFIG_DIST
 "Release;"` before the first consuming target is created. **Any new project-local
 configuration needs the same line.**
+
+## A dependency's option names are part of its contract — verify them, don't assume
+
+Moving Jolt to a port surfaced two things that had been wrong or invisible for a long
+time. Both are the same mistake in different directions: **a CMake `set()` for an option
+name the dependency never reads is silently a no-op.**
+
+**1. Cross-platform determinism was never actually on.** The in-tree build did
+
+```cmake
+set(JPH_CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)   # <- wrong name
+```
+
+but Jolt's `Build/CMakeLists.txt` declares `option(CROSS_PLATFORM_DETERMINISTIC ... OFF)`
+— **no `JPH_` prefix**. `JPH_CROSS_PLATFORM_DETERMINISTIC` is the *compile definition* Jolt
+emits when that option is on, not the option itself. So the cache variable was set, nothing
+read it, the option stayed OFF, and a comment two lines above asserted determinism was
+enabled. The overlay port passes `-DCROSS_PLATFORM_DETERMINISTIC=ON`, which means this
+migration turned determinism on **for the first time** — a real change in physics
+behaviour, and the thing issue #281 wanted. (`JPH_BUILD_SHARED_LIBRARY` and
+`JPH_STATIC_LIBRARY` in the same block are also not Jolt option names; they were harmless
+only because Jolt defaults to static.)
+
+Contrast `CPP_RTTI_ENABLED`, set right next to them — that one *is* a real Jolt option, so
+RTTI genuinely was on. Same file, same block, one name right and one wrong, no signal
+either way.
+
+**2. Two features silently switched off.** Jolt defaults
+`DEBUG_RENDERER_IN_DEBUG_AND_RELEASE` and `PROFILER_IN_DEBUG_AND_RELEASE` to **ON**, and the
+in-tree build never overrode them — so the engine had `JPH_DEBUG_RENDERER` and
+`JPH_PROFILE_ENABLED`. In vcpkg those are opt-in *features*, so a manifest requesting only
+`rtti` turns both off. The engine adapts silently: `Physics3DSystem` and
+`JoltLayerInterface` guard on `#if defined(JPH_PROFILE_ENABLED)`, and `JoltCaptureManager`'s
+capture path needs `JPH_DEBUG_RENDERER`. Nothing fails to build; the code just stops
+existing. The manifest now requests `debugrenderer` and `profiler` to restore parity.
+
+**Generalisable:** when moving a dependency to a port, diff what its *defaults* gave you
+against what the manifest's feature list asks for. Inherited-by-default behaviour is
+invisible in the old build files precisely because nobody had to write it down. And check
+each `set()` against the dependency's own `option()` declarations — a typo'd or prefixed
+name never warns.
+
+(`Jolt::Jolt` does export `JPH_CROSS_PLATFORM_DETERMINISTIC` in its
+`INTERFACE_COMPILE_DEFINITIONS`, so engine TUs compiling Jolt inline code agree with the
+library. Jolt's determinism build also wants precise floating point; MSVC's default is
+already `/fp:precise` and this project sets no `/fp:` flag, so they match.)
 
 ## Trap 5 — "the overlay was found" is not "the option took effect"
 

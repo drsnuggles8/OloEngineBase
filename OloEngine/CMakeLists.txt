@@ -148,6 +148,19 @@ olo_set_common_definitions(OloEngine)
 #
 # Listed AFTER the pinned headers below so it can never win the <vulkan/vulkan_core.h>
 # lookup. Windows layout is Include/, Linux is include/.
+# The pinned Vulkan headers, gated with a plain if() rather than a generator
+# expression: INTERFACE_INCLUDE_DIRECTORIES is a LIST, and
+# $<$<BOOL:..>:${list}> collapses it into a single semicolon-joined entry that
+# resolves to no real directory. An if() preserves multi-entry lists.
+set(OLO_VULKAN_PINNED_INCLUDE_DIRS "")
+if(OLO_WITH_VULKAN)
+	set(OLO_VULKAN_PINNED_INCLUDE_DIRS "${OLO_VULKAN_HEADERS_INCLUDE_DIR}")
+endif()
+
+# NOTE the SDK include dir below is deliberately NOT gated on OLO_WITH_VULKAN: that
+# option selects the Vulkan RHI *backend*, while the SDK include tree is also where
+# the SHADER toolchain lives (spirv_cross/, shaderc/, glslang/), which every build
+# needs regardless of the backend.
 set(OLO_VULKAN_SDK_INCLUDE_DIR "")
 if(DEFINED ENV{VULKAN_SDK})
 	foreach(_olo_sdk_inc "$ENV{VULKAN_SDK}/Include" "$ENV{VULKAN_SDK}/include")
@@ -184,7 +197,7 @@ target_include_directories(OloEngine PUBLIC
 	# linked targets, so relying on propagation would put the pinned headers AFTER
 	# ${Vulkan_INCLUDE_DIRS} and let the installed SDK win. vendor/CMakeLists.txt
 	# reads the path off the imported target and propagates it here.
-	$<$<BOOL:${OLO_WITH_VULKAN}>:${OLO_VULKAN_HEADERS_INCLUDE_DIR}>
+	${OLO_VULKAN_PINNED_INCLUDE_DIRS}
 	${OLO_VULKAN_SDK_INCLUDE_DIR}
 	${Vulkan_INCLUDE_DIRS}
 )
