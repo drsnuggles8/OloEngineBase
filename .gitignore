@@ -126,3 +126,9 @@ docs/test-catalogue.*.md
 # External assets fetched on demand by scripts/Fetch-Assets.ps1 (see scripts/assets/asset-manifest.json).
 # Too large for git history, or licensed to be fetched rather than redistributed.
 OloEditor/SandboxProject/Assets/Models/Stanford/
+
+# OloHeaderTool writes each generated artefact to a sibling temp file and renames
+# it into place, so two build trees can never expose a half-written .inl. A temp
+# only survives a hard kill mid-write; ignore it so it can't be committed by
+# accident (tools/OloHeaderTool/main.cpp, issue #758).
+*.oht-tmp

@@ -6,13 +6,32 @@ investigation. Two independent topics that share a failure surface: the
 
 ## 1. Never run the two build trees at the same time
 
-Both trees run the `GenerateBindings` custom target, and **both write the
-same generated files into the shared source tree**
-(`Scene/Generated/*.inl`, `SaveGame/Generated/*.inl`,
-`Scripting/C#/Generated/`, `OloEditor/src/MCP/Generated/`). Two concurrent
-builds race on those files and fail with
-`CUSTOMBUILD : error : Failed to open "...\McpFieldRegistry.Generated.inl"
-for writing` — or worse, one tree compiles a half-written `.inl`.
+Both trees run `GenerateBindings`, and **both write the same generated files
+into the shared source tree** (`Scene/Generated/*.inl`,
+`SaveGame/Generated/*.inl`, `Scripting/C#/Generated/`,
+`OloEditor/src/MCP/Generated/`).
+
+**Issue #758 narrowed this hazard but did not remove it.** Two things changed:
+
+* The codegen is now a real `add_custom_command` with a depfile, so it runs
+  only when a scanned header actually changed — not on every build. Two trees
+  building at the same commit with no header edits no longer collide at all,
+  because neither runs the tool.
+* Each generated file is now written to a sibling temp and **renamed** into
+  place. A rename is an atomic replace, so a reader sees either the complete
+  old file or the complete new one. The two failures this doc used to
+  describe — `CUSTOMBUILD : error : Failed to open
+  "...\McpFieldRegistry.Generated.inl" for writing`, and one tree compiling a
+  *half-written* `.inl` — are both gone.
+
+What is left is an ordinary stale-output question: if a header *did* change,
+both trees will want to regenerate, and whichever lands last wins. Both
+compute identical content from the same source tree, so the result is correct
+either way. The residual risk is timing, not corruption.
+
+**The rule still stands** — sequence the trees. Not for the file race any
+more, but for §1a below (`mspdbsrv` is per-user) and for the memory ceiling
+that makes two concurrent full-width builds OOM this box.
 
 A second, quieter cross-tree hazard: at least one vendor library
 (**bc7enc**) landed a Release-flavored `.lib` where the msvc Debug link
@@ -27,6 +46,73 @@ fix is a targeted clean rebuild of the named library:
 before starting a build in the other. This includes background builds a
 previous agent turn kicked off — check for live `MSBuild`/`ninja`/`cl`
 processes first.
+
+### 1b. Build-graph-integrating a codegen tool: four traps, all silent (issue #758)
+
+Converting `GenerateBindings` from an `add_custom_target` (always runs) to an
+`add_custom_command(OUTPUT …)` with a `DEPFILE` hit four failures that share
+one shape: **no error, no warning, the build just quietly does the wrong
+thing.** Every one of them was found by measuring `toolRan` across repeated
+no-op builds, not by reading a log for errors. If you touch this rule, re-run
+that measurement on **both** generators — a green build proves nothing here.
+
+**1. A content-stable output cannot be the rule's OUTPUT.** The tool writes
+each generated file only when its *content* changes (`WriteIfChanged`), which
+is what stops a one-line header edit from recompiling the engine through
+`Components.h`. But then, after a header edit, the unchanged `.inl` stays
+*older* than that header — so the rule never settles and re-runs on every
+build forever. Ninja survives this via `restat`; MSBuild's tlog check has no
+equivalent. The fix is a **stamp** as the sole declared OUTPUT, always
+refreshed.
+
+Do not reach for `BYPRODUCTS` to name the generated files either, tempting as
+it is: CMake treats byproducts as *cleanable* output, so a routine
+`--target clean` deletes them — and these fifteen are **tracked in git**.
+Measured in a Ninja harness: with `BYPRODUCTS`, `clean` removed all eight
+`Scene/Generated` artefacts from the source tree; without it they survive.
+Ordering comes from `add_dependencies(OloEngine GenerateBindings)`, not from
+the outputs list, so nothing is lost by leaving them undeclared. To force a
+regeneration, delete the stamp — never the generated sources.
+
+**2. A `#` or `$` in a dependency path is unrepresentable in a depfile.**
+The grammar escapes them (`\#`, `$$`), ninja's own depfile parser handles that
+correctly — but CMake's `cmake_transform_depfile` **un-escapes them on read and
+does not re-escape on write**. Ninja then splits the path at the bare `#`:
+
+```text
+.../Scripting/C#/ScriptGlue.h   ->   ".../Scripting/C"  +  "/ScriptGlue.h"
+```
+
+Neither fragment exists, so the edge is dirty forever. No encoding on the
+emitting side avoids it (four were tried). The VS generator's
+`MSBuildAdditionalInputs` transform emits a `;`-separated list and is
+unaffected. `OloEngine/src/OloEngine/Scripting/C#/` is the live case here; the
+tool now omits such paths (printing each one) and CMake re-adds them as
+ordinary `DEPENDS`.
+
+**3. A directory in a depfile works under Ninja and is fatal under MSBuild.**
+Listing every visited directory is the classic way to catch *added or deleted*
+files, because a directory's mtime moves when an entry appears or disappears.
+Ninja handles it. The VS generator funnels the depfile into MSBuild's
+`AdditionalInputs`, whose up-to-date check can never satisfy a directory entry
+— so the rule is out of date on every build. Measured: **4.3 s per no-op build
+with directories listed, 1.0 s without.** Use a `CONFIGURE_DEPENDS` glob
+written to a `configure_file(... COPYONLY)` manifest instead: the manifest's
+timestamp then moves exactly when the file *set* changes, on both generators.
+The price is a full reconfigure when a header is added or deleted (~40 s under
+VS, ~3 s under Ninja) — worth it against 4.3 s on *every* build.
+
+**4. `CODEGEN` silently does nothing unless the layout suits it.** It is
+Ninja/Makefile-only (VS ignores it), it needs `cmake_policy(SET CMP0171 NEW)`
+at **top-level** scope, and — the part no doc states — it only attaches a rule
+to the `codegen` target when the command's OUTPUT is consumed by a **compiled
+target declared in the same directory as the `add_custom_command`**. Neither
+`add_custom_target(… DEPENDS)`, nor that target's `SOURCES`, nor a
+cross-directory `target_sources()` qualifies. Get any of it wrong and CMake
+accepts the keyword, emits `codegen` as an *empty phony*, and
+`--target codegen` exits 0 having regenerated nothing. This is why the rule
+here does not use `CODEGEN`; `--target GenerateBindings` is the portable
+equivalent and works under both generators.
 
 ### 1a. `mspdbsrv` is per-USER, not per-worktree — one wedged instance stalls every build on the box
 
