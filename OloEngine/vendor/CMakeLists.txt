@@ -25,7 +25,7 @@ message(STATUS "Downloading third party libraries using CMake's FetchContent and
 FetchContent_Declare(
 	assimp
 	GIT_REPOSITORY	https://github.com/assimp/assimp.git
-	GIT_TAG			a8278e3ad9522493657fc759d26718524a6d23e7  # master @ 2026-06-05
+	GIT_TAG			50d767984e78d51b53e2020fdf0967fd624bc377  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -75,7 +75,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG 1b6f64d659944658a4c685b7bd9f04c1c3b8a39b  # main @ 2026-06-05
+	GIT_TAG d89aac5f0dd4021198d903d39de16f896726de21  # main @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 # Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
@@ -134,14 +134,14 @@ FetchContent_Declare(
 FetchContent_Declare(
 	tracy
 	GIT_REPOSITORY	https://github.com/wolfpld/tracy.git
-	GIT_TAG			05cceee0df3b8d7c6fa87e9638af311dbabc63cb  # v0.13.1
+	GIT_TAG			099df3de3dc37eca4712c06b8320fb9c53596edd  # v0.14.0
 	GIT_SHALLOW		FALSE
 	GIT_PROGRESS    TRUE
 )
 FetchContent_Declare(
 	yaml-cpp
 	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG			3eb39d5808c33aa93a113cb6c668fa2435ff3ecd  # master @ 2026-06-05
+	GIT_TAG			2f64971599ed05b15e2945949e834e96b6288afb  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -172,7 +172,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	GameNetworkingSockets
 	GIT_REPOSITORY	https://github.com/ValveSoftware/GameNetworkingSockets.git
-	GIT_TAG			a7f4a60bfc916e56f6b699297f49562e97944460  # master @ 2026-06-05
+	GIT_TAG			e707b3a6b638f4de31ee3e13a64284bd9abfa98e  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 	EXCLUDE_FROM_ALL
 )
@@ -318,7 +318,7 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG b48d1afbe8ee8b238e2961dc363a949dd7304e23  # docking @ 2026-06-05
+	GIT_TAG 83f668625ad45364de71d385aeb6a5dd04bee02e  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
@@ -341,7 +341,7 @@ endif()
 
 CPMAddPackage(NAME imguizmo
 	GITHUB_REPOSITORY CedricGuillemet/ImGuizmo
-	GIT_TAG 5ab7676402ace03cdf930b2d972f59c7d03c6fa8  # master @ 2026-06-05
+	GIT_TAG 18cef5e031d8c6973d80284c67f60549fafd78c1  # master @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if (imguizmo_ADDED)
@@ -385,7 +385,7 @@ endif()
 # Pinned to a fixed tag SHA for reproducible builds (#294 convention).
 CPMAddPackage(NAME cpp_httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-  GIT_TAG 095a5c1caf9e467ff840ee2ffd19be1a7852203b  # v0.52.0
+  GIT_TAG f00e476f1b2d519343e960f77f57a06c8a24f046  # v0.53.0
   GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(cpp_httplib_ADDED)
