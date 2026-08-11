@@ -9,6 +9,7 @@
     "assimp",
     "atomic-queue",
     "box2d",
+    "entt",
     {
       "name": "cpp-httplib",
       "default-features": false
@@ -18,6 +19,7 @@
       "default-features": false
     },
     "glfw3",
+    "glm",
     {
       "name": "joltphysics",
       "features": [
@@ -33,6 +35,12 @@
       "name": "spdlog",
       "features": [
         "fmt"
+      ]
+    },
+    {
+      "name": "tracy",
+      "features": [
+        "on-demand"
       ]
     },
     "yaml-cpp",

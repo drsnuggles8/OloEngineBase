@@ -162,8 +162,6 @@ endif()
 # everything vcpkg provides carries its own through its IMPORTED target (issue #773).
 target_include_directories(OloEngine PUBLIC
 	src
-	${entt_SOURCE_DIR}/single_include/entt
-	${glm_SOURCE_DIR}
 	${filewatch_SOURCE_DIR}
 	vendor/glad-build/include
 	${pl_mpeg_SOURCE_DIR}
@@ -172,7 +170,6 @@ target_include_directories(OloEngine PUBLIC
 	${imgui_SOURCE_DIR}/backends
 	${imgui_SOURCE_DIR}/examples
 	${imguizmo_SOURCE_DIR}
-	${tracy_SOURCE_DIR}/public
 	${sol2_SOURCE_DIR}/include
 	vendor/stb_image-build/include
 	mono/include
@@ -202,8 +199,10 @@ target_link_libraries(OloEngine
 	bcdec
 	box2d::box2d
 	choc
+	EnTT::EnTT
 	glad
 	glfw
+	glm::glm
 	imgui
 	imguizmo
 	Jolt::Jolt
@@ -334,7 +333,7 @@ endif()
 # The TSan preset turns the option off so those globals never make it into the binary
 # (avoids tracy_rpmalloc.cpp's static-init-order race that TSan halts on).
 if(TRACY_ENABLE)
-	target_link_libraries(OloEngine TracyClient)
+	target_link_libraries(OloEngine Tracy::TracyClient)
 endif()
 
 # OpenGL — platform-specific library name

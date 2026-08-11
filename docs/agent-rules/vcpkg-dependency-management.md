@@ -210,13 +210,39 @@ the reasons are worth knowing before someone retries one:
 
 | Dependency | Registry has | We use | Verdict |
 |---|---|---|---|
-| **entt** | 3.16.0 | post-v4.0.0 | **Major downgrade of the ECS the whole engine is built on** (owning-group semantics — see `Scene/Scene.cpp`'s ownership map). Not a build-system decision. |
-| **tracy** | 0.13.1 (newest in the registry, at any version) | 0.14.0 | The version does not exist in the registry. Independently, `TRACY_ENABLE`/`TRACY_ON_DEMAND` are applied **per-config** here, which one triplet cannot express — a vcpkg tracy bakes one answer into both Debug and Release. Since v0.14.0 the on-demand flag is part of the mangled `GetProfiler` symbol, so a mismatch is at least an `LNK2001` rather than silent. |
 | **sol2** | 3.5.0 + a Lua-5.5 patch | newer `develop` pin | Header-only ⇒ no compile to cache, so ~zero benefit; and the `SOL_ALL_INTEGER_VALUES_FIT` u64 contract (issue #643) is load-bearing and hard-won. |
 | **lua** | 5.5.1 | 5.4.7 | A major-ish jump against a sol2 pin tested on 5.4. Pinning 5.4.7 needs a version override, which needs non-shallow registry history. |
 | **stb** | 2024-07-29 | ~2 years newer | `stb_image` is an image **decoder fed untrusted files**. Silently reverting two years of fixes there is not a build-system decision. (vcpkg installs its own stb anyway as an assimp dependency, but flat as `<stb_image.h>`; we include `<stb_image/stb_image.h>`, so they do not collide.) |
-| **glm** | 1.0.3 | master, **429 of its headers differ** | Header-only ⇒ no compile to cache, so the only win is an avoided clone — against a 429-file version delta in the math library every render path runs through. Not a trade worth making. |
 | **imguizmo** | 1.10 | ~equivalent | The port takes a hard dependency on the **imgui port**. imgui stays in-tree (hand-picked backends + `IMGUI_IMPL_OPENGL_LOADER_GLAD=1`), so moving imguizmo would link two Dear ImGui copies into one binary. |
+
+### What moved on a second pass, and the version cost of each
+
+The first pass kept entt, glm and tracy in-tree because the registry is behind our
+pins. Revisited with an explicit decision that **recent-but-older is acceptable** in
+exchange for coverage, all three moved:
+
+| Dep | Was | Now | What that costs |
+|---|---|---|---|
+| **entt** | v4.0.0 (released 2026-07-22) | **3.16.0** (2025-11-19) | A major version. Safe here only because the API surface this engine touches is tiny and v3-compatible — `entt::entity`, `type_hash`, `get`, `null`, `registry`, `id_type`, `exclude`. Verified by compiling, not by reading. Also needed the include spelling `<entt.hpp>` → `<entt/entt.hpp>`, since the port installs namespaced. |
+| **glm** | master @2026-04-07 | **1.0.3** (2025-12-31) | Nothing measurable: 1.0.3 is upstream's newest *release*; we were tracking unreleased master. A full suite run on each gave identical results. |
+| **tracy** | v0.14.0 (released 2026-08-09) | **0.13.1** (2025-12-11) | Two real things, below. |
+
+**Tracy is the one with a behavioural consequence.** The port exports
+`INTERFACE_COMPILE_DEFINITIONS "TRACY_ENABLE;TRACY_ON_DEMAND"`, so linking
+`Tracy::TracyClient` defines both in **every** configuration. Previously the engine
+defined them in Release only, and the in-tree `TracyClient` was given a matching
+per-config `target_compile_definitions`. Consequences:
+
+- Debug builds go from `E1/OD0` (profiler collecting from process start) to `E1/OD1`
+  (on-demand). Less intrusive, but different.
+- The client and consumer now agree *by construction*, because both sides read the
+  same imported target — which matters, because **0.13.1 does not carry v0.14.0's
+  config-mangled `GetProfiler` symbol**. On 0.14.0 a TRACY_ON_DEMAND mismatch was a
+  loud `LNK2001`; on 0.13.1 it would be silent. We no longer have that backstop, so
+  do not hand-add per-config Tracy defines on top of the imported target.
+
+`TRACY_ENABLE` remains the CMake option gating whether Tracy is linked at all (the
+TSan preset turns it off, per `cmake/Sanitizers.cmake`).
 
 **Generalisable rule:** a dependency's *build cost* is what a binary cache buys
 you. For a header-only library the win is one avoided clone, which is real but

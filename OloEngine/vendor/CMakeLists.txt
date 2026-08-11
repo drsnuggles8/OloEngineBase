@@ -15,20 +15,6 @@
 # come from the registry; none of them is "we didn't get round to it". Re-check
 # the reason before moving one — do not just try it and see.
 #
-#   entt        The registry port is 3.16.0; we track EnTT v4 (the owning-group
-#               semantics the whole ECS is built on — see Scene/Scene.cpp's
-#               ownership map). Moving is a major-version DOWNGRADE.
-#   glm         The registry port is release 1.0.3; we track master, and 429 of
-#               glm's headers differ between the two. Header-only, so a binary
-#               cache buys nothing but an avoided clone — not a trade worth making
-#               against that size of version delta in the math library every render
-#               path runs through.
-#   tracy       We need v0.14.0 for the mangled-GetProfiler ABI (see the
-#               TracyClient block below); the registry's newest tracy is 0.13.1,
-#               so the version simply is not available. Independently, TRACY_ENABLE
-#               and TRACY_ON_DEMAND are applied PER-CONFIG here, which a single
-#               triplet cannot express — a vcpkg tracy would bake one answer into
-#               both Debug and Release.
 #   sol2        Header-only, so a port buys no compile caching, while the port is
 #               3.5.0 + a Lua-5.5 patch and we track a newer develop pin. The
 #               SOL_ALL_INTEGER_VALUES_FIT u64 contract (issue #643) is load-bearing
@@ -111,13 +97,16 @@ set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL ON)
 find_package(assimp CONFIG REQUIRED)
 find_package(atomic_queue CONFIG REQUIRED)
 find_package(box2d CONFIG REQUIRED)
+find_package(EnTT CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
+find_package(glm CONFIG REQUIRED)
 find_package(GameNetworkingSockets CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(recastnavigation CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(Tracy CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -193,21 +182,9 @@ endif()
 message(STATUS "Downloading the remaining in-tree third party libraries (FetchContent / CPM)")
 
 FetchContent_Declare(
-	entt
-	GIT_REPOSITORY	https://github.com/skypjack/entt.git
-	GIT_TAG			85c6bba014049b5de8fad49d25424df2f1f6a8c1  # main @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
 	filewatch
 	GIT_REPOSITORY	https://github.com/drsnuggles8/filewatch.git
 	GIT_TAG			2b24bd3bd513f7a6c9c9c566858a48a6124ad5af  # master @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	glm
-	GIT_REPOSITORY https://github.com/g-truc/glm.git
-	GIT_TAG 6f14f4792a0cde5d0cf2c910506724d61cb95834  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -216,13 +193,6 @@ FetchContent_Declare(
 	GIT_TAG			73db193f853e2ee079bf3ca8a64aa2eaf6459043  # v2.0.8
 	GIT_SHALLOW		FALSE
 	SOURCE_SUBDIR	cmake
-)
-FetchContent_Declare(
-	tracy
-	GIT_REPOSITORY	https://github.com/wolfpld/tracy.git
-	GIT_TAG			099df3de3dc37eca4712c06b8320fb9c53596edd  # v0.14.0
-	GIT_SHALLOW		FALSE
-	GIT_PROGRESS    TRUE
 )
 
 # pl_mpeg: single-file, public-domain MPEG-1 video + MP2 audio decoder.
@@ -236,11 +206,14 @@ FetchContent_Declare(
 	GIT_SHALLOW		FALSE
 )
 
-# Tracy: profiling enabled by default. The leading `set(... OFF)` would have
-# established a cache var that the following `option()` would then no-op on,
-# leaving Tracy disabled — the single `option()` below is the source of truth.
+# Tracy: profiling enabled by default. The option is still the source of truth for
+# whether the engine LINKS Tracy::TracyClient at all and whether the consumer-side
+# TRACY_ENABLE/TRACY_ON_DEMAND macros are defined (cmake/CommonProperties.cmake);
+# the TSan preset turns it off (cmake/Sanitizers.cmake). The port itself is built
+# with profiling on and, via the `on-demand` feature, with TRACY_ON_DEMAND — so the
+# two sides agree without the per-config target_compile_definitions the in-tree
+# build needed.
 option(TRACY_ENABLE "Enable profiling" ON)
-set(TRACY_ON_DEMAND OFF CACHE BOOL "" FORCE)
 
 # filewatch hardcodes `/Zi` with no option to disable it (filewatch-src/CMakeLists.txt),
 # which sccache/ccache cannot cache (it aborts with "failed to zip up compiler outputs
@@ -252,29 +225,7 @@ if(OLO_ENABLE_COMPILER_CACHE AND MSVC)
 	set(BUILD_TESTS OFF)
 endif()
 
-FetchContent_MakeAvailable(entt filewatch glad glm tracy pl_mpeg)
-
-# Tracy's own macros — only define when the CMake option is on. With this off
-# the entire Profiler ctor (and its worker threads) compile out, which avoids
-# the static-init race that TSan trips on (see CMakePresets.json linux-tsan).
-#
-# TRACY_ON_DEMAND MUST match EVERY consumer that inlines a Tracy zone (engine,
-# editor, runtime, server, tests) — since Tracy v0.14.0 the on-demand flag is
-# baked into the mangled GetProfiler symbol (GetProfiler_CFG_E1_OD1_…), so a
-# TU compiled without it references the OD0 variant TracyClient (built OD1)
-# doesn't export → LNK2001. It is therefore PUBLIC here so every consumer of
-# TracyClient inherits the identical config and no target can silently drift
-# (a per-target PRIVATE add in cmake/CommonProperties.cmake is exactly what
-# left OloEngine-Tests broken — see issue #754). TRACY_ENABLE stays PRIVATE:
-# Tracy's own CMake already exports it through the target's INTERFACE.
-#
-# This per-CONFIG pairing is precisely what a vcpkg triplet cannot express, and
-# is half the reason Tracy is still fetched here (see the header comment).
-if(TRACY_ENABLE)
-    target_compile_definitions("TracyClient"
-        PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>
-        PUBLIC  $<$<CONFIG:Release>:TRACY_ON_DEMAND>)
-endif()
+FetchContent_MakeAvailable(filewatch glad pl_mpeg)
 
 glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
 
@@ -415,12 +366,11 @@ set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(imguizmo PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
-set_target_properties(TracyClient PROPERTIES FOLDER "Utilities")
 
 #======================================
 # Propagate FetchContent _SOURCE_DIR / _BINARY_DIR variables to parent scope
 # so OloEngine/CMakeLists.txt can use them in target_include_directories.
-foreach(_dep entt filewatch glad glm pl_mpeg tracy stb_image imgui imguizmo lua)
+foreach(_dep filewatch glad pl_mpeg stb_image imgui imguizmo lua)
 	if(DEFINED ${_dep}_SOURCE_DIR)
 		set(${_dep}_SOURCE_DIR "${${_dep}_SOURCE_DIR}" PARENT_SCOPE)
 	endif()

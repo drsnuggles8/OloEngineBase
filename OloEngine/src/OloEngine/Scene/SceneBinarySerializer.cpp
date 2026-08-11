@@ -10,7 +10,7 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
-#include <entt.hpp>
+#include <entt/entt.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>

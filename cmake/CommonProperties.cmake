@@ -191,13 +191,10 @@ function(olo_set_common_include_directories target_name)
     target_include_directories(${target_name} PRIVATE
         ${CMAKE_SOURCE_DIR}/OloEngine/src
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor
-        ${CMAKE_SOURCE_DIR}/OloEngine/vendor/entt-src/single_include/entt
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/filewatch-src
-        ${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/imgui-src
         ${imguizmo_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/sol2-src/include
-        ${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
     )
 endfunction()
 
