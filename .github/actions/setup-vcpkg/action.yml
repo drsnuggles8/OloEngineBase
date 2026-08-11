@@ -108,41 +108,71 @@ runs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
         fi
 
-    # vcpkg's `x-gha` binary source talks to the Actions cache service directly and
-    # stores ONE entry per package (~45 of them) rather than one per object file —
-    # unlike sccache's GHA backend, which flooded this repo's 10 GB cache cap with
-    # 20k+ entries and made every write fail. See the SCCACHE_DIR note in Windows.yml.
-    - name: Export Actions-cache credentials for vcpkg
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-      with:
-        script: |
-          for (const name of ['ACTIONS_CACHE_URL', 'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN']) {
-            const value = process.env[name];
-            if (value) core.exportVariable(name, value);
-          }
-
-    - name: Select binary sources
+    # BINARY CACHING. `x-gha` is NOT usable: vcpkg-tool removed the provider in
+    # microsoft/vcpkg-tool#1662 (merged 2025-04-29), and the tool release this
+    # manifest's baseline pins (2026-07-27) keeps only a stub that emits
+    # `msgGhaBinaryCacheDeprecated` and registers nothing:
+    #
+    #   else if (segments[0].second == "x-gha")
+    #   { add_warning(msg::format(msgGhaBinaryCacheDeprecated, ...)); }
+    #
+    # It WARNS rather than erroring, so a CI run configured that way looks
+    # completely normal while rebuilding every port from source — the exact silent
+    # cache failure issue #773 exists to eliminate. Use the plain `files` provider
+    # over a workspace directory wrapped in actions/cache instead.
+    #
+    # A NuGet feed on GitHub Packages is the other supported option and does not
+    # consume the repo's Actions-cache quota; it needs `packages: write` on every
+    # calling workflow plus the NuGet CLI (and mono on Linux). Worth revisiting if
+    # the 10 GB cache cap becomes the binding constraint — see the note on
+    # SCCACHE_DIR in Windows.yml.
+    - name: Configure the vcpkg binary cache
       shell: bash
       run: |
         set -euo pipefail
-        # `x-gha` reaches the Actions cache service directly and needs the runtime
-        # token plus a service URL, which only the github-script step above can
-        # export. If either is missing the provider cannot work — and the whole
-        # point of issue #773 is cross-run cache reuse, so a cache that quietly
-        # does nothing is the failure we are trying to prevent, not an acceptable
-        # degradation. Fail here rather than let a 35-minute cold build look normal.
-        if [ -z "${ACTIONS_RUNTIME_TOKEN:-}" ] ||            { [ -z "${ACTIONS_RESULTS_URL:-}" ] && [ -z "${ACTIONS_CACHE_URL:-}" ]; }; then
-          echo "::error::vcpkg binary caching unavailable - ACTIONS_RUNTIME_TOKEN and/or the"                "Actions cache service URL were not exported. Ports would be rebuilt from"                "source on every run. See .github/actions/setup-vcpkg."
-          exit 1
-        fi
+        # Backslashes -> forward slashes, same reason as the toolchain args below:
+        # this value is written to GITHUB_ENV and read back by later bash steps.
+        dir="${GITHUB_WORKSPACE//\\//}/.vcpkg-binary-cache"
+        mkdir -p "$dir"
+        echo "VCPKG_DEFAULT_BINARY_CACHE=$dir" >> "$GITHUB_ENV"
         if [ "${{ inputs.read-only }}" = "true" ]; then
-          echo "VCPKG_BINARY_SOURCES=clear;x-gha,read" >> "$GITHUB_ENV"
+          echo "VCPKG_BINARY_SOURCES=clear;files,$dir,read" >> "$GITHUB_ENV"
         else
-          echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite" >> "$GITHUB_ENV"
+          echo "VCPKG_BINARY_SOURCES=clear;files,$dir,readwrite" >> "$GITHUB_ENV"
         fi
         # Ports build with their own internal parallelism; leave headroom for the
         # runner (2 cores on GitHub-hosted, more on self-hosted).
         echo "VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY:-2}" >> "$GITHUB_ENV"
+
+    # Guard against exactly the x-gha class of failure: a provider that this tool
+    # build no longer implements is accepted with a warning and silently ignored.
+    # `vcpkg help binarycaching` enumerates what the CURRENT binary actually
+    # supports, so asserting our provider appears there fails loudly at setup
+    # instead of after a 35-minute uncached build.
+    - name: Verify the binary-cache provider is supported by this vcpkg
+      shell: bash
+      run: |
+        set -euo pipefail
+        vcpkg_exe="$VCPKG_ROOT/vcpkg"
+        [ -f "$VCPKG_ROOT/vcpkg.exe" ] && vcpkg_exe="$VCPKG_ROOT/vcpkg.exe"
+        if ! "$vcpkg_exe" help binarycaching | grep -qE '^\s*files,<path>'; then
+          echo "::error::This vcpkg build does not list the 'files' binary-cache provider."                "VCPKG_BINARY_SOURCES would be accepted and ignored, and every port would be"                "rebuilt from source. See .github/actions/setup-vcpkg."
+          exit 1
+        fi
+        echo "binary-cache provider 'files' supported; VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES"
+
+    # Key on the inputs that change the ABI of every package: the manifest, the
+    # triplets and the overlay ports. run_id makes each run save a fresh superset
+    # (actions/cache entries are immutable), and restore-keys falls back to the
+    # newest prior snapshot — the same shape as the sccache caches in Windows.yml.
+    - name: Cache vcpkg binary archives
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ github.workspace }}/.vcpkg-binary-cache
+        key: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-${{ github.run_id }}
+        restore-keys: |
+          vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-
+          vcpkg-${{ runner.os }}-${{ inputs.triplet }}-
 
     - name: Emit toolchain args
       id: emit
