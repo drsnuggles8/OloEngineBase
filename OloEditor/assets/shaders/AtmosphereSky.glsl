@@ -116,6 +116,15 @@ vec3 dayLayer(vec3 viewDir)
 }
 
 // ── Night half — mirrored CPU-side in AtmosphereSky.cpp ──
+//
+// GOLDEN COUPLING: the star hash / positions / brightness below feed the
+// Atmosphere_Night{Clear,Overcast,Storm} visual goldens
+// (OloEngine/tests/Rendering/PropertyTests/AtmosphereVisualEvidenceTest.cpp).
+// Any change here relocates or re-lights the star field, so it MUST rebake
+// those goldens in the SAME PR — run the test with OLOENGINE_GOLDEN_REBASE=1
+// on the baseline GPU. Skipping it leaves the night cells permanently red
+// (see issue #754: f4fef24b changed this hash but did not rebase, and the
+// red normalised as "the expected failure" for 10 days).
 
 // Integer bit-mixer (PCG output permutation). Mirrors PcgHash
 // (AtmosphereSky.cpp) EXACTLY: unsigned wrap, shift and xor are bit-defined

@@ -29,6 +29,29 @@
 // explicitly), normal runs COMPARE (RMSE) against the committed PNGs; set
 // OLOENGINE_GOLDEN_REBASE=1 to (re)write them after a deliberate change.
 // Runs in the normal suite; SKIPs cleanly without a GL 4.6 context.
+//
+// NIGHT-CELL COUPLING (issue #754). The three Night* cells are uniquely
+// sensitive to two procedural night-sky paths, and a rebake of THIS golden
+// must accompany any change to either — in the SAME PR:
+//   • the star-field hash in AtmosphereSky.glsl / AtmosphereSky.cpp — moves
+//     every star (sky band; strongest in NightClear, occluded in NightStorm);
+//   • the InfiniteGrid.glsl coplanar depth bias — the grid is the dominant
+//     bright feature on the near-black night ground (ground band; present in
+//     all three night cells, invisible by day where the lit ground swamps it).
+// #754 is exactly what happens when that coupling is ignored: f4fef24b (star
+// hash) and dfd100ef (grid bias) both landed without rebaking these goldens,
+// so NightClear/NightOvercast sat red for 10 days and the failure normalised
+// as "the expected 1 failure" — masking any genuine new regression. An
+// ADDITIONAL CPU contract test (one that only re-detects the star relocation)
+// was considered (per the issue) and deliberately NOT added — the existing
+// AtmosphereSkyMathTest CPU mirror and the band contracts below stay:
+// "these goldens must be rebaked" ≡ "the night frame changed visibly", which
+// is precisely what this golden already measures; the star POSITIONS are
+// bit-exact but their brightness carries cross-vendor/compiler ULP variance
+// (AtmosphereSky.h), so a tight star-value pin would itself become a flaky red
+// — reintroducing the very problem #754 fixes. The durable guard is the
+// same-PR rebake discipline, pinned by the GOLDEN COUPLING notes at both
+// change sites, not another normalisable red.
 // =============================================================================
 
 #include "OloEnginePCH.h"

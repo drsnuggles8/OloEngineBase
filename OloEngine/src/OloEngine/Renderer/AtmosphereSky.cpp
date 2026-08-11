@@ -27,6 +27,12 @@ namespace OloEngine
         // ── CPU mirrors of the AtmosphereSky.glsl night-layer helpers ──
         // Keep BOTH sides in sync — the shader names each mirrored function.
         //
+        // GOLDEN COUPLING: this star path also feeds the Atmosphere_Night*
+        // visual goldens (AtmosphereVisualEvidenceTest.cpp). Changing the hash
+        // relocates every star, so it MUST rebake those goldens in the SAME PR
+        // (OLOENGINE_GOLDEN_REBASE=1) — see the matching note in the shader and
+        // issue #754.
+        //
         // The hash chain below IS bit-exact against the shader (integer ops
         // only), so which lattice cell holds a star, and where in that cell it
         // sits, agree between the CPU and every GPU vendor. The surrounding
