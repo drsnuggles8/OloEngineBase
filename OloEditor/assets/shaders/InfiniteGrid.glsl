@@ -159,6 +159,13 @@ void main() {
         // every vendor instead of by luck. 1e-5 in [0,1] depth is ~170 quanta
         // of a 24-bit buffer -- comfortably decisive, and far too small to lift
         // the grid visibly off the ground.
+        //
+        // GOLDEN COUPLING: the grid dominates the near-black ground band of the
+        // Atmosphere_Night* visual goldens (AtmosphereVisualEvidenceTest.cpp),
+        // so changing this bias / the grid's depth path MUST rebake those
+        // goldens in the SAME PR (OLOENGINE_GOLDEN_REBASE=1) -- see issue #754,
+        // where this bias landed (dfd100ef) without a rebake and left the night
+        // ground band drifting alongside the star-hash change.
         const float kCoplanarBias = 1e-5;
         gl_FragDepth = clamp(depth - kCoplanarBias, 0.0, 1.0);
         EntityID = -1;  // Grid is not pickable
