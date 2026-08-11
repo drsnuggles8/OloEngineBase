@@ -6,13 +6,12 @@
 //
 // Why this needs a guard (issue #758)
 // -----------------------------------
-//   The codegen rule is build-graph integrated: `add_custom_command` declares a
-//   stamp as its OUTPUT and the generated files as BYPRODUCTS, so the build tool
-//   knows which artefacts this rule produces. That list is hand-maintained in
-//   CMake while the actual writes live in main.cpp, and the two drift silently:
-//   adding a sixth Scene/Generated file (as the #451 and #525 slices repeatedly
-//   did) without touching CMake leaves the new artefact unknown to the build
-//   graph — it is not cleaned, and nothing says so.
+//   `OHT_GENERATED_FILES` in tools/OloHeaderTool/CMakeLists.txt is the declared
+//   inventory of what this codegen produces — the list a reader consults to answer
+//   "what does OloHeaderTool write?". It is hand-maintained in CMake while the
+//   actual writes live in main.cpp, and the two drift silently: the #451 and #525
+//   slices repeatedly added Scene/Generated artefacts, and a slice that forgets
+//   this list leaves the inventory quietly wrong with nothing to say so.
 //
 //   The failure this prevents is the one the whole issue is about: a generated
 //   file that quietly stops being tracked surfaces much later as a coverage-test

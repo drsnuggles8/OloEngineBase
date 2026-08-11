@@ -69,6 +69,13 @@
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
+// Process id, for the per-process temp-file suffix in WriteIfChanged. The tool
+// links no engine code, so this is the only identity mechanism available to it.
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -675,8 +682,18 @@ namespace
         return abs.lexically_normal().generic_string();
     }
 
+    // Set when the tree walk could not complete. A partial walk must never reach
+    // the emitters: it would look exactly like "these components no longer exist"
+    // and quietly write truncated component lists. main() checks this and fails.
+    bool g_ScanFailed = false;
+
     // Recursively enumerate every header the collectors read, recording each one
     // for the depfile. Cached — every collector shares one walk.
+    //
+    // Iterated through std::error_code rather than the throwing overload: a single
+    // unreadable directory (permissions, a broken junction, a file vanishing
+    // mid-walk) would otherwise escape as fs::filesystem_error and, with no handler
+    // anywhere in this tool, terminate the process with no usable diagnostic.
     const std::vector<fs::path>& ScannedHeaders(const fs::path& scanDir)
     {
         static std::vector<fs::path> headers;
@@ -685,14 +702,52 @@ namespace
             return headers;
         walked = true;
 
-        for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+        std::error_code ec;
+        fs::recursive_directory_iterator it(scanDir, ec);
+        if (ec)
         {
-            if (!entry.is_regular_file())
+            std::cerr << "ERROR: Failed to open scan directory " << scanDir << ": " << ec.message() << "\n";
+            g_ScanFailed = true;
+            return headers;
+        }
+
+        const fs::recursive_directory_iterator end;
+        for (; it != end; it.increment(ec))
+        {
+            if (ec)
+            {
+                // Stop rather than continue: after a failed increment the iterator
+                // has no defined position to advance from, so retrying it risks
+                // spinning. The build fails either way — see g_ScanFailed.
+                std::cerr << "ERROR: Failed while walking " << scanDir << ": " << ec.message() << "\n";
+                g_ScanFailed = true;
+                break;
+            }
+
+            const bool isFile = it->is_regular_file(ec);
+            if (ec)
+            {
+                std::cerr << "ERROR: Failed to stat " << it->path() << ": " << ec.message() << "\n";
+                g_ScanFailed = true;
+                break;
+            }
+            if (!isFile)
                 continue;
-            if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
+            if (auto ext = it->path().extension().string(); ext != ".h" && ext != ".hpp")
                 continue;
-            headers.push_back(entry.path());
-            g_ScannedFiles.insert(entry.path());
+            headers.push_back(it->path());
+            g_ScannedFiles.insert(it->path());
+        }
+
+        // A failed increment can leave the iterator equal to `end`, in which case
+        // the loop exits WITHOUT re-entering the body — so the check above would
+        // never see it and a truncated scan would pass for a complete one. Re-check
+        // here; that silent-partial-result path is the whole reason this is
+        // error_code-driven in the first place.
+        if (ec && !g_ScanFailed)
+        {
+            std::cerr << "ERROR: Failed while walking " << scanDir << ": " << ec.message() << "\n";
+            g_ScanFailed = true;
         }
         return headers;
     }
@@ -4357,6 +4412,17 @@ enum class WriteResult
     Failed
 };
 
+// This process's id, as a filename-safe string. Used only to keep two concurrent
+// tool processes off each other's temp files — see WriteIfChanged.
+static std::string CurrentProcessId()
+{
+#ifdef _WIN32
+    return std::to_string(_getpid());
+#else
+    return std::to_string(::getpid());
+#endif
+}
+
 static WriteResult WriteIfChanged(const fs::path& path, const std::string& content)
 {
     // Normalize: ensure content ends with exactly one newline
@@ -4400,10 +4466,14 @@ static WriteResult WriteIfChanged(const fs::path& path, const std::string& conte
     // last is correct either way. The temp lives beside the target because rename
     // is only atomic within one filesystem.
     //
-    // NOTE: creating the temp bumps the parent directory's mtime, which is a
-    // recorded depfile dependency. That is safe only because the stamp is written
-    // AFTER every generated file — keep it that way, or the rule re-runs forever.
-    const fs::path tempPath = path.parent_path() / (path.filename().string() + ".oht-tmp");
+    // The temp name carries this process's id, because the concurrent case above is
+    // exactly two SEPARATE tool processes. With a fixed suffix both would open the
+    // same `<name>.oht-tmp`, interleave their writes into it, and each rename that
+    // shared half-written file over the target — reintroducing the corruption this
+    // whole dance exists to prevent, only harder to spot. The suffix still ENDS in
+    // `.oht-tmp` so the `*.oht-tmp` .gitignore rule keeps covering it.
+    const fs::path tempPath =
+        path.parent_path() / (path.filename().string() + "." + CurrentProcessId() + ".oht-tmp");
     {
         // Text mode, exactly as the in-place write was: on Windows that means the
         // generated files keep their CRLF line endings. Switching to binary here
@@ -4773,8 +4843,8 @@ static void PrintUsage()
                  "<savegame_out_dir> <mcp_out_dir> [options]\n"
                  "\n"
                  "Options (both opt-in, so the tool stays usable standalone):\n"
-                 "  --depfile <path>  Write a Make-format depfile naming every directory and\n"
-                 "                    header the scan depends on, for add_custom_command(DEPFILE).\n"
+                 "  --depfile <path>  Write a Make-format depfile naming every header the scan\n"
+                 "                    depends on, for add_custom_command(DEPFILE).\n"
                  "                    Requires --stamp, which supplies the rule's target.\n"
                  "  --stamp <path>    Refresh a stamp file on success — the custom command's\n"
                  "                    declared OUTPUT (the generated files themselves are only\n"
@@ -4837,6 +4907,18 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "OloHeaderTool: Scanning " << scanDir << " ...\n";
+
+    // Walk the tree up front and bail on a filesystem failure, BEFORE any collector
+    // can act on a partial result. A truncated walk is indistinguishable from
+    // "those components were deleted", so letting it through would overwrite the
+    // generated lists with a subset — silent data loss dressed up as a clean build.
+    ScannedHeaders(scanDir);
+    if (g_ScanFailed)
+    {
+        std::cerr << "ERROR: The scan of " << scanDir
+                  << " did not complete; refusing to regenerate from a partial file list.\n";
+        return 1;
+    }
 
     // Both exits below (the no-OLO_PROPERTY early-out and the normal end) funnel
     // through this, so the build-graph bookkeeping cannot be skipped by adding a

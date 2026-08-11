@@ -63,14 +63,23 @@ is what stops a one-line header edit from recompiling the engine through
 *older* than that header — so the rule never settles and re-runs on every
 build forever. Ninja survives this via `restat`; MSBuild's tlog check has no
 equivalent. The fix is a **stamp** as the sole declared OUTPUT, always
-refreshed, with the generated files as `BYPRODUCTS`.
+refreshed.
+
+Do not reach for `BYPRODUCTS` to name the generated files either, tempting as
+it is: CMake treats byproducts as *cleanable* output, so a routine
+`--target clean` deletes them — and these fifteen are **tracked in git**.
+Measured in a Ninja harness: with `BYPRODUCTS`, `clean` removed all eight
+`Scene/Generated` artefacts from the source tree; without it they survive.
+Ordering comes from `add_dependencies(OloEngine GenerateBindings)`, not from
+the outputs list, so nothing is lost by leaving them undeclared. To force a
+regeneration, delete the stamp — never the generated sources.
 
 **2. A `#` or `$` in a dependency path is unrepresentable in a depfile.**
 The grammar escapes them (`\#`, `$$`), ninja's own depfile parser handles that
 correctly — but CMake's `cmake_transform_depfile` **un-escapes them on read and
 does not re-escape on write**. Ninja then splits the path at the bare `#`:
 
-```
+```text
 .../Scripting/C#/ScriptGlue.h   ->   ".../Scripting/C"  +  "/ScriptGlue.h"
 ```
 

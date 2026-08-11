@@ -48,8 +48,10 @@ endif()
 # ── Generated artefacts ──────────────────────────────────────────────────────
 # The exhaustive list of what main.cpp writes, in its five output directories.
 # Kept in sync with the tool by OloHeaderToolOutputsTest, which greps main.cpp for
-# its own writes and fails if this list drifts — a missing entry here means that
-# file silently stops being cleaned/known to the build graph.
+# its own writes and fails if this list drifts in either direction.
+#
+# This list is documentation and a test anchor — it is deliberately NOT passed to
+# the custom command's BYPRODUCTS; see the rule below for why.
 set(OHT_GENERATED_FILES
     "${OHT_SCENE_OUT}/AllComponents.Generated.inl"
     "${OHT_SCENE_OUT}/OnComponentAdded.Generated.inl"
@@ -84,8 +86,19 @@ set(OHT_GENERATED_FILES
 # up-to-date check has no equivalent, so under the VS generator it would be a
 # permanent re-run.) The stamp is the one output that is always refreshed.
 #
-# The generated files are therefore BYPRODUCTS: enough for the graph to know this
-# rule produces them, without putting content-stable files on the up-to-date path.
+# The generated files are NOT declared as BYPRODUCTS either, and that is the more
+# important half. They are **tracked in git**, not build-tree artefacts: CMake
+# treats byproducts as cleanable output (the Makefile generators delete BYPRODUCTS
+# and other GENERATED files on `make clean`, and they become edge outputs that
+# `ninja -t clean` removes), so declaring them would let a routine `--target clean`
+# delete fifteen committed source files out of the working tree. A stamp is the
+# only output this rule should own.
+#
+# Nothing is lost by omitting them. Ordering — "codegen runs before anything that
+# includes the .inl" — comes from `add_dependencies(OloEngine GenerateBindings)`
+# in the root CMakeLists, not from the outputs list, and the files are present in
+# a fresh checkout because they are committed. To force a regeneration, delete
+# `OloHeaderTool.stamp` from the build tree rather than the generated sources.
 set(OHT_STAMP   "${CMAKE_CURRENT_BINARY_DIR}/OloHeaderTool.stamp")
 set(OHT_DEPFILE "${CMAKE_CURRENT_BINARY_DIR}/OloHeaderTool.d")
 
@@ -177,7 +190,6 @@ message(STATUS
 
 add_custom_command(
     OUTPUT "${OHT_STAMP}"
-    BYPRODUCTS ${OHT_GENERATED_FILES}
     COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}" "${OHT_SCENE_OUT}" "${OHT_SAVEGAME_OUT}" "${OHT_MCP_OUT}"
             --depfile "${OHT_DEPFILE}" --stamp "${OHT_STAMP}"
     DEPENDS OloHeaderTool "${OHT_INPUT_MANIFEST}" ${OHT_DEPFILE_UNREPRESENTABLE}
