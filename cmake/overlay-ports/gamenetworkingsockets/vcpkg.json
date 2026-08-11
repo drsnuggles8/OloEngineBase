@@ -1,0 +1,26 @@
+{
+  "name": "gamenetworkingsockets",
+  "version": "1.6.0",
+  "port-version": 1,
+  "description": "GameNetworkingSockets is a basic transport layer for games (OloEngine overlay: USE_CRYPTO=libsodium instead of OpenSSL, ICE off by default, see issue #773)",
+  "homepage": "https://github.com/ValveSoftware/GameNetworkingSockets",
+  "license": "BSD-3-Clause",
+  "supports": "!uwp & !(arm64 & windows)",
+  "dependencies": [
+    "libsodium",
+    "protobuf",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "features": {
+    "ice": {
+      "description": "Build support for P2P connections using the native ICE client (STUN and TURN)."
+    }
+  }
+}

@@ -121,6 +121,15 @@ jobs:
         restore-keys: |
           sccache-windows-release-
 
+    # Third-party dependencies come from the vcpkg manifest (vcpkg.json) since
+    # issue #773. Ports are restored from the Actions-backed binary cache; only a
+    # baseline bump or a triplet change pays a real port build.
+    - name: Setup vcpkg
+      id: vcpkg
+      uses: ./.github/actions/setup-vcpkg
+      with:
+        triplet: x64-windows-static-md
+
     - name: Configure CMake
       # On a cache hit, point CMake at the prebuilt FFmpeg (ffmpeg.cmake's OLO_FFMPEG_PREFIX
       # fast path) so the build step doesn't rebuild it; on a miss it builds from source.
@@ -148,6 +157,7 @@ jobs:
           -DOLO_ENABLE_LTO=OFF \
           -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+          ${{ steps.vcpkg.outputs.toolchain-args }} \
           $PREFIX_ARG
 
     - name: Build with CMake

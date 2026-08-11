@@ -17,6 +17,18 @@ if(NOT SET_UP_CONFIGURATIONS_DONE)
         endif()
     endif()
     
+    # `Dist` is a project-local configuration that no IMPORTED target knows about.
+    # Every vcpkg package installs exactly two configurations (Debug + Release), so
+    # without an explicit mapping CMake falls back to the FIRST entry of the imported
+    # target's IMPORTED_CONFIGURATIONS list — in practice Debug — and a Dist build
+    # would silently link debug third-party libraries against release engine code.
+    # That is a CRT/iterator-debug-level mismatch, i.e. a runtime heap fault rather
+    # than a link error, so nothing in the build output would flag it (issue #773).
+    # The trailing empty entry lets a config-less IMPORTED_LOCATION satisfy the
+    # lookup as a last resort. Must be set before the first consuming target is
+    # created — this file is included well ahead of the add_subdirectory() calls.
+    set(CMAKE_MAP_IMPORTED_CONFIG_DIST "Release;")
+
     # Set up Dist configuration
     set(CMAKE_C_FLAGS_DIST "${CMAKE_C_FLAGS_RELEASE}" CACHE STRING "")
     set(CMAKE_CXX_FLAGS_DIST "${CMAKE_CXX_FLAGS_RELEASE}" CACHE STRING "")

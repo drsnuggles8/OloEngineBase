@@ -80,6 +80,15 @@ jobs:
       # On a cache hit, point CMake at the prebuilt tree (skips the ExternalProject
       # rebuild via ffmpeg.cmake's OLO_FFMPEG_PREFIX fast path). On a miss, the
       # ExternalProject builds FFmpeg from source and the cache step saves it.
+      # Third-party deps come from the vcpkg manifest (issue #773). The triplet
+      # follows the matrix runner; FFmpeg itself deliberately stays on its own
+      # ExternalProject + actions/cache (see cmake/ffmpeg.cmake).
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: ${{ runner.os == 'Windows' && 'x64-windows-static-md' || 'x64-linux' }}
+
       - name: Configure (FFmpeg ON)
         shell: bash
         run: |
@@ -89,6 +98,7 @@ jobs:
           fi
           cmake -S . -B build -DOLO_VIDEO_FFMPEG=ON $PREFIX_ARG \
             -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+            ${{ steps.vcpkg.outputs.toolchain-args }} \
             -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
 
       - name: Build tests (builds FFmpeg on cache miss)

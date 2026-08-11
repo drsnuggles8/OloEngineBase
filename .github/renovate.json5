@@ -32,9 +32,48 @@
       matchManagers: ["custom.regex"],
       groupName: "vendored C++ deps",
     },
+    {
+      // The vcpkg baseline is DELIBERATELY its own PR, and on a slower cadence
+      // (issue #773, open question 4). One baseline SHA moves every registry port
+      // at once — far coarser than the one-dep-at-a-time bumps the FetchContent
+      // managers give, and this repo has documented per-dep breakage from coarse
+      // bumps (box2d 3.1's friction -> material rename). Isolating it means a
+      // regression is bisected to one line and reverted in one line, and the
+      // weekly in-tree-deps PR never carries a 40-port move alongside it.
+      //
+      // If a baseline bump breaks exactly one port, the fine-grained escape hatch
+      // is a vcpkg.json "overrides" entry holding that port at its old version —
+      // which is strictly better than the old model, where a bad bump had to be
+      // reverted wholesale. NOTE: resolving an override needs registry history, so
+      // the vcpkg clone must not be a shallow single-commit one (see
+      // docs/agent-rules/vcpkg-dependency-management.md).
+      matchDepNames: ["microsoft/vcpkg"],
+      groupName: "vcpkg registry baseline",
+      schedule: ["before 6am on the first day of the month"],
+    },
   ],
 
   customManagers: [
+    {
+      // Style 0 — the vcpkg registry baseline (issue #773). vcpkg.json's
+      // "builtin-baseline" is a microsoft/vcpkg commit SHA that pins the version
+      // of EVERY registry-provided dependency at once; it is the vcpkg-side
+      // equivalent of the 40-char SHA pins below, and carries the same
+      // reproducibility guarantee in one line.
+      //
+      // There is no comment to carry the branch name (JSON), so depName /
+      // packageName / currentValue are supplied statically here and only the
+      // digest comes from the file.
+      customType: "regex",
+      managerFilePatterns: ["/^vcpkg\\.json$/"],
+      datasourceTemplate: "git-refs",
+      depNameTemplate: "microsoft/vcpkg",
+      packageNameTemplate: "https://github.com/microsoft/vcpkg",
+      currentValueTemplate: "master",
+      matchStrings: [
+        "\"builtin-baseline\"\\s*:\\s*\"(?<currentDigest>[0-9a-f]{40})\"",
+      ],
+    },
     {
       // Style 1 — pinned to a moving branch by full commit SHA, with a
       //   "# <branch> @ <date>" comment, e.g.:

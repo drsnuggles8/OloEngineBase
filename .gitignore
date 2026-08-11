@@ -88,12 +88,13 @@ out/build/x64-Debug/VSInheritEnvironments.txt
 # CodeQL artifacts
 _codeql_detected_source_root
 
-# vcpkg spike (issue #774) — build/install trees and logs, not the triplets/overlay/manifest
-/spike/build-vs/
-/spike/build-ninja-mc/
-/spike/vcpkg_installed*/
-/spike/fetchcontent-baseline/build-vs/
-/spike/*.log
+# vcpkg (issue #773) — per-build-tree installed trees. The manifest (vcpkg.json),
+# the custom triplets (cmake/triplets/) and the overlay ports (cmake/overlay-ports/)
+# ARE tracked; only the materialised install output is not. The machine-global
+# vcpkg clone, downloads/, packages/, buildtrees/ and the binary cache all live
+# outside the repo (VCPKG_ROOT / VCPKG_DEFAULT_BINARY_CACHE).
+vcpkg_installed/
+**/vcpkg_installed/
 
 # Game build output
 GameBuilds/

@@ -107,6 +107,13 @@ jobs:
         restore-keys: |
           sccache-flaky-281-
 
+    # Third-party deps come from the vcpkg manifest (issue #773).
+    - name: Setup vcpkg
+      id: vcpkg
+      uses: ./.github/actions/setup-vcpkg
+      with:
+        triplet: x64-windows-static-md
+
     # Mirror Windows.yml's fast Ninja+sccache build. /Z7 (embedded debug info,
     # via the compiler-cache path) keeps objects cacheable AND lets the linker
     # emit a PDB, so cdb can symbolise a crash. LTO OFF for the same reason as
@@ -129,6 +136,7 @@ jobs:
           -DCMAKE_EXE_LINKER_FLAGS_RELEASE=/DEBUG \
           -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+          ${{ steps.vcpkg.outputs.toolchain-args }} \
           $PREFIX_ARG
 
     - name: Build tests

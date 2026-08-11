@@ -1,8 +1,17 @@
-# OloEngine overlay port (issue #773/#774 vcpkg spike): the upstream vcpkg
-# registry port hardcodes CROSS_PLATFORM_DETERMINISTIC=OFF as a plain option,
-# not a feature, so it cannot be selected from a manifest. The engine requires
-# it ON (deterministic replay / networking parity, #281 failure class). The
-# only diff from the registry port is that one line below.
+# OloEngine overlay port (issue #773). The upstream vcpkg registry port hardcodes
+# CROSS_PLATFORM_DETERMINISTIC=OFF as a plain CMake option, not a feature, so it
+# cannot be selected from a manifest. The engine requires it ON (deterministic
+# replay / networking parity — the #281 failure class, where a determinism
+# mismatch throws NO build or link error, just divergent physics).
+#
+# The ONLY diff from the registry port is the one line marked below. When
+# refreshing this overlay after a vcpkg baseline bump, re-diff against
+# $VCPKG_ROOT/ports/joltphysics/portfile.cmake and keep it a one-line delta.
+#
+# Verify the flag actually LANDED (not merely that the overlay was picked up —
+# vcpkg's "installing overlay port from here" only proves the file was found):
+#   grep CROSS_PLATFORM_DETERMINISTIC \
+#     $VCPKG_ROOT/buildtrees/joltphysics/config-*-CMakeCache.txt.log
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
 vcpkg_from_github(

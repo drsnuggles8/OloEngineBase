@@ -308,6 +308,16 @@ jobs:
           echo "  loader:   $loader"
           echo "OLO_VULKAN_LIBRARY=$loader" >> "$GITHUB_ENV"
 
+      # Third-party deps come from the vcpkg manifest (issue #773). This is a
+      # SELF-HOSTED runner with no VCPKG_INSTALLATION_ROOT, so setup-vcpkg clones
+      # vcpkg under RUNNER_TEMP on first use; the Actions binary cache then keeps
+      # subsequent runs from rebuilding ports.
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-linux
+
       - name: Configure CMake
         # Heavy optional interchange deps (USD/Alembic/MaterialX) and the FFmpeg
         # from-source build are all irrelevant to GPU rendering conformance and
@@ -320,6 +330,7 @@ jobs:
         # so a warm rebuild is minutes rather than an hour.
         run: >
           cmake -S . -B build -G Ninja
+          ${{ steps.vcpkg.outputs.toolchain-args }}
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
           -DCMAKE_PREFIX_PATH="$VULKAN_SDK"
           -DVulkan_LIBRARY="$OLO_VULKAN_LIBRARY"

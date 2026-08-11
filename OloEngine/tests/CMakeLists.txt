@@ -940,8 +940,8 @@ add_executable(OloEngine-Tests
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine
-	gtest
-	cpp_httplib)
+	GTest::gtest
+	httplib::httplib)
 
 # Headless GPU support (docs/ops/self-hosted-gpu-runner.md).
 #
@@ -983,10 +983,10 @@ if(MSVC)
 	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS /bigobj)
 endif()
 
+# atomic_queue and spdlog now arrive as vcpkg IMPORTED targets propagated by
+# OloEngine's PUBLIC link interface (issue #773) — no explicit include dir needed.
 target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/src
-	${atomic_queue_SOURCE_DIR}/include
-	${spdlog_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/Rendering
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser

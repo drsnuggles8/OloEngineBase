@@ -14,6 +14,29 @@ if(POLICY CMP0194)
     cmake_policy(SET CMP0194 NEW)  # MSVC assembler policy
 endif()
 
+# --------------------------------------------------------------------------
+# vcpkg manifest features (issue #773).
+#
+# MUST be set BEFORE project() — vcpkg's toolchain file runs the manifest
+# install during the first project() call, so a feature list appended after it
+# is simply ignored (silently: the ports just never get installed, and the
+# failure surfaces much later as a find_package error).
+#
+# Each entry mirrors a CMake option declared further down. The defaults are
+# duplicated here on purpose: option() has not run yet at this point, so the
+# only thing available is whatever the user put in the cache / on the command
+# line. Keep the two in sync — a mismatch means either an unused port build
+# (harmless, slow) or a missing one (a find_package failure at configure).
+foreach(_olo_feat alembic materialx vulkan)
+    string(TOUPPER "${_olo_feat}" _olo_feat_uc)
+    if(NOT DEFINED OLO_WITH_${_olo_feat_uc} OR OLO_WITH_${_olo_feat_uc})
+        list(APPEND VCPKG_MANIFEST_FEATURES "${_olo_feat}")
+    endif()
+endforeach()
+if(NOT DEFINED BUILD_TESTS OR BUILD_TESTS)
+    list(APPEND VCPKG_MANIFEST_FEATURES "tests")
+endif()
+
 if(CMAKE_GENERATOR MATCHES "Visual Studio")
     project(OloEngineBase
             VERSION 0.0.1
@@ -22,6 +45,20 @@ else()
     project(OloEngineBase
             VERSION 0.0.1
             LANGUAGES CXX C)
+endif()
+
+# Fail fast and helpfully when the vcpkg toolchain is absent. Without it every
+# find_package() below resolves against system paths (or not at all), and the
+# first symptom is a wall of "Could not find a package configuration file" —
+# which reads like a broken checkout rather than a missing one-time setup step.
+if(NOT DEFINED VCPKG_TOOLCHAIN)
+    message(FATAL_ERROR
+        "This project resolves its third-party dependencies through a vcpkg manifest "
+        "(vcpkg.json) since issue #773, but the vcpkg toolchain file was not loaded.\n"
+        "Use a CMake preset (`cmake --preset msvc` / `clangcl` / `linux-gcc`) with the "
+        "VCPKG_ROOT environment variable pointing at a bootstrapped vcpkg clone, or pass "
+        "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake yourself.\n"
+        "Setup instructions: docs/ops/build.md.")
 endif()
 
 # Build optimization options

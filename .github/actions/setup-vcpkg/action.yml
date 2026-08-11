@@ -1,0 +1,112 @@
+name: 'Setup vcpkg'
+description: >
+  Resolve VCPKG_ROOT, make sure the clone contains the baseline commit pinned in
+  vcpkg.json, and wire the GitHub Actions binary cache so ports are restored
+  instead of rebuilt. Emits `toolchain-args` for the caller to splice into its
+  cmake configure line.
+inputs:
+  triplet:
+    description: 'Target triplet (x64-windows-static-md, x64-windows-static-md-clangcl, x64-linux)'
+    required: true
+  read-only:
+    description: 'Restore from the binary cache but do not write to it (use on fork PRs, which cannot write caches)'
+    required: false
+    default: 'false'
+outputs:
+  toolchain-args:
+    description: 'CMake arguments selecting the vcpkg toolchain, triplet and overlays'
+    value: ${{ steps.emit.outputs.toolchain-args }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve vcpkg root
+      shell: bash
+      run: |
+        set -euo pipefail
+        # GitHub-hosted runners ship a bootstrapped vcpkg at VCPKG_INSTALLATION_ROOT.
+        # Self-hosted runners (gpu-conformance-amd) may not, so fall back to a clone
+        # under RUNNER_TEMP. Either way VCPKG_ROOT is what the rest of this action and
+        # the CMake presets read.
+        root="${VCPKG_INSTALLATION_ROOT:-}"
+        if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
+          root="${RUNNER_TEMP}/vcpkg"
+          if [ ! -d "$root/.git" ]; then
+            git clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
+          fi
+        fi
+        echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
+        echo "resolved VCPKG_ROOT=$root"
+
+    - name: Make the manifest baseline resolvable
+      shell: bash
+      run: |
+        set -euo pipefail
+        baseline=$(python3 -c "import json,sys;print(json.load(open('vcpkg.json'))['builtin-baseline'])" 2>/dev/null \
+                || python -c "import json,sys;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+        echo "manifest baseline: $baseline"
+
+        # `core.fsmonitor` makes git spawn a daemon that watches the worktree and holds
+        # open handles inside it. vcpkg checks each port version out into
+        # buildtrees/versioning_/versions/<port>/<tree>.tmp and then RENAMES it into
+        # place — a rename the daemon's handle makes fail on Windows with
+        # "The process cannot access the file because it is being used by another
+        # process". Turn it off for the registry clone; nothing about a read-only
+        # registry benefits from it.
+        git -C "$VCPKG_ROOT" config core.fsmonitor false
+
+        # The runner's preinstalled clone is pinned to whatever commit the image was
+        # built at, which is almost never our baseline. Fetch just that commit.
+        if ! git -C "$VCPKG_ROOT" cat-file -e "${baseline}^{commit}" 2>/dev/null; then
+          git -C "$VCPKG_ROOT" fetch --depth 1 origin "$baseline"
+        fi
+
+        if [ ! -x "$VCPKG_ROOT/vcpkg" ] && [ ! -f "$VCPKG_ROOT/vcpkg.exe" ]; then
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+          else
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+        fi
+
+    # vcpkg's `x-gha` binary source talks to the Actions cache service directly and
+    # stores ONE entry per package (~45 of them) rather than one per object file —
+    # unlike sccache's GHA backend, which flooded this repo's 10 GB cache cap with
+    # 20k+ entries and made every write fail. See the SCCACHE_DIR note in Windows.yml.
+    - name: Export Actions-cache credentials for vcpkg
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+      with:
+        script: |
+          for (const name of ['ACTIONS_CACHE_URL', 'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN']) {
+            const value = process.env[name];
+            if (value) core.exportVariable(name, value);
+          }
+
+    - name: Select binary sources
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "${{ inputs.read-only }}" = "true" ]; then
+          echo "VCPKG_BINARY_SOURCES=clear;x-gha,read" >> "$GITHUB_ENV"
+        else
+          echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite" >> "$GITHUB_ENV"
+        fi
+        # Ports build with their own internal parallelism; leave headroom for the
+        # runner (2 cores on GitHub-hosted, more on self-hosted).
+        echo "VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY:-2}" >> "$GITHUB_ENV"
+
+    - name: Emit toolchain args
+      id: emit
+      shell: bash
+      run: |
+        set -euo pipefail
+        args="-DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        args="$args -DVCPKG_TARGET_TRIPLET=${{ inputs.triplet }}"
+        args="$args -DVCPKG_OVERLAY_PORTS=${GITHUB_WORKSPACE}/cmake/overlay-ports"
+        case "${{ inputs.triplet }}" in
+          x64-windows-static-md*)
+            args="$args -DVCPKG_OVERLAY_TRIPLETS=${GITHUB_WORKSPACE}/cmake/triplets"
+            args="$args -DVCPKG_HOST_TRIPLET=x64-windows-static-md"
+            ;;
+        esac
+        echo "toolchain-args=$args" >> "$GITHUB_OUTPUT"
+        echo "$args"
