@@ -1,58 +1,227 @@
+# =============================================================================
+# Third-party dependencies.
+#
+# Since issue #773 most dependencies are PREBUILT by vcpkg from the manifest at
+# the repo root (vcpkg.json) and are resolved here with find_package(). The
+# machine-global, ABI-hash-keyed binary cache means the first worktree to build a
+# given (port, features, triplet, toolchain) populates it and every other
+# worktree restores prebuilt archives in seconds.
+#
+# What that bought, and what it cost, is written up in
+# docs/agent-rules/vcpkg-dependency-management.md. Read it before adding,
+# removing or version-bumping anything here.
+#
+# WHAT IS STILL FETCHED, AND WHY. Each of these has a concrete reason it cannot
+# come from the registry; none of them is "we didn't get round to it". Re-check
+# the reason before moving one — do not just try it and see.
+#
+#   sol2        Header-only, so a port buys no compile caching, while the port is
+#               3.5.0 + a Lua-5.5 patch and we track a newer develop pin. The
+#               SOL_ALL_INTEGER_VALUES_FIT u64 contract (issue #643) is load-bearing
+#               and hard-won. (Declared in OloEngine/CMakeLists.txt.)
+#   lua         The registry baseline is 5.5.1; we pin 5.4.7 because that is what
+#               our sol2 pin is tested against. A version override to 5.4.7 needs
+#               registry git history that a shallow vcpkg clone does not carry.
+#   stb         The registry port is stb@2024-07-29; our pin is ~2 years newer.
+#               stb_image is an image DECODER fed untrusted files — silently
+#               reverting two years of fixes there is not a build-system decision.
+#               (vcpkg installs its own stb as an assimp dependency, but flat as
+#               <stb_image.h>; we include <stb_image/stb_image.h>, so the two do
+#               not collide.)
+#   imgui       We compile a hand-picked backend set with
+#               IMGUI_IMPL_OPENGL_LOADER_GLAD=1, which the port does not offer.
+#   imguizmo    The port takes a hard dependency on the imgui PORT. With imgui
+#               staying here that would link two different Dear ImGui copies into
+#               one binary — a guaranteed ODR/symbol collision.
+#   glad        The port is glad 1.x; we use 2.0.8's configure-time generator.
+#   filewatch   Our own fork.
+#   bc7enc_rdo  We compile 3 of its TUs and deliberately skip the ISPC encoder.
+#   bcdec       Single header, no port.
+#   pl_mpeg     Single header, no port.
+#   choc        Single header, no port. (Declared in OloEngine/CMakeLists.txt.)
+#   FFmpeg      Optional, off on Linux, and already has its own install cache
+#               (vendor/ffmpeg-install + scripts/build-ffmpeg.sh). The vcpkg port
+#               is one of the registry's longest builds and would additionally
+#               flip the runtime from DLLs to static, changing the exe staging
+#               contract. See cmake/ffmpeg.cmake.
+#   OpenUSD     Structurally impossible: the port opens with
+#               vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY) and we need the
+#               static-monolithic usd_m + /WHOLEARCHIVE. See cmake/vendor/OpenUSD.cmake.
+#
+# --- Pinning discipline for what is still fetched (#294) -----------------------
+# EVERY FetchContent/CPM dependency below is pinned to a full commit SHA -- never a
+# bare tag. A git tag (v3.1.1, etc.) is a MOVABLE pointer: the upstream maintainer,
+# or anyone who compromises the account, can force-move it to a different commit, so
+# a tag pin does not guarantee the bytes you fetch. A 40-char commit SHA is
+# content-addressed and immutable, so it is both reproducible AND tamper-evident. A
+# floating branch (GIT_TAG master/main/docking) is worse still -- it lets CI silently
+# fetch a newer version than any dev with zero repo changes (exactly how the #281
+# flaky physics crash hid: CI and local ran different Jolt commits) and defeats build
+# caching. Two comment conventions, both machine-read by Renovate
+# (.github/renovate.json5) so a deliberate bump stays a one-line, reviewable diff:
+#   * branch-tracked digest pins carry "# <branch> @ <date>" (SHA = that branch tip);
+#   * release pins carry "# <tag>" (SHA = that tag's commit) -- the gold-standard form.
+# NOTE: GIT_SHALLOW must be FALSE for a commit-SHA pin -- a shallow fetch only pulls
+# branch tips and cannot resolve an arbitrary historical commit.
+#
+# The vcpkg side gets its reproducibility from vcpkg.json's "builtin-baseline",
+# which pins the whole registry to one commit — the same lock, one line instead
+# of thirty. Renovate tracks it via its own manager (see .github/renovate.json5).
+# =============================================================================
+
 include(FetchContent)
 set(FETCHCONTENT_QUIET off)
 
 # Set CMake policies to suppress warnings in vendor libraries
-if(POLICY CMP0194)  
+if(POLICY CMP0194)
     cmake_policy(SET CMP0194 NEW)
 endif()
 
-message(STATUS "Downloading third party libraries using CMake's FetchContent and CPM")
+message(STATUS "Resolving vcpkg-provided dependencies")
 
-# --- Vendor dependency pinning (#294: reproducible builds + supply-chain integrity) ---
-# EVERY dependency below is pinned to a full commit SHA -- never a bare tag. A git tag
-# (v3.1.1, etc.) is a MOVABLE pointer: the upstream maintainer, or anyone who compromises
-# the account, can force-move it to a different commit, so a tag pin does not guarantee
-# the bytes you fetch. A 40-char commit SHA is content-addressed and immutable, so it is
-# both reproducible AND tamper-evident. A floating branch (GIT_TAG master/main/docking) is
-# worse still -- it lets CI silently fetch a newer version than any dev with zero repo
-# changes (exactly how the #281 flaky physics crash hid: CI and local ran different Jolt
-# commits) and defeats build caching. Two comment conventions, both machine-read by
-# Renovate (.github/renovate.json5) so a deliberate bump stays a one-line, reviewable diff:
-#   * branch-tracked digest pins carry "# <branch> @ <date>" (SHA = that branch tip);
-#   * release pins carry "# <tag>" (SHA = that tag's commit) -- the gold-standard form.
-# NOTE: GIT_SHALLOW must be FALSE for a commit-SHA pin -- a shallow fetch only pulls
-# branch tips and cannot resolve an arbitrary historical commit (see Jolt below).
-FetchContent_Declare(
-	assimp
-	GIT_REPOSITORY	https://github.com/assimp/assimp.git
-	GIT_TAG			50d767984e78d51b53e2020fdf0967fd624bc377  # master @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	atomic_queue
-	GIT_REPOSITORY	https://github.com/max0x7ba/atomic_queue.git
-	GIT_TAG			67c7c9123556f3ddd22ed0e5b1e89a193303cd88  # master @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	box2d
-	GIT_REPOSITORY	https://github.com/erincatto/box2d.git
-	GIT_TAG			8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3  # v3.1.1
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	entt
-	GIT_REPOSITORY	https://github.com/skypjack/entt.git
-	GIT_TAG			85c6bba014049b5de8fad49d25424df2f1f6a8c1  # main @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
+# -----------------------------------------------------------------------------
+# vcpkg-provided packages.
+#
+# REQUIRED throughout: a missing package here means the manifest install did not
+# run or did not include the feature, and the useful failure is at configure —
+# not two minutes later at link with an unresolved external.
+#
+# CMAKE_FIND_PACKAGE_TARGETS_GLOBAL is load-bearing, not tidiness. find_package()
+# creates IMPORTED targets scoped to the CALLING directory and its children — and
+# this file is a CHILD of OloEngine/, which is where the targets are consumed.
+# Without this, every `target_link_libraries(OloEngine glm::glm)` one directory up
+# fails to resolve (CMake treats the unknown name as a raw library and the error
+# surfaces at LINK as "cannot open glm::glm.lib"). CMake 3.24+.
+set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL ON)
+
+find_package(assimp CONFIG REQUIRED)
+find_package(atomic_queue CONFIG REQUIRED)
+find_package(box2d CONFIG REQUIRED)
+find_package(EnTT CONFIG REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
+find_package(glm CONFIG REQUIRED)
+find_package(GameNetworkingSockets CONFIG REQUIRED)
+find_package(Jolt CONFIG REQUIRED)
+find_package(meshoptimizer CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(recastnavigation CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(Tracy CONFIG REQUIRED)
+find_package(yaml-cpp CONFIG REQUIRED)
+find_package(ZLIB REQUIRED)
+
+# miniaudio is header-only and the port installs a bare miniaudio.h with no CMake
+# config, so wrap it the way we wrap our other single-header deps.
+#
+# NOTE (issue #773, open question 3): the port ships ONLY miniaudio.h — none of
+# the five extras/nodes targets (reverb, vocoder, ltrim, channel combiner and
+# separator) that miniaudio's own CMakeLists builds. That costs us nothing: those
+# five were built by every configure and linked by nothing (verified by grep
+# across the whole tree), so this move deletes five dead build targets rather
+# than losing a capability.
+find_path(OLO_MINIAUDIO_INCLUDE_DIR NAMES miniaudio.h REQUIRED)
+add_library(miniaudio INTERFACE)
+target_include_directories(miniaudio SYSTEM INTERFACE "${OLO_MINIAUDIO_INCLUDE_DIR}")
+
+if(BUILD_TESTS)
+    find_package(GTest CONFIG REQUIRED)
+endif()
+
+# cpp-httplib: single-header HTTP/1.1 server+client behind OloEditor's read-only
+# MCP diagnostics server (#285). Linked from OloEditor, not OloEngine, so
+# <winsock2.h> stays off the whole engine's include path.
+find_package(httplib CONFIG REQUIRED)
+
+if(OLO_WITH_ALEMBIC)
+    # Alembic::Alembic propagates Imath::Imath and its include dirs, so both the
+    # IMATH_INSTALL export-validation hack and the $<BUILD_INTERFACE:> wrapper
+    # around Imath_INCLUDE_DIRS that the in-tree build needed are gone.
+    find_package(Alembic CONFIG REQUIRED)
+    message(STATUS "OLO_WITH_ALEMBIC: Alembic (.abc) import enabled")
+endif()
+
+if(OLO_WITH_MATERIALX)
+    # The port's DEFAULT feature set is exactly our configuration: MaterialXCore +
+    # MaterialXFormat only, with render and every GEN_* shader backend off. That is
+    # why this needs no options at all — see vcpkg.json's `materialx` feature.
+    find_package(MaterialX CONFIG REQUIRED)
+    message(STATUS "OLO_WITH_MATERIALX: MaterialX (.mtlx) import enabled")
+endif()
+
+if(OLO_WITH_VULKAN)
+    # All three are pinned at the SDK-1.4.357.0 tag family — ADR 0010's tooling floor:
+    # the first SDK whose validation layers can GPU-validate VK_EXT_descriptor_heap, and
+    # the version whose vulkan_core.h the backend's device-selection gate compiles
+    # against. The vcpkg baseline happens to carry exactly 1.4.357.0 for all three;
+    # VulkanContext.cpp's static_assert on VK_HEADER_VERSION is what actually enforces
+    # it, so a baseline bump that moves them will fail loudly at compile, not silently.
+    #
+    # The vendored headers deliberately shadow whatever SDK is installed: the engine's
+    # find_package(Vulkan) (OloEngine/CMakeLists.txt, for the shaderc toolchain)
+    # contributes the SDK's include dir too, and /I order is what decides.
+    find_package(VulkanHeaders CONFIG REQUIRED)
+    find_package(volk CONFIG REQUIRED)
+    find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+
+    # STAGE the pinned headers into a private directory and export THAT. Neither
+    # Vulkan::Headers' interface nor the shared vcpkg include root works here, for two
+    # independent reasons — and the second cannot be fixed by ordering at all:
+    #
+    #   1. `find_package(VulkanHeaders CONFIG)` is not authoritative. The LunarG SDK
+    #      ships its own VulkanHeadersConfig.cmake, so on a machine whose SDK differs
+    #      from the pinned version the imported target can resolve to the SDK and
+    #      quietly hand back the WRONG headers.
+    #   2. `<vcpkg_installed>/<triplet>/include` is the SHARED include root that every
+    #      vcpkg imported target also contributes, marked SYSTEM. CMake dedupes our
+    #      entry against theirs and the SYSTEM marking wins, so the path is emitted
+    #      once as `-external:I`. MSVC searches EVERY `/I` before ANY `-external:I`,
+    #      so the SDK's plain `/I` beats it no matter where we place ours in the list.
+    #      Verified in the generated project: pointing at the shared root, the path
+    #      appeared ONLY as `-external:I` and never as `/I`.
+    #
+    # Copying `vulkan/` (and `vk_video/`, which vulkan_core.h includes) into a
+    # directory nothing else contributes keeps it a normal `/I` in the position we
+    # choose. Same staging idiom as stb_image further down.
+    #
+    # Both failure modes are invisible on a dev box whose SDK matches the pinned
+    # version (mine is 1.4.357, exactly what we pin) — which is how each of them
+    # reached CI, where setup-vulkan installs 1.4.321, as:
+    #
+    #   error C2065: 'VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME': undeclared identifier
+    #
+    # VulkanContext.cpp's static_assert on VK_HEADER_VERSION is the backstop if the
+    # pinned version itself ever drifts.
+    set(_olo_vk_src "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
+    if(NOT EXISTS "${_olo_vk_src}/vulkan/vulkan_core.h")
+        message(FATAL_ERROR
+            "Pinned Vulkan headers not found at '${_olo_vk_src}/vulkan/vulkan_core.h'. "
+            "Without them the installed SDK wins the <vulkan/vulkan_core.h> lookup and the "
+            "backend compiles against the wrong version.")
+    endif()
+    # Staged into the BUILD tree, not the source tree: build/ and build-clang/ must not
+    # share it (see the "never build both trees concurrently" rule in
+    # docs/agent-rules/build-trees-and-windows-asan.md).
+    set(OLO_VULKAN_HEADERS_INCLUDE_DIR "${CMAKE_BINARY_DIR}/vulkan-headers-pinned/include")
+    file(COPY "${_olo_vk_src}/vulkan" DESTINATION "${OLO_VULKAN_HEADERS_INCLUDE_DIR}")
+    if(EXISTS "${_olo_vk_src}/vk_video")
+        file(COPY "${_olo_vk_src}/vk_video" DESTINATION "${OLO_VULKAN_HEADERS_INCLUDE_DIR}")
+    endif()
+    set(OLO_VULKAN_HEADERS_INCLUDE_DIR "${OLO_VULKAN_HEADERS_INCLUDE_DIR}" PARENT_SCOPE)
+
+    message(STATUS "OLO_WITH_VULKAN: Vulkan backend deps enabled (Vulkan-Headers + volk + VMA from vcpkg)")
+endif()
+
+# -----------------------------------------------------------------------------
+# Still fetched in-tree. See the header comment for why each one is here.
+# -----------------------------------------------------------------------------
+message(STATUS "Downloading the remaining in-tree third party libraries (FetchContent / CPM)")
+
 FetchContent_Declare(
 	filewatch
 	GIT_REPOSITORY	https://github.com/drsnuggles8/filewatch.git
 	GIT_TAG			2b24bd3bd513f7a6c9c9c566858a48a6124ad5af  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
-
 FetchContent_Declare(
 	glad
 	GIT_REPOSITORY	https://github.com/Dav1dde/glad.git
@@ -60,52 +229,11 @@ FetchContent_Declare(
 	GIT_SHALLOW		FALSE
 	SOURCE_SUBDIR	cmake
 )
-FetchContent_Declare(
-	glfw
-	GIT_REPOSITORY	https://github.com/glfw/glfw.git
-	GIT_TAG			d9d6f0f1f967807ffade6598ea9a631ebaf37a56  # 3.5.1
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	glm
-	GIT_REPOSITORY https://github.com/g-truc/glm.git
-	GIT_TAG 6f14f4792a0cde5d0cf2c910506724d61cb95834  # master @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	googletest
-	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG d89aac5f0dd4021198d903d39de16f896726de21  # main @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
-# Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
-# makes builds non-deterministic — CI can fetch a newer Jolt than any dev with zero
-# repo changes, which is exactly how the #281 flaky physics crash hid (CI and local
-# ran different Jolt commits). v5.6.0 is a tested release tag that carries
-# JPH::CharacterContact (JoltCharacterController.h uses it as a CharacterVirtual
-# contact-listener type) — deliberate release pin per #294 (gold-standard form:
-# SHA + "# <tag>" comment, same shape as cpp_httplib above). Bump deliberately after
-# re-testing the JoltScene/JoltJobSystemAdapter integration.
-# NOTE: GIT_SHALLOW must be FALSE when GIT_TAG is a commit SHA — a shallow fetch only
-# pulls branch tips, so it can't resolve an arbitrary historical commit.
-FetchContent_Declare(
-	joltphysics
-	GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
-	GIT_TAG e77f175595e64cb44218cc9d9d56fc365ad0e36a  # v5.6.0
-	GIT_SHALLOW		FALSE
-	SOURCE_SUBDIR Build
-)
-FetchContent_Declare(
-	miniaudio
-	GIT_REPOSITORY https://github.com/mackron/miniaudio.git
-	GIT_TAG 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d  # master @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
 
 # pl_mpeg: single-file, public-domain MPEG-1 video + MP2 audio decoder.
 # Header-only (one plmpeg.h; PL_MPEG_IMPLEMENTATION is defined in Video/PlMpeg.cpp).
 # The repo ships no CMakeLists.txt, so MakeAvailable just populates the source dir
-# and we add it to OloEngine's include path manually (mirrors the miniaudio pattern).
+# and we add it to OloEngine's include path manually.
 FetchContent_Declare(
 	pl_mpeg
 	GIT_REPOSITORY https://github.com/phoboslab/pl_mpeg.git
@@ -113,204 +241,26 @@ FetchContent_Declare(
 	GIT_SHALLOW		FALSE
 )
 
-FetchContent_Declare(
-	meshoptimizer
-	GIT_REPOSITORY	https://github.com/zeux/meshoptimizer.git
-	GIT_TAG			9d9890c73011d75920af614485296d1e03e95448  # v1.2
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	recastnavigation
-	GIT_REPOSITORY	https://github.com/recastnavigation/recastnavigation.git
-	GIT_TAG			6dc1667f580357e8a2154c28b7867bea7e8ad3a7  # v1.6.0
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	spdlog
-	GIT_REPOSITORY	https://github.com/gabime/spdlog.git
-	GIT_TAG			79524ddd08a4ec981b7fea76afd08ee05f83755d  # v1.17.0
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-	tracy
-	GIT_REPOSITORY	https://github.com/wolfpld/tracy.git
-	GIT_TAG			099df3de3dc37eca4712c06b8320fb9c53596edd  # v0.14.0
-	GIT_SHALLOW		FALSE
-	GIT_PROGRESS    TRUE
-)
-FetchContent_Declare(
-	yaml-cpp
-	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG			2f64971599ed05b15e2945949e834e96b6288afb  # master @ 2026-06-05
-	GIT_SHALLOW		FALSE
-)
-FetchContent_Declare(
-    zlib
-    GIT_REPOSITORY https://github.com/madler/zlib.git
-    GIT_TAG da607da739fa6047df13e66a2af6b8bec7c2a498  # v1.3.2
-	GIT_SHALLOW		FALSE
-)
-
-# --- libsodium (crypto backend for GameNetworkingSockets) ---
-FetchContent_Declare(
-	libsodium
-	GIT_REPOSITORY	https://github.com/jedisct1/libsodium.git
-	GIT_TAG			77e1ce5d6dee871c49ef211222ba18ef0c486bda  # 1.0.22
-	GIT_SHALLOW		FALSE
-)
-
-# --- Protobuf (required by GameNetworkingSockets) ---
-FetchContent_Declare(
-	protobuf
-	GIT_REPOSITORY	https://github.com/protocolbuffers/protobuf.git
-	GIT_TAG			35cd01f9fe9afbeea38cc7b979a3b6bfcde82c03  # v35.1
-	GIT_SHALLOW		FALSE
-	EXCLUDE_FROM_ALL
-)
-
-# --- GameNetworkingSockets (Valve networking library) ---
-FetchContent_Declare(
-	GameNetworkingSockets
-	GIT_REPOSITORY	https://github.com/ValveSoftware/GameNetworkingSockets.git
-	GIT_TAG			e707b3a6b638f4de31ee3e13a64284bd9abfa98e  # master @ 2026-06-05
-	GIT_SHALLOW		FALSE
-	EXCLUDE_FROM_ALL
-)
-
-FetchContent_GetProperties(zlib)
-FetchContent_MakeAvailable(zlib)
-
-# Tell assimp (and any other consumer using find_package(ZLIB)) to use our
-# fetched zlibstatic target instead of searching system paths.
-set(ZLIB_FOUND TRUE)
-set(ZLIB_LIBRARIES zlibstatic)
-set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
-set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
-
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_USE_CCACHE OFF CACHE BOOL "" FORCE)
-set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
-set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE INTERNAL "" FORCE)
-set(ASSIMP_BUILD_ZLIB OFF CACHE INTERNAL "" FORCE)
-set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
-set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
-set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES Off CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS Off CACHE BOOL "" FORCE)
-set(GLFW_INSTALL Off CACHE BOOL "" FORCE)
-set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-set(BuildTests OFF CACHE BOOL "" FORCE)
-set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
-
-set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
-# Tracy: profiling enabled by default. The leading `set(... OFF)` would have
-# established a cache var that the following `option()` would then no-op on,
-# leaving Tracy disabled — the single `option()` below is the source of truth.
+# Tracy: profiling enabled by default. The option is still the source of truth for
+# whether the engine LINKS Tracy::TracyClient at all and whether the consumer-side
+# TRACY_ENABLE/TRACY_ON_DEMAND macros are defined (cmake/CommonProperties.cmake);
+# the TSan preset turns it off (cmake/Sanitizers.cmake). The port itself is built
+# with profiling on and, via the `on-demand` feature, with TRACY_ON_DEMAND — so the
+# two sides agree without the per-config target_compile_definitions the in-tree
+# build needed.
 option(TRACY_ENABLE "Enable profiling" ON)
-set(TRACY_ON_DEMAND OFF CACHE BOOL "" FORCE)
-set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-# Recast/Detour configuration - build as static library, disable demos/tests
-set(RECASTNAVIGATION_DEMO OFF CACHE BOOL "" FORCE)
-set(RECASTNAVIGATION_TESTS OFF CACHE BOOL "" FORCE)
-set(RECASTNAVIGATION_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
-
-# Jolt Physics configuration - enable static linking and cross-platform determinism
-set(JPH_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
-set(JPH_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
-set(JPH_CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)
-# Enable C++ RTTI in Jolt — our engine uses dynamic_cast/typeid on Jolt shape types
-set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
-# Disable Jolt Vulkan compute shaders on Linux — requires dxc which is not readily available
-if(NOT MSVC)
-	set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
-endif()
-
-# Make MSVC vendor compiles cacheable when compiler caching is on (OLO_ENABLE_COMPILER_CACHE,
-# cmake/CompilerCache.cmake). sccache/ccache cannot cache a /Zi compile that writes a separate
-# PDB — it aborts with "failed to zip up compiler outputs ... failed to open <name>.pdb". These
-# three libs hardcode /Zi themselves, so the global Embedded (/Z7) default doesn't reach them.
-# Turn their debug-symbol/PDB generation off (only while caching) so their objects cache cleanly;
-# CI/test Release binaries don't need vendor symbols. Local non-cache builds are unchanged.
+# filewatch hardcodes `/Zi` with no option to disable it (filewatch-src/CMakeLists.txt),
+# which sccache/ccache cannot cache (it aborts with "failed to zip up compiler outputs
+# ... failed to open <name>.pdb"). Only its `filewatch_unit` test compiles — and that
+# builds solely because the repo's global BUILD_TESTS=ON collides with filewatch's own
+# BUILD_TESTS option. Shadow it OFF with a normal (non-cache) var so it applies to the
+# FetchContent children below but not to OloEngine's own BUILD_TESTS in the parent scope.
 if(OLO_ENABLE_COMPILER_CACHE AND MSVC)
-	# assimp gates its `/Zi` on ASSIMP_INSTALL_PDB (assimp-src/CMakeLists.txt); Jolt on
-	# GENERATE_DEBUG_SYMBOLS (joltphysics-src/Build/CMakeLists.txt). Disabling Jolt's also turns
-	# its large object set from non-cacheable into cacheable — a real repeat-run win.
-	set(ASSIMP_INSTALL_PDB OFF CACHE BOOL "Disabled: separate PDB defeats compiler caching" FORCE)
-	set(GENERATE_DEBUG_SYMBOLS OFF CACHE BOOL "Jolt: disabled, /Zi PDB defeats compiler caching" FORCE)
-	# filewatch hardcodes `/Zi` with no option to disable it (filewatch-src/CMakeLists.txt), but
-	# only its `filewatch_unit` test compiles — and that builds solely because the repo's global
-	# BUILD_TESTS=ON collides with filewatch's own BUILD_TESTS option. Shadow it OFF with a normal
-	# (non-cache) var so it applies to the FetchContent children below but not to OloEngine's own
-	# BUILD_TESTS in the parent scope — the same trick used for GameNetworkingSockets below.
 	set(BUILD_TESTS OFF)
 endif()
 
-
-FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics meshoptimizer miniaudio recastnavigation spdlog tracy yaml-cpp)
-
-# UBSan: the vendored Recast/Detour spatial hashes multiply a cell/tile index by a
-# large prime (e.g. DetourProximityGrid::hashPos2 `x*73856093`, and the navmesh tile
-# hash), which overflows `int` for any coordinate more than ~174 m from the origin —
-# a BENIGN wrap (the result is immediately masked into a hash bucket), but UBSan flags
-# it as signed-integer-overflow and halts. Floating-origin nav (issue #613)
-# legitimately runs a dtCrowd at large coordinates (up to the rebase threshold, and a
-# rebake places the mesh/crowd at the shifted frame), so de-instrument JUST that one
-# check on the third-party recast targets — we don't patch vendored code, and the
-# other UBSan checks (null, alignment, …) stay active. Target-level -fno-sanitize
-# appends after the directory-level -fsanitize=undefined from cmake/Sanitizers.cmake,
-# and the last -f{no-,}sanitize flag wins (GCC and Clang). ASan/TSan are unaffected.
-# Reported + fixed upstream: recastnavigation/recastnavigation#826 (fix PR #827,
-# hashPos2 unsigned-multiply). DROP this exclusion once the vendored recast GIT_TAG
-# (above) is bumped past that fix.
-if(OLO_ENABLE_UBSAN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-	foreach(_recast_target Recast Detour DetourCrowd DetourTileCache DebugUtils)
-		if(TARGET ${_recast_target})
-			target_compile_options(${_recast_target} PRIVATE -fno-sanitize=signed-integer-overflow)
-		endif()
-	endforeach()
-endif()
-
-# Fix Jolt's INTERFACE_INCLUDE_DIRECTORIES to remove absolute Vulkan SDK paths
-# This is a workaround for CMake's strict policy against source-dir absolute paths in interface directories
-if(TARGET Jolt)
-    get_target_property(jolt_interface_dirs Jolt INTERFACE_INCLUDE_DIRECTORIES)
-    if(jolt_interface_dirs)
-        list(FILTER jolt_interface_dirs EXCLUDE REGEX "VULKAN_SDK|Vulkan")
-        set_target_properties(Jolt PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${jolt_interface_dirs}")
-    endif()
-endif()
-
-# atomic_queue is header-only - create an interface target for easy include
-add_library(atomic_queue_interface INTERFACE)
-target_include_directories(atomic_queue_interface INTERFACE ${atomic_queue_SOURCE_DIR}/include)
-set(ATOMIC_QUEUE_INCLUDE_DIR "${atomic_queue_SOURCE_DIR}/include" CACHE INTERNAL "")
-
-# Tracy's own macros — only define when the CMake option is on. With this off
-# the entire Profiler ctor (and its worker threads) compile out, which avoids
-# the static-init race that TSan trips on (see CMakePresets.json linux-tsan).
-#
-# TRACY_ON_DEMAND MUST match EVERY consumer that inlines a Tracy zone (engine,
-# editor, runtime, server, tests) — since Tracy v0.14.0 the on-demand flag is
-# baked into the mangled GetProfiler symbol (GetProfiler_CFG_E1_OD1_…), so a
-# TU compiled without it references the OD0 variant TracyClient (built OD1)
-# doesn't export → LNK2001. It is therefore PUBLIC here so every consumer of
-# TracyClient inherits the identical config and no target can silently drift
-# (a per-target PRIVATE add in cmake/CommonProperties.cmake is exactly what
-# left OloEngine-Tests broken — see issue #754). TRACY_ENABLE stays PRIVATE:
-# Tracy's own CMake already exports it through the target's INTERFACE.
-if(TRACY_ENABLE)
-    target_compile_definitions("TracyClient"
-        PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>
-        PUBLIC  $<$<CONFIG:Release>:TRACY_ON_DEMAND>)
-endif()
+FetchContent_MakeAvailable(filewatch glad pl_mpeg)
 
 glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
 
@@ -320,9 +270,6 @@ FetchContent_Declare(stb_image
 	GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
-
-# pl_mpeg has no CMakeLists, so MakeAvailable only populates ${pl_mpeg_SOURCE_DIR}.
-FetchContent_MakeAvailable(pl_mpeg)
 file(COPY ${stb_image_SOURCE_DIR}/stb_image.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
 file(COPY ${stb_image_SOURCE_DIR}/stb_image_write.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
 file(COPY ${stb_image_SOURCE_DIR}/stb_truetype.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
@@ -344,7 +291,8 @@ if(imgui_ADDED)
 
 	add_library(imgui STATIC ${IMGUI_SOURCES} ${IMGUI_HEADERS} "${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp" "${IMGUI_DIR}/backends/imgui_impl_opengl3.h" "${IMGUI_DIR}/backends/imgui_impl_opengl3_loader.h")
 	target_compile_definitions(imgui PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLAD=1)
-	target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${glfw_SOURCE_DIR}/include "glad-build/include")
+	target_include_directories(imgui PUBLIC ${IMGUI_DIR} "glad-build/include")
+	target_link_libraries(imgui PUBLIC glfw)
 	set_target_properties(imgui PROPERTIES
 		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
 		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
@@ -377,7 +325,7 @@ endif()
 CPMAddPackage(NAME lua
   GIT_REPOSITORY https://github.com/lua/lua.git
   VERSION 5.4.7
-  DOWNLOAD_ONLY YES)  
+  DOWNLOAD_ONLY YES)
 if(lua_ADDED)
   file(GLOB lua_sources ${lua_SOURCE_DIR}/*.c)
   list(REMOVE_ITEM lua_sources "${lua_SOURCE_DIR}/lua.c" "${lua_SOURCE_DIR}/luac.c" "${lua_SOURCE_DIR}/onelua.c" "${lua_SOURCE_DIR}/ltests.c")
@@ -389,22 +337,6 @@ if(lua_ADDED)
 		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/lua-build")
 endif()
 
-# cpp-httplib: single-header HTTP/1.1 server+client. Used by OloEditor's read-only
-# MCP diagnostics server (#285) for the localhost Streamable-HTTP transport. Header-only,
-# so DOWNLOAD_ONLY + an INTERFACE target whose include dir propagates. Non-imported
-# INTERFACE (not INTERFACE IMPORTED) so the target is global and can be linked from
-# OloEditor (the actual consumer; see OloEditor/CMakeLists.txt) and any other target.
-# Pinned to a fixed tag SHA for reproducible builds (#294 convention).
-CPMAddPackage(NAME cpp_httplib
-  GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-  GIT_TAG f00e476f1b2d519343e960f77f57a06c8a24f046  # v0.53.0
-  GIT_SHALLOW FALSE
-  DOWNLOAD_ONLY YES)
-if(cpp_httplib_ADDED)
-	add_library(cpp_httplib INTERFACE)
-	target_include_directories(cpp_httplib SYSTEM INTERFACE ${cpp_httplib_SOURCE_DIR})
-endif()
-
 # bc7enc_rdo: Rich Geldreich's BC1-7 / BC6H block-compression encoders + decoders.
 # Used by the offline texture-compression cook (Renderer/TextureCompression.cpp) to
 # encode base-color -> BC7 and normal maps -> BC5 (#440). Dual MIT / public-domain
@@ -413,7 +345,6 @@ endif()
 # post-processor — none are needed for a straight CPU encode. DOWNLOAD_ONLY because
 # the repo's own CMakeLists builds a test exe that requires ISPC; we compile just the
 # three self-contained TUs into our own static lib, mirroring the imgui / lua pattern.
-# Pinned to a fixed commit SHA for reproducible builds (#294 convention).
 CPMAddPackage(NAME bc7enc_rdo
   GIT_REPOSITORY https://github.com/richgel999/bc7enc_rdo.git
   GIT_TAG b9438627eef73a1157e84201b6fa6eb2ffd6d9f0  # master @ 2026-02-27
@@ -431,8 +362,10 @@ if(bc7enc_rdo_ADDED)
 		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/bc7enc-build"
 		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/bc7enc-build")
 	# clang-cl maps our /WX onto -Werror; the vendored encoder trips a raft of
-	# Clang-only warnings (unused, sign-compare, ...). Suppress -Werror on it only,
-	# same treatment already applied to Jolt / assimp / box2d below.
+	# Clang-only warnings (unused, sign-compare, ...). Suppress -Werror on it only.
+	# This is now the ONLY -Wno-error block left in this file: every other library
+	# that needed one is prebuilt by vcpkg, and a prebuilt binary has no warnings
+	# to suppress (issue #773).
 	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		target_compile_options(bc7enc PRIVATE -Wno-error -Wno-everything)
 	endif()
@@ -445,8 +378,7 @@ endif()
 # CI — a matched encoder/decoder bug can't hide behind a shared codepath — and (b) act
 # as the CPU HDR fallback that decodes BC6H to RGBA16F on a context lacking BPTC.
 # Header-only: the implementation is compiled exactly once, via BCDEC_IMPLEMENTATION in
-# TextureCompression.cpp. DOWNLOAD_ONLY + INTERFACE, mirroring the choc/stb pattern.
-# Pinned to a fixed commit SHA for reproducible builds (#294 convention).
+# TextureCompression.cpp.
 CPMAddPackage(NAME bcdec
   GIT_REPOSITORY https://github.com/iOrange/bcdec.git
   GIT_TAG 93628fe5627102fe5187b7eeb99122dec6612c36  # main @ 2025-10-23
@@ -460,489 +392,20 @@ if(bcdec_ADDED)
 	target_include_directories(bcdec SYSTEM INTERFACE "${bcdec_SOURCE_DIR}")
 endif()
 
-set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
-if(TARGET UpdateAssimpLibsDebugSymbolsAndDLLs)
-	set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
-endif()
-
-# --- Build libsodium (must be before GNS) ---
-FetchContent_GetProperties(libsodium)
-if(NOT libsodium_POPULATED)
-	FetchContent_Populate(libsodium)
-	# libsodium doesn't have a root CMakeLists.txt; build manually from sources
-	file(GLOB_RECURSE SODIUM_SOURCES "${libsodium_SOURCE_DIR}/src/libsodium/*.c")
-	add_library(sodium STATIC ${SODIUM_SOURCES})
-	target_include_directories(sodium PUBLIC
-		"${libsodium_SOURCE_DIR}/src/libsodium/include"
-		"${libsodium_SOURCE_DIR}/src/libsodium/include/sodium"
-	)
-	# Platform-specific configuration header
-	if(MSVC)
-		target_compile_definitions(sodium PRIVATE
-			SODIUM_STATIC=1
-			SODIUM_EXPORT=
-			CONFIGURED=1
-			NATIVE_LITTLE_ENDIAN=1
-			_CRT_SECURE_NO_WARNINGS
-		)
-		target_include_directories(sodium PRIVATE
-			"${libsodium_SOURCE_DIR}/builds/msvc"
-		)
-		# Copy the MSVC version.h to where libsodium expects it
-		configure_file(
-			"${libsodium_SOURCE_DIR}/builds/msvc/version.h"
-			"${libsodium_SOURCE_DIR}/src/libsodium/include/sodium/version.h"
-			COPYONLY
-		)
-	else()
-		target_compile_definitions(sodium PRIVATE
-			SODIUM_STATIC=1
-			SODIUM_EXPORT=
-			CONFIGURED=1
-			HAVE_TI_MODE=1
-			NATIVE_LITTLE_ENDIAN=1
-		)
-		# Generate version.h for non-MSVC builds (autotools would normally do this)
-		if(NOT EXISTS "${libsodium_SOURCE_DIR}/src/libsodium/include/sodium/version.h")
-			file(WRITE "${libsodium_SOURCE_DIR}/src/libsodium/include/sodium/version.h"
-				"#ifndef sodium_version_H\n"
-				"#define sodium_version_H\n"
-				"#define SODIUM_VERSION_STRING \"1.0.22\"\n"
-				"#define SODIUM_LIBRARY_VERSION_MAJOR 26\n"
-				"#define SODIUM_LIBRARY_VERSION_MINOR 3\n"
-				"#define SODIUM_LIBRARY_MINIMAL 0\n"
-				"#endif\n"
-			)
-		endif()
-	endif()
-	target_compile_definitions(sodium PUBLIC SODIUM_STATIC=1)
-endif()
-# Bypass GNS's Findsodium.cmake: mark sodium as found and point at our target.
-# GNS's module unsets cached variables and runs find_library which fails at
-# configure time (the .a doesn't exist yet). Instead, we provide our own
-# minimal Findsodium that recognises the already-defined 'sodium' target.
-set(sodium_FOUND TRUE CACHE BOOL "" FORCE)
-set(sodium_INCLUDE_DIR "${libsodium_SOURCE_DIR}/src/libsodium/include" CACHE PATH "" FORCE)
-# Write a tiny Findsodium override into the build tree so find_package(sodium)
-# short-circuits when GNS calls it.
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cmake_override/Findsodium.cmake"
-"# Auto-generated override — the 'sodium' target was already built by FetchContent.\n"
-"if(TARGET sodium)\n"
-"  set(sodium_FOUND TRUE)\n"
-"  set(sodium_INCLUDE_DIR \"${libsodium_SOURCE_DIR}/src/libsodium/include\")\n"
-"  return()\n"
-"endif()\n"
-)
-list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_BINARY_DIR}/cmake_override")
-
-# --- Build Protobuf (must be before GNS) ---
-set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "" FORCE)
-set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
-set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(protobuf)
-
-# ClangCL: Protobuf leaks C++ flags (/utf-8, /wd4xxx, /bigobj) into RC
-# compilation via $FLAGS, which rc.exe doesn't understand.  Static libs
-# don't need version resources, so just strip the .rc sources.
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-	foreach(_proto_target libprotobuf libprotobuf-lite libprotoc protoc)
-		if(TARGET ${_proto_target})
-			get_target_property(_srcs ${_proto_target} SOURCES)
-			list(FILTER _srcs EXCLUDE REGEX "\\.rc$")
-			set_target_properties(${_proto_target} PROPERTIES SOURCES "${_srcs}")
-		endif()
-	endforeach()
-endif()
-
-# ClangCL + ASan: do NOT instrument the vendored protobuf tool-chain. protoc is a
-# build-time code generator (it runs during the build to emit GNS's .pb.cc), not
-# something we test. Under clang's ASan an instrumented protoc aborts mid-build on
-# findings inside vendored code we can't patch: an ODR false positive / global-buffer-
-# overflow in protobuf itself, and — after protobuf pulled in abseil + upb — a SEGV
-# inside abseil's swiss-table (absl/container/internal/container_memory.h) while
-# building the descriptor pool. protoc must be instrumentation-CONSISTENT, so it's not
-# enough to de-instrument the four core protobuf targets (as we first did): every
-# target it links must match, or the mismatch crashes it. De-instrument protoc's WHOLE
-# dependency closure by source tree — protobuf (which also contains upb + utf8_range)
-# and abseil — so a protobuf bump that adds targets stays covered automatically. The
-# only cost is the test exe links a non-instrumented protobuf/abseil — third-party code
-# out of our ASan scope anyway (the engine, GNS, and the tests stay instrumented).
-# Target-level -fno-sanitize=address overrides the directory-inherited /fsanitize=address
-# that cmake/Sanitizers.cmake applies (for clang the last -f{no-,}sanitize flag wins).
-if(OLO_ENABLE_ASAN AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-	# Recursively gather every target defined under a directory subtree.
-	function(olo_collect_subtree_targets _dir _out)
-		get_property(_acc DIRECTORY "${_dir}" PROPERTY BUILDSYSTEM_TARGETS)
-		get_property(_subs DIRECTORY "${_dir}" PROPERTY SUBDIRECTORIES)
-		foreach(_sub ${_subs})
-			olo_collect_subtree_targets("${_sub}" _sub_out)
-			list(APPEND _acc ${_sub_out})
-		endforeach()
-		set(${_out} "${_acc}" PARENT_SCOPE)
-	endfunction()
-
-	set(_asan_exclude_targets "")
-	foreach(_tree_dir "${protobuf_SOURCE_DIR}" "${absl_SOURCE_DIR}")
-		if(_tree_dir AND IS_DIRECTORY "${_tree_dir}")
-			olo_collect_subtree_targets("${_tree_dir}" _tree_targets)
-			list(APPEND _asan_exclude_targets ${_tree_targets})
-		endif()
-	endforeach()
-	if(_asan_exclude_targets)
-		list(REMOVE_DUPLICATES _asan_exclude_targets)
-	else()
-		# The collector found nothing — protobuf/abseil would stay instrumented and
-		# protoc would abort mid-build (the very failure this block exists to prevent).
-		# Fail loudly at configure rather than let that recur silently.
-		message(FATAL_ERROR
-			"ASan de-instrumentation found no protobuf/abseil targets under "
-			"protobuf_SOURCE_DIR='${protobuf_SOURCE_DIR}' / absl_SOURCE_DIR='${absl_SOURCE_DIR}'. "
-			"protoc would be built instrumented and crash generating .pb files.")
-	endif()
-
-	foreach(_t ${_asan_exclude_targets})
-		get_target_property(_t_type ${_t} TYPE)
-		# Compile options only apply to targets that actually compile sources.
-		if(_t_type AND NOT _t_type STREQUAL "INTERFACE_LIBRARY" AND NOT _t_type STREQUAL "UTILITY")
-			target_compile_options(${_t} PRIVATE -fno-sanitize=address)
-		endif()
-	endforeach()
-endif()
-
-# Make protobuf_generate_cpp available (from CMake's built-in FindProtobuf)
-# GNS calls find_package(Protobuf) which needs this function
-set(Protobuf_FOUND TRUE CACHE BOOL "" FORCE)
-set(PROTOBUF_FOUND TRUE CACHE BOOL "" FORCE)
-if(TARGET protobuf::protoc)
-	get_target_property(Protobuf_PROTOC_EXECUTABLE protobuf::protoc IMPORTED_LOCATION)
-	if(NOT Protobuf_PROTOC_EXECUTABLE)
-		set(Protobuf_PROTOC_EXECUTABLE "$<TARGET_FILE:protoc>")
-	endif()
-endif()
-set(Protobuf_PROTOC_EXECUTABLE "${Protobuf_PROTOC_EXECUTABLE}" CACHE FILEPATH "" FORCE)
-set(Protobuf_INCLUDE_DIRS "${protobuf_SOURCE_DIR}/src" CACHE PATH "" FORCE)
-
-# --- Build GameNetworkingSockets ---
-set(BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
-
-# Use normal (non-cache) variable to shadow BUILD_TESTS for GNS only.
-# GNS checks BUILD_TESTS; a normal var shadows the cache in child scope
-# without corrupting the root-level option.
-set(BUILD_TESTS OFF)
-
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-set(USE_CRYPTO "libsodium" CACHE STRING "" FORCE)
-set(USE_CRYPTO25519 "libsodium" CACHE STRING "" FORCE)
-set(Protobuf_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
-set(ENABLE_ICE OFF CACHE BOOL "" FORCE)
-set(USE_STEAMWEBRTC OFF CACHE BOOL "" FORCE)
-# Skip GNS install rules to avoid export-set errors with FetchContent targets
-set(_OLD_SKIP_INSTALL_RULES ${CMAKE_SKIP_INSTALL_RULES})
-set(CMAKE_SKIP_INSTALL_RULES TRUE)
-FetchContent_MakeAvailable(GameNetworkingSockets)
-set(CMAKE_SKIP_INSTALL_RULES ${_OLD_SKIP_INSTALL_RULES})
-
-# Organize new vendor targets into IDE folders
-if(TARGET sodium)
-	set_target_properties(sodium PROPERTIES FOLDER "Utilities/libsodium")
-endif()
-if(TARGET protobuf::libprotobuf OR TARGET libprotobuf)
-	if(TARGET libprotobuf)
-		set_target_properties(libprotobuf PROPERTIES FOLDER "Utilities/protobuf")
-	endif()
-	if(TARGET protoc)
-		set_target_properties(protoc PROPERTIES FOLDER "Utilities/protobuf")
-	endif()
-	if(TARGET libprotobuf-lite)
-		set_target_properties(libprotobuf-lite PROPERTIES FOLDER "Utilities/protobuf")
-	endif()
-	if(TARGET libprotoc)
-		set_target_properties(libprotoc PROPERTIES FOLDER "Utilities/protobuf")
-	endif()
-endif()
-if(TARGET GameNetworkingSockets_s)
-	set_target_properties(GameNetworkingSockets_s PROPERTIES FOLDER "Utilities/GNS")
-endif()
-if(TARGET GameNetworkingSockets)
-	set_target_properties(GameNetworkingSockets PROPERTIES FOLDER "Utilities/GNS")
-endif()
-
-set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
-set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
-# box2d dropped its bundled `simde` SIMD-portability target in v3.1 (it now carries
-# its own SIMD abstraction), so guard the IDE-folder assignment.
-if(TARGET simde)
-	set_target_properties(simde PROPERTIES FOLDER "Utilities/box2d")
-endif()
+# -----------------------------------------------------------------------------
+# IDE folders for the targets we still build ourselves. The vcpkg-provided
+# packages are IMPORTED targets and never appear in the solution, so every
+# folder assignment they used to need is gone.
+# -----------------------------------------------------------------------------
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
-set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
-set_target_properties(glm PROPERTIES FOLDER "Utilities")
-set_target_properties(update_mappings PROPERTIES FOLDER "Utilities/GLFW3")
-set_target_properties(gmock PROPERTIES FOLDER "Utilities/googletest")
-set_target_properties(gmock_main PROPERTIES FOLDER "Utilities/googletest")
-set_target_properties(gtest PROPERTIES FOLDER "Utilities/googletest")
-set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
-set_target_properties(Jolt PROPERTIES FOLDER "Utilities/JoltPhysics")
-set_target_properties(miniaudio PROPERTIES FOLDER "Utilities/miniaudio")
-set_target_properties(meshoptimizer PROPERTIES FOLDER "Utilities/meshoptimizer")
-set_target_properties(miniaudio_channel_combiner_node PROPERTIES FOLDER "Utilities/miniaudio")
-set_target_properties(miniaudio_channel_separator_node PROPERTIES FOLDER "Utilities/miniaudio")
-set_target_properties(miniaudio_ltrim_node PROPERTIES FOLDER "Utilities/miniaudio")
-set_target_properties(miniaudio_reverb_node PROPERTIES FOLDER "Utilities/miniaudio")
-set_target_properties(miniaudio_vocoder_node PROPERTIES FOLDER "Utilities/miniaudio")
 set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(imguizmo PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
-set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
-set_target_properties(TracyClient PROPERTIES FOLDER "Utilities")
-set_target_properties(yaml-cpp PROPERTIES FOLDER "Utilities")
-# zlib v1.3.2 gates its `example`/`minigzip` test programs behind ZLIB_BUILD_EXAMPLES
-# (and no longer defines them in our static-only config), so guard those two.
-if(TARGET example)
-	set_target_properties(example PROPERTIES FOLDER "Utilities/zlib")
-endif()
-if(TARGET minigzip)
-	set_target_properties(minigzip PROPERTIES FOLDER "Utilities/zlib")
-endif()
-if(TARGET zlib)
-	set_target_properties(zlib PROPERTIES FOLDER "Utilities/zlib")
-endif()
-set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/zlib")
-
-# ClangCL compatibility: Vendor libraries (Jolt, assimp, box2d) use /Wall /WX,
-# which maps to -Weverything -Werror on Clang—triggering dozens of Clang-only
-# warnings (padded, nrvo, unique-object-duplication, etc.) absent from MSVC's /Wall.
-# Append -Wno-error AFTER target options so it overrides /WX.
-# Also suppress -Wpadded to avoid thousands of noise warnings that flood output.
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-	foreach(_vendor_target Jolt assimp box2d)
-		if(TARGET ${_vendor_target})
-			target_compile_options(${_vendor_target} PRIVATE -Wno-error -Wno-padded)
-		endif()
-	endforeach()
-
-	# ClangCL: assimp ships a version resource (code/res/assimp.rc). Building it
-	# routes through cmcldeps, which runs clang-cl to scan the .rc's #includes and
-	# passes the RC flags along — including the toolchain's `/C 1252` code-page flag
-	# (ClangCLToolchain.cmake). clang-cl reads `/C` as its own "keep comments" option
-	# (which takes no argument) and then treats `1252` as an input file, failing with
-	# "no such file or directory: '1252'". assimp is a static lib and doesn't need a
-	# version resource, so strip the .rc source — the same fix already applied to the
-	# protobuf targets above.
-	if(TARGET assimp)
-		get_target_property(_assimp_srcs assimp SOURCES)
-		if(_assimp_srcs)
-			list(FILTER _assimp_srcs EXCLUDE REGEX "\\.rc$")
-			set_target_properties(assimp PROPERTIES SOURCES "${_assimp_srcs}")
-		endif()
-	endif()
-endif()
-
-#======================================
-# Asset-import format dependencies (#655). Gated on OLO_WITH_* options (root CMakeLists).
-#======================================
-
-# --- Alembic (.abc geometry caches) + its Imath math dependency ---
-# Imath is declared/made-available FIRST so Alembic's top-level `IF(TARGET Imath::Imath)`
-# short-circuits its find_package(Imath) — no install step / ImathConfig.cmake needed, exactly
-# how this repo already satisfies assimp's find_package(ZLIB) with the fetched zlibstatic target.
-if(OLO_WITH_ALEMBIC)
-	FetchContent_Declare(Imath
-		GIT_REPOSITORY	https://github.com/AcademySoftwareFoundation/Imath.git
-		GIT_TAG			1e480d11cb98b032a2dece9b9a8730512effc7f6  # v3.2.2
-		GIT_SHALLOW		FALSE)
-	# IMATH_INSTALL must be ON: Alembic's lib CMakeLists does an unconditional
-	# export(TARGETS Alembic) + install(EXPORT AlembicTargets), both of which reference
-	# Imath::Imath and fail generation ("requires target Imath that is not in any export set")
-	# unless Imath registers itself in an export set. Export sets are only VALIDATED at
-	# generate and only EXECUTED on `cmake --install` (which this repo never runs), so turning
-	# Imath's install ON is validation-only here — no files are installed by a normal build.
-	set(IMATH_INSTALL ON CACHE BOOL "" FORCE)
-	set(IMATH_INSTALL_PKG_CONFIG OFF CACHE BOOL "" FORCE)
-	set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-	set(PYTHON OFF CACHE BOOL "" FORCE)
-	set(PYBIND11 OFF CACHE BOOL "" FORCE)
-	set(BUILD_WEBSITE OFF CACHE BOOL "" FORCE)
-
-	FetchContent_Declare(alembic
-		GIT_REPOSITORY	https://github.com/alembic/alembic.git
-		GIT_TAG			6f59e4d0c9012c67e242da510b31d96504db8e01  # 1.8.12
-		GIT_SHALLOW		FALSE)
-	set(ALEMBIC_BUILD_LIBS ON CACHE BOOL "" FORCE)
-	set(ALEMBIC_SHARED_LIBS OFF CACHE BOOL "" FORCE)   # -> static libAlembic
-	set(USE_HDF5 OFF CACHE BOOL "" FORCE)              # Ogawa only; no HDF5 chain
-	set(USE_STATIC_HDF5 OFF CACHE BOOL "" FORCE)
-	set(USE_TESTS OFF CACHE BOOL "" FORCE)
-	set(USE_BINARIES OFF CACHE BOOL "" FORCE)
-	set(USE_EXAMPLES OFF CACHE BOOL "" FORCE)
-	set(USE_PYALEMBIC OFF CACHE BOOL "" FORCE)
-	set(USE_ARNOLD OFF CACHE BOOL "" FORCE)
-	set(USE_MAYA OFF CACHE BOOL "" FORCE)
-	set(USE_PRMAN OFF CACHE BOOL "" FORCE)
-	set(USE_STATIC_BOOST OFF CACHE BOOL "" FORCE)      # core needs no Boost in 1.7+
-	set(ALEMBIC_DEBUG_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
-
-	# ORDER MATTERS: Imath before alembic. Split so Imath_INCLUDE_DIRS can be set between them:
-	# Alembic's lib CMake includes <Imath/half.h> and bakes ${Imath_INCLUDE_DIRS} into its PUBLIC
-	# include dirs, but the FetchContent'd Imath target only exposes src/Imath on the path (so a
-	# flat <half.h> resolves, not <Imath/half.h>). Point Imath_INCLUDE_DIRS at src/ so both
-	# Alembic's own compile AND OloEngine (which links Alembic::Alembic) resolve <Imath/...>.
-	FetchContent_MakeAvailable(Imath)
-	# Wrap in $<BUILD_INTERFACE:> — Alembic bakes ${Imath_INCLUDE_DIRS} into its PUBLIC
-	# INTERFACE_INCLUDE_DIRECTORIES, and CMake rejects a bare absolute source-tree path there
-	# (it would leak to install consumers); the generator expression scopes it to the build tree.
-	set(Imath_INCLUDE_DIRS "$<BUILD_INTERFACE:${imath_SOURCE_DIR}/src>" CACHE STRING "" FORCE)
-	FetchContent_MakeAvailable(alembic)
-
-	foreach(_abc_target Alembic Imath)
-		if(TARGET ${_abc_target})
-			set_target_properties(${_abc_target} PROPERTIES FOLDER "Utilities/alembic")
-		endif()
-	endforeach()
-	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-		foreach(_abc_target Alembic Imath)
-			if(TARGET ${_abc_target})
-				target_compile_options(${_abc_target} PRIVATE -Wno-error -Wno-everything)
-			endif()
-		endforeach()
-	endif()
-	message(STATUS "OLO_WITH_ALEMBIC: Alembic (.abc) import enabled")
-endif()
-
-# --- MaterialX (.mtlx materials): read-only MaterialXCore + MaterialXFormat only ---
-# RENDER + all GEN_* backends default ON in MaterialX; turning them OFF is what keeps this a
-# tiny two-lib build (PugiXML is bundled straight into MaterialXFormat, so no extra dep).
-if(OLO_WITH_MATERIALX)
-	FetchContent_Declare(materialx
-		GIT_REPOSITORY	https://github.com/AcademySoftwareFoundation/MaterialX.git
-		GIT_TAG			7b64921ef1d42f2d57871e9d2c43dc11f041f26b  # v1.39.5
-		GIT_SHALLOW		FALSE)
-	set(MATERIALX_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_MONOLITHIC OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_BENCHMARK_TESTS OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_JS OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_VIEWER OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_GRAPH_EDITOR OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_RENDER OFF CACHE BOOL "" FORCE)   # DEFAULT ON -> OFF
-	set(MATERIALX_BUILD_GEN_GLSL OFF CACHE BOOL "" FORCE) # DEFAULT ON -> OFF
-	set(MATERIALX_BUILD_GEN_MSL OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_GEN_OSL OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_GEN_MDL OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_GEN_SLANG OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_OIIO OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_OCIO OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_INSTALL_RESOURCES OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_INSTALL_PYTHON OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_BUILD_USE_CCACHE OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_TEST_RENDER OFF CACHE BOOL "" FORCE)
-	set(MATERIALX_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
-
-	FetchContent_MakeAvailable(materialx)
-
-	foreach(_mtlx MaterialXCore MaterialXFormat MaterialXGenShader MaterialXRender MaterialXTrace)
-		if(TARGET ${_mtlx})
-			set_target_properties(${_mtlx} PROPERTIES FOLDER "Utilities/MaterialX")
-		endif()
-	endforeach()
-	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-		foreach(_mtlx MaterialXCore MaterialXFormat)
-			if(TARGET ${_mtlx})
-				target_compile_options(${_mtlx} PRIVATE -Wno-error -Wno-everything)
-			endif()
-		endforeach()
-	endif()
-	message(STATUS "OLO_WITH_MATERIALX: MaterialX (.mtlx) import enabled")
-endif()
-
-#======================================
-# Vulkan RHI backend dependencies (#691 Phase 4). Gated on OLO_WITH_VULKAN (root CMakeLists).
-#======================================
-# All three are pinned at the SDK-1.4.357.0 tag family — ADR 0010's tooling floor: the first
-# SDK whose validation layers can GPU-validate VK_EXT_descriptor_heap, and the version whose
-# vulkan_core.h the backend's device-selection gate compiles against. The vendored headers
-# deliberately shadow whatever SDK happens to be installed: the engine's find_package(Vulkan)
-# (OloEngine/CMakeLists.txt, for the shaderc toolchain) contributes the SDK's include dir too,
-# so OloEngine/CMakeLists.txt lists ${vulkan-headers_SOURCE_DIR}/include explicitly BEFORE
-# ${Vulkan_INCLUDE_DIRS} — /I order is what decides, and both are plain /I paths. The backend
-# then compiles against 1.4.357 regardless of the installed SDK's age; VulkanContext.cpp pins
-# this with a static_assert on VK_HEADER_VERSION.
-if(OLO_WITH_VULKAN)
-	FetchContent_Declare(
-		vulkan-headers
-		GIT_REPOSITORY	https://github.com/KhronosGroup/Vulkan-Headers.git
-		GIT_TAG			e3b1eec08173d6b825cd3ac88c885a63b621504a  # vulkan-sdk-1.4.357.0
-		GIT_SHALLOW		FALSE
-	)
-	FetchContent_Declare(
-		volk
-		GIT_REPOSITORY	https://github.com/zeux/volk.git
-		GIT_TAG			776893306c5d3b22b6185b5d4a258b81d94572bf  # vulkan-sdk-1.4.357.0
-		GIT_SHALLOW		FALSE
-	)
-	# VOLK_PULL_IN_VULKAN must be OFF: its default resolution order prefers
-	# find_package(Vulkan) — i.e. the INSTALLED SDK's headers — over the vendored
-	# Vulkan-Headers target, which would silently compile volk against whatever SDK
-	# version the machine happens to have. Link the vendored headers explicitly instead.
-	set(VOLK_PULL_IN_VULKAN OFF CACHE BOOL "" FORCE)
-	set(VOLK_INSTALL OFF CACHE BOOL "" FORCE)
-
-	# ORDER MATTERS: vulkan-headers before volk, so the Vulkan::Headers alias exists when
-	# the link below resolves. The alias is resolved HERE, in vendor scope, to the vendored
-	# target — so consumers of `volk`/`vma` get the 1.4.357 headers by propagation even
-	# though OloEngine/CMakeLists.txt's later find_package(Vulkan) may mint its own,
-	# SDK-pointing Vulkan::Headers in its own directory scope. Nothing engine-side may link
-	# Vulkan::Headers by name for that reason; link `volk` or `vma` instead.
-	FetchContent_MakeAvailable(vulkan-headers volk)
-	target_link_libraries(volk PUBLIC Vulkan::Headers)
-
-	# VMA: header-only (vk_mem_alloc.h); the implementation TU is
-	# Platform/Vulkan/VulkanMemoryAllocator.cpp (VMA_IMPLEMENTATION + volk import).
-	# DOWNLOAD_ONLY + hand-rolled INTERFACE target, mirroring the bcdec/cpp_httplib pattern —
-	# VMA's own CMakeLists would work, but the interface target is two lines and avoids
-	# coupling to its install/export machinery.
-	CPMAddPackage(NAME vma
-	  GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-	  GIT_TAG 3aa921224c154a0d2c43912bc88e1c42ce1f7607  # v3.4.0
-	  GIT_SHALLOW FALSE
-	  DOWNLOAD_ONLY YES)
-	if(vma_ADDED)
-		add_library(vma INTERFACE)
-		# SYSTEM so the VMA_IMPLEMENTATION expansion doesn't count against OloEngine's
-		# warning level, exactly as bcdec's IMPLEMENTATION is handled.
-		target_include_directories(vma SYSTEM INTERFACE "${vma_SOURCE_DIR}/include")
-		target_link_libraries(vma INTERFACE Vulkan::Headers)
-	else()
-		# OloEngine links `vma` unconditionally under OLO_WITH_VULKAN, via the
-		# plain target_link_libraries signature — an undefined target there is
-		# silently treated as an external library name and only fails at LINK
-		# time with a baffling "cannot open vma.lib". Fail at configure instead.
-		message(FATAL_ERROR "OLO_WITH_VULKAN=ON but CPM did not add VulkanMemoryAllocator (vma_ADDED is false) — the vma target would be undefined.")
-	endif()
-
-	set_target_properties(volk PROPERTIES FOLDER "Utilities/Vulkan")
-	if(TARGET Vulkan-Headers)
-		set_target_properties(Vulkan-Headers PROPERTIES FOLDER "Utilities/Vulkan")
-	endif()
-	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-		target_compile_options(volk PRIVATE -Wno-error -Wno-everything)
-	endif()
-	message(STATUS "OLO_WITH_VULKAN: Vulkan backend deps enabled (Vulkan-Headers + volk @ vulkan-sdk-1.4.357.0, VMA v3.4.0)")
-endif()
 
 #======================================
 # Propagate FetchContent _SOURCE_DIR / _BINARY_DIR variables to parent scope
 # so OloEngine/CMakeLists.txt can use them in target_include_directories.
-foreach(_dep assimp atomic_queue box2d entt filewatch glad glfw glm googletest
-             joltphysics meshoptimizer miniaudio pl_mpeg recastnavigation spdlog tracy yaml-cpp
-             zlib stb_image imgui imguizmo lua GameNetworkingSockets Imath alembic materialx
-             vulkan-headers)
+foreach(_dep filewatch glad pl_mpeg stb_image imgui imguizmo lua)
 	if(DEFINED ${_dep}_SOURCE_DIR)
 		set(${_dep}_SOURCE_DIR "${${_dep}_SOURCE_DIR}" PARENT_SCOPE)
 	endif()
@@ -951,8 +414,8 @@ foreach(_dep assimp atomic_queue box2d entt filewatch glad glfw glm googletest
 	endif()
 endforeach()
 
-# FFmpeg (optional) — built from source for the H.264/MP4 video backend. Off by default.
+# FFmpeg (optional) — built from source for the H.264/MP4 video backend.
 # (Lives in the tracked cmake/ dir because OloEngine/vendor/* is gitignored.)
 include(${CMAKE_SOURCE_DIR}/cmake/ffmpeg.cmake)
 
-message(STATUS "Fetching thirdparty libraries done")
+message(STATUS "Third-party dependency resolution done")

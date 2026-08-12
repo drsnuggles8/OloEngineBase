@@ -1,0 +1,205 @@
+name: 'Setup vcpkg'
+description: >
+  Resolve VCPKG_ROOT, make sure the clone contains the baseline commit pinned in
+  vcpkg.json, and wire the GitHub Actions binary cache so ports are restored
+  instead of rebuilt. Emits `toolchain-args` for the caller to splice into its
+  cmake configure line.
+inputs:
+  triplet:
+    description: 'Target triplet (x64-windows-static-md on Windows for BOTH cl.exe and clang-cl jobs, x64-linux on Linux)'
+    required: true
+  read-only:
+    description: 'Restore from the binary cache but do not write to it (use on fork PRs, which cannot write caches)'
+    required: false
+    default: 'false'
+outputs:
+  toolchain-args:
+    description: 'CMake arguments selecting the vcpkg toolchain, triplet and overlays'
+    value: ${{ steps.emit.outputs.toolchain-args }}
+runs:
+  using: 'composite'
+  steps:
+    # Ports that build through autotools need the autotools themselves from the
+    # system package manager -- vcpkg does not vendor them. libsodium is the one
+    # that bites here (its Linux path is autotools; only its Windows/MSVC path is
+    # an msbuild solution), and it fails with an explicit list:
+    #
+    #   libsodium currently requires the following programs from the system package
+    #   manager: autoconf autoconf-archive automake libtoolize
+    #
+    # `autoconf-archive` in particular is NOT on the GitHub Ubuntu image. pkg-config
+    # is included because vcpkg_fixup_pkgconfig and several ports expect it.
+    - name: Install autotools (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          autoconf autoconf-archive automake libtool pkg-config
+
+    - name: Resolve vcpkg root
+      shell: bash
+      run: |
+        set -euo pipefail
+        # GitHub-hosted runners ship a bootstrapped vcpkg at VCPKG_INSTALLATION_ROOT.
+        # Self-hosted runners (gpu-conformance-amd) may not, so fall back to a clone
+        # under RUNNER_TEMP. Either way VCPKG_ROOT is what the rest of this action and
+        # the CMake presets read.
+        root="${VCPKG_INSTALLATION_ROOT:-}"
+        if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
+          root="${RUNNER_TEMP}/vcpkg"
+          if [ ! -d "$root/.git" ]; then
+            git clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
+          fi
+        fi
+        echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
+        echo "resolved VCPKG_ROOT=$root"
+
+    - name: Make the manifest baseline resolvable
+      shell: bash
+      run: |
+        set -euo pipefail
+        baseline=$(python3 -c "import json,sys;print(json.load(open('vcpkg.json'))['builtin-baseline'])" 2>/dev/null \
+                || python -c "import json,sys;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+        echo "manifest baseline: $baseline"
+
+        # `core.fsmonitor` makes git spawn a daemon that watches the worktree and holds
+        # open handles inside it. vcpkg checks each port version out into
+        # buildtrees/versioning_/versions/<port>/<tree>.tmp and then RENAMES it into
+        # place — a rename the daemon's handle makes fail on Windows with
+        # "The process cannot access the file because it is being used by another
+        # process". Turn it off for the registry clone; nothing about a read-only
+        # registry benefits from it.
+        git -C "$VCPKG_ROOT" config core.fsmonitor false
+
+        # The runner's preinstalled clone sits at whatever commit the image was built
+        # at, which is almost never our baseline. It is NOT enough to fetch that
+        # commit: vcpkg reads `versions/baseline.json` from git AT the baseline, but
+        # reads each port's version database (`versions/<x>-/<port>.json`) from the
+        # WORKING TREE. An older tree then cannot resolve what the baseline names:
+        #
+        #   error: no version database entry for zlib at 1.3.2#2.
+        #   Available versions: 1.3.2#1, 1.3.2, 1.3.1, …
+        #
+        # So the tree has to be checked out at the baseline, not merely aware of it.
+        # (This does not reproduce on a dev box whose clone is already AT the
+        # baseline — which is exactly how it reached CI unnoticed.)
+        # Blobless, NOT --depth 1. A shallow fetch leaves the registry without the
+        # git-tree objects that a vcpkg.json "overrides" entry resolves through, so
+        # holding a single port back at an older version would fail with an
+        # unresolvable version. --filter=blob:none keeps the full commit/tree history
+        # (which is what version resolution walks) and defers blobs until read, so it
+        # costs little more than a shallow fetch. Matches the clone above, and the
+        # "do not clone vcpkg shallow" rule in
+        # docs/agent-rules/vcpkg-dependency-management.md.
+        if ! git -C "$VCPKG_ROOT" cat-file -e "${baseline}^{commit}" 2>/dev/null; then
+          git -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
+        fi
+        git -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
+        git -C "$VCPKG_ROOT" rev-parse HEAD
+
+        # Bootstrap unconditionally: the tool version is pinned per registry commit
+        # (scripts/vcpkg-tool-metadata.txt), so the image's prebuilt binary can be
+        # older than the baseline expects. The script no-ops when it already matches.
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+        else
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+        fi
+
+    # BINARY CACHING. `x-gha` is NOT usable: vcpkg-tool removed the provider in
+    # microsoft/vcpkg-tool#1662 (merged 2025-04-29), and the tool release this
+    # manifest's baseline pins (2026-07-27) keeps only a stub that emits
+    # `msgGhaBinaryCacheDeprecated` and registers nothing:
+    #
+    #   else if (segments[0].second == "x-gha")
+    #   { add_warning(msg::format(msgGhaBinaryCacheDeprecated, ...)); }
+    #
+    # It WARNS rather than erroring, so a CI run configured that way looks
+    # completely normal while rebuilding every port from source — the exact silent
+    # cache failure issue #773 exists to eliminate. Use the plain `files` provider
+    # over a workspace directory wrapped in actions/cache instead.
+    #
+    # A NuGet feed on GitHub Packages is the other supported option and does not
+    # consume the repo's Actions-cache quota; it needs `packages: write` on every
+    # calling workflow plus the NuGet CLI (and mono on Linux). Worth revisiting if
+    # the 10 GB cache cap becomes the binding constraint — see the note on
+    # SCCACHE_DIR in Windows.yml.
+    - name: Configure the vcpkg binary cache
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Backslashes -> forward slashes, same reason as the toolchain args below:
+        # this value is written to GITHUB_ENV and read back by later bash steps.
+        dir="${GITHUB_WORKSPACE//\\//}/.vcpkg-binary-cache"
+        mkdir -p "$dir"
+        echo "VCPKG_DEFAULT_BINARY_CACHE=$dir" >> "$GITHUB_ENV"
+        if [ "${{ inputs.read-only }}" = "true" ]; then
+          echo "VCPKG_BINARY_SOURCES=clear;files,$dir,read" >> "$GITHUB_ENV"
+        else
+          echo "VCPKG_BINARY_SOURCES=clear;files,$dir,readwrite" >> "$GITHUB_ENV"
+        fi
+        # Ports build with their own internal parallelism; leave headroom for the
+        # runner (2 cores on GitHub-hosted, more on self-hosted).
+        echo "VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY:-2}" >> "$GITHUB_ENV"
+
+    # Guard against exactly the x-gha class of failure: a provider that this tool
+    # build no longer implements is accepted with a warning and silently ignored.
+    # `vcpkg help binarycaching` enumerates what the CURRENT binary actually
+    # supports, so asserting our provider appears there fails loudly at setup
+    # instead of after a 35-minute uncached build.
+    - name: Verify the binary-cache provider is supported by this vcpkg
+      shell: bash
+      run: |
+        set -euo pipefail
+        vcpkg_exe="$VCPKG_ROOT/vcpkg"
+        [ -f "$VCPKG_ROOT/vcpkg.exe" ] && vcpkg_exe="$VCPKG_ROOT/vcpkg.exe"
+        if ! "$vcpkg_exe" help binarycaching | grep -qE '^\s*files,<path>'; then
+          echo "::error::This vcpkg build does not list the 'files' binary-cache provider."                "VCPKG_BINARY_SOURCES would be accepted and ignored, and every port would be"                "rebuilt from source. See .github/actions/setup-vcpkg."
+          exit 1
+        fi
+        echo "binary-cache provider 'files' supported; VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES"
+
+    # Key on the inputs that change the ABI of every package: the manifest, the
+    # triplets and the overlay ports. run_id makes each run save a fresh superset
+    # (actions/cache entries are immutable), and restore-keys falls back to the
+    # newest prior snapshot — the same shape as the sccache caches in Windows.yml.
+    - name: Cache vcpkg binary archives
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ github.workspace }}/.vcpkg-binary-cache
+        key: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-${{ github.run_id }}
+        restore-keys: |
+          vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-
+          vcpkg-${{ runner.os }}-${{ inputs.triplet }}-
+
+    - name: Emit toolchain args
+      id: emit
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Normalise BOTH paths to forward slashes before they go anywhere near a
+        # command line. On Windows runners GITHUB_WORKSPACE is
+        # `D:\a\OloEngineBase\OloEngineBase` and VCPKG_ROOT is `C:\vcpkg`; these
+        # args are consumed unquoted by the caller's `shell: bash` step, where
+        # bash eats each backslash as an escape — `\a\O\O` collapses to `aOO`,
+        # the result no longer looks absolute, and it gets re-rooted against the
+        # CWD. The observed failure was:
+        #   Overlay path "D:\a\...\OloEngineBase\aOloEngineBaseOloEngineBase/cmake/overlay-ports"
+        #     must be an existing directory.
+        # Forward slashes are accepted by CMake on Windows and are not touched by
+        # bash or by MSYS path conversion (which only rewrites leading-slash args).
+        ws="${GITHUB_WORKSPACE//\\//}"
+        vr="${VCPKG_ROOT//\\//}"
+        args="-DCMAKE_TOOLCHAIN_FILE=${vr}/scripts/buildsystems/vcpkg.cmake"
+        args="$args -DVCPKG_TARGET_TRIPLET=${{ inputs.triplet }}"
+        args="$args -DVCPKG_OVERLAY_PORTS=${ws}/cmake/overlay-ports"
+        case "${{ inputs.triplet }}" in
+          x64-windows-static-md)
+            args="$args -DVCPKG_OVERLAY_TRIPLETS=${ws}/cmake/triplets"
+            args="$args -DVCPKG_HOST_TRIPLET=x64-windows-static-md"
+            ;;
+        esac
+        echo "toolchain-args=$args" >> "$GITHUB_OUTPUT"
+        echo "$args"

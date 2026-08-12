@@ -68,7 +68,7 @@ Metallic and dielectric PBR spheres (a roughness sweep) reflecting a procedural 
 git clone https://github.com/drsnuggles8/OloEngineBase
 ```
 
-All third-party dependencies are fetched automatically at configure time via CMake `FetchContent` and CPM, and stored under `OloEngine/vendor/` (**never edit that directory — a CMake reconfigure wipes it**). CMake also creates the `build/` directory with the generated solution files.
+Most third-party dependencies are resolved from the [`vcpkg.json`](vcpkg.json) manifest and built once into vcpkg's machine-global binary cache, so a second worktree restores them in seconds instead of recompiling (issue #773). **`VCPKG_ROOT` must point at a bootstrapped vcpkg clone** — see [docs/ops/build.md](docs/ops/build.md#vcpkg-one-time-per-machine); a configure without it fails with a pointer there. A handful of dependencies are still fetched at configure time via `FetchContent`/CPM into `OloEngine/vendor/` (**never edit that directory — a CMake reconfigure wipes it**). CMake also creates the `build/` directory with the generated solution files.
 
 ## Building & running
 
@@ -215,11 +215,17 @@ This collapses what used to be several hand-maintained, easy-to-forget touch-poi
 
 ## Dependencies
 
-All dependencies are fetched automatically via `FetchContent` and CPM (CPM hosts Sol2, choc, nlohmann/json, ImGui, and ImGuizmo; `FetchContent` hosts the rest) into `OloEngine/vendor/`.
+Most dependencies come from the [`vcpkg.json`](vcpkg.json) manifest, pinned as a whole by its
+`builtin-baseline` registry commit and built into vcpkg's binary cache. The ones marked **(in-tree)**
+below are still fetched via `FetchContent`/CPM into `OloEngine/vendor/`, each for a specific reason
+documented in that file's header comment — briefly: sol2 and Lua are pinned to a tested pair, stb's port is ~2 years behind on an
+image decoder, ImGuizmo's port would drag in a second Dear ImGui, and the single-header /
+forked / generator-driven ones have no port at all.
+OpenUSD and FFmpeg have their own build paths (see [CLAUDE.md](CLAUDE.md)).
 
-**Core** — [entt](https://github.com/skypjack/entt) (ECS) · [glm](https://github.com/g-truc/glm) (math) · [spdlog](https://github.com/gabime/spdlog) (logging) · [yaml-cpp](https://github.com/jbeder/yaml-cpp) (serialization) · [nlohmann/json](https://github.com/nlohmann/json) (tools / IPC) · [choc](https://github.com/Tracktion/choc) (utilities) · [atomic_queue](https://github.com/max0x7ba/atomic_queue) (lock-free MPMC queue) · [meshoptimizer](https://github.com/zeux/meshoptimizer)
+**Core** — [entt](https://github.com/skypjack/entt) (ECS) · [glm](https://github.com/g-truc/glm) (math) · [spdlog](https://github.com/gabime/spdlog) (logging) · [yaml-cpp](https://github.com/jbeder/yaml-cpp) (serialization) · [nlohmann/json](https://github.com/nlohmann/json) (tools / IPC) · [choc](https://github.com/Tracktion/choc) (utilities, **in-tree**) · [atomic_queue](https://github.com/max0x7ba/atomic_queue) (lock-free MPMC queue) · [meshoptimizer](https://github.com/zeux/meshoptimizer)
 
-**Rendering** — [glad](https://github.com/Dav1dde/glad) · [glfw](https://github.com/glfw/glfw) · [assimp](https://github.com/assimp/assimp) · [stb](https://github.com/nothings/stb) · [zlib](https://www.zlib.net/)
+**Rendering** — [glad](https://github.com/Dav1dde/glad) (**in-tree**) · [glfw](https://github.com/glfw/glfw) · [assimp](https://github.com/assimp/assimp) · [stb](https://github.com/nothings/stb) (**in-tree**) · [zlib](https://www.zlib.net/)
 
 **Physics** — [Jolt Physics](https://github.com/jrouwe/JoltPhysics) (3D) · [box2d](https://github.com/erincatto/Box2D) (2D)
 
@@ -229,11 +235,11 @@ All dependencies are fetched automatically via `FetchContent` and CPM (CPM hosts
 
 **Audio** — [miniaudio](https://github.com/mackron/miniaudio)
 
-**Scripting** — [sol2](https://github.com/ThePhD/sol2) · [lua](https://www.lua.org/) · **Mono** (C# runtime, manually integrated)
+**Scripting** — [sol2](https://github.com/ThePhD/sol2) (**in-tree**) · [lua](https://www.lua.org/) (**in-tree**) · **Mono** (C# runtime, manually integrated)
 
-**UI & editor** — [imgui](https://github.com/ocornut/imgui) · [imguizmo](https://github.com/CedricGuillemet/ImGuizmo)
+**UI & editor** — [imgui](https://github.com/ocornut/imgui) (**in-tree**) · [imguizmo](https://github.com/CedricGuillemet/ImGuizmo) (**in-tree**)
 
-**Development & profiling** — [tracy](https://github.com/wolfpld/tracy) · [googletest](https://github.com/google/googletest) · [filewatch](https://github.com/ThomasMonkman/filewatch)
+**Development & profiling** — [tracy](https://github.com/wolfpld/tracy) · [googletest](https://github.com/google/googletest) · [filewatch](https://github.com/ThomasMonkman/filewatch) (**in-tree**)
 
 ## Code style & pre-commit hooks
 

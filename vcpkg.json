@@ -1,0 +1,85 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "oloengine",
+  "version-string": "0.0.1",
+  "description": "OloEngine third-party dependencies (issue #773). Everything that can be resolved from the vcpkg registry lives here; the deliberate exceptions and their reasons are listed in docs/agent-rules/vcpkg-dependency-management.md and OloEngine/vendor/CMakeLists.txt.",
+  "homepage": "https://github.com/drsnuggles8/OloEngineBase",
+  "builtin-baseline": "15ba82e5c7bde5a274cd06047664cff308ec1292",
+  "dependencies": [
+    "assimp",
+    "atomic-queue",
+    "box2d",
+    "entt",
+    {
+      "name": "cpp-httplib",
+      "default-features": false
+    },
+    {
+      "name": "gamenetworkingsockets",
+      "default-features": false
+    },
+    "glfw3",
+    "glm",
+    {
+      "name": "joltphysics",
+      "features": [
+        "debugrenderer",
+        "profiler",
+        "rtti"
+      ]
+    },
+    "libsodium",
+    "meshoptimizer",
+    "miniaudio",
+    "nlohmann-json",
+    "recastnavigation",
+    {
+      "name": "spdlog",
+      "features": [
+        "fmt"
+      ]
+    },
+    {
+      "name": "tracy",
+      "features": [
+        "on-demand"
+      ]
+    },
+    "yaml-cpp",
+    "zlib"
+  ],
+  "features": {
+    "alembic": {
+      "description": "Alembic (.abc) geometry-cache import — mirrors the OLO_WITH_ALEMBIC CMake option",
+      "dependencies": [
+        {
+          "name": "alembic",
+          "default-features": false
+        }
+      ]
+    },
+    "materialx": {
+      "description": "MaterialX (.mtlx) material import — mirrors the OLO_WITH_MATERIALX CMake option. No features: MaterialXCore + MaterialXFormat only, no render/GLSL/MSL/OSL/MDL generators.",
+      "dependencies": [
+        {
+          "name": "materialx",
+          "default-features": false
+        }
+      ]
+    },
+    "tests": {
+      "description": "GoogleTest — mirrors the BUILD_TESTS CMake option",
+      "dependencies": [
+        "gtest"
+      ]
+    },
+    "vulkan": {
+      "description": "Vulkan RHI backend deps — mirrors the OLO_WITH_VULKAN CMake option",
+      "dependencies": [
+        "volk",
+        "vulkan-headers",
+        "vulkan-memory-allocator"
+      ]
+    }
+  }
+}

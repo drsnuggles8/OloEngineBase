@@ -14,11 +14,58 @@
 | Tool        | Minimum Version | Notes                                  |
 |-------------|-----------------|----------------------------------------|
 | CMake       | 3.25 (raw) / **4.2+ for `CMakePresets.json`** | Root `CMakeLists.txt` requires 3.25. The shipped presets (`msvc`, `clangcl`, `clangcl-asan`) use the `Visual Studio 18 2026` generator and require CMake 4.2+. Plain `cmake -B build -G "Visual Studio 17 2022"` (no preset) still works at 3.25. |
-| Git         | 2.x             | FetchContent clones vendor deps        |
+| Git         | 2.x             | vcpkg registry + FetchContent clones   |
+| **vcpkg**   | bootstrapped    | **`VCPKG_ROOT` env var must be set** — see below |
 | Vulkan SDK  | 1.3+            | `VULKAN_SDK` env var must be set       |
 | C++ compiler| C++23 support   | Known-working: MSVC 17.x / GCC 14+ / Clang 17+. CMake enforces `CMAKE_CXX_STANDARD = 23` (required) but does not enforce specific compiler versions; older compilers with full C++23 support may work but are untested. |
 
 The Vulkan SDK must include `glslc` and `glslangValidator`.
+
+### vcpkg (one time per machine)
+
+Since issue #773 most third-party dependencies come from the [`vcpkg.json`](../../vcpkg.json)
+manifest at the repo root. Every CMake preset points `CMAKE_TOOLCHAIN_FILE` at
+`$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake`; a configure without `VCPKG_ROOT`
+stops immediately with a pointer to this section.
+
+```powershell
+# Windows
+git clone https://github.com/microsoft/vcpkg D:\vcpkg
+D:\vcpkg\bootstrap-vcpkg.bat
+setx VCPKG_ROOT D:\vcpkg                                # persists for FUTURE shells only
+$env:VCPKG_ROOT = "D:\vcpkg"                            # ...so set it here too, or reopen the shell
+setx VCPKG_DEFAULT_BINARY_CACHE D:\vcpkg-binary-cache   # optional, but see below
+git -C D:\vcpkg config core.fsmonitor false             # REQUIRED, see below
+```
+
+```bash
+# Linux
+git clone https://github.com/microsoft/vcpkg ~/vcpkg
+~/vcpkg/bootstrap-vcpkg.sh
+export VCPKG_ROOT=~/vcpkg          # exports into THIS shell; add to your profile to persist
+git -C ~/vcpkg config core.fsmonitor false
+```
+
+Two things that are not optional in practice:
+
+- **`core.fsmonitor false` on the vcpkg clone.** If git's fsmonitor daemon is enabled
+  there, every `vcpkg install` fails with
+  `rename_or_delete(… .tmp, …): The process cannot access the file because it is being
+  used by another process` — the daemon holds handles inside the port-version checkout
+  that vcpkg renames into place. It looks like antivirus; it is not, and it reproduces
+  every run.
+- **Do not clone vcpkg shallow.** A single-commit clone resolves the pinned
+  `builtin-baseline` fine but cannot resolve a `vcpkg.json` `"overrides"` entry that
+  holds one port at an older version — the older port's git-tree object is not present.
+
+The binary cache is what makes a second worktree cheap: the first build of a given
+(port, features, triplet, toolchain) populates it, and every later worktree restores
+prebuilt archives instead of recompiling. It defaults to `%LOCALAPPDATA%\vcpkg\archives`
+(Windows) / `~/.cache/vcpkg/archives` (Linux); setting `VCPKG_DEFAULT_BINARY_CACHE` just
+moves it somewhere you control.
+
+Background, traps and the per-dependency decisions:
+[docs/agent-rules/vcpkg-dependency-management.md](../agent-rules/vcpkg-dependency-management.md).
 
 ---
 
@@ -80,7 +127,15 @@ The following development libraries and tools are required on Linux:
 
 **Additional:** Python 3 with Jinja2 (for glad GL loader generation)
 
-Most other dependencies (GLFW, ImGui, GLM, entt, Jolt, protobuf, libsodium, etc.) are fetched automatically via CMake FetchContent.
+Most other dependencies (GLFW, GLM, Jolt, protobuf, libsodium, assimp, …) come from the
+vcpkg manifest and are built once into the machine-global binary cache — see the vcpkg
+prerequisite above; the Linux presets use vcpkg's stock `x64-linux` triplet. A handful
+(ImGui, ImGuizmo, glad, Lua, sol2, stb, filewatch, …) are still fetched in-tree via FetchContent/CPM;
+`OloEngine/vendor/CMakeLists.txt`'s header comment names each one and why it did not move.
+
+Note vcpkg builds `libx11` and friends from source on Linux, so the *first* configure on
+a machine is slow even with the system X11 dev packages installed; subsequent worktrees
+restore from the binary cache.
 
 #### Ubuntu 24.04 (and WSL)
 

@@ -38,9 +38,9 @@ function(olo_add_fuzzer NAME)
 
     add_executable(${NAME} ${F_SOURCES})
     target_link_libraries(${NAME} PRIVATE OloEngine)
+    # spdlog's include dir now propagates from OloEngine's vcpkg link interface (#773).
     target_include_directories(${NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}/OloEngine/src
-        ${spdlog_SOURCE_DIR}/include
     )
 
     # Per-target libFuzzer + runtime-lib link wiring (Windows ClangCL needs

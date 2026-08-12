@@ -151,6 +151,20 @@ jobs:
     # future sccache release fixes the Windows large-object crash, restore the Setup sccache +
     # Cache steps and re-add -DOLO_ENABLE_COMPILER_CACHE=ON below.
 
+    # Third-party deps come from the vcpkg manifest (issue #773). The triplet is the
+    # plain MSVC one even though this job compiles with clang-cl: ports are shared with
+    # the cl.exe jobs, which halves the cache and avoids a clang-cl-built-MaterialX bug
+    # (see docs/agent-rules/vcpkg-dependency-management.md). NOTE: vcpkg ports
+    # are NOT sanitizer-instrumented — which is what this job wants. The ~40 lines
+    # that used to de-instrument protobuf/abseil by hand (so an instrumented protoc
+    # would stop aborting mid-build) are gone because nothing third-party is compiled
+    # here any more. The engine, GNS's consumers and the tests stay instrumented.
+    - name: Setup vcpkg
+      id: vcpkg
+      uses: ./.github/actions/setup-vcpkg
+      with:
+        triplet: x64-windows-static-md
+
     - name: Configure CMake (ASan enabled)
       # --toolchain cmake/ClangCLToolchain.cmake: build with clang-cl + lld-link
       #   (Clang front-end, MSVC ABI) — same toolchain as the local clangcl-asan
@@ -168,7 +182,8 @@ jobs:
       run: >
         cmake -S . -B build
         -G "Ninja Multi-Config"
-        --toolchain "${{ github.workspace }}/cmake/ClangCLToolchain.cmake"
+        ${{ steps.vcpkg.outputs.toolchain-args }}
+        "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake"
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DOLO_ENABLE_LTO=OFF
@@ -365,6 +380,15 @@ jobs:
         restore-keys: |
           sccache-asan-lsan-linux-
 
+    # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
+    # sanitizer-instrumented, which is what these jobs want — see the note in the
+    # asan-windows job.
+    - name: Setup vcpkg
+      id: vcpkg
+      uses: ./.github/actions/setup-vcpkg
+      with:
+        triplet: x64-linux
+
     - name: Configure CMake (ASan + LSan)
       # -fuse-ld=lld: the default GNU BFD ld holds the entire Debug +
       # sanitizer-instrumented link (engine, vendored static libs, DWARF) in
@@ -375,6 +399,7 @@ jobs:
       # same binary in a fraction of the memory and time.
       run: >
         cmake -S . -B build
+        ${{ steps.vcpkg.outputs.toolchain-args }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
@@ -525,11 +550,21 @@ jobs:
         restore-keys: |
           sccache-ubsan-linux-
 
+    # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
+    # sanitizer-instrumented, which is what these jobs want — see the note in the
+    # asan-windows job.
+    - name: Setup vcpkg
+      id: vcpkg
+      uses: ./.github/actions/setup-vcpkg
+      with:
+        triplet: x64-linux
+
     - name: Configure CMake (UBSan)
       # -fuse-ld=lld: see the ASan + LSan configure step above — BFD ld can
       # OOM the runner during the final OloEngine-Tests link.
       run: >
         cmake -S . -B build
+        ${{ steps.vcpkg.outputs.toolchain-args }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
@@ -688,11 +723,21 @@ jobs:
         restore-keys: |
           sccache-tsan-linux-
 
+    # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
+    # sanitizer-instrumented, which is what these jobs want — see the note in the
+    # asan-windows job.
+    - name: Setup vcpkg
+      id: vcpkg
+      uses: ./.github/actions/setup-vcpkg
+      with:
+        triplet: x64-linux
+
     - name: Configure CMake (TSan)
       # -fuse-ld=lld: see the ASan + LSan configure step above — BFD ld can
       # OOM the runner during the final OloEngine-Tests link.
       run: >
         cmake -S . -B build
+        ${{ steps.vcpkg.outputs.toolchain-args }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DCMAKE_CXX_COMPILER=clang++-19

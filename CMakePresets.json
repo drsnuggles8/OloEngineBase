@@ -7,23 +7,38 @@
 	},
 	"configurePresets": [
 		{
+			"name": "vcpkg-base",
+			"hidden": true,
+			"description": "Shared vcpkg wiring (issue #773). Requires the VCPKG_ROOT environment variable to point at a bootstrapped vcpkg clone — see docs/ops/build.md. VCPKG_HOST_TRIPLET is pinned to the MSVC triplet on purpose: host tools (notably protoc) are then built ONCE and shared by both the msvc and clangcl trees instead of once per target triplet.",
+			"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+			"cacheVariables": {
+				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets",
+				"VCPKG_OVERLAY_PORTS": "${sourceDir}/cmake/overlay-ports",
+				"VCPKG_HOST_TRIPLET": "x64-windows-static-md"
+			}
+		},
+		{
 			"name": "msvc",
 			"displayName": "MSVC (Visual Studio)",
 			"description": "Default MSVC build using Visual Studio generator",
+			"inherits": "vcpkg-base",
 			"generator": "Visual Studio 18 2026",
 			"binaryDir": "${sourceDir}/build",
 			"cacheVariables": {
-				"BUILD_TESTS": "ON"
+				"BUILD_TESTS": "ON",
+				"VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
 			}
 		},
 		{
 			"name": "clangcl",
 			"displayName": "ClangCL (Clang with MSVC ABI)",
-			"description": "Clang-cl compiler via Ninja — catches Clang warnings with MSVC ABI",
+			"description": "Clang-cl compiler via Ninja — catches Clang warnings with MSVC ABI. The clang-cl toolchain is CHAINLOADED (VCPKG_CHAINLOAD_TOOLCHAIN_FILE) rather than being the toolchainFile, because that slot now belongs to vcpkg.cmake. NOTE the triplet is the plain MSVC one: this preset compiles OUR code with clang-cl, but the third-party PORTS are shared with the msvc tree — see docs/agent-rules/vcpkg-dependency-management.md for the evidence behind that.",
+			"inherits": "vcpkg-base",
 			"generator": "Ninja Multi-Config",
 			"binaryDir": "${sourceDir}/build-clang",
-			"toolchainFile": "${sourceDir}/cmake/ClangCLToolchain.cmake",
 			"cacheVariables": {
+				"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/cmake/ClangCLToolchain.cmake",
+				"VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
 				"FETCHCONTENT_BASE_DIR": "${sourceDir}/OloEngine/vendor/clang",
 				"BUILD_TESTS": "ON"
 			}
@@ -40,13 +55,16 @@
 		{
 			"name": "linux-gcc",
 			"displayName": "Linux GCC (Ninja)",
-			"description": "Base Linux preset using GCC 14 and Ninja Multi-Config",
+			"description": "Base Linux preset using GCC 14 and Ninja Multi-Config. Uses vcpkg's stock x64-linux triplet (static libs, no CRT-linkage concept) rather than a custom one — the static-md triplets exist only to pin the Windows CRT choice.",
 			"generator": "Ninja Multi-Config",
 			"binaryDir": "${sourceDir}/build-linux",
+			"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
 			"cacheVariables": {
 				"BUILD_TESTS": "ON",
 				"CMAKE_C_COMPILER": "gcc-14",
-				"CMAKE_CXX_COMPILER": "g++-14"
+				"CMAKE_CXX_COMPILER": "g++-14",
+				"VCPKG_OVERLAY_PORTS": "${sourceDir}/cmake/overlay-ports",
+				"VCPKG_TARGET_TRIPLET": "x64-linux"
 			},
 			"condition": {
 				"type": "equals",
@@ -60,11 +78,14 @@
 			"description": "For distros where the compiler is `gcc`/`g++` on PATH rather than versioned gcc-14 binaries — e.g. an activated RHEL/Rocky gcc-toolset-N. Shares build-linux/ with linux-gcc, so use one or the other. FFmpeg is off by default (its from-source build needs nasm); enable with -DOLO_VIDEO_FFMPEG=ON once nasm is installed. Pass -DCMAKE_PREFIX_PATH=$VULKAN_SDK for the shader stack. See docs/ops/build.md.",
 			"generator": "Ninja Multi-Config",
 			"binaryDir": "${sourceDir}/build-linux",
+			"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
 			"cacheVariables": {
 				"BUILD_TESTS": "ON",
 				"CMAKE_C_COMPILER": "gcc",
 				"CMAKE_CXX_COMPILER": "g++",
-				"OLO_VIDEO_FFMPEG": "OFF"
+				"OLO_VIDEO_FFMPEG": "OFF",
+				"VCPKG_OVERLAY_PORTS": "${sourceDir}/cmake/overlay-ports",
+				"VCPKG_TARGET_TRIPLET": "x64-linux"
 			},
 			"condition": {
 				"type": "equals",

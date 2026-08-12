@@ -8,8 +8,15 @@ project(OloEngine
 # Externally provided content
 add_subdirectory(vendor)
 
-# Vendor deps below are pinned to fixed commits for reproducible builds (#294); see the
-# rationale in vendor/CMakeLists.txt. GIT_SHALLOW must be FALSE for a commit-SHA pin.
+# The two deps below stay on CPM rather than moving to the vcpkg manifest (#773);
+# vendor/CMakeLists.txt's header comment carries the full exception list. In short:
+# both are header-only, so a binary cache buys nothing but an avoided clone, while
+# sol2's registry port is an older release carrying a Lua-5.5 patch and this engine's
+# SOL_ALL_INTEGER_VALUES_FIT u64 contract (issue #643, see below) is load-bearing;
+# choc has no port at all.
+#
+# Pinned to fixed commits for reproducible builds (#294); see the rationale in
+# vendor/CMakeLists.txt. GIT_SHALLOW must be FALSE for a commit-SHA pin.
 # Sol2 - for Lua scripting
 CPMAddPackage(NAME sol2
   GIT_REPOSITORY https://github.com/ThePhD/sol2.git
@@ -33,13 +40,8 @@ if(choc_ADDED)
   target_include_directories(choc SYSTEM INTERFACE ${choc_SOURCE_DIR})
 endif()
 
-# nlohmann/json - for JSON serialization
-CPMAddPackage(NAME nlohmann_json
-  GIT_REPOSITORY https://github.com/nlohmann/json.git
-  VERSION 3.12.0
-  OPTIONS
-    "JSON_BuildTests OFF"
-    "JSON_Install OFF")
+# nlohmann/json now comes from the vcpkg manifest (same 3.12.0, same
+# nlohmann_json::nlohmann_json target name) — see vendor/CMakeLists.txt.
 
 # Main targets built by this project
 add_subdirectory(src)
@@ -134,74 +136,108 @@ target_compile_definitions(OloEngine PUBLIC ENTT_USE_ATOMIC)
 target_compile_definitions(OloEngine PUBLIC SOL_ALL_INTEGER_VALUES_FIT=1)
 olo_set_common_definitions(OloEngine)
 
+# The Vulkan SDK's include tree, resolved independently of find_package(Vulkan).
+#
+# WHY THIS IS NEEDED (issue #773): with vulkan-headers installed by vcpkg, the vcpkg
+# toolchain redirects find_package(Vulkan) at the PORT, so Vulkan_INCLUDE_DIRS now
+# points into vcpkg_installed/ instead of the SDK. For <vulkan/*.h> that is exactly
+# what we want — it is how the pinned 1.4.357 headers win. But the SDK's include tree
+# is ALSO where the shader toolchain's headers live (spirv_cross/, shaderc/,
+# glslang/), and those are not vcpkg packages here, so they silently stopped
+# resolving: 71 × "Cannot open include file: 'spirv_cross/spirv_cross.hpp'".
+#
+# Listed AFTER the pinned headers below so it can never win the <vulkan/vulkan_core.h>
+# lookup. Windows layout is Include/, Linux is include/.
+# The pinned Vulkan headers, gated with a plain if() rather than a generator
+# expression: INTERFACE_INCLUDE_DIRECTORIES is a LIST, and
+# $<$<BOOL:..>:${list}> collapses it into a single semicolon-joined entry that
+# resolves to no real directory. An if() preserves multi-entry lists.
+set(OLO_VULKAN_PINNED_INCLUDE_DIRS "")
+if(OLO_WITH_VULKAN)
+	set(OLO_VULKAN_PINNED_INCLUDE_DIRS "${OLO_VULKAN_HEADERS_INCLUDE_DIR}")
+endif()
+
+# NOTE the SDK include dir below is deliberately NOT gated on OLO_WITH_VULKAN: that
+# option selects the Vulkan RHI *backend*, while the SDK include tree is also where
+# the SHADER toolchain lives (spirv_cross/, shaderc/, glslang/), which every build
+# needs regardless of the backend.
+set(OLO_VULKAN_SDK_INCLUDE_DIR "")
+if(DEFINED ENV{VULKAN_SDK})
+	foreach(_olo_sdk_inc "$ENV{VULKAN_SDK}/Include" "$ENV{VULKAN_SDK}/include")
+		if(IS_DIRECTORY "${_olo_sdk_inc}")
+			set(OLO_VULKAN_SDK_INCLUDE_DIR "${_olo_sdk_inc}")
+			break()
+		endif()
+	endforeach()
+endif()
+
+# Only the dependencies still fetched in-tree need an explicit include directory —
+# everything vcpkg provides carries its own through its IMPORTED target (issue #773).
 target_include_directories(OloEngine PUBLIC
 	src
-	${assimp_SOURCE_DIR}/include
-	${atomic_queue_SOURCE_DIR}/include
-	${box2d_SOURCE_DIR}/include/box2d
-	${box2d_SOURCE_DIR}/src
-	${entt_SOURCE_DIR}/single_include/entt
 	${filewatch_SOURCE_DIR}
 	vendor/glad-build/include
-	${glfw_SOURCE_DIR}/include
-	${glm_SOURCE_DIR}
-	${joltphysics_SOURCE_DIR}
-	${meshoptimizer_SOURCE_DIR}/src
-	${miniaudio_SOURCE_DIR}
 	${pl_mpeg_SOURCE_DIR}
 	${lua_SOURCE_DIR}
 	${imgui_SOURCE_DIR}
 	${imgui_SOURCE_DIR}/backends
 	${imgui_SOURCE_DIR}/examples
 	${imguizmo_SOURCE_DIR}
-	${spdlog_SOURCE_DIR}/include
-	${tracy_SOURCE_DIR}/public
 	${sol2_SOURCE_DIR}/include
 	vendor/stb_image-build/include
-	${recastnavigation_SOURCE_DIR}/Recast/Include
-	${recastnavigation_SOURCE_DIR}/Detour/Include
-	${recastnavigation_SOURCE_DIR}/DetourCrowd/Include
-	${recastnavigation_SOURCE_DIR}/DetourTileCache/Include
 	mono/include
-	# Vendored Vulkan 1.4.357 headers (#691 Phase 4) must come BEFORE the installed
+	# The pinned Vulkan 1.4.357 headers (#691 Phase 4) must come BEFORE the installed
 	# SDK's include dir on the next line — /I order decides which <vulkan/vulkan_core.h>
 	# the Vulkan backend compiles against, and an older installed SDK would otherwise
 	# break the pinned VK_EXT_descriptor_heap declarations (backstopped by the
-	# static_assert on VK_HEADER_VERSION in VulkanContext.cpp). Empty when
-	# OLO_WITH_VULKAN=OFF (the variable is only propagated when vendored).
-	$<$<BOOL:${OLO_WITH_VULKAN}>:${vulkan-headers_SOURCE_DIR}/include>
+	# static_assert on VK_HEADER_VERSION in VulkanContext.cpp).
+	#
+	# This has to be spelled out rather than left to Vulkan::Headers' own interface:
+	# a target's OWN include directories are emitted ahead of any inherited from
+	# linked targets, so relying on propagation would put the pinned headers AFTER
+	# ${Vulkan_INCLUDE_DIRS} and let the installed SDK win.
+	#
+	# The path vendor/CMakeLists.txt hands over is a PRIVATE STAGED COPY of the
+	# headers, not the vcpkg include root. Pointing at the root cannot work: every
+	# vcpkg imported target contributes that same directory marked SYSTEM, CMake
+	# dedupes the two and keeps the SYSTEM one, and MSVC searches all /I before any
+	# -external:I -- so the entry below would vanish from the /I list entirely and
+	# the SDK would win regardless of order. See trap 8 in
+	# docs/agent-rules/vcpkg-dependency-management.md.
+	${OLO_VULKAN_PINNED_INCLUDE_DIRS}
+	${OLO_VULKAN_SDK_INCLUDE_DIR}
 	${Vulkan_INCLUDE_DIRS}
-	${GameNetworkingSockets_SOURCE_DIR}/include
 )
 
-target_include_directories(OloEngine PRIVATE
-	${zlib_SOURCE_DIR}
-	${zlib_BINARY_DIR}
-)
-
-# Cross-platform link libraries
+# Cross-platform link libraries. Namespaced targets come from vcpkg IMPORTED
+# packages (issue #773); the bare names are the deps still built in-tree
+# (OloEngine/vendor/CMakeLists.txt) plus sol2/choc declared above.
 target_link_libraries(OloEngine
-	assimp
+	assimp::assimp
+	atomic_queue::atomic_queue
 	bc7enc
 	bcdec
-	box2d
+	box2d::box2d
 	choc
-	Detour
-	DetourCrowd
+	EnTT::EnTT
 	glad
 	glfw
+	glm::glm
 	imgui
 	imguizmo
-	Jolt
-	meshoptimizer
+	Jolt::Jolt
+	meshoptimizer::meshoptimizer
+	miniaudio
 	nlohmann_json::nlohmann_json
-	Recast
+	RecastNavigation::Recast
+	RecastNavigation::Detour
+	RecastNavigation::DetourCrowd
 	sol2
-	spdlog
+	spdlog::spdlog
 	stb_image
-	yaml-cpp
-	GameNetworkingSockets_s
-	zlibstatic
+	yaml-cpp::yaml-cpp
+	GameNetworkingSockets::GameNetworkingSockets_s
+	ZLIB::ZLIB
 )
 
 # Deliberately NOT linked: Vulkan::Vulkan (vulkan-1.lib). volk's contract is that
@@ -232,7 +268,7 @@ endif()
 # include dir (deliberately shadowing the installed SDK's — see vendor/CMakeLists.txt);
 # `vma` is the header-only VulkanMemoryAllocator.
 if(OLO_WITH_VULKAN)
-	target_link_libraries(OloEngine volk vma)
+	target_link_libraries(OloEngine volk::volk GPUOpen::VulkanMemoryAllocator)
 	target_compile_definitions(OloEngine PUBLIC OLO_WITH_VULKAN=1)
 else()
 	target_compile_definitions(OloEngine PUBLIC OLO_WITH_VULKAN=0)
@@ -317,7 +353,7 @@ endif()
 # The TSan preset turns the option off so those globals never make it into the binary
 # (avoids tracy_rpmalloc.cpp's static-init-order race that TSan halts on).
 if(TRACY_ENABLE)
-	target_link_libraries(OloEngine TracyClient)
+	target_link_libraries(OloEngine Tracy::TracyClient)
 endif()
 
 # OpenGL — platform-specific library name
