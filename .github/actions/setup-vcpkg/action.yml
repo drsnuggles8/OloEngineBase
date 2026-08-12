@@ -61,11 +61,10 @@ runs:
             delay=$((delay * 2))
           done
         }
-        # Fail fast on a STALLED transfer (<1 KB/s for 60s) so a hung connection
-        # trips the retry above instead of hanging to the job timeout. Global, so
-        # it also covers the fetch in the next step (same job, same ~/.gitconfig).
-        git config --global http.lowSpeedLimit 1000
-        git config --global http.lowSpeedTime 60
+        # http.lowSpeed* makes a STALLED transfer (<1 KB/s for 60s) fail fast so a
+        # hung connection trips the retry above instead of hanging to the job
+        # timeout. Applied command-locally (git -c ...) so the runner's persistent
+        # git config is left untouched.
 
         # GitHub-hosted runners ship a bootstrapped vcpkg at VCPKG_INSTALLATION_ROOT.
         # Self-hosted runners (gpu-conformance-amd) may not, so fall back to a clone
@@ -75,7 +74,8 @@ runs:
         if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
           root="${RUNNER_TEMP}/vcpkg"
           if [ ! -d "$root/.git" ]; then
-            retry git clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
+            retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+              clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
           fi
         fi
         echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
@@ -134,7 +134,10 @@ runs:
         # "do not clone vcpkg shallow" rule in
         # docs/agent-rules/vcpkg-dependency-management.md.
         if ! git -C "$VCPKG_ROOT" cat-file -e "${baseline}^{commit}" 2>/dev/null; then
-          retry git -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
+          # -c http.lowSpeed*: fail fast on a stalled fetch so the retry engages
+          # (command-local — the runner's git config is left untouched).
+          retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+            -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
         fi
         git -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
         git -C "$VCPKG_ROOT" rev-parse HEAD
@@ -142,10 +145,20 @@ runs:
         # Bootstrap unconditionally: the tool version is pinned per registry commit
         # (scripts/vcpkg-tool-metadata.txt), so the image's prebuilt binary can be
         # older than the baseline expects. The script no-ops when it already matches.
+        #
+        # scripts/bootstrap.sh downloads the vcpkg-tool binary with
+        # `curl … --retry 3 --fail`, so a DROPPED connection already errors and is
+        # caught by the retry wrapper. The one gap retry can't close is a fully
+        # STALLED transfer (curl hangs without returning) — bound each Linux attempt
+        # with `timeout` so a hang is killed and retried rather than burning the job
+        # to its wall-clock limit. 900s is far above the few-second binary download
+        # (and any source build of the tool). Windows uses a different downloader
+        # (PowerShell) and coreutils `timeout` is not reliable in its bash, so it
+        # stays on retry alone.
         if [ "$RUNNER_OS" = "Windows" ]; then
           retry "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
         else
-          retry "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          retry timeout 900 "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
         fi
 
     # BINARY CACHING. `x-gha` is NOT usable: vcpkg-tool removed the provider in
