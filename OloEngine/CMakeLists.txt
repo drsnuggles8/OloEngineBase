@@ -195,8 +195,15 @@ target_include_directories(OloEngine PUBLIC
 	# This has to be spelled out rather than left to Vulkan::Headers' own interface:
 	# a target's OWN include directories are emitted ahead of any inherited from
 	# linked targets, so relying on propagation would put the pinned headers AFTER
-	# ${Vulkan_INCLUDE_DIRS} and let the installed SDK win. vendor/CMakeLists.txt
-	# reads the path off the imported target and propagates it here.
+	# ${Vulkan_INCLUDE_DIRS} and let the installed SDK win.
+	#
+	# The path vendor/CMakeLists.txt hands over is a PRIVATE STAGED COPY of the
+	# headers, not the vcpkg include root. Pointing at the root cannot work: every
+	# vcpkg imported target contributes that same directory marked SYSTEM, CMake
+	# dedupes the two and keeps the SYSTEM one, and MSVC searches all /I before any
+	# -external:I -- so the entry below would vanish from the /I list entirely and
+	# the SDK would win regardless of order. See trap 8 in
+	# docs/agent-rules/vcpkg-dependency-management.md.
 	${OLO_VULKAN_PINNED_INCLUDE_DIRS}
 	${OLO_VULKAN_SDK_INCLUDE_DIR}
 	${Vulkan_INCLUDE_DIRS}

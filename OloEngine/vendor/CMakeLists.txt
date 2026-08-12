@@ -163,35 +163,48 @@ if(OLO_WITH_VULKAN)
     find_package(volk CONFIG REQUIRED)
     find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 
-    # Export the vcpkg headers' include dir so OloEngine/CMakeLists.txt can put it
-    # on the compile line EXPLICITLY, ahead of ${Vulkan_INCLUDE_DIRS}. This is not
-    # cosmetic: a target's own target_include_directories() are emitted BEFORE the
-    # ones inherited from linked targets, so relying on Vulkan::Headers to carry it
-    # would place the pinned 1.4.357 headers AFTER the installed SDK's and let an
-    # older SDK win. VulkanContext.cpp's static_assert on VK_HEADER_VERSION is the
-    # backstop if this ever regresses.
-    # Take the pinned headers' include dir from the vcpkg INSTALLED TREE directly
-    # rather than from Vulkan::Headers' interface.
+    # STAGE the pinned headers into a private directory and export THAT. Neither
+    # Vulkan::Headers' interface nor the shared vcpkg include root works here, for two
+    # independent reasons — and the second cannot be fixed by ordering at all:
     #
-    # `find_package(VulkanHeaders CONFIG)` is not authoritative here: the LunarG SDK
-    # ships its own VulkanHeadersConfig.cmake, so on a machine whose SDK differs from
-    # the pinned version the imported target can resolve to the SDK and quietly hand
-    # back the WRONG headers. That is invisible on a dev box whose SDK happens to
-    # match (mine is 1.4.357, the same version we pin) and it broke CI, where
-    # .github/actions/setup-vulkan installs 1.4.321:
+    #   1. `find_package(VulkanHeaders CONFIG)` is not authoritative. The LunarG SDK
+    #      ships its own VulkanHeadersConfig.cmake, so on a machine whose SDK differs
+    #      from the pinned version the imported target can resolve to the SDK and
+    #      quietly hand back the WRONG headers.
+    #   2. `<vcpkg_installed>/<triplet>/include` is the SHARED include root that every
+    #      vcpkg imported target also contributes, marked SYSTEM. CMake dedupes our
+    #      entry against theirs and the SYSTEM marking wins, so the path is emitted
+    #      once as `-external:I`. MSVC searches EVERY `/I` before ANY `-external:I`,
+    #      so the SDK's plain `/I` beats it no matter where we place ours in the list.
+    #      Verified in the generated project: pointing at the shared root, the path
+    #      appeared ONLY as `-external:I` and never as `/I`.
     #
-    #   error: use of undeclared identifier 'VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME'
+    # Copying `vulkan/` (and `vk_video/`, which vulkan_core.h includes) into a
+    # directory nothing else contributes keeps it a normal `/I` in the position we
+    # choose. Same staging idiom as stb_image further down.
     #
-    # The installed tree is unambiguous, so derive the path and prove the header is
-    # actually there. VulkanContext.cpp's static_assert on VK_HEADER_VERSION remains
-    # the backstop if the pinned version itself ever drifts.
-    set(OLO_VULKAN_HEADERS_INCLUDE_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
-    if(NOT EXISTS "${OLO_VULKAN_HEADERS_INCLUDE_DIR}/vulkan/vulkan_core.h")
+    # Both failure modes are invisible on a dev box whose SDK matches the pinned
+    # version (mine is 1.4.357, exactly what we pin) — which is how each of them
+    # reached CI, where setup-vulkan installs 1.4.321, as:
+    #
+    #   error C2065: 'VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME': undeclared identifier
+    #
+    # VulkanContext.cpp's static_assert on VK_HEADER_VERSION is the backstop if the
+    # pinned version itself ever drifts.
+    set(_olo_vk_src "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
+    if(NOT EXISTS "${_olo_vk_src}/vulkan/vulkan_core.h")
         message(FATAL_ERROR
-            "Pinned Vulkan headers not found at "
-            "'${OLO_VULKAN_HEADERS_INCLUDE_DIR}/vulkan/vulkan_core.h'. Without them the "
-            "installed SDK wins the <vulkan/vulkan_core.h> lookup and the backend fails "
-            "to compile against the ADR 0010 tooling floor.")
+            "Pinned Vulkan headers not found at '${_olo_vk_src}/vulkan/vulkan_core.h'. "
+            "Without them the installed SDK wins the <vulkan/vulkan_core.h> lookup and the "
+            "backend compiles against the wrong version.")
+    endif()
+    # Staged into the BUILD tree, not the source tree: build/ and build-clang/ must not
+    # share it (see the "never build both trees concurrently" rule in
+    # docs/agent-rules/build-trees-and-windows-asan.md).
+    set(OLO_VULKAN_HEADERS_INCLUDE_DIR "${CMAKE_BINARY_DIR}/vulkan-headers-pinned/include")
+    file(COPY "${_olo_vk_src}/vulkan" DESTINATION "${OLO_VULKAN_HEADERS_INCLUDE_DIR}")
+    if(EXISTS "${_olo_vk_src}/vk_video")
+        file(COPY "${_olo_vk_src}/vk_video" DESTINATION "${OLO_VULKAN_HEADERS_INCLUDE_DIR}")
     endif()
     set(OLO_VULKAN_HEADERS_INCLUDE_DIR "${OLO_VULKAN_HEADERS_INCLUDE_DIR}" PARENT_SCOPE)
 

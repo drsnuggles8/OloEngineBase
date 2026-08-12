@@ -209,8 +209,9 @@ died with 71 × `Cannot open include file: 'spirv_cross/spirv_cross.hpp'`.
 package name can cover more than the thing you asked for. When you add a port, check
 what else was reading the variables that `find_package` sets — not just the target you
 wanted. The fix here is `OLO_VULKAN_SDK_INCLUDE_DIR`, resolved straight from
-`$ENV{VULKAN_SDK}` and listed *after* the pinned headers so it cannot win the
-`<vulkan/vulkan_core.h>` lookup.
+`$ENV{VULKAN_SDK}`, with the pinned headers staged into a private directory so they
+win the `<vulkan/vulkan_core.h>` lookup — see trap 8, which is why merely *ordering*
+the two include dirs does not work.
 
 This one fails loudly, at least. Its silent cousin would be a port that shadows a
 `find_package` whose result still *works* but differs in version.
@@ -222,6 +223,50 @@ key stable across worktrees (trap 3). The flip side: a one-line edit to
 `cmake/triplets/<name>.cmake` changes the hash of **every** package for that triplet
 (43 on the MSVC one), so the next install rebuilds the lot. Budget for that when tuning a triplet,
 and batch triplet edits rather than iterating one flag at a time.
+
+## Trap 8 — you cannot out-order the shared vcpkg include root
+
+If you need one specific header to win a lookup against an installed SDK, **do not try
+to do it by putting `<vcpkg_installed>/<triplet>/include` earlier in the list.** It
+cannot work, for a reason that is invisible in the CMake source:
+
+- That directory is the **shared include root** every vcpkg imported target
+  contributes, and imported targets contribute it marked **SYSTEM**.
+- CMake dedupes your entry against theirs and keeps *one*, retaining the SYSTEM
+  classification.
+- MSVC emits SYSTEM includes as `-external:I` and searches **every `/I` before any
+  `-external:I`**. So a plain `/I` pointing at the SDK wins regardless of where your
+  entry sits.
+
+The symptom is that a `message(STATUS ...)` proves your variable holds the right path,
+the `target_include_directories()` call is plainly there — and the path is **absent
+from the compile line's `/I` list entirely**, appearing only among the `-external:I`
+entries. Confirm with the generated project rather than the CMake source:
+
+```powershell
+# MSVC generator: the include list actually handed to cl.exe
+(Select-String -Path build\OloEngine\src\OloEngine.vcxproj `
+  -Pattern 'AdditionalIncludeDirectories>([^<]*)').Matches[0].Groups[1].Value -split ';'
+```
+
+**The fix is a path nothing else contributes**: stage the headers you need to win into
+a private directory (`file(COPY ...)` into `${CMAKE_BINARY_DIR}`) and put *that* on the
+include path. It stays a normal `/I` in the position you chose. `OLO_WITH_VULKAN` in
+`OloEngine/vendor/CMakeLists.txt` does this for `vulkan/` + `vk_video/`.
+
+Stage into the **build** tree, not the source tree — a staged directory under
+`OloEngine/vendor/` would be shared by `build/` and `build-clang/` and become a fresh
+instance of the cross-tree contamination that
+[build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §1 exists to prevent.
+
+**Why this survived local verification twice:** the dev box's Vulkan SDK is 1.4.357 —
+the exact version pinned — so the SDK winning produced byte-identical headers and no
+observable defect. CI installs 1.4.321 and failed with `error C2065:
+'VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME': undeclared identifier`. This is the same
+shape as four other bugs on this PR (see the CI section): **whenever the dev box
+happens to match the value CI varies, local green proves nothing.** When a fix targets
+a version/path/platform difference, verify the *mechanism* (here: read the compile
+line), not the outcome.
 
 ## Per-port exceptions live in the triplet, not in a forked portfile
 
