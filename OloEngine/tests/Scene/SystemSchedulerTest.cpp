@@ -528,6 +528,16 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     // so a JointBrokeEvent published there shatters the object the same tick
     // (issue #459). RAW edge on LocalTransforms.
     EXPECT_TRUE(sched.DependsOn("Destructible", "PhysicsFence"));
+    // ...and it must stay UNMARKED: it makes structural ECS changes (spawns/
+    // destroys entities), which the Parallelizable audit forbids on a worker.
+    // Pin that via the exported graph rather than a per-node accessor.
+    {
+        const SystemScheduler::GraphSnapshot graph = sched.ExportGraph();
+        const auto node = std::ranges::find_if(graph.Nodes, [](const auto& n)
+                                               { return n.Name == "Destructible"; });
+        ASSERT_NE(node, graph.Nodes.end()) << "Destructible node missing from the exported graph";
+        EXPECT_FALSE(node->Parallel) << "the Destructible node must not be Parallelizable — it makes structural ECS changes";
+    }
     EXPECT_TRUE(sched.DependsOn("Audio", "PhysicsFence")); // pose sync reads post-physics transforms
     EXPECT_TRUE(sched.DependsOn("Audio", "Navigation"));
     EXPECT_TRUE(sched.DependsOn("ParticlesCPU", "PhysicsFence"));

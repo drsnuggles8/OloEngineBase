@@ -71,6 +71,11 @@ namespace OloEngine
             if (count == 0)
                 return;
 
+            // The per-chunk entity create + component adds + Jolt body build is the
+            // burst-cost hot path; scope it so a large ChunkCount is visible in the
+            // profiler without changing spawn behavior.
+            OLO_PROFILE_SCOPE("DestructibleSystem::SpawnDebris");
+
             JoltScene* physics = scene->GetPhysicsScene();
 
             // Resolve the debris look: authored chunk mesh → the object's own mesh →
@@ -221,17 +226,25 @@ namespace OloEngine
             dc.m_PendingBreak = false;
             dc.m_Health = 0.0f;
 
+            // Sanitize authored physics inputs to finite values before they reach
+            // Jolt. The OLO_SERIALIZE(Clamp) annotations only guard the deserialize
+            // path, so a runtime write (a script/MCP bug, a direct AddComponent
+            // with a hand-set field) could still hand SpawnDebris a NaN that would
+            // poison the debris body's scale/mass/impulse. Matches ApplyDamage's
+            // std::isfinite gate on the damage amount.
             const auto& tc = ent.GetComponent<TransformComponent>();
+            const glm::vec3 sourceScale = tc.Scale;
+            const bool scaleFinite = std::isfinite(sourceScale.x) && std::isfinite(sourceScale.y) && std::isfinite(sourceScale.z);
             BreakRequest req;
             req.SourceID = ent.GetUUID();
             req.Position = tc.Translation;
-            req.Scale = tc.Scale;
+            req.Scale = scaleFinite ? sourceScale : glm::vec3(1.0f);
             req.SourceMesh = ent.HasComponent<MeshComponent>() ? ent.GetComponent<MeshComponent>().m_MeshSource : nullptr;
             req.ChunkMesh = dc.m_ChunkMesh;
             req.ChunkCount = dc.m_ChunkCount;
-            req.ChunkScale = dc.m_ChunkScale;
-            req.ChunkMass = dc.m_ChunkMass;
-            req.Impulse = dc.m_ExplosionImpulse;
+            req.ChunkScale = (std::isfinite(dc.m_ChunkScale) && dc.m_ChunkScale > 0.0f) ? dc.m_ChunkScale : 0.25f;
+            req.ChunkMass = (std::isfinite(dc.m_ChunkMass) && dc.m_ChunkMass > 0.0f) ? dc.m_ChunkMass : 1.0f;
+            req.Impulse = (std::isfinite(dc.m_ExplosionImpulse) && dc.m_ExplosionImpulse >= 0.0f) ? dc.m_ExplosionImpulse : 0.0f;
             req.Lifetime = dc.m_DebrisLifetime > 0.0f ? dc.m_DebrisLifetime : kDefaultDebrisLifetime;
             breaks.push_back(std::move(req));
 
@@ -306,9 +319,11 @@ namespace OloEngine
                     }
                 }
                 // If eviction couldn't free enough, clamp the spawn so the live
-                // count never exceeds the budget (hard invariant).
+                // count never exceeds the budget (hard invariant). Guard the
+                // subtraction against unsigned underflow: if liveCount is already
+                // at/over the cap, spawn nothing rather than wrapping to a huge want.
                 if (liveCount + want > kMaxLiveDebris)
-                    want = kMaxLiveDebris - liveCount;
+                    want = (liveCount >= kMaxLiveDebris) ? 0u : (kMaxLiveDebris - liveCount);
             }
 
             if (want == 0)

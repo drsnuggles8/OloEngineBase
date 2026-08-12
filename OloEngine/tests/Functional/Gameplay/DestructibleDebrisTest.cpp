@@ -113,6 +113,36 @@ TEST_F(DestructibleDebrisTest, DamageShattersIntoDebrisExactlyOnce)
     EXPECT_EQ(CountDebris(), 6u) << "the break must fire exactly once — no extra debris on later ticks";
 }
 
+// ApplyDamage rejects sub-threshold, non-finite, and non-positive amounts —
+// none of which touch health or spawn debris.
+TEST_F(DestructibleDebrisTest, ApplyDamageRejectsSubThresholdAndInvalidAmounts)
+{
+    Entity crate = MakeDestructible(GetScene(), "Crate", { 0.0f, 1.0f, 0.0f },
+                                    /*chunkCount=*/6, /*destroyOnBreak=*/false);
+    crate.GetComponent<DestructibleComponent>().m_DamageThreshold = 25.0f;
+
+    // Sub-threshold: rejected, health untouched.
+    EXPECT_FALSE(DestructibleSystem::ApplyDamage(&GetScene(), crate, 10.0f))
+        << "a hit below m_DamageThreshold must not register";
+    EXPECT_FLOAT_EQ(crate.GetComponent<DestructibleComponent>().m_Health, 100.0f);
+
+    // Non-finite and non-positive: rejected, health untouched.
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(DestructibleSystem::ApplyDamage(&GetScene(), crate, nan));
+    EXPECT_FALSE(DestructibleSystem::ApplyDamage(&GetScene(), crate, 0.0f));
+    EXPECT_FALSE(DestructibleSystem::ApplyDamage(&GetScene(), crate, -50.0f));
+    EXPECT_FLOAT_EQ(crate.GetComponent<DestructibleComponent>().m_Health, 100.0f)
+        << "invalid damage amounts must leave health unchanged";
+
+    RunFrames(1);
+    EXPECT_EQ(CountDebris(), 0u) << "no rejected hit may shatter the object";
+
+    // A hit that clears the threshold registers normally.
+    EXPECT_TRUE(DestructibleSystem::ApplyDamage(&GetScene(), crate, 30.0f))
+        << "a hit at/above the threshold must register";
+    EXPECT_FLOAT_EQ(crate.GetComponent<DestructibleComponent>().m_Health, 70.0f);
+}
+
 // destroyOnBreak destroys the source entity when it shatters.
 TEST_F(DestructibleDebrisTest, DestroyOnBreakRemovesTheSourceEntity)
 {

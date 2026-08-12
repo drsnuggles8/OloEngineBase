@@ -1286,9 +1286,13 @@ namespace OloEngine
         DestructibleComponent() = default;
         DestructibleComponent(const DestructibleComponent&) = default;
 
+        // Compare AUTHORED fields only, field-by-field (the Boat/Aircraft/Boid
+        // pattern). Excludes the runtime m_Broken / m_PendingBreak flags so a
+        // play-mode enter/exit is not seen as an authored change, and avoids a
+        // whole-struct BitwiseEqual that would compare indeterminate padding bytes.
         auto operator==(const DestructibleComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(*this, other);
+            return Math::BitwiseEqual(m_Health, other.m_Health) && Math::BitwiseEqual(m_MaxHealth, other.m_MaxHealth) && Math::BitwiseEqual(m_DamageThreshold, other.m_DamageThreshold) && static_cast<u64>(m_ChunkMesh) == static_cast<u64>(other.m_ChunkMesh) && m_ChunkCount == other.m_ChunkCount && Math::BitwiseEqual(m_ChunkScale, other.m_ChunkScale) && Math::BitwiseEqual(m_ChunkMass, other.m_ChunkMass) && Math::BitwiseEqual(m_ExplosionImpulse, other.m_ExplosionImpulse) && Math::BitwiseEqual(m_DebrisLifetime, other.m_DebrisLifetime) && m_BreakOnJointBreak == other.m_BreakOnJointBreak && m_DestroyOnBreak == other.m_DestroyOnBreak;
         }
     };
 

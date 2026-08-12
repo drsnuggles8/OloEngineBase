@@ -28,14 +28,17 @@ either maps to a *PhysicsLayerManager user layer* (`NUM_LAYERS + 7`) or falls
 back to `MOVING` — never to the built-in `ObjectLayers::DEBRIS = 4`. A debris
 body set that way collides with the player like any dynamic body.
 
-**How debris is actually kept off the player.** The character controller's
-contact filter reads `otherBody.GetObjectLayer()` (the *Jolt* object layer) and
-skips it if a bit is set in `m_IgnoreCollisionLayers`
-(`JoltCharacterController.cpp`). That mask is
-`(1<<Trigger) | (1<<Water) | (1<<Debris)` = bits **4, 6, 7**. Bit **4** —
-nominally `CollisionLayers::Trigger` — numerically also catches Jolt
-`ObjectLayers::DEBRIS = 4`. So a body whose **Jolt object layer** is `DEBRIS`
-(4) is ignored by the character controller. That coincidence is the mechanism.
+**How debris is actually kept off the player.** The `ObjectLayerPairFilter`
+(`JoltLayerInterface.h`) does not pair `CHARACTER` with `DEBRIS` —
+`ShouldCollideDirectional` lists `CHARACTER → {NON_MOVING, MOVING, TRIGGER}` and
+`DEBRIS → {NON_MOVING, MOVING}`, so neither direction includes the other. The
+character controller drives its `ExtendedUpdate` through exactly that filter
+(`GetDefaultLayerFilter(CHARACTER)` in `JoltCharacterController.cpp`), so it never
+even *queries* debris bodies. That is the operative mechanism. (The controller
+*also* carries an `m_IgnoreCollisionLayers` contact-validate mask whose bit 4 —
+nominally `CollisionLayers::Trigger`, numerically also Jolt `ObjectLayers::DEBRIS
+= 4` — would reject a debris contact, but the pair filter already stopped the
+query one step earlier, so that mask is a redundant second guard, not the reason.)
 
 The correct call is therefore a **raw Jolt object-layer write**:
 `JoltBody::SetToDebrisLayer()` → `bodyInterface.SetObjectLayer(id,
