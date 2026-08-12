@@ -99,12 +99,15 @@ structural change happens while a view is being iterated.
 `kMaxLiveDebris` (256) caps *simultaneously-live* debris. On a break that would
 exceed it, the system evicts the **oldest** existing debris first (sorted by
 `DebrisComponent::m_Age`), then clamps the spawn count if eviction still can't
-free enough. Fresh debris is favoured over stale. The live count therefore never
-exceeds the cap even under a burst of many simultaneous breaks in one tick — the
-newly-spawned pieces of *this* tick are not eviction candidates (they're not in
-the surviving-set snapshot taken in phase 2), so a single tick's breaks fill the
-cap exactly and further breaks that tick spawn nothing. That dropped debris is
-the budget doing its job, not a bug.
+free enough. The eviction pool is the **survivor snapshot taken in phase 2** —
+the debris that already existed at the start of the tick. Pieces spawned by
+*this* tick's earlier breaks are **not** in it, so a later break in the same tick
+can still evict pre-existing survivors and spawn fresh chunks (fresh favoured
+over stale); `want` only clamps toward zero once that survivor set is exhausted.
+The live count therefore never exceeds the cap. In the worst case the test
+exercises — a burst of breaks with **no** pre-existing debris — there is nothing
+to evict, so the cap fills exactly and the remaining breaks spawn nothing. That
+dropped debris is the budget doing its job, not a bug.
 
 ## Scheduler placement
 

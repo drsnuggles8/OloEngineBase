@@ -233,11 +233,15 @@ namespace OloEngine
             // poison the debris body's scale/mass/impulse. Matches ApplyDamage's
             // std::isfinite gate on the damage amount.
             const auto& tc = ent.GetComponent<TransformComponent>();
+            const glm::vec3 sourcePos = tc.Translation;
+            const bool posFinite = std::isfinite(sourcePos.x) && std::isfinite(sourcePos.y) && std::isfinite(sourcePos.z);
             const glm::vec3 sourceScale = tc.Scale;
             const bool scaleFinite = std::isfinite(sourceScale.x) && std::isfinite(sourceScale.y) && std::isfinite(sourceScale.z);
             BreakRequest req;
             req.SourceID = ent.GetUUID();
-            req.Position = tc.Translation;
+            // A non-finite source position would spawn every chunk at NaN and
+            // poison Jolt; fall back to the world origin rather than propagate it.
+            req.Position = posFinite ? sourcePos : glm::vec3(0.0f);
             req.Scale = scaleFinite ? sourceScale : glm::vec3(1.0f);
             req.SourceMesh = ent.HasComponent<MeshComponent>() ? ent.GetComponent<MeshComponent>().m_MeshSource : nullptr;
             req.ChunkMesh = dc.m_ChunkMesh;
@@ -245,7 +249,9 @@ namespace OloEngine
             req.ChunkScale = (std::isfinite(dc.m_ChunkScale) && dc.m_ChunkScale > 0.0f) ? dc.m_ChunkScale : 0.25f;
             req.ChunkMass = (std::isfinite(dc.m_ChunkMass) && dc.m_ChunkMass > 0.0f) ? dc.m_ChunkMass : 1.0f;
             req.Impulse = (std::isfinite(dc.m_ExplosionImpulse) && dc.m_ExplosionImpulse >= 0.0f) ? dc.m_ExplosionImpulse : 0.0f;
-            req.Lifetime = dc.m_DebrisLifetime > 0.0f ? dc.m_DebrisLifetime : kDefaultDebrisLifetime;
+            // finite AND positive: a +inf lifetime passes `> 0` but would make the
+            // debris immortal (never cleaned up), so fall back to the default.
+            req.Lifetime = (std::isfinite(dc.m_DebrisLifetime) && dc.m_DebrisLifetime > 0.0f) ? dc.m_DebrisLifetime : kDefaultDebrisLifetime;
             breaks.push_back(std::move(req));
 
             if (dc.m_DestroyOnBreak)

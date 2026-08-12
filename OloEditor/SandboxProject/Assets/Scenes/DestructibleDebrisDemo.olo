@@ -93,6 +93,10 @@ Entities:
       DynamicFriction: 0.6
       Restitution: 0.2
   # ── Breakable crate (DestructibleComponent, issue #459) ──
+  # Self-triggering: the attached BreakableCrateDemo.lua script depletes the
+  # crate's Health to 0 ~1.5s after Play starts, so the scene shatters on its own
+  # (no external caller needed — just press Play). Depleting Health is the same
+  # trigger DestructibleSystem::ApplyDamage / a combat kill / a joint break use.
   - Entity: 850000000000010
     TagComponent:
       Tag: Breakable Crate
@@ -106,6 +110,8 @@ Entities:
       AlbedoColor: [0.85, 0.45, 0.15]
       Metallic: 0.1
       Roughness: 0.7
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/BreakableCrateDemo.lua
     DestructibleComponent:
       Health: 100
       MaxHealth: 100
