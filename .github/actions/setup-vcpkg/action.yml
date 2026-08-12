@@ -102,11 +102,38 @@ runs:
         # Bootstrap unconditionally: the tool version is pinned per registry commit
         # (scripts/vcpkg-tool-metadata.txt), so the image's prebuilt binary can be
         # older than the baseline expects. The script no-ops when it already matches.
+        #
+        # Retried with backoff: when the pinned tool version does NOT match, the
+        # script downloads vcpkg.exe straight from the vcpkg-tool GitHub release —
+        # the one network hop in this action with no cache or retry in front of it,
+        # and a hard `throw` on the first failed response. Observed dying a job at
+        # the 3-minute mark, before configure:
+        #
+        #   Downloading https://github.com/microsoft/vcpkg-tool/releases/download/…/vcpkg.exe
+        #     -> While calling Windows API function WinHttpReceiveResponse got error
+        #        0x00002F78: The server returned an invalid or unrecognized response
+        #
+        # Bootstrapping is idempotent (it re-checks the version and re-downloads into
+        # a temp path before moving it into place), so re-running it after a truncated
+        # transfer is safe. Three attempts, 15s then 30s apart; a genuine breakage —
+        # a bad baseline, a deleted release — still fails, just 45s later.
         if [ "$RUNNER_OS" = "Windows" ]; then
-          "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+          bootstrap="$VCPKG_ROOT/bootstrap-vcpkg.bat"
         else
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          bootstrap="$VCPKG_ROOT/bootstrap-vcpkg.sh"
         fi
+        for attempt in 1 2 3; do
+          if "$bootstrap" -disableMetrics; then
+            break
+          fi
+          if [ "$attempt" = 3 ]; then
+            echo "::error::vcpkg bootstrap failed after 3 attempts. See .github/actions/setup-vcpkg."
+            exit 1
+          fi
+          delay=$((attempt * 15))
+          echo "::warning::vcpkg bootstrap attempt ${attempt} failed; retrying in ${delay}s"
+          sleep "$delay"
+        done
 
     # BINARY CACHING. `x-gha` is NOT usable: vcpkg-tool removed the provider in
     # microsoft/vcpkg-tool#1662 (merged 2025-04-29), and the tool release this
