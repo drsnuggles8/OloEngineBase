@@ -146,20 +146,47 @@ runs:
         # (scripts/vcpkg-tool-metadata.txt), so the image's prebuilt binary can be
         # older than the baseline expects. The script no-ops when it already matches.
         #
-        # scripts/bootstrap.sh downloads the vcpkg-tool binary with
-        # `curl … --retry 3 --fail`, so a DROPPED connection already errors and is
-        # caught by the retry wrapper. The one gap retry can't close is a fully
-        # STALLED transfer (curl hangs without returning) — bound each Linux attempt
-        # with `timeout` so a hang is killed and retried rather than burning the job
-        # to its wall-clock limit. 900s is far above the few-second binary download
-        # (and any source build of the tool). Windows uses a different downloader
-        # (PowerShell) and coreutils `timeout` is not reliable in its bash, so it
-        # stays on retry alone.
+        # Retried with backoff: when the pinned tool version does NOT match, the
+        # script downloads vcpkg.exe straight from the vcpkg-tool GitHub release —
+        # the one network hop in this action with no cache or retry in front of it,
+        # and a hard `throw` on the first failed response. Observed dying a job at
+        # the 3-minute mark, before configure:
+        #
+        #   Downloading https://github.com/microsoft/vcpkg-tool/releases/download/…/vcpkg.exe
+        #     -> While calling Windows API function WinHttpReceiveResponse got error
+        #        0x00002F78: The server returned an invalid or unrecognized response
+        #
+        # Bootstrapping is idempotent (it re-checks the version and re-downloads into
+        # a temp path before moving it into place), so re-running it after a truncated
+        # transfer is safe. Three attempts, 15s then 30s apart; a genuine breakage —
+        # a bad baseline, a deleted release — still fails, just 45s later.
+        #
+        # Linux additionally bounds each attempt with `timeout`: scripts/bootstrap.sh
+        # downloads via `curl … --retry 3 --fail`, so a DROPPED connection errors and
+        # the loop below retries it, but a fully STALLED transfer (curl hanging without
+        # returning) would otherwise burn the whole job — `timeout` kills it so the
+        # retry engages. 900s is far above the few-second binary download. Windows
+        # uses a PowerShell downloader and coreutils `timeout` isn't reliable in its
+        # bash, so it runs unbounded there.
         if [ "$RUNNER_OS" = "Windows" ]; then
-          retry "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+          bootstrap="$VCPKG_ROOT/bootstrap-vcpkg.bat"
+          run_bootstrap() { "$bootstrap" -disableMetrics; }
         else
-          retry timeout 900 "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          bootstrap="$VCPKG_ROOT/bootstrap-vcpkg.sh"
+          run_bootstrap() { timeout 900 "$bootstrap" -disableMetrics; }
         fi
+        for attempt in 1 2 3; do
+          if run_bootstrap; then
+            break
+          fi
+          if [ "$attempt" = 3 ]; then
+            echo "::error::vcpkg bootstrap failed after 3 attempts. See .github/actions/setup-vcpkg."
+            exit 1
+          fi
+          delay=$((attempt * 15))
+          echo "::warning::vcpkg bootstrap attempt ${attempt} failed; retrying in ${delay}s"
+          sleep "$delay"
+        done
 
     # BINARY CACHING. `x-gha` is NOT usable: vcpkg-tool removed the provider in
     # microsoft/vcpkg-tool#1662 (merged 2025-04-29), and the tool release this

@@ -507,6 +507,104 @@ TEST_F(McpDispatchTest, ResourcesReadMissingUriIsInvalidParams)
     EXPECT_EQ(resp["error"]["code"], -32602);
 }
 
+// ---- cacheable list results (spec 2026-07-28 server/utilities/caching) ------
+//
+// tools/list, prompts/list, resources/list and resources/read now carry the
+// `ttlMs` (integer ms, >= 0) + `cacheScope` ("public"|"private") freshness hints.
+// The change is additive and version-neutral (we do NOT advertise 2026-07-28), so
+// these tests also pin backward compatibility: the pre-existing result keys must
+// still be present and unchanged alongside the two new fields.
+
+namespace
+{
+    // Assert the two cache-hint fields are well-formed: ttlMs is a non-negative
+    // integer (the spec forbids negatives; a fractional value would be malformed)
+    // and cacheScope is exactly one of the two spec-defined string values.
+    void ExpectWellFormedCacheHints(const Json& result)
+    {
+        ASSERT_TRUE(result.contains("ttlMs")) << "cacheable result missing ttlMs";
+        ASSERT_TRUE(result["ttlMs"].is_number_integer()) << "ttlMs must be an integer";
+        EXPECT_GE(result["ttlMs"].get<long long>(), 0) << "ttlMs must be >= 0";
+
+        ASSERT_TRUE(result.contains("cacheScope")) << "cacheable result missing cacheScope";
+        ASSERT_TRUE(result["cacheScope"].is_string());
+        const std::string scope = result["cacheScope"].get<std::string>();
+        EXPECT_TRUE(scope == "public" || scope == "private") << "unexpected cacheScope: " << scope;
+    }
+} // namespace
+
+TEST_F(McpDispatchTest, ToolsListCarriesCacheHints)
+{
+    // Store the response BY VALUE: binding a reference to ["result"] of the returned
+    // temporary would dangle (lifetime extension doesn't reach through operator[]).
+    const Json resp = m_Server.HandleMessage(MakeRequest(40, "tools/list"));
+    const Json& result = resp["result"];
+    ExpectWellFormedCacheHints(result);
+    // The catalogue is non-user-specific and identical for every caller.
+    EXPECT_EQ(result["cacheScope"], "public");
+    // Static-for-a-run + push invalidation (tools/list_changed) -> a generous TTL.
+    // Pinned to the exact configured value (kToolsListTtlMs, 5 min — the spec's own
+    // worked example) rather than just "> 0": the three catalogues carry three
+    // deliberately DIFFERENT TTLs, so a positivity check would pass even if two of
+    // the constants were swapped at the call site.
+    EXPECT_EQ(result["ttlMs"].get<long long>(), 300000);
+    // Backward compatibility: the original `tools` array is still present.
+    EXPECT_TRUE(result.contains("tools"));
+    EXPECT_TRUE(result["tools"].is_array());
+}
+
+TEST_F(McpDispatchTest, ResourcesListCarriesCacheHints)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(41, "resources/list"));
+    const Json& result = resp["result"];
+    ExpectWellFormedCacheHints(result);
+    EXPECT_EQ(result["cacheScope"], "public");
+    // kResourcesListTtlMs, 1 min — shorter than tools/list because capture tools
+    // publish/evict ephemeral resources while serving.
+    EXPECT_EQ(result["ttlMs"].get<long long>(), 60000);
+    EXPECT_TRUE(result.contains("resources"));
+    EXPECT_TRUE(result["resources"].is_array());
+}
+
+TEST_F(McpDispatchTest, PromptsListCarriesCacheHints)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(42, "prompts/list"));
+    const Json& result = resp["result"];
+    ExpectWellFormedCacheHints(result);
+    EXPECT_EQ(result["cacheScope"], "public");
+    // kPromptsListTtlMs, 1 h — the longest of the three: prompts are compiled in and
+    // immutable within a run, and there is no list_changed push to bound staleness,
+    // so the TTL is the only freshness signal.
+    EXPECT_EQ(result["ttlMs"].get<long long>(), 3600000);
+    EXPECT_TRUE(result.contains("prompts"));
+    EXPECT_TRUE(result["prompts"].is_array());
+}
+
+// A read reflects live editor state and may be path-redacted, so it is
+// non-cacheable (ttlMs 0) and per-authorization-context (private).
+TEST_F(McpDispatchTest, ResourcesReadCarriesPrivateNonCacheableHints)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(43, "resources/read", Json{ { "uri", "olo://fake" } }));
+    const Json& result = resp["result"];
+    ExpectWellFormedCacheHints(result);
+    EXPECT_EQ(result["cacheScope"], "private");
+    EXPECT_EQ(result["ttlMs"].get<long long>(), 0);
+    // Backward compatibility: the original `contents` array is untouched.
+    EXPECT_TRUE(result.contains("contents"));
+    EXPECT_EQ(result["contents"][0]["text"], "resource-body");
+}
+
+// An *error* result (unknown resource) is not a cacheable "complete" result and
+// must NOT carry the hints — they belong on the success envelope only.
+TEST_F(McpDispatchTest, ResourcesReadErrorHasNoCacheHints)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(44, "resources/read", Json{ { "uri", "olo://nope" } }));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_FALSE(resp.contains("result"));
+    EXPECT_FALSE(resp["error"].contains("ttlMs"));
+    EXPECT_FALSE(resp["error"].contains("cacheScope"));
+}
+
 // ---- prompts/get -----------------------------------------------------------
 
 TEST_F(McpDispatchTest, PromptsGetHappyPathExpandsToUserMessage)
