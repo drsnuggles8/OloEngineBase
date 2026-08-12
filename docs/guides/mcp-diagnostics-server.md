@@ -1764,13 +1764,15 @@ freshness hints at the **top level of the result object**, beside `tools` /
 - **`cacheScope`** — `"public"` (no user-specific data; any cache/proxy MAY share
   it) or `"private"` (per-authorization-context; MUST NOT be shared).
 
-The values are chosen per endpoint (see the constants + comments in
-`McpServer.cpp`): the three catalogues are `public` with a positive TTL (they are
-static for a run, and their live-mutation paths — script-tool reload, ephemeral
-resource publish — already push a `list_changed` notification as the authoritative
-invalidation, so the TTL only bridges the gaps); `resources/read` is
-`private` + `ttlMs: 0`, because a read reflects **live** editor state and may be
-path-redacted, so it is never honestly cacheable.
+The values are chosen per endpoint (the constants + their full rationale live in
+`McpServer.cpp`; `McpDispatchTest` pins each one exactly):
+
+| Endpoint | `ttlMs` | `cacheScope` | Why |
+| --- | --- | --- | --- |
+| `tools/list` | `300000` (5 min) | `public` | Static for a run except `olo_script_tools_reload`, which pushes `notifications/tools/list_changed` as the authoritative invalidation — the TTL only bridges the gap. Matches the spec's own worked example. |
+| `resources/list` | `60000` (1 min) | `public` | Base catalogue is static, but capture tools publish/evict ephemeral resources while serving (also pushed via `list_changed`); shorter than `tools/list` because that churn is more frequent. |
+| `prompts/list` | `3600000` (1 h) | `public` | Prompts are compiled in and immutable within a run, and `capabilities.prompts.listChanged` is `false` — with no push invalidation the TTL is the only freshness signal, and a long one is honest precisely because the list cannot change. |
+| `resources/read` | `0` | `private` | Reflects **live** editor state and may be path-redacted, so it is never honestly cacheable and MUST NOT be shared across authorization contexts. |
 
 Two gotchas worth carrying forward:
 

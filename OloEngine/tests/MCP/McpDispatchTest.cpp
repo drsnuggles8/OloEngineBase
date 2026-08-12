@@ -542,8 +542,12 @@ TEST_F(McpDispatchTest, ToolsListCarriesCacheHints)
     ExpectWellFormedCacheHints(result);
     // The catalogue is non-user-specific and identical for every caller.
     EXPECT_EQ(result["cacheScope"], "public");
-    // Static-for-a-run + push invalidation (tools/list_changed) -> a positive TTL.
-    EXPECT_GT(result["ttlMs"].get<long long>(), 0);
+    // Static-for-a-run + push invalidation (tools/list_changed) -> a generous TTL.
+    // Pinned to the exact configured value (kToolsListTtlMs, 5 min — the spec's own
+    // worked example) rather than just "> 0": the three catalogues carry three
+    // deliberately DIFFERENT TTLs, so a positivity check would pass even if two of
+    // the constants were swapped at the call site.
+    EXPECT_EQ(result["ttlMs"].get<long long>(), 300000);
     // Backward compatibility: the original `tools` array is still present.
     EXPECT_TRUE(result.contains("tools"));
     EXPECT_TRUE(result["tools"].is_array());
@@ -555,7 +559,9 @@ TEST_F(McpDispatchTest, ResourcesListCarriesCacheHints)
     const Json& result = resp["result"];
     ExpectWellFormedCacheHints(result);
     EXPECT_EQ(result["cacheScope"], "public");
-    EXPECT_GT(result["ttlMs"].get<long long>(), 0);
+    // kResourcesListTtlMs, 1 min — shorter than tools/list because capture tools
+    // publish/evict ephemeral resources while serving.
+    EXPECT_EQ(result["ttlMs"].get<long long>(), 60000);
     EXPECT_TRUE(result.contains("resources"));
     EXPECT_TRUE(result["resources"].is_array());
 }
@@ -566,7 +572,10 @@ TEST_F(McpDispatchTest, PromptsListCarriesCacheHints)
     const Json& result = resp["result"];
     ExpectWellFormedCacheHints(result);
     EXPECT_EQ(result["cacheScope"], "public");
-    EXPECT_GT(result["ttlMs"].get<long long>(), 0);
+    // kPromptsListTtlMs, 1 h — the longest of the three: prompts are compiled in and
+    // immutable within a run, and there is no list_changed push to bound staleness,
+    // so the TTL is the only freshness signal.
+    EXPECT_EQ(result["ttlMs"].get<long long>(), 3600000);
     EXPECT_TRUE(result.contains("prompts"));
     EXPECT_TRUE(result["prompts"].is_array());
 }
