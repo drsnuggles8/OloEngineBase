@@ -42,6 +42,31 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # Retry transient network failures. The vcpkg clone/fetch and the bootstrap
+        # download hit GitHub's git/download endpoints, which intermittently drop
+        # the connection ("socket hang up") — a single blip otherwise fails the
+        # whole job, and a partial fetch surfaces later as the misleading
+        # "no version database entry for zlib". ~4 tries with exponential backoff
+        # clears essentially all of them.
+        retry() {
+          local n=0 max=4 delay=8
+          until "$@"; do
+            n=$((n + 1))
+            if [ "$n" -ge "$max" ]; then
+              echo "::error::'$*' failed after $max attempts"
+              return 1
+            fi
+            echo "attempt $n/$max of '$*' failed; retrying in ${delay}s..." >&2
+            sleep "$delay"
+            delay=$((delay * 2))
+          done
+        }
+        # Fail fast on a STALLED transfer (<1 KB/s for 60s) so a hung connection
+        # trips the retry above instead of hanging to the job timeout. Global, so
+        # it also covers the fetch in the next step (same job, same ~/.gitconfig).
+        git config --global http.lowSpeedLimit 1000
+        git config --global http.lowSpeedTime 60
+
         # GitHub-hosted runners ship a bootstrapped vcpkg at VCPKG_INSTALLATION_ROOT.
         # Self-hosted runners (gpu-conformance-amd) may not, so fall back to a clone
         # under RUNNER_TEMP. Either way VCPKG_ROOT is what the rest of this action and
@@ -50,7 +75,7 @@ runs:
         if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
           root="${RUNNER_TEMP}/vcpkg"
           if [ ! -d "$root/.git" ]; then
-            git clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
+            retry git clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
           fi
         fi
         echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
@@ -60,6 +85,21 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # Same transient-network retry as the previous step (each `run:` is its own
+        # shell, so the helper is redefined here).
+        retry() {
+          local n=0 max=4 delay=8
+          until "$@"; do
+            n=$((n + 1))
+            if [ "$n" -ge "$max" ]; then
+              echo "::error::'$*' failed after $max attempts"
+              return 1
+            fi
+            echo "attempt $n/$max of '$*' failed; retrying in ${delay}s..." >&2
+            sleep "$delay"
+            delay=$((delay * 2))
+          done
+        }
         baseline=$(python3 -c "import json,sys;print(json.load(open('vcpkg.json'))['builtin-baseline'])" 2>/dev/null \
                 || python -c "import json,sys;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
         echo "manifest baseline: $baseline"
@@ -94,7 +134,7 @@ runs:
         # "do not clone vcpkg shallow" rule in
         # docs/agent-rules/vcpkg-dependency-management.md.
         if ! git -C "$VCPKG_ROOT" cat-file -e "${baseline}^{commit}" 2>/dev/null; then
-          git -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
+          retry git -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
         fi
         git -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
         git -C "$VCPKG_ROOT" rev-parse HEAD
@@ -103,9 +143,9 @@ runs:
         # (scripts/vcpkg-tool-metadata.txt), so the image's prebuilt binary can be
         # older than the baseline expects. The script no-ops when it already matches.
         if [ "$RUNNER_OS" = "Windows" ]; then
-          "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+          retry "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
         else
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          retry "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
         fi
 
     # BINARY CACHING. `x-gha` is NOT usable: vcpkg-tool removed the provider in
