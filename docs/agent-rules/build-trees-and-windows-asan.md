@@ -355,3 +355,89 @@ carries the coverage unless one really does. For `SceneSerializer::Deserialize`
 none does — nothing else in the suite throws through it — so the honest note is
 that the file-path throw is uncovered under Windows ASan while the
 non-throwing branches of the same test stay active everywhere.
+
+## 5. Instrumenting a build with the CMake Instrumentation API (issue #759)
+
+CMake 4.x ships an experimental Instrumentation API that emits a Google Trace
+Event file with per-command timing, target attribution and per-command
+**host-memory** samples. Getting it to actually emit anything has two
+non-obvious gates, both of which fail *silently* (a green configure, no trace):
+
+1. **It does not work under the Visual Studio generator.** The feature is
+   Makefile / Ninja / FASTBuild only (`cmake-instrumentation(7)`). So the
+   primary `build/` (VS 18 2026) tree **cannot** be instrumented at all — use
+   the `build-clang/` Ninja tree (`cmake --preset clangcl`). That is also the
+   only tree where `OLO_LINK_JOBS` exists (it is a Ninja job pool), so it is the
+   correct tree for any link-concurrency question regardless.
+2. **While experimental, the query directory name carries the gate UUID.** The
+   shipped manual (`cmake-instrumentation.7.rst`) says query files go under
+   `<build>/.cmake/instrumentation/v1/query/` — that path is **ignored**. The
+   experimental gate requires the UUID **appended to the directory name**:
+   `<build>/.cmake/instrumentation-ec7aa2dc-b87f-45a3-8022-fe01c5f59984/v1/query/`.
+   With the plain `instrumentation/` path, configure prints
+   `Manually-specified variables were not used by the project:
+   CMAKE_EXPERIMENTAL_INSTRUMENTATION` and wires no launcher. The UUID-suffixed
+   rule is documented only in `Help/dev/experimental.rst`, which is **not shipped
+   in the binary install** — read it from the release tag on gitlab.kitware.com.
+
+Recipe that works on CMake 4.2:
+
+```powershell
+$GATE = "ec7aa2dc-b87f-45a3-8022-fe01c5f59984"   # this exact UUID; 4.2-specific
+$q = "build-clang/.cmake/instrumentation-$GATE/v1/query"
+New-Item -ItemType Directory -Force $q | Out-Null
+'{ "version":1, "hooks":["postGenerate","postCMakeBuild"],
+   "options":["staticSystemInformation","dynamicSystemInformation","trace"] }' |
+   Set-Content "$q/olo.json"
+cmake --preset clangcl -DCMAKE_EXPERIMENTAL_INSTRUMENTATION=$GATE
+cmake --build build-clang --config Debug --parallel 6     # must be `cmake --build` for the hook
+```
+
+**Verify it wired** before trusting a build: the compile rule in
+`build-clang/CMakeFiles/rules.ninja` must gain a
+`"…/ctest.exe" --instrument --command-type compile … -- <compiler>` prefix, and
+`…/instrumentation-<UUID>/v1/data/` must appear after configure. The trace lands
+at `…/instrumentation-<UUID>/v1/data/trace/trace-*.json` (one event per
+compile/link/custom command; `args.dynamicSystemInformation.afterHostMemoryUsed`
+is **system-wide** host memory in KiB, not the command's RSS; the top-level
+`dur`/`ts` are microseconds). `--gtest`-style grepping for "instrument" in
+`build.ninja` is useless here — the worktree path itself
+(`OloEngine-build-instrumentation-759`) contains the substring.
+
+### What it measured (clean Debug build, `build-clang/`, clang-cl, this host)
+
+Host was an i7-14700KF (20 cores / 28 threads, 64 GB), CI runners idle — **not**
+the 16c/31GB CLAUDE.md assumes; confirm your host before reusing these numbers.
+Ports build at *configure* time (vcpkg) and are absent from the build trace, so
+these are OloEngine + small in-tree vendor + FFmpeg only:
+
+- Cold configure+generate **796 s** (dominated by the cold vcpkg install of 45
+  packages; warm reconfigure ~11 s). Build step at **-j6: 607 s**, at **-j12:
+  382 s** (1.59×).
+- Composition (-j6): **compile is 96.5 % of build CPU-work** (2569 CPU-s over
+  1314 TUs) vs 89 CPU-s of linking over 13 links. Worst single TUs:
+  `LuaScriptGlue.cpp` ~150 s, `McpFieldRegistry.cpp` ~52 s (compiled in both
+  OloEditor and OloEngine-Tests). Top targets: OloEngine-Tests (612 TU),
+  OloEngine (589 TU), OloEditor (55 TU); OloRuntime/OloServer are ~3 TU each.
+- **The `OLO_LINK_JOBS=2` pool is NOT the serialization point — compilation is.**
+  Links are off the critical path: the build ends compile-bound (OloEditor's
+  last TU finishes, then one ~10-17 s `OloEditor.exe` link). The pool only
+  briefly saturates when OloRuntime+OloServer link together; Tests then links
+  with ~0 s slot wait. Raising `OLO_LINK_JOBS` buys ~0 wall-time on a full build,
+  so keep it at 2 — it is zero-cost insurance against the link-memory spike on a
+  smaller/shared host.
+- **Peak host memory barely scales with -j** because a handful of heavy TUs set
+  the peak, not the lane count. clang-cl: **41.6 GiB at -j6, 43.6 GiB at -j12
+  (+2.0 GiB for 2× width)**. A Ninja+**MSVC** tree stood up for the same
+  measurement (real `cl.exe`/`link.exe` — the memory-hungrier toolchain the
+  folklore OOM was on): **45.7 GiB at -j6, 47.4 GiB at -j12 (+1.7 GiB)**, still
+  ~16 GiB headroom, wall 1019 s → 776 s (1.31×). Peak is a *compile* on both
+  toolchains (the pool caps links at 2). So on this host the `-j6` guidance is a
+  safety *floor* for the documented 16c/31GB + concurrent-runner worst case, not
+  a memory limit that binds here. (To instrument the MSVC compiler you need a
+  Ninja tree with cl.exe — configure/build from inside a `vcvars64.bat` shell,
+  since the VS-generator tree itself is uninstrumentable.)
+- `CMAKE_OPTIMIZE_DEPENDENCIES=ON`: clean-build wall delta **+0.6 s (noise)**.
+  It roughly halved link CPU-time (89→44 s, plausibly pruned transitive link
+  libs) but that is fully hidden under the compile-bound critical path — no
+  wall-clock benefit for this graph. `INSTALL_PARALLEL` is N/A (we never install).
