@@ -170,17 +170,28 @@ if(OLO_WITH_VULKAN)
     # would place the pinned 1.4.357 headers AFTER the installed SDK's and let an
     # older SDK win. VulkanContext.cpp's static_assert on VK_HEADER_VERSION is the
     # backstop if this ever regresses.
-    get_target_property(OLO_VULKAN_HEADERS_INCLUDE_DIR Vulkan::Headers INTERFACE_INCLUDE_DIRECTORIES)
-    # Fail loudly rather than propagate an empty string or a literal
-    # "OLO_VULKAN_HEADERS_INCLUDE_DIR-NOTFOUND" into an include path: either would
-    # silently drop the pinned headers and let the installed SDK win the
-    # <vulkan/vulkan_core.h> lookup, which is the exact ordering this variable
-    # exists to guarantee.
-    if(NOT OLO_VULKAN_HEADERS_INCLUDE_DIR OR OLO_VULKAN_HEADERS_INCLUDE_DIR MATCHES "NOTFOUND")
+    # Take the pinned headers' include dir from the vcpkg INSTALLED TREE directly
+    # rather than from Vulkan::Headers' interface.
+    #
+    # `find_package(VulkanHeaders CONFIG)` is not authoritative here: the LunarG SDK
+    # ships its own VulkanHeadersConfig.cmake, so on a machine whose SDK differs from
+    # the pinned version the imported target can resolve to the SDK and quietly hand
+    # back the WRONG headers. That is invisible on a dev box whose SDK happens to
+    # match (mine is 1.4.357, the same version we pin) and it broke CI, where
+    # .github/actions/setup-vulkan installs 1.4.321:
+    #
+    #   error: use of undeclared identifier 'VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME'
+    #
+    # The installed tree is unambiguous, so derive the path and prove the header is
+    # actually there. VulkanContext.cpp's static_assert on VK_HEADER_VERSION remains
+    # the backstop if the pinned version itself ever drifts.
+    set(OLO_VULKAN_HEADERS_INCLUDE_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
+    if(NOT EXISTS "${OLO_VULKAN_HEADERS_INCLUDE_DIR}/vulkan/vulkan_core.h")
         message(FATAL_ERROR
-            "Vulkan::Headers exposed no INTERFACE_INCLUDE_DIRECTORIES "
-            "(got '${OLO_VULKAN_HEADERS_INCLUDE_DIR}'). The pinned 1.4.357 headers would "
-            "silently lose the include-order race against the installed Vulkan SDK.")
+            "Pinned Vulkan headers not found at "
+            "'${OLO_VULKAN_HEADERS_INCLUDE_DIR}/vulkan/vulkan_core.h'. Without them the "
+            "installed SDK wins the <vulkan/vulkan_core.h> lookup and the backend fails "
+            "to compile against the ADR 0010 tooling floor.")
     endif()
     set(OLO_VULKAN_HEADERS_INCLUDE_DIR "${OLO_VULKAN_HEADERS_INCLUDE_DIR}" PARENT_SCOPE)
 

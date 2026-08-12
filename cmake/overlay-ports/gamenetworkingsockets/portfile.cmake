@@ -87,18 +87,30 @@ vcpkg_fixup_pkgconfig()
 # "Could not find a package configuration file provided by sodium" — the port
 # itself builds and installs perfectly, so this only surfaces downstream.
 #
-# Rewriting the two references here keeps the fix inside the port that caused it,
-# rather than making every consumer carry a Findsodium.cmake shim (the exact class
-# of in-tree plumbing issue #773 exists to delete). vcpkg_replace_string errors if
-# a pattern stops matching, so an upstream rename fails loudly at port build.
+# Fixing this inside the port keeps every consumer from carrying a Findsodium.cmake
+# shim (the exact class of in-tree plumbing issue #773 exists to delete).
+#
+# Define an INTERFACE target NAMED `sodium` rather than rewriting the link list.
+# An earlier version of this port did the latter, matching the substring ";sodium;"
+# — which is POSITION DEPENDENT and silently incomplete. On Windows the list reads
+# "…;Threads::Threads;sodium;ws2_32;…" so it matched; on Linux there are no trailing
+# platform libs, so an occurrence ends the list as `;sodium"` and did not.
+# vcpkg_replace_string only requires ONE hit, so the port still built green and the
+# failure landed on the CONSUMER's link line instead:
+#
+#   ld.lld: error: unable to find library -lsodium
+#
+# (CMake turns an unresolved bare target name into a raw -l flag.) An alias target
+# resolves wherever `sodium` appears, so list ordering cannot defeat it.
 vcpkg_replace_string(
     "${CURRENT_PACKAGES_DIR}/share/${PORT}/GameNetworkingSocketsConfig.cmake"
     "find_dependency(sodium)"
-    "find_dependency(unofficial-sodium)")
-vcpkg_replace_string(
-    "${CURRENT_PACKAGES_DIR}/share/${PORT}/GameNetworkingSockets.cmake"
-    ";sodium;"
-    ";unofficial-sodium::sodium;")
+    "find_dependency(unofficial-sodium)
+    if(NOT TARGET sodium)
+        add_library(sodium INTERFACE IMPORTED)
+        set_target_properties(sodium PROPERTIES
+            INTERFACE_LINK_LIBRARIES unofficial-sodium::sodium)
+    endif()")
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
