@@ -367,6 +367,7 @@ namespace OloEngine
             REGISTER_COMPONENT(ModelComponent),
             // 3D Physics
             REGISTER_COMPONENT(Rigidbody3DComponent),
+            REGISTER_COMPONENT(DestructibleComponent),
             REGISTER_COMPONENT(BuoyancyComponent),
             REGISTER_COMPONENT(FluidComponent),
             REGISTER_COMPONENT(FluidEmitterComponent),
@@ -974,6 +975,37 @@ namespace OloEngine
                                                "maxAngularVelocity", sol::property([](const Rigidbody3DComponent& rb)
                                                                                    { return rb.m_MaxAngularVelocity; }, [](Rigidbody3DComponent& rb, f32 v)
                                                                                    { if (std::isfinite(v) && v >= 0.0f) rb.m_MaxAngularVelocity = v; }));
+
+        // --- DestructibleComponent (issue #459) ---
+        // A script deals structural damage by depleting `health`; the
+        // DestructibleSystem shatters the object on the next tick when it hits 0.
+        // `broken` is read-only (the system owns it). Setters validate/clamp to
+        // match the component's serializer ranges.
+        lua.new_usertype<DestructibleComponent>("DestructibleComponent",
+                                                "health", sol::property([](const DestructibleComponent& c)
+                                                                        { return c.m_Health; }, [](DestructibleComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.m_Health = v < 0.0f ? 0.0f : v; }),
+                                                "maxHealth", sol::property([](const DestructibleComponent& c)
+                                                                           { return c.m_MaxHealth; }, [](DestructibleComponent& c, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.0f) c.m_MaxHealth = v; }),
+                                                "damageThreshold", sol::property([](const DestructibleComponent& c)
+                                                                                 { return c.m_DamageThreshold; }, [](DestructibleComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f) c.m_DamageThreshold = v; }),
+                                                "chunkCount", sol::property([](const DestructibleComponent& c)
+                                                                            { return c.m_ChunkCount; }, [](DestructibleComponent& c, int v)
+                                                                            { if (v >= 0) c.m_ChunkCount = static_cast<u32>(v > 64 ? 64 : v); }),
+                                                "chunkScale", sol::property([](const DestructibleComponent& c)
+                                                                            { return c.m_ChunkScale; }, [](DestructibleComponent& c, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.01f && v <= 10.0f) c.m_ChunkScale = v; }),
+                                                "explosionImpulse", sol::property([](const DestructibleComponent& c)
+                                                                                  { return c.m_ExplosionImpulse; }, [](DestructibleComponent& c, f32 v)
+                                                                                  { if (std::isfinite(v) && v >= 0.0f) c.m_ExplosionImpulse = v; }),
+                                                "debrisLifetime", sol::property([](const DestructibleComponent& c)
+                                                                                { return c.m_DebrisLifetime; }, [](DestructibleComponent& c, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f) c.m_DebrisLifetime = v; }),
+                                                "breakOnJointBreak", &DestructibleComponent::m_BreakOnJointBreak,
+                                                "destroyOnBreak", &DestructibleComponent::m_DestroyOnBreak,
+                                                "broken", sol::readonly(&DestructibleComponent::m_Broken));
 
         // --- BoxCollider3DComponent ---
         lua.new_usertype<BoxCollider3DComponent>("BoxCollider3DComponent",

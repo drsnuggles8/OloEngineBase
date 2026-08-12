@@ -265,6 +265,38 @@ case 3559159903u: // CloudscapeComponent
     if (!SceneBinIO::Read(reader, comp.m_AffectIBL)) return false;
     break;
 }
+case 2359936345u: // DebrisComponent
+{
+    auto& comp = deserializedEntity.AddComponent<DebrisComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_RemainingLifetime)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_TotalLifetime)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Age)) return false;
+    break;
+}
+case 1682330806u: // DestructibleComponent
+{
+    auto& comp = deserializedEntity.AddComponent<DestructibleComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Health)) return false;
+    comp.m_Health = std::max(comp.m_Health, static_cast<f32>(0.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxHealth)) return false;
+    comp.m_MaxHealth = std::max(comp.m_MaxHealth, static_cast<f32>(0.0f));
+    if (!SceneBinIO::Read(reader, comp.m_DamageThreshold)) return false;
+    comp.m_DamageThreshold = std::max(comp.m_DamageThreshold, static_cast<f32>(0.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ChunkMesh)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ChunkCount)) return false;
+    comp.m_ChunkCount = std::clamp(comp.m_ChunkCount, static_cast<u32>(0), static_cast<u32>(64));
+    if (!SceneBinIO::Read(reader, comp.m_ChunkScale)) return false;
+    comp.m_ChunkScale = std::clamp(comp.m_ChunkScale, static_cast<f32>(0.01f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ChunkMass)) return false;
+    comp.m_ChunkMass = std::max(comp.m_ChunkMass, static_cast<f32>(0.001f));
+    if (!SceneBinIO::Read(reader, comp.m_ExplosionImpulse)) return false;
+    comp.m_ExplosionImpulse = std::max(comp.m_ExplosionImpulse, static_cast<f32>(0.0f));
+    if (!SceneBinIO::Read(reader, comp.m_DebrisLifetime)) return false;
+    comp.m_DebrisLifetime = std::max(comp.m_DebrisLifetime, static_cast<f32>(0.0f));
+    if (!SceneBinIO::Read(reader, comp.m_BreakOnJointBreak)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_DestroyOnBreak)) return false;
+    break;
+}
 case 2327397916u: // DirectionalLightComponent
 {
     auto& comp = deserializedEntity.AddComponent<DirectionalLightComponent>();

@@ -874,6 +874,7 @@ add_executable(OloEngine-Tests
 		Functional/SaveGame/AbilityComponentRoundTripTest.cpp
 		Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp
 		Functional/Gameplay/DamageKillsEntityAndFlipsDeathTagTest.cpp
+		Functional/Gameplay/DestructibleDebrisTest.cpp
 		Functional/Gameplay/QuestObjectiveCompletionAdvancesStageTest.cpp
 		Functional/Gameplay/PeriodicDamageEffectTicksHealthDownTest.cpp
 		Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp

@@ -1090,6 +1090,11 @@ static const std::set<std::string> kComponentsNotInSaveGame = {
     "WorldTransformComponent",
     "AudioSoundGraphComponent",
     "LocalizedTextComponent",
+    // Runtime debris marker (issue #459): spawned at play time, never authored,
+    // and transient eye-candy — deliberately not persisted through save-games (a
+    // saved mid-explosion would restore orphaned chunks). DestructibleComponent,
+    // by contrast, HAS a serializer and is NOT in this set.
+    "DebrisComponent",
 };
 
 // Components whose Scene::OnComponentAdded<T> specialization is HAND-WRITTEN in

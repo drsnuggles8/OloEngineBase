@@ -38,6 +38,7 @@ SAVE_COMPONENT(ClothComponent, entity, writer);
 SAVE_COMPONENT(CloudscapeComponent, entity, writer);
 SAVE_COMPONENT(ConvexMeshCollider3DComponent, entity, writer);
 SAVE_COMPONENT(DecalComponent, entity, writer);
+SAVE_COMPONENT(DestructibleComponent, entity, writer);
 SAVE_COMPONENT(DialogueComponent, entity, writer);
 SAVE_COMPONENT(DirectionalLightComponent, entity, writer);
 SAVE_COMPONENT(EnvironmentMapComponent, entity, writer);

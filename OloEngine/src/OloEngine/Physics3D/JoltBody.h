@@ -64,6 +64,15 @@ namespace OloEngine
         void SetCollisionLayer(u32 layerID);
         u32 GetCollisionLayer() const;
 
+        // Route this body onto the dedicated Jolt DEBRIS object layer
+        // (ObjectLayers::DEBRIS). Debris collides with static + moving geometry
+        // but is ignored by the character controller (its ignore-mask catches
+        // object-layer 4), so shattered chunks never shove the player. This is a
+        // RAW Jolt object-layer write — distinct from SetCollisionLayer, which
+        // maps a CollisionLayers/PhysicsLayerManager id and never reaches the
+        // built-in DEBRIS layer. Runtime-only; not reflected into the component.
+        void SetToDebrisLayer();
+
         void SetTrigger(bool isTrigger);
         bool IsTrigger() const;
 

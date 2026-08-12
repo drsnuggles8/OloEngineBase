@@ -951,6 +951,75 @@ namespace OloEngine
 		}
 	}
 
+	public partial class DestructibleComponent : Component
+	{
+		public float Health
+		{
+			get => InternalCalls.DestructibleComponent_GetHealth(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetHealth(Entity.ID, value);
+		}
+
+		public float MaxHealth
+		{
+			get => InternalCalls.DestructibleComponent_GetMaxHealth(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetMaxHealth(Entity.ID, value);
+		}
+
+		public float DamageThreshold
+		{
+			get => InternalCalls.DestructibleComponent_GetDamageThreshold(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetDamageThreshold(Entity.ID, value);
+		}
+
+		public ulong ChunkMesh
+		{
+			get => InternalCalls.DestructibleComponent_GetChunkMesh(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetChunkMesh(Entity.ID, value);
+		}
+
+		public uint ChunkCount
+		{
+			get => InternalCalls.DestructibleComponent_GetChunkCount(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetChunkCount(Entity.ID, value);
+		}
+
+		public float ChunkScale
+		{
+			get => InternalCalls.DestructibleComponent_GetChunkScale(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetChunkScale(Entity.ID, value);
+		}
+
+		public float ChunkMass
+		{
+			get => InternalCalls.DestructibleComponent_GetChunkMass(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetChunkMass(Entity.ID, value);
+		}
+
+		public float ExplosionImpulse
+		{
+			get => InternalCalls.DestructibleComponent_GetExplosionImpulse(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetExplosionImpulse(Entity.ID, value);
+		}
+
+		public float DebrisLifetime
+		{
+			get => InternalCalls.DestructibleComponent_GetDebrisLifetime(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetDebrisLifetime(Entity.ID, value);
+		}
+
+		public bool BreakOnJointBreak
+		{
+			get => InternalCalls.DestructibleComponent_GetBreakOnJointBreak(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetBreakOnJointBreak(Entity.ID, value);
+		}
+
+		public bool DestroyOnBreak
+		{
+			get => InternalCalls.DestructibleComponent_GetDestroyOnBreak(Entity.ID);
+			set => InternalCalls.DestructibleComponent_SetDestroyOnBreak(Entity.ID, value);
+		}
+	}
+
 	public partial class DirectionalLightComponent : Component
 	{
 		public Vector3 Color

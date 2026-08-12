@@ -191,6 +191,32 @@ if (entity.HasComponent<CloudscapeComponent>())
     SceneBinIO::Write(out, comp.m_AffectIBL);
 }
 
+if (entity.HasComponent<DebrisComponent>())
+{
+    SceneBinIO::WriteU32(out, 2359936345u); // DebrisComponent
+    auto const& comp = entity.GetComponent<DebrisComponent>();
+    SceneBinIO::Write(out, comp.m_RemainingLifetime);
+    SceneBinIO::Write(out, comp.m_TotalLifetime);
+    SceneBinIO::Write(out, comp.m_Age);
+}
+
+if (entity.HasComponent<DestructibleComponent>())
+{
+    SceneBinIO::WriteU32(out, 1682330806u); // DestructibleComponent
+    auto const& comp = entity.GetComponent<DestructibleComponent>();
+    SceneBinIO::Write(out, comp.m_Health);
+    SceneBinIO::Write(out, comp.m_MaxHealth);
+    SceneBinIO::Write(out, comp.m_DamageThreshold);
+    SceneBinIO::Write(out, comp.m_ChunkMesh);
+    SceneBinIO::Write(out, comp.m_ChunkCount);
+    SceneBinIO::Write(out, comp.m_ChunkScale);
+    SceneBinIO::Write(out, comp.m_ChunkMass);
+    SceneBinIO::Write(out, comp.m_ExplosionImpulse);
+    SceneBinIO::Write(out, comp.m_DebrisLifetime);
+    SceneBinIO::Write(out, comp.m_BreakOnJointBreak);
+    SceneBinIO::Write(out, comp.m_DestroyOnBreak);
+}
+
 if (entity.HasComponent<DirectionalLightComponent>())
 {
     SceneBinIO::WriteU32(out, 2327397916u); // DirectionalLightComponent

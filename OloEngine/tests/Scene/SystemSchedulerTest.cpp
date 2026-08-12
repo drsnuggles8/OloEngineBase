@@ -285,6 +285,11 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "Perception",
         "AI",
         "Inventory",
+        // Destructibles (issue #459): reads LocalTransforms (same resource
+        // profile as Inventory), registered immediately after it, so it lands
+        // here by the registration-order tie-break. Unmarked (structural ECS
+        // changes) — a barrier before the Parallelizable cluster.
+        "Destructible",
         "Abilities",
         // Flocking (issue #731) splits across two nodes. BoidSteering sits
         // inside the Parallelizable cluster so it genuinely overlaps
@@ -519,7 +524,11 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("Perception", "SpatialIndex"));          // perception queries the index
     EXPECT_TRUE(sched.DependsOn("AI", "Perception"));                    // AI consumes fresh sensor data
     EXPECT_TRUE(sched.DependsOn("Inventory", "PhysicsFence"));           // pickup proximity reads post-physics transforms
-    EXPECT_TRUE(sched.DependsOn("Audio", "PhysicsFence"));               // pose sync reads post-physics transforms
+    // Destructibles must observe the joint-break phase run inside PhysicsFence,
+    // so a JointBrokeEvent published there shatters the object the same tick
+    // (issue #459). RAW edge on LocalTransforms.
+    EXPECT_TRUE(sched.DependsOn("Destructible", "PhysicsFence"));
+    EXPECT_TRUE(sched.DependsOn("Audio", "PhysicsFence")); // pose sync reads post-physics transforms
     EXPECT_TRUE(sched.DependsOn("Audio", "Navigation"));
     EXPECT_TRUE(sched.DependsOn("ParticlesCPU", "PhysicsFence"));
     EXPECT_TRUE(sched.DependsOn("ParticlesGPU", "PhysicsFence"));
