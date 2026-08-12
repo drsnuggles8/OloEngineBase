@@ -134,12 +134,14 @@ An explicit `--parallel N` overrides the environment variable, so don't set one 
 
 **`CMAKE_BUILD_PARALLEL_LEVEL` caps `cmake --build` only — `ninja` does not read it.** A direct `ninja` invocation must always carry a numeric `-jN` of its own; setting the variable and then running bare `ninja` gives you the full 18-wide default with no warning. What is never acceptable is a bare `--parallel`, or a direct `ninja` without `-jN`.
 
-This is not a style preference. The dev box is 16 cores / 31 GB and *also* hosts the `gh-runner-1/2/3` runners for another repository, so a build never has the machine to itself. Neither default is a cap:
+This is not a style preference. The dev box (an i7-14700KF, 20 cores / 28 threads / 64 GB — issue #759 corrected the earlier 16c/31GB figure) *also* hosts the `gh-runner-1/2/3` runners for another repository, so a build never has the machine to itself. Neither default is a cap:
 
 - `cmake --build … --parallel` with **no number** does not pick a number itself — it forwards the omission to the native build tool, whose own default applies (unless `CMAKE_BUILD_PARALLEL_LEVEL` is set). So the width you get depends on the generator, and it is never *lower* than the tool's default.
-- With Ninja that default is `cores + 2` — 18 on this host, confirmed by `ninja --help` reporting `[default=18 on this system]`. Dropping a `--parallel N` flag therefore *raises* the width rather than lowering it.
+- With Ninja that default is `cores + 2` — 30 on this host, confirmed by `ninja --help` reporting `[default=30 on this system]`. Dropping a `--parallel N` flag therefore *raises* the width rather than lowering it.
 
 An agent session running repeated uncapped builds — especially with a test suite running alongside — has already OOM-killed this host once. If you need it faster, use ccache (already wired in), not more jobs.
+
+**Measured headroom (issue #759).** `-j6` is a deliberately conservative *floor*, not a hard limit for this hardware. An instrumented clean Debug build on this idle 64 GB host peaks at **~47 GiB (MSVC) / ~42 GiB (clang-cl)** at `-j6` — and because a handful of heavy TUs set the peak, not the lane count, `-j12` adds only **~2 GiB** of peak while running **1.3–1.6× faster** (still ~16 GiB free). So `-j12` is a safe, faster choice **when this box is otherwise idle**. Keep `-j6` as the default: it is the value that stays safe on the smaller/shared worst case and while the CI runners are active — the constraint the pool and cap were written for is the *shared* box, not the raw memory ceiling. The link pool (`OLO_LINK_JOBS=2`) is separately confirmed correct: linking is off the compile-bound critical path, so the pool costs ~0 wall-time. Details and the trace method are in [docs/agent-rules/build-trees-and-windows-asan.md](docs/agent-rules/build-trees-and-windows-asan.md) §5.
 
 Link steps are capped separately and automatically: the root `CMakeLists.txt` puts them in a Ninja job pool (`OLO_LINK_JOBS`, default 2) because linking the full static engine is the memory spike. That pool lives in the generated `build.ninja`, so it protects a bare `ninja` too — but it does **not** cap compilation, which is what the job count above is for.
 
