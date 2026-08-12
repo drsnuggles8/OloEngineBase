@@ -372,6 +372,66 @@ namespace OloEngine::MCP
                    kSupportedProtocolVersions.end();
         }
 
+        // ---- cacheable list results (spec 2026-07-28, server/utilities/caching) ----
+        //
+        // tools/list, prompts/list, resources/list and resources/read attach two
+        // optional freshness hints so a client can avoid re-fetching a result it
+        // already holds:
+        //   * ttlMs      — integer milliseconds (MUST be >= 0) the client MAY treat
+        //                  the result as fresh; semantics mirror HTTP
+        //                  Cache-Control: max-age (0 == immediately stale).
+        //   * cacheScope — "public" (no user-specific data; any cache/proxy MAY share
+        //                  it) or "private" (per-authorization-context; MUST NOT be
+        //                  shared across auth contexts).
+        //
+        // This is ADDITIVE and version-NEUTRAL: we do NOT advertise the 2026-07-28
+        // protocol (that requires the whole stateless core — server/discover, _meta
+        // identity, routing headers, resultType — explicitly out of scope for
+        // issue #777). The spec only *requires* these hints on results tagged
+        // resultType: "complete", but emitting them unconditionally is spec-compatible
+        // and harmless: older clients ignore both unknown fields, so every existing
+        // result shape is unchanged. The two fields sit at the top level of the result
+        // object, beside `tools` / `prompts` / `resources` / `contents`.
+        void AddCacheHints(Json& result, i64 ttlMs, const char* cacheScope)
+        {
+            result["ttlMs"] = ttlMs;
+            result["cacheScope"] = cacheScope;
+        }
+
+        // tools/list: the catalogue is static for a server run EXCEPT
+        // olo_script_tools_reload (issue #607), which rescans <project>/McpTools and
+        // fires notifications/tools/list_changed on every live SSE stream. Because that
+        // push is the authoritative invalidation (capabilities.tools.listChanged is
+        // true), a generous TTL is honest — it only bridges the gap between reloads.
+        // 5 min matches the spec's own worked example.
+        constexpr i64 kToolsListTtlMs = 300000;
+
+        // resources/list: the base catalogue is static, but capture tools publish and
+        // evict ephemeral resources while serving (issue #673 Tier 1), also pushed via
+        // notifications/resources/list_changed. Shorter than tools/list because that
+        // ephemeral churn is more frequent; the push again bounds staleness.
+        constexpr i64 kResourcesListTtlMs = 60000;
+
+        // prompts/list: prompts are compiled in and FIXED for the whole server run
+        // (capabilities.prompts.listChanged is false — there is no push invalidation),
+        // so the TTL is the only freshness signal. A long TTL is fully honest precisely
+        // because the list is immutable within a run; a reconnecting client
+        // re-initializes into a fresh process.
+        constexpr i64 kPromptsListTtlMs = 3600000;
+
+        // resources/read: a read reflects LIVE editor state (current frame / scene /
+        // log) and may be path-redacted per the session's redaction setting, so caching
+        // it is NOT honest — ttlMs 0 tells the client to treat it as immediately stale
+        // and re-read on demand.
+        constexpr i64 kResourcesReadTtlMs = 0;
+
+        // The three catalogues carry no user-specific data and are identical for every
+        // caller, so they are "public". A resources/read payload can depend on the
+        // redaction setting and on host-local paths, so it is "private" — it MUST NOT
+        // be shared across authorization contexts.
+        constexpr const char* kCacheScopePublic = "public";
+        constexpr const char* kCacheScopePrivate = "private";
+
         // True when `body` is a single (non-batch) tools/call that opted into
         // progress via params._meta.progressToken (string or integer per spec) —
         // the gate for upgrading the POST response to an SSE stream. Parsing here
@@ -1991,7 +2051,9 @@ namespace OloEngine::MCP
         Json tools = Json::array();
         for (const auto& tool : *snapshot)
             tools.push_back(BuildToolEntry(tool));
-        return MakeResult(id, Json{ { "tools", std::move(tools) } });
+        Json result{ { "tools", std::move(tools) } };
+        AddCacheHints(result, kToolsListTtlMs, kCacheScopePublic);
+        return MakeResult(id, std::move(result));
     }
 
     Json McpServer::HandleToolsSearch(const Json& id, const Json& params) const
@@ -2293,7 +2355,9 @@ namespace OloEngine::MCP
                 entry["size"] = resource.SizeBytes;
             resources.push_back(std::move(entry));
         }
-        return MakeResult(id, Json{ { "resources", std::move(resources) } });
+        Json result{ { "resources", std::move(resources) } };
+        AddCacheHints(result, kResourcesListTtlMs, kCacheScopePublic);
+        return MakeResult(id, std::move(result));
     }
 
     Json McpServer::HandleResourcesRead(const Json& id, const Json& params)
@@ -2323,10 +2387,12 @@ namespace OloEngine::MCP
             {
                 return MakeError(id, kInvalidRequest, std::string("Failed to read resource: ") + e.what());
             }
-            return MakeResult(id, Json{ { "contents",
-                                          Json::array({ Json{ { "uri", uri },
-                                                              { "mimeType", resource->MimeType },
-                                                              { "blob", Base64Encode(bytes) } } }) } });
+            Json result{ { "contents",
+                           Json::array({ Json{ { "uri", uri },
+                                               { "mimeType", resource->MimeType },
+                                               { "blob", Base64Encode(bytes) } } }) } };
+            AddCacheHints(result, kResourcesReadTtlMs, kCacheScopePrivate);
+            return MakeResult(id, std::move(result));
         }
 
         std::string text;
@@ -2342,10 +2408,12 @@ namespace OloEngine::MCP
         if (RedactPaths())
             text = RedactPathsInText(text);
 
-        return MakeResult(id, Json{ { "contents",
-                                      Json::array({ Json{ { "uri", uri },
-                                                          { "mimeType", resource->MimeType },
-                                                          { "text", std::move(text) } } }) } });
+        Json result{ { "contents",
+                       Json::array({ Json{ { "uri", uri },
+                                           { "mimeType", resource->MimeType },
+                                           { "text", std::move(text) } } }) } };
+        AddCacheHints(result, kResourcesReadTtlMs, kCacheScopePrivate);
+        return MakeResult(id, std::move(result));
     }
 
     const ResourceDef* McpServer::FindResource(const ResourceList& resources, const std::string& uri)
@@ -2367,7 +2435,9 @@ namespace OloEngine::MCP
                                     { "title", prompt.Title },
                                     { "description", prompt.Description } });
         }
-        return MakeResult(id, Json{ { "prompts", std::move(prompts) } });
+        Json result{ { "prompts", std::move(prompts) } };
+        AddCacheHints(result, kPromptsListTtlMs, kCacheScopePublic);
+        return MakeResult(id, std::move(result));
     }
 
     Json McpServer::HandlePromptsGet(const Json& id, const Json& params) const
