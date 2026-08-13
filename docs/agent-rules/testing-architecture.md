@@ -125,14 +125,23 @@ CI runs the suite with `ctest --parallel` ([`.github/workflows/Windows.yml`](../
 
 A fixed filesystem path, a fixed network port, or a named OS object that a **second** test case also touches will race across processes. The classic bug is a fixture whose `SetUp` / `TearDown` / `TearDownTestSuite` does `remove_all()` (or `InvalidateCache`) on a **fixed shared** location: one process's teardown deletes a concurrent process's files mid-test.
 
-**Fix — key any path you write by the process or the case**, mirroring the existing patterns:
+**Fix — never name the system temp root yourself.** Use the shared helper, [`TestTempDir.h`](../../OloEngine/tests/TestTempDir.h):
 
-- **By PID** — `temp_directory_path() / ("olo_..._" + std::to_string(_getpid()))`. See [ShaderBinaryCacheRoundTripTest.cpp](../../OloEngine/tests/Rendering/ShaderBinaryCacheRoundTripTest.cpp), [MeshBinarySerializerTest.cpp](../../OloEngine/tests/Serialization/MeshBinarySerializerTest.cpp), [ShaderPackTest.cpp](../../OloEngine/tests/Rendering/ShaderPackTest.cpp), [InputActionTest.cpp](../../OloEngine/tests/InputActionTest.cpp).
-- **By gtest case name** — `temp_directory_path() / (test_info()->test_suite_name() + "." + test_info()->name())`. See [MeshAssetSerializerTest.cpp](../../OloEngine/tests/Serialization/MeshAssetSerializerTest.cpp), [AutoSaveTest.cpp](../../OloEngine/tests/AutoSaveTest.cpp), and the Functional Lua tests.
+```cpp
+#include "TestTempDir.h"
 
-A fixed path used by **exactly one** case is fine — only one process ever touches it. Fixed ports are fine here only because the offenders either never bind (GNS uninitialised → `StartListening` returns false) or are in the workflow's `--exclude-regex` (`NetworkIntegrationTest`).
+OloEngine::Tests::TempDir()             // this process, this gtest case — created for you
+OloEngine::Tests::TempDir("staging")    // ...a second directory for the same case
+OloEngine::Tests::TempFile("cfg.yaml")  // a file inside it; parent created, file not
+```
 
-When you add a test that writes files, grep your new file for `temp_directory_path` and confirm the path is PID- or case-keyed.
+It roots every scratch path in `<temp>/OloEngineTests/<pid>_<random64>`, **claimed exclusively** at first use (so a recycled PID cannot adopt a crashed run's leftovers) and removed at process exit; the leaf under it is the gtest case. That covers both axes: sibling cases in one run, *and* two concurrent runs of the binary — two worktrees on one box, or a local run alongside CI, where case-name keying alone collides. `OLO_TEST_KEEP_TEMP=1` keeps the tree for a post-mortem.
+
+This is enforced, not conventional: the `test-temp-dir-isolated` pre-commit hook ([`check_temp_dir_isolation.py`](../../OloEngine/tests/scripts/check_temp_dir_isolation.py)) fails any direct `std::filesystem::temp_directory_path()` call under `OloEngine/tests`. A site that genuinely must name the system temp root opts out with `// OLO_TEMP_DIR_OK: <reason>` — currently only the three libFuzzer targets, which are separate executables with no gtest case to key by.
+
+Fixed **ports** are a separate story, and fine here only because the offenders either never bind (GNS uninitialised → `StartListening` returns false) or are in the workflow's `--exclude-regex` (`NetworkIntegrationTest`).
+
+Issue #789 is the postmortem — including why the "144 of 154 sites are unsafe" headline was wrong, and why the five sites that *were* genuinely racing never showed up on CI. See [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md).
 
 ### 6.2 Shared resources that can't be process-keyed → serialize in CMake
 

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 // =============================================================================
 // StaticMeshColliderGenerationTest — honors StaticMesh::m_GenerateColliders.
@@ -106,12 +107,13 @@ namespace
         return source;
     }
 
-    // Fresh, never-reused scratch dir under the system temp area — mirrors
-    // MeshCookingFactoryCacheTest so concurrent test processes never collide.
+    // Fresh, never-reused scratch dir — mirrors MeshCookingFactoryCacheTest. The
+    // helper already isolates by process and case; the counter keeps successive
+    // calls WITHIN one case from reusing a directory.
     fs::path MakeUniqueScratchDir(const char* tag)
     {
         static std::atomic<u64> s_Counter{ 0 };
-        const auto base = fs::temp_directory_path() / "OloEngineTests" / tag;
+        const auto base = OloEngine::Tests::TempDir(tag);
         const auto nanos = std::chrono::steady_clock::now().time_since_epoch().count();
         const auto seq = s_Counter.fetch_add(1, std::memory_order_relaxed);
 
@@ -157,9 +159,7 @@ class StaticMeshColliderGenerationTest : public ::testing::Test
 
     void SetUp() override
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string folder = std::string(info->test_suite_name()) + "." + info->name();
-        m_TempDir = fs::temp_directory_path() / "OloEngineStaticMeshCollider" / folder;
+        m_TempDir = OloEngine::Tests::TempDir();
 
         std::error_code ec;
         fs::remove_all(m_TempDir, ec);

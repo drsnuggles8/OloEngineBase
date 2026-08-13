@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetMetadata.h"
@@ -13,20 +14,6 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
-#ifdef _WIN32
-#include <process.h> // _getpid()
-inline int OloRtGetPid()
-{
-    return _getpid();
-}
-#else
-#include <unistd.h>
-inline int OloRtGetPid()
-{
-    return static_cast<int>(getpid());
-}
-#endif
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 
@@ -103,9 +90,7 @@ class RuntimeAssetManagerTest : public ::testing::Test
         ASSERT_TRUE(writer.IsStreamGood());
     }
 
-    std::filesystem::path m_TempPath =
-        std::filesystem::temp_directory_path() /
-        ("olo_test_runtime_assetmgr_" + std::to_string(OloRtGetPid()) + ".olopack");
+    std::filesystem::path m_TempPath = OloEngine::Tests::TempFile("runtime_assetmgr.olopack");
 };
 
 // ----------------------------------------------------------------------------

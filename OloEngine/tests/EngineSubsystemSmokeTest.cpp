@@ -20,6 +20,7 @@
 #include "OloEnginePCH.h"
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Project/Project.h"
 
@@ -81,8 +82,7 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(EngineSubsystemSmoke, ProjectLoadMissingPathFailsCleanly)
     {
-        const fs::path missing = fs::temp_directory_path() /
-                                 "OloEngineSubsystemSmoke_does_not_exist.oloproj";
+        const fs::path missing = OloEngine::Tests::TempFile("OloEngineSubsystemSmoke_does_not_exist.oloproj");
         std::error_code ec;
         fs::remove(missing, ec); // Ensure clean state — ignore "not found" errors.
 
@@ -101,8 +101,7 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(EngineSubsystemSmoke, ProjectLoadMalformedYAMLFailsCleanly)
     {
-        const fs::path garbage = fs::temp_directory_path() /
-                                 "OloEngineSubsystemSmoke_garbage.oloproj";
+        const fs::path garbage = OloEngine::Tests::TempFile("OloEngineSubsystemSmoke_garbage.oloproj");
         {
             std::ofstream out(garbage);
             // Deliberately broken — unterminated mapping, conflicting
@@ -137,7 +136,7 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(EngineSubsystemSmoke, ProjectSaveActiveLoadRoundTrip)
     {
-        const fs::path tempDir = fs::temp_directory_path() / "OloEngineSubsystemSmoke_roundtrip";
+        const fs::path tempDir = OloEngine::Tests::TempDir("roundtrip");
         std::error_code ec;
         fs::remove_all(tempDir, ec);
         fs::create_directories(tempDir, ec);
@@ -191,8 +190,7 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(EngineSubsystemSmoke, ProjectSaveActiveLoadExtendedFieldsRoundTrip)
     {
-        const fs::path tempDir = fs::temp_directory_path() /
-                                 "OloEngineSubsystemSmoke_roundtrip_extended";
+        const fs::path tempDir = OloEngine::Tests::TempDir("roundtrip_extended");
         std::error_code ec;
         fs::remove_all(tempDir, ec);
         fs::create_directories(tempDir / "Assets", ec);

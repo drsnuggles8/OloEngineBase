@@ -56,6 +56,7 @@
 #include "OloEnginePCH.h"
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -75,12 +76,6 @@
 
 #include <algorithm>
 #include <filesystem>
-#if defined(_WIN32)
-#include <process.h>
-#define getpid _getpid
-#else
-#include <unistd.h>
-#endif
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -104,67 +99,23 @@ namespace OloEngine::Tests
         {
             const fs::path sandboxRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject";
 
+            // A FIXED name under a shared, sticky /tmp is not usable. This repo's
+            // self-hosted CI runs the suite as its own account, so
+            // /tmp/OloEngineSceneLoad can already exist owned by a different user —
+            // and the sticky bit then makes it un-removable AND un-recreatable for
+            // everyone else, failing this test forever. Two concurrent runs on one
+            // box (several runners share this host) would likewise fight over the
+            // same tree mid-copy.
+            //
+            // TempDir() hands back a directory under a root this process claimed
+            // EXCLUSIVELY (TestTempDir.h): it is never a directory we merely found,
+            // so it can never be a live staging tree belonging to a concurrent run.
+            // That is the property the hand-rolled claim loop here used to provide.
             std::error_code ec;
-            const fs::path tempDir = fs::temp_directory_path(ec);
-            if (ec)
+            const fs::path tempRoot = OloEngine::Tests::TempDir("sandbox");
+            if (!fs::is_directory(tempRoot, ec))
             {
-                error = "temp_directory_path failed: " + ec.message();
-                return {};
-            }
-
-            // A FIXED name under a shared, sticky /tmp is not usable. This
-            // repo's self-hosted CI runs the suite as its own account, so
-            // /tmp/OloEngineSceneLoad can already exist owned by a different
-            // user — and the sticky bit then makes it un-removable AND
-            // un-recreatable for everyone else, failing this test forever.
-            // Two concurrent runs on one box (several runners share this
-            // host) would likewise fight over the same tree mid-copy.
-            //
-            // Name the root after this process, then claim it EXCLUSIVELY.
-            //
-            // An earlier version removed a pre-existing candidate before
-            // claiming it, on the theory that it was our own leftover. That is
-            // not a safe assumption: remove_all succeeds for any directory
-            // owned by the same user, including one a CONCURRENT run by that
-            // same user is copying into right now — so the reclaim step could
-            // delete a live staging tree mid-copy, which is precisely the
-            // collision this loop exists to avoid.
-            //
-            // create_directory returns false when the path already exists, so
-            // it doubles as the claim: we only ever proceed with a directory
-            // we just created, and never touch one we did not. A crashed run
-            // therefore leaks its directory rather than risking a live one;
-            // the pid keeps those out of the way of new runs, and the attempt
-            // suffix covers a recycled pid whose leftovers are still present.
-            const long long pid = static_cast<long long>(::getpid());
-            std::error_code lastError;
-            fs::path tempRoot;
-            for (u32 attempt = 0; attempt < 64; ++attempt)
-            {
-                const fs::path candidate =
-                    tempDir / ("OloEngineSceneLoad-" + std::to_string(pid) + "-" + std::to_string(attempt));
-
-                ec.clear();
-                if (fs::create_directory(candidate, ec) && !ec)
-                {
-                    tempRoot = candidate;
-                    break;
-                }
-                // Keep the last REAL error. A candidate that merely already
-                // exists returns false with ec == success, which would
-                // otherwise overwrite a genuine earlier failure and report
-                // "last error: Success".
-                if (ec)
-                    lastError = ec;
-            }
-
-            if (tempRoot.empty())
-            {
-                error = "could not create a staging dir under " + tempDir.string();
-                if (lastError)
-                    error += " (last error: " + lastError.message() + ")";
-                else
-                    error += " (all candidate names were already taken)";
+                error = "could not create a staging dir at " + tempRoot.string();
                 return {};
             }
 

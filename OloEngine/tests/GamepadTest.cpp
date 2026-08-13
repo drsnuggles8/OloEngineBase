@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 #include "OloEngine/Core/Gamepad.h"
 #include "OloEngine/Core/GamepadCodes.h"
 #include "OloEngine/Core/IInputProvider.h"
@@ -274,7 +275,7 @@ TEST(GamepadSerializationTest, RoundTrip)
     map.AddAction({ "Jump", { InputBinding::Key(Key::Space), InputBinding::GamepadBtn(GamepadButton::South) } });
     map.AddAction({ "MoveX", { InputBinding::GamepadAx(GamepadAxis::LeftX, 0.4f, true) } });
 
-    std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "gamepad_test_actions.yaml";
+    std::filesystem::path tempPath = OloEngine::Tests::TempFile("gamepad_test_actions.yaml");
     InputActionSerializer::ContextMaps contexts;
     contexts[InputContextType::Gameplay] = map;
     ASSERT_TRUE(InputActionSerializer::SerializeContexts(contexts, tempPath));

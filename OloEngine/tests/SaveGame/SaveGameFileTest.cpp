@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
@@ -17,12 +18,7 @@ class SaveGameFileTest : public ::testing::Test
   protected:
     void SetUp() override
     {
-        const auto* testInfo = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::string testName = std::string(testInfo->test_suite_name()) + "_" + testInfo->name();
-        m_TempPath = std::filesystem::temp_directory_path() / ("olo_test_" + testName + ".olosave");
-        // Clean up any leftover
-        std::error_code ec;
-        std::filesystem::remove(m_TempPath, ec);
+        m_TempPath = OloEngine::Tests::TempFile("save.olosave");
     }
 
     void TearDown() override

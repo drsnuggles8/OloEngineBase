@@ -61,6 +61,7 @@
 #include <GLFW/glfw3.h>
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -1178,7 +1179,7 @@ namespace OloEngine::Tests
             if (!Project::GetActive() || !Project::GetAssetManager())
             {
                 std::error_code ec;
-                fs::path const projectDir = fs::temp_directory_path() / "OloEngineVirtualGeometryPerf";
+                fs::path const projectDir = OloEngine::Tests::TempDir("project");
                 fs::create_directories(projectDir / "Assets", ec);
                 ASSERT_FALSE(ec) << "failed to create temp project dir";
                 {

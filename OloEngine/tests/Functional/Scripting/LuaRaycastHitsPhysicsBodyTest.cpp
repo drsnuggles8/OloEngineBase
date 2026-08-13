@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestTempDir.h"
 
 // =============================================================================
 // LuaRaycastHitsPhysicsBodyTest — Functional Test.
@@ -42,9 +43,7 @@ namespace
 {
     std::filesystem::path WriteScript(const std::string& contents, const char* nameStem)
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string fileName = std::string("olo_functional_") + nameStem + "_" + (info ? info->name() : "unknown") + ".lua";
-        const auto path = std::filesystem::temp_directory_path() / fileName;
+        const auto path = OloEngine::Tests::TempFile(std::string("olo_functional_") + nameStem + ".lua");
         std::ofstream(path, std::ios::binary | std::ios::trunc) << contents;
         return path;
     }

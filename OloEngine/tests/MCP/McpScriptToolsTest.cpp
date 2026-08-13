@@ -24,6 +24,7 @@
 //   * `icons` round-trip from RegisterMcpTool{} into tools/list.
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "MCP/McpScriptTools.h"
 #include "MCP/McpServer.h"
@@ -52,11 +53,7 @@ namespace
         McpScriptToolsTest()
             : m_Server(EditorMcpContext{})
         {
-            const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-            m_Dir = std::filesystem::temp_directory_path() /
-                    (std::string("olo-mcp-script-tools-") + info->name());
-            std::filesystem::remove_all(m_Dir);
-            std::filesystem::create_directories(m_Dir);
+            m_Dir = OloEngine::Tests::TempDir("scripts");
 
             // A native read-only tool + a native write tool, for the bridge tests.
             ToolDef echo;

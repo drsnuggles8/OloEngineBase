@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestTempDir.h"
 #include "FunctionalTest.h"
 
 #include "OloEngine/Physics3D/Physics3DSystem.h"
@@ -298,17 +299,12 @@ namespace OloEngine::Functional
 
     void FunctionalTest::EnableAssetManager(const std::vector<std::filesystem::path>& assetsToStage)
     {
-        // Build a unique temp project per-test under <temp>/OloEngineFunctional/<suite>.<name>/
-        // so parallel ctest runs don't fight over the same registry path. This
-        // path becomes Project::GetProjectDirectory() — EditorAssetManager's
-        // SerializeAssetRegistry will write AssetRegistry.oar HERE, not in
-        // the working tree.
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string folder = std::string(info ? info->test_suite_name() : "Unknown") + "." + std::string(info ? info->name() : "Unknown");
-
+        // A scratch project owned by this process and this case. It becomes
+        // Project::GetProjectDirectory(), so EditorAssetManager's
+        // SerializeAssetRegistry writes AssetRegistry.oar HERE, not in the
+        // working tree — and never into a path a concurrent test process shares.
         std::error_code ec;
-        m_AssetProjectDir = std::filesystem::temp_directory_path() / "OloEngineFunctional" / folder;
-        std::filesystem::remove_all(m_AssetProjectDir, ec);
+        m_AssetProjectDir = OloEngine::Tests::TempDir("project");
         std::filesystem::create_directories(m_AssetProjectDir / "Assets", ec);
         if (ec)
         {

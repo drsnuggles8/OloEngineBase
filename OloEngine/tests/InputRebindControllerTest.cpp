@@ -1,6 +1,7 @@
 // OLO_TEST_LAYER: unit
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -12,12 +13,6 @@
 #include <algorithm>
 #include <filesystem>
 #include <string>
-
-#ifdef _WIN32
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 
@@ -36,13 +31,7 @@ namespace
 
     std::filesystem::path TempYamlPath(const char* stem)
     {
-        auto dir = std::filesystem::temp_directory_path();
-#ifdef _WIN32
-        const auto pid = static_cast<unsigned>(_getpid());
-#else
-        const auto pid = static_cast<unsigned>(getpid());
-#endif
-        return dir / (std::string("olo_rebind_") + stem + "_" + std::to_string(pid) + ".yaml");
+        return OloEngine::Tests::TempFile(std::string(stem) + ".yaml");
     }
 } // namespace
 

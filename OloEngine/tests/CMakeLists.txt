@@ -1,6 +1,11 @@
 ﻿enable_testing()
 add_executable(OloEngine-Tests
 		OloEngineTest.cpp
+		# Per-process, per-case scratch paths. Every test that writes a file goes
+		# through this instead of std::filesystem::temp_directory_path() — see
+		# docs/agent-rules/shared-temp-dir-test-isolation.md (issue #789).
+		TestTempDir.cpp
+		TestTempDirTest.cpp
 		FastRandomTest.cpp
 		RefTest.cpp
 		ContainerTest.cpp
@@ -1011,8 +1016,13 @@ include(GoogleTest)
 # Parallel-safety: CI runs the suite with `ctest --parallel`, and because
 # gtest_discover_tests registers every gtest case as its own ctest entry, each
 # case runs in its own OloEngine-Tests.exe process — different cases of the same
-# fixture run concurrently. Most tests are process-isolated already (temp paths
-# keyed by PID / gtest case name); see the "Parallel-safety contract" section in
+# fixture run concurrently. Every test scratch path comes from
+# OloEngine::Tests::TempDir() / TempFile() (TestTempDir.h), which roots them in a
+# directory this process claimed exclusively and keys the leaf by gtest case; the
+# `test-temp-dir-isolated` pre-commit hook fails any direct temp_directory_path()
+# call, so the property is enforced rather than asserted (issue #789 — the earlier
+# wording here, "most tests are process-isolated already", had never been
+# measured). See the "Parallel-safety contract" section in
 # docs/agent-rules/testing-architecture.md.
 #
 # The one resource that is NOT process-isolated is the engine's SHARED,

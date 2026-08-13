@@ -40,6 +40,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include <filesystem>
 #include <vector>
@@ -157,7 +158,7 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        const auto path = std::filesystem::temp_directory_path() / "olo_rhi_handle_reload_691.png";
+        const auto path = OloEngine::Tests::TempFile("olo_rhi_handle_reload_691.png");
         ASSERT_TRUE(WriteSolidPng(path, 2, 2, 255, 0, 0, 255));
 
         // Non-const: Reload() mutates the object in place, which is the whole

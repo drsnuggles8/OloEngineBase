@@ -67,6 +67,7 @@ you are in.
 - [live-verification-noise-floor.md](docs/agent-rules/live-verification-noise-floor.md) — measure the frame-to-frame noise floor before attributing any pixel difference to your change, and confirm the editor is drawing frames at all.
 - [procedural-generator-golden-coupling.md](docs/agent-rules/procedural-generator-golden-coupling.md) — a determinism/quality fix to a generator invalidates every golden that captured it; fix and rebake must ship in the same PR.
 - [timed-wait-test-assertions.md](docs/agent-rules/timed-wait-test-assertions.md) — a millisecond-granularity lower bound on a timed wait is a flake trap; measure in µs and assert one-sided.
+- [shared-temp-dir-test-isolation.md](docs/agent-rules/shared-temp-dir-test-isolation.md) — every gtest case is its own process, so a fixed temp path is cross-process shared state; use `TestTempDir.h`, never `temp_directory_path()`.
 
 **Build & dependencies**
 

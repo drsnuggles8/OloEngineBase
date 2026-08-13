@@ -22,6 +22,7 @@
 #include "OloEnginePCH.h"
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Project/Project.h"
@@ -101,7 +102,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(fs::exists(modelPath))
             << "Fixture asset missing: " << modelPath.string();
 
-        const fs::path tempDir = fs::temp_directory_path() / "OloEngineAnimatedModelDedupTest";
+        const fs::path tempDir = OloEngine::Tests::TempDir("project");
         std::error_code ec;
         fs::remove_all(tempDir, ec);
         const fs::path projectFile = WriteThrowawayProjectPointingAt(assetDir, tempDir);

@@ -21,6 +21,7 @@
 #include "OloEnginePCH.h"
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -39,10 +40,6 @@
 #include <unordered_map>
 #include <vector>
 
-#ifdef _WIN32
-#include <process.h>
-#endif
-
 namespace OloEngine::Tests
 {
     namespace
@@ -51,12 +48,7 @@ namespace OloEngine::Tests
 
         std::filesystem::path TestDir()
         {
-#ifdef _WIN32
-            const auto pid = static_cast<long long>(_getpid());
-#else
-            const auto pid = static_cast<long long>(::getpid());
-#endif
-            return std::filesystem::temp_directory_path() / ("olo_scenebin_test_" + std::to_string(pid));
+            return OloEngine::Tests::TempDir("scenebin");
         }
 
         // A recognisable per-entity expectation captured before serialize.
@@ -131,15 +123,10 @@ namespace OloEngine::Tests
         class SceneBinarySidecarTest : public ::testing::Test
         {
           protected:
-            void SetUp() override
-            {
-                std::filesystem::create_directories(TestDir());
-            }
-            static void TearDownTestSuite()
-            {
-                std::error_code ec;
-                std::filesystem::remove_all(TestDir(), ec);
-            }
+            // TestDir() creates itself, and the per-process root is removed at
+            // exit (TestTempDir.h). A TearDownTestSuite hook would clean the WRONG
+            // path — current_test_info() is null outside a running case, so
+            // TestDir() would resolve to a different directory than any test used.
 
             std::filesystem::path ScenePath(const std::string& name) const
             {

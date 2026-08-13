@@ -39,6 +39,7 @@
 #include <stb_image/stb_image.h>
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include <algorithm>
 #include <cmath>
@@ -205,11 +206,7 @@ namespace OloEngine::Tests
 
         std::filesystem::path MakeTempPath(const std::string& filename)
         {
-            std::error_code ec;
-            auto base = std::filesystem::temp_directory_path(ec);
-            if (ec)
-                base = std::filesystem::current_path();
-            return base / ("olo_gpu_inspector_test_" + filename);
+            return OloEngine::Tests::TempFile(filename);
         }
     } // namespace
 

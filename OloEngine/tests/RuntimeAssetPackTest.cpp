@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 // =============================================================================
 // RuntimeAssetPackTest — runtime asset-pack loading pipeline.
@@ -47,20 +48,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#ifdef _WIN32
-#include <process.h> // _getpid()
-inline int OloRapGetPid()
-{
-    return _getpid();
-}
-#else
-#include <unistd.h>
-inline int OloRapGetPid()
-{
-    return static_cast<int>(getpid());
-}
-#endif
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 
@@ -204,7 +191,7 @@ TEST(RuntimeAssetPackTest, SceneSerializerPackRoundTrip)
     const std::string yaml = MakeEmptySceneYaml();
     ASSERT_FALSE(yaml.empty()) << "Empty scene must serialize to non-empty YAML";
 
-    const fs::path tmp = fs::temp_directory_path() / ("olo_scene_blob_" + std::to_string(OloRapGetPid()) + ".bin");
+    const fs::path tmp = OloEngine::Tests::TempFile("scene_blob.bin");
 
     // Scene bytes at offset 0, in the on-pack format.
     {
@@ -241,7 +228,7 @@ TEST(RuntimeAssetPackTest, SceneRoutingUsesSceneInfoOffset)
     ASSERT_FALSE(yaml.empty());
 
     const AssetHandle sceneHandle = static_cast<AssetHandle>(0xABC123ULL);
-    const fs::path packPath = fs::temp_directory_path() / ("olo_scene_pack_" + std::to_string(OloRapGetPid()) + ".olopack");
+    const fs::path packPath = OloEngine::Tests::TempFile("scene.olopack");
 
     PackEntry scene;
     scene.Handle = sceneHandle;
@@ -324,7 +311,7 @@ TEST(RuntimeAssetPackTest, AsyncLoadIntegratesThroughManager)
     (void)s_SchedulerStarted;
 
     const AssetHandle audioHandle = static_cast<AssetHandle>(0xA0D10ULL);
-    const fs::path packPath = fs::temp_directory_path() / ("olo_async_pack_" + std::to_string(OloRapGetPid()) + ".olopack");
+    const fs::path packPath = OloEngine::Tests::TempFile("async.olopack");
 
     // AudioFileSourceSerializer::DeserializeFromAssetPack reads a single string
     // (the source path) via StreamReader::ReadString — [u64 length][bytes].
@@ -396,7 +383,7 @@ TEST(RuntimeAssetPackTest, DeserializeFromAssetPackAnalyzesRealAudioMetadata)
     // Write the (absolute) fixture path into a synthetic pack blob exactly as
     // AudioFileSourceSerializer::SerializeToAssetPack does: a single length-prefixed
     // string. An absolute path resolves without needing an active Project.
-    const fs::path tmp = fs::temp_directory_path() / ("olo_audio_meta_" + std::to_string(OloRapGetPid()) + ".bin");
+    const fs::path tmp = OloEngine::Tests::TempFile("audio_meta.bin");
     {
         FileStreamWriter writer(tmp);
         ASSERT_TRUE(writer.IsStreamGood());
@@ -437,11 +424,11 @@ TEST(RuntimeAssetPackTest, DeserializeFromAssetPackAnalyzesRealAudioMetadata)
 // -----------------------------------------------------------------------------
 TEST(RuntimeAssetPackTest, DeserializeFromAssetPackFallsBackToDefaultsWhenSourceMissing)
 {
-    const fs::path missingPath = fs::temp_directory_path() / ("olo_missing_audio_" + std::to_string(OloRapGetPid()) + ".wav");
+    const fs::path missingPath = OloEngine::Tests::TempFile("missing_audio.wav");
     std::error_code removeEc;
     fs::remove(missingPath, removeEc); // make sure it really doesn't exist
 
-    const fs::path tmp = fs::temp_directory_path() / ("olo_audio_meta_missing_" + std::to_string(OloRapGetPid()) + ".bin");
+    const fs::path tmp = OloEngine::Tests::TempFile("audio_meta_missing.bin");
     {
         FileStreamWriter writer(tmp);
         ASSERT_TRUE(writer.IsStreamGood());

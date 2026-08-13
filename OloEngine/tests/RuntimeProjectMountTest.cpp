@@ -32,6 +32,7 @@
 // =============================================================================
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Project/Project.h"
 
@@ -51,13 +52,9 @@ class RuntimeProjectMountTest : public ::testing::Test
         // this test can't strand the suite on a directory it then deletes.
         m_PreviousProject = Project::GetActive();
 
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::error_code ec;
-        m_GameDir = std::filesystem::temp_directory_path() / "OloEngineRuntimeProject" /
-                    std::string(info ? info->name() : "Unknown");
-        std::filesystem::remove_all(m_GameDir, ec);
-        std::filesystem::create_directories(m_GameDir, ec);
-        ASSERT_FALSE(ec) << "could not stage the fake game directory: " << ec.message();
+        m_GameDir = OloEngine::Tests::TempDir("game");
+        ASSERT_TRUE(std::filesystem::is_directory(m_GameDir))
+            << "could not stage the fake game directory: " << m_GameDir.string();
     }
 
     void TearDown() override

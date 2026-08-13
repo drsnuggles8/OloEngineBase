@@ -2,15 +2,10 @@
 #include "DirectoryTree.h"
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include <filesystem>
 #include <fstream>
-#include <thread>
-#ifdef _WIN32
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
 
 using namespace OloEngine; // NOLINT
 
@@ -23,13 +18,7 @@ namespace
 
         TempDirectoryFixture()
         {
-            auto tid = std::hash<std::thread::id>{}(std::this_thread::get_id());
-#ifdef _WIN32
-            auto pid = static_cast<unsigned>(_getpid());
-#else
-            auto pid = static_cast<unsigned>(getpid());
-#endif
-            Root = std::filesystem::temp_directory_path() / ("OloEngine_DirTreeTest_" + std::to_string(tid) + "_" + std::to_string(pid));
+            Root = OloEngine::Tests::TempDir("tree");
             std::filesystem::remove_all(Root);
 
             // Create a small directory tree:
