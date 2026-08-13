@@ -21,13 +21,18 @@ Skip the MAIN worktree (the entry whose path == $BASE, branch master) — that's
 repo, not worktree work. For every OTHER worktree, classify with the SAME gate
 `/cleanup-worktree` uses:
 
-- **completed** = ALL of: branch landed
-    (`git -C $BASE merge-base --is-ancestor <branch> origin/master` exit 0, **or** a MERGED PR
-    whose `headRefOid` == the branch HEAD — a squash merge defeats `--is-ancestor`)
-    AND **no OPEN PR for the branch**
-    (`gh pr list --state open --head <branch> --repo <owner/repo>` is empty)
-    AND working tree clean (`git -C <wtPath> status --porcelain` empty)
-    AND nothing unpushed (`git -C $BASE rev-list --count origin/master..<branch>` == 0).
+- **completed** = ALL of: branch landed, AND **no OPEN PR for the branch**
+    (`gh pr list --state open --head <branch> --repo <owner/repo>` is empty),
+    AND working tree clean (`git -C <wtPath> status --porcelain` empty).
+
+    "Landed" has **two** forms, and which one applies decides whether the unpushed check runs:
+      - *ancestor* — `git -C $BASE merge-base --is-ancestor <branch> origin/master` exit 0.
+        Then also require nothing unpushed:
+        `git -C $BASE rev-list --count origin/master..<branch>` == 0.
+      - *squash-merged* — a MERGED PR whose `headRefOid` == the branch HEAD. **Skip the unpushed
+        check entirely here.** A squash merge rewrites the commits, so `rev-list` can never be 0
+        and `--is-ancestor` never passes; applying that clause would mark the worktree incomplete
+        forever and re-open its window on every single sweep.
 - **incomplete (RESUME candidate)** = anything that fails that gate: uncommitted changes,
     unmerged commits, or an open PR.
 

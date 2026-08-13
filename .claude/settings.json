@@ -3,7 +3,6 @@
   "permissions": {
     "allow": [
       "Bash(git add *)",
-      "Bash(cmake --build build --target OloEngine OloEngine-Tests OloEditor --config Debug --parallel)",
       "Bash(gh run *)",
       "Bash(git worktree *)",
       "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe)",
@@ -17,7 +16,6 @@
       "mcp__sonarqube__search_sonar_issues_in_projects",
       "mcp__sonarqube__show_rule",
       "mcp__sonarqube__search_my_sonarqube_projects",
-      "Bash(cmake --build build --target OloEngine-Tests --config Debug --parallel)",
       "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe *)",
       "Bash(tasklist *)",
       "Bash(git rev-list *)",
@@ -34,7 +32,9 @@
       "Bash(git fetch *)",
       "Bash(build\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe *)",
       "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe)",
-      "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe *)"
+      "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe *)",
+      "Bash(pwsh -File .claude/skills/run-oloengine/build-lock.ps1 *)",
+      "Bash(pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 *)"
     ],
     "additionalDirectories": [
       "\\tmp"
@@ -54,5 +54,5 @@
       }
     ]
   },
-  "_comment": "Shared Claude Code project settings. Per-user permissions live in settings.local.json (gitignored). Per-user state lives elsewhere in .claude/ (also gitignored)."
+  "_comment": "Shared Claude Code project settings. Per-user permissions live in settings.local.json (gitignored). Per-user state lives elsewhere in .claude/ (also gitignored). NOTE: bare `cmake --build` is deliberately NOT pre-authorized — builds go through .claude/skills/run-oloengine/build-lock.ps1, the cross-worktree mutex (one Debug build peaks at ~47 GiB of 64). A direct cmake build still works, it just prompts."
 }

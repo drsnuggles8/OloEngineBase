@@ -36,8 +36,9 @@ A component is emitted iff **every non-skipped data member** is serializer-trivi
 and the component is not in `kComponentsCustomSerialize`. Members annotated `OLO_SERIALIZE(Skip)`
 (§3) are excluded from that judgement entirely — they neither have to be trivial nor public, which
 is what lets an otherwise-all-trivial component keep one runtime field and still be generated. The
-classifier's own type enum is `SceneSerType`; enum members are recognised via `CollectEnumTypes`,
-nested structs via `CollectStructBodies`.
+classifier's own type enum is `PropType`; `SceneSerType(...)` is the function that maps a written
+member type onto it. Enum members are recognised via `CollectEnumTypes`, nested structs via
+`CollectStructBodies`.
 
 ### Trivial member types
 

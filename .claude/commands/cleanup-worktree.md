@@ -69,8 +69,17 @@ the §2 trap.)
     git -C $BASE branch -d feature/<slug>        # -d (safe): refuses if not merged
     git -C $BASE worktree prune
     git -C $BASE fetch --prune origin            # drop the deleted remote branch
-Run branch -d per removed worktree. `branch -d` refusing is a signal the branch wasn't
-actually merged — re-check §2, don't reach for -D unless I told you to discard.
+
+Run branch -d per removed worktree. **Which delete flag is correct depends on which §2(a) form
+the branch satisfied:**
+
+- *ancestor* form → `-d`. It succeeds, and a refusal is a real signal the branch didn't merge —
+  re-check §2 rather than escalating.
+- *squash-merged* form → `-d` **will refuse**, because git cannot see the branch in master's
+  history at all. That refusal is expected, not evidence of unmerged work. Only here is `-D`
+  correct, and only after you have already confirmed BOTH §2(a)'s merged-PR `headRefOid` match
+  AND §2(b)'s no-open-PR check — the PR is the sole proof the work landed, so verify it before
+  forcing, never after.
 
 ## 5. Close the loop for each removed worktree — heal the registry (same policy as `/start-work` §2b)
 

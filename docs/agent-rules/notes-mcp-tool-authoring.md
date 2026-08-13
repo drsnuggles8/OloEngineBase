@@ -121,9 +121,21 @@ The server already negotiates 2025-06-18, so annotations need no protocol bump. 
 
 > **There is no runtime reflection.** `OLO_PROPERTY()` expands to *nothing* — it is a compile-time
 > marker OloHeaderTool consumes to emit static glue. A generic field-write tool therefore cannot
-> look up a `(component, field)` setter at runtime; it needs its own registry of `Component::*member`
-> pointers plus templated JSON→type coercion. Field **names** must be the `m_`-stripped struct keys
-> the SceneSerializer writes, so the write contract matches what an agent reads back.
+> look up a `(component, field)` setter at runtime; it needs its own registry plus templated
+> JSON→type coercion. Field **names** must be the `m_`-stripped struct keys the SceneSerializer
+> writes, so the write contract matches what an agent reads back.
+>
+> The registry has **three** accessor kinds, and a new writable field must pick one:
+>
+> | Builder | For |
+> |---|---|
+> | `MakeField` / `MakeFieldAccess` | a public data member reachable as `comp.member` — the common case |
+> | `MakeSetterField` | a private member behind an `OLO_PROPERTY` Get/Set pair, called on the live component (see [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md)) |
+> | `MakeMapKeyField` | a **map-backed** field with no compile-time-known keys — addressed by a dotted `field.key` path with custom get/set callbacks |
+>
+> `MorphTargetComponent::Weights` is the map case: its keyset doesn't exist until a
+> `MorphTargetSet` is bound at runtime, so there is no static field name to register per key. One
+> `MakeMapKeyField` entry covers every key.
 >
 > *Since these notes were written the registry became generated* — see `CLAUDE.md` → OloHeaderTool,
 > `McpFieldRegistry.Generated.inl` — and setter-based fields exist for private members

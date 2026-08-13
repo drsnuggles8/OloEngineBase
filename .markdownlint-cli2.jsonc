@@ -2,8 +2,16 @@
 //
 // Not yet wired into pre-commit: the repo has ~50 files with pre-existing violations, and a hook
 // that fails on all of them would block every commit. The config lands first so new/edited files
-// can be linted deliberately (`npx markdownlint-cli2 --fix <file>`); the repo-wide sweep and the
-// hook are a follow-up.
+// can be linted deliberately; the repo-wide sweep and the hook are a follow-up.
+//
+// Fixing ONE file:
+//
+//     npx markdownlint-cli2 --fix --no-globs path/to/file.md
+//
+// `--no-globs` is not optional. Without it, markdownlint-cli2 MERGES the paths you pass with the
+// "globs" property below, so `--fix path/to/one.md` reformats the entire repo. That is not
+// hypothetical — it silently rewrote ~30 unrelated files (README.md, CONTRIBUTING.md, ADRs,
+// vendored model READMEs) during this config's own introduction, and had to be reverted.
 //
 // Measured baseline at the time of writing: 1201 violations across 122 files, of which 884 were
 // MD060 alone. With MD060 and MD013 disabled it is ~317, and ~230 of those are `--fix`-able.
@@ -24,17 +32,13 @@
     // and "Why" across different top-level sections, which is intended.
     "MD024": { "siblings_only": true },
 
-    // First line must be a top-level heading. Slash-command files under .claude/commands/ open
-    // with YAML front matter whose `description:` is the real title, so an H1 would be redundant.
-    "MD041": false,
-
     // Emphasis-as-heading. Used deliberately for sub-labels inside list items.
-    "MD036": false,
+    "MD036": false
 
-    // Code-block style consistency. The slash-command files deliberately mix indented blocks (for
-    // "run this one command" examples, which stay visually subordinate to the prose) with fenced
-    // blocks (for multi-line scripts that need syntax highlighting). Both are intended.
-    "MD046": false
+    // MD041 (first line must be a top-level heading) and MD046 (code-block style) stay ENABLED
+    // here. They are relaxed only for .claude/commands/, via the nested config in that directory
+    // — those files open with YAML front matter whose `description:` is the real title, and they
+    // deliberately mix indented command examples with fenced script blocks.
   },
   "globs": [
     "**/*.md",

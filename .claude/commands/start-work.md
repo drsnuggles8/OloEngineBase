@@ -256,8 +256,14 @@ STRAIGHT TO master, silently bypassing the PR / CI-on-PR flow. This has actually
 on a real start-work branch. So: create with `--no-track` (above), and when it's time to
 publish, push EXPLICITLY to a same-named remote branch and set its upstream there:
     git -C <worktreePath> push -u origin feature/<slug>
-Never publish a start-work worktree with a bare `git push`. (The commit rule still applies:
-only commit/push when the user explicitly asks.)
+Never publish a start-work worktree with a bare `git push`.
+
+**Who may publish:** not this session — `/start-work` scaffolds and hands off, and must not commit,
+push or open a PR itself (§5d). The handed-off **worker** session is a different matter: on its own
+`feature/*` branch it is *pre-authorized* to commit, `push -u origin feature/<slug>` and open the
+PR, because completing that is the handoff contract (`CLAUDE.md` → *Committing and publishing*;
+`docs/process/task-loop.md` Phase 4). Do not restate a blanket "ask first" rule in the HANDOVER —
+it contradicts the loop and stalls an unattended session.
 
 **Then junction the worktree's memory directory to the base repo's.** Claude Code keys persistent
 memory by project *path*, so without this the new session gets an empty memory dir whose contents
