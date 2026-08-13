@@ -116,7 +116,55 @@ namespace OloEngine::MCP
         const McpClientConfig& config, const McpClientTransportFactory& factory,
         std::function<void(const std::string& alias)> onDeath, std::string& outError)
     {
+        bool probeAnsweredByModernServer = false;
+        std::shared_ptr<McpClientConnection> connection = ConnectOnce(
+            config, factory, onDeath, /*probeForModernEra=*/true, probeAnsweredByModernServer, outError);
+        if (connection)
+            return connection;
+
+        // The era probe is a request sent BEFORE `initialize`, and every 2025-*
+        // revision forbids exactly that ("the client MUST NOT send requests other
+        // than pings before the server has responded to the initialize request").
+        // The spec still prescribes the probe on stdio, and a well-behaved legacy
+        // child just answers -32601 — but a strict one (the Python SDK raises on
+        // any pre-init request) can tear its session down instead, and then the
+        // `initialize` we fall back to fails against a child that is already gone.
+        //
+        // That would be a REGRESSION: before the probe existed, this child bridged
+        // fine. So recover rather than report it: spawn a clean child and run the
+        // legacy handshake on its own, with no probe to poison it.
+        //
+        // Only when the probe did NOT get a recognized modern reply. A child that
+        // answered with a DiscoverResult or a -32022 is demonstrably alive and
+        // modern-aware, so a second spawn would fail identically — and would cost
+        // the user another process launch to learn nothing.
+        if (!probeAnsweredByModernServer)
+        {
+            std::string retryError;
+            bool ignoredProbeFlag = false;
+            if (std::shared_ptr<McpClientConnection> retried =
+                    ConnectOnce(config, factory, std::move(onDeath), /*probeForModernEra=*/false,
+                                ignoredProbeFlag, retryError))
+            {
+                OLO_CORE_WARN("[MCP client '{}'] the child did not survive the `server/discover` era probe; "
+                              "reconnected with the legacy handshake only.",
+                              config.Alias);
+                outError.clear();
+                return retried;
+            }
+            // Keep the FIRST error: it describes the path we actually wanted, and
+            // the retry's failure is almost always the same cause seen twice.
+        }
+        return nullptr;
+    }
+
+    std::shared_ptr<McpClientConnection> McpClientConnection::ConnectOnce(
+        const McpClientConfig& config, const McpClientTransportFactory& factory,
+        std::function<void(const std::string& alias)> onDeath, bool probeForModernEra,
+        bool& outProbeAnsweredByModernServer, std::string& outError)
+    {
         outError.clear();
+        outProbeAnsweredByModernServer = false;
         std::shared_ptr<McpClientConnection> connection(new McpClientConnection(config, std::move(onDeath)));
 
         // Weak captures: the transport's reader-thread callbacks must not keep
@@ -147,12 +195,16 @@ namespace OloEngine::MCP
         connection->m_Alive.store(true, std::memory_order_release);
 
         // Decide the era BEFORE anything else: it determines both the opening
-        // sequence and whether every later request carries `_meta`.
-        if (!connection->NegotiateEra(outError))
+        // sequence and whether every later request carries `_meta`. Skipping the
+        // probe leaves the connection on its Legacy default, which is exactly what
+        // Connect's retry wants.
+        if (probeForModernEra && !connection->NegotiateEra(outError))
         {
+            outProbeAnsweredByModernServer = connection->m_ProbeAnsweredByModernServer;
             connection->Shutdown();
             return nullptr;
         }
+        outProbeAnsweredByModernServer = connection->m_ProbeAnsweredByModernServer;
 
         // Legacy era only: the initialize -> notifications/initialized handshake.
         // A modern child has no handshake — `server/discover` already told us
@@ -173,7 +225,7 @@ namespace OloEngine::MCP
                 // "initialize failed" sends the reader hunting for a legacy problem
                 // when the real answer is that the child and OloEditor share no
                 // usable revision.
-                if (connection->m_FellBackFromModernReply)
+                if (connection->m_ModernReplyOfferedNoUsableVersion)
                 {
                     outError += " — the server answered the 2026-07-28 `server/discover` probe but advertised "
                                 "no protocol version OloEditor can speak, and the legacy handshake it was "
@@ -244,6 +296,26 @@ namespace OloEngine::MCP
         if (response->contains("result") && (*response)["result"].is_object())
         {
             const Json& result = (*response)["result"];
+            // Only a modern server answers `server/discover` at all, so we are past
+            // the era question whatever the payload says.
+            m_ProbeAnsweredByModernServer = true;
+
+            // MRTR applies to `server/discover` like any other request: a modern
+            // server may answer `input_required` instead of a discovery. Without
+            // this check that reads as a complete discovery with an EMPTY version
+            // list, which then falls back to the handshake against a modern-only
+            // server and fails for a reason nobody can see. Same defensive read as
+            // InvokeBridged's; an absent resultType still means "complete".
+            if (result.contains("resultType") &&
+                (!result["resultType"].is_string() || result["resultType"].get<std::string>() != "complete"))
+            {
+                outError = "MCP client '" + m_Config.Alias +
+                           "': the server answered `server/discover` with resultType " +
+                           result["resultType"].dump() +
+                           " (Multi Round-Trip), which OloEditor's outbound client does not implement";
+                return false;
+            }
+
             const Json versions = result.value("supportedVersions", Json::array());
             if (OffersModernVersion(versions))
             {
@@ -251,13 +323,22 @@ namespace OloEngine::MCP
                 m_ProtocolVersion = kModernProtocolVersion;
                 return true;
             }
-            if (OffersLegacyVersion(versions) || !versions.is_array() || versions.empty())
+            if (OffersLegacyVersion(versions))
             {
-                // Dual-era (or uninformative). A handshake-era revision in the list
-                // IS a mutually supported version — but the only way to speak one is
-                // `initialize`, because those revisions have no per-request `_meta`.
-                // So falling back here is selecting from the list, not ignoring it.
-                m_FellBackFromModernReply = true;
+                // Dual-era. A handshake-era revision in the list IS a mutually
+                // supported version — but the only way to speak one is `initialize`,
+                // because those revisions have no per-request `_meta`. So falling
+                // back here is selecting from the list, not ignoring it. Deliberately
+                // does NOT set m_ModernReplyOfferedNoUsableVersion: a later handshake
+                // failure here is a plain handshake failure, not a version mismatch.
+                return true;
+            }
+            if (!versions.is_array() || versions.empty())
+            {
+                // Uninformative. Fall back — a terse modern server may still serve
+                // the handshake — but remember why, so a failing `initialize` can
+                // say what actually happened instead of blaming the handshake.
+                m_ModernReplyOfferedNoUsableVersion = true;
                 return true;
             }
             outError = "MCP client '" + m_Config.Alias + "': the server speaks only " + JoinVersions(versions) +
@@ -278,6 +359,8 @@ namespace OloEngine::MCP
                                             error["code"].get<int>() == kUnsupportedProtocolVersionCode;
             if (unsupportedVersion)
             {
+                // -32022 is reserved by the spec, so only a modern server emits it.
+                m_ProbeAnsweredByModernServer = true;
                 const Json supported = error.contains("data") && error["data"].is_object()
                                            ? error["data"].value("supported", Json::array())
                                            : Json::array();
@@ -289,13 +372,16 @@ namespace OloEngine::MCP
                 }
                 // Same rule as the DiscoverResult branch above, deliberately: only a
                 // list that is present AND names revisions we cannot speak is a hard
-                // failure. An absent or empty `supported` tells us nothing, and
-                // hard-failing on it would strand every tool from a child whose only
-                // sin is a thin error payload — so fall back and let the handshake
-                // answer the question.
-                if (OffersLegacyVersion(supported) || !supported.is_array() || supported.empty())
+                // failure.
+                if (OffersLegacyVersion(supported))
+                    return true;
+                // An absent or empty `supported` tells us nothing, and hard-failing
+                // on it would strand every tool from a child whose only sin is a thin
+                // error payload — so fall back and let the handshake answer the
+                // question, remembering why in case it doesn't.
+                if (!supported.is_array() || supported.empty())
                 {
-                    m_FellBackFromModernReply = true;
+                    m_ModernReplyOfferedNoUsableVersion = true;
                     return true;
                 }
                 outError = "MCP client '" + m_Config.Alias +

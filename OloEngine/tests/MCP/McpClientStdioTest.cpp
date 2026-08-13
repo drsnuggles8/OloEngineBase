@@ -637,6 +637,129 @@ TEST(McpClientStdio, UnsupportedProtocolVersionErrorIsAModernMarkerNotAFallback)
     EXPECT_EQ(FirstWritten(fake->Written, "initialize"), nullptr) << "a modern marker must not trigger the handshake";
 }
 
+TEST(McpClientStdio, AStrictLegacyChildThatDiesOnTheProbeIsRecoveredByARespawn)
+{
+    // The era probe is a request sent BEFORE `initialize`, which every 2025-*
+    // revision forbids. Most legacy servers answer -32601 and we fall back fine —
+    // but a strict one (the Python SDK raises on any pre-init request) can tear its
+    // session down, and then the `initialize` we fall back to fails against a child
+    // that is already gone. Before the probe existed that child bridged fine, so
+    // this must be RECOVERED, not reported: spawn a clean child, no probe.
+    McpServer server{ EditorMcpContext{} };
+    int spawnCount = 0;
+    const auto strictLegacy = [](const Json& request, FakeTransport& transport)
+    {
+        const std::string method = request.value("method", std::string{});
+        if (method == "server/discover")
+        {
+            transport.Close(); // the child dies on a pre-initialize request
+            return;
+        }
+        if (method == "initialize")
+        {
+            transport.Reply(Json{ { "jsonrpc", "2.0" },
+                                  { "id", request["id"] },
+                                  { "result", Json{ { "protocolVersion", "2025-06-18" },
+                                                    { "capabilities", Json::object() } } } });
+        }
+        else if (method == "tools/list")
+        {
+            transport.Reply(ToolsListResult(request["id"]));
+        }
+    };
+    // A factory that counts spawns and hands each one a fresh fake.
+    const OloEngine::MCP::McpClientTransportFactory countingFactory =
+        [&spawnCount, &strictLegacy](const std::string&, std::function<void(std::string)> onLine,
+                                     std::function<void()> onClosed,
+                                     std::string&) -> std::unique_ptr<IMcpClientTransport>
+    {
+        ++spawnCount;
+        auto transport = std::make_unique<FakeTransport>();
+        transport->Script = strictLegacy;
+        transport->OnLineSink = std::move(onLine);
+        transport->OnClosedSink = std::move(onClosed);
+        return transport;
+    };
+
+    McpClientConfig config = FilesConfig();
+    config.HandshakeTimeout = std::chrono::milliseconds(200);
+    config.DiscoverProbeTimeout = std::chrono::milliseconds(100);
+    const std::string error = server.ConnectClientWithTransport(config, countingFactory);
+
+    ASSERT_TRUE(error.empty()) << "a child that dies on the probe must be recovered, not reported: " << error;
+    EXPECT_EQ(spawnCount, 2) << "the recovery must use a CLEAN child, not the poisoned one";
+    ASSERT_EQ(server.ClientStatuses().size(), 1u);
+    EXPECT_EQ(server.ClientStatuses()[0].Era, OloEngine::MCP::McpProtocolEra::Legacy);
+    EXPECT_NE(FindToolEntry(server.HandleMessage(MakeRequest(24, "tools/list")), "ext.files.read_file"), nullptr);
+}
+
+TEST(McpClientStdio, ARecognizedModernReplySuppressesTheRespawnRetry)
+{
+    // The retry above exists only for the "the probe killed a legacy child" case. A
+    // child that answered with a DiscoverResult is demonstrably alive and
+    // modern-aware, so respawning would fail identically and cost the user a second
+    // process launch to learn nothing.
+    McpServer server{ EditorMcpContext{} };
+    int spawnCount = 0;
+    const auto modernButBroken = [](const Json& request, FakeTransport& transport)
+    {
+        if (request.value("method", std::string{}) == "server/discover")
+        {
+            transport.Reply(Json{ { "jsonrpc", "2.0" },
+                                  { "id", request["id"] },
+                                  { "result", Json{ { "resultType", "complete" },
+                                                    { "supportedVersions", Json::array() },
+                                                    { "capabilities", Json::object() },
+                                                    { "ttlMs", 0 },
+                                                    { "cacheScope", "public" } } } });
+        }
+        // initialize and tools/list are swallowed, so the connect fails.
+    };
+    const OloEngine::MCP::McpClientTransportFactory countingFactory =
+        [&spawnCount, &modernButBroken](const std::string&, std::function<void(std::string)> onLine,
+                                        std::function<void()> onClosed,
+                                        std::string&) -> std::unique_ptr<IMcpClientTransport>
+    {
+        ++spawnCount;
+        auto transport = std::make_unique<FakeTransport>();
+        transport->Script = modernButBroken;
+        transport->OnLineSink = std::move(onLine);
+        transport->OnClosedSink = std::move(onClosed);
+        return transport;
+    };
+
+    McpClientConfig config = FilesConfig();
+    config.HandshakeTimeout = std::chrono::milliseconds(100);
+    config.DiscoverProbeTimeout = std::chrono::milliseconds(100);
+    EXPECT_FALSE(server.ConnectClientWithTransport(config, countingFactory).empty());
+    EXPECT_EQ(spawnCount, 1) << "a recognized modern reply must suppress the respawn";
+}
+
+TEST(McpClientStdio, DiscoverAnsweredWithInputRequiredIsReportedNotMisreadAsEmpty)
+{
+    // MRTR applies to server/discover like any other request. Without a resultType
+    // check, an `input_required` reply reads as a complete discovery with an EMPTY
+    // supportedVersions, which falls back to the handshake against a modern-only
+    // server and fails for a reason nobody can see.
+    McpServer server{ EditorMcpContext{} };
+    FakeTransport* fake = nullptr;
+    const auto script = [](const Json& request, FakeTransport& transport)
+    {
+        if (request.value("method", std::string{}) == "server/discover")
+        {
+            transport.Reply(Json{ { "jsonrpc", "2.0" },
+                                  { "id", request["id"] },
+                                  { "result", Json{ { "resultType", "input_required" },
+                                                    { "requestState", "opaque" } } } });
+        }
+    };
+    const std::string error = server.ConnectClientWithTransport(FilesConfig(), FakeFactory(fake, script));
+
+    ASSERT_FALSE(error.empty());
+    EXPECT_NE(error.find("input_required"), std::string::npos) << error;
+    EXPECT_NE(error.find("Multi Round-Trip"), std::string::npos) << error;
+}
+
 TEST(McpClientStdio, FallbackFailureAfterAModernReplyNamesTheEraMismatch)
 {
     // A modern-aware child that advertises no version we speak AND cannot serve the

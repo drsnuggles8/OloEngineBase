@@ -88,6 +88,19 @@ namespace OloEngine::MCP
             const McpClientConfig& config, const McpClientTransportFactory& factory,
             std::function<void(const std::string& alias)> onDeath, std::string& outError);
 
+        // One spawn + opening sequence. `probeForModernEra` false skips the
+        // `server/discover` era probe entirely and goes straight to the legacy
+        // handshake — see Connect's retry, which needs a child that has never been
+        // sent a pre-`initialize` request. `outProbeAnsweredByModernServer` reports
+        // whether the probe got a recognized modern reply; Connect uses it to decide
+        // whether a retry could possibly help. It is an out-param rather than shared
+        // state because connects can run concurrently (the MCP panel and a script
+        // tool can each start one).
+        [[nodiscard]] static std::shared_ptr<McpClientConnection> ConnectOnce(
+            const McpClientConfig& config, const McpClientTransportFactory& factory,
+            std::function<void(const std::string& alias)> onDeath, bool probeForModernEra,
+            bool& outProbeAnsweredByModernServer, std::string& outError);
+
         ~McpClientConnection();
         McpClientConnection(const McpClientConnection&) = delete;
         McpClientConnection& operator=(const McpClientConnection&) = delete;
@@ -201,12 +214,17 @@ namespace OloEngine::MCP
         // published to any other thread; read-only thereafter.
         McpProtocolEra m_Era = McpProtocolEra::Legacy;
         std::string m_ProtocolVersion;
-        // True when the era probe got a RECOGNIZED modern reply but we still chose
-        // the legacy handshake (the child advertised only handshake-era revisions,
-        // or its reply named no versions at all). Purely diagnostic: if `initialize`
-        // then fails, the plain "initialize failed" message would point at the wrong
-        // problem, so Connect appends the era context it alone knows.
-        bool m_FellBackFromModernReply = false;
+        // True once the probe got a RECOGNIZED modern reply (a `DiscoverResult` or
+        // a `-32022`). It proves the child is alive and modern-aware, which rules
+        // out the "strict legacy child died on a pre-`initialize` request" case —
+        // so Connect must NOT respawn-and-retry when this is set.
+        bool m_ProbeAnsweredByModernServer = false;
+        // Narrower, and diagnostic only: that modern reply named no revision we can
+        // speak at all (absent/empty version list). The dual-era case — where the
+        // child DID advertise a usable handshake revision — must not set this, or a
+        // later `initialize` failure would be blamed on a version mismatch that
+        // isn't there.
+        bool m_ModernReplyOfferedNoUsableVersion = false;
 
         std::vector<ToolDef> m_BridgedTools;
         sizet m_BridgedToolCount = 0;
