@@ -165,16 +165,24 @@ runs:
         # transfer is safe. Three attempts, 15s then 30s apart; a genuine breakage —
         # a bad baseline, a deleted release — still fails, just 45s later.
         #
-        # Linux additionally bounds each attempt with `timeout`: scripts/bootstrap.sh
-        # downloads via `curl … --retry 3 --fail`, so a DROPPED connection errors and
-        # the loop below retries it, but a fully STALLED transfer (curl hanging without
-        # returning) would otherwise burn the whole job — `timeout` kills it so the
-        # retry engages. 900s is far above the few-second binary download. Windows
-        # uses a PowerShell downloader and coreutils `timeout` isn't reliable in its
-        # bash, so it runs unbounded there.
+        # Each attempt is bounded to 900s so a fully STALLED download (the connection
+        # stays open but no bytes flow — retry can't help because the command never
+        # returns) is killed and retried instead of burning the whole job. 900s is
+        # far above the few-second binary download.
+        #   * Linux: scripts/bootstrap.sh downloads via `curl … --retry 3 --fail`;
+        #     coreutils `timeout` kills a hung curl.
+        #   * Windows: bootstrap-vcpkg.bat -> cmd -> PowerShell -> WinHTTP. coreutils
+        #     `timeout` only signals the direct child and cannot take down that whole
+        #     process tree, so use a Windows-native bound: run the .bat under a .NET
+        #     Process (whose ExitCode propagates the real bootstrap result — the
+        #     Start-Process cmdlet silently reports 0 on failure) and `taskkill /T /F`
+        #     the tree on the deadline (exit 124, which the retry loop treats as a
+        #     failed attempt).
         if [ "$RUNNER_OS" = "Windows" ]; then
           bootstrap="$VCPKG_ROOT/bootstrap-vcpkg.bat"
-          run_bootstrap() { "$bootstrap" -disableMetrics; }
+          run_bootstrap() {
+            MSYS2_ARG_CONV_EXCL='*' powershell -NoProfile -ExecutionPolicy Bypass -Command "\$p = New-Object System.Diagnostics.Process; \$p.StartInfo.FileName='cmd.exe'; \$p.StartInfo.Arguments='/c \"\"$bootstrap\" -disableMetrics\"'; \$p.StartInfo.UseShellExecute=\$false; [void]\$p.Start(); if (\$p.WaitForExit(900000)) { exit \$p.ExitCode }; & taskkill /T /F /PID \$p.Id *> \$null; Write-Host '::warning::vcpkg bootstrap exceeded 900s; killed process tree'; exit 124"
+          }
         else
           bootstrap="$VCPKG_ROOT/bootstrap-vcpkg.sh"
           run_bootstrap() { timeout 900 "$bootstrap" -disableMetrics; }
