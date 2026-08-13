@@ -70,6 +70,11 @@ namespace OloEngine::Tests
             return out;
         }
 
+        // Set once, during TempRoot()'s static init, when no scratch directory
+        // could be claimed anywhere. Read on every TempDir() call thereafter, so
+        // the failure is permanent rather than per-call.
+        bool s_RootUnclaimable = false;
+
         /// Try to claim a directory nobody else owns, directly under `base`.
         /// Returns an empty path if every attempt failed.
         ///
@@ -140,6 +145,14 @@ namespace OloEngine::Tests
             // unopenable file — precisely the unattributable failure this helper
             // exists to abolish. Throwing here would abort inside a static
             // initializer, which reports far worse.
+            //
+            // The flag is what makes the failure STICK. Returning a plausible
+            // relative path and carrying on would be the worst outcome available:
+            // `create_directories` would then succeed against the CURRENT WORKING
+            // DIRECTORY — which for this suite is `OloEditor/` — and the tests
+            // would quietly scribble scratch files into the working tree instead
+            // of failing.
+            s_RootUnclaimable = true;
             (void)std::fprintf(stderr,
                                "[TestTempDir] FATAL: could not claim a scratch directory under the "
                                "system temp dir or the working directory. Every test that writes a "
@@ -198,10 +211,21 @@ namespace OloEngine::Tests
         {
             if (!KeepTempOnExit())
             {
-                (void)std::atexit([]
-                                  {
-                    std::error_code ec;
-                    std::filesystem::remove_all(TempRoot(), ec); });
+                (void)std::atexit(
+                    []
+                    {
+                        std::error_code ec;
+                        std::filesystem::remove_all(TempRoot(), ec);
+                        if (ec)
+                        {
+                            // Leftovers are not fatal, but they accumulate and the
+                            // next post-mortem deserves to know which run left them
+                            // and why (an open handle, a permission change).
+                            (void)std::fprintf(
+                                stderr, "[TestTempDir] could not remove %s: %s\n",
+                                TempRoot().string().c_str(), ec.message().c_str());
+                        }
+                    });
             }
             return true;
         }();
@@ -226,6 +250,27 @@ namespace OloEngine::Tests
         leaf = SanitizeLeaf(leaf);
 
         const std::filesystem::path dir = TempRoot() / leaf;
+
+        // No usable root: fail every call, permanently, and create nothing. The
+        // returned path is still well-formed so callers don't crash — they fail on
+        // the write, with the real cause already reported above.
+        if (s_RootUnclaimable)
+        {
+            const std::string message =
+                "TestTempDir: no scratch directory could be claimed for this process; "
+                "refusing to create " +
+                dir.string();
+            if (info != nullptr)
+            {
+                ADD_FAILURE() << message;
+            }
+            else
+            {
+                (void)std::fprintf(stderr, "[TestTempDir] %s\n", message.c_str());
+            }
+            return dir;
+        }
+
         std::error_code ec;
 
         // First request for this leaf within the current test: empty it. Under
@@ -240,41 +285,46 @@ namespace OloEngine::Tests
         // one `_no_active_test` leaf, so wiping it would let one suite's
         // SetUpTestSuite delete another's staged data — the exact cross-scope
         // clobber this helper exists to prevent, reintroduced one level up.
-        if (info != nullptr)
+        std::string wipeError;
+        std::string createError;
         {
-            // Insert unconditionally, even when the wipe below fails: retrying on a
+            // ONE lock across the wipe AND the re-create. Releasing it straight
+            // after marking the leaf prepared would let a second thread see
+            // `first == false`, skip the wipe, and start using a directory this
+            // thread is still in the middle of deleting — a race inside the
+            // helper written to abolish races.
+            const std::lock_guard lock(s_PreparedMutex);
+
+            // Insert unconditionally, even when the wipe fails: retrying on a
             // later call would wipe MID-test, destroying content the test had
             // already written. A failed wipe is reported, not retried.
-            bool first = false;
-            {
-                const std::lock_guard lock(s_PreparedMutex);
-                first = s_Prepared.insert(leaf).second;
-            }
-            if (first)
+            if (info != nullptr && s_Prepared.insert(leaf).second)
             {
                 std::filesystem::remove_all(dir, ec);
                 if (ec)
                 {
                     // The caller is about to run against a directory that still
-                    // holds the previous iteration's files. Say so here, where the
-                    // cause is known — otherwise it surfaces later as an
-                    // inexplicable assertion about stale content.
-                    ADD_FAILURE() << "TestTempDir: could not empty " << dir.string() << ": "
-                                  << ec.message();
+                    // holds the previous iteration's files.
+                    wipeError = ec.message();
                     ec.clear();
                 }
             }
+
+            // A silent failure here is the exact shape this helper exists to
+            // abolish: the test would go on to open a file under a directory that
+            // does not exist and report only `!is_open()`. Several migrated
+            // fixtures also dropped a throwing `create_directories` for this call.
+            std::filesystem::create_directories(dir, ec);
+            if (ec)
+            {
+                createError = ec.message();
+            }
         }
 
-        // A silent failure here is the exact shape this helper exists to abolish:
-        // the test would go on to open a file under a directory that does not
-        // exist and report only `!is_open()`. Several migrated fixtures also
-        // dropped a throwing `create_directories` in favour of this call.
-        std::filesystem::create_directories(dir, ec);
-        if (ec)
+        // Reported outside the lock: ADD_FAILURE runs arbitrary gtest listener
+        // code, which has no business executing while this mutex is held.
+        const auto report = [&](const std::string& message)
         {
-            const std::string message =
-                "TestTempDir: could not create " + dir.string() + ": " + ec.message();
             if (info != nullptr)
             {
                 ADD_FAILURE() << message;
@@ -283,6 +333,14 @@ namespace OloEngine::Tests
             {
                 (void)std::fprintf(stderr, "[TestTempDir] %s\n", message.c_str());
             }
+        };
+        if (!wipeError.empty())
+        {
+            report("TestTempDir: could not empty " + dir.string() + ": " + wipeError);
+        }
+        if (!createError.empty())
+        {
+            report("TestTempDir: could not create " + dir.string() + ": " + createError);
         }
         return dir;
     }

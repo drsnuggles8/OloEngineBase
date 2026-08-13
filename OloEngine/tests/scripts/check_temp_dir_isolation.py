@@ -51,10 +51,12 @@ CALL = re.compile(
     re.DOTALL,
 )
 
-# Only a real comment marker with a non-empty reason opts out. Matching the bare
-# word anywhere would let a string literal — or the word in running prose — turn
-# the guard off.
-OPT_OUT_LINE = re.compile(r"(?://|\*|#)\s*OLO_TEMP_DIR_OK:\s*\S")
+# Only a real comment marker with a non-empty reason opts out. This is matched
+# against the COMMENT-ONLY projection of the file (see `comments_only`), never
+# the raw line: a `//`-shaped marker inside a string literal
+# (`const char* s = "// OLO_TEMP_DIR_OK: nope";`) would otherwise switch the
+# guard off from data rather than from a comment.
+OPT_OUT_LINE = re.compile(r"OLO_TEMP_DIR_OK:\s*\S")
 
 # A string literal, or a `//` or `/* */` comment: none of these can construct a
 # path, and all three legitimately name the function while explaining the rule.
@@ -72,24 +74,57 @@ ALLOWED = {
 }
 
 
+def _blank(text):
+    """`text` with every character except newlines replaced by a space."""
+    return re.sub(r"[^\n]", " ", text)
+
+
+def code_only(text):
+    """`text` with comments and string literals blanked out.
+
+    Length- and newline-preserving, so a match offset still maps to its original
+    line. This is what makes a *mention* invisible and a *call* visible without
+    writing a C++ parser."""
+    return COMMENT_OR_STRING.sub(lambda m: _blank(m.group(0)), text)
+
+
+def comments_only(text):
+    """`text` with everything that is not a comment blanked out.
+
+    The exact complement of `code_only` for the opt-out marker: whatever survives
+    here is genuinely inside a `//` or `/* */` comment, so a marker in a string
+    literal or in an identifier cannot reach it."""
+    out = list(_blank(text))
+    for match in COMMENT_OR_STRING.finditer(text):
+        token = match.group(0)
+        if not token.startswith(("//", "/*")):
+            continue  # a string literal — leave it blanked
+        for offset, char in enumerate(token):
+            if char != "\n":
+                out[match.start() + offset] = char
+    return "".join(out)
+
+
 def scan(text, rel):
     """Every un-excused temp_directory_path() call in `text`, as (rel, line, source)."""
-    # Blank out comments and string literals first, keeping the text's length and
-    # newlines so offsets still map to the right line. This is what makes a
-    # mention immune and a call visible, without a C++ parser.
-    masked = COMMENT_OR_STRING.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
-
+    masked = code_only(text)
+    comment_lines = comments_only(text).splitlines()
     lines = text.splitlines()
+
+    def excused(lineno):
+        # The marker must carry a reason and sit in a real comment, on the call
+        # line or the one immediately above it.
+        for index in (lineno - 1, lineno - 2):
+            if 0 <= index < len(comment_lines) and OPT_OUT_LINE.search(comment_lines[index]):
+                return True
+        return False
+
     found = []
     for match in CALL.finditer(masked):
         lineno = masked.count("\n", 0, match.start()) + 1
-        source = lines[lineno - 1] if lineno <= len(lines) else ""
-        # The marker must be a comment carrying a reason, on the call line or the
-        # one immediately above it.
-        prev = lines[lineno - 2] if lineno >= 2 else ""
-        if OPT_OUT_LINE.search(source) or OPT_OUT_LINE.search(prev):
+        if excused(lineno):
             continue
-        found.append((rel, lineno, source.strip()))
+        found.append((rel, lineno, lines[lineno - 1].strip() if lineno <= len(lines) else ""))
     return found
 
 
@@ -119,6 +154,14 @@ SELF_TEST_CASES = [
      1, "marker with no reason"),
     ('const char* s = "OLO_TEMP_DIR_OK: nope";\nauto p = fs::temp_directory_path();\n',
      1, "marker inside a string literal"),
+    # A marker shaped like a real comment but living inside a string is data, not
+    # a decision — it must not switch the guard off on that line or the next.
+    ('const char* s = "// OLO_TEMP_DIR_OK: nope";\nauto p = fs::temp_directory_path();\n',
+     1, "//-shaped marker inside a string, call on the next line"),
+    ('auto p = fs::temp_directory_path(); log("// OLO_TEMP_DIR_OK: nope");\n',
+     1, "//-shaped marker inside a string on the call line"),
+    ('/* OLO_TEMP_DIR_OK: block comment reason */\nauto p = fs::temp_directory_path();\n',
+     0, "marker in a block comment"),
     ('int OLO_TEMP_DIR_OK = 0;\nauto p = fs::temp_directory_path();\n',
      1, "marker as an identifier, not a comment"),
     ('// OLO_TEMP_DIR_OK: reason\n\nauto p = fs::temp_directory_path();\n',
