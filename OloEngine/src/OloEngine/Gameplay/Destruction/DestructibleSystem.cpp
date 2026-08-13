@@ -145,7 +145,7 @@ namespace OloEngine
         // field write only (no structural change) — safe mid-iteration.
         void MarkForBreak(Scene* scene, UUID id, bool viaJoint)
         {
-            if (!id)
+            if (static_cast<u64>(id) == 0)
                 return;
             auto opt = scene->TryGetEntityWithUUID(id);
             if (!opt)
