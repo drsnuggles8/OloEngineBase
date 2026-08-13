@@ -118,6 +118,7 @@ you are in.
 - [runtime-scene-switching.md](docs/agent-rules/runtime-scene-switching.md) — the host applies a scene swap after the tick; five ordering rules, plus the `Project` mount shipped games were missing.
 - [server-authoritative-networking-loop.md](docs/agent-rules/server-authoritative-networking-loop.md) — ~20 well-tested networking classes produced nothing, because the entry point had zero call sites.
 - [mcp-setter-based-field-registry.md](docs/agent-rules/mcp-setter-based-field-registry.md) — the copy-then-swap MCP write path is unsound when `operator=` can't reproduce a field write's side effects.
+- [mcp-protocol-eras.md](docs/agent-rules/mcp-protocol-eras.md) — the 2026-07-28 stateless core is a second transport, not a field addition; `server/discover` added on its own actively breaks working clients.
 
 **Concurrency & memory**
 

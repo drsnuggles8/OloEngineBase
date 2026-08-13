@@ -216,8 +216,10 @@ namespace OloEngine::MCP
             for (const McpClientStatus& status : server.ClientStatuses())
             {
                 if (status.Connected)
-                    ImGui::TextColored(ImVec4(0.30f, 0.85f, 0.30f, 1.0f), "%s: connected, %d tool(s)",
-                                       status.Alias.c_str(), static_cast<int>(status.ToolCount));
+                    ImGui::TextColored(ImVec4(0.30f, 0.85f, 0.30f, 1.0f), "%s: connected (%s %s), %d tool(s)",
+                                       status.Alias.c_str(),
+                                       status.Era == McpProtocolEra::Modern ? "stateless" : "handshake",
+                                       status.ProtocolVersion.c_str(), static_cast<int>(status.ToolCount));
                 else
                     ImGui::TextColored(ImVec4(0.90f, 0.45f, 0.30f, 1.0f), "%s: DISCONNECTED (child ended)",
                                        status.Alias.c_str());

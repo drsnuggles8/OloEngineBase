@@ -172,7 +172,12 @@ namespace
         // resource-link work (#673 Tier 1: ephemeral capture resources); only
         // prompts are still fixed for a server run.
         EXPECT_EQ(response["result"]["capabilities"]["resources"]["listChanged"], true);
-        EXPECT_EQ(response["result"]["capabilities"]["resources"]["subscribe"], false);
+        // `subscribe` flipped to true with the `logging`-capability offramp (#777):
+        // a client can subscribe to olo://events/recent and be pushed
+        // notifications/resources/updated. Only resources carrying a
+        // ResourceDef::ChangeToken accept a subscription — see McpDispatchTest's
+        // resources/subscribe cases for the gate.
+        EXPECT_EQ(response["result"]["capabilities"]["resources"]["subscribe"], true);
         EXPECT_EQ(response["result"]["capabilities"]["prompts"]["listChanged"], false);
     }
 

@@ -248,6 +248,24 @@ namespace OloEngine::MCP
         // Per bridged tools/call wait. Deliberately finite: a hung child must
         // never pin an httplib worker forever (the MarshalRead-timeout lesson).
         std::chrono::milliseconds CallTimeout{ 30000 };
+        // How long the era probe (`server/discover`) waits before concluding the
+        // child is a LEGACY handshake-era server (issue #777). Deliberately much
+        // shorter than HandshakeTimeout and clamped to it: the spec's stdio
+        // backward-compatibility rule says a probe that "times out" identifies a
+        // legacy server, and a well-behaved legacy child answers instantly with
+        // -32601 — so this budget is only ever spent on a child that silently
+        // swallows unknown methods, and every legacy connect would otherwise pay
+        // the full handshake timeout before falling back.
+        std::chrono::milliseconds DiscoverProbeTimeout{ 3000 };
+    };
+
+    // Which protocol era a bridged child speaks (issue #777). "Modern" is the
+    // 2026-07-28 stateless core — no handshake, per-request `_meta`; "Legacy" is
+    // 2025-11-25 and earlier — `initialize` + `notifications/initialized`.
+    enum class McpProtocolEra : u8
+    {
+        Legacy = 0,
+        Modern,
     };
 
     // Panel-facing snapshot of one connection.
@@ -257,6 +275,10 @@ namespace OloEngine::MCP
         std::string Command;
         bool Connected = false;
         sizet ToolCount = 0;
+        // The era + revision this connection actually negotiated (issue #777), so
+        // an operator can see at a glance why a child behaves the way it does.
+        McpProtocolEra Era = McpProtocolEra::Legacy;
+        std::string ProtocolVersion;
     };
 
     class McpClientConnection;
@@ -725,6 +747,18 @@ namespace OloEngine::MCP
         // oldest-first — and cleared on server Stop(); startup resources are never
         // evicted.
         bool Ephemeral = false;
+        // Optional monotonic "has the content changed?" token (issue #777). When
+        // set, this resource is SUBSCRIBABLE: resources/subscribe accepts its URI
+        // and the SSE stream emits `notifications/resources/updated` whenever the
+        // token advances. When null the resource is not subscribable and
+        // resources/subscribe rejects it by name — the honesty rule: a server that
+        // accepted a subscription it can never fire would be worse than one that
+        // says no.
+        //
+        // Called from the SSE stream's worker thread on every poll cycle, so it
+        // MUST be cheap and thread-safe (the diagnostics ring's LastId() is a
+        // mutex-guarded integer read). It must never touch the game thread.
+        std::function<u64()> ChangeToken;
     };
 
     // An MCP prompt: a canned workflow shipped for non-expert users. prompts/get
@@ -1020,6 +1054,23 @@ namespace OloEngine::MCP
         bool DisconnectClient(const std::string& alias);
         [[nodiscard]] std::vector<McpClientStatus> ClientStatuses() const;
 
+        // Resource URIs a client has subscribed to via resources/subscribe (issue
+        // #777), sorted, copied out under the lock. The observable that makes the
+        // subscribe/unsubscribe contract testable through the dispatch seam.
+        [[nodiscard]] std::vector<std::string> SubscribedUris() const;
+
+        // The same subscriptions with each URI's ChangeToken value AS OF THE
+        // SUBSCRIBE — the baseline a stream compares against. Read once per SSE
+        // poll cycle; the map is tiny (one entry in practice).
+        //
+        // The baseline is captured in HandleResourcesSubscribe, NOT on the stream's
+        // first poll, and that is the whole point: a change landing between the
+        // subscribe and the next poll — or before the stream is even opened —
+        // would otherwise be seeded over and silently swallowed, which is exactly
+        // the "subscription that never fires" the ChangeToken gate exists to
+        // prevent.
+        [[nodiscard]] std::unordered_map<std::string, u64> SubscriptionBaselines() const;
+
         // Optional `icons` for the server itself (SEP-973): emitted under
         // `initialize`'s `serverInfo.icons` only when non-empty. Set before Start()
         // (guarded, but it is startup configuration, not a runtime knob).
@@ -1231,6 +1282,13 @@ namespace OloEngine::MCP
         // as it uses the returned pointer (same contract as FindTool).
         [[nodiscard]] static const ResourceDef* FindResource(const ResourceList& resources, const std::string& uri);
         [[nodiscard]] const PromptDef* FindPrompt(const std::string& name) const;
+
+        // resources/subscribe + resources/unsubscribe (issue #777). Subscribe
+        // rejects a URI that is unknown OR not subscribable (no ChangeToken),
+        // naming the subscribable ones so the error is actionable; unsubscribe is
+        // idempotent and always succeeds, per the spec's empty-result contract.
+        [[nodiscard]] Json HandleResourcesSubscribe(const Json& id, const Json& params);
+        [[nodiscard]] Json HandleResourcesUnsubscribe(const Json& id, const Json& params);
         [[nodiscard]] bool CheckAuth(const httplib::Request& req) const;
 
         // Bump ToolsGeneration() and fan the tools/list_changed notification out to
@@ -1274,6 +1332,20 @@ namespace OloEngine::MCP
         // serverInfo.icons (SEP-973); empty => omitted from initialize.
         mutable std::mutex m_ServerIconsMutex;
         Json m_ServerIcons;
+
+        // Resource subscriptions (issue #777 — the `logging` offramp carrier).
+        // URI -> the resource's ChangeToken value at the moment it was subscribed
+        // (the baseline; see SubscriptionBaselines). The map is
+        // SERVER-GLOBAL, not per-session: this is a single-client localhost
+        // diagnostics server, the GET stream carries no session identity, and
+        // over-delivering `notifications/resources/updated` to a second stream that
+        // did not subscribe is the safe direction to err in (a client that never
+        // subscribed ignores the notification). Making it per-session would need
+        // session identity on the SSE stream, which the 2026-07-28 transport
+        // supplies for free via `subscriptions/listen` — so this deliberately waits
+        // for that rework rather than growing a bespoke registry now.
+        mutable std::mutex m_SubscriptionMutex;
+        std::unordered_map<std::string, u64> m_ResourceSubscriptions;
 
         Scope<httplib::Server> m_Http;
         std::thread m_ListenThread;

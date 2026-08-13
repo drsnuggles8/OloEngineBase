@@ -1,9 +1,11 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpTools.h"
+#include "MCP/McpEventStream.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpServer.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 
@@ -22,6 +24,12 @@ namespace OloEngine::MCP
 {
     namespace
     {
+        // How many diagnostics events `olo://events/recent` returns. Matches the
+        // engine-log resource's 200-message window: enough to answer "what just
+        // happened?" after a reconnect without shipping the whole 512-entry ring on
+        // every subscription wake-up.
+        constexpr std::size_t kEventsResourceMaxCount = 200;
+
         void RegisterBuiltinResources(McpServer& server)
         {
             // ---- Resources ---------------------------------------------------------
@@ -69,6 +77,61 @@ namespace OloEngine::MCP
                     }
                     return out;
                 };
+                server.RegisterResource(std::move(resource));
+            }
+
+            {
+                // The `logging`-capability offramp (issue #777). The diagnostics
+                // event stream is pushed today as `notifications/message` log
+                // notifications over the GET SSE stream, and `logging` is deprecated
+                // as of spec 2026-07-28. This resource is the successor carrier, and
+                // it was chosen because it is the ONLY push shape that survives the
+                // era change unchanged: in 2026-07-28 the GET stream is gone,
+                // `notifications/message` becomes request-scoped, and the
+                // `subscriptions/listen` filter is a CLOSED set of four notification
+                // types — so a bespoke custom notification is not an option there,
+                // while `notifications/resources/updated` + `resources/read` is.
+                // Migrating later moves the plumbing (resources/subscribe ->
+                // subscriptions/listen) and leaves this resource and the
+                // notification untouched. See docs/agent-rules/mcp-protocol-eras.md.
+                //
+                // The payload is the same per-event shape olo_events_tail returns,
+                // so a push subscriber and an incremental poller read identical
+                // records — the property McpEventStream.h already guarantees for the
+                // `notifications/message` carrier.
+                ResourceDef resource;
+                resource.Uri = "olo://events/recent";
+                resource.Name = "Recent diagnostics events";
+                // The window size and the cursor both belong in the description: a
+                // reader that cannot tell this is the newest 200 rather than the whole
+                // history has no reason to resume from `lastId`, and would silently
+                // miss everything older on a busy session.
+                resource.Description =
+                    "The most recent 'what just happened?' engine events (up to 200: scene load, play/stop, "
+                    "entity spawn/destroy, asset reload, script error) as JSON, newest last, with a 'lastId' "
+                    "cursor to resume from. Subscribable: resources/subscribe on this URI and the server "
+                    "pushes notifications/resources/updated whenever new events are recorded.";
+                resource.MimeType = "application/json";
+                resource.Reader = [](McpServer& /*s*/) -> std::string
+                {
+                    // Reads the mutex-guarded ring directly — no MarshalRead: the log
+                    // is written from the game thread but is thread-safe by contract,
+                    // and a resource read must not stall on a frame.
+                    DiagnosticEventQuery query;
+                    query.MaxCount = kEventsResourceMaxCount;
+                    const DiagnosticEventQueryResult snapshot = DiagnosticsEventLog::Get().QueryWithCursor(query);
+                    Json events = Json::array();
+                    for (const DiagnosticEvent& event : snapshot.Events)
+                        events.push_back(EventToJson(event));
+                    // `lastId` lets a reader resume with olo_events_tail's sinceId
+                    // instead of re-reading the whole window.
+                    return Json{ { "events", std::move(events) }, { "lastId", snapshot.LastId } }.dump(2);
+                };
+                // Monotonic and cheap: the id of the newest event ever recorded. It
+                // only ever increases, so a token change is exactly "something new
+                // happened" — never a false positive from eviction.
+                resource.ChangeToken = []
+                { return DiagnosticsEventLog::Get().LastId(); };
                 server.RegisterResource(std::move(resource));
             }
         }

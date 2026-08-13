@@ -34,6 +34,7 @@ run is **not** evidence.
 | [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | a test believed it exercised the manual path; a valid navmesh had silently switched it to the crowd follower |
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | a steady-state offset check passes with a full one-tick lag present |
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | a position check passes on the scheduler tie-break alone, with the dependency edge missing |
+| [mcp-protocol-eras.md](mcp-protocol-eras.md) | adding `server/discover` alone keeps every test green — and converts a *working* legacy fallback into a broken modern conversation, because answering it is a client's proof the server is modern |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -73,7 +74,10 @@ shipped games only) · [crowd-manager-follower-parity.md](crowd-manager-follower
 component's teardown, when `m_Registry.destroy()` skips `OnComponentRemoved`) ·
 [vcpkg-dependency-management.md](vcpkg-dependency-management.md) (three of five traps silent —
 including a forced port option that never applied) ·
-[asset-import-usd-alembic.md](asset-import-usd-alembic.md) (winding, up-axis, unit scale, UV origin)
+[asset-import-usd-alembic.md](asset-import-usd-alembic.md) (winding, up-axis, unit scale, UV origin) ·
+[mcp-protocol-eras.md](mcp-protocol-eras.md) (swapping the event stream's notification carrier drops
+pushes that nothing reports missing — which is why the new carrier runs *beside* the deprecated one,
+not instead of it)
 
 **The counter-move:** ask what the *absence* would look like, and whether anything in the system
 would be different. If the answer is "nothing", you need a coverage test, not a unit test.
@@ -208,7 +212,8 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [script-structural-command-safe-point.md](script-structural-command-safe-point.md) ·
 [runtime-scene-switching.md](runtime-scene-switching.md) ·
 [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md) ·
-[mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md)
+[mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md) ·
+[mcp-protocol-eras.md](mcp-protocol-eras.md)
 
 **Concurrency & memory** —
 [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) ·
