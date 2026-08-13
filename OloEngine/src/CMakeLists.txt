@@ -1372,6 +1372,9 @@
 		"OloEngine/Gameplay/Inventory/InventorySystem.h"
 		"OloEngine/Gameplay/Inventory/InventorySystem.cpp"
 
+		"OloEngine/Gameplay/Destruction/DestructibleSystem.h"
+		"OloEngine/Gameplay/Destruction/DestructibleSystem.cpp"
+
 		"OloEngine/Gameplay/Quest/QuestObjective.h"
 		"OloEngine/Gameplay/Quest/QuestRequirement.h"
 		"OloEngine/Gameplay/Quest/Quest.h"

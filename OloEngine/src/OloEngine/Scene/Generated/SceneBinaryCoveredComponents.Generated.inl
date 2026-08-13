@@ -15,6 +15,8 @@ ids.insert(entt::type_hash<CharacterController3DComponent>::value());
 ids.insert(entt::type_hash<CircleRendererComponent>::value());
 ids.insert(entt::type_hash<ClothComponent>::value());
 ids.insert(entt::type_hash<CloudscapeComponent>::value());
+ids.insert(entt::type_hash<DebrisComponent>::value());
+ids.insert(entt::type_hash<DestructibleComponent>::value());
 ids.insert(entt::type_hash<DirectionalLightComponent>::value());
 ids.insert(entt::type_hash<EnvironmentMapComponent>::value());
 ids.insert(entt::type_hash<FluidComponent>::value());

@@ -42,6 +42,30 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # Retry transient network failures. The vcpkg clone/fetch and the bootstrap
+        # download hit GitHub's git/download endpoints, which intermittently drop
+        # the connection ("socket hang up") — a single blip otherwise fails the
+        # whole job, and a partial fetch surfaces later as the misleading
+        # "no version database entry for zlib". ~4 tries with exponential backoff
+        # clears essentially all of them.
+        retry() {
+          local n=0 max=4 delay=8
+          until "$@"; do
+            n=$((n + 1))
+            if [ "$n" -ge "$max" ]; then
+              echo "::error::'$*' failed after $max attempts"
+              return 1
+            fi
+            echo "attempt $n/$max of '$*' failed; retrying in ${delay}s..." >&2
+            sleep "$delay"
+            delay=$((delay * 2))
+          done
+        }
+        # http.lowSpeed* makes a STALLED transfer (<1 KB/s for 60s) fail fast so a
+        # hung connection trips the retry above instead of hanging to the job
+        # timeout. Applied command-locally (git -c ...) so the runner's persistent
+        # git config is left untouched.
+
         # GitHub-hosted runners ship a bootstrapped vcpkg at VCPKG_INSTALLATION_ROOT.
         # Self-hosted runners (gpu-conformance-amd) may not, so fall back to a clone
         # under RUNNER_TEMP. Either way VCPKG_ROOT is what the rest of this action and
@@ -50,7 +74,8 @@ runs:
         if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
           root="${RUNNER_TEMP}/vcpkg"
           if [ ! -d "$root/.git" ]; then
-            git clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
+            retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+              clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
           fi
         fi
         echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
@@ -60,6 +85,21 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # Same transient-network retry as the previous step (each `run:` is its own
+        # shell, so the helper is redefined here).
+        retry() {
+          local n=0 max=4 delay=8
+          until "$@"; do
+            n=$((n + 1))
+            if [ "$n" -ge "$max" ]; then
+              echo "::error::'$*' failed after $max attempts"
+              return 1
+            fi
+            echo "attempt $n/$max of '$*' failed; retrying in ${delay}s..." >&2
+            sleep "$delay"
+            delay=$((delay * 2))
+          done
+        }
         baseline=$(python3 -c "import json,sys;print(json.load(open('vcpkg.json'))['builtin-baseline'])" 2>/dev/null \
                 || python -c "import json,sys;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
         echo "manifest baseline: $baseline"
@@ -94,9 +134,16 @@ runs:
         # "do not clone vcpkg shallow" rule in
         # docs/agent-rules/vcpkg-dependency-management.md.
         if ! git -C "$VCPKG_ROOT" cat-file -e "${baseline}^{commit}" 2>/dev/null; then
-          git -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
+          # -c http.lowSpeed*: fail fast on a stalled fetch so the retry engages
+          # (command-local — the runner's git config is left untouched).
+          retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+            -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
         fi
-        git -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
+        # The checkout materialises the working tree; on a blobless clone that
+        # lazily fetches the tree's blobs from origin, so it is a network op too —
+        # give it the same retry + fail-fast-on-stall treatment as the fetch above.
+        retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+          -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
         git -C "$VCPKG_ROOT" rev-parse HEAD
 
         # Bootstrap unconditionally: the tool version is pinned per registry commit
@@ -117,13 +164,31 @@ runs:
         # a temp path before moving it into place), so re-running it after a truncated
         # transfer is safe. Three attempts, 15s then 30s apart; a genuine breakage —
         # a bad baseline, a deleted release — still fails, just 45s later.
+        #
+        # Each attempt is bounded to 900s so a fully STALLED download (the connection
+        # stays open but no bytes flow — retry can't help because the command never
+        # returns) is killed and retried instead of burning the whole job. 900s is
+        # far above the few-second binary download.
+        #   * Linux: scripts/bootstrap.sh downloads via `curl … --retry 3 --fail`;
+        #     coreutils `timeout` kills a hung curl.
+        #   * Windows: bootstrap-vcpkg.bat -> cmd -> PowerShell -> WinHTTP. coreutils
+        #     `timeout` only signals the direct child and cannot take down that whole
+        #     process tree, so use a Windows-native bound: run the .bat under a .NET
+        #     Process (whose ExitCode propagates the real bootstrap result — the
+        #     Start-Process cmdlet silently reports 0 on failure) and `taskkill /T /F`
+        #     the tree on the deadline (exit 124, which the retry loop treats as a
+        #     failed attempt).
         if [ "$RUNNER_OS" = "Windows" ]; then
           bootstrap="$VCPKG_ROOT/bootstrap-vcpkg.bat"
+          run_bootstrap() {
+            MSYS2_ARG_CONV_EXCL='*' powershell -NoProfile -ExecutionPolicy Bypass -Command "\$p = New-Object System.Diagnostics.Process; \$p.StartInfo.FileName='cmd.exe'; \$p.StartInfo.Arguments='/c \"\"$bootstrap\" -disableMetrics\"'; \$p.StartInfo.UseShellExecute=\$false; [void]\$p.Start(); if (\$p.WaitForExit(900000)) { exit \$p.ExitCode }; & taskkill /T /F /PID \$p.Id *> \$null; Write-Host '::warning::vcpkg bootstrap exceeded 900s; killed process tree'; exit 124"
+          }
         else
           bootstrap="$VCPKG_ROOT/bootstrap-vcpkg.sh"
+          run_bootstrap() { timeout 900 "$bootstrap" -disableMetrics; }
         fi
         for attempt in 1 2 3; do
-          if "$bootstrap" -disableMetrics; then
+          if run_bootstrap; then
             break
           fi
           if [ "$attempt" = 3 ]; then

@@ -629,6 +629,53 @@ namespace OloEngine
 		internal static extern void CloudscapeComponent_SetCastCloudShadows(ulong entityID, bool value);
 		#endregion
 
+		#region DestructibleComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DestructibleComponent_GetHealth(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetHealth(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DestructibleComponent_GetMaxHealth(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetMaxHealth(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DestructibleComponent_GetDamageThreshold(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetDamageThreshold(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong DestructibleComponent_GetChunkMesh(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetChunkMesh(ulong entityID, ulong value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint DestructibleComponent_GetChunkCount(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetChunkCount(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DestructibleComponent_GetChunkScale(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetChunkScale(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DestructibleComponent_GetChunkMass(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetChunkMass(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DestructibleComponent_GetExplosionImpulse(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetExplosionImpulse(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DestructibleComponent_GetDebrisLifetime(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetDebrisLifetime(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DestructibleComponent_GetBreakOnJointBreak(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetBreakOnJointBreak(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DestructibleComponent_GetDestroyOnBreak(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DestructibleComponent_SetDestroyOnBreak(ulong entityID, bool value);
+		#endregion
+
 		#region DirectionalLightComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void DirectionalLightComponent_GetColor(ulong entityID, out Vector3 value);

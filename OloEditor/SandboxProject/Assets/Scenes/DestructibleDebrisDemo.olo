@@ -1,0 +1,126 @@
+Scene: DestructibleDebrisDemo.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  FXAAEnabled: true
+Entities:
+  # ── Camera ──
+  - Entity: 850000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 4, 12]
+      Rotation: [-0.22, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox ──
+  - Entity: 850000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Directional Light ──
+  - Entity: 850000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [1, 1, 1]
+      Intensity: 2.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Static Ground ──
+  - Entity: 850000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 1, 30]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.4, 0.45, 0.5]
+      Metallic: 0.2
+      Roughness: 0.8
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      # Unit half-extents: JoltShapes multiplies these by the transform Scale
+      # ([30, 1, 30]), so the collider matches the rendered 30 x 1 x 30 ground.
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.6
+      Restitution: 0.2
+  # ── Breakable crate (DestructibleComponent, issue #459) ──
+  # Self-triggering: the attached BreakableCrateDemo.lua script depletes the
+  # crate's Health to 0 ~1.5s after Play starts, so the scene shatters on its own
+  # (no external caller needed — just press Play). Depleting Health is the same
+  # trigger DestructibleSystem::ApplyDamage / a combat kill / a joint break use.
+  - Entity: 850000000000010
+    TagComponent:
+      Tag: Breakable Crate
+    TransformComponent:
+      Translation: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.45, 0.15]
+      Metallic: 0.1
+      Roughness: 0.7
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/BreakableCrateDemo.lua
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 14
+      ChunkScale: 0.32
+      ChunkMass: 0.5
+      ExplosionImpulse: 5
+      DebrisLifetime: 60
+      BreakOnJointBreak: true
+      DestroyOnBreak: true

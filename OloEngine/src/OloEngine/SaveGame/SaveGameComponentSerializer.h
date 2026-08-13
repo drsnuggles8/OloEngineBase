@@ -36,6 +36,7 @@ namespace OloEngine
     struct TriangleMeshCollider3DComponent;
     struct CharacterController3DComponent;
     struct PhysicsJoint3DComponent;
+    struct DestructibleComponent;
     struct VehicleComponent;
     struct BoatComponent;
     struct AircraftComponent;
@@ -157,6 +158,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, BoxCollider2DComponent& c);
         static void Serialize(FArchive& ar, CircleCollider2DComponent& c);
         static void Serialize(FArchive& ar, Rigidbody3DComponent& c);
+        static void Serialize(FArchive& ar, DestructibleComponent& c);
         static void Serialize(FArchive& ar, BoxCollider3DComponent& c);
         static void Serialize(FArchive& ar, SphereCollider3DComponent& c);
         static void Serialize(FArchive& ar, CapsuleCollider3DComponent& c);

@@ -38,6 +38,7 @@ TRY_LOAD_COMPONENT(ClothComponent);
 TRY_LOAD_COMPONENT(CloudscapeComponent);
 TRY_LOAD_COMPONENT(ConvexMeshCollider3DComponent);
 TRY_LOAD_COMPONENT(DecalComponent);
+TRY_LOAD_COMPONENT(DestructibleComponent);
 TRY_LOAD_COMPONENT(DialogueComponent);
 TRY_LOAD_COMPONENT(DirectionalLightComponent);
 TRY_LOAD_COMPONENT(EnvironmentMapComponent);

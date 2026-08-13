@@ -103,6 +103,20 @@ namespace OloEngine
         }
     }
 
+    void JoltBody::SetToDebrisLayer()
+    {
+        if (m_BodyID.IsInvalid())
+            return;
+
+        // Raw object-layer write to the built-in DEBRIS layer. We intentionally
+        // do NOT go through GetObjectLayerForCollider (SetCollisionLayer) — that
+        // path maps a PhysicsLayerManager user id and can never yield
+        // ObjectLayers::DEBRIS. Not written back into Rigidbody3DComponent
+        // (debris bodies are runtime-only and never re-created from the
+        // component), so the component's m_LayerID stays whatever it was.
+        GetBodyInterface().SetObjectLayer(m_BodyID, ObjectLayers::DEBRIS);
+    }
+
     u32 JoltBody::GetCollisionLayer() const
     {
         if (m_BodyID.IsInvalid())

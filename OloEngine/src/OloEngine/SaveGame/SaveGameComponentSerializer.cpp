@@ -1396,6 +1396,41 @@ namespace OloEngine
         ar << c.m_MaxShadowDistance << c.m_CascadeSplitLambda << c.m_CascadeDebugVisualization;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, DestructibleComponent& c)
+    {
+        ar << c.m_Health << c.m_MaxHealth << c.m_DamageThreshold;
+        u64 chunkMesh = static_cast<u64>(c.m_ChunkMesh);
+        ar << chunkMesh;
+        ar << c.m_ChunkCount << c.m_ChunkScale << c.m_ChunkMass;
+        ar << c.m_ExplosionImpulse << c.m_DebrisLifetime;
+        ar << c.m_BreakOnJointBreak << c.m_DestroyOnBreak;
+        // m_Broken IS persisted: a saved-broken object must not re-shatter on load.
+        ar << c.m_Broken;
+
+        if (ar.IsLoading())
+        {
+            c.m_ChunkMesh = AssetHandle(chunkMesh);
+
+            // Sanitize untrusted on-disk values, mirroring the OLO_SERIALIZE(Clamp)
+            // ranges on the component so a corrupt save can't poison the runtime.
+            const auto clampLow = [](f32& v, f32 lo)
+            { v = (!std::isfinite(v) || v < lo) ? lo : v; };
+            clampLow(c.m_Health, 0.0f);
+            clampLow(c.m_MaxHealth, 0.0f);
+            clampLow(c.m_DamageThreshold, 0.0f);
+            clampLow(c.m_ChunkMass, 0.001f);
+            clampLow(c.m_ExplosionImpulse, 0.0f);
+            clampLow(c.m_DebrisLifetime, 0.0f);
+            c.m_ChunkScale = (!std::isfinite(c.m_ChunkScale) || c.m_ChunkScale < 0.01f) ? 0.01f
+                             : (c.m_ChunkScale > 10.0f)                                 ? 10.0f
+                                                                                        : c.m_ChunkScale;
+            if (c.m_ChunkCount > 64u)
+                c.m_ChunkCount = 64u;
+            // A break request never survives a save (transient), so re-derive it.
+            c.m_PendingBreak = false;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, PointLightComponent& c)
     {
         ar << c.m_Color << c.m_Intensity << c.m_Range << c.m_Attenuation;
@@ -4179,6 +4214,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(BoxCollider2DComponent);
         REGISTER_SAVE_COMPONENT(CircleCollider2DComponent);
         REGISTER_SAVE_COMPONENT(Rigidbody3DComponent);
+        REGISTER_SAVE_COMPONENT(DestructibleComponent);
         REGISTER_SAVE_COMPONENT(BoxCollider3DComponent);
         REGISTER_SAVE_COMPONENT(SphereCollider3DComponent);
         REGISTER_SAVE_COMPONENT(CapsuleCollider3DComponent);

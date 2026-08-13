@@ -428,6 +428,7 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameComponentSerializerCoverageTest.cpp
 		SaveGame/SaveGameVersionMigrationTest.cpp
 		SaveGame/BoidComponentSaveLoadSanitizeTest.cpp
+		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests
 		NavMeshTest.cpp
@@ -874,6 +875,7 @@ add_executable(OloEngine-Tests
 		Functional/SaveGame/AbilityComponentRoundTripTest.cpp
 		Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp
 		Functional/Gameplay/DamageKillsEntityAndFlipsDeathTagTest.cpp
+		Functional/Gameplay/DestructibleDebrisTest.cpp
 		Functional/Gameplay/QuestObjectiveCompletionAdvancesStageTest.cpp
 		Functional/Gameplay/PeriodicDamageEffectTicksHealthDownTest.cpp
 		Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp
