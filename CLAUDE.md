@@ -109,6 +109,7 @@ you are in.
 - [parallelizable-mover-systems.md](docs/agent-rules/parallelizable-mover-systems.md) — how to move an entity-moving system onto a worker thread, and the two traps in the determinism test itself.
 - [terrain-collision-streaming-sculpt.md](docs/agent-rules/terrain-collision-streaming-sculpt.md) — streamed tile bodies live in a second `JoltScene` map, and tile pose must reproduce the draw transform exactly.
 - [procedural-skinned-mesh-primitives.md](docs/agent-rules/procedural-skinned-mesh-primitives.md) — code-built test meshes need a live GL context and a shared bind-pose origin.
+- [destructible-debris.md](docs/agent-rules/destructible-debris.md) — pre-authored debris chunks, not runtime mesh fracture; two unrelated physics layer numberings mean `SetCollisionLayer(Debris)` never reaches Jolt's `ObjectLayers::DEBRIS`.
 - [audio-voice-budget.md](docs/agent-rules/audio-voice-budget.md) — the voice cap must be admitted inside `Play()`, because the engine starts sounds from six call sites.
 
 **Scripting, networking & tooling**

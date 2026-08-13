@@ -228,6 +228,36 @@ if (entity.HasComponent<CloudscapeComponent>())
     out << YAML::EndMap; // CloudscapeComponent
 }
 
+if (entity.HasComponent<DebrisComponent>())
+{
+    out << YAML::Key << "DebrisComponent";
+    out << YAML::BeginMap; // DebrisComponent
+    auto const& comp = entity.GetComponent<DebrisComponent>();
+    out << YAML::Key << "RemainingLifetime" << YAML::Value << comp.m_RemainingLifetime;
+    out << YAML::Key << "TotalLifetime" << YAML::Value << comp.m_TotalLifetime;
+    out << YAML::Key << "Age" << YAML::Value << comp.m_Age;
+    out << YAML::EndMap; // DebrisComponent
+}
+
+if (entity.HasComponent<DestructibleComponent>())
+{
+    out << YAML::Key << "DestructibleComponent";
+    out << YAML::BeginMap; // DestructibleComponent
+    auto const& comp = entity.GetComponent<DestructibleComponent>();
+    out << YAML::Key << "Health" << YAML::Value << comp.m_Health;
+    out << YAML::Key << "MaxHealth" << YAML::Value << comp.m_MaxHealth;
+    out << YAML::Key << "DamageThreshold" << YAML::Value << comp.m_DamageThreshold;
+    out << YAML::Key << "ChunkMesh" << YAML::Value << static_cast<u64>(comp.m_ChunkMesh);
+    out << YAML::Key << "ChunkCount" << YAML::Value << comp.m_ChunkCount;
+    out << YAML::Key << "ChunkScale" << YAML::Value << comp.m_ChunkScale;
+    out << YAML::Key << "ChunkMass" << YAML::Value << comp.m_ChunkMass;
+    out << YAML::Key << "ExplosionImpulse" << YAML::Value << comp.m_ExplosionImpulse;
+    out << YAML::Key << "DebrisLifetime" << YAML::Value << comp.m_DebrisLifetime;
+    out << YAML::Key << "BreakOnJointBreak" << YAML::Value << comp.m_BreakOnJointBreak;
+    out << YAML::Key << "DestroyOnBreak" << YAML::Value << comp.m_DestroyOnBreak;
+    out << YAML::EndMap; // DestructibleComponent
+}
+
 if (entity.HasComponent<DirectionalLightComponent>())
 {
     out << YAML::Key << "DirectionalLightComponent";

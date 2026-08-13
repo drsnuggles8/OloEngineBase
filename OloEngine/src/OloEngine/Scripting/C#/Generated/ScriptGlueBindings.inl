@@ -3198,6 +3198,244 @@ static void CloudscapeComponent_SetCastCloudShadows(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// DestructibleComponent                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float DestructibleComponent_GetHealth(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_Health;
+}
+
+static void DestructibleComponent_SetHealth(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_Health = value;
+}
+
+static float DestructibleComponent_GetMaxHealth(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_MaxHealth;
+}
+
+static void DestructibleComponent_SetMaxHealth(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_MaxHealth = value;
+}
+
+static float DestructibleComponent_GetDamageThreshold(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_DamageThreshold;
+}
+
+static void DestructibleComponent_SetDamageThreshold(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_DamageThreshold = value;
+}
+
+static u64 DestructibleComponent_GetChunkMesh(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_ChunkMesh;
+}
+
+static void DestructibleComponent_SetChunkMesh(UUID entityID, u64 value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_ChunkMesh = value;
+}
+
+static unsigned int DestructibleComponent_GetChunkCount(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_ChunkCount;
+}
+
+static void DestructibleComponent_SetChunkCount(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_ChunkCount = value;
+}
+
+static float DestructibleComponent_GetChunkScale(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_ChunkScale;
+}
+
+static void DestructibleComponent_SetChunkScale(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_ChunkScale = value;
+}
+
+static float DestructibleComponent_GetChunkMass(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_ChunkMass;
+}
+
+static void DestructibleComponent_SetChunkMass(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_ChunkMass = value;
+}
+
+static float DestructibleComponent_GetExplosionImpulse(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_ExplosionImpulse;
+}
+
+static void DestructibleComponent_SetExplosionImpulse(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_ExplosionImpulse = value;
+}
+
+static float DestructibleComponent_GetDebrisLifetime(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_DebrisLifetime;
+}
+
+static void DestructibleComponent_SetDebrisLifetime(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_DebrisLifetime = value;
+}
+
+static bool DestructibleComponent_GetBreakOnJointBreak(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_BreakOnJointBreak;
+}
+
+static void DestructibleComponent_SetBreakOnJointBreak(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_BreakOnJointBreak = value;
+}
+
+static bool DestructibleComponent_GetDestroyOnBreak(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    return comp.m_DestroyOnBreak;
+}
+
+static void DestructibleComponent_SetDestroyOnBreak(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DestructibleComponent>();
+    comp.m_DestroyOnBreak = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // DirectionalLightComponent                                                      //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

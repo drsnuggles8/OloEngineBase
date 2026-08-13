@@ -48,6 +48,7 @@ the drift is silent because each side is individually self-consistent.
 | [audio-voice-budget.md](audio-voice-budget.md) | adding one config field costs four edits, one of them silent |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | two build trees writing the same generated files |
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | four subsystems holding world-space state outside the set that gets rebased |
+| [destructible-debris.md](destructible-debris.md) | two unrelated physics "layer" numberings — `SetCollisionLayer(Debris /*7*/)` never reaches Jolt's `ObjectLayers::DEBRIS /*4*/`, so debris silently shoves the player |
 
 **The counter-move:** a parity test that reads both sides as text, or a generator that makes one
 side derived. A comment saying "keep these in sync" is not a mechanism.
@@ -194,7 +195,8 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [parallelizable-mover-systems.md](parallelizable-mover-systems.md) ·
 [terrain-collision-streaming-sculpt.md](terrain-collision-streaming-sculpt.md) ·
 [procedural-skinned-mesh-primitives.md](procedural-skinned-mesh-primitives.md) ·
-[audio-voice-budget.md](audio-voice-budget.md)
+[audio-voice-budget.md](audio-voice-budget.md) ·
+[destructible-debris.md](destructible-debris.md)
 
 **Scripting, networking & tooling** —
 [script-structural-command-safe-point.md](script-structural-command-safe-point.md) ·

@@ -291,6 +291,40 @@ if (auto node = entity["CloudscapeComponent"]; node)
     comp.m_AffectIBL = node["AffectIBL"].as<bool>(comp.m_AffectIBL);
 }
 
+if (auto node = entity["DebrisComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<DebrisComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RemainingLifetime"], v))
+        comp.m_RemainingLifetime = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TotalLifetime"], v))
+        comp.m_TotalLifetime = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Age"], v))
+        comp.m_Age = v;
+}
+
+if (auto node = entity["DestructibleComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<DestructibleComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Health"], v))
+        comp.m_Health = std::max(v, static_cast<f32>(0.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxHealth"], v))
+        comp.m_MaxHealth = std::max(v, static_cast<f32>(0.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DamageThreshold"], v))
+        comp.m_DamageThreshold = std::max(v, static_cast<f32>(0.0f));
+    comp.m_ChunkMesh = node["ChunkMesh"].as<u64>(static_cast<u64>(comp.m_ChunkMesh));
+    comp.m_ChunkCount = std::clamp(node["ChunkCount"].as<u32>(comp.m_ChunkCount), static_cast<u32>(0), static_cast<u32>(64));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ChunkScale"], v))
+        comp.m_ChunkScale = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ChunkMass"], v))
+        comp.m_ChunkMass = std::max(v, static_cast<f32>(0.001f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ExplosionImpulse"], v))
+        comp.m_ExplosionImpulse = std::max(v, static_cast<f32>(0.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DebrisLifetime"], v))
+        comp.m_DebrisLifetime = std::max(v, static_cast<f32>(0.0f));
+    comp.m_BreakOnJointBreak = node["BreakOnJointBreak"].as<bool>(comp.m_BreakOnJointBreak);
+    comp.m_DestroyOnBreak = node["DestroyOnBreak"].as<bool>(comp.m_DestroyOnBreak);
+}
+
 if (auto node = entity["DirectionalLightComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<DirectionalLightComponent>();

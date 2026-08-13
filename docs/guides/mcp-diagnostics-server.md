@@ -1751,6 +1751,42 @@ running against the tools they started with. The server then emits a
 advertises `capabilities.tools.listChanged: true`), so **call `tools/list` again
 after a reload**.
 
+#### Cacheable list results — `ttlMs` + `cacheScope` (issue #777)
+
+`tools/list`, `prompts/list`, `resources/list` and `resources/read` each attach
+the [2026-07-28 caching](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching)
+freshness hints at the **top level of the result object**, beside `tools` /
+`prompts` / `resources` / `contents`:
+
+- **`ttlMs`** — integer milliseconds (always `>= 0`) the client MAY treat the
+  result as fresh; semantics mirror HTTP `Cache-Control: max-age` (`0` = re-fetch
+  every time).
+- **`cacheScope`** — `"public"` (no user-specific data; any cache/proxy MAY share
+  it) or `"private"` (per-authorization-context; MUST NOT be shared).
+
+The values are chosen per endpoint (the constants + their full rationale live in
+`McpServer.cpp`; `McpDispatchTest` pins each one exactly):
+
+| Endpoint | `ttlMs` | `cacheScope` | Why |
+| --- | --- | --- | --- |
+| `tools/list` | `300000` (5 min) | `public` | Static for a run except `olo_script_tools_reload`, which pushes `notifications/tools/list_changed` as the authoritative invalidation — the TTL only bridges the gap. Matches the spec's own worked example. |
+| `resources/list` | `60000` (1 min) | `public` | Base catalogue is static, but capture tools publish/evict ephemeral resources while serving (also pushed via `list_changed`); shorter than `tools/list` because that churn is more frequent. |
+| `prompts/list` | `3600000` (1 h) | `public` | Prompts are compiled in and immutable within a run, and `capabilities.prompts.listChanged` is `false` — with no push invalidation the TTL is the only freshness signal, and a long one is honest precisely because the list cannot change. |
+| `resources/read` | `0` | `private` | Reflects **live** editor state and may be path-redacted, so it is never honestly cacheable and MUST NOT be shared across authorization contexts. |
+
+Two gotchas worth carrying forward:
+
+- **Additive and version-neutral.** We do **not** advertise the `2026-07-28`
+  protocol (that needs the whole stateless core — `server/discover`, `_meta`
+  identity, `resultType`), and the spec technically only *requires* these hints on
+  results tagged `resultType: "complete"`. Emitting them unconditionally is
+  spec-compatible and safe: older clients ignore the two unknown fields, so every
+  existing result shape is unchanged. Backward compatibility here means *adding*
+  fields, never reshaping.
+- **Success envelope only.** The hints live on the `result`, so an *error*
+  response (unknown URI, etc.) carries none — an error is not a cacheable
+  "complete" result.
+
 #### Write-tier script tools (`writes = true`)
 
 A script tool that declares `writes = true` becomes a project-write tool:

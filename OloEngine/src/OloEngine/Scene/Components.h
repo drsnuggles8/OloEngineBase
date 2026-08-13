@@ -1206,6 +1206,119 @@ namespace OloEngine
         }
     };
 
+    // Breakable / destructible object (issue #459). An entity carrying this
+    // shatters into physical debris when its structural integrity (m_Health)
+    // reaches 0 — driven by DestructibleSystem::ApplyDamage, a consumed
+    // EntityKilledEvent (combat kill), or a JointBrokeEvent (a breakable joint on
+    // the entity giving way). On break the DestructibleSystem spawns
+    // m_ChunkCount debris entities (mesh + box collider + dynamic rigidbody on the
+    // Jolt DEBRIS layer), pushes them out with m_ExplosionImpulse, and destroys
+    // the source (unless m_DestroyOnBreak is false). It does NOT fracture the mesh
+    // at runtime — debris uses the pre-authored m_ChunkMesh, else the object's own
+    // mesh scaled down, else a cube primitive. See docs/adr/0013 and
+    // docs/agent-rules/destructible-debris.md. All-trivial: scene YAML round-trips
+    // automatically; save-games persist it via SaveGameComponentSerializer.
+    struct DestructibleComponent
+    {
+        // Structural integrity. Reaching 0 shatters the object exactly once.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f)
+        f32 m_Health = 100.0f;
+
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f)
+        f32 m_MaxHealth = 100.0f;
+
+        // Hits weaker than this are ignored (chip resistance). 0 = every hit lands.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f)
+        f32 m_DamageThreshold = 0.0f;
+
+        // Pre-fractured chunk mesh (a MeshSource asset). 0 = reuse the object's own
+        // mesh scaled down, else a cube primitive.
+        OLO_PROPERTY()
+        AssetHandle m_ChunkMesh = 0;
+
+        // Debris pieces spawned per break, before the global live-debris budget.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 64)
+        u32 m_ChunkCount = 8;
+
+        // Debris piece size relative to the object (also its collider half-extent).
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 10.0f)
+        f32 m_ChunkScale = 0.25f;
+
+        // Mass of each debris piece.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.001f)
+        f32 m_ChunkMass = 1.0f;
+
+        // Outward impulse magnitude applied to each piece at spawn.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f)
+        f32 m_ExplosionImpulse = 4.0f;
+
+        // Seconds each debris piece lives before cleanup (<=0 = engine default).
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f)
+        f32 m_DebrisLifetime = 6.0f;
+
+        // Also shatter when a breakable joint on this entity breaks.
+        OLO_PROPERTY()
+        bool m_BreakOnJointBreak = true;
+
+        // Destroy the source entity on break (false = keep it, just emit debris).
+        OLO_PROPERTY()
+        bool m_DestroyOnBreak = true;
+
+        // Runtime: true once shattered, so a break fires exactly once. Persisted in
+        // save-games (a saved-broken object must not re-shatter) but not scene YAML.
+        OLO_SERIALIZE(Skip)
+        bool m_Broken = false;
+
+        // Runtime: a break was requested (damage/kill/joint) and is pending the
+        // next DestructibleSystem tick. A plain field write, so event handlers may
+        // set it mid-iteration without a structural change.
+        OLO_SERIALIZE(Skip)
+        bool m_PendingBreak = false;
+
+        DestructibleComponent() = default;
+        DestructibleComponent(const DestructibleComponent&) = default;
+
+        // Compare AUTHORED fields only, field-by-field (the Boat/Aircraft/Boid
+        // pattern). Excludes the runtime m_Broken / m_PendingBreak flags so a
+        // play-mode enter/exit is not seen as an authored change, and avoids a
+        // whole-struct BitwiseEqual that would compare indeterminate padding bytes.
+        auto operator==(const DestructibleComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(m_Health, other.m_Health) && Math::BitwiseEqual(m_MaxHealth, other.m_MaxHealth) && Math::BitwiseEqual(m_DamageThreshold, other.m_DamageThreshold) && static_cast<u64>(m_ChunkMesh) == static_cast<u64>(other.m_ChunkMesh) && m_ChunkCount == other.m_ChunkCount && Math::BitwiseEqual(m_ChunkScale, other.m_ChunkScale) && Math::BitwiseEqual(m_ChunkMass, other.m_ChunkMass) && Math::BitwiseEqual(m_ExplosionImpulse, other.m_ExplosionImpulse) && Math::BitwiseEqual(m_DebrisLifetime, other.m_DebrisLifetime) && m_BreakOnJointBreak == other.m_BreakOnJointBreak && m_DestroyOnBreak == other.m_DestroyOnBreak;
+        }
+    };
+
+    // Runtime marker on a spawned debris piece (issue #459). Never authored — the
+    // DestructibleSystem adds it to every chunk it spawns and uses it to age the
+    // piece out and enforce the global budget. All-trivial so it round-trips
+    // through scene YAML harmlessly (authored scenes never contain debris);
+    // excluded from save-games (transient eye-candy — see kComponentsNotInSaveGame).
+    struct DebrisComponent
+    {
+        // Seconds remaining before this piece is cleaned up.
+        f32 m_RemainingLifetime = 6.0f;
+        // Authored lifetime at spawn (for fade math / diagnostics).
+        f32 m_TotalLifetime = 6.0f;
+        // Monotonic age since spawn; the budget evictor drops the oldest first.
+        f32 m_Age = 0.0f;
+
+        DebrisComponent() = default;
+        DebrisComponent(const DebrisComponent&) = default;
+
+        auto operator==(const DebrisComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
     // Which axle(s) the engine drives (issue #438). Selects how
     // JoltScene::CreateVehicle builds the WheeledVehicleController's differential
     // list from the standard 0=FL, 1=FR, 2=RL, 3=RR wheel layout:

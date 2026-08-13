@@ -122,6 +122,70 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // DestructibleComponent (issue #459)
+    //
+    // All-trivial, so its scene (de)serialize is fully OloHeaderTool-generated —
+    // this pins that the codegen actually round-trips every authored field
+    // (including the AssetHandle chunk-mesh reference), and that the two
+    // OLO_SERIALIZE(Skip) runtime flags are DROPPED (a saved scene must not carry
+    // a mid-play "broken"/"pending" state).
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, DestructibleComponentSurvivesYAMLRoundTrip)
+    {
+        const AssetHandle expectedChunkMesh{ 0x0123456789ABCDEFull };
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& dc = entity.AddComponent<DestructibleComponent>();
+            dc.m_Health = 42.5f;
+            dc.m_MaxHealth = 250.0f;
+            dc.m_DamageThreshold = 5.5f;
+            dc.m_ChunkMesh = expectedChunkMesh;
+            dc.m_ChunkCount = 12;
+            dc.m_ChunkScale = 0.4f;
+            dc.m_ChunkMass = 2.5f;
+            dc.m_ExplosionImpulse = 9.0f;
+            dc.m_DebrisLifetime = 3.5f;
+            dc.m_BreakOnJointBreak = false;
+            dc.m_DestroyOnBreak = false;
+            // Runtime flags — must NOT survive the round-trip (Skip).
+            dc.m_Broken = true;
+            dc.m_PendingBreak = true;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty()) << "SerializeToYAML produced an empty string.";
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml))
+            << "DeserializeFromYAML rejected the just-serialised scene.";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored))
+            << "Round-tripped entity '" << kTestTag << "' not found on the reloaded scene.";
+        ASSERT_TRUE(restored.HasComponent<DestructibleComponent>());
+
+        const auto& dc = restored.GetComponent<DestructibleComponent>();
+        EXPECT_NEAR(dc.m_Health, 42.5f, kFloatEpsilon);
+        EXPECT_NEAR(dc.m_MaxHealth, 250.0f, kFloatEpsilon);
+        EXPECT_NEAR(dc.m_DamageThreshold, 5.5f, kFloatEpsilon);
+        EXPECT_EQ(static_cast<u64>(dc.m_ChunkMesh), static_cast<u64>(expectedChunkMesh));
+        EXPECT_EQ(dc.m_ChunkCount, 12u);
+        EXPECT_NEAR(dc.m_ChunkScale, 0.4f, kFloatEpsilon);
+        EXPECT_NEAR(dc.m_ChunkMass, 2.5f, kFloatEpsilon);
+        EXPECT_NEAR(dc.m_ExplosionImpulse, 9.0f, kFloatEpsilon);
+        EXPECT_NEAR(dc.m_DebrisLifetime, 3.5f, kFloatEpsilon);
+        EXPECT_FALSE(dc.m_BreakOnJointBreak);
+        EXPECT_FALSE(dc.m_DestroyOnBreak);
+        // Skip fields reload at their constructor defaults.
+        EXPECT_FALSE(dc.m_Broken) << "m_Broken is OLO_SERIALIZE(Skip); it must not persist in scene YAML.";
+        EXPECT_FALSE(dc.m_PendingBreak) << "m_PendingBreak is OLO_SERIALIZE(Skip); it must not persist.";
+    }
+
+    // -------------------------------------------------------------------------
     // CameraComponent
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, CameraComponentSurvivesYAMLRoundTrip)

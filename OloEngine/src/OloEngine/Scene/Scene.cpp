@@ -112,6 +112,7 @@
 #include "OloEngine/AI/AISystem.h"
 #include "OloEngine/AI/Flocking/FlockingSystem.h"
 #include "OloEngine/AI/Perception/PerceptionSystem.h"
+#include "OloEngine/Gameplay/Destruction/DestructibleSystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
@@ -1438,6 +1439,12 @@ namespace OloEngine
 
         // Dialogue system initialization
         InitDialogueSystem();
+
+        // Subscribe the destructible system to combat-kill / joint-break events so
+        // those seams can shatter a breakable object (issue #459). Handlers only
+        // flip a component flag; the shatter itself runs on the Destructible node.
+        // The bus is Clear()ed on OnRuntimeStop, so this re-subscribes each session.
+        DestructibleSystem::WireEvents(this);
 
         // Auto-start cinematics flagged PlayOnStart. CinematicSystem only
         // advances components whose Playing flag is set; this is what flips it
@@ -3220,6 +3227,20 @@ namespace OloEngine
             sched.AddSystem("Inventory", [](Scene& s, Timestep ts)
                             { s.UpdateInventory(ts); })
                 .Reads(kLocalTransforms);
+
+            // Destructibles (issue #459): shatter breakables into debris and age
+            // out / budget-evict existing debris. Reads source transforms (hence
+            // kLocalTransforms — the read-after-write edge from PhysicsFence pins it
+            // post-physics, so a break spawned this tick uses settled positions, and
+            // a JointBrokeEvent published inside the fence is visible in time). It
+            // makes STRUCTURAL registry changes (spawns/destroys entities directly,
+            // Inventory-style: accumulate during the view walk, act after it), so it
+            // MUST stay unmarked — a Parallelizable mark would apply EnTT structural
+            // changes on a worker, exactly the corruption the audit table forbids.
+            sched.AddSystem("Destructible", [](Scene& s, Timestep ts)
+                            { s.UpdateDestructibles(ts); })
+                .Reads(kLocalTransforms);
+
             sched.AddSystem("Abilities", [](Scene& s, Timestep ts)
                             { s.UpdateAbilities(ts); })
                 .Parallelizable();
@@ -3741,6 +3762,13 @@ namespace OloEngine
     {
         // Update inventory system (pickups, despawn)
         InventorySystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateDestructibles(Timestep ts)
+    {
+        // Shatter pending/health-depleted breakables into debris, then age out and
+        // budget-evict existing debris (issue #459).
+        DestructibleSystem::OnUpdate(this, ts.GetSeconds());
     }
 
     void Scene::UpdateQuest(Timestep ts)

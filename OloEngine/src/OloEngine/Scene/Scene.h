@@ -997,13 +997,14 @@ namespace OloEngine
         // agent's own component, while the integrate/move half writes
         // TransformComponent and so must stay on the game thread. See
         // FlockingSystem.h for the full rationale.
-        void UpdateBoidSteering(Timestep ts); // neighbour search + steering forces (worker-safe)
-        void UpdateBoidMovement(Timestep ts); // integrate velocity + move entities (game thread)
-        void UpdateInventory(Timestep ts);    // pickups / despawn
-        void UpdateQuest(Timestep ts);        // quest timers / conditions
-        void UpdateProgression(Timestep ts);  // XP/level resolution + point grants (issue #635)
-        void UpdateAbilities(Timestep ts);    // gameplay ability system
-        void UpdateAudio(Timestep ts);        // listener/source pose sync + events
+        void UpdateBoidSteering(Timestep ts);  // neighbour search + steering forces (worker-safe)
+        void UpdateBoidMovement(Timestep ts);  // integrate velocity + move entities (game thread)
+        void UpdateInventory(Timestep ts);     // pickups / despawn
+        void UpdateDestructibles(Timestep ts); // shatter breakables + age/cleanup debris (issue #459)
+        void UpdateQuest(Timestep ts);         // quest timers / conditions
+        void UpdateProgression(Timestep ts);   // XP/level resolution + point grants (issue #635)
+        void UpdateAbilities(Timestep ts);     // gameplay ability system
+        void UpdateAudio(Timestep ts);         // listener/source pose sync + events
         // Particle update is split by GPU usage (issue #576): the CPU partition
         // is worker-dispatchable (Parallelizable), the GPU partition stays on the
         // game thread because it issues GL compute. UpdateParticlesPartition does

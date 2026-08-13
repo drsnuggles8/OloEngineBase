@@ -816,7 +816,30 @@ jobs:
       # no other thread can hold its lock. TSan's detector is a pairwise lock-order
       # graph over mutex ADDRESSES — it models neither the dominating global lock nor
       # object reachability, so it cannot see either guarantee. See #636.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
+      #
+      # McpProgressHttpTest — spins up a live cpp-httplib server (its own listener
+      # thread + per-connection worker pool) and drives real httplib::Client
+      # requests against it, then destroys the server in TearDown. Under TSan all
+      # three cases raw-SEGFAULT (no ThreadSanitizer race report is printed — the
+      # process dies in a signal, not a reported race). Investigated rather than
+      # blindly quarantined:
+      #   * It is NOT the SSE/progress path — PostWithoutTokenStaysPlainJson, which
+      #     returns plain JSON and never opens an event stream, crashes too. The
+      #     common factor is only the httplib server+client socket/thread lifecycle.
+      #   * ASan+LSan is GREEN on the same commit, which rules out a heap
+      #     use-after-free in the engine's own objects (ASan would catch it).
+      #   * McpServer::Stop() is carefully ordered — m_Http->stop() → join the
+      #     listen thread → m_Http.reset() (which joins the worker pool) → only then
+      #     clear m_Sessions/m_Token — so a worker outlives no McpServer member; and
+      #     the cancel path shares its flag as shared_ptr<atomic<bool>>, outliving
+      #     both threads. No engine-side teardown UAF is visible by inspection.
+      # So the crash lives in vendored cpp-httplib's socket/thread teardown under
+      # TSan's pthread interception — the same "live networking library misbehaves
+      # only under TSan" category as the GNS excludes above (green under the normal
+      # build and ASan+LSan). First seen once the setup-vcpkg retry let the TSan
+      # suite reach the test phase again post-#773. Tracked for a real fix (httplib
+      # bump / test-harness teardown barrier) rather than left silent.
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.|^McpProgressHttpTest\.'
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build
