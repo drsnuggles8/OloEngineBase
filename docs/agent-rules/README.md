@@ -1,7 +1,13 @@
 # agent-rules — index by failure mode
 
-Every file here is a postmortem of a real failure, written so the next person doesn't repeat it.
-`CLAUDE.md` → *Companion guides* lists the same set **by subsystem** — use that when you know what
+This directory holds two kinds of document:
+
+- **Postmortems** — one real failure each, written so the next person doesn't repeat it. Indexed by
+  failure mode below.
+- **Reference guides** — the `notes-*.md` family, accumulated per-subsystem gotchas rather than a
+  single failure. Listed under *Subsystem notes*.
+
+`CLAUDE.md` → *Companion guides* lists everything **by subsystem** — use that when you know what
 you're touching. Use **this** file when you know what you're *doing* but not yet what can go wrong.
 
 The recurring archetypes below cut across subsystems. If your change fits one, read that row's docs

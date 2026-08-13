@@ -32,10 +32,12 @@ unrelated to the tuple / save-game / on-add / on-remove sets.
 
 ## 2. The eligibility rule
 
-A component is emitted iff **every** data member is serializer-trivial **and public**, and
-the component is not in `kComponentsCustomSerialize`. The classifier's own type enum is
-`SceneSerType`; enum members are recognised via `CollectEnumTypes`, nested structs via
-`CollectStructBodies`.
+A component is emitted iff **every non-skipped data member** is serializer-trivial **and public**,
+and the component is not in `kComponentsCustomSerialize`. Members annotated `OLO_SERIALIZE(Skip)`
+(§3) are excluded from that judgement entirely — they neither have to be trivial nor public, which
+is what lets an otherwise-all-trivial component keep one runtime field and still be generated. The
+classifier's own type enum is `SceneSerType`; enum members are recognised via `CollectEnumTypes`,
+nested structs via `CollectStructBodies`.
 
 ### Trivial member types
 
@@ -85,8 +87,10 @@ the component is not in `kComponentsCustomSerialize`. The classifier's own type 
 The parser builds a leaf-name→body registry of *every* struct under `OloEngine/src`
 (`CollectStructBodies`). For a member whose type is neither a built-in, an enum, nor a recognised
 container, it recursively classifies that struct via `ClassifyStruct` — mutually recursive with
-`ParseComponentFields`, with a `visited` cycle-guard. The struct is trivial iff **every** member is
-itself serializer-trivial *and public*. The emit is a recursive pair
+`ParseComponentFields`, with a `visited` cycle-guard. The struct is eligible iff **every** member is
+itself serializer-trivial *and public*, **and** the record is **non-empty** and **acyclic**: an
+empty record and a re-entrant type are both rejected (`ClassifyStruct` returns `std::nullopt`).
+Within those constraints the emit is a recursive pair
 (`EmitSerializeFields`/`EmitDeserializeFields`), so nesting composes to any depth — e.g.
 `LODGroup` → `Levels[]` → each `LODLevel`.
 
@@ -144,8 +148,10 @@ hand-written `SanitizeVec3Clamped` idiom, except the finite-fallback stays whole
 `DecodeVec3`); the annotation only adds the range step on top.
 
 Give at least one of `Min`/`Max` — both is `std::clamp`, one only is a one-sided
-`std::max`/`std::min`. Both are cast to the field's own type at emit time, so `Min = 0` is fine on a
-float field. Requesting `Clamp` on any **other** type marks the whole component non-trivial rather
+`std::max`/`std::min`. For a non-enum field both bounds are cast to the field's own type at emit
+time, so `Min = 0` is fine on a float field. For an **enum** the comparison happens in the
+underlying integer type — bounds and value are compared as `int`, and only the clamped result is
+cast back to the enum — so the bounds are never cast to the enum type itself. Requesting `Clamp` on any **other** type marks the whole component non-trivial rather
 than silently dropping the annotation.
 
 ### `OLO_SERIALIZE(Reject, Min=…, Max=…)`
@@ -168,10 +174,13 @@ Scalars only — **not** `glm::vec3`, since rejecting one bad component would le
 vector. Mutually exclusive with `Clamp`; requesting both, or an unsupported type, marks the whole
 component non-trivial (fail-safe).
 
-`Reject` applies on **both** generated read paths — YAML *and* the binary scene writer.
+`Reject` applies on **both** generated *read* paths — the YAML reader and the **binary scene
+reader** (`.scenebin`). It is a read-side guard only; the writers are untouched.
 `RejectRangeCondition` emits the in-range test; the YAML emitters guard the assignment with it,
-while `EmitBinaryReject` reads into a scoped temp first, because the binary path's
-read-then-fix-up would already have clobbered the default.
+while `EmitBinaryReject` — called from **`EmitBinaryReadFields`**, the mirror of
+`EmitBinaryWriteFields` — reads into a scoped temp first, because the binary path's
+read-then-fix-up would already have clobbered the default. Review both together: the two emitters
+must stay field-for-field aligned or the binary format desynchronises from what the reader expects.
 
 At the **MCP** boundary the field is still *clamped* to the same bounds rather than refused:
 `MakeField`'s registry can only range a write, and a bounded write beats an unvalidated one.

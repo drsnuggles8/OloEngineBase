@@ -21,10 +21,23 @@ clip does not key must fall back to the bind-pose local transform** (`m_BindPose
 TRS form), never identity — identity collapses the bone to the origin.
 
 Issue #543 fixed the lone by-index outlier, the animation-**graph** path, by threading a
-`PoseEvalContext { std::span<const std::string> BoneNames; std::span<const BoneTransform> BindPose; }`
-down through `AnimationGraph::Update` → `AnimationStateMachine::Update` → `AnimationState::Evaluate`
-→ `BlendTree::Evaluate*` → `SampleClipBoneTransforms`. **Any new pose-sampling path must mirror
-this.**
+`PoseEvalContext` down through `AnimationGraph::Update` → `AnimationStateMachine::Update` →
+`AnimationState::Evaluate` → `BlendTree::Evaluate*` → `SampleClipBoneTransforms`.
+
+It carries **five** index-aligned spans (`Animation/BlendNode.h`), and a new pose-sampling path
+must construct the whole context, not just the first two:
+
+| Field | Use |
+|---|---|
+| `BoneNames` | the by-name channel lookup itself — index-aligned to the output pose |
+| `BindPose` | bind-pose local TRS per bone; the fallback for an unkeyed bone (may be empty) |
+| `ParentIndices` | parent of each bone, `-1` = root; needed for any local↔global walk (may be empty) |
+| `BindPoseGlobals` | bind-pose **global** matrices, for work that needs model space rather than parent-relative |
+| `PreTransforms` | per-bone correction applied before sampling, e.g. a retarget/rig-alignment fixup |
+
+**Any new pose-sampling path must mirror the complete context `AnimationGraph::Update` builds.**
+Passing only `BoneNames`/`BindPose` compiles fine and silently loses the hierarchy- and
+model-space-dependent behaviour.
 
 > The regression guard (`AnimationGraphBoneMappingTest.cpp`) builds a clip whose channel order
 > deliberately differs from skeleton bone order. The single-`Bone0` fixtures in

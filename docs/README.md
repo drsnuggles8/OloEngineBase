@@ -8,7 +8,8 @@ an unlisted doc is an unread doc.
 
 ## agent-rules/ — guidance for AI agents working in this repo
 
-47 files, each a postmortem of a real failure. Two indexes, deliberately:
+Two genres: **postmortems** (one real failure each) and the **`notes-*.md` reference guides**
+(accumulated per-subsystem gotchas). Two indexes, deliberately:
 
 - **[agent-rules/README.md](agent-rules/README.md)** — indexed by **failure mode** (green-but-wrong,
   one-contract-several-mirrors, silent drop, your-instrument-is-lying, ordering/lifetime,
@@ -19,10 +20,12 @@ an unlisted doc is an unread doc.
 Read the relevant file before non-trivial work; don't duplicate its content into `CLAUDE.md`.
 
 ## Testing
+
 - [testing.md](testing.md) — the canonical testing opinion doc: *why* we test what we test, the renderer L1–L11 pyramid + Functional axis, value heuristic, anti-patterns, classification. The hub the test suite, CI, and `agent-rules/testing-architecture.md` all point at.
 - `test-catalogue.{renderer,functional,unit}.md` — **generated & git-ignored** per-file catalogues, rendered from `test_catalogue.json` + in-file `// OLO_TEST_LAYER` tags by `OloEngine/tests/scripts/generate_test_catalogue.py`. Not tracked; regenerate on demand.
 
 ## guides/ — subsystem & tooling how-tos
+
 - [guides/ai-goap.md](guides/ai-goap.md) — GOAP planner / AI action system.
 - [guides/ai-perception.md](guides/ai-perception.md) — AI perception (sight/sound/awareness).
 - [guides/cinematic-sequencer.md](guides/cinematic-sequencer.md) — cinematic sequencer / timeline.
@@ -36,6 +39,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [guides/video-playback.md](guides/video-playback.md) — video playback component.
 
 ## design/ — design rationale & roadmap docs (cited from source for *why*)
+
 - [design/WATER_FUTURE_IMPROVEMENTS.md](design/WATER_FUTURE_IMPROVEMENTS.md) — water/FFT-ocean rendering design & roadmap. **Cited by ~40 code comments via bare `WATER_FUTURE_IMPROVEMENTS.md §X.Y`** — keep this basename stable.
 - [design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md](design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md) — GPU instancing / indirect-draw design & roadmap (basename cited from code; keep stable).
 - [design/animation-retargeting.md](design/animation-retargeting.md) — animation retargeting (humanoid bone roles, rebasing).
@@ -45,23 +49,27 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 > Roadmap docs describe intended/future work — verify "doneness" against the **code**, not these files.
 
 ## process/ — how we run the project
+
 - [process/issue-scoring.md](process/issue-scoring.md) — the rubric for rating issues/tasks (WSJF-derived, engine-tuned: Capability/Craft/Stability/Decay over Effort, plus Learning/Fun). Drives `/start-work` task picking; raw axes live in an `olo-score` block in each issue body, ranked on demand by `scripts/issue_scores.py` (nothing derived is stored).
 - [process/task-loop.md](process/task-loop.md) — the **worker-session contract**: what a session started from `HANDOVER.md` does, from implementing through self-review, PR, CI and CodeRabbit, to a green thread-clean PR. Absorbed the former `/finish-pr` and `/pr-status` commands. Stops short of merging.
 
 The three workflow slash commands live in [`.claude/commands/`](../.claude/commands/) and are versioned with the repo because they reference repo content: `/start-work` (pick + scaffold), `/cleanup-worktree` (reclaim merged worktrees, heal the registry), `/resume-worktrees` (reopen windows).
 
 ## analysis/ — quality & code-health reports
+
 - [analysis/dead-code.md](analysis/dead-code.md) — dead-code analysis (LOC reduction).
 - [analysis/perf-stress-findings-2026-07.md](analysis/perf-stress-findings-2026-07.md) — perf stress-scene battery findings (2026-07-03).
 - [analysis/sonarqube-rules.md](analysis/sonarqube-rules.md) — SonarCloud rule tuning suggestions & high-volume-rule decisions.
 - [analysis/ue5.8-hzb-occlusion-analysis.md](analysis/ue5.8-hzb-occlusion-analysis.md) — UE 5.8 HZB occlusion culling, source-level analysis.
 
 ## ops/ — build & deployment
+
 - [ops/build.md](ops/build.md) — full Windows / Linux / WSL build matrix.
 - [ops/deployment.md](ops/deployment.md) — OloServer deployment / packaging.
 - [ops/self-hosted-gpu-runner.md](ops/self-hosted-gpu-runner.md) — the self-hosted AMD GPU CI runner.
 
 ## adr/ — architecture decision records
+
 - [adr/0001-functional-tests-as-separate-axis.md](adr/0001-functional-tests-as-separate-axis.md) — Functional tests live on a separate axis from the renderer testing pyramid.
 - [adr/0002-headless-tick-default-for-functional-tests.md](adr/0002-headless-tick-default-for-functional-tests.md) — headless `Scene::OnUpdateRuntime` is the default tick model for Functional tests.
 - [adr/0003-functional-tests-mount-editor-asset-root.md](adr/0003-functional-tests-mount-editor-asset-root.md) — Functional fixtures mount an isolated copy of the editor asset root.
@@ -77,6 +85,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md](adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md) — destructible objects swap in pre-authored debris assets; no runtime mesh fracture.
 
 ## bug-investigations/ — postmortems & deep-dives
+
 - [bug-investigations/fog-ubo-binding-knockout-investigation.md](bug-investigations/fog-ubo-binding-knockout-investigation.md) — flaky `FogVisualEvidenceTest` (#446): a persistent UBO bound only in its ctor gets its slot knocked to 0 by cross-test buffer churn; re-bind on upload.
 - [bug-investigations/nanite-foliage-white-fringe-investigation.md](bug-investigations/nanite-foliage-white-fringe-investigation.md) — Nanite (#629): Sponza foliage white-fringe investigation.
 - [bug-investigations/rendergraph-ghosting-investigation.md](bug-investigations/rendergraph-ghosting-investigation.md) — render-graph ghosting investigation.

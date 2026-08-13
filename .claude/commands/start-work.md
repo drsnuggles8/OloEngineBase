@@ -15,6 +15,7 @@ avoid.
 > work somewhere else; everything else is repo-general.
 
 ## 0. How many tasks to start (the count argument)
+
 This skill takes an optional integer argument — `$ARGUMENTS` — the number of tasks to
 start in this run. Default to **1** when nothing is passed (or the argument isn't a
 positive integer), which reproduces the original single-task behavior exactly. Call this
@@ -29,6 +30,7 @@ and say how many you actually launched and why (don't invent filler work to hit 
 number).
 
 ## 1. Locate the base repo (derive it, don't assume a path)
+
 Run from wherever this session is (any worktree works):
     git rev-parse --path-format=absolute --git-common-dir
 The parent of that .git directory is the BASE REPO; its parent folder is the
@@ -37,6 +39,7 @@ Then refresh the registry:
     git -C $BASE fetch --prune origin
 
 ## 2. Discover everything already in progress OR recently finished — this IS the exclusion list
+
     git -C $BASE worktree list            # active worktrees + which drive each is on
     git -C $BASE branch -a                # every local + remote branch
     gh pr list --state open               # open PRs (in flight)
@@ -52,6 +55,7 @@ tell you what each session did or is doing. Do not duplicate any of it. There is
 separate hand-maintained list; if it isn't in the registry, treat it as fair game.
 
 ## 2b. Heal the registry as you sweep — don't let investigation findings evaporate
+
 The step-2 sweep plus the code-vs-docs verification in step 3 routinely *prove* that an
 open issue is already done, a `docs/` item still reads "open" after the work shipped, or a
 `// TODO` is resolved. That proof is exactly what keeps the registry honest for the NEXT
@@ -60,12 +64,13 @@ the full sweep with the evidence fresh; this is the cheapest moment to fix it.)
 
 **When the code + git history DEMONSTRABLY prove an open issue is resolved** — a merged PR
 covers it, the failing CI runs predate the fix, the symbol/feature now exists in the code:
-  - **Auto-post a factual evidence comment** (additive, low-risk — do this without asking):
+
+- **Auto-post a factual evidence comment** (additive, low-risk — do this without asking):
         gh issue comment <N> --repo <owner/repo> --body "Appears resolved by #<PR> (merged <date>): <one-line evidence>. The failing CI runs predate that merge — flagging for closure."
     State the EVIDENCE, never a verdict: "appears resolved by #X; failing runs predate it",
     not "closing this" (you are NOT closing it here). Quote concrete refs (PR #, merge date,
     file/symbol that now exists).
-  - **Do NOT close the issue.** Collect it into a *stale-registry list* and surface that list
+- **Do NOT close the issue.** Collect it into a *stale-registry list* and surface that list
     in the final report (§5d) recommending closure; close ONLY after the user confirms
     (closing is the outward-facing, decisive step — it stays an explicit opt-in like commit/push).
 **When it's only PARTIALLY done** (an interim/retry landed but the root cause is still open —
@@ -82,6 +87,7 @@ unrelated, list them in the report.
 go to **persistent memory**, not a GitHub comment, so the next loop doesn't re-derive them.
 
 ## 3. Pick the task(s)
+
 Identify a slate of candidate tasks not already in progress (at least N + 2 so you have
 room to choose), then pick **N** of them (N from step 0; default 1). The sources
 below are sorted by **leverage** — how much finishing the task speeds up and de-risks
@@ -129,6 +135,7 @@ issue is actually mostly done, or its axes look wrong — that's the §2b regist
 moment: fix the score in the issue body (or flag it for closure), don't silently override.
 
 **Tier 1 — Force multipliers** (make every later task faster & less bug-prone — start here):
+
   1. Engine MCP / diagnostics server & C++ tooling MCPs — richer probes, new capture targets, LLM-driven inspection.
   2. CI/CD speed & reliability — runner time, build caching, parallelism, flaky-test fixes (mine the GitHub runner logs).
   3. Test infrastructure — coverage gaps, suite speed, new fixtures / harnesses, visual-regression plumbing.
@@ -138,7 +145,7 @@ moment: fix the score in the issue body (or flag it for closure), don't silently
   5. Warnings from building the project.
   6. OloEditor/OloEngine.log warnings & errors.
   7. GitHub runner-log warnings.
-  8. SonarQube issues (dead code, smells, duplicate code). 
+  8. SonarQube issues (dead code, smells, duplicate code).
   9. Stubs / placeholders that silently no-op (most likely indicating missing features, not cleanup potential).
 
 **Tier 3 — Debt & maintainability** (compounds, but doesn't block):
@@ -188,18 +195,20 @@ subsystem context from scratch. See the Fable 5 rubric entry below for how to st
 subagent fan-out in the handover.
 
 Only fall back to a first-slice-plus-follow-up split when:
-  - the epic's pieces are independently valuable AND the user/issue explicitly wants
+
+- the epic's pieces are independently valuable AND the user/issue explicitly wants
     incremental delivery across separate PRs over time (e.g. #429 floating-origin, whose
     slices intentionally landed as many separate PRs over several weeks), or
-  - the work is inherently unbounded/exploratory with no clear single "done" (a research
+- the work is inherently unbounded/exploratory with no clear single "done" (a research
     epic, an open-ended roadmap issue), or
-  - the user asks for a smaller slice directly.
+- the user asks for a smaller slice directly.
 When you do slice, say so explicitly in the HANDOVER and justify it the same way you'd
 justify going below the top of the rank — and still file/score the follow-up issue so it
 doesn't become an unscored blind spot (via the feature template, or an `olo-score` block
 added to an existing issue).
 
 ## 4. Once chosen, create the worktree + branch (repeat per task)
+
 **Run this whole step once for EACH of the N chosen tasks** — N worktrees, N branches.
 Explore as much as you need in steps 2-3 before committing to a task — no need to rush
 to "claim" it. The step-2 registry already reflects everything in flight (existing work
@@ -212,9 +221,10 @@ worktree** by re-running `git -C $BASE worktree list` — worktrees you created 
 THIS run already count, so the second E: slot fills as you go and the rest land on D:.
 Count the paths beginning "E:\". Pick the PARENT folder the new worktree will sit DIRECTLY
 under:
-  - count < 2  → create on E:, under the E: mirror of $ROOT: $PARENT = "E:\" + leaf-of-$ROOT
+
+- count < 2  → create on E:, under the E: mirror of $ROOT: $PARENT = "E:\" + leaf-of-$ROOT
                  (if $ROOT is D:\repos then $PARENT is E:\repos)
-  - count >= 2 → create on D:, directly under $ROOT: $PARENT = $ROOT
+- count >= 2 → create on D:, directly under $ROOT: $PARENT = $ROOT
 
 **Build the worktree path as an ABSOLUTE path and VALIDATE it before creating anything.**
 This is the step that has gone wrong before: a relative / mis-joined path got resolved
@@ -234,7 +244,10 @@ State the drive you chose and why and echo the validated absolute $WT, then crea
 worktree with a branch that does NOT track origin/master (this matters — see "Push
 safety" below). Pass $WT as an ABSOLUTE path so git never resolves it against the CWD:
     git -C $BASE worktree add "$WT" -b feature/<slug> --no-track origin/master
-    git -C "$WT" branch --unset-upstream   # belt-and-suspenders; harmless "no upstream" error if --no-track already took
+
+`--no-track` is the mechanism; nothing else is needed. (A follow-up `git branch --unset-upstream`
+used to sit here as belt-and-suspenders, but with `--no-track` there is no upstream to unset, so it
+only ever returned non-zero — which in a scripted or unattended handoff reads as a failed step.)
 
 **Push safety — the branch must NOT track origin/master.** When you branch from a
 remote-tracking ref, git auto-sets the new branch to track origin/master. Then a later
@@ -258,7 +271,25 @@ durable fact already known and nothing it learns can be orphaned:
     $dir      = Join-Path $projects  (& $slugOf $WT)
     if (-not (Test-Path $base)) { throw "base memory dir not found: $base" }
     if (-not (Test-Path $dir))  { New-Item -ItemType Directory -Path $dir | Out-Null }
-    if (-not (Test-Path "$dir\memory")) { New-Item -ItemType Junction -Path "$dir\memory" -Target $base | Out-Null }
+    $mem = Join-Path $dir 'memory'
+    if (Test-Path $mem) {
+        # FAIL CLOSED: something is already here. Only a junction pointing at $base is acceptable.
+        $item = Get-Item $mem -Force
+        if ($item.LinkType -ne 'Junction') {
+            throw "$mem exists and is NOT a junction (LinkType='$($item.LinkType)') — refusing to continue; its contents would be orphaned when the worktree is removed"
+        }
+        $tgt = @($item.Target)[0]
+        if ($tgt.TrimEnd('\') -ine $base.TrimEnd('\')) {
+            throw "$mem is a junction to '$tgt', not to the base store '$base' — refusing to continue"
+        }
+    } else {
+        New-Item -ItemType Junction -Path $mem -Target $base | Out-Null
+    }
+
+Failing closed matters more than it looks: silently accepting a **real directory** there gives the
+new session a private memory store that dies with the worktree — the exact failure that stranded
+229 files. A junction pointing somewhere *else* is worse still, since writes would land in another
+worktree's store.
 
 Do it **before** opening the window (§5b) — the memory dir is created lazily on first write, and a
 real directory already sitting there blocks the junction. A Windows directory junction needs no
@@ -269,6 +300,7 @@ shared store.
 Do all subsequent work under that worktree path, and report the path + branch you created.
 
 ## 5. Hand over to a fresh session in the worktree (default conclusion — repeat per task)
+
 **Do this once for EACH of the N chosen tasks**, so N tasks ⇒ N handover briefs and N new
 windows. `/start-work` decides the task(s) and scaffolds the worktree(s); everything after
 that — implement, verify, self-review, commit, push, open the PR, then drive it to green
@@ -291,19 +323,20 @@ the task along by WRITING IT DOWN, then opening the window, then priming the new
 **5a. Write the handover brief.** Create `HANDOVER.md` at the worktree root with
 everything the next session needs to start cold — write it for a reader who knows nothing
 about this conversation:
-  - **Task** — the chosen task, issue # + link (or other source), its **score + rank
+
+- **Task** — the chosen task, issue # + link (or other source), its **score + rank
     position** from `issue_scores.py rank` (or, for non-issue work, the leverage tier), and
     one line on why it was picked — cite the rank, or the Pull-override / "justify going
     down" reason if it wasn't simply the top unblocked issue.
-  - **Branch / worktree** — `feature/<slug>` at `<worktreePath>`, based on `origin/master` @ <sha>.
-  - **Recommended model + effort** — one of Opus 5 / Sonnet 5 / Fable 5 and an effort
+- **Branch / worktree** — `feature/<slug>` at `<worktreePath>`, based on `origin/master` @ <sha>.
+- **Recommended model + effort** — one of Opus 5 / Sonnet 5 / Fable 5 and an effort
     level, per the rubric below, so the new window's session can `/model` to it and set
     effort before starting. State one line of *why* (what about the task drives the choice).
-  - **Registry snapshot** — the off-limits list from step 2 (so the next session won't
+- **Registry snapshot** — the off-limits list from step 2 (so the next session won't
     re-derive or collide). **When N > 1, also list the OTHER tasks/branches launched in
     this same batch** as off-limits — they were just created and run in parallel, so each
     sibling session must know not to touch the others' subsystems/files.
-  - **Plan** — the intended approach / steps, covering the FULL scope of the task (every
+- **Plan** — the intended approach / steps, covering the FULL scope of the task (every
     acceptance criterion on the issue, if it's issue-sourced) unless you deliberately sliced
     per "Right-size the unit of work" above — in which case say so explicitly and name what's
     deferred. **If the plan is a whole-epic Fable 5 + subagents session (the default for a
@@ -313,16 +346,16 @@ about this conversation:
     anything, which sub-pieces are file-disjoint enough to hand to subagents once those
     contracts exist, and which edits (cross-binding touch-points, cross-part integration
     wiring) must stay sequential in the main session because a missed one fails silently.
-  - **State** — what's already done (usually nothing yet) and what's been verified.
-  - **Next steps** — the concrete first actions to take.
-  - **The loop** — one line: "Follow `docs/process/task-loop.md`, Phase 0 through Phase 7." That
+- **State** — what's already done (usually nothing yet) and what's been verified.
+- **Next steps** — the concrete first actions to take.
+- **The loop** — one line: "Follow `docs/process/task-loop.md`, Phase 0 through Phase 7." That
     document owns implement → verify → self-review → commit → push → PR → CI/CodeRabbit → report,
     including the closing-the-loop steps (tick the source, capture the lesson in
     `docs/agent-rules/` and link it from both indexes). Don't restate it here. DO note anything
     task-specific that overrides or extends it — "this one needs visual evidence from four
     angles", or "the acceptance criteria are the issue's checkboxes; tick each with evidence and
     let the PR's `Closes #N` shut it on merge".
-  - **Guardrails (quote, don't paraphrase)** — from `CLAUDE.md` → *Committing and publishing*:
+- **Guardrails (quote, don't paraphrase)** — from `CLAUDE.md` → *Committing and publishing*:
     inside this worktree on this `feature/*` branch, commit / push / open-PR are
     **pre-authorized** — that's the job, don't stop to ask. Still gated: **never a bare
     `git push`** (publish with `git push -u origin feature/<slug>`), and merging the PR, pushing
@@ -334,16 +367,17 @@ about this conversation:
 Match the recommendation to the task's *reasoning difficulty and verification burden*, NOT its
 leverage tier — a high-leverage task can still be mechanical, and a small diff can still be
 correctness-critical. Pick a model:
-  - **Opus 5** — hardest reasoning / subtle correctness / architecture / high blast-radius,
+
+- **Opus 5** — hardest reasoning / subtle correctness / architecture / high blast-radius,
     or work gated on a mandatory visual-or-runtime verification loop where a plausible-but-wrong
     result is costly to catch (e.g. renderer changes that "pass tests but look broken",
     cross-subsystem invariants, tricky concurrency). Default for renderer-correctness and
     anything where the failure mode is silent.
-  - **Sonnet 5** — well-scoped engine work with a clear existing pattern to copy and test guards
+- **Sonnet 5** — well-scoped engine work with a clear existing pattern to copy and test guards
     that catch mistakes (a codegen slice mirroring a prior slice, a settings-plumbing fix with a
     reference implementation, a new read-only tool mirroring ~36 siblings). **The sensible
     default for most start-work tasks.**
-  - **Fable 5** — two distinct use cases, don't conflate them:
+- **Fable 5** — two distinct use cases, don't conflate them:
     (a) the fast lane for mechanical, highly-patterned, low-ambiguity slices: rename sweeps,
     boilerplate, docs passes, a Tier-2 warning/smell batch, following a very explicit template
     under strong tests — reach for it when the *how* is obvious and only the *typing* is left;
@@ -388,7 +422,6 @@ session then runs to a green, self-reviewed PR on its own. It's interactive, so 
 and can interrupt or redirect at any point; and it can be long — CI's SonarCloud and sanitizer
 jobs take ~1.5–2 hours, so the session may still be legitimately working long after the code is
 written.
-
 
 **5d. Then stop — this session's job is done.** Do NOT start implementing any task in this
 (base-repo) session; the new windows own them. Final report: for **each** of the N tasks,

@@ -8,22 +8,34 @@ incomplete** AND **not already open**. Opening windows is non-destructive, so ju
 (after showing the plan) — no confirmation needed.
 
 ## 0. Locate the base repo (derive it, don't assume a path)
+
     git rev-parse --path-format=absolute --git-common-dir
 The parent of that .git directory is the BASE REPO; call it $BASE. Run git with
 `git -C $BASE ...`. Then refresh so merge/ancestor checks are accurate:
     git -C $BASE fetch --prune origin
 
 ## 1. Enumerate worktrees and classify each
+
     git -C $BASE worktree list --porcelain
 Skip the MAIN worktree (the entry whose path == $BASE, branch master) — that's the base
 repo, not worktree work. For every OTHER worktree, classify with the SAME gate
 `/cleanup-worktree` uses:
-  - **completed** = ALL of: branch merged into master
-    (`git -C $BASE merge-base --is-ancestor <branch> origin/master`, exit 0)
+
+- **completed** = ALL of: branch landed
+    (`git -C $BASE merge-base --is-ancestor <branch> origin/master` exit 0, **or** a MERGED PR
+    whose `headRefOid` == the branch HEAD — a squash merge defeats `--is-ancestor`)
+    AND **no OPEN PR for the branch**
+    (`gh pr list --state open --head <branch> --repo <owner/repo>` is empty)
     AND working tree clean (`git -C <wtPath> status --porcelain` empty)
     AND nothing unpushed (`git -C $BASE rev-list --count origin/master..<branch>` == 0).
-  - **incomplete (RESUME candidate)** = anything that fails that gate: uncommitted changes,
+- **incomplete (RESUME candidate)** = anything that fails that gate: uncommitted changes,
     unmerged commits, or an open PR.
+
+**The open-PR clause must actually be queried, not assumed.** A branch can be merged, clean and
+fully pushed while its PR is still open (or a second PR is open against it) — that worktree is
+live work waiting on review or CI and MUST stay resumable. This is the same four-part gate
+`/cleanup-worktree` §2 uses, deliberately: a worktree it refuses to remove is one this command
+must offer to reopen, or work silently falls between the two.
 **Note the same trap as cleanup:** a worktree whose branch HEAD is an ancestor of master
 but whose working tree is DIRTY is live WIP (the feature was never committed) → it counts
 as **incomplete** and SHOULD be resumed. Completed worktrees are just awaiting cleanup —
@@ -31,12 +43,14 @@ skip them (mention them so I can run `/cleanup-worktree`).
 If a slug ("$1") was given, restrict the candidate set to feature/$1 only.
 
 ## 2. Detect which worktrees are ALREADY open
+
 `Get-Process … MainWindowTitle` is unreliable for Electron (it reports only one window).
 Enumerate ALL top-level windows via Win32 EnumWindows and match each worktree's folder
 leaf name against the window-title tokens (VS Code's default title is
 `<editor> - <rootName> - <appName>`, separator " - ", so `<rootName>` = the folder leaf
 is an exact token). This catches both `code` ("Visual Studio Code") and `code-insiders`
 ("Visual Studio Code - Insiders"):
+
 ```powershell
 $sig = @'
 using System; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Text;
@@ -63,22 +77,26 @@ function Test-WorktreeOpen($wtPath, $titles) {
   return $false
 }
 ```
+
 Assumption: the user hasn't customized `window.title` to drop `${rootName}`. If detection
 looks wrong, say so rather than reopening a duplicate.
 
 ## 3. Compute the set to open and SHOW it
+
 to_open = incomplete worktrees that are NOT already open. Print a short table: each
 worktree → status (incomplete-dirty / incomplete-unmerged / incomplete-openPR / completed)
 and open? (yes/no), then the final to_open list. If to_open is empty, report that
 everything incomplete is already open (or everything is completed) and stop.
 
 ## 4. Open each in its own new window
+
 The user runs VS Code Insiders; `-n` forces a NEW window so existing windows survive:
     code-insiders -n "<wtPath>"
 Fall back to `code -n "<wtPath>"` if `code-insiders` isn't on PATH. Open them one per
 worktree in to_open.
 
 ## 5. Report
+
 List what was opened, what was skipped because already-open, and what was skipped because
 completed (suggest `/cleanup-worktree` for those). If any opened worktree has a
 `HANDOVER.md` at its root (left by `/start-work`), mention it and hand over the kickoff

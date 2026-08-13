@@ -37,13 +37,36 @@ or after editing a `CMakeLists.txt`):
 cmake --preset msvc
 ```
 
-Build the targets you need (each line verified, exit 0):
+**Always build through `build-lock.ps1`** — it is a cross-worktree mutex, and it is how the
+"never build two trees at once" rule in `CLAUDE.md` is actually enforced:
 
 ```powershell
-cmake --build build --target OloEditor       --config Debug --parallel
-cmake --build build --target OloServer        --config Debug --parallel
-cmake --build build --target OloEngine-Tests  --config Debug --parallel
+pwsh -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
+  'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
 ```
+
+Targets: `OloEditor`, `OloServer`, `OloRuntime`, `OloEngine-Tests`. Always cap `--parallel`
+(see `CLAUDE.md` → *Build & run*).
+
+**Why the lock.** One clean Debug build peaks at **~47 GiB** on this 64 GB host (issue #759), so
+two concurrent builds do not fit — and an agent session running unattended cannot rely on the
+"check for live MSBuild/ninja processes first" rule, because two sessions checking at the same
+moment both see "clear". The lock file lives in the shared `git-common-dir`, which every worktree
+resolves to the same path, so builds serialise across worktrees with no coordination between the
+sessions. A second build **queues**; it does not fail.
+
+Behaviour worth knowing:
+
+- It returns the **build's** exit code, never the release's.
+- A lock whose holder PID is dead is stolen immediately; one held longer than `-StaleMinutes`
+  (default 180) is stolen with a warning. Both matter on this box — orphaned state has wedged
+  things before (`mspdbsrv`, stray `fsmonitor` daemons).
+- It is **advisory**: a human running `cmake --build` directly bypasses it. That's intended; the
+  problem it solves is unattended sessions colliding.
+- Serialising builds also reduces the per-user `mspdbsrv` contention that stalls `/Zi` compilation
+  across every worktree.
+
+Other notes:
 
 - OloEditor links to `bin\Debug\OloEditor\OloEditor.exe` (note: `bin\`, not `build\`).
 - A first full editor build is long; here only the editor + networking objects were stale, so it linked in a few minutes off the 899 prebuilt engine objects.
@@ -139,6 +162,7 @@ Read-only work (screenshots, camera moves, `olo_render_capture_target`,
 actually intend to mutate the project.
 
 Notes:
+
 - A fresh Claude Code session/reconnect may be needed before the newly registered
   `olo_*` tools surface in the tool list — `attach` prints the registration result.
 - If the `claude` CLI isn't on PATH, `attach` prints the exact `claude mcp add` line to

@@ -182,6 +182,7 @@ cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6
 ```powershell
 $env:CMAKE_BUILD_PARALLEL_LEVEL = "6"   # PowerShell (the primary dev shell here)
 ```
+
 ```bash
 export CMAKE_BUILD_PARALLEL_LEVEL=6      # POSIX shell / the Linux GPU runner
 ```

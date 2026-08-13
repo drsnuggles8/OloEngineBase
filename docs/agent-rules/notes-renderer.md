@@ -28,11 +28,19 @@ while adding the reflection-probe visual test.
    sources must pass `IBLConfiguration{ .UseDiskCache = false }`. **This one masked the fixes for
    (1) and (2)**: the result stayed byte-identical black because a stale entry from the first broken
    run kept loading.
-4. **Force render scale to 1.0 during capture.** `RenderScene3D` honours
-   `Renderer3D::SetRenderScale`, so with scale < 1.0 the scene renders into a `floor(width*scale)`
-   sub-viewport while a full-texture readback reads the *whole* physical texture — you bake a tiny
-   corner image surrounded by un-rendered pixels, with no crash and the right buffer size. The old
-   self-bound-FBO path set its own viewport and was immune; the graph path is not.
+4. **Force render scale to 1.0 during capture — and restore it with RAII.** `RenderScene3D`
+   honours `Renderer3D::SetRenderScale`, so with scale < 1.0 the scene renders into a
+   `floor(width*scale)` sub-viewport while a full-texture readback reads the *whole* physical
+   texture — you bake a tiny corner image surrounded by un-rendered pixels, with no crash and the
+   right buffer size. The old self-bound-FBO path set its own viewport and was immune; the graph
+   path is not.
+
+   Save the previous scale, set 1.0, and **restore from a scope guard, not a trailing statement**.
+   A capture body is long and has early returns (a failed face, an unresolvable target); a plain
+   save-at-the-top / restore-at-the-bottom pair leaks the forced 1.0 into every later frame the
+   moment one of them fires. `ReflectionProbeBaker::BakeProbe` currently does the plain form, with
+   ~80 lines between set and restore — worth converting when you next touch it. The same guard
+   should carry the window-size restoration, which has the identical problem.
 5. **Exclude the probe being baked from its own IBL override.** `ApplyReflectionProbeOverride`
    installs the dominant active probe's `m_BakedEnvironment` as the global IBL, so a **re-bake**
    feeds the probe's own previous bake back into the fresh capture — an infinity-mirror artifact
@@ -77,8 +85,12 @@ it:
 - Pair `OLO_SHADER_RELOAD_START`/`_END` on the **same (old)** id — START(old)/END(new) leaves the old
   entry stuck at `m_IsReloading = true`.
 
-Guard the teardown on `m_RendererID != 0` so first-time init is a no-op, and **only delete the old
-handle on reload success** so a failed recompile keeps the working object as a fallback.
+**Order matters as much as the steps.** Keep the existing handle *and every old-ID registration*
+in place while you create and validate the replacement — do not unregister up-front. Only once the
+new object is known good: switch `m_RendererID`, re-point the side maps to the new id, then defer
+the old handle's teardown (with its matching tracker decrement and reload notification). On a
+creation or recompilation failure, change nothing: the old object and all its mappings stay live and
+working. Guard the whole teardown on `m_RendererID != 0` so first-time init is a no-op.
 
 > Issue #544 found this independently in **two** wrappers (`OpenGLShader::FinalizeProgram`/`Reload`
 > and `OpenGLTexture2D::InvalidateImpl`). Still latent and worth a follow-up:

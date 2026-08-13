@@ -52,12 +52,19 @@ summarises whatever the shell handed it. Capture the code alone, before anything
 grep the log:
 
 ```bash
-cmake --build build --target OloEngine-Tests --config Debug --parallel 6 > /tmp/b.log 2>&1
-echo "EXIT=$?" > /tmp/b.exit
+if ! cmake --build build --target OloEngine-Tests --config Debug --parallel 6 > /tmp/b.log 2>&1; then
+    echo "BUILD FAILED"; tail -40 /tmp/b.log; exit 1
+fi
+test -f build/OloEngine/tests/Debug/OloEngine-Tests.exe || { echo "no artifact despite exit 0"; exit 1; }
 ```
 
-Confirm success by the target artifact existing, not by an exit code alone. Never attach a
-truncating filter to a command whose side effects matter.
+Note the shape: the build's own status is tested **directly**, and nothing runs after it that could
+become the block's status. Writing `cmake --build …` then `echo "EXIT=$?"` on the next line makes
+the *echo* the last command, so the block succeeds even when the build didn't — the same class of
+bug this section is about.
+
+Confirm success by the target artifact existing, **and** by a zero exit — neither alone. Never
+attach a truncating filter to a command whose side effects matter.
 
 Then, per `CLAUDE.md`:
 
@@ -107,8 +114,15 @@ happened on #732 and needed a revert commit). Stage deliberately:
 git status --short          # look at it
 git add <the files you actually changed>
 git checkout -- OloEditor/assets/tests/visual/   # unless a golden legitimately moved
-git commit
+git commit -F - <<'MSG'
+<type>(<scope>): <summary>
+
+<why, not what — the diff says what>
+MSG
 ```
+
+**Always pass `-m` or `-F`.** A bare `git commit` opens `$EDITOR`, which in an unattended session
+hangs forever with no output.
 
 A golden that legitimately moved is a deliberate, explained part of the diff — see
 [procedural-generator-golden-coupling.md](../agent-rules/procedural-generator-golden-coupling.md).
@@ -135,23 +149,109 @@ Closes #<N>"
 Use `Closes #N` only when the PR genuinely completes the issue. For one item of an umbrella
 tracker, reference it as a bare `#N` and say which item landed — GitHub must not auto-close it.
 
+### The review guide — end the PR body with it
+
+The median PR here is ~2,600 lines across ~30 files. CodeRabbit will review the *diff*; what it
+structurally cannot supply is **the author's own uncertainty**, and you have just self-reviewed
+this change (Phase 3) so you know it. Do not throw that away. Close the body with:
+
+```markdown
+## Review guide
+
+**Where I'd look hardest**
+1. `<file:line>` — <why this is the riskiest part>
+2. …  (2–3 entries, ranked; not a file list)
+
+**What I verified, and how** — <named evidence: test names, screenshot paths, the check that would
+have failed if this were wrong>
+
+**Least confident about** — <the thing you'd want a second opinion on, or "nothing" and why>
+
+**Deliberately not tested** — <what you skipped and the reason>
+```
+
+Be honest in "least confident" — an empty section because you didn't want to look uncertain wastes
+the whole point. If a section genuinely has nothing, say so in a few words rather than deleting it.
+
 ## Phase 5 — Drive the PR to green
 
-CI and CodeRabbit run in parallel. Work both until the exit gate in Phase 6 passes. Expect to go
-around this loop more than once: each push restarts CI and re-triggers review.
+CI and CodeRabbit run in parallel. Work both until the exit gate in Phase 6 passes.
 
-### 5a. CI
+> ### The governing rule: one decision, one push, per round
+>
+> A round costs 2–3 hours of wall clock and you do not control its length — Actions runs
+> ~137–201 min and CodeRabbit reviews at roughly **one per hour**. So the only thing you control is
+> **how many rounds the PR takes**, and the measured median is 3 commits per merged PR. Every
+> avoidable push is another 2–3 hours.
+>
+> Each push costs you **twice**: it burns a CodeRabbit review slot, *and* it supersedes the
+> in-flight CI run. That is not theoretical — PR #785's checks show `CANCELLED` at 37–38 minutes
+> into a 137-minute build, thrown away by a push.
+>
+> Therefore: **gather everything, decide once, push once.** The sub-steps below are ordered.
+
+### 5a. Wait for a complete picture — do not act on the first red
+
+**A single failed check does not mean the run is over.** TSan failing tells you nothing about
+whether ASan and UBSan will; they may still be running. If you fix TSan and push immediately you
+cancel the siblings, learn nothing from them, and discover the next failure in the *following*
+round — having also spent a CodeRabbit hour.
+
+So poll until every check that can reveal a code problem has reached a terminal state
+(`SUCCESS`/`FAILURE`/`CANCELLED`/`TIMED_OUT`), and only then decide.
 
 ```bash
 gh pr checks <#> --repo <owner/repo>
 gh pr view <#> --repo <owner/repo> --json mergeable,statusCheckRollup
 ```
 
+**Never push into a healthy in-flight run.** If CodeRabbit returns a nit at 30 minutes while
+Windows still has 100 to go, the nit waits. The one exception is a run already known to be
+worthless — every remaining job has failed, or the change you must make invalidates it anyway.
+
+Poll with background execution, not a foreground sleep, at a cadence matched to what is left:
+minutes while the build is live, much longer once only the long poles remain.
+
+### 5b. Classify every failure before you touch code
+
+Three buckets, and only one of them is yours to fix:
+
+- **Infrastructure** — a dependency/vcpkg setup disconnect, the `packages.microsoft.com` apt 403,
+  a runner drop, SonarCloud hitting the 6 h cap. **Response: `gh run rerun --failed`. No code
+  change, no push.** "Fixing" an infra flake in code spends a whole round on nothing.
+- **Known flake** — cross-check the failing test against the flake memories before assuming it is
+  yours: shared-temp-dir races cover `FrameExportTest`, the FloatValidation fixtures and friends;
+  a separate set covers the machine-local GL/perf failures. Response: re-run, and say so in the
+  report **with evidence**, never silently.
+- **Real** — a compile error, a genuine test failure, a sanitizer report. This is the only bucket
+  that earns a code change.
+
+Get the actual log before classifying — don't guess from the job name. **`gh run view --log`
+returns empty in this repo**; use the API:
+
+```bash
+gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs
+```
+
+**Fix properly, never paper over.** A retry, a loosened assertion, a disabled test or a widened
+tolerance is acceptable *only* for a confirmed infra/known-flake failure, stated explicitly with
+evidence. "It passed on re-run" is not a diagnosis.
+
+### 5c. Batch, then push once
+
+Collect **all** real failures across **all** jobs, plus **all** CodeRabbit findings from 5d, fix
+the lot, and push a single time. Three separate fix commits is three CodeRabbit hours and three CI
+restarts for work that could have been one round.
+
+### 5d. CI mechanics
+
 - **`mergeable == CONFLICTING`** — fix first; conflicts often stop CI from running at all.
   Resolve by **merging master in**, never rebase, never force-push:
+
   ```bash
   git fetch origin && git merge origin/master
   ```
+
   Understand both sides of each conflict; don't blindly take one. If either side touched an ECS
   component, re-check the cross-binding touch-points — a clean textual merge can silently drop
   one. Rebuild after resolving.
@@ -162,30 +262,18 @@ gh pr view <#> --repo <owner/repo> --json mergeable,statusCheckRollup
   `>>>>>>> origin / master` (clang-format reads `=` and `/` as operators). Git still tracks it as
   unmerged, but the markers are no longer textually intact and an `Edit` match on them will fail.
 
-- **A failing check** — get the actual log, don't guess. **`gh run view --log` returns empty in
-  this repo**; use the API:
-  ```bash
-  gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs
-  ```
+- **Be patient with the long pole.** SonarCloud (~201 min median) and the Linux sanitizer jobs
+  (~170 min median, and one observed at 499) are usually the last `IN_PROGRESS` checks. That is
+  normal, not a hang — do not re-dispatch or cancel them.
 
-- **Fix properly, never paper over.** A retry, a loosened assertion, a disabled test or a
-  widened tolerance is only acceptable when you can show the failure is unrelated infrastructure
-  — and then you say so explicitly with evidence and capture it as a durable fact
-  (`docs/agent-rules/` or memory). "It passed on re-run" is not a diagnosis.
-
-- **Be patient with the long pole.** SonarCloud and the Linux sanitizer jobs take ~1.5–2 hours and
-  are usually the last `IN_PROGRESS` check. That is normal, not a hang — do not re-dispatch or
-  cancel them. Poll at a cadence matched to the job (a few minutes for build/test, much longer
-  while only the long jobs remain) using background execution rather than a foreground sleep.
-
-### 5b. Review threads
+### 5e. Review threads
 
 **Use unresolved review threads as the signal — never the comment count.** CodeRabbit posts an
 auto-summary and SonarCloud posts a Quality Gate comment on *every* PR; counting comments flags
 every PR as needing work.
 
 ```bash
-gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:1){nodes{author{login} body}}}}}}}' -F o=<owner> -F r=<repo> -F n=<#> --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)|"\(.id)  \(.path):\(.line)  [\(.comments.nodes[0].author.login)]"'
+gh api graphql --paginate   -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{id isResolved path line comments(first:1){nodes{author{login} body}}}}}}}'   -F o=<owner> -F r=<repo> -F n=<#>   --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)|"\(.id)  \(.path):\(.line)  [\(.comments.nodes[0].author.login)]"'
 ```
 
 Every thread must reach one of two end states — never leave one untouched:
@@ -232,9 +320,11 @@ You may **not** report the task done while any of these is false:
 1. `mergeable == MERGEABLE`.
 2. Every check `SUCCESS`.
 3. Unresolved review-thread count is **0**:
+
    ```bash
-   gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved}}}}}' -F o=<owner> -F r=<repo> -F n=<#> --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length'
+   gh api graphql --paginate      -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{isResolved}}}}}'      -F o=<owner> -F r=<repo> -F n=<#>      --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length' | paste -sd+ | bc
    ```
+
 4. The self-review (Phase 3) covers the **current** head — if you pushed fixes after it, re-review
    the new commits and post an updated summary.
 

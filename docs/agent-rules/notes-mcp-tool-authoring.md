@@ -106,8 +106,16 @@ The server already negotiates 2025-06-18, so annotations need no protocol bump. 
   (camera, viewport, render overrides) are not `ProjectWrite`, so the gate never touches them.
 - **Undo.** Route the mutation through the editor `CommandHistory` as a UUID-keyed
   `ComponentChangeCommand<T>` so an agent's edit is a single Ctrl-Z. Skip the push (report
-  `changed=false`) when the value is unchanged — `std::memcmp` for trivially-copyable types, `!=` for
-  `std::string`. **Never float `==`** (S1244).
+  `changed=false`) when the value is unchanged.
+
+  **Change detection is not one-size-fits-all.** `std::memcmp` is only valid for a type that is
+  *both* padding-free and authored-only. Two ways it goes wrong: indeterminate padding bytes make
+  two logically-equal components compare unequal (a spurious undo entry), and a runtime-mutated
+  field makes them compare unequal for a reason the user never authored. For those, specialize
+  **`PreferValueComparison<T>`** (`OloEditor/src/Panels/SceneHierarchyPanel.cpp`) and give the type
+  an `operator==` over its **authored fields only** — `IKTargetComponent`, `PerceptibleComponent`
+  and `TransformComponent` already do exactly this. `!=` for `std::string`, and **never float `==`**
+  (S1244).
 - **Threading.** Resolve scene/history and build the command inside `server.MarshalRead(...)` — the
   EnTT registry is not thread-safe. Return `{"__error", msg}` from the job and convert after.
 
