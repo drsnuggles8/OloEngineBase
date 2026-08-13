@@ -201,6 +201,12 @@ namespace OloEngine::MCP
         // published to any other thread; read-only thereafter.
         McpProtocolEra m_Era = McpProtocolEra::Legacy;
         std::string m_ProtocolVersion;
+        // True when the era probe got a RECOGNIZED modern reply but we still chose
+        // the legacy handshake (the child advertised only handshake-era revisions,
+        // or its reply named no versions at all). Purely diagnostic: if `initialize`
+        // then fails, the plain "initialize failed" message would point at the wrong
+        // problem, so Connect appends the era context it alone knows.
+        bool m_FellBackFromModernReply = false;
 
         std::vector<ToolDef> m_BridgedTools;
         sizet m_BridgedToolCount = 0;

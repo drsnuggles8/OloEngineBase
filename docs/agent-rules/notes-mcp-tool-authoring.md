@@ -35,12 +35,17 @@ the wrong destination).
 > prompt or tool changes what the headless tests see**, so a `resources/list` count assertion in an
 > unrelated test can fail on your change.
 
-## 2. A green test run does not mean your handler compiles
+## 2. A green test run does not mean your handler *works*
 
-`McpTools.cpp` links into the test binary, but no test drives a real handler end-to-end, so a green
-`OloEngine-Tests` proves the header/JSON contract and the registration shape — and says **nothing**
-about whether the handler *works*. **Build the `OloEditor` target too** before calling a tool done —
-that is also what live-verify needs.
+Building `OloEngine-Tests` **does** compile `McpTools.cpp` and every per-domain `McpTools*.cpp`, so
+a green run proves they compile and that their `ToolDef`s register. What it does **not** prove:
+
+- that the handler *runs* — nothing drives a real one end-to-end (it would need `MarshalRead`, a game
+  thread and usually GL), so the body is unexercised;
+- that the **`OloEditor` target** builds — it has its own sources (`McpServerPanel.cpp`, the editor
+  layer) and its own link step, which the test target does not cover.
+
+**Build the `OloEditor` target too** before calling a tool done — that is also what live-verify needs.
 
 > **Registration-only testing IS safe headless.** `RegisterBuiltinTools(server)` only builds
 > `ToolDef`s (schemas, names, annotations); handlers never run, so no MarshalRead, game thread or GL

@@ -144,9 +144,13 @@ Two design points to preserve:
   updates that never arrive. `resources/subscribe` rejects those with `-32602` *naming the URIs that
   do work*. This is the same honesty rule as `olo_render_why_not_visible` reporting HZB occlusion as
   not-observable instead of guessing.
-- **The first poll cycle after a subscribe seeds the token instead of firing.** Otherwise a client
-  gets a spurious "updated" for state it has never seen change. Unsubscribing drops the entry, so a
-  resubscribe re-seeds rather than replaying.
+- **The baseline token is captured at subscribe time, in `HandleResourcesSubscribe`** — *not* seeded
+  on the stream's first poll. The first poll compares the live token against that baseline, so a
+  change that lands between the subscribe and the poll — or before the client opens its stream at
+  all — still fires. Seeding at first poll instead is the version of this that silently swallows
+  those updates, which is the failure the whole `ChangeToken` gate exists to prevent. A repeated
+  subscribe keeps the existing baseline (so a retry cannot discard a pending update); unsubscribing
+  erases it, so a resubscribe deliberately re-baselines rather than replaying.
 
 The known simplification: the subscription set is **server-global**, because the GET stream carries
 no session identity. With two streams open, both see updates once either subscribes. It errs toward

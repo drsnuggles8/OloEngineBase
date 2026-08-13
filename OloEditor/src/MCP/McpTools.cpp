@@ -102,11 +102,15 @@ namespace OloEngine::MCP
                 ResourceDef resource;
                 resource.Uri = "olo://events/recent";
                 resource.Name = "Recent diagnostics events";
+                // The window size and the cursor both belong in the description: a
+                // reader that cannot tell this is the newest 200 rather than the whole
+                // history has no reason to resume from `lastId`, and would silently
+                // miss everything older on a busy session.
                 resource.Description =
-                    "The most recent 'what just happened?' engine events (scene load, play/stop, entity "
-                    "spawn/destroy, asset reload, script error) as JSON. Subscribable: resources/subscribe on "
-                    "this URI and the server pushes notifications/resources/updated whenever a new event is "
-                    "recorded.";
+                    "The most recent 'what just happened?' engine events (up to 200: scene load, play/stop, "
+                    "entity spawn/destroy, asset reload, script error) as JSON, newest last, with a 'lastId' "
+                    "cursor to resume from. Subscribable: resources/subscribe on this URI and the server "
+                    "pushes notifications/resources/updated whenever new events are recorded.";
                 resource.MimeType = "application/json";
                 resource.Reader = [](McpServer& /*s*/) -> std::string
                 {

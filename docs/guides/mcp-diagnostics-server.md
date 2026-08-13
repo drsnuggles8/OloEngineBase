@@ -1636,9 +1636,11 @@ whole offramp — nothing about the stream above changed:
 2. When new diagnostics events are recorded, the GET stream carries
    `notifications/resources/updated` with that `uri`. It means **"this resource changed,
    re-read it"**, not "one event happened": the stream samples the change token once per
-   ~250 ms cycle, so a burst of events coalesces into a single notification. Measured on
-   a live editor — entering Play recorded 5 events (a `play` plus 4 `entity_spawn`) and
-   produced exactly **one** `resources/updated`.
+   ~250 ms cycle, so a burst of events coalesces into a single notification. Measured on a live
+   editor: entering Play on one sandbox scene recorded 5 events within a single cycle and produced
+   exactly **one** `resources/updated`. The count is scene-specific — the `play` event plus whatever
+   entities that scene's systems spawn on start (here, 4 dialogue-UI entities); it is **not** the
+   suppressed whole-scene-copy path described above, which never reaches the ring at all.
 3. `resources/read` the URI (or call `olo_events_tail` with `sinceId`) to fetch what
    changed. The resource returns `{"events": [...], "lastId": <n>}` — the `events`
    entries are byte-identical to `olo_events_tail`'s, and `lastId` is the cursor to pass

@@ -168,6 +168,17 @@ namespace OloEngine::MCP
             if (!initResponse || !initResponse->contains("result"))
             {
                 outError = "MCP initialize failed (no/invalid response from '" + config.Command + "')";
+                // The probe told us this child understands the modern protocol, yet
+                // the handshake it steered us to also failed. Say so: a bare
+                // "initialize failed" sends the reader hunting for a legacy problem
+                // when the real answer is that the child and OloEditor share no
+                // usable revision.
+                if (connection->m_FellBackFromModernReply)
+                {
+                    outError += " — the server answered the 2026-07-28 `server/discover` probe but advertised "
+                                "no protocol version OloEditor can speak, and the legacy handshake it was "
+                                "asked to fall back to failed too";
+                }
                 connection->Shutdown();
                 return nullptr;
             }
@@ -241,7 +252,14 @@ namespace OloEngine::MCP
                 return true;
             }
             if (OffersLegacyVersion(versions) || !versions.is_array() || versions.empty())
-                return true; // dual-era (or uninformative) — the handshake still works
+            {
+                // Dual-era (or uninformative). A handshake-era revision in the list
+                // IS a mutually supported version — but the only way to speak one is
+                // `initialize`, because those revisions have no per-request `_meta`.
+                // So falling back here is selecting from the list, not ignoring it.
+                m_FellBackFromModernReply = true;
+                return true;
+            }
             outError = "MCP client '" + m_Config.Alias + "': the server speaks only " + JoinVersions(versions) +
                        ", none of which OloEditor supports";
             return false;
@@ -276,7 +294,10 @@ namespace OloEngine::MCP
                 // sin is a thin error payload — so fall back and let the handshake
                 // answer the question.
                 if (OffersLegacyVersion(supported) || !supported.is_array() || supported.empty())
+                {
+                    m_FellBackFromModernReply = true;
                     return true;
+                }
                 outError = "MCP client '" + m_Config.Alias +
                            "': the server rejected every protocol version OloEditor speaks (it supports " +
                            JoinVersions(supported) + ")";

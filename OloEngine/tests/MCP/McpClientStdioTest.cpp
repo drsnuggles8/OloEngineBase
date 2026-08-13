@@ -637,6 +637,38 @@ TEST(McpClientStdio, UnsupportedProtocolVersionErrorIsAModernMarkerNotAFallback)
     EXPECT_EQ(FirstWritten(fake->Written, "initialize"), nullptr) << "a modern marker must not trigger the handshake";
 }
 
+TEST(McpClientStdio, FallbackFailureAfterAModernReplyNamesTheEraMismatch)
+{
+    // A modern-aware child that advertises no version we speak AND cannot serve the
+    // handshake we fall back to. A bare "initialize failed" would send the reader
+    // hunting for a legacy problem, so the error must carry the era context the
+    // probe alone knew.
+    McpServer server{ EditorMcpContext{} };
+    FakeTransport* fake = nullptr;
+    const auto script = [](const Json& request, FakeTransport& transport)
+    {
+        if (request.value("method", std::string{}) == "server/discover")
+        {
+            transport.Reply(Json{ { "jsonrpc", "2.0" },
+                                  { "id", request["id"] },
+                                  { "result", Json{ { "resultType", "complete" },
+                                                    { "supportedVersions", Json::array() },
+                                                    { "capabilities", Json::object() },
+                                                    { "ttlMs", 0 },
+                                                    { "cacheScope", "public" } } } });
+        }
+        // initialize is deliberately swallowed.
+    };
+    McpClientConfig config = FilesConfig();
+    config.HandshakeTimeout = std::chrono::milliseconds(100);
+    config.DiscoverProbeTimeout = std::chrono::milliseconds(100);
+    const std::string error = server.ConnectClientWithTransport(config, FakeFactory(fake, script));
+
+    ASSERT_FALSE(error.empty());
+    EXPECT_NE(error.find("server/discover"), std::string::npos) << error;
+    EXPECT_NE(error.find("legacy handshake"), std::string::npos) << error;
+}
+
 TEST(McpClientStdio, NoMutuallySupportedVersionFailsWithAnActionableError)
 {
     // A modern server that shares no revision with us. Failing loudly here is the
