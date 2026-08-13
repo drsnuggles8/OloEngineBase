@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -102,6 +103,20 @@ namespace
             { return std::string("resource-body"); };
             m_Server.RegisterResource(std::move(resource));
 
+            // A SUBSCRIBABLE resource (issue #777): a ChangeToken is what opts a
+            // resource into resources/subscribe. `olo://fake` above deliberately
+            // has none, so the two together cover both sides of the gate.
+            ResourceDef live;
+            live.Uri = "olo://fake-live";
+            live.Name = "fake-live-resource";
+            live.Description = "A fake resource that reports when it changes.";
+            live.MimeType = "text/plain";
+            live.Reader = [this](McpServer&)
+            { return std::to_string(m_ChangeToken); };
+            live.ChangeToken = [this]
+            { return m_ChangeToken; };
+            m_Server.RegisterResource(std::move(live));
+
             PromptDef prompt;
             prompt.Name = "fake-prompt";
             prompt.Title = "Fake Prompt";
@@ -111,6 +126,9 @@ namespace
         }
 
         McpServer m_Server;
+        // Backing store for olo://fake-live's ChangeToken; bump it to simulate the
+        // resource's content moving. (u64 is a GLOBAL typedef, not OloEngine::u64.)
+        u64 m_ChangeToken = 1;
     };
 } // namespace
 
@@ -137,7 +155,15 @@ TEST_F(McpDispatchTest, InitializeReturnsHandshakeShape)
     EXPECT_TRUE(caps.contains("prompts"));
     // `logging` is advertised because GET /mcp pushes diagnostics events as
     // notifications/message log notifications (#306 item B server-push stream).
+    // Spec 2026-07-28 DEPRECATED it (≥12-month offramp), so #777 added a
+    // successor carrier — resources.subscribe below — that runs BESIDE it. This
+    // assertion is the pin that stops the deprecated carrier being dropped early:
+    // every client we actually talk to speaks a 2025-* revision and would lose
+    // the live event stream.
     EXPECT_TRUE(caps.contains("logging"));
+    // The offramp carrier (#777): the server accepts resources/subscribe for any
+    // resource that can honestly report a change.
+    EXPECT_EQ(caps["resources"]["subscribe"], true);
 }
 
 TEST_F(McpDispatchTest, InitializeEchoesSupportedProtocolVersion)
@@ -410,7 +436,9 @@ TEST_F(McpDispatchTest, ResourcesListSurfacesRegisteredResources)
     const Json resp = m_Server.HandleMessage(MakeRequest(4, "resources/list"));
     const Json& resources = resp["result"]["resources"];
     ASSERT_TRUE(resources.is_array());
-    ASSERT_EQ(resources.size(), 1u);
+    // Two: the plain fake resource plus olo://fake-live, which carries a
+    // ChangeToken so the resources/subscribe gate has both sides to test.
+    ASSERT_EQ(resources.size(), 2u);
     EXPECT_EQ(resources[0]["uri"], "olo://fake");
     EXPECT_EQ(resources[0]["name"], "fake-resource");
     EXPECT_EQ(resources[0]["mimeType"], "text/plain");
@@ -503,6 +531,142 @@ TEST_F(McpDispatchTest, ResourcesReadUnknownUriIsError)
 TEST_F(McpDispatchTest, ResourcesReadMissingUriIsInvalidParams)
 {
     const Json resp = m_Server.HandleMessage(MakeRequest(13, "resources/read", Json::object()));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32602);
+}
+
+// ---- resources/subscribe + unsubscribe (the `logging` offramp, issue #777) ---
+//
+// The `logging` capability that carries the live diagnostics event stream is
+// deprecated as of spec 2026-07-28. The replacement carrier is a SUBSCRIBABLE
+// resource: subscribe, receive notifications/resources/updated, read. These tests
+// pin the dispatch-side contract; the SSE delivery itself is transport-bound and
+// is not reachable from this seam.
+//
+// The gate under test is deliberate: a resource opts in with a ChangeToken, and
+// one WITHOUT a token must be refused rather than accepted-and-never-fired.
+// Accepting it would be the silent failure this carrier exists to avoid.
+
+TEST_F(McpDispatchTest, ResourcesSubscribeAcceptsAResourceWithAChangeToken)
+{
+    const Json resp =
+        m_Server.HandleMessage(MakeRequest(40, "resources/subscribe", Json{ { "uri", "olo://fake-live" } }));
+    ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+    EXPECT_TRUE(resp["result"].is_object());
+    EXPECT_TRUE(resp["result"].empty()) << "the spec's subscribe result is empty";
+
+    const std::vector<std::string> subscribed = m_Server.SubscribedUris();
+    ASSERT_EQ(subscribed.size(), 1u);
+    EXPECT_EQ(subscribed[0], "olo://fake-live");
+}
+
+TEST_F(McpDispatchTest, ResourcesSubscribeRejectsAResourceThatCannotReportChange)
+{
+    // olo://fake has no ChangeToken, so a subscription could never fire.
+    const Json resp = m_Server.HandleMessage(MakeRequest(41, "resources/subscribe", Json{ { "uri", "olo://fake" } }));
+    ASSERT_TRUE(resp.contains("error")) << resp.dump(2);
+    EXPECT_EQ(resp["error"]["code"], -32602);
+    // The error must be actionable: it names the URIs that DO work, so a client
+    // recovers in one step instead of probing every resource.
+    const std::string message = resp["error"]["message"].get<std::string>();
+    EXPECT_NE(message.find("olo://fake-live"), std::string::npos) << message;
+    EXPECT_TRUE(m_Server.SubscribedUris().empty()) << "a rejected subscribe must not register anything";
+}
+
+TEST_F(McpDispatchTest, ResourcesSubscribeRejectsUnknownUri)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(42, "resources/subscribe", Json{ { "uri", "olo://nope" } }));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32602);
+    EXPECT_TRUE(m_Server.SubscribedUris().empty());
+}
+
+TEST_F(McpDispatchTest, ResourcesSubscribeMissingUriIsInvalidParams)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(43, "resources/subscribe", Json::object()));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32602);
+}
+
+TEST_F(McpDispatchTest, ResourcesSubscribeIsIdempotent)
+{
+    for (int i = 0; i < 3; ++i)
+    {
+        const Json resp =
+            m_Server.HandleMessage(MakeRequest(44, "resources/subscribe", Json{ { "uri", "olo://fake-live" } }));
+        ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+    }
+    EXPECT_EQ(m_Server.SubscribedUris().size(), 1u) << "re-subscribing must not duplicate the entry";
+}
+
+TEST_F(McpDispatchTest, SubscribeBaselinesTheChangeTokenAtSubscribeTime)
+{
+    // The window this closes: if the baseline were taken on the STREAM's first poll
+    // instead of here, anything that changed between the subscribe and that poll —
+    // or before the client opened its stream at all — would be seeded over and
+    // never reported. The baseline must be the value as of the subscribe.
+    m_ChangeToken = 7;
+    ASSERT_TRUE(m_Server.HandleMessage(MakeRequest(49, "resources/subscribe", Json{ { "uri", "olo://fake-live" } }))
+                    .contains("result"));
+
+    auto baselines = m_Server.SubscriptionBaselines();
+    ASSERT_EQ(baselines.count("olo://fake-live"), 1u);
+    EXPECT_EQ(baselines["olo://fake-live"], 7u);
+
+    // A change now must leave the baseline behind, so the next stream poll sees
+    // baseline != current and fires.
+    m_ChangeToken = 8;
+    baselines = m_Server.SubscriptionBaselines();
+    EXPECT_EQ(baselines["olo://fake-live"], 7u) << "the baseline must not track the live token";
+}
+
+TEST_F(McpDispatchTest, ResubscribingKeepsTheOriginalBaselineButUnsubscribeResetsIt)
+{
+    // Idempotency must not silently discard a pending update: a client that
+    // re-sends subscribe (a retry, a reconnect) keeps its original baseline, so the
+    // change it has not been told about yet still fires. A deliberate
+    // unsubscribe/resubscribe is the opposite — it means "start fresh".
+    m_ChangeToken = 1;
+    ASSERT_TRUE(m_Server.HandleMessage(MakeRequest(50, "resources/subscribe", Json{ { "uri", "olo://fake-live" } }))
+                    .contains("result"));
+    m_ChangeToken = 2;
+    ASSERT_TRUE(m_Server.HandleMessage(MakeRequest(51, "resources/subscribe", Json{ { "uri", "olo://fake-live" } }))
+                    .contains("result"));
+    EXPECT_EQ(m_Server.SubscriptionBaselines()["olo://fake-live"], 1u)
+        << "a repeated subscribe must not swallow the change it has not reported yet";
+
+    ASSERT_TRUE(m_Server.HandleMessage(MakeRequest(52, "resources/unsubscribe", Json{ { "uri", "olo://fake-live" } }))
+                    .contains("result"));
+    ASSERT_TRUE(m_Server.HandleMessage(MakeRequest(53, "resources/subscribe", Json{ { "uri", "olo://fake-live" } }))
+                    .contains("result"));
+    EXPECT_EQ(m_Server.SubscriptionBaselines()["olo://fake-live"], 2u)
+        << "unsubscribe then subscribe means start fresh, not replay";
+}
+
+TEST_F(McpDispatchTest, ResourcesUnsubscribeRemovesTheSubscription)
+{
+    ASSERT_TRUE(m_Server.HandleMessage(MakeRequest(45, "resources/subscribe", Json{ { "uri", "olo://fake-live" } }))
+                    .contains("result"));
+    const Json resp =
+        m_Server.HandleMessage(MakeRequest(46, "resources/unsubscribe", Json{ { "uri", "olo://fake-live" } }));
+    ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+    EXPECT_TRUE(m_Server.SubscribedUris().empty());
+}
+
+TEST_F(McpDispatchTest, ResourcesUnsubscribeUnknownUriStillSucceeds)
+{
+    // Idempotent by design: a client tearing down after a reconnect must not be
+    // tripped by a subscription the server has already forgotten. Note this
+    // accepts URIs the server has never heard of too — unsubscribe carries no
+    // information the server needs to validate.
+    const Json resp =
+        m_Server.HandleMessage(MakeRequest(47, "resources/unsubscribe", Json{ { "uri", "olo://never" } }));
+    ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+}
+
+TEST_F(McpDispatchTest, ResourcesUnsubscribeMissingUriIsInvalidParams)
+{
+    const Json resp = m_Server.HandleMessage(MakeRequest(48, "resources/unsubscribe", Json::object()));
     ASSERT_TRUE(resp.contains("error"));
     EXPECT_EQ(resp["error"]["code"], -32602);
 }

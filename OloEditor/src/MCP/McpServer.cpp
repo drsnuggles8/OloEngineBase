@@ -36,6 +36,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -1285,6 +1286,13 @@ namespace OloEngine::MCP
             std::lock_guard lock(m_SessionMutex);
             m_Sessions.clear();
         }
+        // Resource subscriptions die with the session that made them: the streams
+        // that would carry the updates are gone, and a later Start() must not
+        // inherit a subscription no live client asked for.
+        {
+            std::lock_guard lock(m_SubscriptionMutex);
+            m_ResourceSubscriptions.clear();
+        }
         m_Token.clear();
 
         // Drop the session's ephemeral capture resources so a later Start()
@@ -1671,8 +1679,9 @@ namespace OloEngine::MCP
         res.set_chunked_content_provider(
             "text/event-stream",
             [this, cursor = startCursor, lastWrite = std::chrono::steady_clock::now(), greeted = false,
-             toolsGeneration = ToolsGeneration(),
-             resourcesGeneration = ResourcesGeneration()](std::size_t /*offset*/, httplib::DataSink& sink) mutable -> bool
+             toolsGeneration = ToolsGeneration(), resourcesGeneration = ResourcesGeneration(),
+             subscriptionTokens = std::unordered_map<std::string, u64>{}](
+                std::size_t /*offset*/, httplib::DataSink& sink) mutable -> bool
             {
                 // Server tearing down: end the stream gracefully so the worker thread
                 // is free to be joined by Stop().
@@ -1723,6 +1732,52 @@ namespace OloEngine::MCP
                         return false;
                     resourcesGeneration = generation;
                     lastWrite = std::chrono::steady_clock::now();
+                }
+
+                // Resource subscriptions (#777 — the `logging` offramp carrier).
+                // Same polled-generation delivery as the two blocks above, for the
+                // same single-writer-thread reason, but per SUBSCRIBED URI: each
+                // subscribable resource exposes a monotonic ChangeToken and we emit
+                // `notifications/resources/updated` when it advances.
+                //
+                // A URI this stream has not seen before starts from the
+                // SUBSCRIBE-TIME baseline, never from the token as of now. Seeding
+                // from "now" would swallow every change between the subscribe and
+                // this cycle — including everything that happened before the client
+                // opened its stream at all — which is precisely the
+                // never-fires failure the ChangeToken gate exists to prevent.
+                // Unsubscribing drops the URI from both maps, so a resubscribe
+                // re-baselines rather than replaying.
+                //
+                // Updates COALESCE by construction: the token is sampled once per
+                // cycle, so a burst inside one poll interval yields one
+                // notification. That is the correct semantics — the notification
+                // means "re-read this resource", not "one thing happened" — but a
+                // consumer must read from its own cursor, not count notifications.
+                {
+                    const ResourceSnapshot resources = ResourcesSnapshot();
+                    std::unordered_map<std::string, u64> stillSubscribed;
+                    for (const auto& [uri, baseline] : SubscriptionBaselines())
+                    {
+                        const ResourceDef* resource = FindResource(*resources, uri);
+                        if (resource == nullptr || !resource->ChangeToken)
+                            continue; // evicted or replaced by a non-subscribable def
+                        const u64 token = resource->ChangeToken();
+                        const auto seen = subscriptionTokens.find(uri);
+                        const u64 lastSeen = seen != subscriptionTokens.end() ? seen->second : baseline;
+                        if (lastSeen != token)
+                        {
+                            const std::string frame = FormatSseData(
+                                Json{ { "jsonrpc", "2.0" },
+                                      { "method", "notifications/resources/updated" },
+                                      { "params", Json{ { "uri", uri } } } });
+                            if (!sink.write(frame.data(), frame.size()))
+                                return false;
+                            lastWrite = std::chrono::steady_clock::now();
+                        }
+                        stillSubscribed.emplace(uri, token);
+                    }
+                    subscriptionTokens = std::move(stillSubscribed);
                 }
 
                 if (!ServiceEventStream(sink, cursor, lastWrite))
@@ -1980,6 +2035,10 @@ namespace OloEngine::MCP
             return HandleResourcesList(id);
         if (method == "resources/read")
             return HandleResourcesRead(id, request.value("params", Json::object()));
+        if (method == "resources/subscribe")
+            return HandleResourcesSubscribe(id, request.value("params", Json::object()));
+        if (method == "resources/unsubscribe")
+            return HandleResourcesUnsubscribe(id, request.value("params", Json::object()));
         if (method == "prompts/list")
             return HandlePromptsList(id);
         if (method == "prompts/get")
@@ -2006,6 +2065,12 @@ namespace OloEngine::MCP
         result["protocolVersion"] = version;
         // `logging` is advertised because the GET /mcp SSE stream pushes diagnostics
         // events as `notifications/message` log notifications (issue #306 item B).
+        // It is DEPRECATED as of spec 2026-07-28 (SEP-2577, ≥12-month offramp), so
+        // it now has a successor running beside it rather than replacing it: the
+        // `olo://events/recent` resource plus `resources.subscribe` below. Both
+        // carriers stay live for the whole offramp — dropping `logging` early would
+        // break every client that speaks a 2025-* revision, which today is all of
+        // them. See docs/agent-rules/mcp-protocol-eras.md.
         //
         // `tools.listChanged` is TRUE since the script-tool live-reload item (#607):
         // olo_script_tools_reload (and the MCP panel's "Reload script tools" button)
@@ -2014,10 +2079,15 @@ namespace OloEngine::MCP
         // stream. `resources.listChanged` is TRUE since the resource-link work
         // (#673 Tier 1): capture tools publish ephemeral resources while serving
         // (RegisterEphemeralResource), announced the same generation-polled way.
-        // Prompts are still fixed for a server run; per-URI `subscribe` stays
-        // unimplemented (nothing needs a subscription registry yet).
+        // Prompts are still fixed for a server run.
+        //
+        // `resources.subscribe` is TRUE since the `logging` offramp (#777): a
+        // client can subscribe to `olo://events/recent` and receive
+        // `notifications/resources/updated` whenever the diagnostics ring advances.
+        // Only resources carrying a ResourceDef::ChangeToken accept a subscription;
+        // the rest are rejected by name (HandleResourcesSubscribe).
         result["capabilities"] = Json{ { "tools", { { "listChanged", true } } },
-                                       { "resources", { { "subscribe", false }, { "listChanged", true } } },
+                                       { "resources", { { "subscribe", true }, { "listChanged", true } } },
                                        { "prompts", { { "listChanged", false } } },
                                        { "logging", Json::object() } };
         // `description` on Implementation is a 2025-11-25 addition (aligns with
@@ -2414,6 +2484,88 @@ namespace OloEngine::MCP
                                            { "text", std::move(text) } } }) } };
         AddCacheHints(result, kResourcesReadTtlMs, kCacheScopePrivate);
         return MakeResult(id, std::move(result));
+    }
+
+    Json McpServer::HandleResourcesSubscribe(const Json& id, const Json& params)
+    {
+        if (!params.contains("uri") || !params["uri"].is_string())
+            return MakeError(id, kInvalidParams, "Invalid params: 'uri' is required");
+
+        const std::string uri = params["uri"].get<std::string>();
+        const ResourceSnapshot snapshot = ResourcesSnapshot();
+        const ResourceDef* resource = FindResource(*snapshot, uri);
+        if (resource == nullptr)
+            return MakeError(id, kInvalidParams, "Unknown resource: " + uri);
+
+        // Refuse a subscription we could never fire. Without a ChangeToken there is
+        // no cheap way to know the resource changed, so accepting would promise
+        // updates that never arrive — the exact dishonesty the diagnostics server's
+        // "report unknown rather than fabricate" rule forbids. Name the ones that
+        // do work so the client can recover in one step.
+        if (!resource->ChangeToken)
+        {
+            std::string subscribable;
+            for (const ResourceDef& candidate : *snapshot)
+            {
+                if (!candidate.ChangeToken)
+                    continue;
+                if (!subscribable.empty())
+                    subscribable += ", ";
+                subscribable += candidate.Uri;
+            }
+            return MakeError(id, kInvalidParams,
+                             "Resource is not subscribable: " + uri +
+                                 (subscribable.empty() ? " (no resource on this server supports subscriptions)"
+                                                       : " (subscribable resources: " + subscribable + ")"));
+        }
+
+        // Baseline the token HERE, not on the stream's first poll: a change landing
+        // between this call and the next poll cycle — or before the client even
+        // opens its stream — must still be reported, or the subscription silently
+        // eats it. `emplace` keeps an existing subscription's baseline, so a
+        // repeated subscribe is idempotent and cannot discard a pending update;
+        // unsubscribe erases, so a resubscribe deliberately re-baselines.
+        {
+            std::lock_guard lock(m_SubscriptionMutex);
+            m_ResourceSubscriptions.emplace(uri, resource->ChangeToken());
+        }
+        return MakeResult(id, Json::object());
+    }
+
+    Json McpServer::HandleResourcesUnsubscribe(const Json& id, const Json& params)
+    {
+        if (!params.contains("uri") || !params["uri"].is_string())
+            return MakeError(id, kInvalidParams, "Invalid params: 'uri' is required");
+
+        // Idempotent by design: unsubscribing something never subscribed is a
+        // no-op success, so a client tearing down after a reconnect cannot be
+        // tripped by a subscription the server already forgot.
+        {
+            std::lock_guard lock(m_SubscriptionMutex);
+            m_ResourceSubscriptions.erase(params["uri"].get<std::string>());
+        }
+        return MakeResult(id, Json::object());
+    }
+
+    std::vector<std::string> McpServer::SubscribedUris() const
+    {
+        std::vector<std::string> uris;
+        {
+            std::lock_guard lock(m_SubscriptionMutex);
+            uris.reserve(m_ResourceSubscriptions.size());
+            for (const auto& [uri, baseline] : m_ResourceSubscriptions)
+                uris.push_back(uri);
+        }
+        // Sorted so the observable is deterministic — an unordered_map's iteration
+        // order is not, and a test asserting on it would be a latent flake.
+        std::sort(uris.begin(), uris.end());
+        return uris;
+    }
+
+    std::unordered_map<std::string, u64> McpServer::SubscriptionBaselines() const
+    {
+        std::lock_guard lock(m_SubscriptionMutex);
+        return m_ResourceSubscriptions;
     }
 
     const ResourceDef* McpServer::FindResource(const ResourceList& resources, const std::string& uri)

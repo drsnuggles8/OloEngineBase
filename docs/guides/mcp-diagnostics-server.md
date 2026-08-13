@@ -1581,7 +1581,8 @@ in regularly never misses anything between checks.
 > **Companion (issue #306 item B, server-push half — done):** `olo_events_tail` is the
 > *poll-based* read of the ring buffer; the same buffer is now also **pushed live** over a
 > persistent SSE stream on `GET /mcp` (previously `405`). See **Live event push** below.
-> `resources/subscribe` remains the one unimplemented sub-item.
+> `resources/subscribe` landed with the `logging` offramp (#777) — see **Subscribing to
+> the event resource**.
 
 ### Live event push (server-initiated SSE stream)
 
@@ -1623,6 +1624,50 @@ surface byte-identical event records.
 //          "data":{"id":313,"category":"play","time":"14:02:11.418",
 //                  "message":"Entered Play mode","context":"MyScene"}}}
 ```
+
+### Subscribing to the event resource (the `logging` offramp — #777)
+
+The `notifications/message` push above rides the MCP **`logging`** capability, which spec
+`2026-07-28` **deprecated** (SEP-2577, ≥12-month offramp). So there is now a second,
+non-`logging` carrier for exactly the same events, and **both run side by side** for the
+whole offramp — nothing about the stream above changed:
+
+1. `resources/subscribe` with `{"uri": "olo://events/recent"}`.
+2. When new diagnostics events are recorded, the GET stream carries
+   `notifications/resources/updated` with that `uri`. It means **"this resource changed,
+   re-read it"**, not "one event happened": the stream samples the change token once per
+   ~250 ms cycle, so a burst of events coalesces into a single notification. Measured on
+   a live editor — entering Play recorded 5 events (a `play` plus 4 `entity_spawn`) and
+   produced exactly **one** `resources/updated`.
+3. `resources/read` the URI (or call `olo_events_tail` with `sinceId`) to fetch what
+   changed. The resource returns `{"events": [...], "lastId": <n>}` — the `events`
+   entries are byte-identical to `olo_events_tail`'s, and `lastId` is the cursor to pass
+   as the next `sinceId`. Because updates coalesce, always read from your last cursor
+   rather than assuming one notification means one new event.
+4. `resources/unsubscribe` to stop. It is idempotent — unsubscribing something you never
+   subscribed to succeeds.
+
+**Only resources that can honestly report a change are subscribable.** A resource opts in
+by supplying a `ResourceDef::ChangeToken` (a cheap, monotonic "has this changed?" read);
+`olo://events/recent` is currently the only one. `resources/subscribe` on any other URI is
+rejected with `-32602` **naming the subscribable URIs** rather than accepting a
+subscription that could never fire. `capabilities.resources.subscribe` is `true`.
+
+Two honest limitations, both consequences of the GET stream having no session identity:
+
+- The subscription set is **server-global**, so if two clients hold streams open, both see
+  the updates once either subscribes. Harmless (a client that did not subscribe ignores
+  the notification), and it disappears in the `2026-07-28` transport, where
+  `subscriptions/listen` makes the stream itself the subscription.
+- Subscriptions are cleared on server stop.
+
+**Why a resource and not a custom notification:** under `2026-07-28` the GET stream is
+removed, `notifications/message` becomes scoped to the request that triggered it, and the
+`subscriptions/listen` filter is a **closed set** of four notification types — so a bespoke
+notification has nowhere to live there. `notifications/resources/updated` is on that list.
+Migrating therefore moves only the plumbing (`resources/subscribe` →
+`subscriptions/listen`); the resource, the notification and the payload are unchanged. Full
+reasoning: [`docs/agent-rules/mcp-protocol-eras.md`](../agent-rules/mcp-protocol-eras.md).
 
 Attach with a streaming-capable client (the same `claude mcp add` line works — Claude
 Code opens the GET stream automatically alongside the POST channel). The threading is
@@ -1831,6 +1876,9 @@ so keep a write-tier tool's description honest about what it changes.
 
 - `olo://scene/current` — the whole active scene serialized to YAML.
 - `olo://logs/recent` — the recent engine log lines.
+- `olo://events/recent` — the most recent 200 diagnostics events as JSON
+  (`{"events": [...], "lastId": <n>}`, entries identical to `olo_events_tail`'s). The one
+  **subscribable** resource: see [Subscribing to the event resource](#subscribing-to-the-event-resource-the-logging-offramp--777).
 - `olo://capture/<seq>/<kind>.png` — **ephemeral capture resources** (issue #673 Tier 1):
   when a capture tool is called with `delivery: "resource_link"` (`olo_screenshot`,
   `olo_render_capture_target`, `olo_render_compare_golden`), the PNG is published here

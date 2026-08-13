@@ -21,6 +21,84 @@
 
 namespace OloEngine::MCP
 {
+    namespace
+    {
+        // The two revisions this client speaks, one per era (issue #777).
+        //
+        // Modern (2026-07-28, the stateless core): no handshake at all — every
+        // request carries its protocol version, our identity and our per-request
+        // capabilities in `params._meta`. The routing headers (Mcp-Method /
+        // Mcp-Name) and header/body validation that revision also mandates are
+        // Streamable-HTTP concerns and do NOT apply to this stdio client.
+        //
+        // Legacy (2025-06-18): the newest revision whose features we rely on
+        // (outputSchema/structuredContent pass-through). The child may echo an
+        // older one — transport framing is identical, so we accept any reply.
+        constexpr const char* kModernProtocolVersion = "2026-07-28";
+        constexpr const char* kLegacyProtocolVersion = "2025-06-18";
+
+        // UnsupportedProtocolVersionError (spec 2026-07-28). Reserved by the spec,
+        // so seeing it is itself proof the peer is a modern server — which is why
+        // it steers us to a version retry rather than to the legacy fallback.
+        constexpr int kUnsupportedProtocolVersionCode = -32022;
+
+        // Reserved `_meta` keys carrying what `initialize` used to carry once.
+        constexpr const char* kMetaProtocolVersion = "io.modelcontextprotocol/protocolVersion";
+        constexpr const char* kMetaClientInfo = "io.modelcontextprotocol/clientInfo";
+        constexpr const char* kMetaClientCapabilities = "io.modelcontextprotocol/clientCapabilities";
+
+        [[nodiscard]] Json ClientInfo()
+        {
+            return Json{ { "name", "OloEditor" }, { "version", "0.0.1" } };
+        }
+
+        // True when `versions` (a JSON array of revision strings) names a revision
+        // this client can speak in the MODERN era.
+        [[nodiscard]] bool OffersModernVersion(const Json& versions)
+        {
+            if (!versions.is_array())
+                return false;
+            return std::any_of(versions.begin(), versions.end(),
+                               [](const Json& v)
+                               { return v.is_string() && v.get<std::string>() == kModernProtocolVersion; });
+        }
+
+        // True when `versions` names a revision we can speak in the LEGACY era.
+        // A dual-era child answers server/discover but may still list only
+        // handshake-era revisions; that is a fallback, not a failure. Any
+        // "2025-*"/"2024-*" entry qualifies because HandleInitialize-style
+        // negotiation lets the child echo whichever of those it prefers.
+        [[nodiscard]] bool OffersLegacyVersion(const Json& versions)
+        {
+            if (!versions.is_array())
+                return false;
+            return std::any_of(versions.begin(), versions.end(),
+                               [](const Json& v)
+                               {
+                                   if (!v.is_string())
+                                       return false;
+                                   const std::string s = v.get<std::string>();
+                                   return s.rfind("2025-", 0) == 0 || s.rfind("2024-", 0) == 0;
+                               });
+        }
+
+        [[nodiscard]] std::string JoinVersions(const Json& versions)
+        {
+            std::string out;
+            if (!versions.is_array())
+                return out;
+            for (const Json& v : versions)
+            {
+                if (!v.is_string())
+                    continue;
+                if (!out.empty())
+                    out += ", ";
+                out += v.get<std::string>();
+            }
+            return out;
+        }
+    } // namespace
+
     // ---- McpClientConnection: protocol + concurrency ---------------------------
 
     McpClientConnection::McpClientConnection(McpClientConfig config,
@@ -68,22 +146,44 @@ namespace OloEngine::MCP
         connection->m_Transport = std::move(transport);
         connection->m_Alive.store(true, std::memory_order_release);
 
-        // MCP handshake: initialize -> notifications/initialized -> tools/list.
-        // 2025-06-18 is the newest revision whose features we rely on here
-        // (outputSchema/structuredContent pass-through); the child may echo an
-        // older one — transport framing is identical, so we accept any reply.
-        const Json initParams{ { "protocolVersion", "2025-06-18" },
-                               { "capabilities", Json::object() },
-                               { "clientInfo", Json{ { "name", "OloEditor" }, { "version", "0.0.1" } } } };
-        const std::optional<Json> initResponse =
-            connection->SendRequest("initialize", initParams, config.HandshakeTimeout);
-        if (!initResponse || !initResponse->contains("result"))
+        // Decide the era BEFORE anything else: it determines both the opening
+        // sequence and whether every later request carries `_meta`.
+        if (!connection->NegotiateEra(outError))
         {
-            outError = "MCP initialize failed (no/invalid response from '" + config.Command + "')";
             connection->Shutdown();
             return nullptr;
         }
-        connection->SendNotification("notifications/initialized", Json::object());
+
+        // Legacy era only: the initialize -> notifications/initialized handshake.
+        // A modern child has no handshake — `server/discover` already told us
+        // everything initialize used to, and sending `initialize` to it would be
+        // an unknown method.
+        if (connection->m_Era == McpProtocolEra::Legacy)
+        {
+            const Json initParams{ { "protocolVersion", connection->m_ProtocolVersion },
+                                   { "capabilities", Json::object() },
+                                   { "clientInfo", ClientInfo() } };
+            const std::optional<Json> initResponse =
+                connection->SendRequest("initialize", initParams, config.HandshakeTimeout);
+            if (!initResponse || !initResponse->contains("result"))
+            {
+                outError = "MCP initialize failed (no/invalid response from '" + config.Command + "')";
+                connection->Shutdown();
+                return nullptr;
+            }
+            // The handshake NEGOTIATES: the child echoes the revision it actually
+            // agreed to, which may be older or newer than the one we asked for.
+            // Record that, not our request — otherwise the panel and the connect log
+            // report a version nobody is speaking, and the first thing anyone
+            // debugging an era problem looks at is wrong.
+            const Json& initResult = (*initResponse)["result"];
+            if (initResult.is_object() && initResult.contains("protocolVersion") &&
+                initResult["protocolVersion"].is_string())
+            {
+                connection->m_ProtocolVersion = initResult["protocolVersion"].get<std::string>();
+            }
+            connection->SendNotification("notifications/initialized", Json::object());
+        }
 
         const std::optional<Json> toolsResponse =
             connection->SendRequest("tools/list", Json::object(), config.HandshakeTimeout);
@@ -97,6 +197,108 @@ namespace OloEngine::MCP
 
         connection->BuildBridgedTools((*toolsResponse)["result"]["tools"], connection);
         return connection;
+    }
+
+    bool McpClientConnection::NegotiateEra(std::string& outError)
+    {
+        // Default assumption: legacy. Every path below either confirms it or
+        // upgrades us, so a probe that fails in ANY unrecognised way (including a
+        // child that never answers) lands on the handshake — which is exactly the
+        // spec's stdio backward-compatibility rule, and what every MCP server in
+        // the wild speaks today.
+        m_Era = McpProtocolEra::Legacy;
+        m_ProtocolVersion = kLegacyProtocolVersion;
+
+        // The probe must be self-describing: `server/discover` is a modern method
+        // and a modern server validates `_meta` on it like any other request. Send
+        // it explicitly rather than via RequestMeta(), which is still legacy here.
+        const Json probeParams{ { "_meta",
+                                  Json{ { kMetaProtocolVersion, kModernProtocolVersion },
+                                        { kMetaClientInfo, ClientInfo() },
+                                        { kMetaClientCapabilities, Json::object() } } } };
+        const std::chrono::milliseconds probeTimeout =
+            std::min(m_Config.DiscoverProbeTimeout, m_Config.HandshakeTimeout);
+        const std::optional<Json> response = SendRequest("server/discover", probeParams, probeTimeout);
+
+        // No reply at all (timeout, or the child died mid-probe): legacy. Note the
+        // ordering guarantee this relies on — a late `server/discover` response
+        // arriving after we fall back finds no waiter in m_Pending and is dropped
+        // by OnLine, so it cannot be mistaken for a later request's answer.
+        if (!response)
+            return true;
+
+        // A DiscoverResult: definitively modern. Take the newest revision we both
+        // speak; a dual-era child that lists only handshake revisions sends us
+        // back to the legacy path rather than failing.
+        if (response->contains("result") && (*response)["result"].is_object())
+        {
+            const Json& result = (*response)["result"];
+            const Json versions = result.value("supportedVersions", Json::array());
+            if (OffersModernVersion(versions))
+            {
+                m_Era = McpProtocolEra::Modern;
+                m_ProtocolVersion = kModernProtocolVersion;
+                return true;
+            }
+            if (OffersLegacyVersion(versions) || !versions.is_array() || versions.empty())
+                return true; // dual-era (or uninformative) — the handshake still works
+            outError = "MCP client '" + m_Config.Alias + "': the server speaks only " + JoinVersions(versions) +
+                       ", none of which OloEditor supports";
+            return false;
+        }
+
+        // An UnsupportedProtocolVersionError is itself a modern marker: only a
+        // modern server emits it, so this is a version mismatch to resolve, NOT a
+        // reason to fall back (the spec is explicit that a recognized modern error
+        // identifies a modern server).
+        if (response->contains("error") && (*response)["error"].is_object())
+        {
+            const Json& error = (*response)["error"];
+            // Defensive read: a child's reply is untrusted, and value() throws on a
+            // present-but-non-numeric "code".
+            const bool unsupportedVersion = error.contains("code") && error["code"].is_number_integer() &&
+                                            error["code"].get<int>() == kUnsupportedProtocolVersionCode;
+            if (unsupportedVersion)
+            {
+                const Json supported = error.contains("data") && error["data"].is_object()
+                                           ? error["data"].value("supported", Json::array())
+                                           : Json::array();
+                if (OffersModernVersion(supported))
+                {
+                    m_Era = McpProtocolEra::Modern;
+                    m_ProtocolVersion = kModernProtocolVersion;
+                    return true;
+                }
+                // Same rule as the DiscoverResult branch above, deliberately: only a
+                // list that is present AND names revisions we cannot speak is a hard
+                // failure. An absent or empty `supported` tells us nothing, and
+                // hard-failing on it would strand every tool from a child whose only
+                // sin is a thin error payload — so fall back and let the handshake
+                // answer the question.
+                if (OffersLegacyVersion(supported) || !supported.is_array() || supported.empty())
+                    return true;
+                outError = "MCP client '" + m_Config.Alias +
+                           "': the server rejected every protocol version OloEditor speaks (it supports " +
+                           JoinVersions(supported) + ")";
+                return false;
+            }
+        }
+
+        // Anything else — most commonly -32601 from a legacy server that has never
+        // heard of `server/discover`. Legacy it is.
+        return true;
+    }
+
+    Json McpClientConnection::RequestMeta() const
+    {
+        if (m_Era != McpProtocolEra::Modern)
+            return Json::object();
+        // clientCapabilities is REQUIRED and per-request: the server must not infer
+        // it from an earlier call. We consume tools only — no sampling, roots or
+        // elicitation — so an empty object is the honest declaration.
+        return Json{ { kMetaProtocolVersion, m_ProtocolVersion },
+                     { kMetaClientInfo, ClientInfo() },
+                     { kMetaClientCapabilities, Json::object() } };
     }
 
     void McpClientConnection::BuildBridgedTools(const Json& toolsArray,
@@ -156,6 +358,30 @@ namespace OloEngine::MCP
         }
 
         const Json result = response->value("result", Json::object());
+
+        // Multi Round-Trip Requests (spec 2026-07-28): a modern server may answer
+        // with resultType "input_required" instead of a finished call, expecting us
+        // to satisfy `inputRequests` (elicitation / sampling / roots) and retry. We
+        // implement none of those, and an absent resultType means "complete" for
+        // backward compatibility — so the ONLY thing that must not happen is
+        // forwarding an interim result to the agent as though it were the answer.
+        // Fail loudly instead; a silent half-result is the failure mode this bridge
+        // must not have. The field is read defensively (contains + is_string rather
+        // than value()) because a child's reply is untrusted network data and
+        // nlohmann's value() throws type_error.302 on a present-but-wrong type.
+        if (result.is_object() && result.contains("resultType"))
+        {
+            const Json& resultType = result["resultType"];
+            if (!resultType.is_string() || resultType.get<std::string>() != "complete")
+            {
+                return ToolResult::Error(
+                    "External server '" + m_Config.Alias + "' did not return a completed result (resultType " +
+                    resultType.dump() +
+                    "); OloEditor's outbound MCP client does not implement Multi Round-Trip Requests, so the "
+                    "call was not completed.");
+            }
+        }
+
         ToolResult out;
         out.IsError = result.is_object() && result.value("isError", false);
         if (result.is_object() && result.contains("content") && result["content"].is_array())
@@ -182,7 +408,20 @@ namespace OloEngine::MCP
             m_Pending.emplace(key, pending);
         }
 
-        const Json request{ { "jsonrpc", "2.0" }, { "id", id }, { "method", method }, { "params", params } };
+        // Modern era: every request is self-describing. Stamp `_meta` here — the
+        // one place every client-initiated request funnels through — rather than
+        // at each call site, so a future request can never ship without it. A
+        // caller that already supplied `_meta` (the era probe) keeps its own.
+        Json outParams = params;
+        if (m_Era == McpProtocolEra::Modern)
+        {
+            if (!outParams.is_object())
+                outParams = Json::object();
+            if (!outParams.contains("_meta"))
+                outParams["_meta"] = RequestMeta();
+        }
+
+        const Json request{ { "jsonrpc", "2.0" }, { "id", id }, { "method", method }, { "params", std::move(outParams) } };
         bool written = false;
         {
             // Serialize concurrent bridged handlers' writes. Never held while
@@ -602,8 +841,9 @@ namespace OloEngine::MCP
             std::lock_guard lock(m_ClientsMutex);
             m_Clients.push_back(connection);
         }
-        OLO_CORE_INFO("[MCP] Outbound client '{}' connected: {} tool(s) bridged from `{}`.", config.Alias,
-                      merged, config.Command);
+        OLO_CORE_INFO("[MCP] Outbound client '{}' connected ({} protocol {}): {} tool(s) bridged from `{}`.",
+                      config.Alias, connection->Era() == McpProtocolEra::Modern ? "stateless" : "handshake",
+                      connection->ProtocolVersion(), merged, config.Command);
         return {};
     }
 
@@ -641,6 +881,8 @@ namespace OloEngine::MCP
             status.Command = client->Command();
             status.Connected = client->IsConnected();
             status.ToolCount = client->BridgedToolCount();
+            status.Era = client->Era();
+            status.ProtocolVersion = client->ProtocolVersion();
             statuses.push_back(std::move(status));
         }
         return statuses;

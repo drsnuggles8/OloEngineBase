@@ -12,8 +12,10 @@
 //     (MakeStdioTransportFactory, McpClient.cpp) owns CreateProcessW + pipes +
 //     a blocking reader thread; tests substitute an in-memory fake that
 //     replies synchronously inside WriteLine.
-//   * McpClientConnection — the protocol + concurrency layer: the initialize /
-//     initialized / tools/list handshake, request-id multiplexing (bridged
+//   * McpClientConnection — the protocol + concurrency layer: era negotiation
+//     (see NegotiateEra — `server/discover` probe, falling back to the
+//     initialize / initialized handshake), tools/list, request-id
+//     multiplexing (bridged
 //     tool handlers run CONCURRENTLY on httplib worker threads, so responses
 //     are matched to waiters by exact id, the same id.dump() keying the
 //     server's cancellation registry uses), timeouts, and teardown that never
@@ -75,12 +77,12 @@ namespace OloEngine::MCP
     class McpClientConnection
     {
       public:
-        // Spawn (via `factory`), run the MCP handshake (initialize ->
-        // notifications/initialized -> tools/list), and build the bridged
-        // ToolDefs. Returns nullptr with `outError` set on any failure (spawn,
-        // timeout, malformed handshake). `onDeath(alias)` is invoked at most
-        // once, from the transport's reader thread, when the child dies or the
-        // stream breaks OUTSIDE a deliberate Shutdown — the owner uses it to
+        // Spawn (via `factory`), negotiate an era (see NegotiateEra), run the
+        // matching opening sequence, list the child's tools, and build the
+        // bridged ToolDefs. Returns nullptr with `outError` set on any failure
+        // (spawn, timeout, malformed handshake). `onDeath(alias)` is invoked at
+        // most once, from the transport's reader thread, when the child dies or
+        // the stream breaks OUTSIDE a deliberate Shutdown — the owner uses it to
         // unpublish the alias's tools.
         [[nodiscard]] static std::shared_ptr<McpClientConnection> Connect(
             const McpClientConfig& config, const McpClientTransportFactory& factory,
@@ -118,14 +120,48 @@ namespace OloEngine::MCP
             return m_BridgedToolCount;
         }
 
+        // The era this connection negotiated at Connect time, and the exact
+        // revision string it stamps on requests (issue #777). Fixed for the
+        // lifetime of the connection — the spec makes era a property of the
+        // server, not of an individual request — so these are plain reads.
+        [[nodiscard]] McpProtocolEra Era() const
+        {
+            return m_Era;
+        }
+        [[nodiscard]] const std::string& ProtocolVersion() const
+        {
+            return m_ProtocolVersion;
+        }
+
       private:
         explicit McpClientConnection(McpClientConfig config,
                                      std::function<void(const std::string&)> onDeath);
 
+        // Decide whether the child speaks the 2026-07-28 stateless core or the
+        // legacy `initialize` handshake, and settle on a mutually supported
+        // revision. Implements the spec's stdio backward-compatibility rule:
+        // probe with `server/discover`, treat a recognized MODERN reply (a
+        // DiscoverResult, or an UnsupportedProtocolVersionError naming the
+        // versions it does support) as a modern server, and fall back to the
+        // legacy handshake on anything else — including a timeout. Sets m_Era
+        // and m_ProtocolVersion; returns false with `outError` set only when the
+        // child is modern but shares no revision with us (an actionable
+        // mismatch, not a fallback).
+        [[nodiscard]] bool NegotiateEra(std::string& outError);
+
+        // The per-request `_meta` block every MODERN request must carry: the
+        // protocol version (required), our identity (SHOULD), and our capability
+        // set for THIS request (required — the server may not infer it from a
+        // previous one). Empty in the legacy era, where the handshake carried
+        // all three once.
+        [[nodiscard]] Json RequestMeta() const;
+
         // Send one request and block the CALLING thread (an httplib worker or
         // the connecting thread) until the child's response arrives, `timeout`
         // expires, or the connection shuts down. Returns the full JSON-RPC
-        // response object, or nullopt on timeout/write-failure/shutdown.
+        // response object, or nullopt on timeout/write-failure/shutdown. In the
+        // modern era `params._meta` is stamped on by RequestMeta() unless the
+        // caller already supplied one.
         [[nodiscard]] std::optional<Json> SendRequest(const std::string& method, const Json& params,
                                                       std::chrono::milliseconds timeout);
         void SendNotification(const std::string& method, const Json& params);
@@ -160,6 +196,11 @@ namespace OloEngine::MCP
 
         std::atomic<bool> m_Alive{ false };
         std::atomic<bool> m_ShuttingDown{ false };
+
+        // Written once by NegotiateEra during Connect, before the connection is
+        // published to any other thread; read-only thereafter.
+        McpProtocolEra m_Era = McpProtocolEra::Legacy;
+        std::string m_ProtocolVersion;
 
         std::vector<ToolDef> m_BridgedTools;
         sizet m_BridgedToolCount = 0;
