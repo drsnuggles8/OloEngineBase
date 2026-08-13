@@ -103,13 +103,21 @@ build-*/
 OloEditor/cmake_test_discovery_*.json
 
 # Per-user Claude Code state (project-local instructions, skills, agents)
-# Ignore the entire .claude/ tree except .claude/settings.json (shared project
-# hooks/permissions config) and .claude/skills/ (shared, version-controlled
-# project skills — e.g. run-oloengine). Each skill's own .gitignore handles
-# its generated artifacts (screenshots/logs).
+# Ignore the entire .claude/ tree except the shared, version-controlled things:
+#   settings.json            — project hooks/permissions config
+#   skills/                  — project skills that ship helper scripts (e.g. run-oloengine)
+#   commands/                — the workflow slash commands (/start-work, /cleanup-worktree,
+#                              /resume-worktrees). These are versioned WITH the repo because
+#                              they reference repo content (scripts/issue_scores.py,
+#                              docs/process/*, CLAUDE.md) that would otherwise drift.
+#   .markdownlint-cli2.jsonc — directory-scoped lint overrides for the front-matter files
+#                              under commands/ and skills/ (see the repo-root config).
+# Each skill's own .gitignore handles its generated artifacts (screenshots/logs).
 .claude/*
 !.claude/settings.json
 !.claude/skills/
+!.claude/commands/
+!.claude/.markdownlint-cli2.jsonc
 .claude/skills/**/shots/
 skills-lock.json
 docs/agents/

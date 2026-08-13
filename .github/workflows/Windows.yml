@@ -6,12 +6,26 @@ on:
       - 'docs/**'
       - '**/*.md'
       - 'LICENSE'
+      # Agent tooling and lint/VCS config — none of it is compiled or analysed, so a
+      # change here cannot alter the build or the scan. Without these, a docs-only PR
+      # that also touches a slash command or a lint config pays the full ~137 min
+      # Windows build / ~201 min SonarCloud scan for nothing (PR #788 did exactly that).
+      - '.claude/**'
+      - '.markdownlint-cli2.jsonc'
+      - '.gitignore'
   pull_request:
     types: [opened, synchronize, reopened]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
       - 'LICENSE'
+      # Agent tooling and lint/VCS config — none of it is compiled or analysed, so a
+      # change here cannot alter the build or the scan. Without these, a docs-only PR
+      # that also touches a slash command or a lint config pays the full ~137 min
+      # Windows build / ~201 min SonarCloud scan for nothing (PR #788 did exactly that).
+      - '.claude/**'
+      - '.markdownlint-cli2.jsonc'
+      - '.gitignore'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:

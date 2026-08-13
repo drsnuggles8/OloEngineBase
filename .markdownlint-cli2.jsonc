@@ -1,0 +1,52 @@
+// markdownlint configuration for OloEngine docs.
+//
+// Not yet wired into pre-commit: the repo has ~50 files with pre-existing violations, and a hook
+// that fails on all of them would block every commit. The config lands first so new/edited files
+// can be linted deliberately; the repo-wide sweep and the hook are a follow-up.
+//
+// Fixing ONE file:
+//
+//     npx markdownlint-cli2 --fix --no-globs path/to/file.md
+//
+// `--no-globs` is not optional. Without it, markdownlint-cli2 MERGES the paths you pass with the
+// "globs" property below, so `--fix path/to/one.md` reformats the entire repo. That is not
+// hypothetical — it silently rewrote ~30 unrelated files (README.md, CONTRIBUTING.md, ADRs,
+// vendored model READMEs) during this config's own introduction, and had to be reverted.
+//
+// Measured baseline at the time of writing: 1201 violations across 122 files, of which 884 were
+// MD060 alone. With MD060 and MD013 disabled it is ~317, and ~230 of those are `--fix`-able.
+{
+  "config": {
+    // Long lines are deliberate here — these docs carry code identifiers, file paths and tables
+    // that read worse when hard-wrapped to a column limit.
+    "MD013": false,
+
+    // Table column alignment/padding. Cosmetic, and by far the loudest rule against this corpus
+    // (884 of 1201 hits). The tables render correctly regardless.
+    "MD060": false,
+
+    // Inline HTML — used intentionally (e.g. <br> inside table cells, detail blocks).
+    "MD033": false,
+
+    // Duplicate headings — the notes-*.md and postmortem docs reuse section names like "Guard"
+    // and "Why" across different top-level sections, which is intended.
+    "MD024": { "siblings_only": true },
+
+    // Emphasis-as-heading. Used deliberately for sub-labels inside list items.
+    "MD036": false
+
+    // MD041 (first line must be a top-level heading) and MD046 (code-block style) stay ENABLED
+    // here. They are relaxed only for .claude/commands/, via the nested config in that directory
+    // — those files open with YAML front matter whose `description:` is the real title, and they
+    // deliberately mix indented command examples with fenced script blocks.
+  },
+  "globs": [
+    "**/*.md",
+    "!OloEngine/vendor/**",
+    "!build/**",
+    "!build-clang/**",
+    "!**/node_modules/**",
+    // Generated and git-ignored.
+    "!docs/test-catalogue.*.md"
+  ]
+}

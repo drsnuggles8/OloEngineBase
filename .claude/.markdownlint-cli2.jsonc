@@ -1,0 +1,19 @@
+// Directory-scoped markdownlint overrides for .claude/ — the slash commands and the skills.
+//
+// markdownlint-cli2 applies the nearest config to each file, so this relaxes exactly two rules for
+// everything under .claude/ and leaves them enforced everywhere else (see the repo-root
+// .markdownlint-cli2.jsonc). It intentionally does NOT restate the root config's other rules —
+// those still apply.
+{
+  "config": {
+    // MD041 — first line must be a top-level heading. Both commands/*.md and skills/*/SKILL.md
+    // open with YAML front matter whose `description:` is what the palette shows; an H1 would
+    // duplicate it.
+    "MD041": false,
+
+    // MD046 — code-block style consistency. These files deliberately mix indented blocks (for
+    // "run this one command" examples, which stay visually subordinate to the prose) with fenced
+    // blocks (for multi-line scripts that want syntax highlighting).
+    "MD046": false
+  }
+}
