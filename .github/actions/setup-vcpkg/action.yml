@@ -139,7 +139,11 @@ runs:
           retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
             -C "$VCPKG_ROOT" fetch --filter=blob:none origin "$baseline"
         fi
-        git -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
+        # The checkout materialises the working tree; on a blobless clone that
+        # lazily fetches the tree's blobs from origin, so it is a network op too —
+        # give it the same retry + fail-fast-on-stall treatment as the fetch above.
+        retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+          -C "$VCPKG_ROOT" checkout --force --detach "$baseline"
         git -C "$VCPKG_ROOT" rev-parse HEAD
 
         # Bootstrap unconditionally: the tool version is pinned per registry commit

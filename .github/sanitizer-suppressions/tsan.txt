@@ -27,14 +27,17 @@ race:Jolt/Core/Mutex.h
 # retry wrapper in .github/actions/setup-vcpkg), so the suite had not actually
 # run under TSan in a long while and these went unseen. 134/5682 physics tests
 # aborted here (halt_on_error=1); EVERY racing access reported is inside vendored
-# Jolt — zero engine frames are the racing access — so the same reasoning as the
-# Mutex block applies: a real engine-side race reports with an engine racing
-# frame and is NOT silenced by these file-scoped rules. The physics tests pass
-# under ASan+LSan and behaviourally on the same commit; only TSan flags Jolt's
+# Jolt — zero engine frames are the racing access. The physics tests pass under
+# ASan+LSan and behaviourally on the same commit; only TSan flags Jolt's
 # lock-free internals, which are known-noisy under TSan and shipped that way by
 # upstream. These are pre-existing (also red on master / #773 / #784) and belong
 # to the sanitizer/build config — added here to get the suite green again;
 # worth a physics-owner sanity pass.
+#
+# SYMBOL-scoped, not file-scoped: each rule names exactly the reviewed race
+# function, so any OTHER (as-yet-unseen) race in the same file still reports —
+# the TSan audit path is preserved. This matters most for QuadTree.cpp, a large
+# broadphase TU where a file rule would blanket real races too.
 #
 # JobSystem.h — Job's atomic refcount. A worker's AddRef() fetch_add (:194)
 # races the main thread re-initialising that atomic when FixedSizeFreeList hands
@@ -42,13 +45,14 @@ race:Jolt/Core/Mutex.h
 # recycled-slot overlap. Lock-free job recycling, benign on x86-64 — the same
 # "true positive vs the C++ memory model, shipped knowingly by upstream" verdict
 # as the Mutex race above.
-race:Jolt/Core/JobSystem.h
-# TempAllocatorImpl::Allocate (:67) — Jolt's per-update linear scratch allocator,
-# touched by those overlapping recycled jobs.
-race:Jolt/Core/TempAllocator.h
-# QuadTree::ValidateTree — an ASSERT-BUILD-ONLY broadphase consistency check (the
-# TSan job builds Debug) that walks tree nodes while a job mutates them.
-# Diagnostic-only, same category as the Mutex bookkeeping field.
-race:Jolt/Physics/Collision/BroadPhase/QuadTree.cpp
-# UVec4 SIMD load in the same broadphase/job overlap.
-race:Jolt/Math/UVec4.inl
+race:JPH::JobSystem::Job::AddRef
+race:JPH::JobSystem::Job::Execute
+# Jolt's per-update linear scratch allocator, touched by those overlapping
+# recycled jobs.
+race:JPH::TempAllocatorImpl::Allocate
+# ASSERT-BUILD-ONLY broadphase consistency check (the TSan job builds Debug) that
+# walks tree nodes while a job mutates them. Diagnostic-only, same category as
+# the Mutex bookkeeping field.
+race:JPH::QuadTree::ValidateTree
+# UVec4 SIMD int load in the same broadphase/job overlap.
+race:JPH::UVec4::sLoadInt4
