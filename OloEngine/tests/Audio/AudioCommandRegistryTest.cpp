@@ -1,15 +1,11 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 
 #include <cmath>
 #include <filesystem>
 #include <fstream>
-#ifdef _WIN32
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
 
 using namespace OloEngine::Audio;
 
@@ -22,15 +18,7 @@ namespace
 
         explicit ScopedTempFile(std::string_view testName)
         {
-            auto pid = static_cast<u32>(
-#ifdef _WIN32
-                _getpid()
-#else
-                getpid()
-#endif
-            );
-            auto name = std::string("olo_test_") + std::string(testName) + "_" + std::to_string(pid) + ".yaml";
-            Path = std::filesystem::temp_directory_path() / name;
+            Path = OloEngine::Tests::TempFile(std::string(testName) + ".yaml");
         }
 
         ~ScopedTempFile()
@@ -162,7 +150,7 @@ TEST_F(AudioCommandRegistryTest, SerializeDeserializeRoundTrip)
 
 TEST_F(AudioCommandRegistryTest, DeserializeNonExistentFile)
 {
-    auto missing = std::filesystem::temp_directory_path() / "olo_test_DeserializeNonExistent_8f3a1b" / "missing.yaml";
+    auto missing = OloEngine::Tests::TempFile("never_created") / "missing.yaml";
     EXPECT_FALSE(m_Registry.Deserialize(missing));
 }
 
@@ -230,6 +218,6 @@ TEST_F(AudioCommandRegistryTest, SerializeReturnsFalseOnBadPath)
 {
     (void)m_Registry.AddTrigger("Test");
     // Construct a guaranteed-missing directory under temp
-    auto badPath = std::filesystem::temp_directory_path() / "olo_test_SerializeBadPath_8f3a1b" / "impossible.yaml";
+    auto badPath = OloEngine::Tests::TempFile("never_created") / "impossible.yaml";
     EXPECT_FALSE(m_Registry.Serialize(badPath));
 }

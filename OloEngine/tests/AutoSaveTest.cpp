@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Core/FileSystem.h"
 
@@ -34,15 +35,7 @@ namespace
 
         void SetUp() override
         {
-            const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-            // Per-test subdir so parallel ctest runs don't fight.
-            const std::string testSuite = info ? info->test_suite_name() : "x";
-            const std::string testName = info ? info->name() : "y";
-            const std::filesystem::path baseDir = std::filesystem::temp_directory_path() / "olo_autosave_test";
-            m_TempDir = baseDir / (testSuite + "_" + testName);
-            std::error_code ec;
-            std::filesystem::remove_all(m_TempDir, ec);
-            std::filesystem::create_directories(m_TempDir, ec);
+            m_TempDir = OloEngine::Tests::TempDir();
         }
 
         void TearDown() override

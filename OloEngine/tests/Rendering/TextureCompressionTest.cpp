@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/TextureCompression.h"
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
@@ -88,9 +89,7 @@ namespace
 
     std::filesystem::path CaseKeyedTempFile(const char* suffix)
     {
-        const testing::TestInfo* info = testing::UnitTest::GetInstance()->current_test_info();
-        std::string name = std::string(info->test_suite_name()) + "." + info->name() + suffix;
-        return std::filesystem::temp_directory_path() / name;
+        return OloEngine::Tests::TempFile(std::string("texture") + suffix);
     }
 
     // ---- BC6H (HDR) helpers -----------------------------------------------

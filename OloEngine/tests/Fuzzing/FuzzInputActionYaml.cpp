@@ -29,6 +29,10 @@ namespace
 {
     std::filesystem::path MakeTempPath()
     {
+        // A libFuzzer target is its own executable and does not link gtest, so
+        // there is no test case for TestTempDir.h to key by. The libFuzzer PID
+        // below is the isolation; each worker owns its own input file.
+        // OLO_TEMP_DIR_OK: libFuzzer target, no gtest case to key by.
         auto dir = std::filesystem::temp_directory_path() / "olofuzz_input_action";
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);

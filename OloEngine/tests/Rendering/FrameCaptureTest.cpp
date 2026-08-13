@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "RenderingTestUtils.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
@@ -652,26 +653,17 @@ class FrameExportTest : public FrameCapturePipelineTest
     {
         FrameCapturePipelineTest::SetUp();
 
-        // Per-test subdir so parallel ctest runs (each test is its own process) don't
-        // fight over a shared directory: a sibling FrameExportTest's TearDown
-        // remove_all would otherwise delete the dir mid-write and make an export's
-        // ofstream open fail (the export then returns false). Keyed by suite+test name
-        // so each test owns a unique leaf and only ever removes its own.
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string testSuite = info ? info->test_suite_name() : "FrameExportTest";
-        const std::string testName = info ? info->name() : "unknown";
-        m_TestOutputDir = std::filesystem::temp_directory_path() / "olo_frame_export_test" / (testSuite + "_" + testName);
-        std::error_code ec;
-        std::filesystem::remove_all(m_TestOutputDir, ec);
-        ASSERT_FALSE(ec) << "Failed to clear test output dir: " << ec.message();
-        ec.clear();
-        std::filesystem::create_directories(m_TestOutputDir, ec);
-        ASSERT_FALSE(ec) << "Failed to create test output dir: " << ec.message();
+        // A directory owned by this process and this case. This fixture is the
+        // origin of issue #789: a sibling case's TearDown remove_all used to delete
+        // the shared directory mid-write, and the export just returned false.
+        m_TestOutputDir = OloEngine::Tests::TempDir();
+        ASSERT_TRUE(std::filesystem::is_directory(m_TestOutputDir))
+            << "test output dir was not created: " << m_TestOutputDir.string();
     }
 
     void TearDown() override
     {
-        // Clean up this test's own files only — never the shared parent dir.
+        // Only this case's own leaf; the process root is swept at exit.
         std::error_code ec;
         std::filesystem::remove_all(m_TestOutputDir, ec);
 

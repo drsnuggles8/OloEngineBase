@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
+#include "TestTempDir.h"
 
 #include <cstdlib>
 
@@ -26,6 +27,12 @@ int main(int argc, char** argv)
     // pollutes the shared, process-wide GL context is pinned to its source
     // rather than misattributed to a later unrelated GPU test (issue #485).
     OloEngine::Tests::GLErrorState::RegisterListener();
+    // Give every test a freshly-emptied scratch directory on its first
+    // TempDir()/TempFile() call — the clean slate the per-fixture `SetUp`
+    // remove_all blocks used to provide, and which `--gtest_repeat` (same case,
+    // same process, same path) would otherwise silently take away. See
+    // docs/agent-rules/shared-temp-dir-test-isolation.md.
+    OloEngine::Tests::RegisterCleanSlateListener();
     const int result = ::RUN_ALL_TESTS();
 
     // Tests lazily initialize the renderer (e.g. through Scene rendering) but

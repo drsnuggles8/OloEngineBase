@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Physics3D/MeshCookingFactory.h"
 
@@ -15,15 +16,13 @@ using namespace OloEngine;
 
 namespace
 {
-    // Picks a freshly-created, never-reused scratch directory under the system
-    // temp area. The base parent stays as `temp/OloEngineTests/<tag>` for easy
-    // post-mortem cleanup; each invocation appends a per-process timestamp + a
-    // monotonically-increasing counter so concurrent `OloEngine-Tests.exe`
-    // instances cannot delete or overwrite each other's working state.
+    // Picks a freshly-created, never-reused scratch directory. Cross-process
+    // isolation is the helper's job; the timestamp + monotonically-increasing
+    // counter keep successive calls WITHIN one case from reusing a directory.
     std::filesystem::path MakeUniqueScratchDir(const char* tag)
     {
         static std::atomic<u64> s_Counter{ 0 };
-        const auto base = std::filesystem::temp_directory_path() / "OloEngineTests" / tag;
+        const auto base = OloEngine::Tests::TempDir(tag);
 
         const auto nanos = std::chrono::steady_clock::now().time_since_epoch().count();
         const auto seq = s_Counter.fetch_add(1, std::memory_order_relaxed);

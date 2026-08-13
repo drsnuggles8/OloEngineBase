@@ -23,6 +23,7 @@
 // =============================================================================
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Asset/Interchange/MeshImporter.h"
 #include "OloEngine/Asset/Interchange/MeshImporterRegistry.h"
@@ -100,7 +101,7 @@ namespace
 
     std::filesystem::path MakeTempPath(const std::string& filename)
     {
-        return std::filesystem::temp_directory_path() / filename;
+        return OloEngine::Tests::TempFile(filename);
     }
 } // namespace
 

@@ -33,6 +33,7 @@
 #include "RendererAttachedTest.h"
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/MeshCache.h"
@@ -207,7 +208,7 @@ namespace OloEngine::Tests
         {
             namespace fs = std::filesystem;
             std::error_code ec;
-            const fs::path dir = fs::temp_directory_path() / "OloEngineSubmeshMaterialFixture";
+            const fs::path dir = OloEngine::Tests::TempDir("fixture");
             fs::create_directories(dir, ec);
             if (ec)
             {
@@ -651,7 +652,7 @@ namespace OloEngine::Tests
             {
                 namespace fs = std::filesystem;
                 std::error_code ec;
-                const fs::path projectDir = fs::temp_directory_path() / "OloEngineSubmeshMaterialParity";
+                const fs::path projectDir = OloEngine::Tests::TempDir("project");
                 fs::create_directories(projectDir / "Assets", ec);
                 ASSERT_FALSE(ec) << "failed to create temp project dir";
                 {

@@ -19,6 +19,7 @@
 
 #include <glad/gl.h>
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
@@ -76,9 +77,7 @@ namespace
 
     std::filesystem::path CaseKeyedTempPng()
     {
-        const testing::TestInfo* info = testing::UnitTest::GetInstance()->current_test_info();
-        std::string name = std::string(info->test_suite_name()) + "." + info->name() + ".png";
-        return std::filesystem::temp_directory_path() / name;
+        return OloEngine::Tests::TempFile("evidence.png");
     }
 
     // Smooth HDR RGB gradient (dark ~0.02 up to `peak`) for the BC6H path.

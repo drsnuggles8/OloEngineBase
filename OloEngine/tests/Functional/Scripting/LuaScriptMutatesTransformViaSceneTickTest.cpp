@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestTempDir.h"
 
 // =============================================================================
 // LuaScriptMutatesTransformViaSceneTickTest — Functional Test.
@@ -39,9 +40,7 @@ namespace
     // engine load it via sol::state::load_file.
     std::filesystem::path WriteScript(const std::string& contents, const char* nameStem)
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::string fileName = std::string("olo_l12_") + nameStem + "_" + (info ? info->name() : "unknown") + ".lua";
-        const auto path = std::filesystem::temp_directory_path() / fileName;
+        const auto path = OloEngine::Tests::TempFile(std::string("olo_l12_") + nameStem + ".lua");
         {
             std::ofstream out(path, std::ios::binary | std::ios::trunc);
             out << contents;

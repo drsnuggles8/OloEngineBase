@@ -47,3 +47,20 @@ repos:
       language: system
       pass_filenames: false
       files: '(OloEngine/tests/.*\.cpp|OloEngine/tests/scripts/(test_catalogue\.json|generate_test_catalogue\.py))$'
+
+    - id: test-temp-dir-isolated
+      name: tests do not name the shared temp root directly
+      description: >-
+        Fails if a file under OloEngine/tests calls
+        std::filesystem::temp_directory_path() instead of going through
+        OloEngine::Tests::TempDir() / TempFile() (OloEngine/tests/TestTempDir.h).
+        Every gtest case runs in its own process and CI runs them in parallel, so a
+        fixed temp path is shared mutable state ACROSS processes — the failure shows
+        up as !ofstream.is_open() or empty content, never as anything saying "race"
+        (issue #789). A site that genuinely must name the system temp root opts out
+        with '// OLO_TEMP_DIR_OK: <reason>'. See
+        docs/agent-rules/shared-temp-dir-test-isolation.md.
+      entry: python OloEngine/tests/scripts/check_temp_dir_isolation.py
+      language: system
+      pass_filenames: false
+      files: '(OloEngine/tests/.*\.(cpp|h|hpp|inl)|OloEngine/tests/scripts/check_temp_dir_isolation\.py)$'

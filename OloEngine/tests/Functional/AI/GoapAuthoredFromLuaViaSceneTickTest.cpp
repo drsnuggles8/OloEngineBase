@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestTempDir.h"
 
 // =============================================================================
 // GoapAuthoredFromLuaViaSceneTickTest — Functional Test.
@@ -35,9 +36,7 @@ namespace
 {
     std::filesystem::path WriteScript(const std::string& contents, const char* stem)
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string name = std::string("olo_functional_") + stem + "_" + (info ? info->name() : "x") + ".lua";
-        const auto path = std::filesystem::temp_directory_path() / name;
+        const auto path = OloEngine::Tests::TempFile(std::string("olo_functional_") + stem + ".lua");
         std::ofstream(path, std::ios::binary | std::ios::trunc) << contents;
         return path;
     }

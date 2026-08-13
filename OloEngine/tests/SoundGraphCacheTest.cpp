@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 // OLO_TEST_LAYER: unit
 //
@@ -54,25 +55,12 @@ class SoundGraphCacheTest : public ::testing::Test
     {
         Log::Initialize();
 
-        // Per-test-case subdirectory so cases running concurrently under
-        // `ctest --parallel` don't share a path. gtest_discover_tests registers each
-        // case as its own ctest entry (its own process), and SetUp() does a
-        // remove_all — a fixed shared name would let one case wipe another's files
-        // mid-run. Keyed by suite+case name per docs/agent-rules/testing-architecture.md.
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string testSuite = info ? info->test_suite_name() : "SoundGraphCacheTest";
-        const std::string testName = info ? info->name() : "Unknown";
-        m_TempDir = std::filesystem::temp_directory_path() / "olo_soundgraph_cache_test" / (testSuite + "_" + testName);
-        std::error_code ec;
-        std::filesystem::remove_all(m_TempDir, ec);
-        std::filesystem::create_directories(m_TempDir, ec);
+        m_TempDir = OloEngine::Tests::TempDir();
     }
 
-    void TearDown() override
-    {
-        std::error_code ec;
-        std::filesystem::remove_all(m_TempDir, ec);
-    }
+    // No TearDown: TempDir() empties this directory at the start of every test,
+    // and the process root is swept at exit — so wiping here would be dead work
+    // that also defeats OLO_TEST_KEEP_TEMP=1.
 
     // Create a real source file so Put()'s HashFile()/GetFileModificationTime()
     // operate on an existing path, and return that path.

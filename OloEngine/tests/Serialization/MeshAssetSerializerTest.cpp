@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 // =============================================================================
 // MeshAssetSerializerTest — YAML roundtrip for the Mesh asset.
@@ -63,12 +64,9 @@ class MeshAssetSerializerYAMLTest : public ::testing::Test
     void SetUp() override
     {
         // Per-test temp project directory so parallel runs do not clobber each other.
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string folder = std::string(info->test_suite_name()) + "." + info->name();
-        m_TempDir = fs::temp_directory_path() / "OloEngineMeshSerializerYAML" / folder;
+        m_TempDir = OloEngine::Tests::TempDir();
 
         std::error_code ec;
-        fs::remove_all(m_TempDir, ec);
         fs::create_directories(m_TempDir / "Assets", ec);
         ASSERT_FALSE(ec) << "Failed to create temp dir: " << ec.message();
 
@@ -97,8 +95,9 @@ class MeshAssetSerializerYAMLTest : public ::testing::Test
     void TearDown() override
     {
         m_AssetManager.Reset();
-        std::error_code ec;
-        fs::remove_all(m_TempDir, ec);
+        // No remove_all: TempDir() empties this directory at the start of every
+        // test, and the process root is swept at exit — so wiping here is dead
+        // work that also defeats OLO_TEST_KEEP_TEMP=1.
     }
 
     // AssetMetadata::FilePath is the project-root-relative path *including* the "Assets/"

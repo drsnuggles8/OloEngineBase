@@ -94,6 +94,7 @@ Read before trusting any measurement.
 | [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) | a `glXxx(` grep is wrong three different ways; three published counts, none right |
 | [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | capture targets show the *editor* camera; include-only shader edits don't hot-reload |
 | [timed-wait-test-assertions.md](timed-wait-test-assertions.md) | `duration_cast<milliseconds>` truncates toward zero — the "flaky test" may not be test-side at all |
+| [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | a CI comment asserted a safety property nobody had measured; and the issue's own repro had been fixed two months earlier |
 | [reference-path-tracer.md](reference-path-tracer.md) | a golden answers "did it change?", never "is it correct?" |
 | [gpu-debug-draws.md](gpu-debug-draws.md) | read the two-counter overflow protocol before concluding "it drew nothing" |
 
@@ -170,7 +171,8 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md) ·
 [live-verification-noise-floor.md](live-verification-noise-floor.md) ·
 [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) ·
-[timed-wait-test-assertions.md](timed-wait-test-assertions.md)
+[timed-wait-test-assertions.md](timed-wait-test-assertions.md) ·
+[shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md)
 
 **Build & deps** — [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) ·
 [vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·

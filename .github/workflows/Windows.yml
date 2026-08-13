@@ -283,12 +283,22 @@ jobs:
       # vCPUs). Every test is its own ctest entry (gtest_discover_tests → one
       # OloEngine-Tests.exe per test), so serial execution pays full engine
       # static-init ~3,200x back-to-back; a 4-wide run is a large per-PR
-      # wall-clock win. The suite is parallel-safe by construction: tests key
-      # their temp paths by PID / gtest case name, and the handful that share the
-      # engine's repo-relative mesh cache are serialized with a ctest
-      # RESOURCE_LOCK (OloEngine/tests/CMakeLists.txt). Functional/Jolt tests
-      # oversubscribe cores under -j but run stable (verified to 16x locally).
-      # See the "Parallel-safety contract" in docs/agent-rules/testing-architecture.md.
+      # wall-clock win.
+      #
+      # The suite is parallel-safe, and the property is ENFORCED rather than
+      # asserted (issue #789 — this comment previously claimed "tests key their
+      # temp paths by PID / gtest case name", which was true of most sites and had
+      # never been measured). Every test scratch path now comes from
+      # OloEngine::Tests::TempDir() / TempFile() (OloEngine/tests/TestTempDir.h),
+      # rooted in a directory claimed exclusively by THIS process and keyed per
+      # gtest case beneath it; a pre-commit hook (test-temp-dir-isolated) fails any
+      # direct temp_directory_path() call in the test tree. The one resource that
+      # is not test-controlled and cannot be process-keyed — the engine's
+      # repo-relative mesh cache — is serialized with a ctest RESOURCE_LOCK
+      # (OloEngine/tests/CMakeLists.txt). Functional/Jolt tests oversubscribe cores
+      # under -j but run stable (verified to 16x locally). See the "Parallel-safety
+      # contract" in docs/agent-rules/testing-architecture.md and
+      # docs/agent-rules/shared-temp-dir-test-isolation.md.
       #
       # --output-on-failure replaces -V: full verbosity interleaves illegibly
       # across parallel workers and bloats the runner log. This keeps green runs

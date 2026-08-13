@@ -33,6 +33,7 @@
 // =============================================================================
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
 #include "OloEngine/Scene/Entity.h"
@@ -74,11 +75,8 @@ class SceneTransitionTest : public ::testing::Test
   protected:
     void SetUp() override
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
         std::error_code ec;
-        m_Root = std::filesystem::temp_directory_path() / "OloEngineSceneTransition" /
-                 (std::string(info ? info->name() : "Unknown"));
-        std::filesystem::remove_all(m_Root, ec);
+        m_Root = OloEngine::Tests::TempDir("game");
         std::filesystem::create_directories(m_Root / "Scenes", ec);
         ASSERT_FALSE(ec) << "could not create the temp game directory: " << ec.message();
     }

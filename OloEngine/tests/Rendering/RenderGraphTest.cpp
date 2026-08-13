@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "RenderingTestUtils.h"
 #include "PropertyTests/RenderPropertyTest.h"
@@ -3411,7 +3412,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     graph.BuildFrameGraph();
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_phase_e_dump.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_phase_e_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -3761,7 +3762,7 @@ TEST(RenderGraphExternalTextureSinks, DumpToJsonIncludesExternalTextureSinkContr
     graph.BuildFrameGraph();
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_external_sink_dump.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_external_sink_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -6091,7 +6092,7 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
     graph.BuildFrameGraph();
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_transient_alias_dump.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_transient_alias_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -6717,7 +6718,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientFramebufferViewsResolveBa
 
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_external_backing_dump.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_external_backing_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -6843,7 +6844,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientTextureViewsResolveBackin
 
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_external_texture_backing_dump.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_external_texture_backing_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -8540,7 +8541,7 @@ TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
     graph.SetFinalPass("GfxPass");
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "rg_phase_g3_flags.json";
+    const auto outputPath = OloEngine::Tests::TempFile("rg_phase_g3_flags.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -8587,7 +8588,7 @@ TEST(RenderGraphDumpJson, GraphDigestContainsComputeCountsForAllGraphicsPasses)
     graph.SetFinalPass("B");
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "rg_phase_g3_allgfx.json";
+    const auto outputPath = OloEngine::Tests::TempFile("rg_phase_g3_allgfx.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -8620,7 +8621,7 @@ TEST(RenderGraphDumpDot, ComputePassColoredDifferentlyToGraphics)
     graph.SetFinalPass("GfxPass");
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "rg_phase_g3_dot.dot";
+    const auto outputPath = OloEngine::Tests::TempFile("rg_phase_g3_dot.dot");
     ASSERT_TRUE(graph.DumpToDot(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -9063,7 +9064,7 @@ TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
     graph.SetFinalPass("GfxFinal");
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_phase_g9_submission_plan.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_phase_g9_submission_plan.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -9528,7 +9529,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
 
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_phase_g7_history.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_phase_g7_history.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -9830,7 +9831,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
     graph.Execute();
 
     const auto outputPath =
-        std::filesystem::temp_directory_path() / "render_graph_phase_g8_batch_deps.json";
+        OloEngine::Tests::TempFile("render_graph_phase_g8_batch_deps.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -10267,7 +10268,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
     graph.Execute();
 
     const auto outputPath =
-        std::filesystem::temp_directory_path() / "render_graph_phase_g10_transitions.json";
+        OloEngine::Tests::TempFile("render_graph_phase_g10_transitions.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -10472,7 +10473,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
     graph.Execute();
 
     const auto outputPath =
-        std::filesystem::temp_directory_path() / "render_graph_phase_g11_lifetimes.json";
+        OloEngine::Tests::TempFile("render_graph_phase_g11_lifetimes.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -10846,7 +10847,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
     graph.Execute();
 
     const auto outputPath =
-        std::filesystem::temp_directory_path() / "rg_subresource_range_dump.json";
+        OloEngine::Tests::TempFile("rg_subresource_range_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -11019,7 +11020,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
     graph.Execute();
 
     const auto outputPath =
-        std::filesystem::temp_directory_path() / "rg_cross_lane_sync_dump.json";
+        OloEngine::Tests::TempFile("rg_cross_lane_sync_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -11421,7 +11422,7 @@ TEST(RenderGraphResolveFailureTelemetry, DumpToJsonUsesResolveFailureFieldNames)
 
     graph.Execute();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_resolve_failure_dump.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_resolve_failure_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);
@@ -12484,7 +12485,7 @@ TEST(RenderGraphBuildDiagnostics, DumpToJsonIncludesRegistrationOrderSensitivity
     graph.SetFinalPass("EarlyPass");
     graph.BuildFrameGraph();
 
-    const auto outputPath = std::filesystem::temp_directory_path() / "render_graph_build_diagnostics_dump.json";
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_build_diagnostics_dump.json");
     ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
 
     std::ifstream in(outputPath);

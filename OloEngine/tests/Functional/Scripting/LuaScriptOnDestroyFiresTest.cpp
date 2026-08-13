@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestTempDir.h"
 
 // =============================================================================
 // LuaScriptOnDestroyFiresTest — Functional Test.
@@ -34,9 +35,7 @@ namespace
 {
     std::filesystem::path WriteScript(const std::string& contents, const char* stem)
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::string fileName = std::string("olo_l12_") + stem + "_" + (info ? info->name() : "unknown") + ".lua";
-        const auto path = std::filesystem::temp_directory_path() / fileName;
+        const auto path = OloEngine::Tests::TempFile(std::string("olo_l12_") + stem + ".lua");
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         out << contents;
         return path;

@@ -37,6 +37,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include <filesystem>
 #include <system_error>
@@ -67,7 +68,7 @@ namespace OloEngine::Tests
         // Unique per-process temp path so parallel test runs don't collide.
         std::filesystem::path MakeTempTexturePath()
         {
-            return std::filesystem::temp_directory_path() / "olo_texture_inplace_reload_544.png";
+            return OloEngine::Tests::TempFile("olo_texture_inplace_reload_544.png");
         }
     } // namespace
 

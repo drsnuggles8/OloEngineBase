@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 #include "OloEngine/Serialization/MeshBinaryFormat.h"
@@ -14,12 +15,6 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
-
-#ifdef _WIN32
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 
@@ -96,17 +91,7 @@ static Ref<MeshSource> MakeRiggedMesh()
 
 static std::filesystem::path GetTestCacheDir()
 {
-    // Per-process directory: under `ctest -j` every gtest case runs as its own
-    // OloEngine-Tests.exe process, so a shared fixed dir would let one process's
-    // TearDownTestSuite remove_all() wipe a concurrent process's cache files
-    // mid-test. Keying by PID isolates each process. (Matches the PID-keyed
-    // pattern in ShaderBinaryCacheRoundTripTest / RuntimeAssetManagerTest.)
-#ifdef _WIN32
-    const auto pid = static_cast<long long>(_getpid());
-#else
-    const auto pid = static_cast<long long>(::getpid());
-#endif
-    return std::filesystem::temp_directory_path() / ("olo_test_cache_" + std::to_string(pid));
+    return OloEngine::Tests::TempDir("cache");
 }
 
 static std::filesystem::path GetTestCachePath(const std::string& filename)
@@ -116,26 +101,17 @@ static std::filesystem::path GetTestCachePath(const std::string& filename)
     return dir / filename;
 }
 
-// Fixture that ensures the temp directory is cleaned up after the suite,
-// even when individual tests fail before their manual remove() calls.
+// These used to clean up in TearDownTestSuite. They no longer need to: the cache
+// dir is now per gtest CASE, and the whole per-process root is removed at exit
+// (TestTempDir.h). A suite-level hook would in fact clean the WRONG path —
+// current_test_info() is null outside a running case, so GetTestCacheDir() would
+// resolve to a different directory than any test used.
 class MeshBinarySerializerTest : public ::testing::Test
 {
-  protected:
-    static void TearDownTestSuite()
-    {
-        std::error_code ec;
-        std::filesystem::remove_all(GetTestCacheDir(), ec);
-    }
 };
 
 class AnimationBinarySerializerTest : public ::testing::Test
 {
-  protected:
-    static void TearDownTestSuite()
-    {
-        std::error_code ec;
-        std::filesystem::remove_all(GetTestCacheDir(), ec);
-    }
 };
 
 // =============================================================================

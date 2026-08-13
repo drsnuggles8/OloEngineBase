@@ -26,6 +26,7 @@
 
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "RenderPropertyTest.h" // OLO_ENSURE_GPU_OR_SKIP
 
@@ -128,9 +129,7 @@ class ImportedMaterialPackTest : public ::testing::Test
   protected:
     void SetUp() override
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string folder = std::string(info->test_suite_name()) + "." + info->name();
-        m_TempDir = fs::temp_directory_path() / "OloEngineImportedMaterials" / folder;
+        m_TempDir = OloEngine::Tests::TempDir();
 
         std::error_code ec;
         fs::remove_all(m_TempDir, ec);

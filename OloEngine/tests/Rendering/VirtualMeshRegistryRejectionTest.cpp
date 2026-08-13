@@ -30,6 +30,7 @@
 #include "PropertyTests/RendererAttachedTest.h" // brings Renderer3D up (FrameDataBufferManager)
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Core/Base.h"
@@ -102,7 +103,7 @@ namespace
         }
         namespace fs = std::filesystem;
         std::error_code ec;
-        fs::path const projectDir = fs::temp_directory_path() / "OloEngineVirtualMeshRegistryRejection";
+        fs::path const projectDir = OloEngine::Tests::TempDir("project");
         fs::create_directories(projectDir / "Assets", ec);
         {
             std::ofstream proj(projectDir / "Rejection.oloproj");

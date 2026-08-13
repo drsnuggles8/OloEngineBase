@@ -37,6 +37,7 @@
 #include <GLFW/glfw3.h>
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include <algorithm>
 #include <array>
@@ -49,12 +50,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#if defined(_WIN32)
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
 
 namespace OloEngine::Tests
 {
@@ -338,21 +333,14 @@ namespace OloEngine::Tests
         // Temp cache directory so we don't stomp on the real one.
         // ScopedIBLCacheGuard handles Initialize/Shutdown + remove_all
         // symmetrically across all exit paths, including ASSERT_* aborts.
-        // PID + random suffix isolates parallel test runners (ctest -j N)
-        // AND defeats predictable-path attacks on world-writable tmp dirs
-        // (SonarQube cpp:S5443 — don't trust publicly-writeable locations).
-        std::random_device rd;
-        const auto randomTag = std::to_string(rd()) + "_" + std::to_string(rd());
-        auto tempDir = std::filesystem::temp_directory_path() /
-                       (std::string("olo_ibl_cache_test_") +
-                        std::to_string(
-#if defined(_WIN32)
-                            static_cast<unsigned long>(::_getpid())
-#else
-                            static_cast<unsigned long>(::getpid())
-#endif
-                                ) +
-                        "_" + randomTag);
+        // TempFile(), not TempDir(): ScopedIBLCacheGuard wants to CREATE this
+        // directory itself, and the probe below fails fast if it already exists
+        // (symlink-follow mitigation) — so the path must be named but NOT created.
+        // Its parent is this process's exclusive root, which carries the pid AND a
+        // 64-bit random tag, so the path stays unpredictable; don't replace it with
+        // a guessable name (SonarQube cpp:S5443: don't trust publicly-writeable
+        // locations).
+        auto tempDir = OloEngine::Tests::TempFile("ibl_cache");
         // Fail fast if the path already exists (symlink-follow attack
         // mitigation) — ScopedIBLCacheGuard will create it freshly.
         std::error_code probeEc;
@@ -516,18 +504,9 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        std::random_device rd;
-        const auto randomTag = std::to_string(rd()) + "_" + std::to_string(rd());
-        auto tempDir = std::filesystem::temp_directory_path() /
-                       (std::string("olo_ibl_stale_test_") +
-                        std::to_string(
-#if defined(_WIN32)
-                            static_cast<unsigned long>(::_getpid())
-#else
-                            static_cast<unsigned long>(::getpid())
-#endif
-                                ) +
-                        "_" + randomTag);
+        // TempFile(), not TempDir() — see IblCacheCubemapRoundTripPreservesAllMips:
+        // the guard creates the directory and the probe below requires it absent.
+        auto tempDir = OloEngine::Tests::TempFile("ibl_stale");
         std::error_code probeEc;
         ASSERT_FALSE(std::filesystem::exists(tempDir, probeEc))
             << "temp cache path unexpectedly exists: " << tempDir.string();

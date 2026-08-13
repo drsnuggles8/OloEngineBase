@@ -7,6 +7,7 @@
 // these tests cannot perturb the process-wide backend other suites read.
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Renderer/BackendSelection.h"
 
@@ -15,24 +16,9 @@
 #include <filesystem>
 #include <fstream>
 
-#ifdef _WIN32
-#include <process.h> // _getpid()
-#else
-#include <unistd.h>
-#endif
-
 namespace
 {
     using namespace OloEngine;
-
-    [[nodiscard]] long long CurrentPid()
-    {
-#ifdef _WIN32
-        return static_cast<long long>(::_getpid());
-#else
-        return static_cast<long long>(::getpid());
-#endif
-    }
 
     // argv helper: string literals are never written through, and GLFW-style
     // main() argv is char**, so the const_cast mirrors what EntryPoint passes.
@@ -50,17 +36,13 @@ namespace
     class ScopedConfigFile
     {
       public:
-        // Keyed by PID, not by gtest's random_seed: gtest only randomises that seed
-        // when --gtest_shuffle is set, so it is 0 in every process here. Since
-        // gtest_discover_tests gives each case its own ctest entry (its own process,
-        // each starting the counter at 0), a seed-keyed name collided across the four
-        // config-file cases the moment ctest ran them in parallel — one case then read
-        // (or raced the deletion of) another's file. PID + counter is the repo-wide
-        // convention for exactly this reason.
+        // The helper isolates by process and by gtest case; the counter only keeps
+        // several config files WITHIN one case apart. It must not be keyed by
+        // gtest's random_seed — gtest randomises that only under --gtest_shuffle, so
+        // it is 0 in every process here, and a seed-keyed name collided across the
+        // four config-file cases the moment ctest ran them in parallel.
         explicit ScopedConfigFile(const std::string& contents)
-            : m_Path(std::filesystem::temp_directory_path() /
-                     ("olo-backend-selection-test-" + std::to_string(CurrentPid()) + "-" +
-                      std::to_string(s_Counter++) + ".yaml"))
+            : m_Path(OloEngine::Tests::TempFile("config-" + std::to_string(s_Counter++) + ".yaml"))
         {
             std::ofstream out(m_Path);
             out << contents;

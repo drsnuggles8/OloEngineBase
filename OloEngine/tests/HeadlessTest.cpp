@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Server/ServerConfig.h"
@@ -11,17 +12,17 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <thread>
 
 using namespace OloEngine;
 
-// Helper to generate a unique temp filename using timestamp + thread ID for portability
+// A temp filename unique to this process and this gtest case. The timestamp keeps
+// successive calls WITHIN one case apart; cross-process isolation is the helper's.
 static std::filesystem::path UniqueTempPath(const char* baseName)
 {
     auto now = std::chrono::steady_clock::now().time_since_epoch().count();
     std::ostringstream oss;
-    oss << baseName << "_" << now << "_" << std::this_thread::get_id() << ".yaml";
-    return std::filesystem::temp_directory_path() / oss.str();
+    oss << baseName << "_" << now << ".yaml";
+    return OloEngine::Tests::TempFile(oss.str());
 }
 
 // RAII guard that removes a file on destruction

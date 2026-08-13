@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingRegion.h"
@@ -152,7 +153,7 @@ TEST(SceneStreamerConfig, CustomValues)
 
 TEST(StreamingRegionSerializer, ParseInvalidYAML)
 {
-    auto path = std::filesystem::temp_directory_path() / "olo_test_nonexistent.oloregion";
+    auto path = OloEngine::Tests::TempFile("olo_test_nonexistent.oloregion");
     auto result = StreamingRegionSerializer::ParseRegionFile(path);
     EXPECT_FALSE(result["Region"]);
 }
@@ -223,7 +224,7 @@ TEST(StreamingRegionSerializer, MetadataRoundTrip)
     out << YAML::EndMap;
 
     // Write to temp file
-    auto tempPath = std::filesystem::temp_directory_path() / "test_region_roundtrip.oloregion";
+    auto tempPath = OloEngine::Tests::TempFile("test_region_roundtrip.oloregion");
     {
         std::ofstream fout(tempPath);
         ASSERT_TRUE(fout.good());

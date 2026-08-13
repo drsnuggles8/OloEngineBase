@@ -8,6 +8,7 @@
 
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Core/UTF8.h"
 #include "OloEngine/Localization/LocaleDefinition.h"
@@ -231,7 +232,7 @@ TEST_F(LocalizationFixture, GetReturnsFallbackBeforeAnyLocaleIsLoaded)
 
 TEST_F(LocalizationFixture, LoadLocaleAndLookupKey)
 {
-    auto tempPath = std::filesystem::temp_directory_path() / "olo_en_test.ololocale";
+    auto tempPath = OloEngine::Tests::TempFile("olo_en_test.ololocale");
     {
         std::ofstream out(tempPath);
         out << kEnglishYAML;
@@ -251,7 +252,7 @@ TEST_F(LocalizationFixture, FormatUsesActiveLocaleTemplate)
     // Direct in-memory injection — avoids touching the filesystem for this case.
     StringTable enTable;
     ASSERT_TRUE(enTable.LoadFromYAMLString(kEnglishYAML));
-    auto tempPath = std::filesystem::temp_directory_path() / "olo_en_format.ololocale";
+    auto tempPath = OloEngine::Tests::TempFile("olo_en_format.ololocale");
     {
         std::ofstream out(tempPath);
         out << kEnglishYAML;
@@ -270,8 +271,8 @@ TEST_F(LocalizationFixture, FormatUsesActiveLocaleTemplate)
 
 TEST_F(LocalizationFixture, SetCurrentLocaleSwitchesActiveTableAndFiresEvent)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_switch.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_switch.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_switch.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_switch.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -322,7 +323,7 @@ TEST_F(LocalizationFixture, SetCurrentLocaleSwitchesActiveTableAndFiresEvent)
 
 TEST_F(LocalizationFixture, SetCurrentLocaleFailsForUnknownCode)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_unknown.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_unknown.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -335,7 +336,7 @@ TEST_F(LocalizationFixture, SetCurrentLocaleFailsForUnknownCode)
 
 TEST_F(LocalizationFixture, InitializeScansDirectory)
 {
-    auto dir = std::filesystem::temp_directory_path() / "olo_loc_dir";
+    auto dir = OloEngine::Tests::TempDir("locales");
     std::filesystem::create_directories(dir);
     {
         std::ofstream out(dir / "en.ololocale");
@@ -365,7 +366,7 @@ TEST_F(LocalizationFixture, InitializeScansDirectory)
 
 TEST_F(LocalizationFixture, ReloadCurrentLocaleRereadsFile)
 {
-    auto path = std::filesystem::temp_directory_path() / "olo_en_reload.ololocale";
+    auto path = OloEngine::Tests::TempFile("olo_en_reload.ololocale");
     {
         std::ofstream out(path);
         out << kEnglishYAML;
@@ -391,7 +392,7 @@ strings:
 
 TEST_F(LocalizationFixture, MissingKeyFallbackIsConfigurable)
 {
-    auto path = std::filesystem::temp_directory_path() / "olo_en_fallback.ololocale";
+    auto path = OloEngine::Tests::TempFile("olo_en_fallback.ololocale");
     {
         std::ofstream out(path);
         out << kEnglishYAML;
@@ -410,8 +411,8 @@ TEST_F(LocalizationFixture, ConcurrentGetIsSafeAcrossLocaleSwitch)
     // Smoke-test concurrent reads racing against a writer. Validates that
     // returning std::string-by-value rather than const-ref from Get() is
     // sound — refs would dangle the moment the writer swaps tables.
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_race.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_race.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_race.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_race.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -466,8 +467,8 @@ TEST_F(LocalizationFixture, ConcurrentGetIsSafeAcrossLocaleSwitch)
 
 TEST_F(LocalizationFixture, PerLocaleAccessorsBypassActiveLocale)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_perloc.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_perloc.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_perloc.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_perloc.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -508,7 +509,7 @@ TEST_F(LocalizationFixture, GenerationIncrementsOnLocaleLoad)
 {
     const u64 before = LocalizationManager::GetGeneration();
 
-    auto path = std::filesystem::temp_directory_path() / "olo_en_gen.ololocale";
+    auto path = OloEngine::Tests::TempFile("olo_en_gen.ololocale");
     {
         std::ofstream out(path);
         out << kEnglishYAML;
@@ -521,8 +522,8 @@ TEST_F(LocalizationFixture, GenerationIncrementsOnLocaleLoad)
 
 TEST_F(LocalizationFixture, GenerationIncrementsOnLocaleSwitch)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_gen_switch.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_gen_switch.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_gen_switch.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_gen_switch.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -549,7 +550,7 @@ TEST_F(LocalizationFixture, GenerationIncrementsOnLocaleSwitch)
 
 TEST_F(LocalizationFixture, GenerationIncrementsOnReloadCurrentLocale)
 {
-    auto path = std::filesystem::temp_directory_path() / "olo_en_gen_reload.ololocale";
+    auto path = OloEngine::Tests::TempFile("olo_en_gen_reload.ololocale");
     {
         std::ofstream out(path);
         out << kEnglishYAML;
@@ -569,8 +570,8 @@ TEST_F(LocalizationFixture, GenerationIncrementsOnReloadCurrentLocale)
 
 TEST_F(LocalizationFixture, SystemUpdatesTextComponentOnLocaleSwitch)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_sys.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_sys.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_sys.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_sys.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -606,7 +607,7 @@ TEST_F(LocalizationFixture, SystemUpdatesTextComponentOnLocaleSwitch)
 
 TEST_F(LocalizationFixture, SystemSkipsEntitiesWithEmptyKey)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_sys_empty.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_sys_empty.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -631,7 +632,7 @@ TEST_F(LocalizationFixture, SystemRefreshesNewlyAddedComponent)
     // OnComponentAdded<LocalizedTextComponent> resets the scene's cached
     // generation, so adding a component AFTER the system has already
     // synced should still pick up the active locale on the next call.
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_sys_add.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_sys_add.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -657,8 +658,8 @@ TEST_F(LocalizationFixture, SystemRefreshesNewlyAddedComponent)
 
 TEST_F(LocalizationFixture, CsvRoundTripPreservesEveryKey)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_csv.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_csv.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_csv.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_csv.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -670,7 +671,7 @@ TEST_F(LocalizationFixture, CsvRoundTripPreservesEveryKey)
     ASSERT_TRUE(LocalizationManager::LoadLocale(enPath));
     ASSERT_TRUE(LocalizationManager::LoadLocale(dePath));
 
-    auto csvPath = std::filesystem::temp_directory_path() / "olo_loc_roundtrip.csv";
+    auto csvPath = OloEngine::Tests::TempFile("olo_loc_roundtrip.csv");
     ASSERT_TRUE(LocalizationCsv::ExportToCsv(csvPath));
 
     // Mutate the active table so we can prove import overwrote it.
@@ -690,7 +691,7 @@ TEST_F(LocalizationFixture, CsvRoundTripPreservesEveryKey)
 
 TEST_F(LocalizationFixture, CsvQuotingHandlesCommasAndQuotesAndNewlines)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_quoting.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_quoting.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -703,7 +704,7 @@ TEST_F(LocalizationFixture, CsvQuotingHandlesCommasAndQuotesAndNewlines)
     ASSERT_TRUE(LocalizationManager::SetKey("en", "test.newlines", "line1\nline2"));
     ASSERT_TRUE(LocalizationManager::SetKey("en", "test.crlf", "line1\r\nline2"));
 
-    auto csvPath = std::filesystem::temp_directory_path() / "olo_loc_quoting.csv";
+    auto csvPath = OloEngine::Tests::TempFile("olo_loc_quoting.csv");
     ASSERT_TRUE(LocalizationCsv::ExportToCsv(csvPath));
 
     // Mutate, then re-import — the special-character cells should survive verbatim.
@@ -728,7 +729,7 @@ TEST_F(LocalizationFixture, CsvQuotingHandlesCommasAndQuotesAndNewlines)
 
 TEST_F(LocalizationFixture, CsvImportWarnsOnUnknownLocaleColumn)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_unk.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_unk.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -736,7 +737,7 @@ TEST_F(LocalizationFixture, CsvImportWarnsOnUnknownLocaleColumn)
     ASSERT_TRUE(LocalizationManager::LoadLocale(enPath));
 
     // Hand-craft a CSV whose `xx` column is never going to be loaded.
-    auto csvPath = std::filesystem::temp_directory_path() / "olo_loc_unknown_locale.csv";
+    auto csvPath = OloEngine::Tests::TempFile("olo_loc_unknown_locale.csv");
     {
         std::ofstream out(csvPath, std::ios::binary);
         out << "key,en,xx\r\n";
@@ -760,7 +761,7 @@ TEST_F(LocalizationFixture, CsvImportWarnsOnUnknownLocaleColumn)
 
 TEST_F(LocalizationFixture, ResolveLocalizedTextDispatchesByPrefix)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_resolve.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_resolve.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -790,7 +791,7 @@ TEST_F(LocalizationFixture, ResolveLocalizedTextDispatchesByPrefix)
 
 TEST_F(LocalizationFixture, PseudoLocaleWrapsAndDecoratesValues)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_pseudo.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_pseudo.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -812,7 +813,7 @@ TEST_F(LocalizationFixture, PseudoLocaleWrapsAndDecoratesValues)
 
 TEST_F(LocalizationFixture, MissingKeyReportingAccumulatesAcrossLookups)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_missing.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_missing.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -840,8 +841,8 @@ TEST_F(LocalizationFixture, MissingKeyReportingAccumulatesAcrossLookups)
 
 TEST_F(LocalizationFixture, FormatNumberUsesLocaleSeparators)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_num.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_num.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_num.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_num.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -870,8 +871,8 @@ TEST_F(LocalizationFixture, FormatNumberUsesLocaleSeparators)
 
 TEST_F(LocalizationFixture, NegotiateLocaleFallsBackThroughLanguageTag)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_neg.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_neg.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_neg.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_neg.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -898,8 +899,8 @@ TEST_F(LocalizationFixture, NegotiateLocaleFallsBackThroughLanguageTag)
 
 TEST_F(LocalizationFixture, ActiveLocalePersistsAcrossSaveLoad)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_persist.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_persist.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_persist.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_persist.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -912,7 +913,7 @@ TEST_F(LocalizationFixture, ActiveLocalePersistsAcrossSaveLoad)
     ASSERT_TRUE(LocalizationManager::LoadLocale(dePath));
     ASSERT_TRUE(LocalizationManager::SetCurrentLocale("de"));
 
-    auto prefPath = std::filesystem::temp_directory_path() / "olo_locale_pref.yaml";
+    auto prefPath = OloEngine::Tests::TempFile("olo_locale_pref.yaml");
     ASSERT_TRUE(LocalizationManager::SaveActiveLocaleToFile(prefPath));
 
     // Switch to en, then load the saved pref — should snap back to de.
@@ -935,8 +936,8 @@ TEST_F(LocalizationFixture, ActiveLocalePersistsAcrossSaveLoad)
 
 TEST_F(LocalizationFixture, LintCatchesMissingAndExtraParameters)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_lint.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_lint.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_lint.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_lint.ololocale");
     {
         std::ofstream out(enPath);
         out << "locale: en\nstrings:\n";
@@ -981,7 +982,7 @@ TEST_F(LocalizationFixture, LintCatchesMissingAndExtraParameters)
 
 TEST_F(LocalizationFixture, SaveLocaleToFileRoundTripsWithEdits)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_save.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_save.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -1073,14 +1074,14 @@ TEST(TextFormatter, GenderTokenSelectsByStringValue)
 
 TEST_F(LocalizationFixture, ResolveLocalizedAssetPathPicksLocaleVariant)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_assetloc.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_assetloc.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
     }
     ASSERT_TRUE(LocalizationManager::LoadLocale(enPath));
 
-    auto dir = std::filesystem::temp_directory_path() / "olo_asset_loc";
+    auto dir = OloEngine::Tests::TempDir("assets");
     std::filesystem::create_directories(dir);
     const auto base = dir / "logo.png";
     const auto deVariant = dir / "logo.de.png";
@@ -1112,8 +1113,8 @@ TEST_F(LocalizationFixture, ResolveLocalizedAssetPathPicksLocaleVariant)
 
 TEST_F(LocalizationFixture, MaxLengthLintCatchesOverflowing)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_maxlen.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_maxlen.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_maxlen.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_maxlen.ololocale");
     {
         std::ofstream out(enPath);
         out << "locale: en\nstrings:\n";
@@ -1167,9 +1168,9 @@ TEST(TextFormatter, SelectTokenDispatchesByLabelWithElseFallback)
 
 TEST_F(LocalizationFixture, FormatCurrencyHonoursLocaleSymbolAndPlacement)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_cur.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_cur.ololocale";
-    auto jpPath = std::filesystem::temp_directory_path() / "olo_jp_cur.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_cur.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_cur.ololocale");
+    auto jpPath = OloEngine::Tests::TempFile("olo_jp_cur.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -1206,8 +1207,8 @@ TEST_F(LocalizationFixture, FormatCurrencyHonoursLocaleSymbolAndPlacement)
 
 TEST_F(LocalizationFixture, FormatListJoinsWithLocaleJoiners)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_list.ololocale";
-    auto dePath = std::filesystem::temp_directory_path() / "olo_de_list.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_list.ololocale");
+    auto dePath = OloEngine::Tests::TempFile("olo_de_list.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -1231,7 +1232,7 @@ TEST_F(LocalizationFixture, FormatListJoinsWithLocaleJoiners)
 
 TEST_F(LocalizationFixture, FormatDateUsesDefaultPatternsAndCustomOverrides)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_date.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_date.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;
@@ -1268,7 +1269,7 @@ TEST_F(LocalizationFixture, FormatDateUsesDefaultPatternsAndCustomOverrides)
 
 TEST_F(LocalizationFixture, FormatRelativeTimePicksLargestUnit)
 {
-    auto enPath = std::filesystem::temp_directory_path() / "olo_en_rel.ololocale";
+    auto enPath = OloEngine::Tests::TempFile("olo_en_rel.ololocale");
     {
         std::ofstream out(enPath);
         out << kEnglishYAML;

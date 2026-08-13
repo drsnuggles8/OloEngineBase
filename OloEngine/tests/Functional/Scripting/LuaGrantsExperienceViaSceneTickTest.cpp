@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestTempDir.h"
 
 // OLO_TEST_LAYER: Functional
 // =============================================================================
@@ -38,9 +39,7 @@ namespace
 {
     std::filesystem::path WriteScript(const std::string& contents, const char* nameStem)
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        const std::string fileName = std::string("olo_functional_") + nameStem + "_" + (info ? info->name() : "unknown") + ".lua";
-        const auto path = std::filesystem::temp_directory_path() / fileName;
+        const auto path = OloEngine::Tests::TempFile(std::string("olo_functional_") + nameStem + ".lua");
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         if (!out.is_open())
             throw std::runtime_error("WriteScript: failed to open temp file for writing: " + path.string());

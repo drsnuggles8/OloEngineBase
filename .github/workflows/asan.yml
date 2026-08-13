@@ -447,10 +447,20 @@ jobs:
       # ctest entry (one OloEngine-Tests process per case), so serial execution pays
       # the engine's full static-init cost ~3,600× back-to-back — a large chunk of
       # this job's wall-clock. Windows.yml already banks this win with
-      # `ctest --parallel 4`. The suite is parallel-safe by construction: tests key
-      # their temp paths by PID / gtest case name, and the handful that share the
-      # engine's repo-relative mesh cache are serialized against each other with a
-      # ctest RESOURCE_LOCK (OloEngine/tests/CMakeLists.txt).
+      # `ctest --parallel 4`.
+      #
+      # The suite is parallel-safe, and the property is ENFORCED rather than asserted
+      # (issue #789 — this comment previously claimed "tests key their temp paths by
+      # PID / gtest case name", which was true of most sites and had never been
+      # measured). Every test scratch path now comes from OloEngine::Tests::TempDir()
+      # / TempFile() (OloEngine/tests/TestTempDir.h), rooted in a directory claimed
+      # exclusively by THIS process and keyed per gtest case beneath it; a pre-commit
+      # hook (test-temp-dir-isolated) fails any direct temp_directory_path() call in
+      # the test tree, so it cannot silently lapse. The one resource that is not
+      # test-controlled and cannot be process-keyed — the engine's repo-relative mesh
+      # cache — is serialized against itself with a ctest RESOURCE_LOCK
+      # (OloEngine/tests/CMakeLists.txt). See
+      # docs/agent-rules/shared-temp-dir-test-isolation.md.
       #
       # Why 2 here, not Windows' 4: these are SANITIZER-instrumented test processes
       # with a much larger *resident* footprint (ASan shadow memory; TSan
