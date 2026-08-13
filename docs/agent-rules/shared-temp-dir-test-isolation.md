@@ -16,7 +16,8 @@ start there instead.
 `gtest_discover_tests` registers **every** gtest case as its own ctest entry
 ([`OloEngine/tests/CMakeLists.txt`](../../OloEngine/tests/CMakeLists.txt)). Each case therefore runs
 in its own `OloEngine-Tests.exe` **process**, and CI runs those processes concurrently:
-`ctest --parallel 4` on Windows, `--parallel 2` in the three sanitizer jobs.
+`ctest --parallel 4` on Windows, and `--parallel 2` in all four sanitizer jobs
+(`asan-windows`, `asan-lsan-linux`, `ubsan-linux`, `tsan-linux`).
 
 So a path like
 
@@ -84,7 +85,7 @@ PID / TID / GUID and calling everything else unsafe. Measured properly, the tree
 | Class | Sites | Safe within one run? | Safe across two concurrent runs? |
 |---|---:|---|---|
 | **A** — keyed by PID / TID / nanos+counter / random | 60 | yes | yes |
-| **B** — fixed path, used by exactly **one** gtest case | 79 | **yes** — only one process ever names it | no |
+| **B** — fixed path, used by exactly **one** gtest case | 84 | **yes** — only one process ever names it | no |
 | **C** — fixed path in fixture/helper scope, shared by **≥2** cases | 5 | **no — the real race** | no |
 | **D** — a mention, not a call (an error string) | 1 | n/a | n/a |
 
@@ -114,9 +115,9 @@ local-only, and the local runs are the ones nobody watches.**
   before treating it as a live repro target.*
 - **Case-name keying was not counted as uniquification**, although
   [testing-architecture.md §6.1](testing-architecture.md) has always blessed it as one of the two
-  approved patterns. That is where 79 of the "144 unsafe" sites went.
+  approved patterns. That is where 84 of the "144 unsafe" sites went.
 
-Class B was migrated anyway. Not because those sites were racing, but because a rule with 79
+Class B was migrated anyway. Not because those sites were racing, but because a rule with 84
 individually-argued exceptions is not a rule the next author can follow, and because "every temp
 path is keyed by PID or gtest case name" then becomes a claim a **grep** can check — which is what
 turns the CI comment (§4) from folklore into something enforced.

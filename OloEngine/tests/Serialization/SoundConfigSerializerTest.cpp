@@ -104,7 +104,6 @@ class SoundConfigSerializerTest : public ::testing::Test
         m_TempDir = OloEngine::Tests::TempDir();
 
         std::error_code ec;
-        fs::remove_all(m_TempDir, ec);
         fs::create_directories(m_TempDir / "Assets", ec);
         ASSERT_FALSE(ec) << "Failed to create temp dir: " << ec.message();
 
@@ -131,8 +130,9 @@ class SoundConfigSerializerTest : public ::testing::Test
     void TearDown() override
     {
         m_AssetManager.Reset();
-        std::error_code ec;
-        fs::remove_all(m_TempDir, ec);
+        // No remove_all: TempDir() empties this directory at the start of every
+        // test, and the process root is swept at exit — so wiping here is dead
+        // work that also defeats OLO_TEST_KEEP_TEMP=1.
     }
 
     fs::path m_TempDir;

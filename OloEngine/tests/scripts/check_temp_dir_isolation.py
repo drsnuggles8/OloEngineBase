@@ -34,13 +34,35 @@
 # =============================================================================
 
 import pathlib
+import re
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 TEST_ROOT = REPO_ROOT / "OloEngine" / "tests"
 
 NEEDLE = "temp_directory_path"
-OPT_OUT = "OLO_TEMP_DIR_OK"
+
+# A call, not a mention. The `(` may be separated from the name by whitespace, a
+# newline, or a comment — `temp_directory_path /* why */ ()` and a call split
+# across two lines are still calls, so the scan runs over the whole file rather
+# than line by line.
+CALL = re.compile(
+    NEEDLE + r"""\s*(?:/\*.*?\*/\s*|//[^\n]*\n\s*)*\(""",
+    re.DOTALL,
+)
+
+# Only a real comment marker with a non-empty reason opts out. Matching the bare
+# word anywhere would let a string literal — or the word in running prose — turn
+# the guard off.
+OPT_OUT_LINE = re.compile(r"(?://|\*|#)\s*OLO_TEMP_DIR_OK:\s*\S")
+
+# A string literal, or a `//` or `/* */` comment: none of these can construct a
+# path, and all three legitimately name the function while explaining the rule.
+#
+# The string alternative MUST come first. A `//` inside a string literal
+# (`"http://x"`) would otherwise start a fake comment and mask the rest of the
+# line, hiding a real call that follows it on that line.
+COMMENT_OR_STRING = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"|//[^\n]*|/\*.*?\*/", re.DOTALL)
 
 # The helper itself is the one place that is allowed to call it.
 ALLOWED = {
@@ -50,7 +72,85 @@ ALLOWED = {
 }
 
 
+def scan(text, rel):
+    """Every un-excused temp_directory_path() call in `text`, as (rel, line, source)."""
+    # Blank out comments and string literals first, keeping the text's length and
+    # newlines so offsets still map to the right line. This is what makes a
+    # mention immune and a call visible, without a C++ parser.
+    masked = COMMENT_OR_STRING.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+    lines = text.splitlines()
+    found = []
+    for match in CALL.finditer(masked):
+        lineno = masked.count("\n", 0, match.start()) + 1
+        source = lines[lineno - 1] if lineno <= len(lines) else ""
+        # The marker must be a comment carrying a reason, on the call line or the
+        # one immediately above it.
+        prev = lines[lineno - 2] if lineno >= 2 else ""
+        if OPT_OUT_LINE.search(source) or OPT_OUT_LINE.search(prev):
+            continue
+        found.append((rel, lineno, source.strip()))
+    return found
+
+
+SELF_TEST_CASES = [
+    # (source, expected offender count, description)
+    ('auto p = std::filesystem::temp_directory_path() / "x";\n', 1, "plain call"),
+    ('auto p = fs::temp_directory_path(ec);\n', 1, "call with an argument"),
+    # Split across lines / interrupted by a comment — a line-by-line substring
+    # check misses all three of these, and they are all still calls.
+    ('auto p = fs::temp_directory_path\n    ();\n', 1, "call split across lines"),
+    ('auto p = fs::temp_directory_path /* why */ ();\n', 1, "comment before the paren"),
+    ('auto p = fs::temp_directory_path //\n();\n', 1, "line comment before the paren"),
+    # Mentions, not calls.
+    ('// see std::filesystem::temp_directory_path() for why\n', 0, "comment mention"),
+    ('error = "temp_directory_path() failed: " + ec.message();\n', 0, "string mention"),
+    ('/* temp_directory_path() is banned here */\n', 0, "block-comment mention"),
+    # A `//` inside a string must not start a comment and mask the call after it.
+    ('log("see http://x"); auto p = fs::temp_directory_path();\n',
+     1, "call after a string containing //"),
+    # Opt-out forms.
+    ('// OLO_TEMP_DIR_OK: libFuzzer target.\nauto p = fs::temp_directory_path();\n',
+     0, "marker with a reason on the preceding line"),
+    ('auto p = fs::temp_directory_path(); // OLO_TEMP_DIR_OK: libFuzzer target.\n',
+     0, "marker with a reason trailing the call"),
+    # ...and the forms that must NOT excuse a call.
+    ('// OLO_TEMP_DIR_OK:\nauto p = fs::temp_directory_path();\n',
+     1, "marker with no reason"),
+    ('const char* s = "OLO_TEMP_DIR_OK: nope";\nauto p = fs::temp_directory_path();\n',
+     1, "marker inside a string literal"),
+    ('int OLO_TEMP_DIR_OK = 0;\nauto p = fs::temp_directory_path();\n',
+     1, "marker as an identifier, not a comment"),
+    ('// OLO_TEMP_DIR_OK: reason\n\nauto p = fs::temp_directory_path();\n',
+     1, "marker two lines above the call"),
+]
+
+
+def self_test() -> int:
+    """Guard the guard. Runs on every invocation — it costs microseconds, and a
+    silently-broken checker is worse than no checker."""
+    failures = 0
+    for source, expected, description in SELF_TEST_CASES:
+        got = len(scan(source, pathlib.PurePosixPath("<self-test>")))
+        if got != expected:
+            failures += 1
+            print(
+                f"SELF-TEST FAILED ({description}): expected {expected} offender(s), got {got}\n"
+                f"  source: {source!r}",
+                file=sys.stderr,
+            )
+    return failures
+
+
 def main() -> int:
+    if self_test():
+        print(
+            "\ncheck_temp_dir_isolation.py is not working correctly; fix it before\n"
+            "trusting its verdict on the test tree.",
+            file=sys.stderr,
+        )
+        return 2
+
     offenders = []
 
     for path in sorted(TEST_ROOT.rglob("*")):
@@ -60,22 +160,7 @@ def main() -> int:
         if rel in ALLOWED:
             continue
 
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        for i, line in enumerate(lines):
-            if NEEDLE not in line:
-                continue
-            # Diagnostic strings that merely mention the name are fine; only a call
-            # is a problem.
-            if f"{NEEDLE}(" not in line:
-                continue
-            # ...and so is a comment explaining the rule (this file's own docs, the
-            # helper header's rationale). A comment cannot construct a path.
-            if line.lstrip().startswith(("//", "*", "#")):
-                continue
-            prev = lines[i - 1] if i > 0 else ""
-            if OPT_OUT in line or OPT_OUT in prev:
-                continue
-            offenders.append((rel, i + 1, line.strip()))
+        offenders.extend(scan(path.read_text(encoding="utf-8", errors="replace"), rel))
 
     if not offenders:
         return 0

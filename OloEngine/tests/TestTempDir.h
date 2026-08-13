@@ -10,7 +10,7 @@
 //
 // `gtest_discover_tests` registers every gtest case as its own ctest entry, so
 // each case runs in its OWN `OloEngine-Tests.exe` process, and CI runs them
-// concurrently (`ctest --parallel 4` on Windows, `--parallel 2` in the three
+// concurrently (`ctest --parallel 4` on Windows, `--parallel 2` in all four
 // sanitizer jobs). A test that writes to a FIXED path under
 // `std::filesystem::temp_directory_path()` is therefore sharing a mutable OS
 // resource with every other process that names the same path — its own sibling
@@ -69,6 +69,13 @@ namespace OloEngine::Tests
     /// A file path inside `TempDir()`. The parent directory is created; the file
     /// itself is NOT, so this is also the way to name a path that is guaranteed
     /// not to exist.
+    ///
+    /// `name` must be RELATIVE and contain no `..` component — normally just a
+    /// file name. An absolute path would replace the directory rather than extend
+    /// it (`dir / "/etc/x"` is `/etc/x`), and `..` walks out the same way; either
+    /// would put the result outside this process's root, which is exactly what
+    /// this helper exists to prevent. Both fail the calling test rather than
+    /// silently escaping.
     [[nodiscard]] std::filesystem::path TempFile(std::string_view name);
 
     /// Arm the clean-slate behaviour described on `TempDir()`. Call once from

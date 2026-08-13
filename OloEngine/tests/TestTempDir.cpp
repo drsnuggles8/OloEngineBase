@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -288,6 +289,32 @@ namespace OloEngine::Tests
 
     std::filesystem::path TempFile(std::string_view name)
     {
-        return TempDir() / std::filesystem::path(name);
+        const std::filesystem::path relative(name);
+
+        // `dir / absolute` REPLACES dir — so an absolute `name` would silently
+        // hand back a path outside this process's root, which is the one thing
+        // this helper exists to make impossible. `..` walks out the same way.
+        // Reject both loudly and stay inside the root, so the owning test fails
+        // with the cause named instead of quietly writing somewhere else.
+        // `has_root_directory()` matters on its own: on Windows `"\x"` is
+        // root-relative, so `is_absolute()` is FALSE (there is no root name) yet
+        // `dir / "\x"` still yields `C:\x`. Checking only is_absolute() lets that
+        // through — which is how this helper's own test caught the first version.
+        const bool escapes =
+            name.empty() || relative.is_absolute() || relative.has_root_name() ||
+            relative.has_root_directory() ||
+            std::any_of(relative.begin(), relative.end(),
+                        [](const std::filesystem::path& part)
+                        { return part == ".."; });
+
+        if (escapes)
+        {
+            ADD_FAILURE() << "TestTempDir: TempFile() needs a relative name with no '..' "
+                             "(normally just a file name); got '"
+                          << std::string(name) << "'";
+            return TempDir() / "invalid_temp_file_name";
+        }
+
+        return TempDir() / relative;
     }
 } // namespace OloEngine::Tests

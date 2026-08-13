@@ -58,11 +58,9 @@ class SoundGraphCacheTest : public ::testing::Test
         m_TempDir = OloEngine::Tests::TempDir();
     }
 
-    void TearDown() override
-    {
-        std::error_code ec;
-        std::filesystem::remove_all(m_TempDir, ec);
-    }
+    // No TearDown: TempDir() empties this directory at the start of every test,
+    // and the process root is swept at exit — so wiping here would be dead work
+    // that also defeats OLO_TEST_KEEP_TEMP=1.
 
     // Create a real source file so Put()'s HashFile()/GetFileModificationTime()
     // operate on an existing path, and return that path.

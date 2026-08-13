@@ -10,11 +10,13 @@
 
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include <gtest/gtest-spi.h> // EXPECT_NONFATAL_FAILURE
 #include "TestTempDir.h"
 
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 
 #if defined(_WIN32)
 #include <process.h>
@@ -131,6 +133,46 @@ TEST(TestTempDir, TempFileHasAnExistingParentButDoesNotExistItself)
     std::string line;
     ASSERT_TRUE(std::getline(in, line));
     EXPECT_EQ("value: 1", line);
+}
+
+// `dir / absolute` REPLACES dir rather than extending it, and `..` walks out —
+// either would hand back a path OUTSIDE this process's root, which is the single
+// thing this helper exists to make impossible. Both must fail loudly and stay
+// inside the root; a silent escape would be worse than the bug being fixed.
+TEST(TestTempDir, TempFileRejectsNamesThatEscapeTheRoot)
+{
+    const std::filesystem::path root = OloEngine::Tests::TempRoot();
+
+    for (const std::string_view bad : {
+             std::string_view{ "" },
+#if defined(_WIN32)
+             std::string_view{ "C:\\Windows\\System32\\drivers\\etc\\hosts" },
+             std::string_view{ "\\escaped" },
+#else
+             std::string_view{ "/etc/passwd" },
+#endif
+             std::string_view{ ".." },
+             std::string_view{ "../escaped.txt" },
+             std::string_view{ "sub/../../escaped.txt" },
+         })
+    {
+        // The rejection is itself an ADD_FAILURE, so swallow it and assert on the
+        // path instead — otherwise this test fails by construction.
+        std::filesystem::path got;
+        EXPECT_NONFATAL_FAILURE(got = OloEngine::Tests::TempFile(bad), "TempFile()");
+
+        const auto rel = std::filesystem::relative(got, root);
+        EXPECT_FALSE(rel.empty()) << "'" << bad << "' produced " << got.string();
+        EXPECT_EQ(std::string::npos, rel.string().find(".."))
+            << "'" << bad << "' escaped the process root: " << got.string();
+    }
+}
+
+TEST(TestTempDir, TempFileAcceptsAnOrdinaryRelativeName)
+{
+    const std::filesystem::path got = OloEngine::Tests::TempFile("plain.txt");
+    EXPECT_EQ(OloEngine::Tests::TempDir(), got.parent_path());
+    EXPECT_EQ("plain.txt", got.filename().string());
 }
 
 // -----------------------------------------------------------------------------
