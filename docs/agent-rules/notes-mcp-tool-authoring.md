@@ -22,15 +22,25 @@ the wrong destination).
 3. **Unit test** `OloEngine/tests/MCP/Mcp<Name>Test.cpp` driving the pure code directly, classified
    `// OLO_TEST_LAYER: unit` and added to the explicit source list in `tests/CMakeLists.txt`.
 
-> **Why the split is mandatory: the test binary deliberately does not link `McpTools.cpp`.** It
-> compiles the pure headers plus `McpServer.cpp` (the dispatch seam) and registers *fake* tools
-> wired to the same shared code. So all real logic must live in the pure header, or it is untested.
+> **Why the split is mandatory: a handler cannot be *run* from the test binary.** Most MCP tests
+> compile the pure headers plus `McpServer.cpp` (the dispatch seam) and register *fake* tools wired
+> to the same shared code, because a real handler needs `MarshalRead`, a game thread and usually GL.
+> So all real logic must live in the pure header, or it is untested.
+>
+> **Correction (#777):** an older version of this note said the test binary "deliberately does not
+> link `McpTools.cpp`". That is **false** — `McpTools.cpp` and the whole per-domain `McpTools*.cpp`
+> family have been in `tests/CMakeLists.txt`'s explicit source list since the `McpHeadlessAttachTest`
+> work (#316). What was never safe is *invoking* a handler, not linking one; §2 below already said as
+> much about `RegisterBuiltinTools`. Practical consequence: **registering a new built-in resource,
+> prompt or tool changes what the headless tests see**, so a `resources/list` count assertion in an
+> unrelated test can fail on your change.
 
 ## 2. A green test run does not mean your handler compiles
 
-Because `McpTools.cpp` isn't in the test binary, `OloEngine-Tests` proves the header/JSON contract
-and says **nothing** about whether the handler compiles or links. **Build the `OloEditor` target
-too** before calling a tool done — that is also what live-verify needs.
+`McpTools.cpp` links into the test binary, but no test drives a real handler end-to-end, so a green
+`OloEngine-Tests` proves the header/JSON contract and the registration shape — and says **nothing**
+about whether the handler *works*. **Build the `OloEditor` target too** before calling a tool done —
+that is also what live-verify needs.
 
 > **Registration-only testing IS safe headless.** `RegisterBuiltinTools(server)` only builds
 > `ToolDef`s (schemas, names, annotations); handlers never run, so no MarshalRead, game thread or GL
