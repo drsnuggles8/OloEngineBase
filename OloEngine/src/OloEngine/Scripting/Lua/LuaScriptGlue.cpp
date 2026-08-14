@@ -2943,7 +2943,11 @@ namespace OloEngine
                                     {
                                         return sol::nullopt;
                                     }
-                                    return std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+                                    // Iterator pair, not (data(), size()): on an empty vector
+                                    // data() may be null, and std::string(nullptr, 0) is UB even
+                                    // though the length is zero. The iterator form is well-defined
+                                    // for an empty range and reads the same.
+                                    return std::string(bytes.begin(), bytes.end());
                                 });
 
         steamTable.set_function("cloudExists", [](const std::string& name) -> bool

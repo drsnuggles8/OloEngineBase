@@ -46,6 +46,9 @@ namespace
         u32 AppId = 480; // Spacewar, the same id development uses
 
         bool OverlayActive = false;
+        // Set when SetOverlayActive changes the state, cleared once RunCallbacks has delivered
+        // the event. Real Steam fires GameOverlayActivated_t on TRANSITIONS, not every frame.
+        bool OverlayTransitionPending = false;
 
         bool CloudAccountEnabled = true;
         bool CloudAppEnabled = true;
@@ -109,8 +112,30 @@ void SteamAPI_Shutdown()
 
 void SteamAPI_RunCallbacks()
 {
-    // No dispatch: with no Steam client there are no events to deliver. Present so the engine's
-    // per-frame pump links and runs.
+    StubState& state = State();
+    if (!state.Initialized)
+    {
+        return;
+    }
+
+    // Deliver a pending overlay transition to whatever the engine registered.
+    //
+    // This is the one place the stub genuinely DISPATCHES rather than merely linking, and it
+    // exists so SteamworksBackend::OnGameOverlayActivated — the only callback-handling code in
+    // the backend — is executed in CI instead of sitting dead. Fired on transitions only,
+    // matching real Steam, so a test can assert the pump is what moves the state rather than a
+    // poll of some always-on flag.
+    if (state.OverlayTransitionPending && SteamStubInternal::g_OverlayCallback)
+    {
+        GameOverlayActivated_t event{};
+        event.m_bActive = state.OverlayActive ? uint8{ 1 } : uint8{ 0 };
+        event.m_bUserInitiated = true;
+        event.m_nAppID = static_cast<AppId_t>(state.AppId);
+        event.m_dwOverlayPID = 0;
+
+        state.OverlayTransitionPending = false;
+        SteamStubInternal::g_OverlayCallback(&event);
+    }
 }
 
 // --- ISteamUserStats --------------------------------------------------------------------
@@ -366,7 +391,17 @@ namespace OloEngine::SteamStub
 
     void SetOverlayActive(bool active)
     {
-        State().OverlayActive = active;
+        StubState& state = State();
+        if (state.OverlayActive == active)
+        {
+            return; // no transition, nothing for the pump to deliver
+        }
+        state.OverlayActive = active;
+
+        // The engine does NOT see this until SteamAPI_RunCallbacks delivers it — which is the
+        // point. A test must pump to observe the change, exactly as a frame would, so the
+        // callback path is what gets exercised rather than a directly-poked flag.
+        state.OverlayTransitionPending = true;
     }
 
     void SetCloudEnabled(bool accountEnabled, bool appEnabled)

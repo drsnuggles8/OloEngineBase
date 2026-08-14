@@ -287,11 +287,17 @@ endif()
 #   * our hand-written STUBS (OLO_WITH_STEAM_STUB_SDK), which let CI compile, link and RUN the
 #     ON path that the real SDK can never reach. See the root CMakeLists for why that matters.
 if(OLO_WITH_STEAM AND NOT OLO_WITH_STEAM_STUB_SDK)
-	if(NOT WIN32)
+	# Both halves matter. WIN32 is TRUE for 32-bit Windows too, and everything below hard-codes
+	# the x64 redistributables (steam_api64.lib / steam_api64.dll) — so a 32-bit configure would
+	# sail past a WIN32-only guard and fail much later at link, with an error that says nothing
+	# about pointer size. Reject it here, where the message can.
+	if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
 		message(FATAL_ERROR
-			"OLO_WITH_STEAM=ON is only wired for 64-bit Windows, the stated target for issue #644. "
-			"The SDK does ship linux64/osx redistributables, so extending this is a small change — "
-			"but none of it is tested on those platforms yet, and silently disabling would hide that. "
+			"OLO_WITH_STEAM=ON is only wired for 64-bit Windows, the stated target for issue #644 "
+			"(this configure: WIN32=${WIN32}, pointer size=${CMAKE_SIZEOF_VOID_P} bytes). "
+			"The paths below use the SDK's win64 redistributables exclusively. The SDK does ship "
+			"win32/linux64/osx variants, so extending this is a small change — but none of it is "
+			"tested here, and silently disabling would hide that. "
 			"Use -DOLO_WITH_STEAM=OFF, or -DOLO_WITH_STEAM_STUB_SDK=ON to compile the Steam path "
 			"without any SDK at all.")
 	endif()

@@ -31,6 +31,7 @@
 
 #include <sol/sol.hpp>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -120,6 +121,48 @@ namespace
             report += "\n  Steam." + name;
         }
         EXPECT_TRUE(missing.empty()) << "missing or non-function Steam bindings:" << report;
+    }
+
+    // The INVERSE direction, and the one that actually decays over time.
+    //
+    // The check above only catches a binding that was removed. A binding that is ADDED without
+    // being listed sails through — it is registered, callable from scripts, and covered by
+    // nothing: not the "callable when Steam is absent" test below, not the documented surface.
+    // That is how an undocumented Steam function ends up shipping with no degradation guarantee.
+    // Both directions together are what make the list a contract instead of a wish.
+    TEST_F(SteamScriptBindingTest, NoUndocumentedFunctionsOnTheSteamTable)
+    {
+        const sol::object steamObject = lua["Steam"];
+        ASSERT_TRUE(steamObject.valid());
+        const sol::table steam = steamObject.as<sol::table>();
+
+        const std::vector<std::string>& expected = ExpectedSteamFunctions();
+
+        std::vector<std::string> undocumented;
+        steam.for_each(
+            [&](const sol::object& key, const sol::object& value)
+            {
+                if (key.get_type() != sol::type::string || value.get_type() != sol::type::function)
+                {
+                    return;
+                }
+                const std::string name = key.as<std::string>();
+                if (std::find(expected.begin(), expected.end(), name) == expected.end())
+                {
+                    undocumented.push_back(name);
+                }
+            });
+
+        std::string report;
+        for (const std::string& name : undocumented)
+        {
+            report += "\n  Steam." + name;
+        }
+        EXPECT_TRUE(undocumented.empty())
+            << "Steam bindings exist that ExpectedSteamFunctions() does not list. Add them there "
+               "(and to the absent-Steam callability test) so they carry the same degradation "
+               "guarantee as the rest:"
+            << report;
     }
 
     // THE test in this file. Every binding, called with Steam absent, must return rather than

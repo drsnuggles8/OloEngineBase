@@ -29,6 +29,8 @@
 // =====================================================================================
 
 #include <cstdint>
+#include <functional>
+#include <type_traits>
 
 // --- SDK scalar types -------------------------------------------------------------------
 
@@ -61,16 +63,49 @@ inline constexpr uint32 k_unMaxCloudFileChunkSize = 100u * 1024u * 1024u;
 
 // --- callback plumbing ------------------------------------------------------------------
 
+struct GameOverlayActivated_t;
+
+namespace SteamStubInternal
+{
+    // The overlay callback the engine registered, type-erased so SteamAPI_RunCallbacks (which
+    // knows nothing about the engine's class) can invoke it. Set by CCallbackManual::Register.
+    inline std::function<void(GameOverlayActivated_t*)> g_OverlayCallback;
+} // namespace SteamStubInternal
+
 // Real Steamworks callbacks are dispatched by a CCallback/CCallbackManual template whose base
-// registers itself with the Steam dispatch loop. The engine only needs Register/Unregister and
-// the ability to name a member function, so the stub keeps the shape and drops the dispatch —
-// no stubbed callback ever fires, which is correct: with no Steam client there are no events.
+// registers itself with the Steam dispatch loop. The stub keeps the same shape — Register /
+// Unregister plus a member-function pointer — and ACTUALLY DISPATCHES.
+//
+// An earlier version made Register a no-op, on the reasoning that "with no Steam client there are
+// no events". That was wrong in an important way: it left SteamworksBackend::OnGameOverlayActivated
+// and the m_OverlayActive it maintains completely unexercised, so the one piece of real
+// callback-handling code in the backend was dead in CI. Since a test can now drive the transition
+// via SteamStub::SetOverlayActive(), the stub dispatches and that code path is covered.
 template<class T, class P, bool WithGameServer>
 class CCallbackManual
 {
   public:
-    void Register(T* /*pObj*/, void (T::* /*func*/)(P*)) {}
-    void Unregister() {}
+    void Register(T* pObj, void (T::*func)(P*))
+    {
+        if constexpr (std::is_same_v<P, GameOverlayActivated_t>)
+        {
+            if (pObj && func)
+            {
+                SteamStubInternal::g_OverlayCallback = [pObj, func](GameOverlayActivated_t* param)
+                {
+                    (pObj->*func)(param);
+                };
+            }
+        }
+    }
+
+    void Unregister()
+    {
+        if constexpr (std::is_same_v<P, GameOverlayActivated_t>)
+        {
+            SteamStubInternal::g_OverlayCallback = nullptr;
+        }
+    }
 };
 
 struct GameOverlayActivated_t

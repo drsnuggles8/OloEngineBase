@@ -91,7 +91,13 @@ namespace OloEngine
 
         // --- Enumeration ---
 
-        // Enumerate all save files in the save directory
+        // Enumerate all save files in the save directory.
+        //
+        // GAME THREAD ONLY. Since #644 this also unions in Steam-Cloud-only slots, and reaching
+        // Steam means calling SteamManager, which is game-thread-only (Steamworks is not
+        // thread-safe the way an engine worker pool would need). It is a synchronous call that
+        // may download cloud files, so it is not free — call it when opening a load menu, not
+        // per frame.
         static std::vector<SaveFileInfo> EnumerateSaves();
 
         // Get info for a specific slot
@@ -102,7 +108,11 @@ namespace OloEngine
 
         // --- Deletion ---
 
-        // Delete a save file
+        // Delete a save file, locally and from Steam Cloud.
+        //
+        // GAME THREAD ONLY, for the same reason as EnumerateSaves: since #644 it also deletes the
+        // cloud copy via SteamManager, which is game-thread-only. Deleting only locally would let
+        // the next EnumerateSaves re-download the save the player just removed.
         static bool DeleteSave(const std::string& slotName);
 
         // --- Auto-Save Configuration ---

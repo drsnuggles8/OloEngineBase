@@ -382,6 +382,22 @@ namespace
         EXPECT_EQ(SteamManager::CloudRead("never-written.sav", readBuffer), SteamResult::NotFound);
     }
 
+    // Parity pin between FakeSteamBackend and SteamworksBackend.
+    //
+    // A zero-length cloud file is legal but carries no save, and the REAL backend reports it as
+    // NotFound rather than handing back an empty buffer that looks like a valid save. The fake
+    // must agree: every test in this file is only evidence about production to the extent the two
+    // behave alike, so a divergence here would quietly turn the whole suite into fiction.
+    TEST_F(SteamManagerTest, EmptyCloudFileReadsAsNotFoundJustLikeTheRealBackend)
+    {
+        InitializeManager();
+        m_Fake->CloudFiles["empty.sav"] = {};
+
+        std::vector<u8> readBuffer;
+        EXPECT_EQ(SteamManager::CloudRead("empty.sav", readBuffer), SteamResult::NotFound);
+        EXPECT_TRUE(readBuffer.empty());
+    }
+
     TEST_F(SteamManagerTest, CloudDeleteRemovesTheFile)
     {
         InitializeManager();

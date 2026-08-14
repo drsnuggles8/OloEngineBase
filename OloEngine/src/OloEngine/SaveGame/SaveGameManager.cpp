@@ -137,6 +137,20 @@ namespace OloEngine
                     std::filesystem::remove(temp, ec);
                     return false;
                 }
+
+                // Close EXPLICITLY and check the result. Letting the destructor do it discards
+                // any error from the final flush, so a disk-full or I/O failure at that moment
+                // would leave a truncated temp file that the rename below then promotes to the
+                // real save — defeating the entire point of writing via temp+rename.
+                out.close();
+                if (!out)
+                {
+                    OLO_CORE_WARN("[SaveGameManager] Failed to flush the Steam Cloud restore of '{}'; "
+                                  "discarding the partial file.",
+                                  slotName);
+                    std::filesystem::remove(temp, ec);
+                    return false;
+                }
             }
             std::filesystem::rename(temp, path, ec);
             if (ec)

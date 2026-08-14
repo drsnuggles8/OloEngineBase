@@ -10,8 +10,8 @@ namespace OloEngine
     {
         // Steam's own documented caps. Enforced here rather than in the backend so the limits
         // are testable against the fake and identical on every path.
-        constexpr sizet s_MaxRichPresenceKeyLength = 64;
-        constexpr sizet s_MaxRichPresenceValueLength = 256;
+        constexpr sizet kMaxRichPresenceKeyLength = 64;
+        constexpr sizet kMaxRichPresenceValueLength = 256;
 
         Scope<ISteamBackend> s_Backend;
         bool s_Initialized = false;
@@ -217,16 +217,16 @@ namespace OloEngine
 
         // Reject rather than truncate. Steam silently drops over-long input, and a rich-presence
         // string that quietly loses its tail is far harder to diagnose than a logged rejection.
-        if (key.size() > s_MaxRichPresenceKeyLength)
+        if (key.size() > kMaxRichPresenceKeyLength)
         {
             OLO_CORE_WARN("[Steam] Rich-presence key '{0}' is {1} bytes; Steam's limit is {2}.", key, key.size(),
-                          s_MaxRichPresenceKeyLength);
+                          kMaxRichPresenceKeyLength);
             return SteamResult::InvalidArgument;
         }
-        if (value.size() > s_MaxRichPresenceValueLength)
+        if (value.size() > kMaxRichPresenceValueLength)
         {
             OLO_CORE_WARN("[Steam] Rich-presence value for key '{0}' is {1} bytes; Steam's limit is {2}.", key,
-                          value.size(), s_MaxRichPresenceValueLength);
+                          value.size(), kMaxRichPresenceValueLength);
             return SteamResult::InvalidArgument;
         }
 

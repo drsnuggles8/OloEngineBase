@@ -182,13 +182,49 @@ namespace
         EXPECT_NO_THROW(SteamManager::ClearRichPresence());
     }
 
-    // The overlay state comes from a GameOverlayActivated_t callback, which never fires under the
-    // stub (no Steam client, no events). So the honest assertion is that it reports "closed" and
-    // does not, say, fall back to ISteamUtils::IsOverlayEnabled() — which would report the
-    // overlay permanently active for the whole session.
+    // Overlay state must come from the GameOverlayActivated_t callback, NOT from
+    // ISteamUtils::IsOverlayEnabled() — that answers "is the overlay available", so using it here
+    // would report the overlay permanently active for the whole session. With no callback
+    // delivered yet, the honest answer is "closed".
     TEST_F(SteamStubOnPathTest, OverlayReportsClosedWithoutACallback)
     {
         SteamManager::Initialize();
+        EXPECT_FALSE(SteamManager::IsOverlayActive());
+    }
+
+    // Drives SteamworksBackend::OnGameOverlayActivated for real.
+    //
+    // This is the only callback-handling code in the backend, and until the stub learned to
+    // dispatch it was dead in CI — registered, never invoked. The stub now delivers the event
+    // through SteamAPI_RunCallbacks, so the engine's registration, the member-function
+    // dispatch, and the m_OverlayActive it maintains are all executed here.
+    TEST_F(SteamStubOnPathTest, OverlayStateTracksTheCallback)
+    {
+        SteamManager::Initialize();
+        ASSERT_FALSE(SteamManager::IsOverlayActive());
+
+        // The transition is queued, not applied: nothing changes until the frame pump runs.
+        SteamStub::SetOverlayActive(true);
+        EXPECT_FALSE(SteamManager::IsOverlayActive())
+            << "overlay state changed without RunCallbacks — it is not going through the callback";
+
+        SteamManager::RunCallbacks();
+        EXPECT_TRUE(SteamManager::IsOverlayActive()) << "the overlay-opened callback did not reach the backend";
+
+        SteamStub::SetOverlayActive(false);
+        SteamManager::RunCallbacks();
+        EXPECT_FALSE(SteamManager::IsOverlayActive()) << "the overlay-closed callback did not reach the backend";
+    }
+
+    // Shutdown unregisters the callback. Pumping afterwards must not dispatch into a backend that
+    // has torn down — the ordering that makes this safe is Unregister() before SteamAPI_Shutdown().
+    TEST_F(SteamStubOnPathTest, OverlayCallbackIsNotDeliveredAfterShutdown)
+    {
+        SteamManager::Initialize();
+        SteamManager::Shutdown();
+
+        SteamStub::SetOverlayActive(true);
+        EXPECT_NO_THROW(SteamManager::RunCallbacks());
         EXPECT_FALSE(SteamManager::IsOverlayActive());
     }
 

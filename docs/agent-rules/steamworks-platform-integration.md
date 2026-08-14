@@ -16,7 +16,8 @@ of it, or a trap found while building it (#644).
 
 ## 1. It is a developer-installed SDK, not a vendored one — Vulkan is the precedent, not Mono
 
-The obvious move is to copy the **Mono** block (`OloEngine/CMakeLists.txt:432-442`): a prebuilt
+The obvious move is to copy the **Mono** block in `OloEngine/CMakeLists.txt` — the `if(MSVC)`
+branch that links `libmono-static-sgen` and defines `OLO_ENABLE_CSHARP_SCRIPTING`: a prebuilt
 proprietary-ish library, committed in-tree, platform-gated. **That is wrong here.** Mono may live
 in-tree *because Mono is redistributable*. Steamworks is not, and the repo is public.
 
@@ -220,11 +221,13 @@ Both are required; they cover genuinely different failures.
 | **Variant B — compile time** | `OLO_WITH_STEAM=0`, no SDK present | `CreateSteamBackend()` returns a `NullSteamBackend`. Header and link surface identical either way. |
 | **Variant A — run time** | `OLO_WITH_STEAM=1`, `SteamAPI_InitEx()` fails | Warn with an actionable sentence, set the availability flag false, **return**. |
 
-The precedent for both is `Scripting/C#/ScriptEngine.cpp` (`:182-198` runtime, `:699-724` the
-complete no-op stub set).
+The precedent for both is `Scripting/C#/ScriptEngine.cpp`: `ScriptEngine::Init` for the runtime
+form (it warns with a remediation sentence and returns when `LoadAssembly` fails), and the
+`#else !OLO_ENABLE_CSHARP_SCRIPTING` half of the same file for the complete no-op stub set.
 
-**The counter-example to avoid is in the same file you are editing.** `Core/Application.cpp`
-throws `std::runtime_error` when `AudioEngine` (`:145-149`) or `NetworkManager` (`:171-175`) fail
+**The counter-example to avoid is in the same file you are editing.** In the `Application`
+constructor, the `AudioEngine::Init()` and `NetworkManager::Init()` failure branches both
+`throw std::runtime_error` when they fail
 to initialise. **Steam must never join that club.** "No Steam client" is an ordinary state — a
 developer machine, a CI runner, a player who launched the exe directly rather than through Steam.
 A missing Steam client stopping the engine from starting would be a catastrophic regression, and

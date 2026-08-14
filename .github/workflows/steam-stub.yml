@@ -56,6 +56,12 @@ on:
     - cron: '0 5 * * 3' # weekly, Wednesday 05:00 UTC (deliberately off video-ffmpeg's Monday slot)
   workflow_dispatch:
 
+# Both jobs only read the checkout and build; neither comments, labels, or publishes anything.
+# Declared explicitly rather than inherited so a future step cannot quietly acquire write scopes
+# from a repo-level default. Matches asan.yml / reflection-status-check.yml.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -226,7 +232,24 @@ jobs:
           BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
           test -n "$BIN" || { echo "OloEngine-Tests binary not found"; exit 1; }
           cd OloEditor
-          "${GITHUB_WORKSPACE}/$BIN" --gtest_filter='Steam*'
+          OUTPUT=$("${GITHUB_WORKSPACE}/$BIN" --gtest_filter='Steam*' 2>&1)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -qE '\[  FAILED  \]' && exit 1
+
+          # Assert the filter actually matched something. A renamed suite or a typo'd filter
+          # otherwise yields "0 tests ran" and a zero exit code — a green job that tested nothing.
+          #
+          # NOTE this deliberately does NOT forbid skips, unlike the SteamStubOnPathTest check
+          # below. That suite must fully execute in a stub build, but `Steam*` is a broad net:
+          # this repo has an established pattern of tests that SKIP cleanly without a GL 4.6
+          # context, so a future GL-gated Steam test would make a blanket zero-skip rule fail for
+          # a correct reason. Assert coverage exists; let individual cases gate themselves.
+          PASSED=$(echo "$OUTPUT" | sed -nE 's/^\[  PASSED  \] ([0-9]+) tests?.*/\1/p' | tail -1)
+          if [ -z "${PASSED:-}" ] || [ "$PASSED" -eq 0 ]; then
+            echo "::error::The Steam* filter matched no passing tests — filter or suite names changed?"
+            exit 1
+          fi
+          echo "OK: $PASSED Steam tests passed."
 
       # The ON-path tests SKIP rather than fail when the stub is inactive, which is right for a
       # developer's normal build but would make this job vacuously green if the wiring broke. So
@@ -245,4 +268,15 @@ jobs:
             echo "::error::SteamStubOnPathTest ran zero tests."
             exit 1
           fi
-          echo "OK: the ON path was genuinely exercised."
+
+          # A PASSED count alone is not enough. GoogleTest reports skips separately, so a run
+          # where SOME cases skipped still shows a healthy "[  PASSED  ] n tests" line — the job
+          # would go green while silently losing coverage. In a stub build EVERY case in this
+          # suite must execute, so any skip at all is a failure.
+          SKIPPED=$(echo "$OUTPUT" | sed -nE 's/^\[  SKIPPED \] ([0-9]+) tests?.*/\1/p' | tail -1)
+          if [ -n "${SKIPPED:-}" ] && [ "$SKIPPED" -gt 0 ]; then
+            echo "::error::SteamStubOnPathTest skipped $SKIPPED test(s); with the stub SDK active none may skip."
+            echo "$OUTPUT" | grep -E '^\[  SKIPPED \]' || true
+            exit 1
+          fi
+          echo "OK: the ON path was genuinely exercised, with no skipped cases."

@@ -93,11 +93,30 @@ namespace
                 return {};
             }
 
+            // Validate before allocating. An unopened stream makes tellg() return -1, which then
+            // casts to a colossal size_t and either throws bad_alloc or allocates absurdly — a
+            // confusing crash in a helper, instead of a clear failure at the real cause.
             std::ifstream in(scratch, std::ios::binary | std::ios::ate);
+            if (!in)
+            {
+                ADD_FAILURE() << "could not reopen the synthesized save at " << scratch.string();
+                return {};
+            }
+
             const std::streamoff size = in.tellg();
+            if (size <= 0)
+            {
+                ADD_FAILURE() << "synthesized save at " << scratch.string() << " has size " << size;
+                return {};
+            }
+
             in.seekg(0, std::ios::beg);
             std::vector<u8> bytes(static_cast<sizet>(size));
-            in.read(reinterpret_cast<char*>(bytes.data()), size);
+            if (!in.read(reinterpret_cast<char*>(bytes.data()), size))
+            {
+                ADD_FAILURE() << "short read on the synthesized save at " << scratch.string();
+                return {};
+            }
             return bytes;
         }
 

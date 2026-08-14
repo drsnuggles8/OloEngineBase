@@ -793,7 +793,7 @@ add_executable(OloEngine-Tests
 		MCP/McpSelectEntityTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
-		# Steamworks platform integration (#644). All three run on EVERY configuration:
+		# Steamworks platform integration (#644). All four run on EVERY configuration:
 		# the manager and binding tests drive a fake backend and need no Steam client at
 		# all, and the stub-SDK ON-path test SKIPs cleanly unless the build was configured
 		# with -DOLO_WITH_STEAM_STUB_SDK=ON.

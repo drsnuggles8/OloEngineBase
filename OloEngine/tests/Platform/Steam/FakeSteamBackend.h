@@ -178,6 +178,18 @@ namespace OloEngine::Testing
             {
                 return SteamResult::NotFound;
             }
+
+            // Mirror SteamworksBackend::CloudRead: a zero-length cloud file is legal but carries
+            // no save, and is reported as absent rather than as an empty-but-valid buffer.
+            //
+            // This parity matters more than it looks. The whole value of this fake is that tests
+            // written against it also describe the real backend; anywhere the two disagree, the
+            // tests quietly stop being evidence about production. Keep them in step.
+            if (found->second.empty())
+            {
+                return SteamResult::NotFound;
+            }
+
             outData = found->second;
             return SteamResult::Success;
         }

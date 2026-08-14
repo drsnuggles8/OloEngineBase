@@ -64,6 +64,15 @@ function OnCreate()
     -- as a licence to be careless, but it does mean an accidental repeat is harmless.
     Steam.unlockAchievement(ACH_WIN_ONE_GAME)
 
+    -- The other common shape: a THRESHOLD achievement, unlocked when a running total crosses a
+    -- line. The engine has no notion of your stat — you own the number, Steam owns the flag — so
+    -- the pattern is "compute, compare, unlock", and the repeat-unlock cheapness above is what
+    -- makes it safe to evaluate this on a timer rather than tracking whether you already fired.
+    local metresTravelled = 12500 -- a real game would read this from its own save/stat store
+    if metresTravelled >= 10000 then
+        Steam.unlockAchievement(ACH_TRAVEL_FAR_ACCUM)
+    end
+
     setPresence("Exploring the sandbox")
 
     -- --- Steam Cloud -----------------------------------------------------------------------

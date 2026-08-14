@@ -60,10 +60,12 @@ namespace OloEngine
 {
     namespace
     {
-        // Steam takes int32 byte counts. A save larger than 2 GiB is not a thing we support, but
-        // the cast has to be guarded or a huge buffer wraps to a negative length and Steam either
-        // rejects it confusingly or writes garbage.
-        constexpr sizet s_MaxCloudFileBytes = static_cast<sizet>(k_unMaxCloudFileChunkSize);
+        // Steam's own per-write limit: k_unMaxCloudFileChunkSize is 100 MiB, and FileWrite takes
+        // an int32 byte count. Checking against Steam's constant rather than INT32_MAX both
+        // rejects an over-large save with a message naming the real limit, and keeps the
+        // narrowing cast to int32 provably safe — an unguarded huge buffer would wrap to a
+        // negative length, which Steam either rejects confusingly or acts on.
+        constexpr sizet kMaxCloudFileBytes = static_cast<sizet>(k_unMaxCloudFileChunkSize);
 
         // Steam's C API is all NUL-terminated char*, and std::string_view is not guaranteed to
         // be. Every string crossing into Valve's API goes through this.
@@ -293,10 +295,10 @@ namespace OloEngine
             {
                 return SteamResult::Unavailable;
             }
-            if (data.size() > s_MaxCloudFileBytes)
+            if (data.size() > kMaxCloudFileBytes)
             {
                 OLO_CORE_WARN("[Steam] Cloud write of '{0}' is {1} bytes, over Steam's {2}-byte per-file limit.", name,
-                              data.size(), s_MaxCloudFileBytes);
+                              data.size(), kMaxCloudFileBytes);
                 return SteamResult::InvalidArgument;
             }
 
