@@ -525,13 +525,20 @@ namespace OloEngine
                 result = vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs);
                 if (result != VK_SUCCESS)
                 {
-                    // Timeout/device-loss: the device is already in fatal
-                    // territory; destroying the fence below is the least-bad
-                    // cleanup.
                     OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences failed (VkResult {})", static_cast<int>(result));
                     if (result == VK_ERROR_DEVICE_LOST)
                     {
                         d.Device.LogDeviceFaultInfo();
+                    }
+                    else
+                    {
+                        // VK_TIMEOUT: the submission may STILL be executing —
+                        // destroying an in-flight fence is invalid usage
+                        // (VUID-vkDestroyFence-fence-01120). Deliberately leak
+                        // this one fence instead; a hung GPU is fatal
+                        // territory anyway and the leak beats UB. (On
+                        // DEVICE_LOST the destroy below is legal.)
+                        fence = VK_NULL_HANDLE;
                     }
                     ok = false;
                 }

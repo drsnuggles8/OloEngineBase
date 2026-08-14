@@ -314,21 +314,14 @@ namespace OloEngine
         {
             // First draw: reflect a pending choice from a previous session if
             // the config file already holds one; otherwise mirror the active
-            // backend. Cheap substring scan — the file is engine-written and
-            // two lines long; SelectRendererBackend owns the real parse.
-            m_ConfiguredBackend = activeIsVulkan ? 1 : 0;
-            if (std::ifstream config(DefaultRendererConfigPath()); config)
-            {
-                std::stringstream buffer;
-                buffer << config.rdbuf();
-                std::string text = buffer.str();
-                std::ranges::transform(text, text.begin(), [](unsigned char c)
-                                       { return static_cast<char>(std::tolower(c)); });
-                if (text.find("vulkan") != std::string::npos)
-                    m_ConfiguredBackend = 1;
-                else if (text.find("opengl") != std::string::npos)
-                    m_ConfiguredBackend = 0;
-            }
+            // backend. Uses the SAME parser the engine boots with (no argv →
+            // config-file → default chain) — a substring scan here could
+            // false-positive on a comment mentioning the other backend.
+            const BackendSelection configured = SelectRendererBackend(0, nullptr, DefaultRendererConfigPath());
+            if (configured.Source == "config file")
+                m_ConfiguredBackend = configured.Api == RendererAPI::API::Vulkan ? 1 : 0;
+            else
+                m_ConfiguredBackend = activeIsVulkan ? 1 : 0;
         }
 
         static constexpr std::array<const char*, 2> kBackendNames{ "OpenGL", "Vulkan" };
