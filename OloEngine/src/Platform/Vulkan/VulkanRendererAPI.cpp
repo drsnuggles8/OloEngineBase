@@ -592,7 +592,19 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearTextureFloat(outside recording bracket)", StubKind::OutsideRecording);
+            // GL's glClearTexImage works at ANY time; load-time callers
+            // (DDGIProbeUpdatePass's 1x1 placeholder/black-cubemap Init
+            // clears) depend on that. Re-enter through a one-shot submit so
+            // the clear LANDS instead of leaving the texture undefined —
+            // the layout tracker updates inside stay correct for the frame
+            // recordings that follow.
+            VulkanOneShot::Submit("ClearTextureFloat(load-time one-shot)",
+                                  [&](const VkCommandBuffer cmd)
+                                  {
+                                      m_Cmd = cmd;
+                                      ClearTextureFloat(texture, mipLevel, color);
+                                      m_Cmd = VK_NULL_HANDLE;
+                                  });
             return;
         }
 
@@ -668,7 +680,14 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearTextureUInt(outside recording bracket)", StubKind::OutsideRecording);
+            // Same load-time one-shot fallback as ClearTextureFloat above.
+            VulkanOneShot::Submit("ClearTextureUInt(load-time one-shot)",
+                                  [&](const VkCommandBuffer cmd)
+                                  {
+                                      m_Cmd = cmd;
+                                      ClearTextureUInt(texture, mipLevel, value);
+                                      m_Cmd = VK_NULL_HANDLE;
+                                  });
             return;
         }
 
@@ -4015,13 +4034,15 @@ namespace OloEngine
         // a still-live image the SOURCE owns — ShadowMap retires those
         // through this entry on GL, where the view is a real second texture.
         // Destroying anything here would double-free, so the honest lowering
-        // is a warn-once no-op (the alias cache keeps its inert row).
-        static bool s_WarnedForeign = false;
-        if (!s_WarnedForeign)
+        // is a no-op. TRACE, not WARN: ShadowMap's alias retirement reaches
+        // here BY DESIGN in every editor session (same clean-log rule as the
+        // unfed-sampler typed-null fallback).
+        static bool s_TracedForeign = false;
+        if (!s_TracedForeign)
         {
-            s_WarnedForeign = true;
-            OLO_CORE_WARN("[RHI/Vulkan] DeleteTexture on a non-raw-registry handle (object-owned texture or "
-                          "compare-off view alias) — no-op (warn-once)");
+            s_TracedForeign = true;
+            OLO_CORE_TRACE("[RHI/Vulkan] DeleteTexture on a non-raw-registry handle (object-owned texture or "
+                           "compare-off view alias) — no-op by design (trace-once)");
         }
     }
 
