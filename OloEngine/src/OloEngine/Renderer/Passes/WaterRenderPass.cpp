@@ -330,7 +330,18 @@ namespace OloEngine
             FramebufferSpecification depthSpec;
             depthSpec.Width = width;
             depthSpec.Height = height;
-            depthSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+            // Only the depth attachment is READ (underwater fog); the four
+            // color attachments mirror the scene MRT layout because the
+            // capture replays the WATER shader (4 fragment outputs) with
+            // color writes masked — GL discards writes to missing draw
+            // buffers silently, but under Vulkan a fragment output without a
+            // matching scope attachment is a per-draw validation warning
+            // (#691 Phase 8). A dedicated Water_Depth shader variant would
+            // trim this memory back; the displacement chain is shared with
+            // the color pass, so that refactor is deferred.
+            depthSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RED_INTEGER,
+                                      FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RG16F,
+                                      FramebufferTextureFormat::ShadowDepth };
             m_WaterDepthFB = Framebuffer::Create(depthSpec);
         }
     }
@@ -350,7 +361,10 @@ namespace OloEngine
                 FramebufferSpecification depthSpec;
                 depthSpec.Width = width;
                 depthSpec.Height = height;
-                depthSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+                // Same layout as SetupFramebuffer above (see the comment there).
+                depthSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RED_INTEGER,
+                                          FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RG16F,
+                                          FramebufferTextureFormat::ShadowDepth };
                 m_WaterDepthFB = Framebuffer::Create(depthSpec);
             }
         }

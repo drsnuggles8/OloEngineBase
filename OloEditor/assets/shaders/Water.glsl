@@ -50,8 +50,11 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_ProjectionForReconstruction;
 };
 
-// Model UBO (binding 3)
-#include "include/InstanceBlock_Vertex.glsl"
+// Model UBO (binding 3) — the Single variant, like this shader's TES/FS:
+// water is single-instance by design, and the varying-producing include
+// would declare a v_InstanceIndex output no later stage consumes (a
+// per-pipeline Vulkan validation interface warning).
+#include "include/InstanceBlock_Single.glsl"
 
 // Water UBO (binding 23)
 layout(std140, binding = 23) uniform WaterParams
@@ -95,7 +98,12 @@ layout(location = 2) out vec2 v_TexCoord;
 layout(location = 3) out vec3 v_ViewDir;
 layout(location = 4) out vec3 v_Tangent;
 layout(location = 5) out vec3 v_Bitangent;
+#ifndef OLO_VULKAN
+// Non-tess fallback only (VS feeds FS directly). Under Vulkan water always
+// tessellates and the TES computes its own v_WaveHeight — declaring it here
+// would be a written-but-unconsumed VS->TCS interface warning per pipeline.
 layout(location = 6) out float v_WaveHeight;
+#endif
 // Previous-frame world position (wave + model reprojection) for RT3 velocity.
 layout(location = 7) out vec3 v_PrevWorldPos;
 
@@ -107,7 +115,6 @@ void main()
     vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
     vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
 #endif
-    OLO_INSTANCE_FORWARD();
     vec4 worldPos = u_Model * vec4(a_Position, 1.0);
     vec4 worldPosPrev = u_PrevModel * vec4(a_Position, 1.0);
     // Camera-relative (issue #429): u_Model is render-relative, so add the render
@@ -133,7 +140,9 @@ void main()
         v_ViewDir = normalize(u_CameraPosition - worldPos.xyz);
         v_Tangent = vec3(1.0, 0.0, 0.0);
         v_Bitangent = vec3(0.0, 0.0, 1.0);
+#ifndef OLO_VULKAN
         v_WaveHeight = 0.0;
+#endif
         gl_Position = vec4(worldPos.xyz, 1.0); // TES will transform
         return;
     }
@@ -180,8 +189,10 @@ void main()
     // ~[-1,1] range; FFT height is already in metres (its own amplitude), so pass
     // it through raw — foamHeightStart then reads as a metre threshold.
     float maxAmplitude = max(amplitude, 0.001);
+#ifndef OLO_VULKAN
     v_WaveHeight = (u_FFTParams.x > 0.5) ? (displacedPos.y - worldPos.y)
                                          : (displacedPos.y - worldPos.y) / maxAmplitude;
+#endif
 
     v_WorldPos = displacedPos;
     v_Normal = displacedNormal;
@@ -249,7 +260,9 @@ layout(location = 2) in vec2 v_TexCoord[];
 layout(location = 3) in vec3 v_ViewDir[];
 layout(location = 4) in vec3 v_Tangent[];
 layout(location = 5) in vec3 v_Bitangent[];
-layout(location = 6) in float v_WaveHeight[];
+#ifndef OLO_VULKAN
+layout(location = 6) in float v_WaveHeight[]; // non-tess fallback interface only
+#endif
 layout(location = 7) in vec3 v_PrevWorldPos[];
 
 layout(location = 0) out vec3 tc_WorldPos[];

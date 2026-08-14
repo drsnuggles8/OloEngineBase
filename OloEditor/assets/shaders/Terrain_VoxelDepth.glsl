@@ -33,6 +33,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 
 // Model UBO (binding 3)
+// This shader's consuming stage never reads v_InstanceIndex — declare no
+// varying (a written-but-unconsumed output is a per-pipeline Vulkan
+// validation interface warning).
+#define OLO_INSTANCE_NO_FORWARD 1
 #include "include/InstanceBlock_Vertex.glsl"
 
 void main()

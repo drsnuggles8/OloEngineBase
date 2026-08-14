@@ -1880,19 +1880,14 @@ namespace OloEngine
                     static std::unordered_set<std::string> s_WarnedSlots;
                     if (s_WarnedSlots.insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)).second)
                     {
-                        // TRACE for the sampled fallback: reading black from an
+                        // The sampled fallback is SILENT: reading black from an
                         // unfed optional sampler is the GL contract (GL warns
                         // about nothing here), and every editor scene has a few
                         // by design (u_Use*Map-gated material maps, optional
-                        // water inputs). The storage-image arm stays a WARN —
-                        // slot 0 as a WRITE target is never by design.
-                        if (nullSlot != VulkanResourceHeap::InvalidSlot)
-                        {
-                            OLO_CORE_TRACE("[RHI/Vulkan] '{}' texture binding {} unfed — typed null (black), the GL "
-                                           "unbound-sampler contract",
-                                           shaderName, binding.Binding);
-                        }
-                        else
+                        // water inputs) — logging it is pure noise. The
+                        // storage-image arm stays a WARN — slot 0 as a WRITE
+                        // target is never by design.
+                        if (nullSlot == VulkanResourceHeap::InvalidSlot)
                         {
                             OLO_CORE_WARN("[RHI/Vulkan] '{}' {} binding {} has no staged heap slot — slot 0",
                                           shaderName, storageImage ? "image" : "texture", binding.Binding);
@@ -4028,22 +4023,33 @@ namespace OloEngine
         {
             return;
         }
-        // Not a raw-registry entry. Object-owned textures die with their C++
-        // object, and the compare-off view aliases
-        // (CreateDepthArrayCompareOffViewHandle) are cached second handles to
-        // a still-live image the SOURCE owns — ShadowMap retires those
-        // through this entry on GL, where the view is a real second texture.
-        // Destroying anything here would double-free; ownership already
-        // covers the destruction, so there is nothing left for this entry to
-        // do. TRACE: this path is reached BY DESIGN in every editor session
-        // (ShadowMap's alias retirement), same clean-log rule as the
-        // unfed-sampler typed-null fallback.
-        static bool s_TracedForeign = false;
-        if (!s_TracedForeign)
+        // Compare-off view alias (CreateDepthArrayCompareOffViewHandle):
+        // ShadowMap retires these through this entry on GL, where the view
+        // is a real second texture. Here the alias is a cached second
+        // handle to a SOURCE-owned image — honor the deletion by retiring
+        // the alias identity and dropping the cache row, so the next
+        // Create call after a shadow-map re-init mints a fresh alias
+        // instead of resolving a retired one. No native object dies (the
+        // source owns the image), so this is the complete lowering.
+        for (auto it = m_CompareOffViewHandles.begin(); it != m_CompareOffViewHandles.end(); ++it)
         {
-            s_TracedForeign = true;
-            OLO_CORE_TRACE("[RHI/Vulkan] DeleteTexture: handle names an object-owned texture or cached view "
-                           "alias — its owner destroys the image; nothing to do here (trace-once)");
+            if (it->second == texture)
+            {
+                RHI::ResourceRegistry::Get().Unregister(it->second);
+                m_CompareOffViewHandles.erase(it);
+                return;
+            }
+        }
+
+        // Genuinely foreign: an object-owned texture reached the raw-delete
+        // entry. Its C++ object owns the destruction; deleting here would
+        // double-free. Warn — unlike the alias case this is a caller bug.
+        static bool s_WarnedForeign = false;
+        if (!s_WarnedForeign)
+        {
+            s_WarnedForeign = true;
+            OLO_CORE_WARN("[RHI/Vulkan] DeleteTexture on an object-owned texture handle — the owner destroys the "
+                          "image; ignored (warn-once)");
         }
     }
 

@@ -4,6 +4,7 @@
 
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanShader.h"
 
 #include <algorithm>
 #include <atomic>
@@ -79,7 +80,12 @@ namespace OloEngine
                     text.find("this write is unused") != std::string_view::npos;
                 if (benignInterfaceNoise)
                 {
-                    OLO_CORE_TRACE("[Vulkan] {}", message);
+                    // Validation cannot name the pipeline's shader; the
+                    // callback runs synchronously during recording, so the
+                    // currently-bound shader IS the offender — name it.
+                    const auto* bound = VulkanShader::GetCurrentlyBound();
+                    OLO_CORE_TRACE("[Vulkan] (bound shader: '{}') {}",
+                                   bound != nullptr ? bound->GetName() : "<none>", message);
                 }
                 else
                 {

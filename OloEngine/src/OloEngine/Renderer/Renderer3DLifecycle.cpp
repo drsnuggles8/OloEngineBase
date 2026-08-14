@@ -676,6 +676,11 @@ namespace OloEngine
         s_Data.DecalGBufferNormalShader.Reset();
         s_Data.DecalGBufferRMAShader.Reset();
         s_Data.DecalGBufferEmissiveShader.Reset();
+        // ParallelSceneContext caches its OWN Ref<Shader> copies for the
+        // worker-thread submission path — the co-owner the teardown
+        // ref-holder scan found at s_Data.ParallelContext (the five
+        // "surviving shader" traces on every close).
+        s_Data.ParallelContext = ParallelSceneContext{};
         m_ShaderLibrary.Clear();
         ShaderLibrary::ShutdownFallbackShader();
 

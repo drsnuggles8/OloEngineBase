@@ -33,7 +33,14 @@ layout(std430, binding = 15) readonly buffer InstanceBuffer {
 // addressable after CommandBucket auto-batching collapses N draws into one
 // glDrawElementsInstanced. The vertex `void main()` must call
 // `OLO_INSTANCE_FORWARD();` for the varying to be written.
+//
+// OLO_INSTANCE_NO_FORWARD (define before including): the consuming stage
+// does not read v_InstanceIndex (depth-only passes, trivial fragment
+// shaders), so declare NO varying at all — a written-but-unconsumed output
+// is a validation interface warning per pipeline under Vulkan.
+#ifndef OLO_INSTANCE_NO_FORWARD
 layout(location = 14) flat out int v_InstanceIndex;
+#endif
 
 #ifdef OLO_INSTANCE_SINGLE
 // Single-entry contract: the draw's per-instance data lives in its OWN
@@ -53,7 +60,11 @@ layout(location = 14) flat out int v_InstanceIndex;
 #define u_PrevModel    (instances[0].PrevTransform)
 #define u_EntityID     (instances[0].EntityID)
 #define u_NormalMatrix (instances[0].Normal)
+#ifdef OLO_INSTANCE_NO_FORWARD
+#define OLO_INSTANCE_FORWARD()
+#else
 #define OLO_INSTANCE_FORWARD() v_InstanceIndex = 0
+#endif
 #else
 #define u_Model        (instances[gl_InstanceIndex].Transform)
 #define u_Normal       (instances[gl_InstanceIndex].Normal)
@@ -65,7 +76,11 @@ layout(location = 14) flat out int v_InstanceIndex;
 
 // Forward the current gl_InstanceIndex to the fragment stage. Must be called
 // at the top of every vertex shader's main() that includes this file.
+#ifdef OLO_INSTANCE_NO_FORWARD
+#define OLO_INSTANCE_FORWARD()
+#else
 #define OLO_INSTANCE_FORWARD() v_InstanceIndex = gl_InstanceIndex
+#endif
 #endif // OLO_INSTANCE_SINGLE
 
 #endif // INSTANCE_BLOCK_VERTEX_GLSL

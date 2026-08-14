@@ -50,7 +50,18 @@ namespace OloEngine
             spec.Height = m_Height;
             // HDR colour so the reflected lit scene keeps its dynamic range, plus
             // a depth attachment so the re-rendered opaque geometry depth-sorts.
-            spec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::Depth };
+            // The replay re-runs the SCENE bucket's shaders, which write four
+            // MRT outputs — mirror the scene framebuffer's attachment layout
+            // ([1] entity ID, [2] view normals, [3] velocity are simply
+            // ignored here) so every replayed pipeline's fragment interface
+            // matches its render targets. With only the colour attachment,
+            // each replayed draw triggered a Vulkan validation warning per
+            // unused output ("writes o_EntityID ... and this write is
+            // unused"), and the replay-built PSOs could never be shared with
+            // the scene pass's (#691 Phase 8).
+            spec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RED_INTEGER,
+                                 FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RG16F,
+                                 FramebufferTextureFormat::Depth };
             m_ReflectionFB = Framebuffer::Create(spec);
         }
         else if (m_ReflectionFB->GetSpecification().Width != m_Width ||
