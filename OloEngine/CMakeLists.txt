@@ -274,6 +274,123 @@ else()
 	target_compile_definitions(OloEngine PUBLIC OLO_WITH_VULKAN=0)
 endif()
 
+# Steamworks platform integration (#644), gated on OLO_WITH_STEAM (root CMakeLists).
+# The Platform/Steam/*.cpp sources are ALWAYS listed (src/CMakeLists.txt) and self-guard on the
+# macro, compiling to empty TUs when OFF — the same convention as OLO_WITH_VULKAN above and the
+# OLO_WITH_* import formats.
+#
+# The API surface comes from exactly one of two mutually exclusive places:
+#   * the REAL SDK, resolved from $ENV{STEAMWORKS_SDK_ROOT}. Never vendored: the licence forbids
+#     redistribution and this repo is public, so developers install it themselves (it is free —
+#     see docs/ops/build.md). This mirrors how the Vulkan SDK is found above, NOT how Mono is
+#     vendored in-tree at :432 — Mono may live in-tree only because it is redistributable.
+#   * our hand-written STUBS (OLO_WITH_STEAM_STUB_SDK), which let CI compile, link and RUN the
+#     ON path that the real SDK can never reach. See the root CMakeLists for why that matters.
+if(OLO_WITH_STEAM AND NOT OLO_WITH_STEAM_STUB_SDK)
+	if(NOT WIN32)
+		message(FATAL_ERROR
+			"OLO_WITH_STEAM=ON is only wired for 64-bit Windows, the stated target for issue #644. "
+			"The SDK does ship linux64/osx redistributables, so extending this is a small change — "
+			"but none of it is tested on those platforms yet, and silently disabling would hide that. "
+			"Use -DOLO_WITH_STEAM=OFF, or -DOLO_WITH_STEAM_STUB_SDK=ON to compile the Steam path "
+			"without any SDK at all.")
+	endif()
+
+	if(NOT DEFINED ENV{STEAMWORKS_SDK_ROOT})
+		message(FATAL_ERROR
+			"OLO_WITH_STEAM=ON but STEAMWORKS_SDK_ROOT is not set. Download the Steamworks SDK "
+			"(free, needs only an ordinary Steam account — the $100 Steam Direct fee is for "
+			"publishing, not building) and point the variable at the directory containing "
+			"public/ and redistributable_bin/. Full instructions: docs/ops/build.md.")
+	endif()
+
+	# Point at the inner `sdk` directory — the one DIRECTLY containing public/ and
+	# redistributable_bin/. Pointing one level out is the obvious mistake and would otherwise
+	# surface as an unhelpful "cannot open include file: steam/steam_api.h" much later.
+	set(OLO_STEAM_SDK_ROOT "$ENV{STEAMWORKS_SDK_ROOT}")
+
+	# The include dir is the SDK ROOT, NOT root/public — and the one TU that uses it includes
+	# "public/steam/steam_api.h" rather than "steam/steam_api.h".
+	#
+	# THIS IS NOT A STYLE CHOICE. Adding …/public would put a directory with a `steam/` child on
+	# the engine include path, and every `#include <steam/…>` in the NETWORKING code would then
+	# resolve against Valve's SDK instead of GameNetworkingSockets'. The Steamworks SDK ships its
+	# own isteamnetworkingutils.h / steamnetworkingtypes.h / isteamnetworkingsockets.h /
+	# steam_api_common.h / steamtypes.h, so the netcode ends up with Valve's
+	# <steam/isteamnetworkingutils.h> (which Valve HAS) alongside GNS's
+	# <steam/steamnetworkingsockets.h> (which Valve does NOT) — half of each SDK in one TU, dying
+	# with 12 × "C2365: 'k_iSteamNetworkingSocketsCallbacks': redefinition" reported inside a
+	# Steamworks header from Networking files that never mention Steam.
+	#
+	# Rooting one level higher makes the hijack impossible by construction. See
+	# docs/agent-rules/steamworks-platform-integration.md.
+	set(OLO_STEAM_INCLUDE_DIR "${OLO_STEAM_SDK_ROOT}")
+	set(OLO_STEAM_IMPORT_LIB  "${OLO_STEAM_SDK_ROOT}/redistributable_bin/win64/steam_api64.lib")
+	set(OLO_STEAM_RUNTIME_DLL "${OLO_STEAM_SDK_ROOT}/redistributable_bin/win64/steam_api64.dll")
+
+	foreach(_olo_steam_path
+			"${OLO_STEAM_SDK_ROOT}/public/steam/steam_api.h"
+			"${OLO_STEAM_IMPORT_LIB}"
+			"${OLO_STEAM_RUNTIME_DLL}")
+		if(NOT EXISTS "${_olo_steam_path}")
+			message(FATAL_ERROR
+				"STEAMWORKS_SDK_ROOT=${OLO_STEAM_SDK_ROOT} does not look like a Steamworks SDK: "
+				"missing ${_olo_steam_path}. It must point at the directory DIRECTLY containing "
+				"public/ and redistributable_bin/ (i.e. the inner 'sdk' folder of the zip), not "
+				"its parent. See docs/ops/build.md.")
+		endif()
+	endforeach()
+
+	# steam_api64.lib is an IMPORT LIBRARY for a DLL, not a static lib — it carries no CRT of its
+	# own, so it links cleanly against this project's x64-windows-static-md triplet. The
+	# CRT-triplet mismatch that docs/agent-rules/vcpkg-dependency-management.md calls out as
+	# silent heap corruption does NOT apply here; don't spend time hunting it.
+	# PRIVATE, not PUBLIC — deliberately. Only SteamworksBackend.cpp may include a Valve header,
+	# and keeping the SDK off the interface makes that invariant STRUCTURAL: an attempt to
+	# #include <steam/...> from the editor, the runtime or a test does not resolve at all, rather
+	# than compiling fine and being caught later by the CI grep. The grep stays as a second net
+	# for files inside this target. (Contrast the Vulkan block above, which is PUBLIC because
+	# consumers legitimately compile against those headers.)
+	target_include_directories(OloEngine PRIVATE "${OLO_STEAM_INCLUDE_DIR}")
+	target_link_libraries(OloEngine "${OLO_STEAM_IMPORT_LIB}")
+	# NOTE: Valve's headers trip C4828 under /utf-8. That is suppressed with a push/disable
+	# around the #include in SteamworksBackend.cpp itself, NOT here — set_source_files_properties
+	# is directory-scoped and silently does nothing from the wrong CMakeLists, which is a trap
+	# worth not re-walking into (see the comment in that file).
+
+	# Consumed by the executable targets, which copy it next to their .exe — the DLL must sit
+	# beside the binary (or in the working directory) at runtime or the process fails to start.
+	set(OLO_STEAM_RUNTIME_DLL "${OLO_STEAM_RUNTIME_DLL}" CACHE INTERNAL "steam_api64.dll to stage next to the executables")
+	message(STATUS "Steamworks: using SDK at ${OLO_STEAM_SDK_ROOT}")
+endif()
+
+if(OLO_WITH_STEAM AND OLO_WITH_STEAM_STUB_SDK)
+	# Stub path: our own headers, and the symbols come from a .cpp carried in the normal source
+	# list — nothing external to find, link or stage. Deliberately buildable on every platform so
+	# CI can run this job wherever it is cheapest.
+	# PRIVATE for the same reason as the real SDK path above: the stub tree also provides a
+	# `steam/steam_api.h`, and letting it leak onto the interface would let an editor or test TU
+	# include Valve's API surface in a stub build but not a real-SDK one — the worst possible
+	# asymmetry, since CI only ever builds the stub.
+	target_include_directories(OloEngine PRIVATE src/Platform/Steam/StubSDK)
+	message(STATUS "Steamworks: building against hand-written STUB headers (CI anti-rot path)")
+endif()
+
+# PUBLIC and defined in EVERY branch, deliberately spelled out rather than folded into the blocks
+# above. The editor UI, the Lua bindings and the test target's SKIP logic all branch on these, so
+# every TU must agree on their values — a one-sided definition is the classic footgun here, and is
+# why OLO_ENABLE_CSHARP_SCRIPTING (:432) and OLO_WITH_VULKAN (above) are both written this way.
+if(OLO_WITH_STEAM)
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_STEAM=1)
+else()
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_STEAM=0)
+endif()
+if(OLO_WITH_STEAM_STUB_SDK)
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_STEAM_STUB_SDK=1)
+else()
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_STEAM_STUB_SDK=0)
+endif()
+
 # Asset-import format dependencies (#655), gated on the OLO_WITH_* options (root CMakeLists).
 # The OLO_WITH_* compile definitions are PUBLIC so both the engine TUs AND the test target's
 # conditional coverage see them; the translators' .cpp self-guard on these macros.

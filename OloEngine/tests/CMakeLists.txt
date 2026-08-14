@@ -793,6 +793,13 @@ add_executable(OloEngine-Tests
 		MCP/McpSelectEntityTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
+		# Steamworks platform integration (#644). All three run on EVERY configuration:
+		# the manager and binding tests drive a fake backend and need no Steam client at
+		# all, and the stub-SDK ON-path test SKIPs cleanly unless the build was configured
+		# with -DOLO_WITH_STEAM_STUB_SDK=ON.
+		Platform/Steam/SteamManagerTest.cpp
+		Platform/Steam/SteamScriptBindingCoverageTest.cpp
+		Platform/Steam/SteamStubOnPathTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
 		Functional/FunctionalTest.cpp
 		Functional/UI/UINavigationTest.cpp
@@ -977,6 +984,12 @@ endif()
 
 # Copy FFmpeg DLLs next to the test exe so OLO_VIDEO_FFMPEG decode tests can run.
 olo_copy_ffmpeg_runtime(OloEngine-Tests)
+
+# Stage steam_api64.dll next to the test exe (#644). Required for the same reason as OloServer:
+# OloEngine links the SDK's IMPORT library, so the test binary carries a static import that
+# Windows resolves at process load — without the DLL the whole suite fails to start, long before
+# any Steam test would have skipped. No-op unless OLO_WITH_STEAM is on with the real SDK.
+olo_copy_steam_runtime(OloEngine-Tests)
 
 target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
 

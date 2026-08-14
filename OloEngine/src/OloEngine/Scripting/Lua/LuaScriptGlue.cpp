@@ -27,6 +27,7 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
+#include "Platform/Steam/SteamManager.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
@@ -61,6 +62,7 @@
 #include <cmath>
 #include <ctime>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -2869,6 +2871,116 @@ namespace OloEngine
         {
             return Audio::AudioPlayback::IsEventActive(eventID);
         };
+
+        // --- Steamworks platform services (#644) ---
+        //
+        // Self-contained block; see the coverage test at
+        // tests/Platform/Steam/SteamScriptBindingCoverageTest.cpp, which asserts every function
+        // here exists and is callable with Steam absent.
+        //
+        // EVERY function below is safe to call when Steam is unavailable — not compiled in, or
+        // compiled in with no Steam client running. They return false / "" / an empty table
+        // rather than erroring, so a game script can call Steam unconditionally and simply do
+        // nothing on a machine without it. That is the whole degradation contract, expressed at
+        // the script layer.
+        auto steamTable = lua.create_named_table("Steam");
+
+        // Gate UI and skip work on this; you do NOT need it to guard the calls below.
+        steamTable.set_function("isAvailable", &SteamManager::IsAvailable);
+        steamTable.set_function("getAppID", &SteamManager::GetAppId);
+        steamTable.set_function("getPersonaName", &SteamManager::GetPersonaName);
+
+        // Steam.unlockAchievement("ACH_WIN_ONE_GAME") -> bool
+        //
+        // Returns true when the achievement is unlocked as a result of this call OR was already
+        // unlocked, because that is what a gameplay script means by "make sure this is
+        // unlocked". Scripts that need to distinguish a fresh unlock (to play a sting, say)
+        // should check isAchievementUnlocked() first.
+        steamTable.set_function("unlockAchievement", [](const std::string& achievementId) -> bool
+                                { return SteamSucceeded(SteamManager::UnlockAchievement(achievementId)); });
+        steamTable.set_function("clearAchievement", [](const std::string& achievementId) -> bool
+                                { return SteamSucceeded(SteamManager::ClearAchievement(achievementId)); });
+        steamTable.set_function("isAchievementUnlocked", [](const std::string& achievementId) -> bool
+                                { return SteamManager::IsAchievementUnlocked(achievementId); });
+        steamTable.set_function("storeStats", []() -> bool
+                                { return SteamSucceeded(SteamManager::StoreStats()); });
+
+        // Steam.setRichPresence("status", "Exploring the caves")
+        //
+        // An empty value clears that key, matching Steam's own semantics. Over-long keys or
+        // values are REJECTED (returning false) rather than truncated — a silently shortened
+        // presence string is far harder to notice than a false return.
+        steamTable.set_function("setRichPresence", [](const std::string& key, const std::string& value) -> bool
+                                { return SteamSucceeded(SteamManager::SetRichPresence(key, value)); });
+        steamTable.set_function("clearRichPresence", &SteamManager::ClearRichPresence);
+
+        // True while the Steam overlay is displayed. Games typically pause on the rising edge.
+        // Verified on the OpenGL backend only — no claim is made about Vulkan.
+        steamTable.set_function("isOverlayActive", &SteamManager::IsOverlayActive);
+
+        // --- Steam Cloud ---
+        //
+        // Exposed as strings rather than byte tables: scripts store small JSON/text blobs, and
+        // the engine's own save-games go through SaveGameManager, not through here.
+        steamTable.set_function("isCloudEnabled", &SteamManager::IsCloudEnabled);
+
+        steamTable.set_function("cloudWrite",
+                                [](const std::string& name, const std::string& contents) -> bool
+                                {
+                                    const std::span<const u8> bytes{
+                                        reinterpret_cast<const u8*>(contents.data()), contents.size()
+                                    };
+                                    return SteamSucceeded(SteamManager::CloudWrite(name, bytes));
+                                });
+
+        // Returns nil when the file is absent or Cloud is unavailable, so scripts can write
+        // `local data = Steam.cloudRead("x") or default`.
+        steamTable.set_function("cloudRead",
+                                [](const std::string& name) -> sol::optional<std::string>
+                                {
+                                    std::vector<u8> bytes;
+                                    if (!SteamSucceeded(SteamManager::CloudRead(name, bytes)))
+                                    {
+                                        return sol::nullopt;
+                                    }
+                                    return std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+                                });
+
+        steamTable.set_function("cloudExists", [](const std::string& name) -> bool
+                                { return SteamManager::CloudExists(name); });
+        steamTable.set_function("cloudDelete", [](const std::string& name) -> bool
+                                { return SteamSucceeded(SteamManager::CloudDelete(name)); });
+
+        // 1-based array of file names, matching Lua convention. Empty when Cloud is unavailable.
+        // sol::this_state rather than capturing `lua`, matching every other table-returning
+        // binding in this file (e.g. SaveGame.EnumerateSaves) — it takes the state from the
+        // calling context instead of holding a reference for the lifetime of the binding.
+        steamTable.set_function("cloudEnumerate",
+                                [](sol::this_state s) -> sol::table
+                                {
+                                    OLO_PROFILE_SCOPE("Lua::Steam::CloudEnumerate");
+                                    sol::state_view luaState(s);
+                                    const std::vector<std::string> files = SteamManager::CloudEnumerate();
+                                    sol::table result = luaState.create_table(static_cast<int>(files.size()), 0);
+                                    int index = 1;
+                                    for (const std::string& name : files)
+                                    {
+                                        result[index++] = name;
+                                    }
+                                    return result;
+                                });
+
+        // Returns total, available (both 0 when unavailable).
+        steamTable.set_function("getCloudQuota",
+                                []() -> std::tuple<u64, u64>
+                                {
+                                    SteamCloudQuota quota;
+                                    if (!SteamSucceeded(SteamManager::GetCloudQuota(quota)))
+                                    {
+                                        return { 0ull, 0ull };
+                                    }
+                                    return { quota.TotalBytes, quota.AvailableBytes };
+                                });
 
         // --- NetworkManager (static functions as table) ---
         auto networkTable = lua.create_named_table("Network");

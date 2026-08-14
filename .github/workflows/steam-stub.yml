@@ -1,0 +1,206 @@
+# Anti-rot gate for the Steamworks platform integration (#644).
+#
+# WHY THIS WORKFLOW EXISTS
+# ------------------------
+# The Steamworks SDK downloads from partner.steamgames.com behind a Valve login and its licence
+# forbids redistribution. OloEngineBase is a PUBLIC repository, so the real headers can NEVER be
+# vendored or reach a CI runner. (A repo secret smuggling the SDK onto the runner was considered
+# and rejected: it is a licence question we should not answer unilaterally, and secrets are not
+# exposed to fork PRs, so outside contributors would be no better off.)
+#
+# Every other workflow therefore builds OLO_WITH_STEAM=OFF, which means the enabled code would be
+# compiled on developer machines only — the exact shape of Trap 3 in
+# docs/agent-rules/vcpkg-dependency-management.md, where guarded code bitrots silently because
+# nothing ever compiles it.
+#
+# This job closes that hole using hand-written stub headers (our own declarations of only the
+# entry points the engine calls, NOT Valve's headers) plus a .cpp providing their symbols. The
+# result is a genuine OLO_WITH_STEAM=1 binary that CI COMPILES, LINKS and RUNS — including the
+# SteamAPI_Init()-returns-false branch, the single behaviour that must never regress, because a
+# missing Steam client must never stop the engine starting.
+#
+# WHAT IT DOES NOT PROVE
+# ----------------------
+# Nothing about Valve's servers, the Steam client, or the overlay. Live behaviour is manually
+# verified against App ID 480 on a developer machine holding the real SDK.
+#
+# IF THIS JOB FAILS because a new Steamworks call is missing from the stubs, add the declaration
+# to StubSDK/public/steam/steam_api.h and the canned implementation to StubSDK/SteamStubSDK.cpp. That is
+# the mechanism working — it means a call was added that CI cannot otherwise see. Do not delete
+# the job.
+name: Steam (stub SDK)
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cheap, no-build guard on the invariant the whole design rests on: exactly ONE translation
+  # unit may include a Valve header. If that spreads, the logic stops being fake-testable and the
+  # stub SDK stops being a sufficient stand-in for CI — and both failures are silent until
+  # someone without the SDK tries to build.
+  single-valve-tu:
+    name: Only one TU includes the Steamworks SDK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Assert the Valve include is confined to SteamworksBackend.cpp
+        shell: bash
+        run: |
+          # The Steamworks SDK is included as "public/steam/…", NOT "steam/…", and its include
+          # directory is the SDK ROOT rather than root/public. That is deliberate and is what this
+          # check enforces.
+          #
+          # WHY: GameNetworkingSockets also ships headers under a steam/ prefix, and the two SDKs
+          # share FILE NAMES — isteamnetworkingutils.h, steamnetworkingtypes.h,
+          # isteamnetworkingsockets.h, steam_api_common.h, steamtypes.h all exist in both. If a
+          # directory containing a steam/ child is ever put on the engine include path, the
+          # netcode's <steam/isteamnetworkingutils.h> silently starts resolving to Valve's copy
+          # while <steam/steamnetworkingsockets.h> (which Valve does not ship) still comes from
+          # GNS — half of each SDK in one TU, failing with 12 × C2365 redefinitions reported
+          # inside a Steamworks header from Networking files that never mention Steam.
+          #
+          # So there are two things to catch, and neither is "any steam/ include":
+          # Patterns are anchored to a real preprocessor directive (`^\s*#include`). An unanchored
+          # match also fires on prose — the files below explain the rule in comments that quote
+          # the very includes being banned, which made the first version of this check fail on
+          # its own documentation.
+          OFFENDERS=$(grep -rlE --include=*.cpp --include=*.h '^[[:space:]]*#include[[:space:]]*[<"]public/steam/' \
+            OloEngine/src OloEditor/src OloRuntime/src OloServer/src OloEngine/tests \
+            | grep -v 'Platform/Steam/StubSDK/' \
+            | grep -v 'Platform/Steam/SteamworksBackend.cpp' || true)
+
+          if [ -n "$OFFENDERS" ]; then
+            echo "::error::A Steamworks SDK header is included outside Platform/Steam/SteamworksBackend.cpp."
+            echo "The seam in Platform/Steam/SteamBackend.h exists so that exactly one TU touches"
+            echo "Valve's platform API — that is what keeps the logic fake-testable and lets the"
+            echo "stub SDK stand in for the real one in CI. Add the call to ISteamBackend instead."
+            echo "Offending files:"
+            echo "$OFFENDERS"
+            exit 1
+          fi
+
+          # The Steam TU must never use a bare steam/ include, or the SDK include dir would have
+          # to be rooted at public/ again and the GNS hijack comes straight back.
+          if grep -qE '^[[:space:]]*#include[[:space:]]*[<"]steam/' \
+               OloEngine/src/Platform/Steam/SteamworksBackend.cpp \
+               OloEngine/src/Platform/Steam/StubSDK/SteamStubSDK.cpp; then
+            echo "::error::Steam SDK included as \"steam/...\" instead of \"public/steam/...\"."
+            echo "That requires rooting the include dir at <sdk>/public, which puts a resolvable"
+            echo "steam/ prefix on the engine include path and hijacks GameNetworkingSockets'"
+            echo "identically-named headers for every Networking TU. Keep the public/ prefix."
+            exit 1
+          fi
+          echo "OK: the Steamworks SDK is included only by SteamworksBackend.cpp, via public/steam/."
+
+  stub-build:
+    name: Build + test OLO_WITH_STEAM=ON (stub SDK)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Python 3.10
+        id: py
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+      - name: Python deps (OloHeaderTool)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install jinja2
+
+      - name: Setup Vulkan SDK
+        uses: ./.github/actions/setup-vulkan
+
+      - name: Install Linux deps
+        run: |
+          # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that
+          # periodically return 403 Forbidden; we never use them, and `apt-get update`
+          # fails hard on any single repo error. Drop any Microsoft source so a
+          # Microsoft-side outage can't break our update.
+          sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl-dev libglu1-mesa-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-linux
+
+      # Runs on Linux deliberately. The stub path is platform-agnostic by design — only the
+      # REAL-SDK path is gated to 64-bit Windows — so this job can use the cheapest, fastest
+      # runner. The heavy optional subsystems are off: this job's question is "does the Steam
+      # path still compile, link and behave", not "does the whole engine still work", which the
+      # main Windows/Linux workflows already answer.
+      - name: Configure (Steam ON, stub SDK)
+        run: |
+          cmake -S . -B build \
+            -DOLO_WITH_STEAM_STUB_SDK=ON \
+            -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+            -DOLO_VIDEO_FFMPEG=OFF \
+            ${{ steps.vcpkg.outputs.toolchain-args }} \
+            -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+
+      # Fail loudly if the option plumbing did not actually take. Without this the job could pass
+      # green while quietly building OLO_WITH_STEAM=0 — which would make the whole workflow a
+      # reassuring no-op, the precise failure it exists to prevent.
+      - name: Verify the ON path is actually enabled
+        run: |
+          if ! grep -q '^OLO_WITH_STEAM:BOOL=ON' build/CMakeCache.txt; then
+            echo "::error::OLO_WITH_STEAM did not resolve to ON — the stub implies-rule is broken."
+            grep -E '^OLO_WITH_STEAM' build/CMakeCache.txt || true
+            exit 1
+          fi
+          if ! grep -q '^OLO_WITH_STEAM_STUB_SDK:BOOL=ON' build/CMakeCache.txt; then
+            echo "::error::OLO_WITH_STEAM_STUB_SDK did not resolve to ON."
+            exit 1
+          fi
+          echo "OK: building OLO_WITH_STEAM=ON against the stub SDK."
+
+      # Capped parallelism, per CLAUDE.md — a bare --parallel forwards the omission to the native
+      # tool and takes its default (cores + 2 for Ninja), which is wider, not narrower.
+      - name: Build tests
+        run: cmake --build build --target OloEngine-Tests --config Release --parallel 4
+
+      # Runs from OloEditor/ to match the suite's working-directory contract.
+      - name: Run Steam tests
+        run: |
+          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
+          test -n "$BIN" || { echo "OloEngine-Tests binary not found"; exit 1; }
+          cd OloEditor
+          "${GITHUB_WORKSPACE}/$BIN" --gtest_filter='Steam*'
+
+      # The ON-path tests SKIP rather than fail when the stub is inactive, which is right for a
+      # developer's normal build but would make this job vacuously green if the wiring broke. So
+      # assert the ON-path suite actually RAN something here.
+      - name: Assert the ON-path tests were not all skipped
+        run: |
+          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
+          cd OloEditor
+          OUTPUT=$("${GITHUB_WORKSPACE}/$BIN" --gtest_filter='SteamStubOnPathTest.*' 2>&1)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q 'stub SDK not compiled in'; then
+            echo "::error::SteamStubOnPathTest skipped — the stub SDK was not active despite the cache saying ON."
+            exit 1
+          fi
+          if echo "$OUTPUT" | grep -qE '\[  PASSED  \] 0 tests'; then
+            echo "::error::SteamStubOnPathTest ran zero tests."
+            exit 1
+          fi
+          echo "OK: the ON path was genuinely exercised."

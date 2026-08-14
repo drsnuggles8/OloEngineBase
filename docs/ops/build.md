@@ -18,6 +18,7 @@
 | **vcpkg**   | bootstrapped    | **`VCPKG_ROOT` env var must be set** — see below |
 | Vulkan SDK  | 1.3+            | `VULKAN_SDK` env var must be set       |
 | C++ compiler| C++23 support   | Known-working: MSVC 17.x / GCC 14+ / Clang 17+. CMake enforces `CMAKE_CXX_STANDARD = 23` (required) but does not enforce specific compiler versions; older compilers with full C++23 support may work but are untested. |
+| Steamworks SDK | 1.65+ | **Optional, and not in this repo — you download it yourself.** Only needed to work on Steam features (#644); everything builds and tests without it. `STEAMWORKS_SDK_ROOT` env var. [See below](#steamworks-sdk-optional--you-must-obtain-it-yourself). |
 
 The Vulkan SDK must include `glslc` and `glslangValidator`.
 
@@ -66,6 +67,74 @@ moves it somewhere you control.
 
 Background, traps and the per-dependency decisions:
 [docs/agent-rules/vcpkg-dependency-management.md](../agent-rules/vcpkg-dependency-management.md).
+
+### Steamworks SDK (optional — you must obtain it yourself)
+
+**Nothing here is required to build, run or develop OloEngine.** Steam support is OFF by default
+and the whole engine builds, runs and passes its tests without it. Skip this section entirely
+unless you are working on achievements, Steam Cloud, rich presence or the Steam overlay (#644).
+
+**The SDK is not in this repository and never can be.** It downloads from
+`partner.steamgames.com` behind a Valve login, its licence forbids redistribution, and this repo
+is public — so it is neither vendored in-tree nor available as a vcpkg port. Each developer
+installs it themselves and points an environment variable at it, exactly like the Vulkan SDK.
+
+It is **free**. Two different things are often confused:
+
+| | Cost | What it gives you | Needed here? |
+|---|---|---|---|
+| **Steamworks SDK Access Agreement** | Free | The SDK download and the partner docs. Signed with an ordinary Steam account. | **Yes, this one** |
+| **Steam Direct** | $100 per app, recoupable after $1,000 revenue | The right to publish a game on Steam | No |
+
+Steps:
+
+1. Sign the [Steamworks SDK Access Agreement](https://partner.steamgames.com/documentation/sdk_access_agreement)
+   with your normal Steam account and download the SDK zip (`steamworks_sdk_<version>.zip`).
+2. Extract it somewhere **outside this repository**, in a version-stamped directory so a future
+   SDK sits alongside rather than silently replacing this one.
+3. Set `STEAMWORKS_SDK_ROOT` to the **inner `sdk` directory** — the one *directly* containing
+   `public/` and `redistributable_bin/`.
+
+```powershell
+# Windows — assuming the zip was extracted to D:\SDKs\steamworks_sdk_165
+setx STEAMWORKS_SDK_ROOT D:\SDKs\steamworks_sdk_165\sdk        # persists for FUTURE shells only
+$env:STEAMWORKS_SDK_ROOT = "D:\SDKs\steamworks_sdk_165\sdk"    # ...so set it here too
+```
+
+**Pointing the variable one level too high is the mistake everyone makes**, and it produces a
+build with Steam silently switched off rather than an error. CMake detects that specific case and
+tells you the corrected path:
+
+```
+CMake Warning:
+  STEAMWORKS_SDK_ROOT is set one level too high, so Steam support is OFF.
+    current: D:\SDKs\steamworks_sdk_165
+    correct: D:\SDKs\steamworks_sdk_165\sdk
+```
+
+With the variable set, `OLO_WITH_STEAM` **auto-detects to ON** on the next fresh configure. CMake
+caches option defaults, so if you install the SDK *after* configuring, pass `-DOLO_WITH_STEAM=ON`
+once (or wipe the build directory) for it to take effect.
+
+To develop against Steam without owning a published app, put `480` — Valve's public *Spacewar*
+test app, which every Steam account owns — in `OloEditor/steam_appid.txt`, and have the Steam
+client running. That file is git-ignored. **Remove it for a release build**: shipped games take
+their App ID from the Steam client, and leaving it behind is how a build reports itself as
+Spacewar.
+
+Two things worth knowing before you go hunting for them:
+
+- `steam_api64.lib` is an **import library** for a DLL, not a static lib, so it carries no CRT of
+  its own and the `x64-windows-static-md` CRT-mismatch trap does **not** apply here.
+- Because the engine links that import library, **every** executable linking OloEngine — including
+  `OloServer` and `OloEngine-Tests`, which never call Steam — needs `steam_api64.dll` beside it at
+  process load. The build stages it automatically; if you move a binary by hand, take the DLL too.
+
+**CI never builds this path**, because the SDK cannot reach a public repo's runners. Instead a
+dedicated workflow builds the Steam path against hand-written stub headers
+(`-DOLO_WITH_STEAM_STUB_SDK=ON`), which compiles, links and runs the enabled code without any SDK.
+If you add a Steamworks call, add it to the stubs too or that job goes red — see
+[.github/workflows/steam-stub.yml](../../.github/workflows/steam-stub.yml).
 
 ---
 
