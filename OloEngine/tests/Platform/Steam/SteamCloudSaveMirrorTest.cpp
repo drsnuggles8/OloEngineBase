@@ -284,4 +284,37 @@ namespace
             << "the local save was deleted even though the cloud copy survived — it will reappear";
         EXPECT_TRUE(CloudHas(kSlot));
     }
+
+    // The mirror-image failure: the cloud delete succeeds and the LOCAL delete then fails.
+    //
+    // Without a rollback that reports failure while having already destroyed the off-machine copy
+    // — the player retries, it fails again, and the cloud copy never returns. There is no
+    // two-phase commit across the filesystem and Steam Cloud, so DeleteSave keeps the bytes and
+    // re-uploads them, making a reported failure mean "nothing was removed".
+    TEST_F(SteamCloudSaveMirrorTest, FailedLocalDeleteRestoresTheCloudCopy)
+    {
+        const auto local = LocalPath(kSlot);
+        std::filesystem::create_directories(local.parent_path());
+        ASSERT_FALSE(MakeSaveFileBytes(local, "Rollback").empty());
+        SeedCloudOnlySave(kSlot, "Rollback");
+        ASSERT_TRUE(CloudHas(kSlot));
+
+        // Hold the file open so std::filesystem::remove fails, the way a real lock would.
+        std::ifstream lock(local, std::ios::binary);
+        ASSERT_TRUE(lock.is_open());
+
+        const bool deleted = SaveGameManager::DeleteSave(kSlot);
+        lock.close();
+
+        if (deleted)
+        {
+            // Windows let the delete through despite the open handle (share mode permitting).
+            // Nothing to assert about rollback then — the delete simply succeeded.
+            GTEST_SKIP() << "the platform allowed deletion of an open file; rollback path not reachable here";
+        }
+
+        EXPECT_TRUE(std::filesystem::exists(local)) << "the local file vanished despite the reported failure";
+        EXPECT_TRUE(CloudHas(kSlot))
+            << "the cloud copy was destroyed by a delete that reported failure — it must be rolled back";
+    }
 } // namespace

@@ -13,7 +13,9 @@
 #include <cctype>
 #include <chrono>
 #include <fstream>
+#include <mutex>
 #include <span>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -54,6 +56,36 @@ namespace OloEngine
             return {};
         }
 
+        // Per-slot generation counter for cloud mirroring (#644).
+        //
+        // Saves complete on WORKER threads, and two saves to the same slot can finish out of
+        // order — the general Save() has no per-slot in-flight guard (only the quick/auto rotating
+        // slots do). Without a guard the older worker's mirror task could run last and overwrite
+        // the newer save in the cloud, leaving cloud and local disagreeing with no error anywhere.
+        //
+        // Each dispatch takes a ticket; the mirror task uploads only if its ticket is still the
+        // latest for that slot. A superseded task drops its bytes silently, which is correct: the
+        // newer save's own mirror task is already queued behind it.
+        //
+        // Guards the CLOUD side only. Local writes are unaffected — they were already
+        // last-writer-wins through SaveGameFile's atomic rename, which is pre-existing behaviour
+        // and not something this change should quietly alter.
+        std::mutex s_CloudGenerationMutex;
+        std::unordered_map<std::string, u64> s_CloudGeneration;
+
+        [[nodiscard]] u64 NextCloudGeneration(const std::string& slotName)
+        {
+            const std::lock_guard lock(s_CloudGenerationMutex);
+            return ++s_CloudGeneration[slotName];
+        }
+
+        [[nodiscard]] bool IsLatestCloudGeneration(const std::string& slotName, u64 generation)
+        {
+            const std::lock_guard lock(s_CloudGenerationMutex);
+            const auto found = s_CloudGeneration.find(slotName);
+            return found != s_CloudGeneration.end() && found->second == generation;
+        }
+
         [[nodiscard]] bool ReadWholeFile(const std::filesystem::path& path, std::vector<u8>& outBytes)
         {
             std::ifstream in(path, std::ios::binary | std::ios::ate);
@@ -85,10 +117,19 @@ namespace OloEngine
         // that quota is 4096 bytes, so this is NOT evidence about realistic save sizes. If a game
         // with real saves sees a hitch here, the fix is an async backend write, not moving the
         // call off-thread — Steamworks would not tolerate that.
-        void MirrorSaveToCloud(std::vector<u8> bytes, const std::string& slotName)
+        void MirrorSaveToCloud(std::vector<u8> bytes, const std::string& slotName, u64 generation)
         {
             if (!SteamManager::IsCloudEnabled() || bytes.empty())
             {
+                return;
+            }
+
+            // A newer save for this slot was dispatched while this task waited. Uploading now
+            // would push the OLDER bytes over the newer ones, so drop them — the newer save's own
+            // mirror task is already queued and will carry the current state.
+            if (!IsLatestCloudGeneration(slotName, generation))
+            {
+                OLO_CORE_TRACE("[SaveGameManager] Skipping a superseded Steam Cloud mirror of '{}'.", slotName);
                 return;
             }
 
@@ -710,6 +751,26 @@ namespace OloEngine
 
         auto path = GetSaveFilePath(slotName);
 
+        // Keep the bytes so a failed LOCAL delete can put the cloud copy back (#644).
+        //
+        // There is no two-phase commit across the filesystem and Steam Cloud, so some ordering
+        // always loses. Deleting cloud-then-local and failing on the local step would report
+        // failure while having already destroyed the cloud copy — the player retries, sees it
+        // fail again, and their off-machine copy is silently gone. Holding the bytes lets that
+        // case be undone, so a reported failure really does mean "nothing was removed".
+        //
+        // Read before touching anything, and only when there is something to lose. Deletes are
+        // rare and user-initiated, so the read cost is acceptable where it would not be on a
+        // per-frame path.
+        std::vector<u8> localBytesForRollback;
+        const bool localExisted = std::filesystem::exists(path);
+        if (localExisted)
+        {
+            // Best-effort: if this fails we simply cannot roll back, which is no worse than
+            // before. Do not abort the delete over it.
+            (void)ReadWholeFile(path, localBytesForRollback);
+        }
+
         // Delete the cloud copy too (#644), BEFORE the local-existence check below.
         //
         // Without this a deleted save comes straight back: EnumerateSaves unions in cloud-only
@@ -756,8 +817,42 @@ namespace OloEngine
         if (removed)
         {
             OLO_CORE_INFO("[SaveGameManager] Deleted save: {}", slotName);
+            return true;
         }
-        return removed;
+
+        // Local delete failed — typically the file is locked or permissions changed.
+        //
+        // If the cloud copy was already removed above, restore it. Otherwise this returns false
+        // having destroyed the player's off-machine copy while telling them nothing was deleted,
+        // which is the worst of both outcomes: they retry, it fails again, and the cloud copy
+        // never comes back.
+        if (removedFromCloud && !localBytesForRollback.empty())
+        {
+            const SteamResult restored =
+                SteamManager::CloudWrite(CloudNameForSlot(slotName), std::span<const u8>{ localBytesForRollback });
+            if (SteamSucceeded(restored))
+            {
+                OLO_CORE_WARN("[SaveGameManager] Could not delete '{}' locally ({}); restored the Steam Cloud copy so "
+                              "both copies survive and the delete can be retried.",
+                              slotName, ec.message());
+            }
+            else
+            {
+                // Both the local delete and the rollback failed. Nothing further to try, but say
+                // so plainly — this is the one path where the two copies genuinely disagree.
+                OLO_CORE_ERROR("[SaveGameManager] Could not delete '{}' locally ({}) AND could not restore its Steam "
+                               "Cloud copy ({}). The local save remains; the cloud copy is gone.",
+                               slotName, ec.message(), SteamResultToString(restored));
+            }
+        }
+        else if (removedFromCloud)
+        {
+            OLO_CORE_ERROR("[SaveGameManager] Could not delete '{}' locally ({}) and had no bytes to restore its "
+                           "Steam Cloud copy. The local save remains; the cloud copy is gone.",
+                           slotName, ec.message());
+        }
+
+        return false;
     }
 
     // ========================================================================
@@ -966,10 +1061,13 @@ namespace OloEngine
                     std::vector<u8> cloudBytes;
                     if (ReadWholeFile(path, cloudBytes))
                     {
+                        // Ticket taken HERE, after the bytes are read, so it orders by "which
+                        // save finished writing last" — which is what the cloud should reflect.
+                        const u64 generation = NextCloudGeneration(slotName);
                         Tasks::EnqueueGameThreadTask(
-                            [bytes = std::move(cloudBytes), slotName]() mutable
+                            [bytes = std::move(cloudBytes), slotName, generation]() mutable
                             {
-                                MirrorSaveToCloud(std::move(bytes), slotName);
+                                MirrorSaveToCloud(std::move(bytes), slotName, generation);
                             },
                             "SteamCloudMirror");
                     }

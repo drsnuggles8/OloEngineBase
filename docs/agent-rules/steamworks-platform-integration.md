@@ -274,16 +274,40 @@ protobuf against a static one. Turning those subsystems off changes the vcpkg fe
 Nothing to do with Steam: **zero** of the unresolved symbols are Steamworks API. Do not go hunting
 in the stub for them.
 
-To reproduce the stub build on Windows, configure it like the normal tree — leave USD / Alembic /
-MaterialX **on** — and add only `-DOLO_WITH_STEAM_STUB_SDK=ON`:
+**Reproducing it on Windows is UNSOLVED — do not assume the recipe below works.** Turning the
+subsystems back on was tried and the link failed identically (87 unresolved instead of 46), so the
+feature set is not the whole story. The same protobuf/GNS mismatch is present in the normal
+`build/` tree and is simply masked there; nothing in the diagnosis pointed at Steam. Since CI
+builds, links and runs this path on Linux, chasing the Windows link further was judged not worth
+it — but do not read the snippet below as verified.
+
+If you try again, start from a **fresh build directory** (CMake caches `OLO_WITH_*`, so re-running
+with different flags in an existing tree mixes states and the vcpkg feature set does not fully
+re-resolve), set the subsystem options **explicitly** rather than trusting defaults, and unset
+`STEAMWORKS_SDK_ROOT` **in the environment** — removing the CMake cache entry is not enough,
+because the option auto-detects from `$ENV{...}` on every configure:
 
 ```powershell
-cmake -S . -B build-steamstub -DOLO_WITH_STEAM_STUB_SDK=ON `
+Remove-Item Env:\STEAMWORKS_SDK_ROOT -ErrorAction SilentlyContinue   # environment, not cache
+Remove-Item -Recurse -Force build-steamstub -ErrorAction SilentlyContinue
+cmake -S . -B build-steamstub `
+  -DOLO_WITH_STEAM_STUB_SDK=ON `
+  -DOLO_WITH_USD=ON -DOLO_WITH_ALEMBIC=ON -DOLO_WITH_MATERIALX=ON `
   -DOLO_FFMPEG_PREFIX="<repo>/OloEngine/vendor/ffmpeg-install"
 ```
 
-Note also that `STEAMWORKS_SDK_ROOT` should be **unset** for that configure — the stub path must
-not need an SDK, and unsetting it is what proves so.
+Unsetting the environment variable is not incidental: it is what proves the stub path needs no SDK
+at all, which is the property the whole stub exists to demonstrate.
+
+**The cheap alternative that does work**: compile-check the stub TUs directly, which catches
+everything except link and runtime:
+
+```powershell
+cl /Zs /std:c++latest /EHsc /permissive- /utf-8 /W4 `
+   /DOLO_WITH_STEAM=1 /DOLO_WITH_STEAM_STUB_SDK=1 <engine include dirs> <StubSDK dir> `
+   OloEngine\src\Platform\Steam\StubSDK\SteamStubSDK.cpp `
+   OloEngine\src\Platform\Steam\SteamworksBackend.cpp
+```
 
 ---
 
