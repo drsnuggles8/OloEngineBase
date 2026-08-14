@@ -51,6 +51,20 @@ namespace OloEngine
             m_FrameRenderCallback = std::move(callback);
         }
 
+        // SwapBuffers owns acquire/record/submit/present here — one-off
+        // presenters (the shader-warmup progress screen) must record through
+        // an exchanged frame callback, not GL's immediate-then-swap shape.
+        [[nodiscard]] bool DrivesFrameRendering() const override
+        {
+            return true;
+        }
+
+        [[nodiscard]] FrameRenderCallback ExchangeFrameRenderCallback(FrameRenderCallback callback) override
+        {
+            std::swap(m_FrameRenderCallback, callback);
+            return callback;
+        }
+
         // The live context, or null outside a --rhi=vulkan session — the
         // VulkanDevice::Get() pattern. Consumers: the mid-frame flush below.
         [[nodiscard]] static VulkanContext* Get()
