@@ -148,3 +148,6 @@ OloEditor/SandboxProject/Assets/Models/Stanford/
 # only survives a hard kill mid-write; ignore it so it can't be committed by
 # accident (tools/OloHeaderTool/main.cpp, issue #758).
 *.oht-tmp
+
+# Per-user renderer backend selection written by the Renderer Settings panel (ADR 0011 s2)
+OloEditor/config/renderer.yaml
