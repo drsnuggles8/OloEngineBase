@@ -30,10 +30,30 @@
 # the job.
 name: Steam (stub SDK)
 
+# TRIGGERS ARE DELIBERATELY ASYMMETRIC between the two jobs below, because their costs differ by
+# two orders of magnitude:
+#
+#   single-valve-tu  — ~20 s, no build. Runs on EVERY PR. It catches a mistake someone makes *in
+#                      that PR* (a Valve include in the wrong file, or reverting to a bare
+#                      `steam/` include), so per-PR is exactly the right cadence and it is free.
+#
+#   stub-build       — builds the whole engine + test suite to run ~16 Steam tests, ~30-60 min on
+#                      a hosted runner. Runs on master, weekly, and on demand — NOT on every PR.
+#
+# Why that is the right trade for the build job: what it defends against is guarded code ROTTING
+# over months, not "this specific PR broke it". A weekly cadence catches that with a bounded blast
+# radius, while running it per-PR would add ~30-60 min of runner time to every PR in the repo
+# forever — for a feature exactly one machine can exercise for real.
+#
+# The residual risk is honest and small: a PR can merge green and break the Steam path, discovered
+# on the next master run rather than in review. Given the alternative cost, that is the better
+# side of the trade. If Steam grows to something the project actually ships on, revisit.
 on:
   push:
     branches: [master]
   pull_request:
+  schedule:
+    - cron: '0 5 * * 3' # weekly, Wednesday 05:00 UTC (deliberately off video-ffmpeg's Monday slot)
   workflow_dispatch:
 
 concurrency:
@@ -105,6 +125,9 @@ jobs:
   stub-build:
     name: Build + test OLO_WITH_STEAM=ON (stub SDK)
     runs-on: ubuntu-24.04
+    # Not on pull_request — see the trigger rationale at the top of this file. The cheap
+    # single-valve-tu guard above still runs on every PR; this full build does not.
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
