@@ -3050,6 +3050,37 @@ on every VehiclesTest launch; nvlddmkm event-153 storms in the system log).
   that draw**, and any facade-level "create, fill, bind, drop" helper is a
   latent Vulkan device loss.
 
+### (79) Row order is per-TARGET under Vulkan, and readback consumers cannot assume either convention
+
+Evidence from the first MCP captures against a live Vulkan editor
+(#691 Phase 8b): the UIComposite attachment read back GL-oriented
+(bottom-up — the GL-parity row flip produced an upright PNG), while
+SceneColor read back Vulkan-oriented (top-down — the same flip produced an
+upside-down PNG). Both fed a FINAL frame that presents correctly.
+
+- Mechanism: geometry passes rasterize with the flipped projection
+  (amendment 59's rasterizer flavour), while NDC-passthrough fullscreen
+  hops flip content relative to their input per the GL↔Vulkan NDC-y
+  difference — so a target's orientation depends on how many and which
+  hops produced it. There is no global "Vulkan intermediates are X"
+  invariant to code against.
+- Consequences for readback consumers: `VulkanFramebuffer::ReadPixel` and
+  the editor's `CaptureFramebufferPng` use GL coordinates/rows UNFLIPPED /
+  GL-flipped respectively because their specific targets (EntityID buffer,
+  UIComposite) are GL-oriented; `olo_render_capture_target` grew a `flipY`
+  argument (default true = GL parity) with the meta echoing the choice, so
+  an agent that sees an inverted capture retries with `flipY:false`
+  instead of silently mis-reading pixel coordinates.
+- The deep fix — pinning ONE orientation for every off-screen target (flip
+  at the swapchain blit only, or per-pass viewport-negation) — is a
+  Phase 9 candidate; it would retire `flipY` and make per-target
+  screenshot parity byte-comparable. Recorded here so the knob is not
+  mistaken for a feature.
+- Depth-format note from the same session: the backend maps the graph's
+  "Depth24Stencil8" label to `VK_FORMAT_D32_SFLOAT_S8_UINT` on this
+  hardware — readback format tables must key on the VULKAN format from the
+  image-info registry, never on the graph's format label.
+
 ---
 
 ## Consequences

@@ -4290,6 +4290,8 @@ namespace OloEngine
                 case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
                 case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
                 case VK_FORMAT_D32_SFLOAT:
+                case VK_FORMAT_D32_SFLOAT_S8_UINT: // depth aspect copies as 4-byte floats
+                case VK_FORMAT_D24_UNORM_S8_UINT:  // depth aspect: one D24 per 32-bit word
                     return 4u;
                 case VK_FORMAT_R16G16B16A16_SFLOAT:
                 case VK_FORMAT_R32G32_SFLOAT:
@@ -4351,6 +4353,7 @@ namespace OloEngine
                 }
                 case VK_FORMAT_R32_SFLOAT:
                 case VK_FORMAT_D32_SFLOAT:
+                case VK_FORMAT_D32_SFLOAT_S8_UINT:
                     std::memcpy(&out.x, texel, sizeof(f32));
                     out.y = 0.0f;
                     out.z = 0.0f;
@@ -4376,6 +4379,15 @@ namespace OloEngine
                     u32 bits;
                     std::memcpy(&bits, texel, sizeof(bits));
                     out = glm::unpackUnorm3x10_1x2(bits);
+                    return true;
+                }
+                case VK_FORMAT_D24_UNORM_S8_UINT:
+                {
+                    // Depth-aspect copy layout: D24 in the low bits of each
+                    // 32-bit word, upper byte undefined (Vulkan spec 20.4).
+                    u32 bits;
+                    std::memcpy(&bits, texel, sizeof(bits));
+                    out = { static_cast<f32>(bits & 0xFFFFFFu) / 16777215.0f, 0.0f, 0.0f, 1.0f };
                     return true;
                 }
                 default:
@@ -4516,11 +4528,10 @@ namespace OloEngine
             return false;
         }
         const VkImageAspectFlags aspect = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-        if (info->HasDepth && info->Format != VK_FORMAT_D32_SFLOAT)
+        if (info->HasDepth && info->Format != VK_FORMAT_D32_SFLOAT &&
+            info->Format != VK_FORMAT_D32_SFLOAT_S8_UINT && info->Format != VK_FORMAT_D24_UNORM_S8_UINT)
         {
-            // Packed depth-stencil buffer-copy layouts are format-specific;
-            // the engine's readable depth targets are D32.
-            OLO_CORE_WARN("[RHI/Vulkan] ReadTextureSubImage: only D32_SFLOAT depth is readable (format {})",
+            OLO_CORE_WARN("[RHI/Vulkan] ReadTextureSubImage: unreadable depth format {}",
                           static_cast<u32>(info->Format));
             return false;
         }
@@ -4548,7 +4559,13 @@ namespace OloEngine
             return false;
         }
 
-        const VkImageSubresourceRange range{ aspect, mipLevel, 1u, baseLayer, layerCount };
+        // The BARRIER range must name every aspect a combined depth/stencil
+        // image has (VUID-VkImageMemoryBarrier2-image-03320 — without
+        // separateDepthStencilLayouts both transition together); only the
+        // COPY below selects the depth plane alone.
+        const VkImageAspectFlags barrierAspect =
+            info->HasStencil ? (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT) : aspect;
+        const VkImageSubresourceRange range{ barrierAspect, mipLevel, 1u, baseLayer, layerCount };
         const bool ok = VulkanOneShot::Submit(
             "VulkanRendererAPI::ReadTextureSubImage",
             [&](VkCommandBuffer cmd)

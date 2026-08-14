@@ -2334,8 +2334,12 @@ namespace OloEngine
     {
         // glReadPixels(GL_RED_INTEGER, GL_INT) of one texel, on the
         // ReadTextureSubImage spine (#691 Phase 8b). The caller hands GL
-        // window coordinates (y up from the bottom); the Vulkan image stores
-        // row 0 at the top, so flip against the attachment height.
+        // window coordinates (y up from the bottom) — and they are used
+        // UNFLIPPED: scene intermediates keep GL row order on Vulkan (the
+        // projection seam's y-flip lands once, at the swapchain blit), so an
+        // attachment texel address is the same on both backends. The first
+        // MCP viewport capture proved this the hard way (a per-backend flip
+        // came back upside-down).
         if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
         {
             return -1;
@@ -2345,10 +2349,9 @@ namespace OloEngine
         {
             return -1;
         }
-        const i32 flippedY = static_cast<i32>(height) - 1 - y;
         int value = -1;
         if (!RenderCommand::GetRendererAPI().ReadTextureSubImage(
-                m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0, x, flippedY, 0, 1u, 1u, 1u,
+                m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0, x, y, 0, 1u, 1u, 1u,
                 RHI::Format::R32Int, sizeof(value), &value))
         {
             return -1; // the entity-picking "nothing here" value

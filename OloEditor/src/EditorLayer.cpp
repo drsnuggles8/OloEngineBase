@@ -185,8 +185,8 @@ namespace OloEngine
             const u32 fullHeight = spec.Height;
             if (fullWidth == 0 || fullHeight == 0)
                 return {};
-            const u32 textureId = framebuffer->GetColorAttachmentRendererID(0);
-            if (textureId == 0)
+            const RHI::ResourceHandle attachment = framebuffer->GetColorAttachmentHandle(0);
+            if (!attachment.IsValid())
                 return {};
 
             if (region.IsWholeImage())
@@ -199,17 +199,23 @@ namespace OloEngine
 
             const u32 width = region.Width;
             const u32 height = region.Height;
-            // The rect arrives top-left-origin; GL rows run bottom-up.
-            const u32 glRegionY = fullHeight - region.Y - region.Height;
+            // The rect arrives top-left-origin; attachment rows run bottom-up
+            // on BOTH backends. Scene intermediates keep GL row order under
+            // Vulkan — the projection seam's y-flip lands once, at the
+            // swapchain blit, so everything the graph renders off-screen is
+            // GL-oriented (#691 Phase 8b: the first MCP capture applied a
+            // per-backend flip here and came back upside-down). This capture
+            // lowers onto RenderCommand::ReadTextureSubImage, which on GL is
+            // the same glGetTextureSubImage as before.
+            const u32 readY = fullHeight - region.Y - region.Height;
 
             std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
-            ::glGetTextureSubImage(textureId, 0,
-                                   static_cast<GLint>(region.X), static_cast<GLint>(glRegionY), 0,
-                                   static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1,
-                                   GL_RGBA, GL_UNSIGNED_BYTE,
-                                   static_cast<GLsizei>(pixels.size()), pixels.data());
+            if (!RenderCommand::ReadTextureSubImage(attachment, 0, static_cast<i32>(region.X),
+                                                    static_cast<i32>(readY), 0, width, height, 1u,
+                                                    RHI::Format::RGBA8UNorm, pixels.size(), pixels.data()))
+                return {};
 
-            // glGetTextureSubImage returns rows bottom-up; flip for PNG (top-down).
+            // Rows return bottom-up; flip for PNG (top-down).
             const u32 rowBytes = width * 4;
             std::vector<u8> flipped(pixels.size());
             for (u32 y = 0; y < height; ++y)
@@ -1419,8 +1425,7 @@ namespace OloEngine
                     // One texel through a blocking one-shot per hovered frame
                     // is measurable but small; promote to an async ring if it
                     // ever shows up in a profile.
-                    if (const auto framebuffer =
-                            Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+                    if (auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
                         framebuffer != nullptr)
                     {
                         pixelData = framebuffer->ReadPixel(1, mouseX, mouseY);
