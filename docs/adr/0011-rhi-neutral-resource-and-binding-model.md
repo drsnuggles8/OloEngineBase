@@ -3214,6 +3214,57 @@ and the CSM *sampling* returned fully-shadowed):
   are real contracts. The parity gate, not any unit test, is what forces
   them out.
 
+### (84) BDA turns a GL-tolerated out-of-bounds read into device loss — and VK_EXT_device_fault names the address
+
+The FoliageGenerationTest `VK_ERROR_DEVICE_LOST` (count-scaled: 254k
+grass instances died ~2 s after the first foliage frame, 12k survived)
+was a **pre-existing cross-backend OOB read** that GL had been silently
+absorbing: `InstanceBlock_Vertex.glsl` resolves `u_Model` to
+`instances[gl_InstanceIndex]` — the auto-batching contract, where the
+CPU uploads N entries for N instances — but `FoliageRenderer::Render`
+uploads exactly ONE shared render-origin matrix and draws 254k
+instances whose real per-instance data rides their own 48-byte vertex
+stream. Every instance > 0 read up to 224·N bytes past a 224-byte
+upload:
+
+- **Under GL** the SSBO bind carries a size, and NVIDIA's out-of-range
+  read returned zeros — so `u_Model` was a zero matrix and every blade
+  collapsed invisibly to the render origin. The scene "worked" for as
+  long as nobody expected to see grass: the parity gate's GL control
+  frame showed bare terrain and *looked plausible*.
+- **Under Vulkan** the same block is a buffer-device-address pointer in
+  the root struct. A BDA read has no bounds — `robustBufferAccess`
+  does not apply — so once N was large enough that the read crossed
+  into an unmapped page (~32 MB past a 12 MB buffer at 254k), the GPU
+  page-faulted and the device was lost. Small N read garbage from
+  neighbouring allocations and *survived*, which is why the crash
+  scaled with instance count while every suite tenant (which exercises
+  the SSBO-15 path with correctly-sized uploads) stayed green.
+
+Fixes, both sides of the seam:
+
+- `OLO_INSTANCE_SINGLE` (define before including
+  `InstanceBlock_Vertex.glsl`): resolves the `u_Model` family to
+  `instances[0]` and forwards `v_InstanceIndex = 0`, for any shader
+  whose instancing rides its own stream. The four foliage shaders opt
+  in; the varying interface is unchanged so fragment-stage
+  `InstanceBlock.glsl` consumers keep working. This *restored* grass
+  under GL as well — the fix is backend-neutral because the bug was.
+- **`VK_EXT_device_fault` is now enabled whenever the driver offers
+  it** (`VulkanDevice::LogDeviceFaultInfo`, called on every
+  DEVICE_LOST translation). It is the instrument that closed this:
+  the driver reported `READ of invalid address` at base+32 MB, and a
+  trace log of every vertex buffer's BDA range turned that address
+  into "224-byte-stride indexing of the one-entry instance block".
+  Windows gives no dmesg/Xid currency, so without the fault report a
+  Vulkan device loss here is unattributable.
+- The genre marker: this is amendment (83)'s **GL-tolerated latency**
+  applied to memory safety — GL's bounded bind made an OOB read a
+  rendering bug (invisible grass); BDA made it a process-killing
+  fault. Any draw-site contract of the form "the CPU uploads as many
+  entries as the shader indexes" must be audited per draw site, not
+  per shader family, when a backend moves it onto raw pointers.
+
 ---
 
 ## Consequences

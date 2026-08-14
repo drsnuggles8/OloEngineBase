@@ -98,6 +98,7 @@ namespace OloEngine
         if (!data.InstanceVBO)
         {
             // First creation
+            OLO_CORE_INFO("FoliageRenderer: instance VBO create ({} instances)", requiredCount);
             data.InstanceCapacity = std::max(requiredCount, 256u);
             u32 allocSize = data.InstanceCapacity * static_cast<u32>(sizeof(FoliageInstanceData));
             data.InstanceVBO = VertexBuffer::Create(allocSize);
@@ -111,6 +112,8 @@ namespace OloEngine
         else if (data.InstanceCapacity < requiredCount)
         {
             // Grow — rebuild VAO to avoid duplicate attribute bindings
+            OLO_CORE_INFO("FoliageRenderer: instance VBO GROW {} -> {} instances", data.InstanceCapacity,
+                          requiredCount * 2);
             data.InstanceCapacity = requiredCount * 2;
             BuildQuadGeometry(data);
             u32 allocSize = data.InstanceCapacity * static_cast<u32>(sizeof(FoliageInstanceData));
