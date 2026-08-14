@@ -1861,10 +1861,23 @@ namespace OloEngine
                     static std::unordered_set<std::string> s_WarnedSlots;
                     if (s_WarnedSlots.insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)).second)
                     {
-                        OLO_CORE_WARN("[RHI/Vulkan] '{}' {} binding {} has no staged heap slot — {}", shaderName,
-                                      storageImage ? "image" : "texture", binding.Binding,
-                                      nullSlot != VulkanResourceHeap::InvalidSlot ? "null texture (black)"
-                                                                                  : "slot 0");
+                        // TRACE for the sampled fallback: reading black from an
+                        // unfed optional sampler is the GL contract (GL warns
+                        // about nothing here), and every editor scene has a few
+                        // by design (u_Use*Map-gated material maps, optional
+                        // water inputs). The storage-image arm stays a WARN —
+                        // slot 0 as a WRITE target is never by design.
+                        if (nullSlot != VulkanResourceHeap::InvalidSlot)
+                        {
+                            OLO_CORE_TRACE("[RHI/Vulkan] '{}' texture binding {} unfed — typed null (black), the GL "
+                                           "unbound-sampler contract",
+                                           shaderName, binding.Binding);
+                        }
+                        else
+                        {
+                            OLO_CORE_WARN("[RHI/Vulkan] '{}' {} binding {} has no staged heap slot — slot 0",
+                                          shaderName, storageImage ? "image" : "texture", binding.Binding);
+                        }
                     }
                     slot = nullSlot != VulkanResourceHeap::InvalidSlot ? nullSlot : 0u;
                 }

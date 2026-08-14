@@ -1900,7 +1900,6 @@ namespace OloEngine
             {
                 // Narrow RGBA back to the RGB the caller's format promises.
                 const u64 texels = static_cast<u64>(mipWidth) * mipHeight;
-                const u32 channelBytes = clientBpp / 3u;
                 outData.resize(texels * clientBpp);
                 for (u64 i = 0; i < texels; ++i)
                 {
@@ -2630,16 +2629,25 @@ namespace OloEngine
 
     void VulkanFramebuffer::ClearAttachment(u32 attachmentIndex, int value)
     {
-        (void)attachmentIndex;
-        (void)value;
-        OLO_VK_PHASE6_STUB("VulkanFramebuffer::ClearAttachment(int)");
+        // Single-attachment integer clear (the entity-ID -1 wipe) — the
+        // per-attachment slice of ClearAllAttachments, riding the same facade
+        // transfer clear (#691 Phase 8: last ClearAttachment stub retired).
+        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        {
+            return;
+        }
+        RenderCommand::ClearTextureUInt(m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0u,
+                                        static_cast<u32>(value));
     }
 
     void VulkanFramebuffer::ClearAttachment(u32 attachmentIndex, const glm::vec4& value)
     {
-        (void)attachmentIndex;
-        (void)value;
-        OLO_VK_PHASE6_STUB("VulkanFramebuffer::ClearAttachment(vec4)");
+        // Single-attachment float clear — same shape as the int form above.
+        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        {
+            return;
+        }
+        RenderCommand::ClearTextureFloat(m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0u, value);
     }
 
     void VulkanFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)
