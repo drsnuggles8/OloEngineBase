@@ -123,15 +123,25 @@ jobs:
       - name: Setup Vulkan SDK
         uses: ./.github/actions/setup-vulkan
 
+      # The engine needs a C++23 STANDARD LIBRARY, not just a C++23 compiler: Core/Reflection
+      # uses std::forward_like, which ubuntu-24.04's default GCC/libstdc++ does not provide
+      # ("error: 'forward_like' is not a member of 'std'"). Every other Linux job in this repo
+      # pins clang-19 from apt.llvm.org for the same reason — see asan.yml.
+      - name: Add LLVM apt repository
+        run: |
+          wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+
       - name: Install Linux deps
         run: |
           # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that
-          # periodically return 403 Forbidden; we never use them, and `apt-get update`
-          # fails hard on any single repo error. Drop any Microsoft source so a
-          # Microsoft-side outage can't break our update.
+          # periodically return 403 Forbidden; we never use them (Clang comes from
+          # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
+          # Drop any Microsoft source so a Microsoft-side outage can't break our update.
           sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
           sudo apt-get update
           sudo apt-get install -y \
+            clang-19 lld-19 \
             libgl-dev libglu1-mesa-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev \
@@ -148,12 +158,19 @@ jobs:
       # runner. The heavy optional subsystems are off: this job's question is "does the Steam
       # path still compile, link and behave", not "does the whole engine still work", which the
       # main Windows/Linux workflows already answer.
+      # clang-19 + lld to match every other Linux job here: the default toolchain's libstdc++
+      # lacks C++23 library pieces this engine uses, and the default linker can OOM a hosted
+      # runner while linking the full static engine.
       - name: Configure (Steam ON, stub SDK)
         run: |
           cmake -S . -B build \
             -DOLO_WITH_STEAM_STUB_SDK=ON \
             -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
             -DOLO_VIDEO_FFMPEG=OFF \
+            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DCMAKE_C_COMPILER=clang-19 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
             ${{ steps.vcpkg.outputs.toolchain-args }} \
             -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
 
@@ -176,7 +193,9 @@ jobs:
       # Capped parallelism, per CLAUDE.md — a bare --parallel forwards the omission to the native
       # tool and takes its default (cores + 2 for Ninja), which is wider, not narrower.
       - name: Build tests
-        run: cmake --build build --target OloEngine-Tests --config Release --parallel 4
+        # No --config: this is the single-config Unix Makefiles generator, so the build type
+        # comes from CMAKE_BUILD_TYPE at configure time and --config would be silently ignored.
+        run: cmake --build build --target OloEngine-Tests --parallel 4
 
       # Runs from OloEditor/ to match the suite's working-directory contract.
       - name: Run Steam tests
