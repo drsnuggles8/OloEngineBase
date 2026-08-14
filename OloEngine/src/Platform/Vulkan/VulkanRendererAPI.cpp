@@ -119,14 +119,16 @@ namespace OloEngine
         }
     } // namespace
 
-    void VulkanRendererAPI::Phase6Stub(const char* entryPoint) const
+    void VulkanRendererAPI::Phase6Stub(const char* entryPoint, StubKind kind) const
     {
         ++m_Phase6StubHits;
+        ++m_StubHitsByKind[static_cast<sizet>(kind)];
         if (m_WarnedStubs.insert(entryPoint).second)
         {
-            OLO_CORE_WARN("[RHI/Vulkan] {} is a Phase 6 concern (#691) — no-op under the Phase 5 execution layer "
-                          "(further calls counted, not logged)",
-                          entryPoint);
+            const char* why = kind == StubKind::PreconditionFailure ? "inputs did not resolve"
+                              : kind == StubKind::OutsideRecording  ? "called outside a recording bracket"
+                                                                    : "no Vulkan lowering yet (#691)";
+            OLO_CORE_WARN("[RHI/Vulkan] {} — {}; no-op (further calls counted, not logged)", entryPoint, why);
         }
     }
 
@@ -380,7 +382,7 @@ namespace OloEngine
             return;
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("MemoryBarrier(outside recording bracket)");
+            Phase6Stub("MemoryBarrier(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -415,7 +417,7 @@ namespace OloEngine
         if (m_Cmd == VK_NULL_HANDLE)
         {
             if (flags != MemoryBarrierFlags::None || !barriers.empty())
-                Phase6Stub("IssueBarrierBatch(outside recording bracket)");
+                Phase6Stub("IssueBarrierBatch(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -589,7 +591,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearTextureFloat(outside recording bracket)");
+            Phase6Stub("ClearTextureFloat(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -665,7 +667,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearTextureUInt(outside recording bracket)");
+            Phase6Stub("ClearTextureUInt(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -730,7 +732,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearBufferFloat(outside recording bracket)");
+            Phase6Stub("ClearBufferFloat(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -763,7 +765,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearBufferUInt(outside recording bracket)");
+            Phase6Stub("ClearBufferUInt(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -1586,7 +1588,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("Draw(outside recording bracket)");
+            Phase6Stub("Draw(outside recording bracket)", StubKind::OutsideRecording);
             return false;
         }
 
@@ -1867,7 +1869,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("Clear(outside recording bracket)");
+            Phase6Stub("Clear(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         // GL clears the BOUND framebuffer — but the rendering scope switches
@@ -1925,7 +1927,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearDepthOnly(outside recording bracket)");
+            Phase6Stub("ClearDepthOnly(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         // Same stale-scope guard as Clear(): GL clears the BOUND framebuffer,
@@ -2033,7 +2035,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
-            Phase6Stub("DrawIndexedRaw(unresolvable vertex array)");
+            Phase6Stub("DrawIndexedRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
@@ -2048,7 +2050,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
-            Phase6Stub("DrawIndexedInstancedRaw(unresolvable vertex array)");
+            Phase6Stub("DrawIndexedInstancedRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
@@ -2063,7 +2065,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
-            Phase6Stub("DrawIndexedPatchesRaw(unresolvable vertex array)");
+            Phase6Stub("DrawIndexedPatchesRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
         if (patchVertices != 0)
@@ -2151,7 +2153,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
-            Phase6Stub("MultiDrawElementsIndirectCountRaw(unresolvable vertex array)");
+            Phase6Stub("MultiDrawElementsIndirectCountRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
         const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "MultiDrawElementsIndirectCountRaw(unresolvable indirect buffer)");
@@ -2192,7 +2194,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("DispatchCompute(outside recording bracket)");
+            Phase6Stub("DispatchCompute(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* shader = VulkanComputeShader::GetCurrentlyBound();
@@ -2779,7 +2781,7 @@ namespace OloEngine
         // ClearTextureFloat shape (#691 Phase 7 Wave B).
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("CopyImageSubData(outside recording bracket)");
+            Phase6Stub("CopyImageSubData(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         if (width == 0u || height == 0u || !src.IsValid() || !dst.IsValid())
@@ -2866,7 +2868,7 @@ namespace OloEngine
         // no-offset sibling above.
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("CopyImageSubDataFull(outside recording bracket)");
+            Phase6Stub("CopyImageSubDataFull(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         if (width == 0u || height == 0u || !src.IsValid() || !dst.IsValid() || srcLevel < 0 || dstLevel < 0 ||
@@ -3025,7 +3027,7 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("SetTextureFilter(unresolved texture)");
+            Phase6Stub("SetTextureFilter(unresolved texture)", StubKind::PreconditionFailure);
             return;
         }
         VulkanImageInfoRegistry::Get().SetSamplerFilter(
@@ -3038,7 +3040,7 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("SetTextureWrap(unresolved texture)");
+            Phase6Stub("SetTextureWrap(unresolved texture)", StubKind::PreconditionFailure);
             return;
         }
         VkSamplerAddressMode mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -3127,7 +3129,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(program);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::Shader)
         {
-            Phase6Stub("BindShaderProgram(unresolvable shader)");
+            Phase6Stub("BindShaderProgram(unresolvable shader)", StubKind::PreconditionFailure);
             return;
         }
         static_cast<VulkanShader*>(entry->Object)->Bind();
@@ -3161,7 +3163,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("BindFramebuffer(unresolvable framebuffer)");
+            Phase6Stub("BindFramebuffer(unresolvable framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         fb->Bind();
@@ -3243,7 +3245,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("AttachFramebufferColorTexture(unresolved framebuffer)");
+            Phase6Stub("AttachFramebufferColorTexture(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         if (WarnUnsupportedAttachMip(mipLevel, "AttachFramebufferColorTexture"))
@@ -3269,7 +3271,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("AttachFramebufferDepthTexture(unresolved framebuffer)");
+            Phase6Stub("AttachFramebufferDepthTexture(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         if (WarnUnsupportedAttachMip(mipLevel, "AttachFramebufferDepthTexture"))
@@ -3402,7 +3404,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("ClearFramebufferColorAttachment(unresolved framebuffer)");
+            Phase6Stub("ClearFramebufferColorAttachment(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         // GL contract: the index is a DRAW BUFFER index, remapped through the
@@ -3432,7 +3434,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("ClearFramebufferDepth(unresolved framebuffer)");
+            Phase6Stub("ClearFramebufferDepth(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         const RHI::ResourceHandle depthAttachment = fb->GetDepthAttachmentHandle();
@@ -3455,7 +3457,7 @@ namespace OloEngine
         // is meaningless for a 1:1 copy (Nearest semantics by construction).
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("BlitFramebuffer(outside recording bracket)");
+            Phase6Stub("BlitFramebuffer(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* src = ResolveFramebufferObject(srcFramebuffer);
@@ -3464,7 +3466,7 @@ namespace OloEngine
         {
             // RHI::NullResource spells "the default framebuffer" on GL — that
             // arm arrives with the swapchain import.
-            Phase6Stub("BlitFramebuffer(unresolved framebuffer)");
+            Phase6Stub("BlitFramebuffer(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         const i32 width = srcX1 - srcX0;
@@ -3639,7 +3641,7 @@ namespace OloEngine
             return;
         }
 
-        Phase6Stub("ReadBufferSubData(unresolvable buffer)");
+        Phase6Stub("ReadBufferSubData(unresolvable buffer)", StubKind::PreconditionFailure);
         std::memset(dest, 0, sizeBytes);
     }
 
@@ -3649,7 +3651,7 @@ namespace OloEngine
             return;
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("CopyBufferSubData(outside recording bracket)");
+            Phase6Stub("CopyBufferSubData(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -3662,7 +3664,7 @@ namespace OloEngine
                                   : 0u;
         if (srcNative == 0u || dstNative == 0u)
         {
-            Phase6Stub("CopyBufferSubData(unresolvable buffer)");
+            Phase6Stub("CopyBufferSubData(unresolvable buffer)", StubKind::PreconditionFailure);
             return;
         }
         const auto src = reinterpret_cast<VkBuffer>(srcNative);
@@ -3988,7 +3990,7 @@ namespace OloEngine
             return;
         if (VulkanRawBufferRegistry::Get().Lookup(buffer) == nullptr)
         {
-            Phase6Stub("DeleteBuffer(not a raw-registry buffer)");
+            Phase6Stub("DeleteBuffer(not a raw-registry buffer)", StubKind::PreconditionFailure);
             return;
         }
         VulkanRawBufferRegistry::Get().Destroy(buffer);
@@ -4008,7 +4010,7 @@ namespace OloEngine
         const auto it = rawVaos.find(RawObjectKey(vertexArray));
         if (it == rawVaos.end())
         {
-            Phase6Stub("DeleteVertexArray(not a raw-registry vertex array)");
+            Phase6Stub("DeleteVertexArray(not a raw-registry vertex array)", StubKind::PreconditionFailure);
             return;
         }
         if (m_BoundVertexArray == it->second.Raw())
@@ -4042,14 +4044,14 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("UploadTextureSubImage2D(unresolved texture)");
+            Phase6Stub("UploadTextureSubImage2D(unresolved texture)", StubKind::PreconditionFailure);
             return;
         }
         const auto image = reinterpret_cast<VkImage>(native);
         const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
         if (info == nullptr)
         {
-            Phase6Stub("UploadTextureSubImage2D(unregistered image)");
+            Phase6Stub("UploadTextureSubImage2D(unregistered image)", StubKind::PreconditionFailure);
             return;
         }
 
@@ -4443,7 +4445,7 @@ namespace OloEngine
                                         : nullptr;
         if (info == nullptr || info->Width == 0u || info->Height == 0u)
         {
-            Phase6Stub("ReadTextureImage(unresolved/extent-less image)");
+            Phase6Stub("ReadTextureImage(unresolved/extent-less image)", StubKind::PreconditionFailure);
             return false;
         }
         const u32 mipW = std::max(info->Width >> mipLevel, 1u);
@@ -4468,14 +4470,14 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("ReadTextureSubImage(unresolved texture)");
+            Phase6Stub("ReadTextureSubImage(unresolved texture)", StubKind::PreconditionFailure);
             return false;
         }
         const auto image = reinterpret_cast<VkImage>(native);
         const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
         if (info == nullptr || mipLevel >= std::max(info->MipLevels, 1u))
         {
-            Phase6Stub("ReadTextureSubImage(unregistered image / bad mip)");
+            Phase6Stub("ReadTextureSubImage(unregistered image / bad mip)", StubKind::PreconditionFailure);
             return false;
         }
 
@@ -4654,7 +4656,7 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("GetTextureDimensions(unresolved texture)");
+            Phase6Stub("GetTextureDimensions(unresolved texture)", StubKind::PreconditionFailure);
             return;
         }
         const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
@@ -4683,7 +4685,7 @@ namespace OloEngine
         // has no layout concept either, so no caller expects one here.
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("TextureBarrier(outside recording bracket)");
+            Phase6Stub("TextureBarrier(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         EndRenderingScope();
@@ -4864,13 +4866,13 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("BeginQuery(outside recording bracket)");
+            Phase6Stub("BeginQuery(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* entry = VulkanQueryRegistry::Get().Lookup(query);
         if (entry == nullptr)
         {
-            Phase6Stub("BeginQuery(unresolved query)");
+            Phase6Stub("BeginQuery(unresolved query)", StubKind::PreconditionFailure);
             return;
         }
         if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
@@ -4893,7 +4895,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("EndQuery(outside recording bracket)");
+            Phase6Stub("EndQuery(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         if (m_ActiveQuery.Pool == VK_NULL_HANDLE)

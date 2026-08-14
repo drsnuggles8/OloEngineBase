@@ -2,24 +2,26 @@
 
 // =============================================================================
 // VulkanRendererAPI — the Vulkan implementation of the RendererAPI facade
-// (issue #691 Phase 5).
+// (issue #691; brought to editor-parity scope in Phase 8).
 //
-// Phase 5 scope: the render graph's EXECUTION layer — barrier batches
-// (IssueBarrierBatch via VulkanBarrierLowering + the layout tracker),
-// transient clears (the poison instrument's ClearTexture*/ClearBuffer*),
-// dynamic viewport/scissor, device queries, and debug labels. Everything
-// pipeline-shaped (draws, shader binds, buffer lifecycle, queries, fences)
-// is a WARN-ONCE stub naming Phase 6 — deliberately loud, never silent,
-// which is what ADR 0011 amendment (42) demanded of the first
-// VulkanRendererAPI ("~100 no-op virtuals inviting silent fallthrough" was
-// the reason Phase 4 refused to build one; the stubs' warn-once counters are
-// the mitigation).
+// Current scope: the full facade — barrier batches, transient clears, draws
+// (lazy dynamic-rendering scopes + root-data assembly per ADR 0011 §4/§5),
+// compute dispatch, buffer/texture lifecycle including the raw-handle
+// facade families, staged uploads (frame command buffer, with a blocking
+// one-shot fallback outside a bracket), readbacks (ReadTextureSubImage —
+// the MCP diagnostics spine), per-target pending clears, and the sampler
+// heap routing. The remaining warn-once stubs are counted BY KIND (see
+// StubKind): a deferred feature, a precondition failure, or a call outside
+// a recording bracket — deliberately loud, never silent (the amendment (42)
+// contract).
 //
 // Recording model: Vulkan has no GL-style implicit current context — every
-// vkCmd* needs a live VkCommandBuffer. Whoever drives execution (the
-// device-gated execution test now, VulkanContext's frame loop when the graph
-// is wired into it) brackets work in BeginRecording/EndRecording. A
-// recording-dependent entry point called outside a bracket warn-once skips.
+// vkCmd* needs a live VkCommandBuffer. VulkanContext's frame loop (and the
+// device-gated tests) bracket work in BeginRecording/EndRecording; a
+// mid-frame READ of GPU state flushes via FlushFrameRecordingAndWait
+// (suspend / submit / fence-wait / resume). A recording-dependent entry
+// point called outside a bracket either falls back to a one-shot (uploads,
+// readbacks) or warn-once skips.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -293,10 +295,25 @@ namespace OloEngine
         [[nodiscard]] bool FinalizeBackbufferForPresent(bool frameRendered);
 
         // Observability for the execution test: how many packets/entry points
-        // hit a Phase 6 stub (nothing may fall through silently).
+        // hit a Phase 6 stub (nothing may fall through silently). Split by
+        // KIND (#691 Phase 8, Step 4): a deferred FEATURE (no Vulkan lowering
+        // yet), a PRECONDITION failure (the lowering exists but an input
+        // handle/image did not resolve), and an outside-recording-bracket
+        // call (the timing contract). The total stays the back-compat sum.
+        enum class StubKind : u8
+        {
+            DeferredFeature = 0,
+            PreconditionFailure,
+            OutsideRecording,
+            Count
+        };
         [[nodiscard]] u64 GetPhase6StubHitCount() const
         {
             return m_Phase6StubHits;
+        }
+        [[nodiscard]] u64 GetStubHitCount(StubKind kind) const
+        {
+            return m_StubHitsByKind[static_cast<sizet>(kind)];
         }
 
         // Draw observability (issue #691 Phase 7): PrepareDraw's failure
@@ -461,7 +478,7 @@ namespace OloEngine
       private:
         // Const: several facade getters are const-qualified and still must
         // count their stub hit (nothing may fall through silently).
-        void Phase6Stub(const char* entryPoint) const;
+        void Phase6Stub(const char* entryPoint, StubKind kind = StubKind::DeferredFeature) const;
 
         // --- Phase 7: lazy dynamic-rendering scope + draw assembly ----------
         //
@@ -668,6 +685,7 @@ namespace OloEngine
         Viewport m_Viewport{};
 
         mutable u64 m_Phase6StubHits = 0;
+        mutable std::array<u64, static_cast<sizet>(StubKind::Count)> m_StubHitsByKind{};
         mutable std::unordered_set<std::string> m_WarnedStubs;
 
         VulkanRecordedPipelineState m_State;

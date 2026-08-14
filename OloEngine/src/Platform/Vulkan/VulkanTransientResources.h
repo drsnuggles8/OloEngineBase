@@ -5,17 +5,22 @@
 #if OLO_WITH_VULKAN
 
 // =============================================================================
-// VulkanTransientResources.h — #691 Phase 5: VMA-backed resource classes for
-// the TransientPool's attribute-only acquire path.
+// VulkanTransientResources.h — VMA-backed resource classes for the Vulkan
+// backend (#691; grown from the Phase 5 attribute-only acquire slice to the
+// full Phase 8 surface).
 //
-// TransientPool::AcquireTexture / AcquireFramebuffer / AcquireBuffer build GPU
-// objects from a bare specification — no pixel upload, no bind, no sampling.
-// That is exactly the slice these classes implement fully: allocation,
-// identity (RHI::ResourceRegistry handles), lifetime (deferred reclaim), and
-// the metadata the barrier translator needs (VulkanImageInfoRegistry). Every
-// upload/bind/readback-shaped virtual is a warn-once no-op — Phase 6 territory
-// (it needs the transfer/PSO paths) — never an assert, because the pool's
-// acquire path must stay alive under --rhi=vulkan.
+// What lives here now: the texture family (VulkanTexture2D / arrays /
+// cubemaps / cubemap arrays / 3D volumes) with real uploads (staged into the
+// frame command buffer, one-shot outside a bracket), mip generation,
+// readbacks (GetData / GetFaceData / ReadPixel on the ReadTextureSubImage
+// spine), sampler-state registry metadata; VulkanFramebuffer (attachments,
+// external attach, per-layer depth views, resize semantics matching the GL
+// twin); the raw-handle registries backing the Create*/Delete*/Attach*
+// facade family; the image-info/layout registries the barrier translator
+// reads; and VulkanDeferredReclaim (generation-waited destruction). A split
+// into per-class file pairs is planned follow-up — the classes are already
+// independent; only the shared anonymous-namespace helpers keep them in one
+// TU today.
 //
 // This header exposes Vulkan types directly — it is included only by
 // Platform/Vulkan siblings and by OLO_WITH_VULKAN-guarded engine factory TUs
