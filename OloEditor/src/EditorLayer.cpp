@@ -1412,7 +1412,19 @@ namespace OloEngine
                 }
                 else
                 {
-                    // No additional handling required.
+                    // 3D without the GL PBO ring (any non-GL backend — the
+                    // ring's init is GL-guarded): synchronous 1x1 read of the
+                    // EntityID attachment through the framebuffer virtual,
+                    // which lowers onto ReadTextureSubImage (#691 Phase 8b).
+                    // One texel through a blocking one-shot per hovered frame
+                    // is measurable but small; promote to an async ring if it
+                    // ever shows up in a profile.
+                    if (const auto framebuffer =
+                            Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+                        framebuffer != nullptr)
+                    {
+                        pixelData = framebuffer->ReadPixel(1, mouseX, mouseY);
+                    }
                 }
                 m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
             }

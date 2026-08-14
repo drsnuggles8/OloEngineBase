@@ -2332,11 +2332,28 @@ namespace OloEngine
 
     int VulkanFramebuffer::ReadPixel(u32 attachmentIndex, int x, int y)
     {
-        (void)attachmentIndex;
-        (void)x;
-        (void)y;
-        OLO_VK_PHASE6_STUB("VulkanFramebuffer::ReadPixel");
-        return -1; // the entity-picking "nothing here" value
+        // glReadPixels(GL_RED_INTEGER, GL_INT) of one texel, on the
+        // ReadTextureSubImage spine (#691 Phase 8b). The caller hands GL
+        // window coordinates (y up from the bottom); the Vulkan image stores
+        // row 0 at the top, so flip against the attachment height.
+        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        {
+            return -1;
+        }
+        const u32 height = m_Specification.Height;
+        if (x < 0 || y < 0 || static_cast<u32>(x) >= m_Specification.Width || static_cast<u32>(y) >= height)
+        {
+            return -1;
+        }
+        const i32 flippedY = static_cast<i32>(height) - 1 - y;
+        int value = -1;
+        if (!RenderCommand::GetRendererAPI().ReadTextureSubImage(
+                m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0, x, flippedY, 0, 1u, 1u, 1u,
+                RHI::Format::R32Int, sizeof(value), &value))
+        {
+            return -1; // the entity-picking "nothing here" value
+        }
+        return value;
     }
 
     void VulkanFramebuffer::ClearAttachment(u32 attachmentIndex, int value)

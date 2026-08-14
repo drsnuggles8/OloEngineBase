@@ -9507,4 +9507,78 @@ TEST(VulkanComputeBareUniformSweep, MigratedComputeShadersDeclareNoBareUniforms)
            "there — move the value into the shader's pass-owned std140 block instead.";
 }
 
+// =============================================================================
+// ReadTextureSubImage / ReadTextureImage (#691 Phase 8b): the MCP diagnostics
+// readback spine — olo_screenshot / olo_render_capture_target, thumbnail
+// capture, the probe bakers and entity picking all lower onto these. Pins
+// three contracts: the identity path returns the uploaded bytes verbatim
+// (rows unflipped — glGetTextureSubImage semantics), the conversion path
+// decodes native texels to the caller's float format, and a sub-region read
+// addresses texels in image coordinates.
+// =============================================================================
+TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion)
+{
+    constexpr u32 kSize = 8;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    TextureSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+    auto texture = Texture2D::Create(spec);
+    ASSERT_NE(texture, nullptr);
+
+    std::vector<u8> texels(static_cast<sizet>(kSize) * kSize * 4u);
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            u8* t = texels.data() + (static_cast<sizet>(y) * kSize + x) * 4u;
+            t[0] = static_cast<u8>(x * 16u);
+            t[1] = static_cast<u8>(y * 16u);
+            t[2] = 128u;
+            t[3] = 255u;
+        }
+    }
+    texture->SetData(texels.data(), static_cast<u32>(texels.size()));
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    // Identity: RGBA8 image read as RGBA8 — byte-exact, no row flip.
+    std::vector<u8> identity(texels.size(), 0u);
+    ASSERT_TRUE(api.ReadTextureSubImage(texture->GetRHIHandle(), 0, 0, 0, 0, kSize, kSize, 1u,
+                                        RHI::Format::RGBA8UNorm, identity.size(), identity.data()));
+    EXPECT_EQ(identity, texels) << "identity readback must return the uploaded bytes verbatim";
+
+    // Conversion: the render-graph/MCP capture shape — any attachment read
+    // as floats.
+    std::vector<f32> floats(static_cast<sizet>(kSize) * kSize * 4u, -1.0f);
+    ASSERT_TRUE(api.ReadTextureSubImage(texture->GetRHIHandle(), 0, 0, 0, 0, kSize, kSize, 1u,
+                                        RHI::Format::RGBA32Float, floats.size() * sizeof(f32), floats.data()));
+    const sizet probe = (static_cast<sizet>(5) * kSize + 3) * 4u; // texel (3, 5)
+    EXPECT_NEAR(floats[probe + 0], 48.0f / 255.0f, 1.0e-6f);
+    EXPECT_NEAR(floats[probe + 1], 80.0f / 255.0f, 1.0e-6f);
+    EXPECT_NEAR(floats[probe + 2], 128.0f / 255.0f, 1.0e-6f);
+    EXPECT_NEAR(floats[probe + 3], 1.0f, 1.0e-6f);
+
+    // Sub-region: 2x2 at (4, 2), image coordinates.
+    std::vector<u8> region(2u * 2u * 4u, 0u);
+    ASSERT_TRUE(api.ReadTextureSubImage(texture->GetRHIHandle(), 0, 4, 2, 0, 2u, 2u, 1u,
+                                        RHI::Format::RGBA8UNorm, region.size(), region.data()));
+    EXPECT_EQ(region[0], 64u) << "region texel (0,0) must be image texel (4,2).r";
+    EXPECT_EQ(region[1], 32u) << "region texel (0,0) must be image texel (4,2).g";
+    EXPECT_EQ(region[4], 80u) << "region texel (1,0) must be image texel (5,2).r";
+
+    // Whole-level convenience wrapper sizes the read from the registry extent.
+    std::vector<u8> whole(texels.size(), 0u);
+    ASSERT_TRUE(api.ReadTextureImage(texture->GetRHIHandle(), 0, RHI::Format::RGBA8UNorm, whole.size(),
+                                     whole.data()));
+    EXPECT_EQ(whole, texels);
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "the readback family must not fall through to a stub anymore";
+}
+
 #endif // OLO_WITH_VULKAN

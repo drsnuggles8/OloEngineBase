@@ -9,6 +9,7 @@
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
+#include "Platform/Vulkan/VulkanContext.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
@@ -4264,16 +4265,365 @@ namespace OloEngine
         Phase6Stub("UploadTextureSubImage3D(no Vulkan-reachable caller — OceanFFTGpu only)");
     }
 
-    bool VulkanRendererAPI::ReadTextureImage(RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/, RHI::Format /*destFormat*/, sizet /*destSizeBytes*/, void* /*dest*/)
+    namespace
     {
-        Phase6Stub("ReadTextureImage");
-        return false;
+        // Native texel width for the formats the readback path can decode.
+        // 0 = undecodable (block-compressed, packed depth-stencil, exotic).
+        [[nodiscard]] u32 ReadbackTexelBytes(const VkFormat format)
+        {
+            switch (format)
+            {
+                case VK_FORMAT_R8_UNORM:
+                case VK_FORMAT_R8_UINT:
+                    return 1u;
+                case VK_FORMAT_R8G8_UNORM:
+                case VK_FORMAT_R16_SFLOAT:
+                    return 2u;
+                case VK_FORMAT_R8G8B8A8_UNORM:
+                case VK_FORMAT_R8G8B8A8_SRGB:
+                case VK_FORMAT_B8G8R8A8_UNORM:
+                case VK_FORMAT_B8G8R8A8_SRGB:
+                case VK_FORMAT_R16G16_SFLOAT:
+                case VK_FORMAT_R32_SFLOAT:
+                case VK_FORMAT_R32_SINT:
+                case VK_FORMAT_R32_UINT:
+                case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
+                case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+                case VK_FORMAT_D32_SFLOAT:
+                    return 4u;
+                case VK_FORMAT_R16G16B16A16_SFLOAT:
+                case VK_FORMAT_R32G32_SFLOAT:
+                    return 8u;
+                case VK_FORMAT_R32G32B32A32_SFLOAT:
+                    return 16u;
+                default:
+                    return 0u;
+            }
+        }
+
+        // Decode one native texel to float components. sRGB stays raw
+        // (glGetTextureImage's behaviour — no linearization on readback).
+        [[nodiscard]] bool DecodeReadbackTexel(const VkFormat format, const u8* texel, glm::vec4& out)
+        {
+            const auto unorm = [](const u8 v)
+            { return static_cast<f32>(v) / 255.0f; };
+            switch (format)
+            {
+                case VK_FORMAT_R8_UNORM:
+                    out = { unorm(texel[0]), 0.0f, 0.0f, 1.0f };
+                    return true;
+                case VK_FORMAT_R8G8_UNORM:
+                    out = { unorm(texel[0]), unorm(texel[1]), 0.0f, 1.0f };
+                    return true;
+                case VK_FORMAT_R8G8B8A8_UNORM:
+                case VK_FORMAT_R8G8B8A8_SRGB:
+                    out = { unorm(texel[0]), unorm(texel[1]), unorm(texel[2]), unorm(texel[3]) };
+                    return true;
+                case VK_FORMAT_B8G8R8A8_UNORM:
+                case VK_FORMAT_B8G8R8A8_SRGB:
+                    out = { unorm(texel[2]), unorm(texel[1]), unorm(texel[0]), unorm(texel[3]) };
+                    return true;
+                case VK_FORMAT_R16_SFLOAT:
+                {
+                    u16 bits;
+                    std::memcpy(&bits, texel, sizeof(bits));
+                    out = { glm::unpackHalf2x16(bits).x, 0.0f, 0.0f, 1.0f };
+                    return true;
+                }
+                case VK_FORMAT_R16G16_SFLOAT:
+                {
+                    u32 bits;
+                    std::memcpy(&bits, texel, sizeof(bits));
+                    const glm::vec2 rg = glm::unpackHalf2x16(bits);
+                    out = { rg.x, rg.y, 0.0f, 1.0f };
+                    return true;
+                }
+                case VK_FORMAT_R16G16B16A16_SFLOAT:
+                {
+                    u32 lo;
+                    u32 hi;
+                    std::memcpy(&lo, texel, sizeof(lo));
+                    std::memcpy(&hi, texel + 4, sizeof(hi));
+                    const glm::vec2 rg = glm::unpackHalf2x16(lo);
+                    const glm::vec2 ba = glm::unpackHalf2x16(hi);
+                    out = { rg.x, rg.y, ba.x, ba.y };
+                    return true;
+                }
+                case VK_FORMAT_R32_SFLOAT:
+                case VK_FORMAT_D32_SFLOAT:
+                    std::memcpy(&out.x, texel, sizeof(f32));
+                    out.y = 0.0f;
+                    out.z = 0.0f;
+                    out.w = 1.0f;
+                    return true;
+                case VK_FORMAT_R32G32_SFLOAT:
+                    std::memcpy(&out.x, texel, 2 * sizeof(f32));
+                    out.z = 0.0f;
+                    out.w = 1.0f;
+                    return true;
+                case VK_FORMAT_R32G32B32A32_SFLOAT:
+                    std::memcpy(&out.x, texel, 4 * sizeof(f32));
+                    return true;
+                case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
+                {
+                    u32 bits;
+                    std::memcpy(&bits, texel, sizeof(bits));
+                    out = { glm::unpackF2x11_1x10(bits), 1.0f };
+                    return true;
+                }
+                case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+                {
+                    u32 bits;
+                    std::memcpy(&bits, texel, sizeof(bits));
+                    out = glm::unpackUnorm3x10_1x2(bits);
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        // Encode float components into the caller's destination format.
+        [[nodiscard]] bool EncodeReadbackTexel(const RHI::Format format, const glm::vec4& texel, u8* dest)
+        {
+            const auto toU8 = [](const f32 v)
+            { return static_cast<u8>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
+            switch (format)
+            {
+                case RHI::Format::R32Float:
+                    std::memcpy(dest, &texel.x, sizeof(f32));
+                    return true;
+                case RHI::Format::RG32Float:
+                    std::memcpy(dest, &texel.x, 2 * sizeof(f32));
+                    return true;
+                case RHI::Format::RGB32Float:
+                    std::memcpy(dest, &texel.x, 3 * sizeof(f32));
+                    return true;
+                case RHI::Format::RGBA32Float:
+                    std::memcpy(dest, &texel.x, 4 * sizeof(f32));
+                    return true;
+                case RHI::Format::RGB8UNorm:
+                    dest[0] = toU8(texel.x);
+                    dest[1] = toU8(texel.y);
+                    dest[2] = toU8(texel.z);
+                    return true;
+                case RHI::Format::RGBA8UNorm:
+                    dest[0] = toU8(texel.x);
+                    dest[1] = toU8(texel.y);
+                    dest[2] = toU8(texel.z);
+                    dest[3] = toU8(texel.w);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    } // namespace
+
+    bool VulkanRendererAPI::ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel, RHI::Format destFormat, sizet destSizeBytes, void* dest)
+    {
+        // GL's glGetTextureImage: whole level, dimensions answered by the
+        // object. The image-info registry carries the mip-0 extent; a
+        // pre-extent registration (Width == 0) cannot size the level, so the
+        // read reports failure rather than guessing (the callers all handle
+        // false).
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        const auto* info = native != 0u ? VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native))
+                                        : nullptr;
+        if (info == nullptr || info->Width == 0u || info->Height == 0u)
+        {
+            Phase6Stub("ReadTextureImage(unresolved/extent-less image)");
+            return false;
+        }
+        const u32 mipW = std::max(info->Width >> mipLevel, 1u);
+        const u32 mipH = std::max(info->Height >> mipLevel, 1u);
+        return ReadTextureSubImage(texture, mipLevel, 0, 0, 0, mipW, mipH, std::max(info->ArrayLayers, 1u),
+                                   destFormat, destSizeBytes, dest);
     }
 
-    bool VulkanRendererAPI::ReadTextureSubImage(RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/, i32 /*x*/, i32 /*y*/, i32 /*z*/, u32 /*width*/, u32 /*height*/, u32 /*depth*/, RHI::Format /*destFormat*/, sizet /*destSizeBytes*/, void* /*dest*/)
+    bool VulkanRendererAPI::ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel, i32 x, i32 y, i32 z, u32 width, u32 height, u32 depth, RHI::Format destFormat, sizet destSizeBytes, void* dest)
     {
-        Phase6Stub("ReadTextureSubImage");
-        return false;
+        // glGetTextureSubImage, lowered as a blocking one-shot
+        // copy-image-to-buffer plus a CPU-side format conversion (GL's
+        // pixel-transfer conversion happens driver-side; vkCmdCopyImageToBuffer
+        // is a raw texel copy). This is the MCP diagnostics readback spine:
+        // olo_screenshot / olo_render_capture_target, ThumbnailCapture, the
+        // probe bakers and entity picking all funnel through here (#691
+        // Phase 8b).
+        if (dest == nullptr || width == 0u || height == 0u || depth == 0u)
+        {
+            return false;
+        }
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            Phase6Stub("ReadTextureSubImage(unresolved texture)");
+            return false;
+        }
+        const auto image = reinterpret_cast<VkImage>(native);
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        if (info == nullptr || mipLevel >= std::max(info->MipLevels, 1u))
+        {
+            Phase6Stub("ReadTextureSubImage(unregistered image / bad mip)");
+            return false;
+        }
+
+        const u32 destBpp = ClientBytesPerPixel(destFormat);
+        const u64 texelCount = static_cast<u64>(width) * height * depth;
+        if (destBpp == 0u || destSizeBytes < texelCount * destBpp)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] ReadTextureSubImage: destination too small or format unsized "
+                          "({} bytes for {} texels of format {})",
+                          destSizeBytes, texelCount, static_cast<u32>(destFormat));
+            return false;
+        }
+        const u32 nativeBpp = ReadbackTexelBytes(info->Format);
+        if (nativeBpp == 0u)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] ReadTextureSubImage: undecodable native format {} — readback refused",
+                          static_cast<u32>(info->Format));
+            return false;
+        }
+
+        // Mid-frame read: pending writes to this image may still sit in the
+        // recording frame command buffer — the StorageBuffer::GetData rule.
+        // Flush and wait; on refusal the readback proceeds and may return the
+        // previous frame's contents (warn-once).
+        if (m_Cmd != VK_NULL_HANDLE)
+        {
+            auto* context = VulkanContext::Get();
+            if (context == nullptr || !context->FlushFrameRecordingAndWait())
+            {
+                static bool s_Warned = false;
+                if (!s_Warned)
+                {
+                    s_Warned = true;
+                    OLO_CORE_WARN("[Vulkan] mid-frame ReadTextureSubImage without a frame flush — the readback "
+                                  "may return stale contents");
+                }
+            }
+        }
+
+        // z picks the array layer for layered images and the depth slice for
+        // volumes (glGetTextureSubImage semantics). Multi-layer reads pack
+        // layer-major, matching GL.
+        const bool isVolume = info->ViewType == VK_IMAGE_VIEW_TYPE_3D;
+        const u32 baseLayer = isVolume ? 0u : static_cast<u32>(std::max(z, 0));
+        const u32 layerCount = isVolume ? 1u : depth;
+        const i32 zOffset = isVolume ? z : 0;
+        const u32 depthExtent = isVolume ? depth : 1u;
+        if (!isVolume && baseLayer + layerCount > std::max(info->ArrayLayers, 1u))
+        {
+            return false;
+        }
+        const VkImageAspectFlags aspect = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+        if (info->HasDepth && info->Format != VK_FORMAT_D32_SFLOAT)
+        {
+            // Packed depth-stencil buffer-copy layouts are format-specific;
+            // the engine's readable depth targets are D32.
+            OLO_CORE_WARN("[RHI/Vulkan] ReadTextureSubImage: only D32_SFLOAT depth is readable (format {})",
+                          static_cast<u32>(info->Format));
+            return false;
+        }
+
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            return false;
+        }
+        const u64 stagedSize = texelCount * nativeBpp;
+        VkBufferCreateInfo readbackInfo{};
+        readbackInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        readbackInfo.size = stagedSize;
+        readbackInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        readbackInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo readbackAlloc{};
+        readbackAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        readbackAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer readback = VK_NULL_HANDLE;
+        VmaAllocation readbackAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo readbackOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
+                            &readbackOut) != VK_SUCCESS)
+        {
+            return false;
+        }
+
+        const VkImageSubresourceRange range{ aspect, mipLevel, 1u, baseLayer, layerCount };
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanRendererAPI::ReadTextureSubImage",
+            [&](VkCommandBuffer cmd)
+            {
+                // Exact-oldLayout transitions per tracked layout run (the
+                // CopyImageSubData discipline), so attachments read correctly
+                // whatever layout the last pass left them in.
+                std::vector<VkImageMemoryBarrier2> toSrc;
+                StageTransferTransition(image, range, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                        VK_ACCESS_2_TRANSFER_READ_BIT, toSrc);
+                VkDependencyInfo dep{};
+                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dep.imageMemoryBarrierCount = static_cast<u32>(toSrc.size());
+                dep.pImageMemoryBarriers = toSrc.data();
+                vkCmdPipelineBarrier2(cmd, &dep);
+
+                VkBufferImageCopy region{};
+                region.imageSubresource = { aspect, mipLevel, baseLayer, layerCount };
+                region.imageOffset = { x, y, zOffset };
+                region.imageExtent = { width, height, depthExtent };
+                vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
+
+                // Settle back into the sampled steady state; the tracker
+                // records it so the next graph execution transitions from
+                // truth.
+                VkImageMemoryBarrier2 toRead{};
+                toRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                toRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                toRead.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+                toRead.dstStageMask = kAllStages;
+                toRead.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+                toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                toRead.image = image;
+                toRead.subresourceRange = range;
+                dep.imageMemoryBarrierCount = 1u;
+                dep.pImageMemoryBarriers = &toRead;
+                vkCmdPipelineBarrier2(cmd, &dep);
+                m_LayoutTracker.SetLayout(image, range, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            });
+
+        bool converted = false;
+        if (ok)
+        {
+            vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, stagedSize);
+            const auto* staged = static_cast<const u8*>(readbackOut.pMappedData);
+            if (info->Format == VulkanBarrierLowering::ToVkFormat(destFormat))
+            {
+                // Identity (covers the integer formats — entity picking's
+                // R32I read — which the decode path deliberately excludes).
+                std::memcpy(dest, staged, texelCount * destBpp);
+                converted = true;
+            }
+            else
+            {
+                auto* destBytes = static_cast<u8*>(dest);
+                converted = true;
+                for (u64 i = 0; i < texelCount; ++i)
+                {
+                    glm::vec4 texel{};
+                    if (!DecodeReadbackTexel(info->Format, staged + i * nativeBpp, texel) ||
+                        !EncodeReadbackTexel(destFormat, texel, destBytes + i * destBpp))
+                    {
+                        OLO_CORE_WARN("[RHI/Vulkan] ReadTextureSubImage: no conversion {} -> {}",
+                                      static_cast<u32>(info->Format), static_cast<u32>(destFormat));
+                        converted = false;
+                        break;
+                    }
+                }
+            }
+        }
+        vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        return ok && converted;
     }
 
     void VulkanRendererAPI::GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight)
