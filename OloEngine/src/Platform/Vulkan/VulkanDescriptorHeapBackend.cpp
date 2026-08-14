@@ -132,7 +132,15 @@ namespace OloEngine
         // declared consumer, so cube-compatible images bind as their layer
         // array there (BindImageTexture's rule).
         viewInfo.viewType = layerCount > 1u ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
-        if (!storage && info->ViewType != VK_IMAGE_VIEW_TYPE_2D)
+        if (info->ViewType == VK_IMAGE_VIEW_TYPE_3D)
+        {
+            // A volume's storage consumer is image3D, and a 2D(_ARRAY) view
+            // of a 3D image needs a create flag the registry never sets — so
+            // 3D stays 3D for BOTH usages (the cube storage exception above
+            // does not extend here).
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_3D;
+        }
+        else if (!storage && info->ViewType != VK_IMAGE_VIEW_TYPE_2D)
         {
             viewInfo.viewType = info->ViewType;
         }
@@ -259,7 +267,10 @@ namespace OloEngine
         {
             return it->second;
         }
-        if (m_NextNullStorageToken >= kFirstDynamicToken)
+        // Ceiling is the first RESERVED sampled token (62/63 are the
+        // cube-array and 3D null-sampled shapes), not the dynamic range —
+        // minting past it would alias a storage null over a reserved one.
+        if (m_NextNullStorageToken >= kNullSampledCubeArrayToken)
         {
             OLO_CORE_ERROR("VulkanDescriptorHeapBackend: null-storage token space exhausted");
             return 0;

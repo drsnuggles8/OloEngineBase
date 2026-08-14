@@ -17,8 +17,8 @@ namespace OloEngine
         // The Vulkan arm of the face-path load (#691 Phase 8): six stbi loads
         // into the spec-constructed cubemap via the CPU face upload. Mirrors
         // OpenGLTextureCubemap::LoadFaces' contract — faces are NOT
-        // vertically flipped (unlike Texture2D), extent/format come from face
-        // 0, and every face must match it.
+        // vertically flipped (unlike Texture2D), extent comes from face 0,
+        // and every face must match it (pixels are force-expanded to RGBA8).
         Ref<TextureCubemap> LoadVulkanCubemapFromFacePaths(const std::vector<std::string>& facePaths)
         {
             stbi_set_flip_vertically_on_load_thread(0);
@@ -32,7 +32,11 @@ namespace OloEngine
                 int width = 0;
                 int height = 0;
                 int fileChannels = 0;
-                stbi_uc* pixels = stbi_load(facePaths[i].c_str(), &width, &height, &fileChannels, 0);
+                // Force RGBA: stbi expands 1/2/3-channel files, so the byte
+                // size below always matches the RGBA8 spec (a native-channel
+                // load handed SetFaceDataMip a texel size the format doesn't
+                // describe for grey / grey-alpha faces).
+                stbi_uc* pixels = stbi_load(facePaths[i].c_str(), &width, &height, &fileChannels, 4);
                 if (pixels == nullptr)
                 {
                     OLO_CORE_ERROR("[RHI/Vulkan] cubemap face '{}' failed to load: {}", facePaths[i],
@@ -47,20 +51,26 @@ namespace OloEngine
                     CubemapSpecification spec;
                     spec.Width = faceWidth;
                     spec.Height = faceHeight;
-                    spec.Format = channels == 3 ? ImageFormat::RGB8 : ImageFormat::RGBA8;
+                    spec.Format = ImageFormat::RGBA8;
                     spec.GenerateMips = true;
                     cubemap = Ref<VulkanTextureCubemap>::Create(spec);
                 }
-                const bool mismatched = static_cast<u32>(width) != faceWidth ||
-                                        static_cast<u32>(height) != faceHeight || fileChannels != channels;
-                if (mismatched || cubemap == nullptr)
+                if (cubemap == nullptr)
+                {
+                    OLO_CORE_ERROR("[RHI/Vulkan] cubemap creation failed for '{}' ({}x{})", facePaths[i], faceWidth,
+                                   faceHeight);
+                    stbi_image_free(pixels);
+                    return nullptr;
+                }
+                if (static_cast<u32>(width) != faceWidth || static_cast<u32>(height) != faceHeight ||
+                    fileChannels != channels)
                 {
                     OLO_CORE_ERROR("[RHI/Vulkan] cubemap face '{}' is {}x{}x{} but face 0 was {}x{}x{}", facePaths[i],
                                    width, height, fileChannels, faceWidth, faceHeight, channels);
                     stbi_image_free(pixels);
                     return nullptr;
                 }
-                const u32 size = faceWidth * faceHeight * static_cast<u32>(channels);
+                const u32 size = faceWidth * faceHeight * 4u;
                 // Upload mip 0 only per face; one mip regeneration afterwards
                 // (SetFaceData would regenerate after EVERY face).
                 const bool uploaded = cubemap->SetFaceDataMip(i, 0u, pixels, size);

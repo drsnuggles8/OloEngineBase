@@ -363,7 +363,10 @@ namespace OloEngine::HeapBinding
         // TEX_WIND_FIELD's Particle_Simulate.comp today. This bind is what keeps
         // those working, and it is the mechanism BindlessShaderPipeline's
         // SlotAlwaysReceivesARealBind allowlist is allowed to point at.
-        RenderCommand::BindTexture(slot, texture);
+        // The DESC travels with the bind (the BindTextureOrOffsetImpl rule):
+        // dropping it here degraded an explicit compare/filter request to the
+        // inherit state on the Vulkan backend, where samplers are heap objects.
+        RenderCommand::BindTexture(slot, texture, sampler);
 
         return published;
     }

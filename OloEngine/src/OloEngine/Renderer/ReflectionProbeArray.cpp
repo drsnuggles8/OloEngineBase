@@ -67,6 +67,7 @@ namespace OloEngine
         m_ProbeUBO.Reset();
         m_GridSSBO.Reset();
         m_CullShader.Reset();
+        m_CullParamsUBO.Reset();
         m_Submitted.clear();
         m_UploadedCount = 0;
         m_GridValid = false;
@@ -393,6 +394,12 @@ namespace OloEngine
             {
                 m_CullParamsUBO = UniformBuffer::Create(UBOStructures::ReflectionProbeCullUBO::GetSize(),
                                                         ShaderBindingLayout::UBO_REFLECTION_PROBE_CULL);
+                if (!m_CullParamsUBO)
+                {
+                    OLO_CORE_ERROR("ReflectionProbeArray: cull-params UBO creation failed — skipping probe cull dispatch");
+                    m_CullShader->Unbind();
+                    return;
+                }
             }
             UBOStructures::ReflectionProbeCullUBO cullParams{};
             cullParams.ViewMatrix = viewRelative;

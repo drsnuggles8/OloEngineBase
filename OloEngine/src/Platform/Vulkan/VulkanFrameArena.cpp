@@ -219,6 +219,16 @@ namespace OloEngine
         addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         addressInfo.buffer = m_NullBlockBuffer;
         m_NullBlockAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
+        if (m_NullBlockAddress == 0)
+        {
+            // A zero address is the failure this block exists to prevent —
+            // release the orphaned buffer so a later call can retry cleanly.
+            OLO_CORE_ERROR("VulkanFrameArena: null-block device address is 0 — releasing and leaving unfed "
+                           "bindings at address 0");
+            vmaDestroyBuffer(device->GetAllocator(), m_NullBlockBuffer, m_NullBlockAllocation);
+            m_NullBlockBuffer = VK_NULL_HANDLE;
+            m_NullBlockAllocation = VK_NULL_HANDLE;
+        }
         return m_NullBlockAddress;
     }
 

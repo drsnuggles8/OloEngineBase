@@ -146,6 +146,13 @@ namespace OloEngine
         }
         m_OwningDevice = device->GetDevice();
 
+        // Query the placement's coherency once: descriptor writes into a
+        // NON-coherent mapping must be flushed or the GPU can read stale
+        // bytes (the VulkanFrameArena rule).
+        VkMemoryPropertyFlags memProps = 0;
+        vmaGetAllocationMemoryProperties(device->GetAllocator(), m_Allocation, &memProps);
+        m_NeedsFlush = (memProps & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0;
+
         // Slot 0 = the default sampler, unconditionally: an unstaged binding
         // must sample exactly as the old embedded default did.
         const VkSamplerCreateInfo defaultInfo = DefaultSamplerInfo();
@@ -185,7 +192,10 @@ namespace OloEngine
         const u32 slot = m_NextSlot;
         if (!WriteSampler(slot, info))
         {
-            return InvalidSlot;
+            // Degrade like the other failure arms: DefaultSlot samples
+            // linear/clamp (the pre-heap behaviour), whereas InvalidSlot
+            // (0xFFFFFFFF) copied into root data indexes past the heap.
+            return DefaultSlot;
         }
         ++m_NextSlot;
         m_SlotByHash.emplace(hash, slot);
@@ -212,6 +222,11 @@ namespace OloEngine
             OLO_CORE_ERROR("VulkanSamplerHeap: vkWriteSamplerDescriptorsEXT failed (slot {}, VkResult {})", slot,
                            static_cast<int>(result));
             return false;
+        }
+        if (m_NeedsFlush)
+        {
+            vmaFlushAllocation(device->GetAllocator(), m_Allocation,
+                               m_SlotRegionOffset + slot * m_DescriptorStride, m_DescriptorStride);
         }
         return true;
     }

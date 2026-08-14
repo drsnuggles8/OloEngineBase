@@ -4012,6 +4012,18 @@ namespace OloEngine
         }
     }
 
+    void VulkanRendererAPI::NotifyFramebufferDestroyed(const VulkanFramebuffer* framebuffer,
+                                                       RHI::ResourceHandle handle)
+    {
+        EndScopeIfTargets(handle);
+        if (m_PendingClear.Target == framebuffer)
+        {
+            // Materializing later would dereference the freed object; the
+            // clear dies with its target, exactly as GL FBO state does.
+            m_PendingClear = PendingClear{};
+        }
+    }
+
     void VulkanRendererAPI::DeleteFramebuffer(RHI::ResourceHandle framebuffer)
     {
         if (RHI::ResourceRegistry::Get().KindOf(framebuffer) != RHI::ResourceKind::Framebuffer)

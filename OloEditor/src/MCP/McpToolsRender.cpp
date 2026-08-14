@@ -616,7 +616,13 @@ namespace OloEngine::MCP
             const RHI::Format destFormat = isDepth || channels == 1 ? RHI::Format::R32Float
                                            : channels == 2          ? RHI::Format::RG32Float
                                                                     : RHI::Format::RGBA32Float;
-            const i32 readChannels = channels == 2 ? 2 : (channels == 1 ? 1 : 4);
+            // Derived from destFormat, not `channels`, so buffer sizing, the
+            // readback and the PNG channel count always agree — including the
+            // depth-from-framebuffer fallback, where destFormat collapses to
+            // R32Float while `channels` stayed at its 4-channel default.
+            const i32 readChannels = destFormat == RHI::Format::R32Float    ? 1
+                                     : destFormat == RHI::Format::RG32Float ? 2
+                                                                            : 4;
             const sizet valueCount =
                 static_cast<sizet>(region.Width) * region.Height * static_cast<sizet>(readChannels);
             std::vector<f32> values(valueCount);
@@ -4777,6 +4783,13 @@ namespace OloEngine::MCP
                 const LightGrid& lightGrid = Renderer3D::GetForwardPlus().GetLightGrid();
                 if (!lightGrid.IsInitialized())
                     return Json{ { "__error", "The clustered light grid is not initialized (no frame rendered yet)." } };
+
+                // ReadStorageBufferStaged is a GL staging copy; report the
+                // backend limitation up front rather than letting it read as
+                // a readback failure (StorageBuffer::GetData is the portable
+                // route when this gains its facade arm, #691 Phase 8b).
+                if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+                    return Json{ { "__error", "Cluster-grid SSBO readback is OpenGL-only for now — this backend has no staged-read path yet (#691 Phase 8b)." } };
 
                 ClusterGrid::GridDims dims;
                 dims.CountX = lightGrid.GetClusterCountX();

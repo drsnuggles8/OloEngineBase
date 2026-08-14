@@ -16,6 +16,7 @@
 
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
+#include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -534,6 +535,10 @@ namespace OloEngine
         // Shutdown volumetric cloudscape systems (issue #633)
         CloudShadowMap::Shutdown();
         CloudNoise::Shutdown();
+
+        // Release the shared ocean FFT params UBO (#691 Phase 8) while the
+        // graphics device is still valid.
+        Ocean::OceanFFTGpu::ShutdownSharedResources();
 
         // Shutdown precipitation system
         ScreenSpacePrecipitation::Shutdown();

@@ -38,9 +38,11 @@ namespace OloEngine
         [[nodiscard]] bool EnsureCreated();
 
         // Get-or-create the slot whose descriptor realises `info`. Dedup is
-        // by every field vkCreateSampler consumes. Returns DefaultSlot when
-        // the heap is absent (draws then sample linear/clamp — the pre-heap
-        // behaviour) and InvalidSlot only when a WRITE for a new state fails.
+        // by every field vkCreateSampler consumes. Every failure arm —
+        // absent heap, exhausted slots, a failed WRITE for a new state —
+        // returns DefaultSlot (draws then sample linear/clamp — the pre-heap
+        // behaviour), so callers can store the result directly and never
+        // leak InvalidSlot into root data.
         [[nodiscard]] u32 GetOrCreateSlot(const VkSamplerCreateInfo& info);
 
         static constexpr u32 DefaultSlot = 0u;
@@ -96,6 +98,7 @@ namespace OloEngine
         VkDeviceSize m_SlotRegionOffset = 0;
         VkDeviceSize m_ReservedRangeSize = 0;
         VkDeviceSize m_TotalSize = 0;
+        bool m_NeedsFlush = false; ///< Allocation lacks HOST_COHERENT (the VulkanFrameArena rule).
         u32 m_NextSlot = 0;
         VkDevice m_OwningDevice = VK_NULL_HANDLE;
         std::unordered_map<u64, u32> m_SlotByHash;

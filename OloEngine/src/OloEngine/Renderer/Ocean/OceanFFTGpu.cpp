@@ -38,11 +38,11 @@ namespace OloEngine::Ocean
         }
 
         // Std140 twin of the OceanFFTParams block shared by the three
-        // Ocean_*.comp passes. File-scope rather than a member (the header is
-        // out of this slice's reach), shared across OceanFFTGpu instances —
-        // sound because it is refilled before every dispatch on the render
-        // thread. Lives until process exit: the class has no static shutdown
-        // seam to release it from.
+        // Ocean_*.comp passes. File-scope, shared across OceanFFTGpu
+        // instances — sound because it is refilled before every dispatch on
+        // the render thread. Released by ShutdownSharedResources() from
+        // Renderer3D shutdown (the CloudNoise::Shutdown wiring) while the
+        // graphics device is still valid.
         Ref<UniformBuffer> s_FFTParamsUBO;
 
         // Former bare uniforms via ComputeShader::Set*, a deliberate no-op on
@@ -64,6 +64,11 @@ namespace OloEngine::Ocean
     bool OceanFFTGpu::IsAvailable()
     {
         return EnsureShaders();
+    }
+
+    void OceanFFTGpu::ShutdownSharedResources()
+    {
+        s_FFTParamsUBO = nullptr;
     }
 
     bool OceanFFTGpu::EnsureShaders()

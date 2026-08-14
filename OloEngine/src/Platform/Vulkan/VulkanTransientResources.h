@@ -800,6 +800,12 @@ namespace OloEngine
         // the one moment that is correct: the reclaim pass, before the image
         // itself is destroyed.
         DepthArrayLayerAttachment m_DepthArrayAttachment;
+        // True once AttachExternal{Color,Depth}Texture installed an attachment
+        // this framebuffer does not own. Resize would silently REPLACE the
+        // external wiring with fresh internal attachments (CreateAttachments
+        // rebuilds every slot), so it refuses instead (review finding, #691
+        // Phase 8) — the owner re-attaches at its own new size.
+        bool m_HasExternalAttachments = false;
         struct CachedDepthArrayView
         {
             VkImageView View = VK_NULL_HANDLE;

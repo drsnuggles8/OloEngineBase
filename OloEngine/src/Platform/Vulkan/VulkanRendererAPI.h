@@ -313,7 +313,10 @@ namespace OloEngine
         }
         [[nodiscard]] u64 GetStubHitCount(StubKind kind) const
         {
-            return m_StubHitsByKind[static_cast<sizet>(kind)];
+            // Count (and anything out of range) is not a bucket — 0, not an
+            // out-of-bounds read.
+            const auto index = static_cast<sizet>(kind);
+            return index < static_cast<sizet>(StubKind::Count) ? m_StubHitsByKind[index] : 0u;
         }
 
         // Draw observability (issue #691 Phase 7): PrepareDraw's failure
@@ -650,6 +653,17 @@ namespace OloEngine
         // stale handle or one no command buffer has written yet.
         [[nodiscard]] bool ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const;
 
+      public:
+        // Called by ~VulkanFramebuffer (before the identity resets) so no
+        // API-side state outlives the object: the live scope ends if it
+        // targets the dying framebuffer, and a pending lazy clear naming it
+        // is dropped — materializing it later would dereference the freed
+        // object (review finding, #691 Phase 8). Covers both death paths
+        // (raw-registry Destroy and object-owned destruction) through the
+        // one destructor they share.
+        void NotifyFramebufferDestroyed(const VulkanFramebuffer* framebuffer, RHI::ResourceHandle handle);
+
+      private:
         RenderingScope m_Scope;
         PendingClear m_PendingClear;      ///< At most one outstanding clear request (see PendingClear).
         FrameBackbuffer m_Backbuffer;     ///< Live only inside a frame-callback recording.

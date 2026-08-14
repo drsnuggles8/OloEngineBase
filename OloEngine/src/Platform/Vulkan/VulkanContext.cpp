@@ -444,36 +444,90 @@ namespace OloEngine
 
         VulkanContextData& d = *m_Data;
         const VkDevice device = d.Device.GetDevice();
-        VkCheck(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(flush)");
 
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        // Runtime path, not bring-up: no VkCheck throws here. Whatever
+        // fails, the fence must not leak and the recording bracket must be
+        // re-opened, so the caller can fall back to the one-shot
+        // (previous-frame) read on false and the frame can continue.
+        bool ok = true;
+        VkResult result = vkEndCommandBuffer(cmd);
+        if (result != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[Vulkan] flush: vkEndCommandBuffer failed (VkResult {})", static_cast<int>(result));
+            ok = false;
+        }
+
         VkFence fence = VK_NULL_HANDLE;
-        VkCheck(vkCreateFence(device, &fenceInfo, nullptr, &fence), "vkCreateFence(flush)");
+        if (ok)
+        {
+            VkFenceCreateInfo fenceInfo{};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            result = vkCreateFence(device, &fenceInfo, nullptr, &fence);
+            if (result != VK_SUCCESS)
+            {
+                OLO_CORE_ERROR("[Vulkan] flush: vkCreateFence failed (VkResult {})", static_cast<int>(result));
+                fence = VK_NULL_HANDLE;
+                ok = false;
+            }
+        }
+        if (ok)
+        {
+            VkCommandBufferSubmitInfo cmdInfo{};
+            cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+            cmdInfo.commandBuffer = cmd;
+            VkSubmitInfo2 submit{};
+            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+            submit.commandBufferInfoCount = 1;
+            submit.pCommandBufferInfos = &cmdInfo;
+            // Deliberately NO semaphores: the acquire wait and the present signal
+            // belong to the frame's final submit, and any staged RHI::GpuFence
+            // queue ops stay staged for it too — this submission is an ordering
+            // detail inside the frame, invisible to frame pacing.
+            result = vkQueueSubmit2(d.Device.GetQueue(), 1, &submit, fence);
+            if (result != VK_SUCCESS)
+            {
+                OLO_CORE_ERROR("[Vulkan] flush: vkQueueSubmit2 failed (VkResult {})", static_cast<int>(result));
+                ok = false;
+            }
+            else
+            {
+                constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — a flush slower than this is a hang
+                result = vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs);
+                if (result != VK_SUCCESS)
+                {
+                    // Timeout/device-loss: the device is already in fatal
+                    // territory; destroying the fence below is the least-bad
+                    // cleanup.
+                    OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences failed (VkResult {})", static_cast<int>(result));
+                    ok = false;
+                }
+            }
+        }
+        if (fence != VK_NULL_HANDLE)
+        {
+            vkDestroyFence(device, fence, nullptr);
+        }
 
-        VkCommandBufferSubmitInfo cmdInfo{};
-        cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        cmdInfo.commandBuffer = cmd;
-        VkSubmitInfo2 submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submit.commandBufferInfoCount = 1;
-        submit.pCommandBufferInfos = &cmdInfo;
-        // Deliberately NO semaphores: the acquire wait and the present signal
-        // belong to the frame's final submit, and any staged RHI::GpuFence
-        // queue ops stay staged for it too — this submission is an ordering
-        // detail inside the frame, invisible to frame pacing.
-        VkCheck(vkQueueSubmit2(d.Device.GetQueue(), 1, &submit, fence), "vkQueueSubmit2(flush)");
-        constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — a flush slower than this is a hang
-        VkCheck(vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs), "vkWaitForFences(flush)");
-        vkDestroyFence(device, fence, nullptr);
-
-        VkCheck(vkResetCommandBuffer(cmd, 0), "vkResetCommandBuffer(flush)");
+        // Re-open the recording bracket on EVERY path (reset also recovers a
+        // command buffer left invalid by a failed end above), and always hand
+        // it back to the API so its recording state stays consistent.
+        result = vkResetCommandBuffer(cmd, 0);
+        if (result != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[Vulkan] flush: vkResetCommandBuffer failed (VkResult {})", static_cast<int>(result));
+            ok = false;
+        }
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        VkCheck(vkBeginCommandBuffer(cmd, &beginInfo), "vkBeginCommandBuffer(flush)");
+        result = vkBeginCommandBuffer(cmd, &beginInfo);
+        if (result != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[Vulkan] flush: vkBeginCommandBuffer failed (VkResult {})", static_cast<int>(result));
+            ok = false;
+        }
         api.ResumeRecordingAfterFlush(cmd);
-        return true;
+        return ok;
     }
 
     u32 VulkanContext::GetSwapchainImageCount() const

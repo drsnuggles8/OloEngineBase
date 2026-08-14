@@ -19,13 +19,12 @@ namespace OloEngine
             // GL/ImGui editor UI which needs a real OpenGL 4.6 context, and the
             // app runs window-less there. See CreateApplication below.
             //
-            // #691 Phase 7 (Final): the layer is pushed on BOTH backends now.
-            // Under --rhi=vulkan it drives the scene and the render graph
-            // exactly as on GL, and the graph's FinalPass blits to the
-            // swapchain — so the window shows the rendered scene FULL SCREEN.
-            // What is missing there is the editor UI itself: ImGui runs
-            // platform-only (imgui_impl_opengl3 is GL-bound until Phase 8), so
-            // panel logic executes but nothing is painted over the scene.
+            // #691 Phase 8: the layer is pushed on BOTH backends and drives a
+            // FULL editor session on each. Under --rhi=vulkan the scene
+            // renders through the Vulkan graph and the ImGui editor UI
+            // composites over the swapchain via the Vulkan ImGui backend
+            // (VulkanImGuiBackend) — panels, viewport and overlays all paint,
+            // exactly as under GL.
             if (pushEditorLayer)
             {
                 PushLayer(std::make_unique<EditorLayer>());
