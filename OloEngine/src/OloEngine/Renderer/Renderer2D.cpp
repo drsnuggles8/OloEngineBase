@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Core/UTF8.h"
@@ -354,7 +355,14 @@ namespace OloEngine
         // VP_rel * (worldPos - O) == VP_world * worldPos, so the 2D shaders
         // that only project a_Position / a_WorldPosition stay correct unmodified.
         s_Data.RenderOrigin = s_Data.CameraRelativeEnabled ? ComputeRenderOrigin(cameraWorldPos) : glm::vec3(0.0f);
-        s_Data.CameraBuffer.ViewProjection = MakeViewProjectionRelative(viewProjectionWorld, s_Data.RenderOrigin);
+        // AdjustProjectionForBackend: the 2D camera UBO feeds gl_Position
+        // directly, so it needs the same Vulkan clip-space adjustment the 3D
+        // camera packing applies (RenderPipeline / CommandDispatch) — without
+        // it every Renderer2D scene rendered vertically mirrored under
+        // Vulkan (#691 Phase 8, found by the 80-scene A/B sweep's
+        // LuaGameplayTest). Identity on GL.
+        s_Data.CameraBuffer.ViewProjection =
+            RHI::AdjustProjectionForBackend(MakeViewProjectionRelative(viewProjectionWorld, s_Data.RenderOrigin));
 
         UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
         s_Data.CameraUniformBuffer->SetData(data);
