@@ -4500,19 +4500,34 @@ namespace OloEngine
 
         // Mid-frame read: pending writes to this image may still sit in the
         // recording frame command buffer — the StorageBuffer::GetData rule.
-        // Flush and wait; on refusal the readback proceeds and may return the
-        // previous frame's contents (warn-once).
+        // Flush and wait so the read sees THIS frame's writes.
+        //
+        // A REFUSED flush (the backbuffer was already written this frame) is
+        // not a "read anyway" licence: the one-shot below would execute
+        // BEFORE the still-recording frame command buffer (amendment 72) and
+        // its layout transitions would contradict the layouts that buffer was
+        // recorded against — validation reported exactly that
+        // ("expects SHADER_READ_ONLY_OPTIMAL — instead, current layout is
+        // UNDEFINED") and the frame came back with only the skybox drawn.
+        // So a refused flush switches the read into BORROW mode: transition
+        // from the tracked layout, copy, transition straight BACK, and leave
+        // the layout tracker untouched. The frame CB then executes against
+        // exactly the state it was recorded for, and the caller gets the
+        // PREVIOUS frame's contents — which is precisely what GL's
+        // double-buffered PBO entity-pick read returns too.
+        bool borrowLayout = false;
         if (m_Cmd != VK_NULL_HANDLE)
         {
             auto* context = VulkanContext::Get();
             if (context == nullptr || !context->FlushFrameRecordingAndWait())
             {
+                borrowLayout = true;
                 static bool s_Warned = false;
                 if (!s_Warned)
                 {
                     s_Warned = true;
-                    OLO_CORE_WARN("[Vulkan] mid-frame ReadTextureSubImage without a frame flush — the readback "
-                                  "may return stale contents");
+                    OLO_CORE_WARN("[Vulkan] mid-frame ReadTextureSubImage without a frame flush — reading the "
+                                  "previous frame's contents without disturbing the recording (warn-once)");
                 }
             }
         }
@@ -4568,20 +4583,56 @@ namespace OloEngine
         const VkImageAspectFlags barrierAspect =
             info->HasStencil ? (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT) : aspect;
         const VkImageSubresourceRange range{ barrierAspect, mipLevel, 1u, baseLayer, layerCount };
+
+        // Borrow mode needs ONE layout to hand back. A mixed range has no
+        // single answer, and transitioning from UNDEFINED discards the very
+        // content the read wants — refuse instead of returning garbage.
+        VkImageLayout borrowedLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (borrowLayout)
+        {
+            borrowedLayout = m_LayoutTracker.CurrentLayout(image, range);
+            if (borrowedLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+            {
+                vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+                return false;
+            }
+        }
+
         const bool ok = VulkanOneShot::Submit(
             "VulkanRendererAPI::ReadTextureSubImage",
             [&](VkCommandBuffer cmd)
             {
-                // Exact-oldLayout transitions per tracked layout run (the
-                // CopyImageSubData discipline), so attachments read correctly
-                // whatever layout the last pass left them in.
-                std::vector<VkImageMemoryBarrier2> toSrc;
-                StageTransferTransition(image, range, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                        VK_ACCESS_2_TRANSFER_READ_BIT, toSrc);
                 VkDependencyInfo dep{};
                 dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-                dep.imageMemoryBarrierCount = static_cast<u32>(toSrc.size());
-                dep.pImageMemoryBarriers = toSrc.data();
+                std::vector<VkImageMemoryBarrier2> toSrc;
+                VkImageMemoryBarrier2 borrowIn{};
+                if (borrowLayout)
+                {
+                    // Tracker untouched: this transition is undone below.
+                    borrowIn.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                    borrowIn.srcStageMask = kAllStages;
+                    borrowIn.srcAccessMask = kAllAccess;
+                    borrowIn.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                    borrowIn.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+                    borrowIn.oldLayout = borrowedLayout;
+                    borrowIn.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                    borrowIn.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    borrowIn.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    borrowIn.image = image;
+                    borrowIn.subresourceRange = range;
+                    dep.imageMemoryBarrierCount = 1u;
+                    dep.pImageMemoryBarriers = &borrowIn;
+                }
+                else
+                {
+                    // Exact-oldLayout transitions per tracked layout run (the
+                    // CopyImageSubData discipline), so attachments read
+                    // correctly whatever layout the last pass left them in.
+                    StageTransferTransition(image, range, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                            VK_ACCESS_2_TRANSFER_READ_BIT, toSrc);
+                    dep.imageMemoryBarrierCount = static_cast<u32>(toSrc.size());
+                    dep.pImageMemoryBarriers = toSrc.data();
+                }
                 vkCmdPipelineBarrier2(cmd, &dep);
 
                 VkBufferImageCopy region{};
@@ -4590,17 +4641,20 @@ namespace OloEngine
                 region.imageExtent = { width, height, depthExtent };
                 vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
 
-                // Settle back into the sampled steady state; the tracker
-                // records it so the next graph execution transitions from
-                // truth.
+                // Borrow mode hands the layout straight back (and leaves the
+                // tracker alone); otherwise settle into the sampled steady
+                // state and record it, so the next graph execution
+                // transitions from truth.
+                const VkImageLayout settleLayout =
+                    borrowLayout ? borrowedLayout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 VkImageMemoryBarrier2 toRead{};
                 toRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
                 toRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
                 toRead.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
                 toRead.dstStageMask = kAllStages;
-                toRead.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+                toRead.dstAccessMask = borrowLayout ? kAllAccess : VK_ACCESS_2_MEMORY_READ_BIT;
                 toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-                toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                toRead.newLayout = settleLayout;
                 toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 toRead.image = image;
@@ -4608,7 +4662,10 @@ namespace OloEngine
                 dep.imageMemoryBarrierCount = 1u;
                 dep.pImageMemoryBarriers = &toRead;
                 vkCmdPipelineBarrier2(cmd, &dep);
-                m_LayoutTracker.SetLayout(image, range, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                if (!borrowLayout)
+                {
+                    m_LayoutTracker.SetLayout(image, range, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                }
             });
 
         bool converted = false;

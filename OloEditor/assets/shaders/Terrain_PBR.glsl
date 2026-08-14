@@ -11,9 +11,24 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// binding 57. Draw site is the terrain patch VBO (TerrainChunk.cpp /
+// TerrainVertex.h — 32 B: vec3 Position @0, vec2 TexCoord @12, vec3 Normal
+// @20), so the stride is 8 floats but the FIELD ORDER differs from the
+// engine `Vertex` (uv before normal). Only the vertex stage pulls; the
+// tess control/eval stages read the vertex stage's outputs unchanged. The
+// GL attribute branch below is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec2 a_TexCoord;
 layout(location = 2) in vec3 a_Normal;
+#endif
 
 // Pass through to tessellation control shader
 layout(location = 0) out vec3 v_Position;
@@ -22,6 +37,12 @@ layout(location = 2) out vec3 v_Normal;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    int vertBase = gl_VertexIndex * 8;
+    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+    vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4]);
+    vec3 a_Normal = vec3(b_Vertices.v[vertBase + 5], b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
+#endif
     v_Position = a_Position;
     v_TexCoord = a_TexCoord;
     v_Normal = a_Normal;

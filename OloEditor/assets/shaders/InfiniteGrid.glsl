@@ -4,7 +4,20 @@
 // Infinite grid shader - renders a grid on the XZ plane that extends to infinity
 // Uses standard depth (near=0, far=1)
 
+#ifdef OLO_VULKAN
+// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// binding 57. This draw site is Renderer3D::DrawInfiniteGrid's
+// FullscreenQuadVAO (Renderer3DLifecycle.cpp) — a bare {vec3 a_Position} NDC
+// quad at 12-byte stride, so the stride is 3 floats, NOT the 8-float engine
+// Vertex. The GL attribute branch below is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
+#endif
 
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
@@ -36,6 +49,10 @@ vec3 UnprojectPoint(float x, float y, float z, mat4 viewInverse, mat4 projInvers
 }
 
 void main() {
+#ifdef OLO_PULLED_VERTEX
+    int vertBase = gl_VertexIndex * 3;
+    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+#endif
     mat4 viewInverse = inverse(u_View);
     // Reconstruction flavour: the ±1 ndc z below is GL-convention.
     mat4 projInverse = inverse(u_ProjectionForReconstruction);

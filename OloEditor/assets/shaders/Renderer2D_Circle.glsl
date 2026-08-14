@@ -6,12 +6,27 @@
 #type vertex
 #version 450 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// binding 57. Draw site is the Renderer2D circle batch (Renderer2D.cpp
+// CircleVertex, 52 B / 13 words): vec3 WorldPosition @0, vec3 LocalPosition
+// @12, vec4 Color @24, f32 Thickness @40, f32 Fade @44, int EntityID @48.
+// The stream carries an INT attribute, so the pull buffer is declared uint
+// and floats are decoded with uintBitsToFloat. The GL attribute branch below
+// is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    uint v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_WorldPosition;
 layout(location = 1) in vec3 a_LocalPosition;
 layout(location = 2) in vec4 a_Color;
 layout(location = 3) in float a_Thickness;
 layout(location = 4) in float a_Fade;
 layout(location = 5) in int a_EntityID;
+#endif
 
 layout(std140, binding = 0) uniform Camera
 {
@@ -31,6 +46,15 @@ layout (location = 4) out flat int v_EntityID;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+	int vertBase = gl_VertexIndex * 13;
+	vec3 a_WorldPosition = vec3(uintBitsToFloat(b_Vertices.v[vertBase + 0]), uintBitsToFloat(b_Vertices.v[vertBase + 1]), uintBitsToFloat(b_Vertices.v[vertBase + 2]));
+	vec3 a_LocalPosition = vec3(uintBitsToFloat(b_Vertices.v[vertBase + 3]), uintBitsToFloat(b_Vertices.v[vertBase + 4]), uintBitsToFloat(b_Vertices.v[vertBase + 5]));
+	vec4 a_Color = vec4(uintBitsToFloat(b_Vertices.v[vertBase + 6]), uintBitsToFloat(b_Vertices.v[vertBase + 7]), uintBitsToFloat(b_Vertices.v[vertBase + 8]), uintBitsToFloat(b_Vertices.v[vertBase + 9]));
+	float a_Thickness = uintBitsToFloat(b_Vertices.v[vertBase + 10]);
+	float a_Fade = uintBitsToFloat(b_Vertices.v[vertBase + 11]);
+	int a_EntityID = int(b_Vertices.v[vertBase + 12]);
+#endif
 	Output.LocalPosition = a_LocalPosition;
 	Output.Color = a_Color;
 	Output.Thickness = a_Thickness;
