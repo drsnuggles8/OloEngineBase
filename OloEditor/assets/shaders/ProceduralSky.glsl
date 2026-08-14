@@ -16,7 +16,22 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 8 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
+// pipeline has no vertex-input state, so attributes are READ from binding 57
+// (the engine-wide vertex-pull binding; the root struct carries this buffer's
+// device address). This bake draws MeshPrimitives::CreateSkyboxCube(), whose
+// stream is the engine `Vertex` (32 B: vec3 position @0, vec3 normal @12,
+// vec2 uv @24), so the stride is 8 floats even though this stage only needs
+// the position. The GL attribute branch below is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
+#endif
 
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
@@ -30,6 +45,10 @@ layout(location = 0) out vec3 v_LocalPos;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    int vertBase = gl_VertexIndex * 8;
+    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+#endif
     v_LocalPos = a_Position;
     gl_Position = u_ViewProjection * vec4(a_Position, 1.0);
 }

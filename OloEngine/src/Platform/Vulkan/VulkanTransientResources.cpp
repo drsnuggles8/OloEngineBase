@@ -321,12 +321,15 @@ namespace OloEngine
             return out;
         }
 
-        // One VkImageMemoryBarrier2 over a mip range of a color image —
+        // One VkImageMemoryBarrier2 over a mip/layer range of a color image —
         // upload-path plumbing (the graph's barriers go through
-        // VulkanBarrierLowering, not this).
+        // VulkanBarrierLowering, not this). The layer pair defaults to the
+        // single-layer shape every 2D upload uses; the cubemap face paths
+        // (#691 Phase 8) pass a face index.
         void RecordImageBarrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
                                 VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
-                                VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess, u32 baseMip, u32 mipCount)
+                                VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess, u32 baseMip, u32 mipCount,
+                                u32 baseLayer = 0u, u32 layerCount = 1u)
         {
             VkImageMemoryBarrier2 barrier{};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -339,7 +342,7 @@ namespace OloEngine
             barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.image = image;
-            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, baseMip, mipCount, 0u, 1u };
+            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, baseMip, mipCount, baseLayer, layerCount };
 
             VkDependencyInfo dep{};
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -1426,14 +1429,18 @@ namespace OloEngine
         m_Specification.Height = height;
         m_Specification.Format = spec.Format;
 
+        // Clamp an authored MipLevels to the chain the extent supports (the
+        // DeriveMipLevels rule): an over-large count from a stale IBL cache
+        // is a vkCreateImage failure, not a request (#691 Phase 8).
+        const u32 fullChain = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height)))));
         m_MipLevels = 1u;
         if (spec.MipLevels > 0u)
         {
-            m_MipLevels = spec.MipLevels;
+            m_MipLevels = std::min(spec.MipLevels, fullChain);
         }
         else if (spec.GenerateMips)
         {
-            m_MipLevels = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height)))));
+            m_MipLevels = fullChain;
         }
 
         const VkFormat format = ImageFormatToVkFormat(spec.Format, false);
@@ -1518,34 +1525,320 @@ namespace OloEngine
         WarnCubemapCpuPathOnce("Invalidate");
     }
 
-    void VulkanTextureCubemap::SetFaceData(u32 /*faceIndex*/, void* /*data*/, u32 /*size*/)
+    void VulkanTextureCubemap::SetFaceData(u32 faceIndex, void* data, u32 size)
     {
-        WarnCubemapCpuPathOnce("SetFaceData");
+        // GL contract (OpenGLTextureCubemap::SetFaceData): mip-0 face upload
+        // plus a full mip regeneration when the spec asks for mips.
+        if (!SetFaceDataMip(faceIndex, 0u, data, size))
+        {
+            return;
+        }
+        if (m_CubemapSpecification.GenerateMips && m_MipLevels > 1u)
+        {
+            GenerateMipmaps();
+        }
     }
 
-    bool VulkanTextureCubemap::SetFaceDataMip(u32 /*faceIndex*/, u32 /*mipLevel*/, void* /*data*/, u32 /*size*/)
+    bool VulkanTextureCubemap::SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size)
     {
-        WarnCubemapCpuPathOnce("SetFaceDataMip");
-        return false;
+        // #691 Phase 8: the cubemap CPU face upload — six layers of the
+        // VulkanTexture2D staging shape. This is the IBL cache's load path
+        // and the reflection-probe baker's face write, i.e. most of what
+        // stood between the flat grey sky and a lit environment.
+        auto* device = VulkanDevice::Get();
+        const u32 clientBpp = EngineFormatClientBpp(m_CubemapSpecification.Format);
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr || clientBpp == 0u || faceIndex >= 6u ||
+            mipLevel >= m_MipLevels)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemap::SetFaceDataMip: no upload path (face {}, mip {}/{})", faceIndex,
+                           mipLevel, m_MipLevels);
+            return false;
+        }
+        const u32 mipWidth = std::max(m_CubemapSpecification.Width >> mipLevel, 1u);
+        const u32 mipHeight = std::max(m_CubemapSpecification.Height >> mipLevel, 1u);
+        const u64 expected = static_cast<u64>(mipWidth) * mipHeight * clientBpp;
+        if (size < expected)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemap::SetFaceDataMip: got {} bytes, face mip needs {}", size, expected);
+            return false;
+        }
+
+        const void* uploadData = data;
+        u64 uploadSize = expected;
+        std::vector<u8> expanded;
+        if (m_CubemapSpecification.Format == ImageFormat::RGB8 || m_CubemapSpecification.Format == ImageFormat::RGB32F)
+        {
+            expanded = ExpandRgbToRgba(m_CubemapSpecification.Format, data, static_cast<u64>(mipWidth) * mipHeight);
+            uploadData = expanded.data();
+            uploadSize = expanded.size();
+        }
+
+        // Mid-frame (the IBL cache load runs inside the frame on this
+        // backend): record into the FRAME command buffer through the API's
+        // tracker — a one-shot here would submit BEFORE the frame and race
+        // the layout tracking (the 1c ordering rule).
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            return vk->RecordStagedImageUpload(m_Image, mipLevel, faceIndex, mipWidth, mipHeight, uploadData,
+                                               uploadSize);
+        }
+
+        // Load time (no recording): the blocking one-shot, the
+        // VulkanTexture2D::UploadPixels shape with the face as the layer.
+        VkBufferCreateInfo stagingInfo{};
+        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingInfo.size = uploadSize;
+        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo stagingAlloc{};
+        stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo stagingOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                            &stagingOut) != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemap::SetFaceDataMip: staging allocation failed ({} bytes)", uploadSize);
+            return false;
+        }
+        std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+        const VkImageLayout priorLayout = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTextureCubemap::SetFaceDataMip",
+            [&](VkCommandBuffer cmd)
+            {
+                // Whole image through the transition, not just this face:
+                // partial-face-uploaded cubes must keep a UNIFORM tracked
+                // layout or CurrentLayout answers UNDEFINED (a legal discard)
+                // for whole-image queries — the mixed-layout trap.
+                RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   priorLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ACCESS_2_NONE
+                                                                            : VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                                   6u);
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, faceIndex, 1u };
+                region.imageExtent = { mipWidth, mipHeight, 1u };
+                vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, 6u);
+            });
+        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        if (ok)
+        {
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        return ok;
     }
 
     void VulkanTextureCubemap::GenerateMipmaps() const
     {
-        WarnCubemapCpuPathOnce("GenerateMipmaps");
+        // Mip chain by blit, all six faces per level in ONE blit (the
+        // subresource layerCount carries the fan-out). Runs in the frame
+        // command buffer when one is live (transfer ops are legal outside the
+        // rendering scope), else as a one-shot.
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || m_MipLevels <= 1u)
+        {
+            return;
+        }
+
+        const auto recordChain = [this](VkCommandBuffer cmd, const VkImageLayout priorLayout)
+        {
+            RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                               priorLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ACCESS_2_NONE
+                                                                        : VK_ACCESS_2_MEMORY_WRITE_BIT,
+                               VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
+                               VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                               6u);
+            u32 srcWidth = m_CubemapSpecification.Width;
+            u32 srcHeight = m_CubemapSpecification.Height;
+            for (u32 mip = 1u; mip < m_MipLevels; ++mip)
+            {
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                   VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u, 0u, 6u);
+                VkImageBlit blit{};
+                blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1u, 0u, 6u };
+                blit.srcOffsets[1] = { static_cast<i32>(std::max(srcWidth, 1u)),
+                                       static_cast<i32>(std::max(srcHeight, 1u)), 1 };
+                blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0u, 6u };
+                blit.dstOffsets[1] = { static_cast<i32>(std::max(srcWidth >> 1u, 1u)),
+                                       static_cast<i32>(std::max(srcHeight >> 1u, 1u)), 1 };
+                vkCmdBlitImage(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
+                srcWidth = std::max(srcWidth >> 1u, 1u);
+                srcHeight = std::max(srcHeight >> 1u, 1u);
+            }
+            // Unify: mips [0, N-1) sit in TRANSFER_SRC, the last in DST.
+            RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                               VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                               VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u, 0u, 6u);
+            RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                               VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                               VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, 6u);
+        };
+
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            // In-frame: the tracker must agree with the chain's transitions.
+            // The chain works in whole-subresource strokes, so drive it with
+            // the tracker's whole-image answer and settle everything to
+            // SHADER_READ_ONLY afterwards.
+            auto& tracker = vk->LayoutTracker();
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+            tracker.RegisterImage(m_Image, m_MipLevels, 6u, info != nullptr ? info->RegistrationId : 0u,
+                                  info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED);
+            const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, 6u };
+            const VkImageLayout prior = tracker.CurrentLayout(m_Image, whole);
+            recordChain(vk->CurrentCommandBuffer(), prior);
+            tracker.SetLayout(m_Image, whole, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        else
+        {
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+            const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+            (void)VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps",
+                                        [&](VkCommandBuffer cmd)
+                                        { recordChain(cmd, prior); });
+        }
+        VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 
-    bool VulkanTextureCubemap::GetFaceData(u32 /*faceIndex*/, std::vector<u8>& outData, u32 /*mipLevel*/) const
+    bool VulkanTextureCubemap::GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel) const
     {
         outData.clear();
-        WarnCubemapCpuPathOnce("GetFaceData");
-        return false;
+        auto* device = VulkanDevice::Get();
+        const u32 clientBpp = EngineFormatClientBpp(m_CubemapSpecification.Format);
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || clientBpp == 0u || faceIndex >= 6u ||
+            mipLevel >= m_MipLevels)
+        {
+            return false;
+        }
+        // Mid-frame: the face's content may still sit unsubmitted in the
+        // frame command buffer — the StorageBuffer::GetData rule. Flush; a
+        // refusal falls back to previous-frame data with the 1c warn-once.
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            auto* context = VulkanContext::Get();
+            if (context == nullptr || !context->FlushFrameRecordingAndWait())
+            {
+                static bool s_Warned = false;
+                if (!s_Warned)
+                {
+                    s_Warned = true;
+                    OLO_CORE_WARN("[Vulkan] mid-frame cubemap GetFaceData without a frame flush — the readback "
+                                  "may return stale contents");
+                }
+            }
+        }
+
+        const u32 mipWidth = std::max(m_CubemapSpecification.Width >> mipLevel, 1u);
+        const u32 mipHeight = std::max(m_CubemapSpecification.Height >> mipLevel, 1u);
+        // The engine face format is what GL hands back (RGB stays RGB); the
+        // backend stores RGB widened to RGBA, so read RGBA and narrow.
+        const bool widened =
+            m_CubemapSpecification.Format == ImageFormat::RGB8 || m_CubemapSpecification.Format == ImageFormat::RGB32F;
+        const u32 storedBpp = widened ? (clientBpp / 3u) * 4u : clientBpp;
+        const u64 storedSize = static_cast<u64>(mipWidth) * mipHeight * storedBpp;
+
+        VkBufferCreateInfo readbackInfo{};
+        readbackInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        readbackInfo.size = storedSize;
+        readbackInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        readbackInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo readbackAlloc{};
+        readbackAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        readbackAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer readback = VK_NULL_HANDLE;
+        VmaAllocation readbackAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo readbackOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
+                            &readbackOut) != VK_SUCCESS)
+        {
+            return false;
+        }
+
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+        const VkImageLayout priorLayout = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        if (priorLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+        {
+            // Nothing was ever uploaded/rendered — a read would be garbage.
+            vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+            return false;
+        }
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTextureCubemap::GetFaceData",
+            [&](VkCommandBuffer cmd)
+            {
+                RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, 0u, m_MipLevels, 0u,
+                                   6u);
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, faceIndex, 1u };
+                region.imageExtent = { mipWidth, mipHeight, 1u };
+                vkCmdCopyImageToBuffer(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, priorLayout,
+                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels,
+                                   0u, 6u);
+            });
+        if (ok)
+        {
+            vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, storedSize);
+            const auto* stored = static_cast<const u8*>(readbackOut.pMappedData);
+            if (widened)
+            {
+                // Narrow RGBA back to the RGB the caller's format promises.
+                const u64 texels = static_cast<u64>(mipWidth) * mipHeight;
+                const u32 channelBytes = clientBpp / 3u;
+                outData.resize(texels * clientBpp);
+                for (u64 i = 0; i < texels; ++i)
+                {
+                    std::memcpy(outData.data() + i * clientBpp, stored + i * storedBpp,
+                                static_cast<sizet>(clientBpp));
+                }
+            }
+            else
+            {
+                outData.assign(stored, stored + storedSize);
+            }
+        }
+        vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        return ok;
     }
 
-    bool VulkanTextureCubemap::GetData(std::vector<u8>& outData, u32 /*mipLevel*/) const
+    bool VulkanTextureCubemap::GetData(std::vector<u8>& outData, u32 mipLevel) const
     {
+        // GL contract (OpenGLTextureCubemap::GetData): all six faces
+        // contiguous in face order.
         outData.clear();
-        WarnCubemapCpuPathOnce("GetData");
-        return false;
+        std::vector<u8> face;
+        for (u32 i = 0; i < 6u; ++i)
+        {
+            if (!GetFaceData(i, face, mipLevel))
+            {
+                outData.clear();
+                return false;
+            }
+            outData.insert(outData.end(), face.begin(), face.end());
+        }
+        return true;
     }
 
     // --- VulkanTextureCubemapArray (#691 Phase 8) ----------------------------

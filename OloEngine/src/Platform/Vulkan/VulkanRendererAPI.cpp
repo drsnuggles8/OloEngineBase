@@ -270,6 +270,65 @@ namespace OloEngine
         m_ScissorRectSet = false;
     }
 
+    bool VulkanRendererAPI::RecordStagedImageUpload(VkImage image, u32 mip, u32 baseLayer, u32 width, u32 height,
+                                                    const void* data, u64 sizeBytes)
+    {
+        if (m_Cmd == VK_NULL_HANDLE || image == VK_NULL_HANDLE || data == nullptr || sizeBytes == 0u)
+        {
+            return false;
+        }
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            return false;
+        }
+
+        VkBufferCreateInfo stagingInfo{};
+        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingInfo.size = sizeBytes;
+        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo stagingAlloc{};
+        stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo stagingOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                            &stagingOut) != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] RecordStagedImageUpload: staging allocation failed ({} bytes)", sizeBytes);
+            return false;
+        }
+        std::memcpy(stagingOut.pMappedData, data, sizeBytes);
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, sizeBytes);
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, mip, 1u, baseLayer, 1u };
+        std::vector<VkImageMemoryBarrier2> toTransfer;
+        StageTransferTransition(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                toTransfer);
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
+        dep.pImageMemoryBarriers = toTransfer.data();
+        vkCmdPipelineBarrier2(m_Cmd, &dep);
+
+        VkBufferImageCopy region{};
+        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, baseLayer, 1u };
+        region.imageExtent = { width, height, 1u };
+        vkCmdCopyBufferToImage(m_Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+
+        // Left in TRANSFER_DST with the tracker in agreement; the bind-time
+        // visibility seam transitions to SHADER_READ_ONLY at the next sample.
+        // The frame consumes the copy at submit — the staging buffer takes
+        // deferred reclaim, never an inline destroy.
+        VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
+        return true;
+    }
+
     // --- Viewport / scissor (real dynamic state) ---------------------------
 
     void VulkanRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
@@ -2789,9 +2848,85 @@ namespace OloEngine
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
     }
 
-    void VulkanRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle /*src*/, TextureTargetType /*srcTarget*/, i32 /*srcLevel*/, i32 /*srcZ*/, RHI::ResourceHandle /*dst*/, TextureTargetType /*dstTarget*/, i32 /*dstLevel*/, i32 /*dstZ*/, u32 /*width*/, u32 /*height*/)
+    void VulkanRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType /*srcTarget*/, i32 srcLevel, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType /*dstTarget*/, i32 dstLevel, i32 dstZ, u32 width, u32 height)
     {
-        Phase6Stub("CopyImageSubDataFull");
+        // glCopyImageSubData's addressed form (#691 Phase 8): level = mip and
+        // z = array layer — for a cubemap target GL's z IS the face index,
+        // which is exactly a Vulkan array layer on the CUBE_COMPATIBLE image.
+        // This is the IBL/sky bake's face write (render to a 2D framebuffer,
+        // copy into cube face i at mip m), so implementing it is what turns
+        // the flat grey sky into a skybox. Same transition discipline as the
+        // no-offset sibling above.
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("CopyImageSubDataFull(outside recording bracket)");
+            return;
+        }
+        if (width == 0u || height == 0u || !src.IsValid() || !dst.IsValid() || srcLevel < 0 || dstLevel < 0 ||
+            srcZ < 0 || dstZ < 0)
+        {
+            return;
+        }
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        auto& registry = RHI::ResourceRegistry::Get();
+        const u64 srcNative = registry.ResolveNativeForBackend(src);
+        const u64 dstNative = registry.ResolveNativeForBackend(dst);
+        if (srcNative == 0u || dstNative == 0u)
+        {
+            return;
+        }
+        const auto srcImage = reinterpret_cast<VkImage>(srcNative);
+        const auto dstImage = reinterpret_cast<VkImage>(dstNative);
+        const auto* srcInfo = VulkanImageInfoRegistry::Get().Lookup(srcImage);
+        const auto* dstInfo = VulkanImageInfoRegistry::Get().Lookup(dstImage);
+        if (srcInfo == nullptr || dstInfo == nullptr)
+        {
+            return;
+        }
+        if (static_cast<u32>(srcLevel) >= std::max(srcInfo->MipLevels, 1u) ||
+            static_cast<u32>(dstLevel) >= std::max(dstInfo->MipLevels, 1u) ||
+            static_cast<u32>(srcZ) >= std::max(srcInfo->ArrayLayers, 1u) ||
+            static_cast<u32>(dstZ) >= std::max(dstInfo->ArrayLayers, 1u))
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] CopyImageSubDataFull: subresource out of range (src mip {}/{} layer {}/{}, "
+                          "dst mip {}/{} layer {}/{}) — copy skipped",
+                          srcLevel, srcInfo->MipLevels, srcZ, srcInfo->ArrayLayers, dstLevel, dstInfo->MipLevels,
+                          dstZ, dstInfo->ArrayLayers);
+            return;
+        }
+
+        const VkImageAspectFlags srcAspect = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
+        const VkImageAspectFlags dstAspect = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*dstInfo));
+        m_LayoutTracker.RegisterImage(srcImage, std::max(srcInfo->MipLevels, 1u), std::max(srcInfo->ArrayLayers, 1u),
+                                      srcInfo->RegistrationId, srcInfo->InitialLayout);
+        m_LayoutTracker.RegisterImage(dstImage, std::max(dstInfo->MipLevels, 1u), std::max(dstInfo->ArrayLayers, 1u),
+                                      dstInfo->RegistrationId, dstInfo->InitialLayout);
+
+        const VkImageSubresourceRange srcRange{ srcAspect, static_cast<u32>(srcLevel), 1u, static_cast<u32>(srcZ),
+                                                1u };
+        const VkImageSubresourceRange dstRange{ dstAspect, static_cast<u32>(dstLevel), 1u, static_cast<u32>(dstZ),
+                                                1u };
+
+        std::vector<VkImageMemoryBarrier2> toTransfer;
+        StageTransferTransition(srcImage, srcRange, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                VK_ACCESS_2_TRANSFER_READ_BIT, toTransfer);
+        StageTransferTransition(dstImage, dstRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                VK_ACCESS_2_TRANSFER_WRITE_BIT, toTransfer);
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
+        dep.pImageMemoryBarriers = toTransfer.data();
+        vkCmdPipelineBarrier2(m_Cmd, &dep);
+
+        VkImageCopy region{};
+        region.srcSubresource = { srcAspect, static_cast<u32>(srcLevel), static_cast<u32>(srcZ), 1u };
+        region.dstSubresource = { dstAspect, static_cast<u32>(dstLevel), static_cast<u32>(dstZ), 1u };
+        region.extent = { width, height, 1u };
+        vkCmdCopyImage(m_Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
     }
 
     void VulkanRendererAPI::CopyFramebufferToTexture(RHI::ResourceHandle /*texture*/, u32 /*width*/, u32 /*height*/)

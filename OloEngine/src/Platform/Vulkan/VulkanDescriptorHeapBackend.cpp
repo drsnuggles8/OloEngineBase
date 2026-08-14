@@ -124,7 +124,17 @@ namespace OloEngine
         auto& viewInfo = staged.ViewInfo;
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = image;
+        // The registry's recorded dimensionality is the authority (#691
+        // Phase 8): deriving from layerCount alone handed a CUBE image a
+        // 2D_ARRAY view against a samplerCube declaration (and a 3D volume a
+        // 2D one). Storage views are the exception — imageCube is not a
+        // declared consumer, so cube-compatible images bind as their layer
+        // array there (BindImageTexture's rule).
         viewInfo.viewType = layerCount > 1u ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+        if (!storage && info->ViewType != VK_IMAGE_VIEW_TYPE_2D)
+        {
+            viewInfo.viewType = info->ViewType;
+        }
         viewInfo.format = format;
         viewInfo.subresourceRange.aspectMask =
             info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;

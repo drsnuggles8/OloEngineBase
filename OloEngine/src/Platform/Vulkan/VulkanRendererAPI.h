@@ -217,6 +217,16 @@ namespace OloEngine
         // not restart.
         [[nodiscard]] VkCommandBuffer SuspendRecordingForFlush();
         void ResumeRecordingAfterFlush(VkCommandBuffer cmd);
+
+        // Backend-internal (#691 Phase 8): record a staged buffer→image copy
+        // of one (mip, layer) region into the CURRENT frame command buffer,
+        // with tracker-exact transitions and the staging buffer routed
+        // through deferred reclaim. The cubemap face-upload paths call this
+        // when a recording is live (the IBL cache load runs mid-frame on
+        // this backend); false when no recording is open or staging failed —
+        // callers then take their blocking one-shot arm.
+        [[nodiscard]] bool RecordStagedImageUpload(VkImage image, u32 mip, u32 baseLayer, u32 width, u32 height,
+                                                   const void* data, u64 sizeBytes);
         [[nodiscard]] VulkanImageLayoutTracker& LayoutTracker()
         {
             return m_LayoutTracker;
