@@ -4,7 +4,13 @@
 #include "OloEngine/ImGui/FontAwesome.h"
 #include "OloEngine/ImGui/ImGuiFonts.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/Texture.h"
+// OLO_WITH_VULKAN-guarded factory-TU convention (see Renderer/Framebuffer.cpp):
+// the header self-guards, and the Vulkan renderer backend lives in
+// Platform/Vulkan because it needs the device/swapchain/facade.
+#include "Platform/Vulkan/VulkanImGuiBackend.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -17,18 +23,29 @@ namespace OloEngine
 {
     namespace
     {
-        // #691 Phase 7: the ImGui RENDERER backend is imgui_impl_opengl3 and
-        // stays GL-only until Phase 8. Under --rhi=vulkan the layer therefore
-        // runs PLATFORM-ONLY: the context, the GLFW input backend and every
+        [[nodiscard]] bool ImGuiOpenGLBackendActive()
+        {
+            return RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+        }
+
+        // #691 Phase 8: the Vulkan renderer backend (imgui_impl_vulkan via
+        // VulkanImGuiBackend) is live once Init succeeded. When it did NOT
+        // (no swapchain at attach — e.g. minimised at startup — or a non-GL,
+        // non-Vulkan future backend), the layer falls back to Phase 7's
+        // PLATFORM-ONLY mode: the context, the GLFW input backend and every
         // panel's ImGui code work exactly as on GL, and only the draw-data
         // submission is absent. That is what lets the editor layer — and its
         // ImGui-touching update-path code (DrainMcpInputQueue's io.AddKeyEvent,
         // the viewport's ImGui::GetMousePos) — run at all on this backend, so
         // the render graph has a scene to draw. A context-less "just skip
         // ImGui" would crash in those calls instead (GImGui is asserted).
-        [[nodiscard]] bool ImGuiRendererBackendAvailable()
+        [[nodiscard]] bool ImGuiVulkanBackendActive()
         {
-            return RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+#if OLO_WITH_VULKAN
+            return RendererAPI::GetAPI() == RendererAPI::API::Vulkan && VulkanImGuiBackend::IsInitialized();
+#else
+            return false;
+#endif
         }
     } // namespace
 
@@ -48,10 +65,14 @@ namespace OloEngine
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
         // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable Docking
-        // Multi-viewport spawns real OS windows that a platform-only ImGui
-        // could never paint — an empty white frame per undocked panel. Kept
-        // off until the Vulkan renderer backend lands (Phase 8).
-        if (ImGuiRendererBackendAvailable())
+        // Multi-viewport stays GL-only for now: the Phase 8 Vulkan renderer
+        // backend draws the MAIN window's UI, but its secondary-viewport path
+        // (imgui_impl_vulkan-owned swapchains + imgui_impl_glfw's
+        // Platform_CreateVkSurface, which our GLFW_INCLUDE_NONE build compiles
+        // out — GLFW_HAS_VULKAN is 0 in ImGuiBuild.cpp) is untested here.
+        // Follow-up work; an undocked panel would otherwise be an empty
+        // OS window.
+        if (ImGuiOpenGLBackendActive())
             io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
         // io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoTaskBarIcons;
         // io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoMerge;
@@ -131,17 +152,40 @@ namespace OloEngine
         auto* const window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());
 
         // Setup Platform/Renderer bindings
-        if (ImGuiRendererBackendAvailable())
+        if (ImGuiOpenGLBackendActive())
         {
             ::ImGui_ImplGlfw_InitForOpenGL(window, true);
             ::ImGui_ImplOpenGL3_Init("#version 430");
         }
         else
         {
-            // InitForOther installs the same input callbacks but leaves
-            // Platform_RenderWindow/SwapBuffers unset, so no path reaches a
-            // GL call. See ImGuiRendererBackendAvailable.
-            ::ImGui_ImplGlfw_InitForOther(window, true);
+#if OLO_WITH_VULKAN
+            if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+            {
+                // #691 Phase 8: the real Vulkan renderer backend. InitForVulkan
+                // installs the same input callbacks as InitForOpenGL (the
+                // ClientApi tag only matters to multi-viewport, which stays
+                // off here); VulkanImGuiBackend wires imgui_impl_vulkan to the
+                // live device/swapchain, and VulkanContext::SwapBuffers
+                // records the draw data into the frame command buffer.
+                ::ImGui_ImplGlfw_InitForVulkan(window, true);
+                if (VulkanImGuiBackend::Init())
+                {
+                    return;
+                }
+                // Init can only fail without a swapchain (minimised at
+                // startup) — degrade to Phase 7 platform-only below rather
+                // than crash panel logic.
+                OLO_CORE_WARN("[ImGui] Vulkan renderer backend unavailable — falling back to platform-only mode");
+            }
+            else
+#endif
+            {
+                // InitForOther installs the same input callbacks but leaves
+                // Platform_RenderWindow/SwapBuffers unset, so no path reaches a
+                // GL call.
+                ::ImGui_ImplGlfw_InitForOther(window, true);
+            }
             // ImGui 1.92's texture protocol: a renderer backend either sets
             // this flag and services io.Textures, or it must build the legacy
             // font atlas itself. With NEITHER, ImGui::Render() asserts
@@ -150,8 +194,8 @@ namespace OloEngine
             // is honest here: there IS no renderer to feed, the draw data is
             // discarded, and no texture request ever needs servicing.
             ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
-            OLO_CORE_INFO("[ImGui] Platform-only mode (#691 Phase 7): the GL renderer backend is skipped under "
-                          "--rhi=vulkan — panel logic runs, nothing is drawn until Phase 8");
+            OLO_CORE_INFO("[ImGui] Platform-only mode: no renderer backend for this RHI — "
+                          "panel logic runs, nothing is drawn");
         }
     }
 
@@ -159,8 +203,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (ImGuiRendererBackendAvailable())
+        if (ImGuiOpenGLBackendActive())
             ::ImGui_ImplOpenGL3_Shutdown();
+#if OLO_WITH_VULKAN
+        // Before ImGui_ImplGlfw_Shutdown and — crucially — while the layer
+        // stack is being cleared, which happens BEFORE the Window (and with
+        // it the VulkanContext/device) is destroyed: the backend must free
+        // its pipelines/buffers/descriptors against a live device.
+        VulkanImGuiBackend::Shutdown();
+#endif
         ::ImGui_ImplGlfw_Shutdown();
         UI::Fonts::ClearFonts();
         ImGui::DestroyContext();
@@ -180,8 +231,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (ImGuiRendererBackendAvailable())
+        if (ImGuiOpenGLBackendActive())
             ::ImGui_ImplOpenGL3_NewFrame();
+#if OLO_WITH_VULKAN
+        VulkanImGuiBackend::NewFrame(); // no-op unless the Vulkan backend initialised
+#endif
         ::ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         ImGuizmo::BeginFrame();
@@ -198,8 +252,19 @@ namespace OloEngine
 
         // Rendering
         ImGui::Render();
-        if (ImGuiRendererBackendAvailable())
+        if (ImGuiOpenGLBackendActive())
             ::ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#if OLO_WITH_VULKAN
+        // On Vulkan the draw data is NOT recorded here: End() runs inside the
+        // frame callback (Application::RenderFrameLayers, driven from
+        // VulkanContext::SwapBuffers), and the UI must land in the frame's
+        // command buffer AFTER the 3D content but BEFORE the present
+        // transition. Marking the data fresh hands it to
+        // VulkanImGuiBackend::RecordOverlay, which SwapBuffers invokes at
+        // exactly that point.
+        if (ImGuiVulkanBackendActive())
+            VulkanImGuiBackend::NotifyDrawDataReady();
+#endif
 
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {
@@ -208,6 +273,24 @@ namespace OloEngine
             ImGui::RenderPlatformWindowsDefault();
             ::glfwMakeContextCurrent(backup_current_context);
         }
+    }
+
+    u64 ImGuiLayer::GetFramebufferTextureID(const Framebuffer& framebuffer, const u32 attachmentIndex)
+    {
+#if OLO_WITH_VULKAN
+        if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+            return VulkanImGuiBackend::GetTextureID(framebuffer.GetColorAttachmentHandle(attachmentIndex));
+#endif
+        return framebuffer.GetColorAttachmentRendererID(attachmentIndex);
+    }
+
+    u64 ImGuiLayer::GetTextureID(const Texture2D& texture)
+    {
+#if OLO_WITH_VULKAN
+        if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+            return VulkanImGuiBackend::GetTextureID(texture.GetRHIHandle());
+#endif
+        return texture.GetRendererID();
     }
 
     void ImGuiLayer::SetDarkThemeColors()

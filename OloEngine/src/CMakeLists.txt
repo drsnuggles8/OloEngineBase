@@ -405,6 +405,7 @@
 		"OloEngine/ImGui/Colors.h"
 		"OloEngine/ImGui/FontAwesome.h"
 		"OloEngine/ImGui/ImGuiBuild.cpp"
+		"OloEngine/ImGui/ImGuiBuildVulkan.cpp"
 		"OloEngine/ImGui/ImGuiFonts.cpp"
 		"OloEngine/ImGui/ImGuiFonts.h"
 		"OloEngine/ImGui/ImGuiLayer.cpp"
@@ -1513,6 +1514,8 @@
 		"Platform/Vulkan/VulkanGpuFence.h"
 		"Platform/Vulkan/VulkanImageLayoutTracker.cpp"
 		"Platform/Vulkan/VulkanImageLayoutTracker.h"
+		"Platform/Vulkan/VulkanImGuiBackend.cpp"
+		"Platform/Vulkan/VulkanImGuiBackend.h"
 		"Platform/Vulkan/VulkanMemoryAllocator.cpp"
 		"Platform/Vulkan/VulkanOneShot.cpp"
 		"Platform/Vulkan/VulkanOneShot.h"
@@ -1606,6 +1609,7 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/Video/PlMpeg.cpp"               # pl_mpeg (PL_MPEG_IMPLEMENTATION)
 		"OloEngine/Video/FFmpegBackend.cpp"        # FFmpeg C headers (avcodec/avformat/...) — heavy macro surface
 		"OloEngine/ImGui/ImGuiBuild.cpp"           # Dear ImGui backend implementation TU
+		"OloEngine/ImGui/ImGuiBuildVulkan.cpp"     # Dear ImGui Vulkan backend TU (volk-first include order)
 		# GROUP 2 — duplicated file-local helper names that collide across a jumbo (de-dup TODO)
 		"OloEngine/Renderer/RenderPipeline.cpp"            # anon IsTruthyEnvironmentVariable / IsRenderGraphDiagnosticsEnabled
 		"OloEngine/Renderer/RenderGraph.cpp"              #   "

@@ -31,8 +31,9 @@ namespace OloEngine
                 PushLayer(std::make_unique<EditorLayer>());
                 if (Renderer::GetAPI() != RendererAPI::API::OpenGL)
                 {
-                    OLO_CORE_INFO("[RHI] EditorLayer under --rhi=vulkan: the scene renders through the graph "
-                                  "to the swapchain; the ImGui editor UI is not painted until Phase 8");
+                    OLO_CORE_INFO("[RHI] EditorLayer under --rhi=vulkan: full editor session — the scene "
+                                  "renders through the graph and the ImGui editor UI composites over the "
+                                  "swapchain via the Vulkan ImGui backend (#691 Phase 8)");
                 }
             }
         }

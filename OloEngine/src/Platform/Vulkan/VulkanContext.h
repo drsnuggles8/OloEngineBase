@@ -77,6 +77,17 @@ namespace OloEngine
         // price GL always paid for glGetBufferSubData.
         [[nodiscard]] bool FlushFrameRecordingAndWait();
 
+        // Swapchain facts the ImGui renderer backend needs at Init (#691
+        // Phase 8): imgui_impl_vulkan bakes the swapchain color format into
+        // its pipeline (dynamic rendering) and sizes its per-frame buffers
+        // from the image counts. Plain u32s — this header deliberately leaks
+        // no Vk types (see the VulkanContextData note above); the format is
+        // the VkFormat value, cast back by the Platform-side consumer. All
+        // three return 0 while no swapchain exists (minimised).
+        [[nodiscard]] u32 GetSwapchainImageCount() const;
+        [[nodiscard]] u32 GetSwapchainMinImageCount() const;
+        [[nodiscard]] u32 GetSwapchainColorFormat() const;
+
         // The fixed bring-up clear colour (classic XNA cornflower blue — instantly
         // recognisable as "a cleared backbuffer", and nothing the GL editor draws).
         static constexpr f32 kClearColor[4] = { 0.392f, 0.584f, 0.929f, 1.0f };

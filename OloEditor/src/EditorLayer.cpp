@@ -1844,29 +1844,44 @@ namespace OloEngine
         else
             m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-        // Display appropriate framebuffer based on mode
+        // Display appropriate framebuffer based on mode. The ImTextureID
+        // comes from ImGuiLayer::GetFramebufferTextureID (#691 Phase 8):
+        // on GL it is the raw GL texture name as before, on Vulkan an
+        // imgui_impl_vulkan descriptor set for the attachment.
         u64 textureID = 0;
         if (m_Is3DMode)
         {
             // Use UICompositePass output (post-processed scene + 2D overlays + UI)
             if (auto uiFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); uiFramebuffer)
             {
-                textureID = uiFramebuffer->GetColorAttachmentRendererID(0);
+                textureID = ImGuiLayer::GetFramebufferTextureID(*uiFramebuffer, 0);
             }
             // Fallback to scene pass if post-process pass is not available
             if (textureID == 0)
             {
                 if (auto sceneFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); sceneFramebuffer)
                 {
-                    textureID = sceneFramebuffer->GetColorAttachmentRendererID(0);
+                    textureID = ImGuiLayer::GetFramebufferTextureID(*sceneFramebuffer, 0);
                 }
             }
         }
         else
         {
-            textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
+            textureID = ImGuiLayer::GetFramebufferTextureID(*m_Framebuffer, 0);
         }
-        ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+        if (textureID != 0)
+        {
+            ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+        }
+        else
+        {
+            // No presentable attachment (e.g. the Vulkan backend before the
+            // first rendered frame). A Dummy keeps the layout, the border /
+            // badge draws below (GetItemRectMin) and the drag-drop target
+            // anchored to a real item; passing 0 to ImGui::Image would bind a
+            // null descriptor set on Vulkan.
+            ImGui::Dummy(ImVec2{ m_ViewportSize.x, m_ViewportSize.y });
+        }
 
         // Play-mode visual indicator: draw colored border around viewport
         if (m_SceneState != SceneState::Edit)
@@ -2098,6 +2113,25 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        // #691 Phase 8: toolbar icon button that stays clickable when the
+        // icon has no ImTextureID on this backend (ImGuiLayer::GetTextureID
+        // returns 0 — e.g. an unresolvable texture under Vulkan). Falls back
+        // to a plain same-size button; passing 0 to ImGui::ImageButton would
+        // bind a null descriptor set in imgui_impl_vulkan.
+        [[nodiscard]] bool ToolbarIconButton(const char* strId, const Texture2D& icon, const ImVec2& size,
+                                             const ImVec4& tint)
+        {
+            if (const u64 texId = ImGuiLayer::GetTextureID(icon); texId != 0)
+            {
+                return ImGui::ImageButton(strId, static_cast<ImTextureID>(texId), size, ImVec2(0, 0), ImVec2(1, 1),
+                                          ImVec4(0, 0, 0, 0), tint);
+            }
+            return ImGui::Button(strId, size);
+        }
+    } // namespace
+
     void EditorLayer::UI_Toolbar()
     {
         const auto toolbarEnabled = static_cast<bool>(m_ActiveScene);
@@ -2178,7 +2212,7 @@ namespace OloEngine
         if (hasPlayButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
-            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop; ImGui::ImageButton("##play_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop; ToolbarIconButton("##play_stop_icon", *icon, btnSize, tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Simulate))
                 {
@@ -2200,7 +2234,7 @@ namespace OloEngine
         if (hasSimulateButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
-            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop; ImGui::ImageButton("##simulate_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop; ToolbarIconButton("##simulate_stop_icon", *icon, btnSize, tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Play))
                 {
@@ -2221,7 +2255,7 @@ namespace OloEngine
         // Pause button
         if (hasPauseButton)
         {
-            if (Ref<Texture2D> const icon = m_IconPause; ImGui::ImageButton("##pause_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = m_IconPause; ToolbarIconButton("##pause_icon", *icon, btnSize, tintColor) && toolbarEnabled)
             {
                 m_ActiveScene->SetPaused(!isPaused);
             }
@@ -2232,7 +2266,7 @@ namespace OloEngine
         if (isPaused)
         {
             Ref<Texture2D> const icon = m_IconStep;
-            if (ImGui::ImageButton("##step_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (ToolbarIconButton("##step_icon", *icon, btnSize, tintColor) && toolbarEnabled)
             {
                 m_ActiveScene->Step();
             }

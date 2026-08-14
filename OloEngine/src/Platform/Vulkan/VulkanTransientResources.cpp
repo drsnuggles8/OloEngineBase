@@ -733,6 +733,8 @@ namespace OloEngine
         // aspect — the orchestrator derives barrier aspect masks from this.
         VulkanImageInfoRegistry::Get().Register(m_Image, VulkanImageInfo{
                                                              .Format = format,
+                                                             .Width = m_Width,
+                                                             .Height = m_Height,
                                                              .MipLevels = m_MipLevels,
                                                              .ArrayLayers = 1u,
                                                              .HasDepth = isDepth,
@@ -897,8 +899,20 @@ namespace OloEngine
                 // this transition covers, and a transition visible only to
                 // COPY leaves those writes unordered (sync validation caught
                 // exactly this — WAW between the transition and vkCmdBlitImage).
+                // src scope is non-empty even though oldLayout is UNDEFINED:
+                // SetData re-uploads reach this on an ALREADY-written image
+                // (hot reload), and an empty src scope leaves those earlier
+                // writes unordered against the transition (the same
+                // WRITE_AFTER_WRITE shape sync validation caught on the
+                // cubemap chain). Discard semantics are unchanged.
+                // src scope is non-empty even though oldLayout is UNDEFINED:
+                // SetData re-uploads reach this on an ALREADY-written image
+                // (hot reload), and an empty src scope leaves those earlier
+                // writes unordered against the transition (the same
+                // WRITE_AFTER_WRITE shape sync validation caught on the
+                // cubemap chain). Discard semantics are unchanged.
                 RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                                    VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
                                    VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels);
 
@@ -1338,6 +1352,8 @@ namespace OloEngine
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = imageInfo.format;
+        registryInfo.Width = spec.Width;
+        registryInfo.Height = spec.Height;
         registryInfo.MipLevels = 1;
         registryInfo.ArrayLayers = 1;
         registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_3D;
@@ -1472,6 +1488,8 @@ namespace OloEngine
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = format;
+        registryInfo.Width = width;
+        registryInfo.Height = height;
         registryInfo.MipLevels = m_MipLevels;
         registryInfo.ArrayLayers = 6u;
         registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_CUBE;
@@ -1653,10 +1671,24 @@ namespace OloEngine
 
         const auto recordChain = [this](VkCommandBuffer cmd, const VkImageLayout priorLayout)
         {
+            // src access stays MEMORY_WRITE even when priorLayout is
+            // UNDEFINED: for this image UNDEFINED can mean "mixed after
+            // per-face copies" (SetFaceData collapses a partially-uploaded
+            // layout to UNDEFINED), so the face uploads' TRANSFER_WRITEs may
+            // still be in flight — an empty src scope is the WRITE_AFTER_WRITE
+            // sync-validation hazard the live editor hit. A transition FROM
+            // UNDEFINED with a non-empty src scope is legal; it only orders
+            // the prior writes, the contents are discarded either way.
+            // src access stays MEMORY_WRITE even when priorLayout is
+            // UNDEFINED: for this image UNDEFINED can mean "mixed after
+            // per-face copies" (SetFaceData collapses a partially-uploaded
+            // layout to UNDEFINED), so the face uploads' TRANSFER_WRITEs may
+            // still be in flight — an empty src scope is the WRITE_AFTER_WRITE
+            // sync-validation hazard the live editor hit. A transition FROM
+            // UNDEFINED with a non-empty src scope is legal; it only orders
+            // the prior writes, the contents are discarded either way.
             RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                               priorLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ACCESS_2_NONE
-                                                                        : VK_ACCESS_2_MEMORY_WRITE_BIT,
+                               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                                VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
                                VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
                                6u);
@@ -1904,6 +1936,8 @@ namespace OloEngine
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = format;
+        registryInfo.Width = resolution;
+        registryInfo.Height = resolution;
         registryInfo.MipLevels = m_MipLevels;
         registryInfo.ArrayLayers = 6u * layers;
         registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
@@ -2024,6 +2058,8 @@ namespace OloEngine
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = imageInfo.format;
+        registryInfo.Width = spec.Width;
+        registryInfo.Height = spec.Height;
         registryInfo.MipLevels = m_MipLevels;
         registryInfo.ArrayLayers = imageInfo.arrayLayers;
         registryInfo.HasDepth = isDepth;
@@ -2363,6 +2399,13 @@ namespace OloEngine
         {
             return {};
         }
+        // A null slot is legal on raw framebuffers (a detached or never-
+        // attached index below a higher attached one) — "no identity", not a
+        // crash.
+        if (m_ColorAttachments[index] == nullptr)
+        {
+            return {};
+        }
         return m_ColorAttachments[index]->GetRHIHandle();
     }
 
@@ -2465,6 +2508,57 @@ namespace OloEngine
             return nullptr;
         }
         return m_ColorAttachments[index];
+    }
+
+    void VulkanFramebuffer::AdoptExternalExtent(const VulkanTexture2D& texture)
+    {
+        // Raw callers attach same-sized textures (the GL completeness rule),
+        // so the last non-null attach legitimately owns the spec extent.
+        m_Specification.Width = texture.GetWidth();
+        m_Specification.Height = texture.GetHeight();
+    }
+
+    void VulkanFramebuffer::AttachExternalColorTexture(u32 index, Ref<VulkanTexture2D> texture)
+    {
+        if (texture == nullptr)
+        {
+            // Detach (GL's texture-0 form). An index that was never attached
+            // needs no slot minted for it.
+            if (index < m_ColorAttachments.size())
+            {
+                m_ColorAttachments[index] = nullptr;
+            }
+            return;
+        }
+        if (index >= m_ColorAttachments.size())
+        {
+            // Growth leaves null gaps below `index` — the scope's
+            // VK_ATTACHMENT_UNUSED shape, and IsFramebufferComplete only
+            // requires the NON-null attachments to be live.
+            m_ColorAttachments.resize(static_cast<sizet>(index) + 1u);
+        }
+        AdoptExternalExtent(*texture);
+        m_ColorAttachments[index] = std::move(texture);
+    }
+
+    void VulkanFramebuffer::AttachExternalDepthTexture(Ref<VulkanTexture2D> texture)
+    {
+        if (texture == nullptr)
+        {
+            m_DepthAttachment = nullptr;
+            return;
+        }
+        // The rendering scope opens this attachment DEPTH_STENCIL_OPTIMAL
+        // with a depth-aspect view — a color-format image there is a
+        // validation error, so refuse it here where the mistake is nameable.
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(texture->GetVkImage());
+        if (info == nullptr || !info->HasDepth)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] AttachExternalDepthTexture: texture has no depth aspect — attach refused");
+            return;
+        }
+        AdoptExternalExtent(*texture);
+        m_DepthAttachment = std::move(texture);
     }
 
     // =========================================================================
@@ -2823,6 +2917,114 @@ namespace OloEngine
         // Sync inside CreateBuffer PRESERVES the identity — same object, new
         // storage.
         CreateBuffer();
+    }
+
+    // =========================================================================
+    // VulkanRawTextureRegistry (#691 Phase 8 — see the header comment)
+    // =========================================================================
+
+    VulkanRawTextureRegistry& VulkanRawTextureRegistry::Get()
+    {
+        static auto* s_Instance = new VulkanRawTextureRegistry(); // deliberately leaked
+        return *s_Instance;
+    }
+
+    RHI::ResourceHandle VulkanRawTextureRegistry::Adopt(Ref<VulkanTexture2D> texture)
+    {
+        if (texture == nullptr)
+        {
+            return {};
+        }
+        const RHI::ResourceHandle handle = texture->GetRHIHandle();
+        if (!handle.IsValid())
+        {
+            return {};
+        }
+        m_Entries[Key(handle)] = Entry{ .Texture2D = std::move(texture) };
+        return handle;
+    }
+
+    RHI::ResourceHandle VulkanRawTextureRegistry::Adopt(Ref<VulkanTextureCubemap> cubemap)
+    {
+        if (cubemap == nullptr)
+        {
+            return {};
+        }
+        const RHI::ResourceHandle handle = cubemap->GetRHIHandle();
+        if (!handle.IsValid())
+        {
+            return {};
+        }
+        m_Entries[Key(handle)] = Entry{ .Cubemap = std::move(cubemap) };
+        return handle;
+    }
+
+    Ref<VulkanTexture2D> VulkanRawTextureRegistry::Lookup2D(RHI::ResourceHandle handle) const
+    {
+        const auto it = m_Entries.find(Key(handle));
+        return it != m_Entries.end() ? it->second.Texture2D : nullptr;
+    }
+
+    bool VulkanRawTextureRegistry::Contains(RHI::ResourceHandle handle) const
+    {
+        return m_Entries.contains(Key(handle));
+    }
+
+    bool VulkanRawTextureRegistry::Destroy(RHI::ResourceHandle handle)
+    {
+        // Erasing drops the owning Ref: the texture destructor retires the
+        // identity (outstanding handles go stale) and routes the VkImage
+        // through VulkanDeferredReclaim — never an inline destroy.
+        return m_Entries.erase(Key(handle)) != 0u;
+    }
+
+    void VulkanRawTextureRegistry::ReleaseAll()
+    {
+        m_Entries.clear();
+    }
+
+    // =========================================================================
+    // VulkanRawFramebufferRegistry (#691 Phase 8 — see the header comment)
+    // =========================================================================
+
+    VulkanRawFramebufferRegistry& VulkanRawFramebufferRegistry::Get()
+    {
+        static auto* s_Instance = new VulkanRawFramebufferRegistry(); // deliberately leaked
+        return *s_Instance;
+    }
+
+    RHI::ResourceHandle VulkanRawFramebufferRegistry::Adopt(Ref<VulkanFramebuffer> framebuffer)
+    {
+        if (framebuffer == nullptr)
+        {
+            return {};
+        }
+        const RHI::ResourceHandle handle = framebuffer->GetRHIHandle();
+        if (!handle.IsValid())
+        {
+            return {};
+        }
+        m_Entries[Key(handle)] = std::move(framebuffer);
+        return handle;
+    }
+
+    bool VulkanRawFramebufferRegistry::Contains(RHI::ResourceHandle handle) const
+    {
+        return m_Entries.contains(Key(handle));
+    }
+
+    bool VulkanRawFramebufferRegistry::Destroy(RHI::ResourceHandle handle)
+    {
+        // The framebuffer destructor unregisters from VulkanRootObjectRegistry
+        // and retires the identity; the attachment Refs it holds release with
+        // it (each routing through VulkanDeferredReclaim if this was the last
+        // owner).
+        return m_Entries.erase(Key(handle)) != 0u;
+    }
+
+    void VulkanRawFramebufferRegistry::ReleaseAll()
+    {
+        m_Entries.clear();
     }
 
 #undef OLO_VK_PHASE6_STUB

@@ -17,6 +17,7 @@
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanComputeShader.h"
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
+#include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
@@ -1774,17 +1775,22 @@ namespace OloEngine
                 }
                 if (address == 0)
                 {
-                    // Warn once per shader+binding: an unfed block reads the
-                    // null address, which the mapping treats as a zero-filled
-                    // block — deterministic wrong data, never a crash the
-                    // engine can't see.
+                    // Warn once per shader+binding, then substitute the
+                    // arena's persistent zero-filled block. Address 0 is NOT
+                    // safe to hand to the shader: dereferencing the null
+                    // device address is a GPU page fault that escalates to
+                    // VK_ERROR_DEVICE_LOST (#691 Phase 8 — the IBL-bake UBO
+                    // scope bug lost the whole device this way). The null
+                    // block makes an unfed binding read deterministic zeros,
+                    // matching what this comment always promised.
                     static std::unordered_set<std::string> s_WarnedBindings;
                     if (s_WarnedBindings.insert(std::string(shaderName) + ":" + std::to_string(binding.Binding))
                             .second)
                     {
-                        OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — zero address",
+                        OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — null block",
                                       shaderName, binding.Binding);
                     }
+                    address = VulkanFrameArena::Get().GetNullBlockAddress();
                 }
                 std::memcpy(m_RootScratch.data() + field.Offset, &address, sizeof(address));
             }
@@ -3134,13 +3140,30 @@ namespace OloEngine
                                  : nullptr;
     }
 
+    // Defined below (after the draw entries); declared here because the
+    // by-handle bind family needs it first.
+    static VulkanFramebuffer* ResolveFramebufferObject(RHI::ResourceHandle framebuffer);
+
     void VulkanRendererAPI::BindFramebuffer(RHI::ResourceHandle framebuffer)
     {
-        // Passes bind via Framebuffer::Bind(), which publishes to
-        // VulkanBindingState directly; this by-handle entry point serves the
-        // POD packet path and warns until a packet producer needs it.
-        (void)framebuffer;
-        Phase6Stub("BindFramebuffer(by handle - packet path)");
+        // #691 Phase 8: raw framebuffers (CreateFramebufferHandle) reach the
+        // backend ONLY through this by-handle entry — there is no engine
+        // Framebuffer object to call Bind() on — so it resolves through the
+        // root-object side table and publishes exactly like the object form.
+        // The null handle is glBindFramebuffer(0): publish "no target" (the
+        // default framebuffer arrives with the swapchain import).
+        if (!framebuffer.IsValid())
+        {
+            VulkanBindingState::Get().SetCurrentFramebuffer(nullptr);
+            return;
+        }
+        auto* fb = ResolveFramebufferObject(framebuffer);
+        if (fb == nullptr)
+        {
+            Phase6Stub("BindFramebuffer(unresolvable framebuffer)");
+            return;
+        }
+        fb->Bind();
     }
 
     void VulkanRendererAPI::DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount, RHI::IndexType /*indexType*/, u32 baseIndex)
@@ -3169,20 +3192,139 @@ namespace OloEngine
         }
     }
 
-    void VulkanRendererAPI::AttachFramebufferColorTexture(RHI::ResourceHandle /*framebuffer*/, u32 /*attachmentIndex*/, RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/)
+    namespace
     {
-        Phase6Stub("AttachFramebufferColorTexture");
+        // Resolve an attach operand to the backend texture object. Only
+        // raw-registry textures are attachable: an object-owned attachment
+        // already lives inside its framebuffer, and every production caller
+        // (FluidIntermediatesPass) attaches raw-family textures — so a
+        // foreign handle here is a caller bug worth one loud line, not a
+        // second resolution path.
+        [[nodiscard]] Ref<VulkanTexture2D> ResolveRawAttachTexture(RHI::ResourceHandle texture, const char* entryPoint)
+        {
+            Ref<VulkanTexture2D> resolved = VulkanRawTextureRegistry::Get().Lookup2D(texture);
+            if (resolved == nullptr)
+            {
+                static bool s_WarnedForeign = false;
+                if (!s_WarnedForeign)
+                {
+                    s_WarnedForeign = true;
+                    OLO_CORE_WARN("[RHI/Vulkan] {}: only raw-registry textures (CreateTexture2DHandle) can be "
+                                  "attached — attach skipped (warn-once)",
+                                  entryPoint);
+                }
+            }
+            return resolved;
+        }
+
+        // No caller passes mip > 0 today (verified across the engine); the
+        // attachment-view plumbing is mip-0 only, so say so once instead of
+        // silently rendering into the wrong mip.
+        [[nodiscard]] bool WarnUnsupportedAttachMip(u32 mipLevel, const char* entryPoint)
+        {
+            if (mipLevel == 0u)
+            {
+                return false;
+            }
+            static bool s_WarnedMip = false;
+            if (!s_WarnedMip)
+            {
+                s_WarnedMip = true;
+                OLO_CORE_WARN("[RHI/Vulkan] {}: mip {} attachment is not lowered yet — attach skipped (warn-once)",
+                              entryPoint, mipLevel);
+            }
+            return true;
+        }
+    } // namespace
+
+    void VulkanRendererAPI::AttachFramebufferColorTexture(RHI::ResourceHandle framebuffer, u32 attachmentIndex, RHI::ResourceHandle texture, u32 mipLevel)
+    {
+        auto* fb = ResolveFramebufferObject(framebuffer);
+        if (fb == nullptr)
+        {
+            Phase6Stub("AttachFramebufferColorTexture(unresolved framebuffer)");
+            return;
+        }
+        if (WarnUnsupportedAttachMip(mipLevel, "AttachFramebufferColorTexture"))
+        {
+            return;
+        }
+        // RHI::NullResource detaches — the GL native-0 contract.
+        if (!texture.IsValid())
+        {
+            fb->AttachExternalColorTexture(attachmentIndex, nullptr);
+            return;
+        }
+        Ref<VulkanTexture2D> resolved = ResolveRawAttachTexture(texture, "AttachFramebufferColorTexture");
+        if (resolved == nullptr)
+        {
+            return;
+        }
+        fb->AttachExternalColorTexture(attachmentIndex, std::move(resolved));
     }
 
-    void VulkanRendererAPI::AttachFramebufferDepthTexture(RHI::ResourceHandle /*framebuffer*/, RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/)
+    void VulkanRendererAPI::AttachFramebufferDepthTexture(RHI::ResourceHandle framebuffer, RHI::ResourceHandle texture, u32 mipLevel)
     {
-        Phase6Stub("AttachFramebufferDepthTexture");
+        auto* fb = ResolveFramebufferObject(framebuffer);
+        if (fb == nullptr)
+        {
+            Phase6Stub("AttachFramebufferDepthTexture(unresolved framebuffer)");
+            return;
+        }
+        if (WarnUnsupportedAttachMip(mipLevel, "AttachFramebufferDepthTexture"))
+        {
+            return;
+        }
+        if (!texture.IsValid())
+        {
+            fb->AttachExternalDepthTexture(nullptr);
+            return;
+        }
+        Ref<VulkanTexture2D> resolved = ResolveRawAttachTexture(texture, "AttachFramebufferDepthTexture");
+        if (resolved == nullptr)
+        {
+            return;
+        }
+        fb->AttachExternalDepthTexture(std::move(resolved));
     }
 
-    bool VulkanRendererAPI::IsFramebufferComplete(RHI::ResourceHandle /*framebuffer*/)
+    bool VulkanRendererAPI::IsFramebufferComplete(RHI::ResourceHandle framebuffer)
     {
-        Phase6Stub("IsFramebufferComplete");
-        return false;
+        // The GL twin answers "no" for native 0 (a stale handle would
+        // otherwise report the always-complete default framebuffer); the
+        // equivalent here is an unresolvable handle.
+        auto* fb = ResolveFramebufferObject(framebuffer);
+        if (fb == nullptr)
+        {
+            return false;
+        }
+        // No VkFramebuffer object exists to ask, so completeness is the
+        // attachment invariant the rendering scope needs: at least one
+        // attachment, and every NON-null attachment backed by a live VkImage
+        // (null color slots are the scope's VK_ATTACHMENT_UNUSED shape).
+        u32 attachmentCount = 0;
+        for (u32 i = 0; i < fb->GetColorAttachmentCount(); ++i)
+        {
+            const Ref<VulkanTexture2D> image = fb->GetColorAttachmentImage(i);
+            if (image == nullptr)
+            {
+                continue;
+            }
+            if (image->GetVkImage() == VK_NULL_HANDLE)
+            {
+                return false;
+            }
+            ++attachmentCount;
+        }
+        if (const Ref<VulkanTexture2D> depth = fb->GetDepthAttachmentImage(); depth != nullptr)
+        {
+            if (depth->GetVkImage() == VK_NULL_HANDLE)
+            {
+                return false;
+            }
+            ++attachmentCount;
+        }
+        return attachmentCount >= 1u;
     }
 
     // Resolve a framebuffer HANDLE to its backend object through the
@@ -3564,22 +3706,200 @@ namespace OloEngine
                       VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_HOST_READ_BIT);
     }
 
-    RHI::ResourceHandle VulkanRendererAPI::CreateTexture2DHandle(u32 /*width*/, u32 /*height*/, RHI::Format /*internalFormat*/)
+    // =========================================================================
+    // The raw (object-less) texture / framebuffer facade family (#691 Phase 8).
+    //
+    // GL's shape is a bare glCreateTextures name with immutable single-mip
+    // storage (OpenGLRendererAPI::CreateTexture2D) and a bare
+    // glCreateFramebuffers name attachments are hung on later. Here each raw
+    // handle is backed by a REAL backend object (VulkanTexture2D /
+    // VulkanTextureCubemap / VulkanFramebuffer) owned by a side registry —
+    // so identity, image-info metadata, barrier lowering, binds, clears and
+    // the rendering scope all work on raw resources exactly as on
+    // object-backed ones, and only OWNERSHIP is facade-managed.
+    // =========================================================================
+
+    namespace
     {
-        Phase6Stub("CreateTexture2DHandle");
-        return {};
+        struct RawTextureFormat
+        {
+            ImageFormat Format = ImageFormat::None;
+            bool SRGB = false;
+        };
+
+        // RHI::Format -> engine ImageFormat for the raw facade family. An
+        // explicit switch — ImageFormat's integer values are persisted, so no
+        // static_cast bridge may ever exist (RHITypes.h's own rule). Widening
+        // choices mirror ImageFormatToVkFormat's documented ones (3-channel
+        // formats widen to RGBA); D32Float maps to the engine's one depth
+        // member, which allocates D32_SFLOAT_S8_UINT — the depth aspect and
+        // 32-bit float precision the caller asked for, with a surplus stencil
+        // aspect nothing reads (the FramebufferFormatToImageFormat
+        // DEPTH_COMPONENT32F precedent). Formats with no ImageFormat member
+        // (R32UInt — VirtualMeshRegistry's overdraw counter) return None and
+        // the create warns + returns the null handle rather than lying.
+        [[nodiscard]] RawTextureFormat RawFormatToImageFormat(RHI::Format format)
+        {
+            switch (format)
+            {
+                case RHI::Format::Unknown:
+                    break;
+                case RHI::Format::R8UNorm:
+                    return { ImageFormat::R8, false };
+                case RHI::Format::R8UInt:
+                    return { ImageFormat::R8UI, false };
+                case RHI::Format::RG8UNorm:
+                    return { ImageFormat::RG8, false };
+                case RHI::Format::RGB8UNorm:
+                    return { ImageFormat::RGB8, false };
+                case RHI::Format::RGBA8UNorm:
+                    return { ImageFormat::RGBA8, false };
+                case RHI::Format::RGBA8SRGB:
+                    return { ImageFormat::RGBA8, true };
+                case RHI::Format::R16UInt:
+                    return { ImageFormat::R16UI, false };
+                case RHI::Format::RG16UInt:
+                    return { ImageFormat::RG16UI, false };
+                case RHI::Format::RG16Float:
+                    return { ImageFormat::RG16F, false };
+                case RHI::Format::RGBA16Float:
+                    return { ImageFormat::RGBA16F, false };
+                case RHI::Format::R32Float:
+                    return { ImageFormat::R32F, false };
+                case RHI::Format::R32Int:
+                    return { ImageFormat::R32I, false };
+                case RHI::Format::R32UInt:
+                    break; // no ImageFormat member exists — see above
+                case RHI::Format::RG32Float:
+                    return { ImageFormat::RG32F, false };
+                case RHI::Format::RGB32Float:
+                    return { ImageFormat::RGB32F, false };
+                case RHI::Format::RGBA32Float:
+                    return { ImageFormat::RGBA32F, false };
+                case RHI::Format::D24UNormS8UInt:
+                    return { ImageFormat::DEPTH24STENCIL8, false };
+                case RHI::Format::D32Float:
+                    return { ImageFormat::DEPTH24STENCIL8, false };
+                case RHI::Format::BC5UNorm:
+                    return { ImageFormat::BC5, false };
+                case RHI::Format::BC6HUFloat:
+                    return { ImageFormat::BC6H, false };
+                case RHI::Format::BC7UNorm:
+                    return { ImageFormat::BC7, false };
+                case RHI::Format::BC7SRGB:
+                    return { ImageFormat::BC7, true };
+            }
+            return {};
+        }
+
+        // Ownership side table for raw CreateVertexArrayHandle aggregates. A
+        // VulkanVertexArray is a pure CPU aggregate (no GPU object) that
+        // registers itself in VulkanRootObjectRegistry, so this map only OWNS
+        // the Ref between create and delete — small enough to stay
+        // file-local. Process-wide, deliberately leaked, render-thread only
+        // (the raw-registry contract).
+        [[nodiscard]] std::unordered_map<u64, Ref<VulkanVertexArray>>& RawVertexArrays()
+        {
+            static auto* s_Instance = new std::unordered_map<u64, Ref<VulkanVertexArray>>();
+            return *s_Instance;
+        }
+
+        [[nodiscard]] u64 RawObjectKey(RHI::ResourceHandle handle)
+        {
+            return (static_cast<u64>(handle.Generation) << 32) | handle.Index;
+        }
+    } // namespace
+
+    RHI::ResourceHandle VulkanRendererAPI::CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
+    {
+        const RawTextureFormat mapped = RawFormatToImageFormat(internalFormat);
+        if (mapped.Format == ImageFormat::None)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] CreateTexture2DHandle: RHI::Format {} has no ImageFormat mapping — "
+                          "returning the null handle",
+                          static_cast<u32>(internalFormat));
+            return {};
+        }
+        // GL parity (OpenGLRendererAPI::CreateTexture2D): immutable SINGLE-MIP
+        // storage — no mip chain, no generation.
+        TextureSpecification spec;
+        spec.Width = std::max(width, 1u);
+        spec.Height = std::max(height, 1u);
+        spec.Format = mapped.Format;
+        spec.SRGB = mapped.SRGB;
+        spec.GenerateMips = false;
+        spec.MipLevels = 1u;
+        try
+        {
+            Ref<VulkanTexture2D> texture = Ref<VulkanTexture2D>::Create(spec);
+            if (texture == nullptr || texture->GetVkImage() == VK_NULL_HANDLE)
+            {
+                return {};
+            }
+            return VulkanRawTextureRegistry::Get().Adopt(std::move(texture));
+        }
+        catch (const std::exception& e)
+        {
+            // GL's create cannot fail at the call site; the closest honest
+            // answer is the null handle every caller already guards on.
+            OLO_CORE_ERROR("[RHI/Vulkan] CreateTexture2DHandle({}x{}) failed: {}", width, height, e.what());
+            return {};
+        }
     }
 
-    RHI::ResourceHandle VulkanRendererAPI::CreateTextureCubemapHandle(u32 /*width*/, u32 /*height*/, RHI::Format /*internalFormat*/)
+    RHI::ResourceHandle VulkanRendererAPI::CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat)
     {
-        Phase6Stub("CreateTextureCubemapHandle");
-        return {};
+        const RawTextureFormat mapped = RawFormatToImageFormat(internalFormat);
+        if (mapped.Format == ImageFormat::None)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] CreateTextureCubemapHandle: RHI::Format {} has no ImageFormat mapping — "
+                          "returning the null handle",
+                          static_cast<u32>(internalFormat));
+            return {};
+        }
+        // Same GL parity as the 2D form: immutable single-mip storage.
+        // (CubemapSpecification has no SRGB member; the sRGB raw-cubemap case
+        // has no caller — DDGI's black cubemap is RGBA16F.)
+        CubemapSpecification spec;
+        spec.Width = std::max(width, 1u);
+        spec.Height = std::max(height, 1u);
+        spec.Format = mapped.Format;
+        spec.GenerateMips = false;
+        spec.MipLevels = 1u;
+        try
+        {
+            Ref<VulkanTextureCubemap> cubemap = Ref<VulkanTextureCubemap>::Create(spec);
+            if (cubemap == nullptr || cubemap->GetVkImage() == VK_NULL_HANDLE)
+            {
+                return {};
+            }
+            return VulkanRawTextureRegistry::Get().Adopt(std::move(cubemap));
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] CreateTextureCubemapHandle({}x{}) failed: {}", width, height, e.what());
+            return {};
+        }
     }
 
     RHI::ResourceHandle VulkanRendererAPI::CreateFramebufferHandle()
     {
-        Phase6Stub("CreateFramebufferHandle");
-        return {};
+        // A real VulkanFramebuffer with an EMPTY spec: zero attachments until
+        // AttachFramebufferColor/DepthTexture installs the raw textures, and
+        // a 0x0 extent the first attach adopts. The constructor registers it
+        // in VulkanRootObjectRegistry, which is what makes BindFramebuffer,
+        // SetFramebufferDrawAttachments, the facade clears, blits and the
+        // rendering scope work UNCHANGED for raw framebuffers.
+        try
+        {
+            Ref<VulkanFramebuffer> framebuffer = Ref<VulkanFramebuffer>::Create(FramebufferSpecification{});
+            return VulkanRawFramebufferRegistry::Get().Adopt(std::move(framebuffer));
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] CreateFramebufferHandle failed: {}", e.what());
+            return {};
+        }
     }
 
     RHI::ResourceHandle VulkanRendererAPI::CreateBufferHandle()
@@ -3589,18 +3909,73 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanRendererAPI::CreateVertexArrayHandle()
     {
-        Phase6Stub("CreateVertexArrayHandle");
-        return {};
+        // A real (empty) CPU-side aggregate: the identity mint is what the
+        // callers need (VirtualMeshRegistry holds the handle; the native-
+        // identity test round-trips it), and BindVertexArrayRaw resolves it
+        // through the root-object registry like any VAO. A draw through an
+        // empty aggregate fails loudly in PrepareDraw (no pull stream) —
+        // honest, since the facade has no SetVertexArrayIndexBuffer lowering
+        // yet.
+        Ref<VulkanVertexArray> vertexArray = Ref<VulkanVertexArray>::Create();
+        const RHI::ResourceHandle handle = vertexArray->GetRHIHandle();
+        if (!handle.IsValid())
+        {
+            return {};
+        }
+        RawVertexArrays()[RawObjectKey(handle)] = std::move(vertexArray);
+        return handle;
     }
 
-    void VulkanRendererAPI::DeleteTexture(RHI::ResourceHandle /*texture*/)
+    void VulkanRendererAPI::DeleteTexture(RHI::ResourceHandle texture)
     {
-        Phase6Stub("DeleteTexture");
+        // Kind-guarded like the GL twin — a live handle of the wrong family
+        // names someone else's resource.
+        if (RHI::ResourceRegistry::Get().KindOf(texture) != RHI::ResourceKind::Texture)
+        {
+            return;
+        }
+        if (VulkanRawTextureRegistry::Get().Destroy(texture))
+        {
+            return;
+        }
+        // Not a raw-registry entry. Object-owned textures die with their C++
+        // object, and the compare-off view aliases
+        // (CreateDepthArrayCompareOffViewHandle) are cached second handles to
+        // a still-live image the SOURCE owns — ShadowMap retires those
+        // through this entry on GL, where the view is a real second texture.
+        // Destroying anything here would double-free, so the honest lowering
+        // is a warn-once no-op (the alias cache keeps its inert row).
+        static bool s_WarnedForeign = false;
+        if (!s_WarnedForeign)
+        {
+            s_WarnedForeign = true;
+            OLO_CORE_WARN("[RHI/Vulkan] DeleteTexture on a non-raw-registry handle (object-owned texture or "
+                          "compare-off view alias) — no-op (warn-once)");
+        }
     }
 
-    void VulkanRendererAPI::DeleteFramebuffer(RHI::ResourceHandle /*framebuffer*/)
+    void VulkanRendererAPI::DeleteFramebuffer(RHI::ResourceHandle framebuffer)
     {
-        Phase6Stub("DeleteFramebuffer");
+        if (RHI::ResourceRegistry::Get().KindOf(framebuffer) != RHI::ResourceKind::Framebuffer)
+        {
+            return;
+        }
+        // A scope still targeting this framebuffer must not outlive it (no-op
+        // outside a recording bracket); the stored draw-buffer selection dies
+        // with the object like GL's FBO state does.
+        EndScopeIfTargets(framebuffer);
+        m_FramebufferSelections.erase(SelectionKey(framebuffer));
+        if (VulkanRawFramebufferRegistry::Get().Destroy(framebuffer))
+        {
+            return;
+        }
+        static bool s_WarnedForeign = false;
+        if (!s_WarnedForeign)
+        {
+            s_WarnedForeign = true;
+            OLO_CORE_WARN("[RHI/Vulkan] DeleteFramebuffer on a non-raw-registry handle (object-owned framebuffer) "
+                          "— no-op (warn-once)");
+        }
     }
 
     void VulkanRendererAPI::DeleteBuffer(RHI::ResourceHandle buffer)
@@ -3618,9 +3993,28 @@ namespace OloEngine
         VulkanRawBufferRegistry::Get().Destroy(buffer);
     }
 
-    void VulkanRendererAPI::DeleteVertexArray(RHI::ResourceHandle /*vertexArray*/)
+    void VulkanRendererAPI::DeleteVertexArray(RHI::ResourceHandle vertexArray)
     {
-        Phase6Stub("DeleteVertexArray");
+        // Raw-handle family only (CreateVertexArrayHandle mints these);
+        // object-backed VAOs die with their C++ object. Kind-guarded like
+        // DeleteBuffer/DeleteTexture. Also drop the bound-VAO cache if it
+        // points at the dying aggregate (GL unbinds a deleted bound VAO).
+        if (RHI::ResourceRegistry::Get().KindOf(vertexArray) != RHI::ResourceKind::VertexArray)
+        {
+            return;
+        }
+        auto& rawVaos = RawVertexArrays();
+        const auto it = rawVaos.find(RawObjectKey(vertexArray));
+        if (it == rawVaos.end())
+        {
+            Phase6Stub("DeleteVertexArray(not a raw-registry vertex array)");
+            return;
+        }
+        if (m_BoundVertexArray == it->second.Raw())
+        {
+            m_BoundVertexArray = nullptr;
+        }
+        rawVaos.erase(it);
     }
 
     void VulkanRendererAPI::SetVertexArrayIndexBuffer(RHI::ResourceHandle /*vertexArray*/, RHI::ResourceHandle /*indexBuffer*/)
@@ -3636,11 +4030,10 @@ namespace OloEngine
         // BEFORE the still-recording frame) preserves that ordering for
         // mid-frame callers (terrain sculpt/paint region flushes, the DDGI
         // probe-data tile writes).
-        if (m_Cmd == VK_NULL_HANDLE)
-        {
-            Phase6Stub("UploadTextureSubImage2D(outside recording bracket)");
-            return;
-        }
+        // Dual-routed like the 1c family: with NO recording (pass Init at
+        // load time, headless fixtures) the one-shot arm below is both safe
+        // and required — the ColorGrading identity LUT was the first caller
+        // to hit the bracket-free gap.
         if (data == nullptr || width == 0u || height == 0u)
         {
             return;
@@ -3773,6 +4166,63 @@ namespace OloEngine
         std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
 
+        VkBufferImageCopy region{};
+        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+        region.imageOffset = { xOffset, yOffset, 0 };
+        region.imageExtent = { width, height, 1u };
+
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            // No recording: the blocking one-shot (the SetFaceDataMip shape).
+            // Whole-image transitions keep the tracked layout uniform, and
+            // the image settles into SHADER_READ_ONLY for the bind paths.
+            const VkImageLayout priorLayout = info->InitialLayout;
+            const u32 mipCount = std::max(info->MipLevels, 1u);
+            const u32 layerCount = std::max(info->ArrayLayers, 1u);
+            const bool ok = VulkanOneShot::Submit(
+                "VulkanRendererAPI::UploadTextureSubImage2D",
+                [&](VkCommandBuffer cmd)
+                {
+                    VkImageMemoryBarrier2 toDst{};
+                    toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                    toDst.srcStageMask =
+                        priorLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_PIPELINE_STAGE_2_NONE : kAllStages;
+                    toDst.srcAccessMask =
+                        priorLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ACCESS_2_NONE : kAllAccess;
+                    toDst.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                    toDst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                    toDst.oldLayout = priorLayout;
+                    toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                    toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    toDst.image = image;
+                    toDst.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, mipCount, 0u, layerCount };
+                    VkDependencyInfo oneShotDep{};
+                    oneShotDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                    oneShotDep.imageMemoryBarrierCount = 1u;
+                    oneShotDep.pImageMemoryBarriers = &toDst;
+                    vkCmdPipelineBarrier2(cmd, &oneShotDep);
+
+                    vkCmdCopyBufferToImage(cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+
+                    VkImageMemoryBarrier2 toRead = toDst;
+                    toRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                    toRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                    toRead.dstStageMask = kAllStages;
+                    toRead.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+                    toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                    toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    oneShotDep.pImageMemoryBarriers = &toRead;
+                    vkCmdPipelineBarrier2(cmd, &oneShotDep);
+                });
+            vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+            if (ok)
+            {
+                VulkanImageInfoRegistry::Get().SetInitialLayout(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+            return;
+        }
+
         // Transfer commands are illegal inside a dynamic-rendering scope.
         EndRenderingScope();
 
@@ -3791,10 +4241,6 @@ namespace OloEngine
         dep.pImageMemoryBarriers = toTransfer.data();
         vkCmdPipelineBarrier2(m_Cmd, &dep);
 
-        VkBufferImageCopy region{};
-        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-        region.imageOffset = { xOffset, yOffset, 0 };
-        region.imageExtent = { width, height, 1u };
         vkCmdCopyBufferToImage(m_Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
 
         // Left in TRANSFER_DST with the tracker in agreement — the bind-time
@@ -3809,7 +4255,13 @@ namespace OloEngine
 
     void VulkanRendererAPI::UploadTextureSubImage3D(RHI::ResourceHandle /*texture*/, i32 /*xOffset*/, i32 /*yOffset*/, i32 /*zOffset*/, u32 /*width*/, u32 /*height*/, u32 /*depth*/, RHI::Format /*sourceFormat*/, const void* /*data*/)
     {
-        Phase6Stub("UploadTextureSubImage3D");
+        // Deliberately not lowered (#691 Phase 8): the engine's ONE caller is
+        // OceanFFTGpu's twiddle-index seed, and the ocean FFT chain is not a
+        // Vulkan tenant yet. When it becomes one, follow the
+        // UploadTextureSubImage2D staged pattern with depth as
+        // imageExtent.depth. Still counted as a stub hit so the pass-suite
+        // instruments see the fall-through if a Vulkan caller ever appears.
+        Phase6Stub("UploadTextureSubImage3D(no Vulkan-reachable caller — OceanFFTGpu only)");
     }
 
     bool VulkanRendererAPI::ReadTextureImage(RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/, RHI::Format /*destFormat*/, sizet /*destSizeBytes*/, void* /*dest*/)
@@ -3824,9 +4276,32 @@ namespace OloEngine
         return false;
     }
 
-    void VulkanRendererAPI::GetTextureDimensions(RHI::ResourceHandle /*texture*/, u32 /*mipLevel*/, u32& /*outWidth*/, u32& /*outHeight*/)
+    void VulkanRendererAPI::GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight)
     {
-        Phase6Stub("GetTextureDimensions");
+        // GL answers from glGetTextureLevelParameteriv; here the image-info
+        // registry carries the mip-0 extent (#691 Phase 8). GL's contract for
+        // a missing level is 0, so the outputs are zeroed on every failure
+        // path — callers already treat 0 as "no answer".
+        outWidth = 0u;
+        outHeight = 0u;
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            Phase6Stub("GetTextureDimensions(unresolved texture)");
+            return;
+        }
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
+        if (info == nullptr || info->Width == 0u)
+        {
+            Phase6Stub("GetTextureDimensions(image without a registered extent)");
+            return;
+        }
+        if (mipLevel >= info->MipLevels)
+        {
+            return; // past the chain — GL reports 0
+        }
+        outWidth = std::max(info->Width >> mipLevel, 1u);
+        outHeight = std::max(info->Height >> mipLevel, 1u);
     }
 
     void VulkanRendererAPI::TextureBarrier()

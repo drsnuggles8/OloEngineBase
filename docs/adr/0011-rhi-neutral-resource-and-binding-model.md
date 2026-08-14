@@ -2876,6 +2876,182 @@ ratchet that fails the moment it is addressed:
 
 ---
 
+## Amendments from Phase 8 (2026-08-14) — completeness & verification parity
+
+### (70) The sampler heap retires the embedded sampler, and sampler state is not a PSO axis
+
+§1.2a's "sampler deduplication that has no GL counterpart" landed as
+`VulkanSamplerHeap`: the second `VK_EXT_descriptor_heap` heap, deduplicated
+by the full `VkSamplerCreateInfo` (slot 0 = the old embedded linear/clamp
+default, so an unstaged binding samples exactly as before). Every combined
+image-sampler root field is now TWO u32s — image heap index at `Offset`,
+sampler heap index at `Offset + kSamplerIndexOffset` — sourced by the
+mapping's `samplerHeapOffset`/`samplerAddressOffset` half with
+`pEmbeddedSampler = nullptr`. Consequences that generalise:
+
+- **The inherit contract needs a home the API can see.** GL keeps filter/wrap
+  on the texture object; the backend's equivalent is per-image sampler state
+  in `VulkanImageInfo`, stamped with §4f's per-class GL defaults at creation
+  and mutated by the `SetTextureFilter`/`SetTextureWrap` facade entries. The
+  per-class table matters: framebuffer attachments are CLAMP_TO_EDGE+LINEAR
+  (GL's `PrepareTexture`), NOT the `Texture2D` REPEAT default — the
+  chromatic-aberration tenant caught the divergence analytically as an edge
+  sample wrapping to the far side of the frame.
+- **An explicit `RHI::SamplerDesc` must TRAVEL the heap-off fallback.** The
+  seam dropped it before reaching the backend; on GL that was harmless (the
+  slot path samples object state by design), on Vulkan it silently degraded
+  the ShadowDepthSampler comparison state — `sampler2DArrayShadow` reads
+  through a non-compare sampler are undefined. A third `BindTexture` overload
+  carries the desc; GL's default body reduces to the two-arg bind.
+- **Both heaps are one binding model, so their lifecycles CASCADE.**
+  `VulkanResourceHeap::CmdBind` binds the sampler heap too (a hand-recording
+  caller that binds one heap and draws trips VUID-11308 — the Phase 6 pilot
+  test was the first), and `Release` releases it (the first fixture teardown
+  without the cascade tripped VMA's allocations-not-freed assert).
+- Integer formats force NEAREST at the sampler-derivation seam — outranking
+  even an explicit desc, because GL answered LINEAR-on-integer with
+  incompleteness, never with linear filtering.
+
+### (71) A deferred clear must remember WHO asked
+
+Phase 7's lazy-scope pending clear was a target-blind flag pair, which
+diverged from GL three ways: `Bind(A); Clear(); Bind(B); Draw()` cleared B
+and left A untouched; an unconsumed clear (a shadow-atlas entry culled to
+zero draws) leaked into the next pass's loadOp — or onto the backbuffer
+through the present path's forced rebind; and clear values were read at
+consume time, not request time. The fix's shape is the finding: the pending
+record carries the SAME identity triple the scope-match predicate uses
+(framebuffer pointer / backbuffer view / depth-array view) plus captured
+values, folds into the loadOp only when the opening scope IS the requester,
+and otherwise MATERIALIZES as an eager transfer clear (per-layer for the
+depth-array case) — at supersession and at EndRecording. Deferral is an
+optimisation over GL's eager semantics, so every path where the deferral
+becomes observable must collapse back to eager.
+
+### (72) One-shot submits are ordered BEFORE the still-recording frame
+
+Queue submissions execute in submit order, so a blocking one-shot issued
+mid-frame runs before everything the frame has recorded but not submitted —
+`StorageBuffer::GetData` returned the previous frame's contents, `SubImage`
+diverged from the layout tracker, and `ClearData`'s documented routing had
+never landed. The rules now implemented: mid-frame WRITES record into the
+frame command buffer (staging buffers go to deferred reclaim, never inline
+destroy); mid-frame READS flush-and-continue
+(`VulkanContext::FlushFrameRecordingAndWait` — submit without the acquire
+semaphore, fence-wait, resume the bracket with only per-command-buffer
+caches reset), refused only when the backbuffer was already written (the
+binary acquire semaphore belongs to the final submit) or a query is open (a
+query span cannot cross command buffers). And the guard for "is a Vulkan
+recording live" probes the LIVE object via dynamic_cast — never
+`RendererAPI::GetAPI()`, a static flag a fixture can set without recreating
+the API object (found as an access violation, the amendment (39)
+construction-order gap resurfacing in test clothing).
+
+### (73) The projection seam's reader classes need SEPARATE UBO members
+
+Amendment (59) said enumerate readers; Phase 8 found the readers of ONE
+member split across both flavours, which no call-site fix can express —
+`CameraUBO` gained `ProjectionForReconstruction` (row-flip flavour,
+identical on GL, appended so every truncated `CameraMatrices` declaration
+stays valid). Three sharpenings: capture-flavour writers fill the RAW matrix
+(their math sibling has neither flip nor remap); `[1][1]` is negative on
+Vulkan in BOTH flavours, so a pure magnitude use (tessellation screen-space
+scale, VG pixel error, SSAO radius) takes `abs()` rather than a member
+switch — all three were silently negative on Vulkan; and cross-stage GLSL
+block declarations must agree per program (glLinkProgram rejects a
+truncation mismatch between stages of one shader — extend every declaring
+stage, not just the consuming one).
+
+### (74) A sweep keyed on "ran in the live log" has a shadow, and an inclusion-list ratchet cannot see it
+
+The Phase 7 bare-uniform sweep converted what the live session exercised and
+NAMED six leftovers; the first Phase 8 live launch found a SEVENTH
+(`ReflectionProbeCull.comp`) whose pass simply never ran in that log. Both
+halves generalise: coverage claims derived from a live session inherit that
+session's pass coverage; and the ratchet being an INCLUSION list means an
+unlisted offender is invisible — fixing a shader does nothing until it is
+added to `kPhase7MigratedComputeShaders`, `kKnownBlocks`,
+`IsKnownUBOBinding`, and the binding-limit assert. The migration is
+mechanical; the REGISTRATION is the part that rots.
+
+### (75) GL's cube-face z IS a Vulkan array layer — and a partially-uploaded cube must keep a uniform layout
+
+`CopyImageSubDataFull`'s `(level, z)` maps directly onto `(mip, arrayLayer)`
+on the CUBE_COMPATIBLE image, which is the whole IBL/sky bake write path.
+The face-upload family runs each transition over the WHOLE image, not the
+uploaded face: per-(mip,layer) tracking answers a whole-image layout query
+with UNDEFINED when subresources disagree — "discard is the safe total
+answer" — so face-at-a-time uploads that transitioned only their face would
+legally discard the faces already uploaded. Mid-frame face uploads (the IBL
+cache load runs INSIDE the frame on this backend) take the (72) write rule;
+face readbacks take the (72) read rule. The heap descriptor path now honours
+the image's recorded dimensionality for sampled views — deriving from layer
+count alone handed a cube a `2D_ARRAY` view against `samplerCube`.
+
+### (76) A pull branch is a per-DRAW-SITE stride contract
+
+Converting the bake/sky shader family confirmed the §5f rule at scale: the
+pull branch's stride and field offsets come from the DRAW SITE's vertex
+buffer layout, not from the shader's attribute list — the cube/caster draws
+pull the 8-float engine `Vertex`, the fullscreen-triangle draws a 5-float
+layout, and a wrong guess renders garbage with no validation error. The
+families deliberately NOT converted each break the pattern's preconditions
+and need their own slice: Renderer2D's batch streams carry INT attributes (a
+float[] pull would reinterpret the bits), the terrain family is tessellated
+with a different field order, and the editor debug draws each need their VB
+layout verified individually.
+
+### (77) Phase 8 decisions recorded: inspector currency and CI cadence
+
+- **`GPUResourceInspector` (and the MCP JSON it feeds) surfaces BOTH
+  currencies** — `RHI::ResourceHandle` identity alongside the native handle
+  (via `GetNativeHandleForDebug`'s backend tag), never an opaque blob. The
+  precedent is `TransientPool::AcquiredInfo`'s documented both-currencies
+  answer: the native id is what a RenderDoc capture shows, the identity is
+  what answers alias/recycling questions; hiding either behind an opaque
+  blob serves nobody. (The relocation work consuming this decision is
+  tracked in §1.6.)
+- **Dual-backend CI cadence: the Vulkan device-gated suite stays a
+  GPU-runner concern, not a per-PR gate.** Headless CI runs the GL suite +
+  the headless ratchets (which include the Vulkan text/compile gates that
+  need no device); the device-gated Vulkan tenants run wherever a GPU runner
+  runs the visual/golden set — same cadence, same machine class. Promoting
+  Vulkan tenants to a per-PR blocking gate needs a dedicated GPU runner and
+  is a Phase 9 rollout question, not a Phase 8 one.
+
+### (78) The null root address is a device-loss, not a soft miss — and a UBO's lifetime must span its last draw
+
+Two halves of one live-editor incident (`vkQueueSubmit2` → `VK_ERROR_DEVICE_LOST`
+on every VehiclesTest launch; nvlddmkm event-153 storms in the system log).
+
+- **A root-data buffer address of 0 is not "deterministic zeros" — it is a GPU
+  page fault.** The root-assembly comment promised an unfed buffer binding
+  reads as a zero-filled block; with `PhysicalStorageBuffer` pointer loads
+  there is no such mechanism, and the null deref killed the whole device.
+  The promise is now real: `VulkanFrameArena::GetNullBlockAddress()` keeps a
+  persistent 64 KiB zero-filled block, and root assembly substitutes it for
+  every zero address (warn-once unchanged). In-bounds contract only — an SSBO
+  runtime array indexed past the block still faults, so shaders must keep
+  guarding their counts (the fluid splat's counters-gated early-out is the
+  model). Diagnosis notes for the next device loss: the fault storm predates
+  the reporting submit (loss is sticky and surfaces at the NEXT
+  `vkQueueSubmit2`); GPU-AV hid the race entirely (serialized submission);
+  the discriminator that localized it was flipping `StartScene` — the fault
+  followed the scene that re-runs the IBL bake, not the build.
+- **On Vulkan, a `UniformBuffer`'s destructor un-publishes its binding-state
+  occupancy** (`ClearBuffer(this)` — the mirror of the ctor's
+  GL-twin-parity publish). A block-scoped
+  `auto paramsUBO = UniformBuffer::Create(...)` whose scope closes before
+  the draw executes therefore reverts the binding to "unfed" — under GL the
+  same dangling bind read stale-but-valid data by accident of GL object
+  lifetime. Both IBL bake sites (irradiance, BRDF LUT) had exactly this
+  shape; the fix is function-scoping the `Ref` past the last draw. The rule:
+  **a UBO created for a draw must outlive the call that records/executes
+  that draw**, and any facade-level "create, fill, bind, drop" helper is a
+  latent Vulkan device loss.
+
+---
+
 ## Consequences
 
 - The renderer carries **four** boundary concepts where it carries one today

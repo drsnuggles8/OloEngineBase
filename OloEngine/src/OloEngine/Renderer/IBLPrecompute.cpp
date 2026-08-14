@@ -424,6 +424,13 @@ namespace OloEngine
         // block uniforms, so the parameters cannot be set via SetInt/SetFloat.
         // The legacy IrradianceConvolution fallback ignores the UBO entirely.
         shader->Bind();
+        // Function-scoped, NOT inside the if: the UBO must outlive the
+        // RenderToCubemap draw below. On Vulkan its destructor clears the
+        // published binding-state occupant, so a block-scoped UBO left the
+        // bake shader reading a NULL device address — a GPU page fault that
+        // escalated to VK_ERROR_DEVICE_LOST (#691 Phase 8). GL only tolerated
+        // the dangling bind by accident of its object lifetime rules.
+        Ref<UniformBuffer> paramsUBO;
         if (advancedAvailable)
         {
             const auto qualityMultiplier = [&]() -> f32
@@ -451,7 +458,7 @@ namespace OloEngine
             params.UseImportanceSampling = config.UseImportanceSampling ? 1 : 0;
             params.SourceResolution = static_cast<i32>(environmentMap->GetWidth());
 
-            auto paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+            paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
             paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
             paramsUBO->Bind();
         }
@@ -607,6 +614,10 @@ namespace OloEngine
         // Drive the advanced integrator's sample count through IBLAdvancedParams
         // (binding 7). The legacy BRDFLutGeneration fallback hard-codes its count
         // and ignores the UBO entirely.
+        // Function-scoped for the same reason as the irradiance bake above:
+        // the UBO must outlive the RenderToTexture draw, or on Vulkan the
+        // shader reads a NULL device address and faults the GPU.
+        Ref<UniformBuffer> paramsUBO;
         if (usingAdvancedShader)
         {
             const i32 sampleCount = [&]() -> i32
@@ -634,7 +645,7 @@ namespace OloEngine
             params.UseImportanceSampling = 1;
             params.SourceResolution = 1; // unused by the BRDF path
 
-            auto paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+            paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
             paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
             paramsUBO->Bind();
         }

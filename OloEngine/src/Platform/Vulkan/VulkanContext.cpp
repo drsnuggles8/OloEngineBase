@@ -11,6 +11,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanGpuFence.h"
+#include "Platform/Vulkan/VulkanImGuiBackend.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
@@ -68,6 +69,10 @@ namespace OloEngine
         VkSwapchainKHR Swapchain = VK_NULL_HANDLE;
         VkFormat SwapchainFormat = VK_FORMAT_UNDEFINED;
         VkExtent2D SwapchainExtent{};
+        // The minImageCount requested at vkCreateSwapchainKHR — the ImGui
+        // renderer backend's InitInfo wants it alongside the actual image
+        // count (#691 Phase 8).
+        u32 SwapchainMinImageCount = 0;
         std::vector<VkImage> SwapchainImages;
         // Attachment views for dynamic rendering (#691 Phase 6 — the frame
         // loop renders now, it no longer only clears).
@@ -291,6 +296,7 @@ namespace OloEngine
         {
             imageCount = std::min(imageCount, caps.maxImageCount);
         }
+        d.SwapchainMinImageCount = imageCount;
 
         VkSwapchainCreateInfoKHR swapchainInfo{};
         swapchainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -351,6 +357,8 @@ namespace OloEngine
         {
             VulkanImageInfo info{};
             info.Format = d.SwapchainFormat;
+            info.Width = extent.width;
+            info.Height = extent.height;
             info.MipLevels = 1;
             info.ArrayLayers = 1;
             VulkanImageInfoRegistry::Get().Register(d.SwapchainImages[i], info);
@@ -466,6 +474,21 @@ namespace OloEngine
         VkCheck(vkBeginCommandBuffer(cmd, &beginInfo), "vkBeginCommandBuffer(flush)");
         api.ResumeRecordingAfterFlush(cmd);
         return true;
+    }
+
+    u32 VulkanContext::GetSwapchainImageCount() const
+    {
+        return static_cast<u32>(m_Data->SwapchainImages.size());
+    }
+
+    u32 VulkanContext::GetSwapchainMinImageCount() const
+    {
+        return m_Data->SwapchainMinImageCount;
+    }
+
+    u32 VulkanContext::GetSwapchainColorFormat() const
+    {
+        return static_cast<u32>(m_Data->SwapchainFormat);
     }
 
     void VulkanContext::SwapBuffers()
@@ -613,12 +636,39 @@ namespace OloEngine
                 OLO_CORE_ERROR("[Vulkan] frame render callback threw: {} — falling back to the clear frame", e.what());
                 callbackRendered = false;
             }
+            // --- ImGui overlay (#691 Phase 8) ------------------------------
+            // The UI is recorded INSIDE this bracket, after the 3D frame,
+            // before the present transition. ImGuiLayer::End produced the
+            // draw data during the frame callback above (RenderFrameLayers
+            // runs inside it); RecordOverlay opens its own dynamic-rendering
+            // scope on the acquired backbuffer view — loadOp LOAD over a
+            // written frame, loadOp CLEAR (the bring-up colour) when the
+            // callback declined but UI exists, in which case the overlay also
+            // owns the transition to Present (Finalize below reports false
+            // for a frame whose facade scope never opened). This seam — a
+            // direct call between the frame callback and Finalize — was
+            // chosen over a second registered callback: both live in
+            // Platform/Vulkan, the overlay needs backend types (view,
+            // extent, the facade), and a std::function adds a seam nothing
+            // else would ever plug into.
+            const VulkanImGuiBackend::OverlayResult overlay = VulkanImGuiBackend::RecordOverlay(
+                api, d.SwapchainViews[imageIndex], d.SwapchainExtent, d.SwapchainImageHandles[imageIndex].Get(),
+                api.BackbufferWasWrittenThisRecording());
+
             // Owning the present transition here (rather than asking the
             // callback for it) keeps swapchain-layout knowledge inside the
             // presenting backend, and lets the fallback below stay correct:
             // it returns false ONLY when nothing touched the image, so the
             // fallback's UNDEFINED oldLayout can never discard real work.
             rendered = api.FinalizeBackbufferForPresent(callbackRendered);
+            if (overlay == VulkanImGuiBackend::OverlayResult::DrawnAndPresented)
+            {
+                // The overlay cleared + drew the UI and transitioned the
+                // image to Present itself — the frame holds defined content,
+                // so the clear-only fallback below must not run (it would
+                // clobber the UI via its UNDEFINED oldLayout).
+                rendered = true;
+            }
             api.EndRecording();
         }
         if (!rendered)
