@@ -25,11 +25,43 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#ifdef OLO_DEBUG
+#include <mutex>
+#include <stacktrace>
+#include <unordered_map>
+#endif
 
 namespace OloEngine
 {
     namespace
     {
+#ifdef OLO_DEBUG
+        // Teardown forensics for object textures / storage buffers (#691
+        // Phase 8 — the close-button VMA abort): a Ref surviving the full
+        // renderer teardown keeps its VMA allocation alive into
+        // vmaDestroyAllocator. The VAO twin lives in VulkanBufferResources
+        // (LogSurvivingVertexArrays); this covers the classes owned here.
+        std::mutex s_LiveTrackMutex;
+        std::unordered_map<const void*, std::pair<const char*, std::stacktrace>> s_LiveGpuObjects;
+        void TrackLive(const void* object, const char* what)
+        {
+            std::scoped_lock lock(s_LiveTrackMutex);
+            s_LiveGpuObjects.emplace(object, std::make_pair(what, std::stacktrace::current(2)));
+        }
+        void UntrackLive(const void* object)
+        {
+            std::scoped_lock lock(s_LiveTrackMutex);
+            s_LiveGpuObjects.erase(object);
+        }
+#else
+        void TrackLive(const void*, const char*)
+        {
+        }
+        void UntrackLive(const void*)
+        {
+        }
+#endif
+
         // Kept in sync with VulkanDevice.cpp's / VulkanContext.cpp's copies
         // (all anonymous-namespace, trivially small — not worth a shared header).
         void VkCheck(VkResult result, const char* what)
@@ -643,10 +675,12 @@ namespace OloEngine
 
         CreateImage();
         m_IsLoaded = true;
+        TrackLive(this, "VulkanTexture2D(spec)");
     }
 
     VulkanTexture2D::VulkanTexture2D(const std::string& path, bool srgb)
     {
+        TrackLive(this, "VulkanTexture2D(path)");
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(VulkanDevice::Get() != nullptr, "VulkanTexture2D requires a live VulkanDevice");
 
@@ -680,6 +714,7 @@ namespace OloEngine
 
     VulkanTexture2D::~VulkanTexture2D()
     {
+        UntrackLive(this);
         // Retire the identity first (outstanding handles go stale), then hand
         // the native object to the deferred queue — NEVER vmaDestroyImage
         // inline, prior frames may still be executing. Destructors must not
@@ -754,6 +789,7 @@ namespace OloEngine
 
         VkCheck(vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr),
                 "vmaCreateImage (VulkanTexture2D)");
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2D");
 
         // HasStencil follows the RESOLVED VkFormat: the engine's combined
         // depth format lowers to D32_SFLOAT_S8_UINT, which carries a stencil
@@ -1417,6 +1453,7 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture3D");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = imageInfo.format;
@@ -1555,6 +1592,7 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTextureCubemap");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = format;
@@ -1996,6 +2034,7 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTextureCubemapArray");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = format;
@@ -2118,6 +2157,7 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2DArray");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = imageInfo.format;
@@ -2871,10 +2911,12 @@ namespace OloEngine
         OLO_CORE_ASSERT(VulkanDevice::Get() != nullptr, "VulkanStorageBuffer requires a live VulkanDevice");
 
         CreateBuffer();
+        TrackLive(this, "VulkanStorageBuffer");
     }
 
     VulkanStorageBuffer::~VulkanStorageBuffer()
     {
+        UntrackLive(this);
         // Identity first, then the deferred queue — never vmaDestroyBuffer
         // inline (prior frames may still be executing). No exception may
         // escape a destructor: a failed enqueue leaks one buffer until
@@ -2938,6 +2980,7 @@ namespace OloEngine
         VmaAllocationInfo outInfo{};
         VkCheck(vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &outInfo),
                 "vmaCreateBuffer (VulkanStorageBuffer)");
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanStorageBuffer");
 
         m_Mapped = nullptr;
         m_NeedsFlush = false;
@@ -3448,6 +3491,27 @@ namespace OloEngine
     }
 
 #undef OLO_VK_PHASE6_STUB
+    void VulkanLogSurvivingTransients()
+    {
+#ifdef OLO_DEBUG
+        std::scoped_lock lock(s_LiveTrackMutex);
+        for (const auto& [object, info] : s_LiveGpuObjects)
+        {
+            std::string trace = std::to_string(info.second);
+            sizet cut = 0;
+            for (int newlines = 0; cut < trace.size(); ++cut)
+            {
+                if (trace[cut] == '\n' && ++newlines == 12)
+                    break;
+            }
+            OLO_CORE_ERROR("[Vulkan] surviving {} created at:\n{}", info.first, trace.substr(0, cut));
+        }
+        if (!s_LiveGpuObjects.empty())
+        {
+            OLO_CORE_ERROR("[Vulkan] {} texture/storage-buffer object(s) survived full teardown", s_LiveGpuObjects.size());
+        }
+#endif
+    }
 } // namespace OloEngine
 
 #endif // OLO_WITH_VULKAN

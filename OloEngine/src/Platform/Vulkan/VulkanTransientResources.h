@@ -1015,6 +1015,13 @@ namespace OloEngine
 
         std::unordered_map<u64, Ref<VulkanFramebuffer>> m_Entries;
     };
+    // Teardown forensics (#691 Phase 8): logs every VulkanTexture2D /
+    // VulkanStorageBuffer object still alive, with its Debug-captured
+    // creation stack — the texture/storage twin of
+    // VulkanRootObjectRegistry::LogSurvivingVertexArrays. No-op in
+    // non-Debug builds.
+    void VulkanLogSurvivingTransients();
+
 } // namespace OloEngine
 
 #endif // OLO_WITH_VULKAN

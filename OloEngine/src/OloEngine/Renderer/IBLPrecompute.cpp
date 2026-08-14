@@ -370,6 +370,11 @@ namespace OloEngine
         return s_CubeMesh;
     }
 
+    void IBLPrecompute::Shutdown()
+    {
+        s_CubeMesh.Reset();
+    }
+
     namespace
     {
         // Force a GPU sync so the elapsed-time log lines actually reflect the

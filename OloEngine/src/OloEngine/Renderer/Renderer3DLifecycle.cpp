@@ -6,6 +6,8 @@
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
+#include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
@@ -612,6 +614,73 @@ namespace OloEngine
         s_Data.PrevBoneMatricesUBO.Reset();
         s_Data.UnderwaterFogBuffer.Reset();
 
+        // The primitive meshes are the same static-outlives-the-context shape
+        // as the GPUFrustumCuller above: each MeshSource holds a main + shadow
+        // vertex array whose VMA allocations must die before the window
+        // destroys the graphics context, or vmaDestroyAllocator aborts with
+        // "allocations not freed" on Vulkan (#691 Phase 8, the close-button
+        // crash — found via the surviving-VertexArray teardown dump).
+        s_Data.CubeMesh.Reset();
+        s_Data.SphereMesh.Reset();
+        s_Data.QuadMesh.Reset();
+        s_Data.SkyboxMesh.Reset();
+        s_Data.DecalCubeMesh.Reset();
+        s_Data.LineQuadMesh.Reset();
+        s_Data.FullscreenQuadVAO.Reset();
+        s_Data.WhiteTexture.Reset();
+
+        // CommandDispatch's static mirror of the shared UBO / instance-buffer
+        // Refs (SetUBOReferences) is a CO-OWNER: without this, the
+        // ModelInstanceBuffer's storage survives to static destruction and
+        // trips the same vmaDestroyAllocator abort as the meshes above.
+        CommandDispatch::Shutdown();
+
+        // Shaders: the static library plus s_Data's named aliases. Shaders
+        // surviving to static destruction leak their VkShaderModules into
+        // vkDestroyDevice (VUID-vkDestroyDevice-device-05137).
+        s_Data.LightCubeShader.Reset();
+        s_Data.DefaultForwardShader.Reset();
+        s_Data.DefaultForwardSkinnedShader.Reset();
+        s_Data.QuadShader.Reset();
+        s_Data.PBRShader.Reset();
+        s_Data.PBRSkinnedShader.Reset();
+        s_Data.PBRMultiLightShader.Reset();
+        s_Data.PBRMultiLightSkinnedShader.Reset();
+        s_Data.PBRGBufferShader.Reset();
+        s_Data.PBRGBufferSkinnedShader.Reset();
+        s_Data.SkyboxShader.Reset();
+        s_Data.SkyboxGBufferShader.Reset();
+        s_Data.LightCubeGBufferShader.Reset();
+        s_Data.InfiniteGridShader.Reset();
+        s_Data.InfiniteGridGBufferShader.Reset();
+        s_Data.ForwardPlusDebugShader.Reset();
+        s_Data.ShadowDepthShader.Reset();
+        s_Data.ShadowDepthSkinnedShader.Reset();
+        s_Data.DepthPrepassShader.Reset();
+        s_Data.DepthPrepassSkinnedShader.Reset();
+        s_Data.DepthPrepassMaskShader.Reset();
+        s_Data.DepthPrepassMaskSkinnedShader.Reset();
+        s_Data.TerrainPBRShader.Reset();
+        s_Data.TerrainGBufferShader.Reset();
+        s_Data.TerrainDepthShader.Reset();
+        s_Data.VoxelPBRShader.Reset();
+        s_Data.VoxelGBufferShader.Reset();
+        s_Data.VoxelDepthShader.Reset();
+        s_Data.FoliageShader.Reset();
+        s_Data.FoliageGBufferShader.Reset();
+        s_Data.FoliageDepthShader.Reset();
+        s_Data.FoliageImpostorShader.Reset();
+        s_Data.WaterShader.Reset();
+        s_Data.DecalShader.Reset();
+        s_Data.DecalGBufferShader.Reset();
+        s_Data.DecalGBufferNormalShader.Reset();
+        s_Data.DecalGBufferRMAShader.Reset();
+        s_Data.DecalGBufferEmissiveShader.Reset();
+        m_ShaderLibrary.Clear();
+        ShaderLibrary::ShutdownFallbackShader();
+
+        IBLPrecompute::Shutdown();
+        ImpostorBaker::Shutdown();
         MeshPrimitives::Shutdown();
 
         FrameResourceManager::Get().Shutdown();

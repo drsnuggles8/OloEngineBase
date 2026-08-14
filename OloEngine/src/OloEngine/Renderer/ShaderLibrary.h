@@ -56,6 +56,16 @@ namespace OloEngine
         // Force all pending shaders to complete synchronously (for shutdown or sync points).
         void FlushPendingShaders();
 
+        // Drop every owned shader Ref. Renderer shutdown must call this
+        // before the graphics context dies: the library is a static member
+        // (Renderer3D::m_ShaderLibrary), and shaders surviving to static
+        // destruction leak their VkShaderModules into vkDestroyDevice
+        // (VUID-vkDestroyDevice-device-05137, #691 Phase 8).
+        void Clear()
+        {
+            m_Shaders.clear();
+        }
+
         // Progress reporting
         [[nodiscard]] u32 GetTotalCount() const
         {

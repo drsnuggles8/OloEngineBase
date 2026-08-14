@@ -654,6 +654,24 @@ namespace OloEngine
             }
             if (m_Allocator != VK_NULL_HANDLE)
             {
+                // vmaDestroyAllocator ASSERTS (debug-CRT abort in Debug) when
+                // allocations are still alive — name the leaks first so the
+                // abort is attributable instead of a bare VMA call stack.
+                VmaTotalStatistics stats{};
+                vmaCalculateStatistics(m_Allocator, &stats);
+                if (stats.total.statistics.allocationCount > 0)
+                {
+                    OLO_CORE_ERROR("[Vulkan] {} VMA allocation(s) still alive at allocator teardown ({} bytes) — "
+                                   "dumping detailed stats",
+                                   stats.total.statistics.allocationCount, stats.total.statistics.allocationBytes);
+                    char* statsString = nullptr;
+                    vmaBuildStatsString(m_Allocator, &statsString, VK_TRUE);
+                    if (statsString != nullptr)
+                    {
+                        OLO_CORE_ERROR("[Vulkan] VMA leak dump:\n{}", statsString);
+                        vmaFreeStatsString(m_Allocator, statsString);
+                    }
+                }
                 vmaDestroyAllocator(m_Allocator);
                 m_Allocator = VK_NULL_HANDLE;
             }

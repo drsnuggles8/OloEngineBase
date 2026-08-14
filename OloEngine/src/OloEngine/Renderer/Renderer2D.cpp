@@ -309,6 +309,37 @@ namespace OloEngine
         s_Data.LineVertexBufferBase = nullptr;
         delete[] s_Data.TextVertexBufferBase;
         s_Data.TextVertexBufferBase = nullptr;
+
+        // Release the GPU-object Refs too: s_Data is static, so without this
+        // they survive to static destruction — AFTER the window destroyed the
+        // graphics context. GL never noticed; on Vulkan every one of these is
+        // a VMA allocation still alive at vmaDestroyAllocator, which aborts
+        // with "allocations not freed" on window close (#691 Phase 8).
+        s_Data.QuadVertexArray.Reset();
+        s_Data.QuadVertexBuffer.Reset();
+        s_Data.QuadShader.Reset();
+        s_Data.WhiteTexture.Reset();
+        s_Data.PolygonVertexArray.Reset();
+        s_Data.PolygonVertexBuffer.Reset();
+        s_Data.PolygonShader.Reset();
+        s_Data.CircleVertexArray.Reset();
+        s_Data.CircleVertexBuffer.Reset();
+        s_Data.CircleShader.Reset();
+        s_Data.LineVertexArray.Reset();
+        s_Data.LineVertexBuffer.Reset();
+        s_Data.LineShader.Reset();
+        s_Data.TextVertexArray.Reset();
+        s_Data.TextVertexBuffer.Reset();
+        s_Data.TextShader.Reset();
+        s_Data.SlugCurveTexture.Reset();
+        s_Data.SlugBandTexture.Reset();
+        for (auto& slot : s_Data.TextureSlots)
+        {
+            slot.Reset();
+        }
+        // The 2D shader library is its own static (separate from
+        // Renderer3D's) — same must-not-outlive-the-context rule.
+        m_ShaderLibrary.Clear();
     }
 
     void Renderer2D::BeginSceneImpl(const glm::mat4& viewProjectionWorld, const glm::vec3& cameraWorldPos)

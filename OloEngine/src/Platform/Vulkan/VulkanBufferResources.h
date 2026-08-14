@@ -44,6 +44,9 @@
 
 #include <unordered_map>
 #include <vector>
+#ifdef OLO_DEBUG
+#include <stacktrace>
+#endif
 
 namespace OloEngine
 {
@@ -93,6 +96,20 @@ namespace OloEngine
         // pointer is invalidated by the next Register/Unregister — use, don't
         // hold.
         [[nodiscard]] const Entry* Lookup(RHI::ResourceHandle handle) const;
+
+        // Teardown forensics (#691 Phase 8 — the close-button VMA abort):
+        // after the full renderer/layer teardown, every VertexArray still
+        // registered here is a leak suspect keeping its vertex/index buffers'
+        // VMA allocations alive into vmaDestroyAllocator. Logs each survivor
+        // with its Debug-captured creation call stack; no-op in non-Debug.
+        void LogSurvivingVertexArrays() const;
+
+        // Forced release of every surviving shader's VkShaderModules at
+        // context teardown — the central-registry-owns-native-lifetime
+        // pattern: a shader Ref lingering in a stray static becomes an inert
+        // zombie instead of a vkDestroyDevice leak
+        // (VUID-vkDestroyDevice-device-05137). Runs in ALL configs.
+        void ReleaseSurvivingShaderModules();
 
       private:
         VulkanRootObjectRegistry() = default;
@@ -408,10 +425,22 @@ namespace OloEngine
         [[nodiscard]] const VulkanVertexBuffer* GetPullVertexBuffer(sizet streamIndex) const;
         [[nodiscard]] const VulkanIndexBuffer* GetVulkanIndexBuffer() const;
 
+#ifdef OLO_DEBUG
+        // Leak forensics: who built this VAO (see
+        // VulkanRootObjectRegistry::LogSurvivingVertexArrays).
+        [[nodiscard]] const std::stacktrace& GetCreationStack() const
+        {
+            return m_CreationStack;
+        }
+#endif
+
       private:
         std::vector<Ref<VertexBuffer>> m_VertexBuffers;
         Ref<IndexBuffer> m_IndexBuffer;
         RHI::ScopedResourceHandle m_RHIHandle;
+#ifdef OLO_DEBUG
+        std::stacktrace m_CreationStack;
+#endif
     };
 } // namespace OloEngine
 

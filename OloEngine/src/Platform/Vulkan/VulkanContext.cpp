@@ -8,6 +8,7 @@
 // et al.) when VK_VERSION_1_0 is already visible.
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanGpuFence.h"
@@ -168,6 +169,21 @@ namespace OloEngine
             vkDestroySurfaceKHR(d.Device.GetInstance(), d.Surface, nullptr);
             d.Surface = VK_NULL_HANDLE;
         }
+        // Anything still in the root registry at this point outlived the
+        // full teardown — name the owners (Debug) before the allocator
+        // teardown turns them into a bare VMA leak count, and force-release
+        // surviving shaders' modules so a stray static Ref cannot leak them
+        // into vkDestroyDevice.
+        VulkanRootObjectRegistry::Get().LogSurvivingVertexArrays();
+        VulkanRootObjectRegistry::Get().ReleaseSurvivingShaderModules();
+        VulkanLogSurvivingTransients();
+        // Second (final) reclaim drain: objects destroyed AFTER the FlushAll
+        // above — swapchain teardown, late Ref releases on other threads —
+        // re-populate the queue, and an entry that reaches
+        // vmaDestroyAllocator is the "allocations not freed" abort. The
+        // device is idle (nothing has submitted since the wait above), so
+        // the flush precondition holds.
+        VulkanDeferredReclaim::Get().FlushAll();
         d.Device.Shutdown();
         OLO_CORE_INFO("[Vulkan] Context shut down cleanly");
     }
@@ -435,14 +451,18 @@ namespace OloEngine
         if (api.BackbufferWasWrittenThisRecording())
         {
             // The acquire semaphore is a single-wait binary the FINAL submit
-            // owns; swapchain-image work in a flush would need it first. In
-            // practice readbacks happen in passes before the final blit — a
-            // warn-once, not a design hole.
-            static bool s_Warned = false;
-            if (!s_Warned)
+            // owns; swapchain-image work in a flush would need it first.
+            // TRACE, not WARN: the caller's borrow-mode fallback (previous-
+            // frame read, ReadTextureSubImage) is the DESIGNED behavior for
+            // this case — it is GL's double-buffered PBO pick semantics —
+            // so a viewport click after the final blit lands here in every
+            // editor session by design.
+            static bool s_Traced = false;
+            if (!s_Traced)
             {
-                s_Warned = true;
-                OLO_CORE_WARN("[Vulkan] mid-frame flush refused: the backbuffer was already written this frame");
+                s_Traced = true;
+                OLO_CORE_TRACE("[Vulkan] mid-frame flush declined (backbuffer already written) — the caller "
+                               "reads previous-frame contents instead, GL's double-buffered pick semantics");
             }
             return false;
         }

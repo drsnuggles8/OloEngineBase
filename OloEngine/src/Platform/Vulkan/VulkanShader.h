@@ -176,6 +176,18 @@ namespace OloEngine
         // draw-time pipeline lookup consumes. Null when none.
         [[nodiscard]] static VulkanShader* GetCurrentlyBound();
 
+        // Forced device-object release for context teardown (#691 Phase 8):
+        // a shader Ref surviving in some static (a library, a cached
+        // material) would otherwise carry its VkShaderModules into
+        // vkDestroyDevice (VUID-vkDestroyDevice-device-05137). The context
+        // walks the root registry and releases every survivor's modules
+        // here, turning the straggler into a harmless zombie — the eventual
+        // destructor's DestroyModules() is idempotent on the cleared map.
+        void ReleaseDeviceObjects()
+        {
+            DestroyModules();
+        }
+
       private:
         // Shared ctor tail: compile-or-load every stage, reflect, create
         // modules. Returns false on failure (m_Status = Failed).
