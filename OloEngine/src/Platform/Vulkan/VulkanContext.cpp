@@ -16,6 +16,7 @@
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <GLFW/glfw3.h>
@@ -101,10 +102,13 @@ namespace OloEngine
         : m_WindowHandle(windowHandle), m_Data(CreateScope<VulkanContextData>())
     {
         OLO_CORE_ASSERT(windowHandle, "Window handle is null!");
+        OLO_CORE_ASSERT(s_Instance == nullptr, "A VulkanContext already exists");
+        s_Instance = this;
     }
 
     VulkanContext::~VulkanContext()
     {
+        s_Instance = nullptr;
         VulkanContextData& d = *m_Data;
         const VkDevice device = d.Device.GetDevice();
         if (device != VK_NULL_HANDLE)
@@ -121,7 +125,7 @@ namespace OloEngine
             // them first (amendment (33): state must not outlive what gives
             // it meaning).
             RHI::DescriptorHeap::Get().Shutdown();
-            VulkanResourceHeap::Get().Release();
+            VulkanResourceHeap::Get().Release(); // cascades to the sampler heap
             VulkanFrameArena::Get().ReleaseBuffers();
             VulkanDeferredReclaim::Get().FlushAll();
             // Serialise + destroy the process-wide pipeline cache while the
@@ -401,6 +405,67 @@ namespace OloEngine
         DestroySwapchain();
         CreateSwapchain();
         OLO_CORE_INFO("[Vulkan] Swapchain recreated ({}x{})", d.SwapchainExtent.width, d.SwapchainExtent.height);
+    }
+
+    bool VulkanContext::FlushFrameRecordingAndWait()
+    {
+        if (!m_InSwapBuffers)
+        {
+            return false;
+        }
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        if (api.BackbufferWasWrittenThisRecording())
+        {
+            // The acquire semaphore is a single-wait binary the FINAL submit
+            // owns; swapchain-image work in a flush would need it first. In
+            // practice readbacks happen in passes before the final blit — a
+            // warn-once, not a design hole.
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[Vulkan] mid-frame flush refused: the backbuffer was already written this frame");
+            }
+            return false;
+        }
+        const VkCommandBuffer cmd = api.SuspendRecordingForFlush();
+        if (cmd == VK_NULL_HANDLE)
+        {
+            return false;
+        }
+
+        VulkanContextData& d = *m_Data;
+        const VkDevice device = d.Device.GetDevice();
+        VkCheck(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(flush)");
+
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence fence = VK_NULL_HANDLE;
+        VkCheck(vkCreateFence(device, &fenceInfo, nullptr, &fence), "vkCreateFence(flush)");
+
+        VkCommandBufferSubmitInfo cmdInfo{};
+        cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        cmdInfo.commandBuffer = cmd;
+        VkSubmitInfo2 submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit.commandBufferInfoCount = 1;
+        submit.pCommandBufferInfos = &cmdInfo;
+        // Deliberately NO semaphores: the acquire wait and the present signal
+        // belong to the frame's final submit, and any staged RHI::GpuFence
+        // queue ops stay staged for it too — this submission is an ordering
+        // detail inside the frame, invisible to frame pacing.
+        VkCheck(vkQueueSubmit2(d.Device.GetQueue(), 1, &submit, fence), "vkQueueSubmit2(flush)");
+        constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — a flush slower than this is a hang
+        VkCheck(vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs), "vkWaitForFences(flush)");
+        vkDestroyFence(device, fence, nullptr);
+
+        VkCheck(vkResetCommandBuffer(cmd, 0), "vkResetCommandBuffer(flush)");
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        VkCheck(vkBeginCommandBuffer(cmd, &beginInfo), "vkBeginCommandBuffer(flush)");
+        api.ResumeRecordingAfterFlush(cmd);
+        return true;
     }
 
     void VulkanContext::SwapBuffers()

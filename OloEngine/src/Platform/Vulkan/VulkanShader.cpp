@@ -558,6 +558,13 @@ namespace OloEngine
         // (ParticleBatchRenderer, FoliageRenderer, VirtualGeometryPass) route
         // into the offset path with no heap staged (#691 Wave C batch 2).
         SetBoundProgramBindless(false);
+        // Its SIBLING flag has the identical stale-across-backends hazard
+        // (#691 Phase 8): OLO_MATERIAL_HEAP_READER programs exist only on the
+        // GL route, and CommandDispatch::BindPBRTextures SKIPS the five
+        // material texture binds whenever this reads true — a stale true from
+        // a GL bindless bind renders every Vulkan mesh with null material
+        // lanes, no error anywhere.
+        SetBoundProgramMaterialOffsets(false);
     }
 
     void VulkanShader::Unbind() const
@@ -566,6 +573,10 @@ namespace OloEngine
         {
             s_CurrentlyBound = nullptr;
         }
+        // Match OpenGLShader::Unbind: no program means neither flag can be
+        // true (#691 Phase 8, the stale-flag pair).
+        SetBoundProgramBindless(false);
+        SetBoundProgramMaterialOffsets(false);
     }
 
     VulkanShader* VulkanShader::GetCurrentlyBound()

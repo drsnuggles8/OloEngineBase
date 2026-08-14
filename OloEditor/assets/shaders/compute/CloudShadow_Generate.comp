@@ -30,9 +30,19 @@ layout(r8, binding = 0) uniform writeonly image2D u_ShadowMap;
 #include "../include/NoiseCommon.glsl"
 #include "../include/CloudscapeCommon.glsl"
 
-uniform vec2 u_ShadowCenter;    // world xz of the map center (texel-snapped)
-uniform float u_ShadowWorldSize; // world meters covered by the full map
-uniform int u_ShadowResolution;  // texels per axis
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 8):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// The GENERATOR's own map placement — NOT part of the CloudscapeData block
+// (53) every cloud-field consumer shares. C++ twin:
+// UBOStructures::CloudShadowGenUBO (ShaderBindingLayout::UBO_CLOUD_SHADOW_GEN).
+layout(std140, binding = 75) uniform CloudShadowGenParams
+{
+    vec2  u_ShadowCenter;     // 0  — world xz of the map center (texel-snapped)
+    float u_ShadowWorldSize;  // 8  — world meters covered by the full map
+    int   u_ShadowResolution; // 12 — texels per axis
+};
 
 void main()
 {

@@ -6,6 +6,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <algorithm>
@@ -177,32 +178,6 @@ namespace OloEngine
             return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
         }
 
-        [[nodiscard]] u64 HashSampler(const VkSamplerCreateInfo& info)
-        {
-            // Every field that vkCreateSampler consumes is key material — a
-            // sampler differing only in an unhashed field (maxLod was the
-            // caught case: DefaultEmbeddedSampler sets VK_LOD_CLAMP_NONE)
-            // must not collide. Floats enter via bit_cast, never operator==.
-            u64 hash = 0;
-            hash = HashCombine(hash, static_cast<u64>(info.flags));
-            hash = HashCombine(hash, static_cast<u64>(info.magFilter));
-            hash = HashCombine(hash, static_cast<u64>(info.minFilter));
-            hash = HashCombine(hash, static_cast<u64>(info.mipmapMode));
-            hash = HashCombine(hash, static_cast<u64>(info.addressModeU));
-            hash = HashCombine(hash, static_cast<u64>(info.addressModeV));
-            hash = HashCombine(hash, static_cast<u64>(info.addressModeW));
-            hash = HashCombine(hash, std::bit_cast<u32>(info.mipLodBias));
-            hash = HashCombine(hash, static_cast<u64>(info.anisotropyEnable));
-            hash = HashCombine(hash, std::bit_cast<u32>(info.maxAnisotropy));
-            hash = HashCombine(hash, static_cast<u64>(info.compareEnable));
-            hash = HashCombine(hash, static_cast<u64>(info.compareOp));
-            hash = HashCombine(hash, std::bit_cast<u32>(info.minLod));
-            hash = HashCombine(hash, std::bit_cast<u32>(info.maxLod));
-            hash = HashCombine(hash, static_cast<u64>(info.borderColor));
-            hash = HashCombine(hash, static_cast<u64>(info.unnormalizedCoordinates));
-            return hash == 0 ? 1 : hash;
-        }
-
         // [398] The root layout drives every binding mapping baked into the
         // pipeline; it is derived from the shader's reflection today, but the
         // key must stand on its own inputs, not on that invariant.
@@ -217,24 +192,6 @@ namespace OloEngine
                 hash = HashCombine(hash, static_cast<u64>(field.Binding.BindingKind));
             }
             return hash == 0 ? 1 : hash;
-        }
-
-        // The default embedded sampler: the post-process read shape. Explicit
-        // rather than SamplerDesc-derived — amendment (38)'s "no table of
-        // defaults is right" lesson says the CALLER states intent; this is
-        // only the fallback for callers that don't.
-        [[nodiscard]] VkSamplerCreateInfo DefaultEmbeddedSampler()
-        {
-            VkSamplerCreateInfo info{};
-            info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-            info.magFilter = VK_FILTER_LINEAR;
-            info.minFilter = VK_FILTER_LINEAR;
-            info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-            info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            info.maxLod = VK_LOD_CLAMP_NONE;
-            return info;
         }
     } // namespace
 
@@ -268,6 +225,16 @@ namespace OloEngine
             if (isBuffer)
             {
                 offset = (offset + 7u) & ~7u; // u64 field
+                layout.Fields.push_back({ .Binding = binding, .Offset = offset });
+                offset += 8;
+            }
+            else if (binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler)
+            {
+                // #691 Phase 8: two u32s — the image heap index at Offset and
+                // the SAMPLER heap index at Offset + kSamplerIndexOffset. The
+                // mapping's samplerAddressOffset and the root-data writer both
+                // derive from this one layout, so they cannot disagree.
+                offset = (offset + 3u) & ~3u;
                 layout.Fields.push_back({ .Binding = binding, .Offset = offset });
                 offset += 8;
             }
@@ -315,15 +282,20 @@ namespace OloEngine
         hash = HashCombine(hash, key.ColorCount);
         hash = HashCombine(hash, key.Samples);
         hash = HashCombine(hash, key.BakedBlendHash);
-        hash = HashCombine(hash, key.SamplerHash);
         hash = HashCombine(hash, key.LayoutHash);
         hash = HashCombine(hash, key.PatchControlPoints);
         return static_cast<sizet>(hash);
     }
 
     std::vector<VkDescriptorSetAndBindingMappingEXT>
-    VulkanPipelineBuilder::BuildBindingMappings(const VulkanRootDataLayout& layout, const VkSamplerCreateInfo& sampler)
+    VulkanPipelineBuilder::BuildBindingMappings(const VulkanRootDataLayout& layout)
     {
+        // The sampler-heap strides feed the mappings below, so the heap must
+        // exist BEFORE the first pipeline bakes them (#691 Phase 8).
+        if (!VulkanSamplerHeap::Get().EnsureCreated())
+        {
+            OLO_CORE_WARN("VulkanPipelineBuilder: sampler heap unavailable — sampler mappings will use zero strides");
+        }
         std::vector<VkDescriptorSetAndBindingMappingEXT> mappings;
         mappings.reserve(layout.Fields.size());
         const u32 heapStride = static_cast<u32>(VulkanResourceHeap::Get().GetDescriptorStride());
@@ -371,8 +343,16 @@ namespace OloEngine
                             ? VK_SPIRV_RESOURCE_TYPE_COMBINED_SAMPLED_IMAGE_BIT_EXT
                             : (VK_SPIRV_RESOURCE_TYPE_READ_ONLY_IMAGE_BIT_EXT |
                                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_IMAGE_BIT_EXT);
-                    // Heap slot index lives in the root struct at Field.Offset;
-                    // the sampler half is embedded (see header).
+                    // Heap slot index lives in the root struct at Field.Offset.
+                    // The sampler half comes from the SAMPLER heap, indexed by
+                    // the u32 at Field.Offset + kSamplerIndexOffset (#691
+                    // Phase 8) — per-draw sampler state with no PSO axis,
+                    // replacing the per-pipeline embedded sampler that baked
+                    // linear/clamp into every texture read.
+                    const bool combined =
+                        field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler;
+                    const u32 samplerStride =
+                        combined ? static_cast<u32>(VulkanSamplerHeap::Get().GetDescriptorStride()) : 0u;
                     mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;
                     mapping.sourceData.indirectIndex = {
                         .heapOffset = static_cast<u32>(VulkanResourceHeap::Get().GetSlotRegionOffset()),
@@ -380,15 +360,15 @@ namespace OloEngine
                         .addressOffset = field.Offset,
                         .heapIndexStride = heapStride,
                         .heapArrayStride = heapStride,
-                        .pEmbeddedSampler =
-                            field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler ? &sampler
-                                                                                                         : nullptr,
+                        .pEmbeddedSampler = nullptr,
                         .useCombinedImageSamplerIndex = VK_FALSE,
-                        .samplerHeapOffset = 0,
+                        .samplerHeapOffset =
+                            combined ? static_cast<u32>(VulkanSamplerHeap::Get().GetSlotRegionOffset()) : 0u,
                         .samplerPushOffset = 0,
-                        .samplerAddressOffset = 0,
-                        .samplerHeapIndexStride = 0,
-                        .samplerHeapArrayStride = 0,
+                        .samplerAddressOffset =
+                            combined ? field.Offset + VulkanRootDataLayout::kSamplerIndexOffset : 0u,
+                        .samplerHeapIndexStride = samplerStride,
+                        .samplerHeapArrayStride = samplerStride,
                     };
                     break;
                 }
@@ -399,8 +379,7 @@ namespace OloEngine
     }
 
     VkPipeline VulkanPipelineBuilder::GetOrCreateCompute(const u64 shaderKey, const VkShaderModule module,
-                                                         const VulkanRootDataLayout& layout,
-                                                         const VkSamplerCreateInfo* embeddedSampler)
+                                                         const VulkanRootDataLayout& layout)
     {
         auto* device = VulkanDevice::Get();
         if (device == nullptr || module == VK_NULL_HANDLE)
@@ -408,11 +387,8 @@ namespace OloEngine
             return VK_NULL_HANDLE;
         }
 
-        const VkSamplerCreateInfo sampler = embeddedSampler != nullptr ? *embeddedSampler : DefaultEmbeddedSampler();
-
         Key key;
         key.ShaderKey = shaderKey;
-        key.SamplerHash = HashSampler(sampler);
         key.LayoutHash = HashLayout(layout);
         // Target/blend fields stay zero — compute has neither, and shader
         // keys are process-unique so no graphics key can collide.
@@ -422,7 +398,7 @@ namespace OloEngine
             return it->second;
         }
 
-        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout, sampler);
+        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout);
         VkShaderDescriptorSetAndBindingMappingInfoEXT mappingInfo{};
         mappingInfo.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
         mappingInfo.mappingCount = static_cast<u32>(mappings.size());
@@ -461,8 +437,7 @@ namespace OloEngine
 
     VkPipeline VulkanPipelineBuilder::GetOrCreateGraphics(VulkanShader& shader, const VulkanRootDataLayout& layout,
                                                           const VulkanRecordedPipelineState& state,
-                                                          const VulkanRenderTargetDesc& targets,
-                                                          const VkSamplerCreateInfo* embeddedSampler)
+                                                          const VulkanRenderTargetDesc& targets)
     {
         auto* device = VulkanDevice::Get();
         if (device == nullptr)
@@ -477,7 +452,6 @@ namespace OloEngine
         const VulkanRenderTargetDesc& safeTargets = clamped;
 
         const bool dynamicBlend = device->IsDynamicBlendStateEnabled();
-        const VkSamplerCreateInfo sampler = embeddedSampler != nullptr ? *embeddedSampler : DefaultEmbeddedSampler();
 
         Key key;
         key.ShaderKey = shader.GetPipelineIndexKey();
@@ -485,7 +459,6 @@ namespace OloEngine
         key.DepthFormat = safeTargets.DepthFormat;
         key.ColorCount = safeTargets.ColorCount;
         key.Samples = safeTargets.Samples;
-        key.SamplerHash = HashSampler(sampler);
         key.LayoutHash = HashLayout(layout);
         // A10 (#691 Wave C): a shader carrying a tessellation-control stage is
         // a PATCH pipeline — VK_PRIMITIVE_TOPOLOGY_PATCH_LIST is then the ONLY
@@ -531,7 +504,7 @@ namespace OloEngine
         // The mapping array is identical across stages (the root struct is one
         // object per draw); resourceMask ALL lets one mapping per binding
         // cover whatever SPIR-V resource type the stage declares there.
-        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout, sampler);
+        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout);
 
         VkShaderDescriptorSetAndBindingMappingInfoEXT mappingInfo{};
         mappingInfo.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;

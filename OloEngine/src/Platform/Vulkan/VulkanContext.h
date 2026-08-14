@@ -51,6 +51,32 @@ namespace OloEngine
             m_FrameRenderCallback = std::move(callback);
         }
 
+        // The live context, or null outside a --rhi=vulkan session — the
+        // VulkanDevice::Get() pattern. Consumers: the mid-frame flush below.
+        [[nodiscard]] static VulkanContext* Get()
+        {
+            return s_Instance;
+        }
+
+        // #691 Phase 8: submit everything the frame has recorded so far and
+        // WAIT for it, then re-enter the recording bracket on the reset
+        // command buffer so the frame continues. This is what makes a
+        // synchronous mid-frame readback (StorageBuffer::GetData between two
+        // dispatches — the fluid solver's body-impulse coupling) read THIS
+        // frame's data instead of last frame's: a one-shot submits before the
+        // still-recording frame command buffer, in queue-submit order.
+        //
+        // Returns false (and does nothing) when there is nothing to flush or
+        // flushing would be unsound: outside the SwapBuffers frame callback,
+        // no live recording, an open occlusion query (a query span cannot
+        // cross command buffers), or the backbuffer already written — the
+        // acquire semaphore is a binary wait the FINAL submit owns, so a
+        // flush containing swapchain-image work would need it first and rob
+        // the real submit of it. Callers fall back to the one-shot path
+        // (previous-frame data) on false; a full GPU stall on true is the
+        // price GL always paid for glGetBufferSubData.
+        [[nodiscard]] bool FlushFrameRecordingAndWait();
+
         // The fixed bring-up clear colour (classic XNA cornflower blue — instantly
         // recognisable as "a cleared backbuffer", and nothing the GL editor draws).
         static constexpr f32 kClearColor[4] = { 0.392f, 0.584f, 0.929f, 1.0f };
@@ -65,6 +91,8 @@ namespace OloEngine
         FrameRenderCallback m_FrameRenderCallback;
         /// Re-entrancy latch — see the nested-present guard in SwapBuffers.
         bool m_InSwapBuffers = false;
+
+        inline static VulkanContext* s_Instance = nullptr;
     };
 } // namespace OloEngine
 

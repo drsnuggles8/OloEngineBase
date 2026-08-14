@@ -25,6 +25,11 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
+    // Reconstruction flavour of u_Projection (#691 Phase 8): this shader
+    // unprojects at ndc z = ±1 and remaps depth with *0.5+0.5 itself — the
+    // rasterizer flavour would double-apply the z remap on Vulkan. Identical
+    // to u_Projection on GL.
+    mat4 u_ProjectionForReconstruction;
 };
 
 layout(location = 0) out vec3 v_NearPoint;
@@ -40,13 +45,16 @@ vec3 UnprojectPoint(float x, float y, float z, mat4 viewInverse, mat4 projInvers
 
 void main() {
     mat4 viewInverse = inverse(u_View);
-    mat4 projInverse = inverse(u_Projection);
+    // Reconstruction flavour: the ±1 ndc z below is GL-convention (#691 Phase 8).
+    mat4 projInverse = inverse(u_ProjectionForReconstruction);
 
     v_NearPoint = UnprojectPoint(a_Position.x, a_Position.y, -1.0, viewInverse, projInverse);
     v_FarPoint  = UnprojectPoint(a_Position.x, a_Position.y,  1.0, viewInverse, projInverse);
 
     v_View = u_View;
-    v_Projection = u_Projection;
+    // The fragment's ComputeDepth applies the GL *0.5+0.5 remap itself, so
+    // forward the reconstruction flavour, not the rasterizer one.
+    v_Projection = u_ProjectionForReconstruction;
     v_RenderOrigin = u_RenderOrigin;
 
     gl_Position = vec4(a_Position, 1.0);

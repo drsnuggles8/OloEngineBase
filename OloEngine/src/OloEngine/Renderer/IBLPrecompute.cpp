@@ -48,6 +48,8 @@ namespace OloEngine
         cameraData.Projection = RHI::AdjustCaptureProjectionForBackend(projection);
         cameraData.Position = glm::vec3(0.0f); // IBL rendering is done from origin
         cameraData._padding0 = 0.0f;
+        // Capture flavour's reconstruction sibling = the raw matrix (#691 Phase 8).
+        cameraData.ProjectionForReconstruction = projection;
 
         // Scene rendering may have bound a different buffer to UBO_CAMERA since
         // the one-time creation above; SetData (glNamedBufferSubData) only

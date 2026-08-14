@@ -386,10 +386,21 @@ namespace OloEngine
 
             m_GridSSBO->Bind();
             m_CullShader->Bind();
-            m_CullShader->SetMat4("u_ViewMatrix", viewRelative);
-            m_CullShader->SetMat4("u_InverseProjectionMatrix", glm::inverse(projectionMatrix));
-            m_CullShader->SetFloat("u_NearPlane", nearPlane);
-            m_CullShader->SetFloat("u_FarPlane", farPlane);
+            // Former bare uniforms — a std140 refill per dispatch (#691
+            // Phase 8): the Set* route is a deliberate no-op on Vulkan, so
+            // these read zero there and the cull rejected every cluster.
+            if (!m_CullParamsUBO)
+            {
+                m_CullParamsUBO = UniformBuffer::Create(UBOStructures::ReflectionProbeCullUBO::GetSize(),
+                                                        ShaderBindingLayout::UBO_REFLECTION_PROBE_CULL);
+            }
+            UBOStructures::ReflectionProbeCullUBO cullParams{};
+            cullParams.ViewMatrix = viewRelative;
+            cullParams.InverseProjectionMatrix = glm::inverse(projectionMatrix);
+            cullParams.NearPlane = nearPlane;
+            cullParams.FarPlane = farPlane;
+            m_CullParamsUBO->SetData(&cullParams, sizeof(cullParams));
+            m_CullParamsUBO->Bind();
             RenderCommand::DispatchCompute(ClusteredLighting::kClusterCountX,
                                            ClusteredLighting::kClusterCountY,
                                            ClusteredLighting::kClusterCountZ);

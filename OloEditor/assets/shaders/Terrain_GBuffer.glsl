@@ -86,7 +86,9 @@ float calcTessLevel(vec3 p0, vec3 p1)
     vec3 mid = (p0 + p1) * 0.5;
     float dist = distance(mid, u_CameraPosition);
     float edgeLen = distance(p0, p1);
-    float projScale = u_Projection[1][1] * 0.5;
+    // abs(): u_Projection[1][1] is NEGATIVE on Vulkan (the projection-seam y
+    // flip, #691 Phase 8) — see Terrain_PBR.glsl's calcTessLevel.
+    float projScale = abs(u_Projection[1][1]) * 0.5;
     float screenLen = (edgeLen * projScale) / max(dist, 0.001);
     return clamp(screenLen / 8.0, 1.0, 64.0);
 }

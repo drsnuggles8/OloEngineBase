@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/TextureCubemapArray.h"
 #include "OloEngine/Renderer/Texture3D.h"
 
 #include <string>
@@ -85,6 +86,22 @@ namespace OloEngine
         // the uploaded pixels. Updated via SetInitialLayout, which does NOT
         // bump RegistrationId (the image is the same image).
         VkImageLayout InitialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        // The image's OWN sampler state (#691 Phase 8) — GL keeps filter and
+        // wrap on the texture object, so the "inherit" half of the sampler
+        // contract (rhi-abstraction-boundary.md §4f: no stated intent means
+        // the object's state, parity by construction) needs somewhere
+        // API-neutral callers can't see to carry it. Registered with the
+        // per-class GL defaults (§4f's table: Texture2D/attachments REPEAT,
+        // arrays and cubes CLAMP_TO_EDGE, depth arrays CLAMP_TO_BORDER
+        // opaque-white) and mutated by SetTextureFilter / SetTextureWrap.
+        // BindTexture derives the effective VkSamplerCreateInfo from these at
+        // bind time; integer formats are forced to NEAREST there, not here.
+        VkFilter MinFilter = VK_FILTER_LINEAR;
+        VkFilter MagFilter = VK_FILTER_LINEAR;
+        VkSamplerMipmapMode MipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        VkSamplerAddressMode AddressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        VkBorderColor BorderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
     };
 
     class VulkanImageInfoRegistry
@@ -107,6 +124,13 @@ namespace OloEngine
         // Only affects trackers that have NOT yet registered the image —
         // a tracker already following it keeps its own (fresher) state.
         void SetInitialLayout(VkImage image, VkImageLayout layout);
+
+        // #691 Phase 8: the SetTextureFilter / SetTextureWrap facade entries
+        // mutate the recorded per-image sampler state (see the sampler-state
+        // fields above). No-op for an unregistered image; takes effect at the
+        // next BindTexture (the sampler slot is derived at bind time).
+        void SetSamplerFilter(VkImage image, VkFilter minFilter, VkFilter magFilter);
+        void SetSamplerAddressMode(VkImage image, VkSamplerAddressMode mode);
 
       private:
         VulkanImageInfoRegistry() = default;
@@ -456,6 +480,87 @@ namespace OloEngine
       private:
         TextureSpecification m_Specification;
         CubemapSpecification m_CubemapSpecification;
+        std::string m_Path;
+        u32 m_MipLevels = 1;
+        VkImage m_Image = VK_NULL_HANDLE;
+        VmaAllocation m_Allocation = VK_NULL_HANDLE;
+        RHI::ScopedResourceHandle m_RHIHandle;
+    };
+
+    // -------------------------------------------------------------------------
+    // VulkanTextureCubemapArray — a 6*Layers-layer 2D image with a CUBE_ARRAY
+    // view type (#691 Phase 8).
+    //
+    // Brought up for the reflection-probe arrays (issue #705's radiance /
+    // distance-field arrays): ReflectionProbeArray::Init creates two of these
+    // eagerly, so without this class the factory's assert wedged the first
+    // --rhi=vulkan editor launch of Phase 8 during init — the same
+    // backend-blind-factory shape as amendment (64). Scope matches
+    // VulkanTextureCubemap's: real image, real identity (binds / barriers /
+    // layout tracking all work), with the CPU upload and GPU layer-copy
+    // halves warn-once no-ops until the cubemap-upload work lands.
+    // -------------------------------------------------------------------------
+    class VulkanTextureCubemapArray : public TextureCubemapArray
+    {
+      public:
+        explicit VulkanTextureCubemapArray(const CubemapArraySpecification& spec);
+        ~VulkanTextureCubemapArray() override;
+
+        [[nodiscard]] const TextureSpecification& GetSpecification() const override
+        {
+            return m_Specification;
+        }
+        [[nodiscard]] u32 GetWidth() const override
+        {
+            return m_ArraySpecification.Resolution;
+        }
+        [[nodiscard]] u32 GetHeight() const override
+        {
+            return m_ArraySpecification.Resolution;
+        }
+        [[nodiscard]] u32 GetRendererID() const override
+        {
+            return 0; // no GL name exists; identity is the RHI handle
+        }
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
+        }
+        [[nodiscard]] const std::string& GetPath() const override
+        {
+            return m_Path;
+        }
+        [[nodiscard]] bool IsLoaded() const override
+        {
+            return m_Image != VK_NULL_HANDLE;
+        }
+        [[nodiscard]] bool HasAlphaChannel() const override
+        {
+            return true;
+        }
+        [[nodiscard]] const CubemapArraySpecification& GetArraySpecification() const override
+        {
+            return m_ArraySpecification;
+        }
+        [[nodiscard]] u32 GetMipLevelCount() const override
+        {
+            return m_MipLevels;
+        }
+        [[nodiscard]] VkImage GetVkImage() const
+        {
+            return m_Image;
+        }
+
+        void Bind(u32 slot) const override;
+        void SetData(void* data, u32 size) override;
+        void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
+        bool SetLayerMipData(u32 layer, u32 mip, const void* data, sizet sizeBytes) override;
+        bool CopyLayerFromCubemap(u32 layer, const TextureCubemap& source) override;
+        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
+
+      private:
+        TextureSpecification m_Specification;
+        CubemapArraySpecification m_ArraySpecification;
         std::string m_Path;
         u32 m_MipLevels = 1;
         VkImage m_Image = VK_NULL_HANDLE;

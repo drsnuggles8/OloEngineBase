@@ -586,14 +586,27 @@ namespace OloEngine
                 HeapBinding::ResolveTextureOffset(texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
             if (!offset.IsValid())
             {
-                // Warned a bounded number of times: a heap that has run out stays
-                // out, so an unbounded log would bury every other message.
-                if (static std::atomic<u64> s_ResolveFailures{ 0 };
-                    s_ResolveFailures.fetch_add(1, std::memory_order_relaxed) < 8)
+                // ADR 0011 (68): a diagnostic naming a CAUSE must exclude the
+                // other causes of the same symptom. An invalid offset here has
+                // two structurally different sources, and only one is a
+                // failure: when the heap path simply is not live (Vulkan's
+                // deliberate slot-path design, or OLO_RHI_BINDLESS off on GL)
+                // the slot binds carry the texture and nothing renders black —
+                // warning "render BLACK" there sent live bring-up to the wrong
+                // layer. Only a program that actually READS material offsets
+                // can be hurt by a null offset.
+                if (HeapBinding::WritesOffsetsForBoundProgram())
                 {
-                    OLO_CORE_WARN("CommandDispatch: material texture has no heap descriptor — it will sample the "
-                                  "reserved null and render BLACK. The bindless program cannot fall back to slot "
-                                  "binds (issue #691 Phase 3).");
+                    // Warned a bounded number of times: a heap that has run
+                    // out stays out, so an unbounded log would bury every
+                    // other message.
+                    if (static std::atomic<u64> s_ResolveFailures{ 0 };
+                        s_ResolveFailures.fetch_add(1, std::memory_order_relaxed) < 8)
+                    {
+                        OLO_CORE_WARN("CommandDispatch: material texture heap-descriptor ACQUISITION failed — the "
+                                      "bindless program will sample the reserved null and render BLACK (it cannot "
+                                      "fall back to slot binds, issue #691 Phase 3).");
+                    }
                 }
                 return RHI::NullOffsetForSamplerKind(kind);
             }
@@ -1292,6 +1305,9 @@ namespace OloEngine
         cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(
             MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, origin));
         cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)
+        // Reconstruction flavour (#691 Phase 8): terrain tessellation scale,
+        // water depth math and the culling compute read this member.
+        cameraData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(projection);
         s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
         BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
     }

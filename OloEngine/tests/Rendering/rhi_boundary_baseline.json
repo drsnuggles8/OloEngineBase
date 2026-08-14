@@ -1381,6 +1381,7 @@
   "facade_native_id_params": 0,
   "backend_resolve_hatch": 0,
   "phase3_counters_measured_on_date": "2026-08-04",
-  "sweep_bind_texture_sites": 21,
+  "sweep_bind_texture_sites": 26,
+  "sweep_bind_texture_sites_note_phase8": "21 -> 26 on 2026-08-14 (#691 Phase 8): the explicit-sampler BindTexture overload added five FACADE occurrences — the RendererAPI declaration, its out-of-line default body (signature + inner two-arg call), and the RenderCommand forwarder (signature + inner call). All five are the facade's own vocabulary, the same category as the floor's original facade declarations; no pass-level bind site was added.",
   "phase3_bucket1_closed_on_date": "2026-08-07"
 }

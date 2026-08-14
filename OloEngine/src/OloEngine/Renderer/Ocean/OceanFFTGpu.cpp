@@ -4,6 +4,8 @@
 
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <bit>
 #include <cmath>
@@ -33,6 +35,29 @@ namespace OloEngine::Ocean
                 v >>= 1u;
             }
             return r;
+        }
+
+        // Std140 twin of the OceanFFTParams block shared by the three
+        // Ocean_*.comp passes. File-scope rather than a member (the header is
+        // out of this slice's reach), shared across OceanFFTGpu instances —
+        // sound because it is refilled before every dispatch on the render
+        // thread. Lives until process exit: the class has no static shutdown
+        // seam to release it from.
+        Ref<UniformBuffer> s_FFTParamsUBO;
+
+        // Former bare uniforms via ComputeShader::Set*, a deliberate no-op on
+        // the Vulkan route — now one std140 refill per dispatch (issue #691
+        // Phase 8, the HZB pattern: GL re-uploads the bound buffer; the Vulkan
+        // arena mints a fresh address each SetData).
+        void UploadFFTParams(const UBOStructures::OceanFFTUBO& params)
+        {
+            if (!s_FFTParamsUBO)
+            {
+                s_FFTParamsUBO = UniformBuffer::Create(UBOStructures::OceanFFTUBO::GetSize(),
+                                                       ShaderBindingLayout::UBO_OCEAN_FFT);
+            }
+            s_FFTParamsUBO->SetData(&params, sizeof(params));
+            s_FFTParamsUBO->Bind();
         }
     } // namespace
 
@@ -174,7 +199,6 @@ namespace OloEngine::Ocean
         const u32 groups = (N + kLocalSize - 1u) / kLocalSize;
 
         m_ButterflyShader->Bind();
-        m_ButterflyShader->SetInt("u_Resolution", static_cast<int>(N));
         // Persistent: the twiddle table is pass-owned and never pooled. Staged
         // once here rather than per stage — the offset scratch persists across
         // flushes, and the loop below already flushes per iteration for the
@@ -185,10 +209,16 @@ namespace OloEngine::Ocean
         u32 src = srcIndex;
         for (int vertical = 0; vertical <= 1; ++vertical)
         {
-            m_ButterflyShader->SetInt("u_Vertical", vertical);
             for (u32 stage = 0u; stage < stages; ++stage)
             {
-                m_ButterflyShader->SetInt("u_Stage", static_cast<int>(stage));
+                // Stage/Vertical change EVERY dispatch, so the shared block is
+                // refilled per iteration; value-initialisation zeroes the
+                // evolve/assemble tail this pass never reads.
+                UBOStructures::OceanFFTUBO fftParams{};
+                fftParams.Resolution = static_cast<i32>(N);
+                fftParams.Stage = static_cast<i32>(stage);
+                fftParams.Vertical = vertical;
+                UploadFFTParams(fftParams);
                 // Both ping-pong halves are read AND written across the stage loop with
                 // their roles swapping, so each texture ends up with a read view and a
                 // write view. Those fold to one GL image handle, which is why the backend
@@ -228,10 +258,12 @@ namespace OloEngine::Ocean
         {
             OLO_PROFILE_SCOPE("OceanFFTGpu::SpectrumEvolve");
             m_EvolveShader->Bind();
-            m_EvolveShader->SetInt("u_Resolution", static_cast<int>(N));
-            m_EvolveShader->SetFloat("u_PatchSize", m_PatchSize);
-            m_EvolveShader->SetFloat("u_Gravity", m_Gravity);
-            m_EvolveShader->SetFloat("u_Time", time);
+            UBOStructures::OceanFFTUBO fftParams{};
+            fftParams.Resolution = static_cast<i32>(N);
+            fftParams.PatchSize = m_PatchSize;
+            fftParams.Gravity = m_Gravity;
+            fftParams.Time = time;
+            UploadFFTParams(fftParams);
             // Persistent: the h0 spectrum is pass-owned, generated once per
             // parameter change rather than acquired from the transient pool.
             HeapBinding::BindTextureOrOffset(0, m_H0Tex->GetRHIHandle(),
@@ -255,8 +287,10 @@ namespace OloEngine::Ocean
         {
             OLO_PROFILE_SCOPE("OceanFFTGpu::Assemble");
             m_AssembleShader->Bind();
-            m_AssembleShader->SetInt("u_Resolution", static_cast<int>(N));
-            m_AssembleShader->SetFloat("u_Choppiness", choppiness);
+            UBOStructures::OceanFFTUBO fftParams{};
+            fftParams.Resolution = static_cast<i32>(N);
+            fftParams.Choppiness = choppiness;
+            UploadFFTParams(fftParams);
             HeapBinding::BindImageOrOffset(0, m_PingPong[finalIndex]->GetRHIHandle(), 0, true, 0,
                                            RHI::Access::StorageRead, RHI::Format::RGBA32Float,
                                            RHI::HeapSlotLifetime::Persistent);

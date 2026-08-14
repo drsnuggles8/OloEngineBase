@@ -199,6 +199,24 @@ namespace OloEngine
         {
             return m_Cmd;
         }
+
+        // --- Mid-frame flush (#691 Phase 8) --------------------------------
+        // A synchronous mid-frame readback (StorageBuffer::GetData between
+        // two dispatches — the fluid solver's coupling shape) needs the
+        // frame command buffer SUBMITTED first, or it reads the previous
+        // frame's contents: queue submissions execute in submit order, and a
+        // one-shot submitted now runs BEFORE the still-recording frame.
+        // VulkanContext::FlushFrameRecordingAndWait drives these two around
+        // its submit: Suspend closes the rendering scope and hands the
+        // command buffer over (null = refuse: no recording, or an occlusion
+        // query is open — a query span cannot cross command buffers); Resume
+        // re-enters the bracket on the reset buffer, dropping only the
+        // per-command-buffer bind caches. Frame-scoped state (the backbuffer
+        // publication, a pending clear, draw counters, framebuffer
+        // selections) deliberately survives — the frame continues, it does
+        // not restart.
+        [[nodiscard]] VkCommandBuffer SuspendRecordingForFlush();
+        void ResumeRecordingAfterFlush(VkCommandBuffer cmd);
         [[nodiscard]] VulkanImageLayoutTracker& LayoutTracker()
         {
             return m_LayoutTracker;
@@ -341,6 +359,7 @@ namespace OloEngine
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override;
         void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
+        void BindTexture(u32 slot, RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler) override;
         void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered, u32 layer, RHI::Access access, RHI::Format format) override;
         void SetPolygonOffset(f32 factor, f32 units) override;
         void EnableMultisampling() override;
@@ -455,14 +474,49 @@ namespace OloEngine
             /// DepthArrayView is: the publication changes per frame.
             bool TargetIsBackbuffer = false;
             VkImageView BackbufferView = VK_NULL_HANDLE;
-            bool PendingClearColor = false; ///< Fold into loadOp at scope begin.
-            bool PendingClearDepth = false;
             /// The per-layer depth view this scope was opened with, or
             /// VK_NULL_HANDLE when the target's OWN depth attachment was used
             /// (#691 Wave C §4). A shadow pass walks N cascades against ONE
             /// framebuffer object, so "same Target" is NOT enough to reuse the
             /// scope — see ScopeMatchesCurrentTarget.
             VkImageView DepthArrayView = VK_NULL_HANDLE;
+        };
+
+        // A clear requested while no scope was open, waiting to fold into the
+        // next scope-open's loadOp (#691 Phase 8). GL clears the BOUND
+        // framebuffer eagerly, so the request must remember WHO asked:
+        // Phase 7's target-blind bool pair meant `Bind(A); Clear(); Bind(B);
+        // Draw()` cleared B and left A untouched, and a clear whose target
+        // never drew again (a shadow-atlas entry culled to zero draws)
+        // survived into the NEXT pass as that pass's loadOp — a pass that
+        // intended LOAD lost its whole depth buffer. The identity is the
+        // ScopeMatchesCurrentTarget triple, and the clear VALUES are captured
+        // at request time (GL uses the state at glClear time, not at first
+        // draw). A pending clear that stops matching the bound target is
+        // MATERIALIZED as an eager transfer clear (MaterializePendingClear)
+        // — exactly what GL did all along.
+        struct PendingClear
+        {
+            bool Color = false;
+            bool Depth = false;
+            VulkanFramebuffer* Target = nullptr;
+            bool TargetIsBackbuffer = false;
+            VkImageView BackbufferView = VK_NULL_HANDLE;
+            VkImageView DepthArrayView = VK_NULL_HANDLE;
+            // Materialization needs the depth-array selection AS OF the
+            // request — the pass may re-attach a different layer before the
+            // pending is flushed (the CSM cascade walk), and the view alone
+            // cannot recover image/layer.
+            VkImage DepthArrayImage = VK_NULL_HANDLE;
+            u32 DepthArrayLayer = 0;
+            RHI::ResourceHandle DepthArrayHandle{};
+            glm::vec4 ClearColor{ 0.0f };
+            f32 ClearDepth = 1.0f;
+
+            [[nodiscard]] bool Any() const
+            {
+                return Color || Depth;
+            }
         };
 
         /// True when the live scope still describes what a draw/clear would
@@ -473,6 +527,22 @@ namespace OloEngine
         /// True when a draw right now would target the published backbuffer:
         /// nothing bound (GL's framebuffer 0) and a publication live.
         [[nodiscard]] bool ShouldTargetBackbuffer() const;
+
+        // --- Pending-clear plumbing (#691 Phase 8; see PendingClear) --------
+        /// True when the pending clear's recorded requester is what a draw
+        /// would target right now (the ScopeMatchesCurrentTarget triple).
+        [[nodiscard]] bool PendingClearMatchesCurrentTarget() const;
+        /// Record a clear request against the CURRENTLY bound target,
+        /// capturing the live clear values. Materializes any earlier pending
+        /// clear that belongs to a different target first.
+        void RecordPendingClear(bool color, bool depth);
+        /// Eagerly clear the pending clear's target with transfer clears
+        /// (vkCmdClearColorImage / vkCmdClearDepthStencilImage through the
+        /// layout tracker) and drop the record. Called when the pending
+        /// requester is superseded by another target's clear/draw, and at
+        /// EndRecording so an unconsumed clear still happens (GL semantics).
+        /// Must be called OUTSIDE a rendering scope.
+        void MaterializePendingClear();
         /// The live scope's render area — the framebuffer's spec, or the
         /// published backbuffer's extent. {0,0} when no scope is open.
         [[nodiscard]] VkExtent2D ScopeExtent() const;
@@ -550,6 +620,7 @@ namespace OloEngine
         [[nodiscard]] bool ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const;
 
         RenderingScope m_Scope;
+        PendingClear m_PendingClear;      ///< At most one outstanding clear request (see PendingClear).
         FrameBackbuffer m_Backbuffer;     ///< Live only inside a frame-callback recording.
         bool m_BackbufferWritten = false; ///< A backbuffer scope opened this recording.
         std::unordered_map<u64, FramebufferAttachmentSelection> m_FramebufferSelections;

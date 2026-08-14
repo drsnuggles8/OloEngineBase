@@ -4,6 +4,7 @@
 #if OLO_WITH_VULKAN
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
@@ -15,8 +16,11 @@
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanComputeShader.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+
+#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
 #include <array>
@@ -36,6 +40,70 @@ namespace OloEngine
         // with, and over-synchronisation is correct where under- is a race.
         constexpr VkPipelineStageFlags2 kAllStages = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         constexpr VkAccessFlags2 kAllAccess = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+
+        // Integer formats force NEAREST sampling (#691 Phase 8): GL makes an
+        // integer texture with a LINEAR filter incomplete, and incomplete
+        // samples as zero — §4f's mandatory row, mirrored at the sampler-heap
+        // seam. The set is the integer formats the engine can actually mint.
+        [[nodiscard]] bool IsIntegerVkFormat(const VkFormat format)
+        {
+            switch (format)
+            {
+                case VK_FORMAT_R8_UINT:
+                case VK_FORMAT_R8_SINT:
+                case VK_FORMAT_R16_UINT:
+                case VK_FORMAT_R16_SINT:
+                case VK_FORMAT_R32_UINT:
+                case VK_FORMAT_R32_SINT:
+                case VK_FORMAT_R8G8_UINT:
+                case VK_FORMAT_R16G16_UINT:
+                case VK_FORMAT_R32G32_UINT:
+                case VK_FORMAT_R8G8B8A8_UINT:
+                case VK_FORMAT_R16G16B16A16_UINT:
+                case VK_FORMAT_R32G32B32A32_UINT:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // Client-data byte size per texel for the upload facade — the size of
+        // what the CALLER hands over, before any conversion to the image's
+        // texel format (#691 Phase 8). Compressed formats have no per-texel
+        // size and never travel this path.
+        [[nodiscard]] u32 ClientBytesPerPixel(const RHI::Format format)
+        {
+            switch (format)
+            {
+                case RHI::Format::R8UNorm:
+                case RHI::Format::R8UInt:
+                    return 1u;
+                case RHI::Format::RG8UNorm:
+                case RHI::Format::R16UInt:
+                    return 2u;
+                case RHI::Format::RGB8UNorm:
+                    return 3u;
+                case RHI::Format::RGBA8UNorm:
+                case RHI::Format::RGBA8SRGB:
+                case RHI::Format::RG16UInt:
+                case RHI::Format::RG16Float:
+                case RHI::Format::R32Float:
+                case RHI::Format::R32Int:
+                case RHI::Format::R32UInt:
+                case RHI::Format::D24UNormS8UInt:
+                case RHI::Format::D32Float:
+                    return 4u;
+                case RHI::Format::RGBA16Float:
+                case RHI::Format::RG32Float:
+                    return 8u;
+                case RHI::Format::RGB32Float:
+                    return 12u;
+                case RHI::Format::RGBA32Float:
+                    return 16u;
+                default:
+                    return 0u;
+            }
+        }
 
         [[nodiscard]] RHI::TextureAspect AspectFromInfo(const VulkanImageInfo& info)
         {
@@ -126,6 +194,10 @@ namespace OloEngine
         m_BoundIndexBuffer = VK_NULL_HANDLE;
         m_HeapBoundThisRecording = false;
         m_Scope = RenderingScope{};
+        // Defensive: EndRecording materializes an unconsumed pending clear, so
+        // this should already be empty — but a stale record would carry dead
+        // per-frame pointers (backbuffer view) into this recording.
+        m_PendingClear = PendingClear{};
         m_ScissorRectSet = false;
         m_PreparedDrawsThisRecording = 0;
         m_DroppedDrawsThisRecording = 0;
@@ -149,11 +221,53 @@ namespace OloEngine
             m_ActiveQuery = {};
         }
         EndRenderingScope();
+        // An unconsumed pending clear still HAPPENS (GL cleared eagerly at
+        // the request): a shadow-atlas entry culled to zero draws must not
+        // lose its clear, nor may the clear leak into the next recording's
+        // first scope as a spurious CLEAR loadOp (#691 Phase 8).
+        MaterializePendingClear();
         m_Cmd = VK_NULL_HANDLE;
         // A backbuffer publication is scoped to ONE recording by construction:
         // the next frame acquires a different image (see FrameBackbuffer).
         m_Backbuffer = FrameBackbuffer{};
         m_BackbufferWritten = false;
+    }
+
+    VkCommandBuffer VulkanRendererAPI::SuspendRecordingForFlush()
+    {
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            return VK_NULL_HANDLE;
+        }
+        if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
+        {
+            // A vkCmdBeginQuery span cannot cross command buffers — refuse
+            // rather than corrupt the recording.
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[RHI/Vulkan] mid-frame flush refused: an occlusion query is open");
+            }
+            return VK_NULL_HANDLE;
+        }
+        EndRenderingScope();
+        const VkCommandBuffer cmd = m_Cmd;
+        m_Cmd = VK_NULL_HANDLE;
+        return cmd;
+    }
+
+    void VulkanRendererAPI::ResumeRecordingAfterFlush(const VkCommandBuffer cmd)
+    {
+        OLO_CORE_ASSERT(m_Cmd == VK_NULL_HANDLE, "ResumeRecordingAfterFlush while a recording bracket is open");
+        m_Cmd = cmd;
+        // Only the per-COMMAND-BUFFER caches reset (the new buffer holds no
+        // binds); PrepareDraw re-binds pipeline/viewport/scissor per draw, and
+        // frame-scoped state — the backbuffer publication, m_PendingClear,
+        // framebuffer selections, draw counters — deliberately survives.
+        m_BoundIndexBuffer = VK_NULL_HANDLE;
+        m_HeapBoundThisRecording = false;
+        m_ScissorRectSet = false;
     }
 
     // --- Viewport / scissor (real dynamic state) ---------------------------
@@ -978,6 +1092,188 @@ namespace OloEngine
         return m_Scope.DepthArrayView == selected;
     }
 
+    bool VulkanRendererAPI::PendingClearMatchesCurrentTarget() const
+    {
+        if (!m_PendingClear.Any())
+        {
+            return false;
+        }
+        auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
+        // Same identity rules as ScopeMatchesCurrentTarget: the backbuffer
+        // publication and the depth-array layer selection are both part of
+        // "which target asked".
+        if (m_PendingClear.TargetIsBackbuffer || ShouldTargetBackbuffer())
+        {
+            return m_PendingClear.TargetIsBackbuffer && ShouldTargetBackbuffer() &&
+                   m_PendingClear.BackbufferView == m_Backbuffer.View;
+        }
+        if (m_PendingClear.Target != target)
+        {
+            return false;
+        }
+        if (target == nullptr)
+        {
+            return true;
+        }
+        const auto& depthArray = target->GetDepthArrayAttachment();
+        const VkImageView selected = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
+        return m_PendingClear.DepthArrayView == selected;
+    }
+
+    void VulkanRendererAPI::RecordPendingClear(const bool color, const bool depth)
+    {
+        // A pending clear that belongs to a DIFFERENT target must happen
+        // before this one is recorded — GL executed it eagerly at its own
+        // glClear.
+        if (m_PendingClear.Any() && !PendingClearMatchesCurrentTarget())
+        {
+            MaterializePendingClear();
+        }
+
+        auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
+        m_PendingClear.Color = m_PendingClear.Color || color;
+        m_PendingClear.Depth = m_PendingClear.Depth || depth;
+        m_PendingClear.Target = target;
+        m_PendingClear.TargetIsBackbuffer = ShouldTargetBackbuffer();
+        m_PendingClear.BackbufferView = m_PendingClear.TargetIsBackbuffer ? m_Backbuffer.View : VK_NULL_HANDLE;
+        m_PendingClear.DepthArrayView = VK_NULL_HANDLE;
+        m_PendingClear.DepthArrayImage = VK_NULL_HANDLE;
+        m_PendingClear.DepthArrayLayer = 0u;
+        m_PendingClear.DepthArrayHandle = {};
+        if (target != nullptr)
+        {
+            if (const auto& depthArray = target->GetDepthArrayAttachment(); depthArray.Active)
+            {
+                m_PendingClear.DepthArrayView = depthArray.View;
+                m_PendingClear.DepthArrayImage = depthArray.Image;
+                m_PendingClear.DepthArrayLayer = depthArray.Layer;
+                m_PendingClear.DepthArrayHandle = depthArray.Handle;
+            }
+        }
+        // Values are captured NOW (GL uses the state at glClear time; the
+        // scope-open may be many state changes later).
+        if (color)
+        {
+            m_PendingClear.ClearColor = m_State.ClearColor;
+        }
+        if (depth)
+        {
+            m_PendingClear.ClearDepth = m_State.ClearDepth;
+        }
+    }
+
+    void VulkanRendererAPI::MaterializePendingClear()
+    {
+        if (!m_PendingClear.Any() || m_Cmd == VK_NULL_HANDLE)
+        {
+            m_PendingClear = PendingClear{};
+            return;
+        }
+        // Take a copy and drop the record FIRST: ClearTextureFloat below ends
+        // the scope and must not observe (or re-enter) the pending state.
+        const PendingClear pending = m_PendingClear;
+        m_PendingClear = PendingClear{};
+
+        if (pending.TargetIsBackbuffer)
+        {
+            if (pending.Color && m_Backbuffer.IsValid() && pending.BackbufferView == m_Backbuffer.View)
+            {
+                ClearTextureFloat(m_Backbuffer.Handle, 0u, pending.ClearColor);
+                // The screen now holds defined content — the present fallback
+                // must not treat the frame as untouched.
+                m_BackbufferWritten = true;
+            }
+            return;
+        }
+
+        auto* fb = pending.Target;
+        if (fb == nullptr)
+        {
+            return;
+        }
+
+        if (pending.Color)
+        {
+            // GL's glClear writes the DRAW-BUFFER selection (identity when
+            // none is stored), same mapping the scope-open uses.
+            const FramebufferAttachmentSelection* selection = FindSelection(fb->GetRHIHandle());
+            const bool identity = selection == nullptr || selection->DrawListCount == 0;
+            const u32 count = identity ? fb->GetColorAttachmentCount() : selection->DrawListCount;
+            for (u32 i = 0; i < count; ++i)
+            {
+                const u32 attachment = identity ? i : selection->DrawList[i];
+                if (attachment == RHI::NoAttachment || attachment >= fb->GetColorAttachmentCount())
+                {
+                    continue;
+                }
+                ClearTextureFloat(fb->GetColorAttachmentHandle(attachment), 0u, pending.ClearColor);
+            }
+        }
+        if (pending.Depth)
+        {
+            if (pending.DepthArrayImage != VK_NULL_HANDLE)
+            {
+                // Only the layer that was attached at request time — GL
+                // cleared exactly that layer. ClearTextureFloat spans every
+                // layer, so this arm transitions and clears the single run
+                // inline (the ClearTextureFloat shape, CLEAR-stage scope).
+                EndRenderingScope();
+                if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(pending.DepthArrayImage);
+                    info != nullptr)
+                {
+                    m_LayoutTracker.RegisterImage(pending.DepthArrayImage, std::max(info->MipLevels, 1u),
+                                                  std::max(info->ArrayLayers, 1u), info->RegistrationId,
+                                                  info->InitialLayout);
+                    VkImageSubresourceRange range{};
+                    range.aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*info));
+                    range.baseMipLevel = 0u;
+                    range.levelCount = 1u;
+                    range.baseArrayLayer = pending.DepthArrayLayer;
+                    range.layerCount = 1u;
+                    std::vector<VkImageMemoryBarrier2> toTransfer;
+                    m_LayoutTracker.ForEachLayoutRun(
+                        pending.DepthArrayImage, range,
+                        [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
+                        {
+                            VkImageMemoryBarrier2 b{};
+                            b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                            b.srcStageMask = (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+                                                 ? VK_PIPELINE_STAGE_2_NONE
+                                                 : kAllStages;
+                            b.srcAccessMask =
+                                (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED) ? VK_ACCESS_2_NONE : kAllAccess;
+                            b.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+                            b.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                            b.oldLayout = trackedLayout;
+                            b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                            b.image = pending.DepthArrayImage;
+                            b.subresourceRange = run;
+                            toTransfer.push_back(b);
+                        });
+                    VkDependencyInfo dep{};
+                    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                    dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
+                    dep.pImageMemoryBarriers = toTransfer.data();
+                    vkCmdPipelineBarrier2(m_Cmd, &dep);
+                    m_LayoutTracker.SetLayout(pending.DepthArrayImage, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+                    VkClearDepthStencilValue clear{};
+                    clear.depth = pending.ClearDepth;
+                    clear.stencil = 0u;
+                    vkCmdClearDepthStencilImage(m_Cmd, pending.DepthArrayImage,
+                                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+                }
+            }
+            else if (const RHI::ResourceHandle depthHandle = fb->GetDepthAttachmentHandle(); depthHandle.IsValid())
+            {
+                // ClearTextureFloat's depth path clears depth = color.r.
+                ClearTextureFloat(depthHandle, 0u, glm::vec4(pending.ClearDepth, 0.0f, 0.0f, 0.0f));
+            }
+        }
+    }
+
     bool VulkanRendererAPI::EnsureRenderingScopeForDraw()
     {
         auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
@@ -999,6 +1295,18 @@ namespace OloEngine
             return true;
         }
         EndRenderingScope();
+
+        // A pending clear for a DIFFERENT target must not fold into THIS
+        // scope's loadOp (the `Bind(A); Clear(); Bind(B); Draw()` bug —
+        // Phase 7 cleared B and left A untouched). Materialize it against its
+        // own target first; the folds below then apply only when the pending
+        // requester IS this scope's target (#691 Phase 8).
+        if (m_PendingClear.Any() && !PendingClearMatchesCurrentTarget())
+        {
+            MaterializePendingClear();
+        }
+        const bool foldColor = m_PendingClear.Color && PendingClearMatchesCurrentTarget();
+        const bool foldDepth = m_PendingClear.Depth && PendingClearMatchesCurrentTarget();
 
         if (backbuffer)
         {
@@ -1027,10 +1335,11 @@ namespace OloEngine
             colorInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
             colorInfo.imageView = m_Backbuffer.View;
             colorInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            colorInfo.loadOp = m_Scope.PendingClearColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            colorInfo.loadOp = foldColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             colorInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            colorInfo.clearValue.color = { { m_State.ClearColor.r, m_State.ClearColor.g, m_State.ClearColor.b,
-                                             m_State.ClearColor.a } };
+            // The values captured at the Clear() request, not the live state.
+            colorInfo.clearValue.color = { { m_PendingClear.ClearColor.r, m_PendingClear.ClearColor.g,
+                                             m_PendingClear.ClearColor.b, m_PendingClear.ClearColor.a } };
 
             VkRenderingInfo backbufferRendering{};
             backbufferRendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -1047,8 +1356,9 @@ namespace OloEngine
             m_Scope.TargetIsBackbuffer = true;
             m_Scope.BackbufferView = m_Backbuffer.View;
             m_Scope.DepthArrayView = VK_NULL_HANDLE;
-            m_Scope.PendingClearColor = false;
-            m_Scope.PendingClearDepth = false;
+            // Consumed by the loadOp above (a pending depth against the
+            // depthless default framebuffer is GL's silent no-op).
+            m_PendingClear = PendingClear{};
             m_BackbufferWritten = true;
             return true;
         }
@@ -1111,10 +1421,11 @@ namespace OloEngine
             }
             info.imageView = view;
             info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            info.loadOp = m_Scope.PendingClearColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            info.loadOp = foldColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            info.clearValue.color = { { m_State.ClearColor.r, m_State.ClearColor.g, m_State.ClearColor.b,
-                                        m_State.ClearColor.a } };
+            // The values captured at the Clear() request, not the live state.
+            info.clearValue.color = { { m_PendingClear.ClearColor.r, m_PendingClear.ClearColor.g,
+                                        m_PendingClear.ClearColor.b, m_PendingClear.ClearColor.a } };
 
             const auto* imageInfo = VulkanImageInfoRegistry::Get().Lookup(image->GetVkImage());
             m_ScopeTargets.ColorFormats[i] = imageInfo != nullptr ? imageInfo->Format : VK_FORMAT_UNDEFINED;
@@ -1154,9 +1465,9 @@ namespace OloEngine
             depthInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
             depthInfo.imageView = depthView;
             depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            depthInfo.loadOp = m_Scope.PendingClearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            depthInfo.loadOp = foldDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             depthInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depthInfo.clearValue.depthStencil = { 1.0f, 0u };
+            depthInfo.clearValue.depthStencil = { m_PendingClear.ClearDepth, 0u };
 
             const VkImage depthVkImage = depthArray.Active ? depthArray.Image : depthImage->GetVkImage();
             const auto* depthImageInfo = VulkanImageInfoRegistry::Get().Lookup(depthVkImage);
@@ -1203,9 +1514,10 @@ namespace OloEngine
         m_Scope.TargetIsBackbuffer = false;
         m_Scope.BackbufferView = VK_NULL_HANDLE;
         m_Scope.DepthArrayView = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
-        // The pending clears were consumed by the loadOps above.
-        m_Scope.PendingClearColor = false;
-        m_Scope.PendingClearDepth = false;
+        // The pending clear was consumed by the loadOps above (it matched
+        // this target by construction — a mismatch was materialized before
+        // the scope opened).
+        m_PendingClear = PendingClear{};
         return true;
     }
 
@@ -1335,6 +1647,7 @@ namespace OloEngine
 
         if (!m_HeapBoundThisRecording)
         {
+            // Binds BOTH heaps (the sampler heap cascades inside CmdBind).
             VulkanResourceHeap::Get().CmdBind(m_Cmd);
             m_HeapBoundThisRecording = true;
         }
@@ -1434,6 +1747,15 @@ namespace OloEngine
                     slot = 0;
                 }
                 std::memcpy(m_RootScratch.data() + field.Offset, &slot, sizeof(slot));
+                if (!storageImage)
+                {
+                    // The sampler half (#691 Phase 8): the SAMPLER-heap slot
+                    // BindTexture staged beside the texture slot. Zero (the
+                    // default linear/clamp sampler) when nothing was staged.
+                    const u32 samplerSlot = bindingState.GetTextureSamplerSlot(binding.Binding);
+                    std::memcpy(m_RootScratch.data() + field.Offset + VulkanRootDataLayout::kSamplerIndexOffset,
+                                &samplerSlot, sizeof(samplerSlot));
+                }
             }
         }
 
@@ -1497,9 +1819,9 @@ namespace OloEngine
         if (!m_Scope.Active)
         {
             // Folds into the next scope begin's loadOp (the GL clear-then-
-            // draw shape).
-            m_Scope.PendingClearColor = true;
-            m_Scope.PendingClearDepth = true;
+            // draw shape) — recorded against the BOUND target with the LIVE
+            // clear values (#691 Phase 8, see PendingClear).
+            RecordPendingClear(true, true);
             return;
         }
         // Mid-scope clear: vkCmdClearAttachments against the live scope.
@@ -1521,7 +1843,7 @@ namespace OloEngine
         {
             auto& clear = clears[clearCount++];
             clear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-            clear.clearValue.depthStencil = { 1.0f, 0u };
+            clear.clearValue.depthStencil = { m_State.ClearDepth, 0u };
         }
         if (clearCount == 0)
         {
@@ -1548,7 +1870,7 @@ namespace OloEngine
         }
         if (!m_Scope.Active)
         {
-            m_Scope.PendingClearDepth = true;
+            RecordPendingClear(false, true);
             return;
         }
         if (m_ScopeTargets.DepthFormat == VK_FORMAT_UNDEFINED)
@@ -1557,7 +1879,7 @@ namespace OloEngine
         }
         VkClearAttachment clear{};
         clear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        clear.clearValue.depthStencil = { 1.0f, 0u };
+        clear.clearValue.depthStencil = { m_State.ClearDepth, 0u };
         VkClearRect rect{};
         rect.rect = { { 0, 0 }, ScopeExtent() };
         rect.layerCount = 1;
@@ -1833,6 +2155,7 @@ namespace OloEngine
         vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
         if (!m_HeapBoundThisRecording)
         {
+            // Binds BOTH heaps (the sampler heap cascades inside CmdBind).
             VulkanResourceHeap::Get().CmdBind(m_Cmd);
             m_HeapBoundThisRecording = true;
         }
@@ -1898,8 +2221,12 @@ namespace OloEngine
         // the lazy scope never opened, so nothing has been written. Open the
         // scope (which consumes the pending clear as loadOp CLEAR) and close
         // it immediately — an empty CLEAR/STORE rendering instance is exactly
-        // GL's eager glClear.
-        if (frameRendered && !m_BackbufferWritten && m_Scope.PendingClearColor)
+        // GL's eager glClear. Only a pending clear that TARGETS the
+        // backbuffer qualifies (#691 Phase 8): the Phase 7 target-blind flag
+        // let a leftover FBO-pass clear land on the screen here. A pending
+        // clear for another target is materialized by EndRecording.
+        if (frameRendered && !m_BackbufferWritten && m_PendingClear.Color && m_PendingClear.TargetIsBackbuffer &&
+            m_PendingClear.BackbufferView == m_Backbuffer.View)
         {
             VulkanBindingState::Get().SetCurrentFramebuffer(nullptr);
             if (EnsureRenderingScopeForDraw())
@@ -2085,6 +2412,144 @@ namespace OloEngine
             image, view, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         bindingState.SetTextureHeapSlot(
             slot, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
+
+        // The sampler half (#691 Phase 8): "no stated intent means the
+        // texture object's own state" (rhi-abstraction-boundary.md §4f —
+        // parity by construction with GL's glBindTextureUnit, which samples
+        // with the object's parameters). Derived per bind from the recorded
+        // per-image state; the sampler heap dedups, so steady state is a hash
+        // lookup.
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = info->MagFilter;
+        samplerInfo.minFilter = info->MinFilter;
+        samplerInfo.mipmapMode = info->MipmapMode;
+        samplerInfo.addressModeU = info->AddressMode;
+        samplerInfo.addressModeV = info->AddressMode;
+        samplerInfo.addressModeW = info->AddressMode;
+        samplerInfo.borderColor = info->BorderColor;
+        samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+        // §4f's mandatory row: GL makes an integer texture with a LINEAR
+        // filter INCOMPLETE (samples zero, texelFetch included on Mesa) —
+        // NEAREST is forced, not defaulted, so the heap cannot reintroduce
+        // the vanished-glyphs bug for RG16UI/R16UI/R32I textures.
+        if (IsIntegerVkFormat(info->Format))
+        {
+            samplerInfo.magFilter = VK_FILTER_NEAREST;
+            samplerInfo.minFilter = VK_FILTER_NEAREST;
+            samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        }
+        bindingState.SetTextureSamplerSlot(slot, VulkanSamplerHeap::Get().GetOrCreateSlot(samplerInfo));
+    }
+
+    void VulkanRendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler)
+    {
+        // Image half + the inherit sampler staging.
+        BindTexture(slot, texture);
+
+        // A default-constructed desc IS a request to inherit (RHIResources.h)
+        // — the two-arg path above already staged the object's state.
+        if (sampler.Source != RHI::SamplerSource::Explicit)
+        {
+            return;
+        }
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            return; // the two-arg path already cleared the slot
+        }
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
+        if (info == nullptr)
+        {
+            return;
+        }
+
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = sampler.MagFilter == RHI::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        samplerInfo.minFilter = sampler.MinFilter == RHI::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        samplerInfo.mipmapMode =
+            sampler.LinearMipFilter ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        const auto toAddressMode = [](const RHI::AddressMode mode)
+        {
+            switch (mode)
+            {
+                case RHI::AddressMode::Repeat:
+                    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                case RHI::AddressMode::MirroredRepeat:
+                    return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+                case RHI::AddressMode::ClampToEdge:
+                    return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                case RHI::AddressMode::ClampToBorder:
+                    return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+            }
+            return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        };
+        samplerInfo.addressModeU = toAddressMode(sampler.AddressU);
+        samplerInfo.addressModeV = toAddressMode(sampler.AddressV);
+        samplerInfo.addressModeW = toAddressMode(sampler.AddressW);
+        samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+        // Compare::Never means "comparison disabled", not "compare with NEVER"
+        // — the SamplerDesc contract. This is what makes sampler2DArrayShadow
+        // reads legal on this backend: the ShadowDepthSampler desc carries the
+        // compare op the GL texture object used to hold.
+        if (sampler.Compare != RHI::CompareOp::Never)
+        {
+            samplerInfo.compareEnable = VK_TRUE;
+            switch (sampler.Compare)
+            {
+                case RHI::CompareOp::Never: // unreachable — guarded above
+                    break;
+                case RHI::CompareOp::Less:
+                    samplerInfo.compareOp = VK_COMPARE_OP_LESS;
+                    break;
+                case RHI::CompareOp::Equal:
+                    samplerInfo.compareOp = VK_COMPARE_OP_EQUAL;
+                    break;
+                case RHI::CompareOp::LessOrEqual:
+                    samplerInfo.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+                    break;
+                case RHI::CompareOp::Greater:
+                    samplerInfo.compareOp = VK_COMPARE_OP_GREATER;
+                    break;
+                case RHI::CompareOp::NotEqual:
+                    samplerInfo.compareOp = VK_COMPARE_OP_NOT_EQUAL;
+                    break;
+                case RHI::CompareOp::GreaterOrEqual:
+                    samplerInfo.compareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+                    break;
+                case RHI::CompareOp::Always:
+                    samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+                    break;
+            }
+        }
+        if (sampler.MaxAnisotropy > 1.0f)
+        {
+            samplerInfo.anisotropyEnable = VK_TRUE;
+            samplerInfo.maxAnisotropy = sampler.MaxAnisotropy;
+        }
+        switch (sampler.Border)
+        {
+            case RHI::BorderColor::TransparentBlack:
+                samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+                break;
+            case RHI::BorderColor::OpaqueBlack:
+                samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+                break;
+            case RHI::BorderColor::OpaqueWhite:
+                samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+                break;
+        }
+        // The integer-format NEAREST rule outranks even an explicit desc —
+        // GL answered a LINEAR filter on an integer texture with
+        // incompleteness, never with linear filtering.
+        if (IsIntegerVkFormat(info->Format))
+        {
+            samplerInfo.magFilter = VK_FILTER_NEAREST;
+            samplerInfo.minFilter = VK_FILTER_NEAREST;
+            samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        }
+        VulkanBindingState::Get().SetTextureSamplerSlot(slot, VulkanSamplerHeap::Get().GetOrCreateSlot(samplerInfo));
     }
 
     void VulkanRendererAPI::BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered, u32 layer, RHI::Access /*access*/, RHI::Format format)
@@ -2409,19 +2874,55 @@ namespace OloEngine
         return alias;
     }
 
-    void VulkanRendererAPI::SetTextureFilter(RHI::ResourceHandle /*texture*/, RHI::Filter /*minFilter*/, RHI::Filter /*magFilter*/)
+    void VulkanRendererAPI::SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
     {
-        Phase6Stub("SetTextureFilter");
+        // #691 Phase 8: GL keeps filter/wrap on the texture OBJECT; here the
+        // object's state lives in the image-info registry, and BindTexture
+        // derives the sampler-heap slot from it at bind time — so a mutation
+        // takes effect on the next bind, exactly like glTextureParameteri.
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            Phase6Stub("SetTextureFilter(unresolved texture)");
+            return;
+        }
+        VulkanImageInfoRegistry::Get().SetSamplerFilter(
+            reinterpret_cast<VkImage>(native), minFilter == RHI::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR,
+            magFilter == RHI::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
     }
 
-    void VulkanRendererAPI::SetTextureWrap(RHI::ResourceHandle /*texture*/, RHI::AddressMode /*wrap*/)
+    void VulkanRendererAPI::SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap)
     {
-        Phase6Stub("SetTextureWrap");
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            Phase6Stub("SetTextureWrap(unresolved texture)");
+            return;
+        }
+        VkSamplerAddressMode mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        switch (wrap)
+        {
+            case RHI::AddressMode::Repeat:
+                mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                break;
+            case RHI::AddressMode::MirroredRepeat:
+                mode = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+                break;
+            case RHI::AddressMode::ClampToEdge:
+                mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                break;
+            case RHI::AddressMode::ClampToBorder:
+                mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+                break;
+        }
+        VulkanImageInfoRegistry::Get().SetSamplerAddressMode(reinterpret_cast<VkImage>(native), mode);
     }
 
-    void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle /*texture*/, u32 /*width*/, u32 /*height*/, RHI::Format /*sourceFormat*/, const void* /*data*/)
+    void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height, RHI::Format sourceFormat, const void* data)
     {
-        Phase6Stub("UploadTextureSubImage2D");
+        // Whole-image form — the offset overload with a zero origin (#691
+        // Phase 8; the shared implementation lives there).
+        UploadTextureSubImage2D(texture, 0, 0, width, height, sourceFormat, data);
     }
 
     // Conditional rendering — the HOST-side gate (ADR item A6, second half;
@@ -2992,9 +3493,183 @@ namespace OloEngine
         Phase6Stub("SetVertexArrayIndexBuffer");
     }
 
-    void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle /*texture*/, i32 /*xOffset*/, i32 /*yOffset*/, u32 /*width*/, u32 /*height*/, RHI::Format /*sourceFormat*/, const void* /*data*/)
+    void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, u32 width, u32 height, RHI::Format sourceFormat, const void* data)
     {
-        Phase6Stub("UploadTextureSubImage2D");
+        // #691 Phase 8: the frame-command-buffer staged upload. GL's
+        // glTextureSubImage2D is ordered against everything the frame already
+        // issued; recording the copy HERE (not a one-shot, which submits
+        // BEFORE the still-recording frame) preserves that ordering for
+        // mid-frame callers (terrain sculpt/paint region flushes, the DDGI
+        // probe-data tile writes).
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("UploadTextureSubImage2D(outside recording bracket)");
+            return;
+        }
+        if (data == nullptr || width == 0u || height == 0u)
+        {
+            return;
+        }
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            Phase6Stub("UploadTextureSubImage2D(unresolved texture)");
+            return;
+        }
+        const auto image = reinterpret_cast<VkImage>(native);
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        if (info == nullptr)
+        {
+            Phase6Stub("UploadTextureSubImage2D(unregistered image)");
+            return;
+        }
+
+        // GL's pixel-transfer converts client data into the internal format
+        // driver-side; vkCmdCopyBufferToImage is a raw texel copy, so the CPU
+        // converts. Identity plus the pairs the engine actually uploads.
+        std::vector<u8> converted;
+        const void* uploadData = data;
+        u64 uploadSize = 0;
+        const u64 texelCount = static_cast<u64>(width) * height;
+        const VkFormat srcAsVk = VulkanBarrierLowering::ToVkFormat(sourceFormat);
+        if (srcAsVk == info->Format)
+        {
+            const u32 bpp = ClientBytesPerPixel(sourceFormat);
+            if (bpp == 0u)
+            {
+                return;
+            }
+            uploadSize = texelCount * bpp;
+        }
+        else if (sourceFormat == RHI::Format::RG32Float && info->Format == VK_FORMAT_R16G16_SFLOAT)
+        {
+            // SSAO's noise import shape.
+            converted.resize(texelCount * sizeof(u32));
+            const auto* src = static_cast<const f32*>(data);
+            auto* dst = reinterpret_cast<u32*>(converted.data());
+            for (u64 i = 0; i < texelCount; ++i)
+            {
+                dst[i] = glm::packHalf2x16(glm::vec2(src[i * 2u], src[i * 2u + 1u]));
+            }
+            uploadData = converted.data();
+            uploadSize = converted.size();
+        }
+        else if (sourceFormat == RHI::Format::RGBA32Float && info->Format == VK_FORMAT_R16G16B16A16_SFLOAT)
+        {
+            // DDGI's probe-data tile shape.
+            converted.resize(texelCount * 2u * sizeof(u32));
+            const auto* src = static_cast<const f32*>(data);
+            auto* dst = reinterpret_cast<u32*>(converted.data());
+            for (u64 i = 0; i < texelCount; ++i)
+            {
+                dst[i * 2u] = glm::packHalf2x16(glm::vec2(src[i * 4u], src[i * 4u + 1u]));
+                dst[i * 2u + 1u] = glm::packHalf2x16(glm::vec2(src[i * 4u + 2u], src[i * 4u + 3u]));
+            }
+            uploadData = converted.data();
+            uploadSize = converted.size();
+        }
+        else if (sourceFormat == RHI::Format::RGB8UNorm &&
+                 (info->Format == VK_FORMAT_R8G8B8A8_UNORM || info->Format == VK_FORMAT_R8G8B8A8_SRGB))
+        {
+            // stb-style tightly-packed RGB widened to the RGBA image.
+            converted.resize(texelCount * 4u);
+            const auto* src = static_cast<const u8*>(data);
+            for (u64 i = 0; i < texelCount; ++i)
+            {
+                converted[i * 4u] = src[i * 3u];
+                converted[i * 4u + 1u] = src[i * 3u + 1u];
+                converted[i * 4u + 2u] = src[i * 3u + 2u];
+                converted[i * 4u + 3u] = 0xFFu;
+            }
+            uploadData = converted.data();
+            uploadSize = converted.size();
+        }
+        else if (sourceFormat == RHI::Format::RGB32Float && info->Format == VK_FORMAT_R32G32B32A32_SFLOAT)
+        {
+            // RGB32F textures store as RGBA32F on this backend (the
+            // ExpandRgbToRgba widening) — same widening for client data.
+            converted.resize(texelCount * 4u * sizeof(f32));
+            const auto* src = static_cast<const f32*>(data);
+            auto* dst = reinterpret_cast<f32*>(converted.data());
+            for (u64 i = 0; i < texelCount; ++i)
+            {
+                dst[i * 4u] = src[i * 3u];
+                dst[i * 4u + 1u] = src[i * 3u + 1u];
+                dst[i * 4u + 2u] = src[i * 3u + 2u];
+                dst[i * 4u + 3u] = 1.0f;
+            }
+            uploadData = converted.data();
+            uploadSize = converted.size();
+        }
+        else
+        {
+            static std::unordered_set<u32> s_WarnedPairs;
+            if (s_WarnedPairs.insert((static_cast<u32>(sourceFormat) << 16) | static_cast<u32>(info->Format)).second)
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] UploadTextureSubImage2D: no conversion from source format {} to image "
+                              "format {} — upload skipped",
+                              static_cast<u32>(sourceFormat), static_cast<u32>(info->Format));
+            }
+            return;
+        }
+
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            return;
+        }
+        VkBufferCreateInfo stagingInfo{};
+        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingInfo.size = uploadSize;
+        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo stagingAlloc{};
+        stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo stagingOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                            &stagingOut) != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] UploadTextureSubImage2D: staging allocation failed ({} bytes)", uploadSize);
+            return;
+        }
+        std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        VkImageSubresourceRange range{};
+        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        range.baseMipLevel = 0u;
+        range.levelCount = 1u;
+        range.baseArrayLayer = 0u;
+        range.layerCount = 1u;
+        std::vector<VkImageMemoryBarrier2> toTransfer;
+        StageTransferTransition(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                toTransfer);
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
+        dep.pImageMemoryBarriers = toTransfer.data();
+        vkCmdPipelineBarrier2(m_Cmd, &dep);
+
+        VkBufferImageCopy region{};
+        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+        region.imageOffset = { xOffset, yOffset, 0 };
+        region.imageExtent = { width, height, 1u };
+        vkCmdCopyBufferToImage(m_Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+
+        // Left in TRANSFER_DST with the tracker in agreement — the bind-time
+        // visibility seam transitions produced runs to SHADER_READ_ONLY at
+        // the next sample (the ClearTextureFloat discipline).
+
+        // The copy is consumed when the FRAME submits — the staging buffer
+        // must outlive it, so it takes the deferred-reclaim queue, not an
+        // inline destroy.
+        VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
     }
 
     void VulkanRendererAPI::UploadTextureSubImage3D(RHI::ResourceHandle /*texture*/, i32 /*xOffset*/, i32 /*yOffset*/, i32 /*zOffset*/, u32 /*width*/, u32 /*height*/, u32 /*depth*/, RHI::Format /*sourceFormat*/, const void* /*data*/)

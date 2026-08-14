@@ -60,7 +60,7 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        const std::array<KnownBlock, 33> kKnownBlocks = { {
+        const std::array<KnownBlock, 38> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -101,6 +101,15 @@ namespace OloEngine::Tests
             { "VirtualClusterCullParams", sizeof(UBOStructures::VirtualClusterCullUBO) },
             { "VirtualRasterParams", sizeof(UBOStructures::VirtualRasterUBO) },
             { "InstanceCullParams", sizeof(UBOStructures::InstanceCullUBO) },
+            // Issue #691 Phase 8 — the sweep's completion: the six compute
+            // shaders whose passes never ran in the Phase 7 live log.
+            // OceanFFTParams is one block declared verbatim in all three
+            // Ocean_*.comp passes.
+            { "OceanFFTParams", sizeof(UBOStructures::OceanFFTUBO) },
+            { "CloudNoiseGenParams", sizeof(UBOStructures::CloudNoiseGenUBO) },
+            { "CloudShadowGenParams", sizeof(UBOStructures::CloudShadowGenUBO) },
+            { "PrecipitationFeedParams", sizeof(UBOStructures::PrecipitationFeedUBO) },
+            { "ReflectionProbeCullParams", sizeof(UBOStructures::ReflectionProbeCullUBO) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)

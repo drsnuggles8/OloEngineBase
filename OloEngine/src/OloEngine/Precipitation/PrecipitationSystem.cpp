@@ -20,6 +20,15 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Std140 twin of Precipitation_Feed.comp's PrecipitationFeedParams
+        // block. File-scope (the header's PrecipitationData is out of this
+        // slice's reach) like VirtualGeometryShadow's statics; released in
+        // Shutdown().
+        Ref<UniformBuffer> s_FeedParamsUBO;
+    } // namespace
+
     // Populate common GPUSimParams fields from PrecipitationSettings.
     // Caller must set MaxParticles (layer-specific) after this call.
     static GPUSimParams CreateSimParams(f32 deltaTime, const PrecipitationSettings& settings)
@@ -235,6 +244,7 @@ namespace OloEngine
         s_Data.m_SleetTexture = nullptr;
         s_Data.m_PrecipitationUBO = nullptr;
         s_Data.m_FeedShader = nullptr;
+        s_FeedParamsUBO = nullptr;
         s_Data.m_Initialized = false;
 
         OLO_CORE_INFO("PrecipitationSystem shut down");
@@ -356,15 +366,25 @@ namespace OloEngine
         if (bool typeCanAccumulate = (settings.Type == PrecipitationType::Snow || settings.Type == PrecipitationType::Sleet); settings.FeedAccumulation && typeCanAccumulate && s_Data.m_FeedShader && SnowAccumulationSystem::IsInitialized())
         {
             s_Data.m_FeedShader->Bind();
-            s_Data.m_FeedShader->SetFloat("u_AccumulationFeedRate", settings.AccumulationFeedRate);
-            s_Data.m_FeedShader->SetFloat("u_GroundY", settings.GroundY);
-            s_Data.m_FeedShader->SetFloat("u_GroundThreshold", 0.5f); // Tolerance for ground contact
-
-            // Set clipmap parameters so the compute shader can convert world pos → clipmap UV
-            glm::vec4 clipmapParams = SnowAccumulationSystem::GetClipmapParams();
-            s_Data.m_FeedShader->SetFloat2("u_ClipmapCenter", glm::vec2(clipmapParams.x, clipmapParams.y));
-            s_Data.m_FeedShader->SetFloat("u_ClipmapExtent", clipmapParams.z);
-            s_Data.m_FeedShader->SetInt("u_ClipmapResolution", static_cast<i32>(SnowAccumulationSystem::GetTextureResolution()));
+            // Former bare uniforms via ComputeShader::Set*, a deliberate no-op
+            // on the Vulkan route — now one std140 refill per update (issue
+            // #691 Phase 8, the HZB pattern). The clipmap trio lets the
+            // compute convert world pos → clipmap UV.
+            if (!s_FeedParamsUBO)
+            {
+                s_FeedParamsUBO = UniformBuffer::Create(UBOStructures::PrecipitationFeedUBO::GetSize(),
+                                                        ShaderBindingLayout::UBO_PRECIPITATION_FEED);
+            }
+            const glm::vec4 clipmapParams = SnowAccumulationSystem::GetClipmapParams();
+            UBOStructures::PrecipitationFeedUBO feedParams{};
+            feedParams.ClipmapCenter = glm::vec2(clipmapParams.x, clipmapParams.y);
+            feedParams.ClipmapExtent = clipmapParams.z;
+            feedParams.ClipmapResolution = static_cast<i32>(SnowAccumulationSystem::GetTextureResolution());
+            feedParams.AccumulationFeedRate = settings.AccumulationFeedRate;
+            feedParams.GroundY = settings.GroundY;
+            feedParams.GroundThreshold = 0.5f; // Tolerance for ground contact
+            s_FeedParamsUBO->SetData(&feedParams, sizeof(feedParams));
+            s_FeedParamsUBO->Bind();
 
             // Bind snow depth texture as R32UI image for atomic CAS writes
             SnowAccumulationSystem::BindSnowDepthImageUint(1);

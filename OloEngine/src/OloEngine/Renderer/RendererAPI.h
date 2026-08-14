@@ -10,6 +10,14 @@
 
 namespace OloEngine
 {
+    namespace RHI
+    {
+        // Defined in RHI/RHIResources.h — forward-declared so the explicit-
+        // sampler BindTexture overload (whose default body ignores it) does
+        // not pull that header into every RendererAPI includer (#691 Phase 8).
+        struct SamplerDesc;
+    } // namespace RHI
+
     struct Viewport
     {
         u32 x = 0;
@@ -192,6 +200,15 @@ namespace OloEngine
         // RHI::NullResource unbinds, exactly as a native 0 used to.
         // ---------------------------------------------------------------------
         virtual void BindTexture(u32 slot, RHI::ResourceHandle texture) = 0;
+        // The EXPLICIT-SAMPLER form (#691 Phase 8). On GL the slot path
+        // samples with the texture OBJECT's parameters and always has — the
+        // default body preserves exactly that, so GL and every mock see one
+        // entry point. The Vulkan backend overrides it: its "object state"
+        // lives in a registry and its samplers come from the sampler heap, so
+        // an explicit desc (the ShadowDepthSampler compare state, SSAO's
+        // Nearest/Repeat noise) must reach the backend or it silently samples
+        // with the inherit state — the heap-off half of the §4f contract.
+        virtual void BindTexture(u32 slot, RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler);
         virtual void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
                                       u32 layer, RHI::Access access, RHI::Format format) = 0;
 

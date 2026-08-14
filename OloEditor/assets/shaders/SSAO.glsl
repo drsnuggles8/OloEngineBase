@@ -127,8 +127,11 @@ float interleavedGradientNoise(vec2 pixelCoord)
 // World-space AO radius projected to a pixel count at the given view depth.
 float projectedRadiusInPixels(float viewZ)
 {
-    // u_Projection[1][1] is the Y scale factor (1 / tan(fov/2))
-    return (u_Radius * u_Projection[1][1] * float(u_ScreenHeight)) / (2.0 * abs(viewZ));
+    // u_Projection[1][1] is the Y scale factor (1 / tan(fov/2)) — abs()
+    // because this block's matrix carries the shader-reconstruction row flip
+    // on Vulkan ([1][1] negative, #691 Phase 8); a magnitude is wanted here
+    // and abs is a no-op on GL.
+    return (u_Radius * abs(u_Projection[1][1]) * float(u_ScreenHeight)) / (2.0 * abs(viewZ));
 }
 
 void main()

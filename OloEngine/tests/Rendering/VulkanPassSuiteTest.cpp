@@ -9280,14 +9280,10 @@ namespace
 {
     // The files this sweep migrated. Each declares exactly one pass-owned
     // std140 block (some SHARE one block across the sibling shaders of a
-    // system — see UBOStructures in ShaderBindingLayout.h for which).
-    //
-    // NOT the whole compute directory: CloudNoise_Generate, CloudShadow_Generate,
-    // Ocean_Assemble, Ocean_FFTButterfly, Ocean_SpectrumEvolve and
-    // Precipitation_Feed still declare bare uniforms. They did not appear in the
-    // live log (their passes never ran in that session) and are outside this
-    // sweep's scope — they are remaining debt, not an exemption. Add them here
-    // when they are migrated.
+    // system — see UBOStructures in ShaderBindingLayout.h for which). The
+    // Phase 8 tail (CloudNoise/CloudShadow, the three Ocean FFT passes,
+    // Precipitation_Feed) carried the identical debt but never appeared in the
+    // Phase 7 live log — their passes never ran in that session.
     constexpr const char* kPhase7MigratedComputeShaders[] = {
         "assets/shaders/compute/Particle_Simulate.comp",
         "assets/shaders/compute/Particle_Emit.comp",
@@ -9302,6 +9298,14 @@ namespace
         "assets/shaders/compute/VirtualDebugColorize.comp",
         "assets/shaders/compute/InstanceOcclusionCull.comp",
         "assets/shaders/compute/InstanceFrustumCull.comp",
+        // Issue #691 Phase 8 — the sweep's completion.
+        "assets/shaders/compute/CloudNoise_Generate.comp",
+        "assets/shaders/compute/CloudShadow_Generate.comp",
+        "assets/shaders/compute/Ocean_SpectrumEvolve.comp",
+        "assets/shaders/compute/Ocean_FFTButterfly.comp",
+        "assets/shaders/compute/Ocean_Assemble.comp",
+        "assets/shaders/compute/Precipitation_Feed.comp",
+        "assets/shaders/compute/ReflectionProbeCull.comp",
     };
 } // namespace
 

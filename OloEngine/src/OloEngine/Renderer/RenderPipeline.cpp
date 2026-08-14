@@ -411,6 +411,11 @@ namespace OloEngine
             // The render origin itself, so pattern shaders can rebuild an
             // absolute world position (triplanar tiling, procedural noise, etc.).
             cameraData.RenderOrigin = renderOrigin;
+            // The reconstruction flavour (#691 Phase 8): for shaders doing
+            // their own z remap / near-far extraction / inverse — identical to
+            // Projection on GL, row-flip-only on Vulkan.
+            cameraData.ProjectionForReconstruction =
+                RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
 
             constexpr auto expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");

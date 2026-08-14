@@ -9,6 +9,16 @@ namespace OloEngine
 {
     RendererAPI::API RendererAPI::s_API = RendererAPI::API::OpenGL;
 
+    void RendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture, const RHI::SamplerDesc& /*sampler*/)
+    {
+        // Default: the two-arg bind. GL's slot path samples with the texture
+        // OBJECT's parameters and always has — an explicit desc is only
+        // actionable on a backend whose samplers are separate objects (the
+        // Vulkan override). Out of line because RendererAPI.h forward-declares
+        // SamplerDesc rather than paying for RHIResources.h everywhere.
+        BindTexture(slot, texture);
+    }
+
     [[nodiscard("Store this!")]] Scope<RendererAPI> RendererAPI::Create()
     {
         switch (s_API)

@@ -1523,6 +1523,8 @@
 		"Platform/Vulkan/VulkanRendererAPI.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.h"
+		"Platform/Vulkan/VulkanSamplerHeap.cpp"
+		"Platform/Vulkan/VulkanSamplerHeap.h"
 		"Platform/Vulkan/VulkanRendererAPI.h"
 		"Platform/Vulkan/VulkanShader.cpp"
 		"Platform/Vulkan/VulkanShader.h"
