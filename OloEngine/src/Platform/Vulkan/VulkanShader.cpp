@@ -483,9 +483,33 @@ namespace OloEngine
                     return;
                 }
             }
+            // Image dimensionality for the unfed-binding null-texture
+            // fallback (#691 Phase 8) — the null view type must match the
+            // sampler declaration.
+            auto imageDim = VulkanShaderBinding::TexDim::Tex2D;
+            if (kind == VulkanShaderBinding::Kind::CombinedImageSampler ||
+                kind == VulkanShaderBinding::Kind::StorageImage)
+            {
+                const auto& type = compiler.get_type(resource.type_id);
+                switch (type.image.dim)
+                {
+                    case spv::DimCube:
+                        imageDim = type.image.arrayed ? VulkanShaderBinding::TexDim::TexCubeArray
+                                                      : VulkanShaderBinding::TexDim::TexCube;
+                        break;
+                    case spv::Dim3D:
+                        imageDim = VulkanShaderBinding::TexDim::Tex3D;
+                        break;
+                    default:
+                        imageDim = type.image.arrayed ? VulkanShaderBinding::TexDim::Tex2DArray
+                                                      : VulkanShaderBinding::TexDim::Tex2D;
+                        break;
+                }
+            }
             m_Bindings.push_back({ .Set = set,
                                    .Binding = binding,
                                    .BindingKind = kind,
+                                   .ImageDim = imageDim,
                                    .Stages = static_cast<VkShaderStageFlags>(stage),
                                    .Name = resource.name });
         };

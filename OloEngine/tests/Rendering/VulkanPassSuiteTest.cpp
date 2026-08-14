@@ -9581,4 +9581,174 @@ TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion
         << "the readback family must not fall through to a stub anymore";
 }
 
+// =============================================================================
+// Command-ordered SSBO SetData (#691 Phase 8): the batched-instance archetype.
+//
+// CommandDispatch::DrawMeshInstanced re-uploads the ONE shared
+// ModelInstanceBuffer (SSBO 15) before every batch and records the draw
+// between the writes. GL executes upload/draw in command order; on Vulkan the
+// draws execute at submit, so with a life-stable buffer address every draw in
+// the frame read the LAST upload — which emptied every auto-batched instanced
+// draw in the sandbox scenes (spheres/cubes vanished while unique-mesh draws
+// survived; found by the Phase 8 Step 3 screenshot parity gate, root-caused
+// through an all-far-plane SceneDepth capture). VulkanStorageBuffer::SetData
+// now snapshots the written range into the frame arena and draws embed the
+// snapshot's address (GetRootDataAddress), so each recorded draw keeps the
+// bytes that were current when it was recorded.
+//
+// The tenant is the archetype in miniature: one SSBO at binding 15, upload a
+// LEFT transform, draw, upload a RIGHT transform, draw — both quads must land.
+// Under last-write-wins ordering the first draw also reads RIGHT and the left
+// half stays background.
+// =============================================================================
+TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDraws)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto lightCubeShader = Shader::Create("assets/shaders/LightCube.glsl");
+    ASSERT_TRUE(lightCubeShader);
+    ASSERT_EQ(lightCubeShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // A flat quad in the engine Vertex shape (32 B: pos3 @0, normal3 @12,
+    // uv2 @24) — the stride LightCube's pull branch hard-codes (8 floats).
+    const f32 quadVertices[] = {
+        -0.5f,
+        -0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        0.0f,
+        0.0f, // bottom-left
+        0.5f,
+        -0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        1.0f,
+        0.0f, // bottom-right
+        0.5f,
+        0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        1.0f,
+        1.0f, // top-right
+        -0.5f,
+        0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        0.0f,
+        1.0f, // top-left
+    };
+    u32 quadIndices[] = { 0u, 1u, 2u, 2u, 3u, 0u };
+    auto vao = VertexArray::Create();
+    auto quadVB = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
+    quadVB->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                        { ShaderDataType::Float3, "a_Normal" },
+                        { ShaderDataType::Float2, "a_TexCoord" } });
+    vao->AddVertexBuffer(quadVB);
+    vao->SetIndexBuffer(IndexBuffer::Create(quadIndices, 6));
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.Position = glm::vec3(0.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    // Quad scaled to 0.8 wide and shifted -0.5 / +0.5: LEFT spans x NDC
+    // [-0.9, -0.1], RIGHT [0.1, 0.9]; both span y [-0.4, 0.4]. The strip
+    // between them stays background under EITHER ordering, so the probe set
+    // separates the two behaviours unambiguously.
+    const auto makeInstance = [](f32 xShift)
+    {
+        InstanceData inst{};
+        inst.Transform = glm::translate(glm::mat4(1.0f), { xShift, 0.0f, 0.0f }) *
+                         glm::scale(glm::mat4(1.0f), { 0.8f, 0.8f, 1.0f });
+        inst.Normal = glm::mat4(1.0f);
+        inst.PrevTransform = inst.Transform;
+        return inst;
+    };
+    const InstanceData leftInstance = makeInstance(-0.5f);
+    const InstanceData rightInstance = makeInstance(0.5f);
+
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            sceneFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetDepthMask(false);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+
+            lightCubeShader->Bind();
+            vao->Bind();
+
+            // The archetype: write, draw, write, draw — same buffer object.
+            instanceSSBO->SetData(&leftInstance, sizeof(InstanceData));
+            instanceSSBO->Bind();
+            RenderCommand::DrawIndexed(vao, 6);
+
+            instanceSSBO->SetData(&rightInstance, sizeof(InstanceData));
+            instanceSSBO->Bind();
+            RenderCommand::DrawIndexed(vao, 6);
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u);
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> rendered;
+    auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const auto px = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
+    };
+
+    // LightCube writes solid white. Centres: LEFT x NDC -0.5 -> column 32,
+    // RIGHT +0.5 -> column 96, both row 64 (y-symmetric quads, so either row
+    // orientation covers them).
+    EXPECT_EQ(px(32, 64)[0], 255)
+        << "the FIRST draw must render the transform uploaded BEFORE it (command-ordered SetData) — "
+           "a black left quad means every draw read the frame's final upload";
+    EXPECT_EQ(px(96, 64)[0], 255) << "the second draw must render the transform uploaded before it";
+    EXPECT_EQ(px(64, 64)[0], 0) << "the strip between the quads keeps the clear";
+    EXPECT_EQ(px(5, 5)[0], 0) << "corner background keeps the clear";
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+}
+
 #endif // OLO_WITH_VULKAN

@@ -199,15 +199,16 @@ namespace OloEngine
 
             const u32 width = region.Width;
             const u32 height = region.Height;
-            // The rect arrives top-left-origin; attachment rows run bottom-up
-            // on BOTH backends. Scene intermediates keep GL row order under
-            // Vulkan — the projection seam's y-flip lands once, at the
-            // swapchain blit, so everything the graph renders off-screen is
-            // GL-oriented (#691 Phase 8b: the first MCP capture applied a
-            // per-backend flip here and came back upside-down). This capture
-            // lowers onto RenderCommand::ReadTextureSubImage, which on GL is
-            // the same glGetTextureSubImage as before.
-            const u32 readY = fullHeight - region.Y - region.Height;
+            // The rect arrives top-left-origin. Row order of the UIComposite
+            // attachment is PER-BACKEND (ADR 0011 amendment (79)): GL stores
+            // bottom-up; under Vulkan the editor chain's fullscreen hops
+            // leave it TOP-DOWN — the first Phase 8 parity gate proved it on
+            // screen (the viewport widget's GL uv flip showed the whole
+            // scene upside-down while the ImGui chrome was upright). Keyed
+            // on the live backend, matching the viewport widget's uv choice
+            // so capture and screen can never disagree.
+            const bool bottomUpRows = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+            const u32 readY = bottomUpRows ? fullHeight - region.Y - region.Height : region.Y;
 
             std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
             if (!RenderCommand::ReadTextureSubImage(attachment, 0, static_cast<i32>(region.X),
@@ -215,12 +216,15 @@ namespace OloEngine
                                                     RHI::Format::RGBA8UNorm, pixels.size(), pixels.data()))
                 return {};
 
-            // Rows return bottom-up; flip for PNG (top-down).
+            // PNG rows are top-down; only bottom-up (GL) rows need the flip.
             const u32 rowBytes = width * 4;
             std::vector<u8> flipped(pixels.size());
             for (u32 y = 0; y < height; ++y)
+            {
+                const u32 srcRow = bottomUpRows ? height - 1 - y : y;
                 std::memcpy(flipped.data() + static_cast<sizet>(y) * rowBytes,
-                            pixels.data() + static_cast<sizet>(height - 1 - y) * rowBytes, rowBytes);
+                            pixels.data() + static_cast<sizet>(srcRow) * rowBytes, rowBytes);
+            }
 
             u32 outW = width;
             u32 outH = height;
@@ -1888,7 +1892,15 @@ namespace OloEngine
         }
         if (textureID != 0)
         {
-            ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+            // UV convention is per-backend (ADR 0011 amendment (79)): the GL
+            // attachment is bottom-up (flip V), the Vulkan editor chain's
+            // UIComposite lands top-down (identity). Must agree with
+            // CaptureFramebufferPng's bottomUpRows so the screen and every
+            // screenshot show the same frame.
+            const bool bottomUpRows = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+            const ImVec2 uv0 = bottomUpRows ? ImVec2{ 0, 1 } : ImVec2{ 0, 0 };
+            const ImVec2 uv1 = bottomUpRows ? ImVec2{ 1, 0 } : ImVec2{ 1, 1 };
+            ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, uv0, uv1);
         }
         else
         {

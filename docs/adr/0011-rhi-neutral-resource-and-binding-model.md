@@ -3080,6 +3080,69 @@ upside-down PNG). Both fed a FINAL frame that presents correctly.
   "Depth24Stencil8" label to `VK_FORMAT_D32_SFLOAT_S8_UINT` on this
   hardware — readback format tables must key on the VULKAN format from the
   image-info registry, never on the graph's format label.
+- **Correction (Phase 8 Step 3 gate):** the earlier "UIComposite reads back
+  GL-oriented" classification was measured against an already-mirrored
+  scene (the geometry was missing — amendment (80) — and the HDRI
+  background's own mirror went unnoticed). With real geometry the editor
+  chain's UIComposite attachment is **top-down** under Vulkan, proven on
+  screen: the viewport widget's GL uv flip showed the whole scene upside
+  down inside an upright ImGui frame. Both UIComposite consumers
+  (`EditorLayer`'s viewport `ImGui::Image` uv pair and
+  `CaptureFramebufferPng`'s row order) are now keyed on the live backend —
+  and deliberately on the SAME predicate, so the screen and every
+  screenshot agree even if the underlying orientation shifts again. The
+  per-target fragility stands until the Phase 9 single-orientation fix.
+
+### (80) A CPU-writable buffer whose address is life-stable replays GL's command-ordered writes as last-write-wins
+
+Found by the Phase 8 Step 3 screenshot parity gate: MaterialSpheres and
+LightingTest rendered skybox-only under Vulkan (SceneDepth read back
+all-far-plane except debug-line meshes) while VehiclesTest was fine.
+Root cause: `CommandDispatch::DrawMeshInstanced` re-uploads the ONE shared
+`ModelInstanceBuffer` (SSBO 15) before every auto-batched draw and records
+the draw between the writes. GL executes upload/draw in command order; on
+Vulkan the writes are immediate (mapped write-through / pre-frame one-shot)
+while the draws execute at submit — so **every** recorded draw read the
+frame's LAST upload. Scenes whose repeated meshes auto-batch (sphere/cube
+grids) collapsed to the final tiny upload; scenes of unique meshes never
+batch and survived, which is what made the failure scene-specific.
+
+- The fix is the storage twin of `VulkanUniformBuffer`'s arena versioning:
+  `VulkanStorageBuffer::SetData` inside a recording bracket snapshots the
+  written range into the frame arena, and the DRAW root-data writer embeds
+  the snapshot's address (`GetRootDataAddress`) — a later SetData mints a
+  new range while earlier draws keep the one they recorded. Outside a
+  recording bracket the write-through IS the ordered value and no snapshot
+  is taken (scene loads would burn arena space).
+- COMPUTE keeps the persistent `GetDeviceAddress`: its SSBOs are GPU-write
+  participants (cull survivors, atomically-updated indirect seeds) whose
+  writes must land where the indirect resolve and copies look, and the
+  culler's slot pool already hands each dispatch fresh buffers. The split
+  is the `commandOrderedBufferReads` flag on `AssembleAndPushRootData`.
+- Tenant: `InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDraws`
+  (upload LEFT, draw, upload RIGHT, draw — both quads must land).
+- The same archetype exists in principle for `VulkanVertexBuffer` (vertex
+  pull) if a pull stream is ever rewritten mid-frame between draws;
+  today's Renderer2D flush pattern uploads each stream once per frame, so
+  it is recorded here as a known seam, not fixed.
+
+### (81) Unfed sampler bindings must resolve to a typed null texture, not heap slot 0
+
+Slot 0 is whatever texture registered first — in the editor, the loft-HDRI
+equirect — so every unfed optional sampler (`PostProcess_ToneMap`'s
+water-depth, `PBR_MultiLight`'s material maps behind `u_Use*Map` flags)
+silently sampled a real image. The GL twin reads deterministic black from
+an unbound unit; Vulkan now matches: reflection carries the sampled-image
+dimensionality (`VulkanShaderBinding::ImageDim`, from spirv-cross
+`image.dim`/`arrayed`), and the root-data fallback resolves to a 1x1
+zero-filled null image of the MATCHING view type (2D / 2D-array / cube /
+cube-array / 3D — a 2D descriptor under a `samplerCube` is undefined).
+The null images are owned by `VulkanDescriptorHeapBackend` beside its
+existing token nulls and reclaimed with the heap — a process-leaked VMA
+image trips VMA's "allocations not freed" assert at device teardown (the
+sampler-heap lesson, relearned). Storage-image units keep the slot-0
+fallback: there is no safe neutral WRITE target, and no production shader
+dispatches with an unfed image unit.
 
 ---
 

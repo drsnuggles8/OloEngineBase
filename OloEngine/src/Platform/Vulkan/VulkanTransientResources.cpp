@@ -11,6 +11,7 @@
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "Platform/Vulkan/VulkanContext.h"
+#include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 
@@ -2742,10 +2743,114 @@ namespace OloEngine
             {
                 vmaFlushAllocation(VulkanDevice::Get()->GetAllocator(), m_Allocation, offset, size);
             }
+        }
+        else
+        {
+            VulkanOneShot::UploadToBuffer(m_Buffer, offset, data, size, "VulkanStorageBuffer::SetData");
+        }
+
+        // Command-ordered draw reads (#691 Phase 8): draws recorded after
+        // this write must see THESE bytes even though the persistent buffer
+        // keeps getting overwritten until submit. See GetRootDataAddress.
+        PushSnapshot(data, size, offset);
+    }
+
+    void VulkanStorageBuffer::PushSnapshot(const void* data, u32 size, u32 offset)
+    {
+        // Only a write that lands between recorded draws needs command-
+        // ordering; outside a recording bracket (load time, scene opens
+        // between frames) the persistent write-through IS the ordered value,
+        // and snapshotting every setup upload would burn frame-arena space.
+        // Live-object probe, not the static flag — same rule as ClearData.
+        auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+        if (vk == nullptr || vk->CurrentCommandBuffer() == VK_NULL_HANDLE)
+        {
+            InvalidateSnapshot();
             return;
         }
 
-        VulkanOneShot::UploadToBuffer(m_Buffer, offset, data, size, "VulkanStorageBuffer::SetData");
+        auto& arena = VulkanFrameArena::Get();
+        const u64 generation = arena.GetFrameGeneration();
+        const bool liveSnapshot = m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == generation;
+
+        // Bytes the new snapshot must carry: everything written so far this
+        // frame (a shader may read any prefix the draw's instance count
+        // covers), never less than a live snapshot already promised.
+        const u32 newBytes = std::max(offset + size, liveSnapshot ? m_SnapshotBytes : 0u);
+
+        // A write that does not start at 0 needs prefix bytes [0, offset)
+        // from somewhere CPU-readable: the live snapshot, or the mapped
+        // persistent buffer (write-combined — a slow read, but no hot path
+        // writes partial ranges). A staged (non-mapped) buffer with no live
+        // snapshot cannot supply them: drop the snapshot and let draws read
+        // the persistent buffer, which is the pre-snapshot behaviour.
+        const void* prefixSource = liveSnapshot ? m_SnapshotCpu : m_Mapped;
+        if (offset > 0 && prefixSource == nullptr)
+        {
+            static bool s_WarnedPrefix = false;
+            if (!s_WarnedPrefix)
+            {
+                s_WarnedPrefix = true;
+                OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer::SetData(offset {}) on a staged buffer with no "
+                              "live snapshot — draw reads fall back to last-write-wins ordering (warn-once)",
+                              offset);
+            }
+            InvalidateSnapshot();
+            return;
+        }
+
+        // std430 block alignment: 16 covers any scalar/vector/matrix start.
+        const auto allocation = arena.Allocate(newBytes, 16);
+        if (!allocation.IsValid())
+        {
+            static bool s_WarnedOverflow = false;
+            if (!s_WarnedOverflow)
+            {
+                s_WarnedOverflow = true;
+                OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer snapshot dropped — frame arena overflow "
+                              "({} bytes); draw reads fall back to last-write-wins ordering (warn-once)",
+                              newBytes);
+            }
+            InvalidateSnapshot();
+            return;
+        }
+
+        auto* dst = static_cast<u8*>(allocation.Cpu);
+        if (offset > 0)
+        {
+            std::memcpy(dst, prefixSource, offset);
+        }
+        std::memcpy(dst + offset, data, size);
+        if (const u32 writtenEnd = offset + size; writtenEnd < newBytes)
+        {
+            // Tail beyond this write: carry the live snapshot's remainder so
+            // earlier-promised content survives, else zero-fill (reads past
+            // the written range were never defined by any writer this frame).
+            if (liveSnapshot)
+            {
+                std::memcpy(dst + writtenEnd, static_cast<const u8*>(m_SnapshotCpu) + writtenEnd,
+                            newBytes - writtenEnd);
+            }
+            else
+            {
+                std::memset(dst + writtenEnd, 0, newBytes - writtenEnd);
+            }
+        }
+        arena.FlushWrite(allocation, newBytes);
+
+        m_SnapshotFrameGeneration = generation;
+        m_SnapshotAddress = allocation.Gpu;
+        m_SnapshotCpu = allocation.Cpu;
+        m_SnapshotBytes = newBytes;
+    }
+
+    VkDeviceAddress VulkanStorageBuffer::GetRootDataAddress()
+    {
+        if (m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == VulkanFrameArena::Get().GetFrameGeneration())
+        {
+            return m_SnapshotAddress;
+        }
+        return m_DeviceAddress;
     }
 
     void VulkanStorageBuffer::GetData(void* outData, u32 size, u32 offset) const
@@ -2869,6 +2974,12 @@ namespace OloEngine
             return;
         }
 
+        // A clear supersedes any command-ordered snapshot: draws recorded
+        // after it must observe zeros (persistent buffer), not the pre-clear
+        // snapshot bytes. No-op for the GPU-written tenants below, which
+        // never SetData mid-frame.
+        InvalidateSnapshot();
+
         // Mid-frame (#691 Phase 8): a ClearData between two GPU uses
         // (ToneMap's exposure-reset shape, the fluid solver's grid-head
         // clears) must be ORDERED within the frame command buffer — both the
@@ -2937,6 +3048,8 @@ namespace OloEngine
         // Sync inside CreateBuffer PRESERVES the identity — same object, new
         // storage.
         CreateBuffer();
+        // Resize invalidates content; a stale snapshot must not outlive it.
+        InvalidateSnapshot();
     }
 
     // =========================================================================

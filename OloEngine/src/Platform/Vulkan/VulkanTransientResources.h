@@ -854,22 +854,57 @@ namespace OloEngine
         {
             return m_Buffer;
         }
-        // The address the root-data writer embeds (ADR 0011 §4). Stable for
-        // the buffer's life; Resize mints a new one.
+        // The persistent buffer's address. Stable for the buffer's life;
+        // Resize mints a new one. GPU-write participants (compute dispatch
+        // root data, indirect-args resolution, copies) use THIS address —
+        // their writes must land in the one buffer every later consumer
+        // resolves.
         [[nodiscard]] VkDeviceAddress GetDeviceAddress() const
         {
             return m_DeviceAddress;
         }
+        // The address a DRAW's root-data writer embeds (ADR 0011 §4) — the
+        // storage twin of VulkanUniformBuffer::GetRootDataAddress. A CPU
+        // SetData mid-frame snapshots the written range into the frame arena,
+        // and draws recorded AFTER the write embed the snapshot's address
+        // while earlier draws keep the one they recorded — GL's command-
+        // ordered glNamedBufferSubData semantics. Without this, every draw
+        // in the frame reads the LAST SetData at execute time: the exact
+        // failure that emptied the auto-batched instanced draws (all batches
+        // sampling the final ModelInstanceBuffer upload — #691 Phase 8).
+        // Falls back to the persistent address when no snapshot is live
+        // (GPU-written buffers never SetData mid-frame, so they always
+        // resolve persistent).
+        [[nodiscard]] VkDeviceAddress GetRootDataAddress();
 
       private:
         void CreateBuffer();
         void ReleaseBuffer();
+        // Copies the just-written range (plus any live snapshot content it
+        // does not cover) into a fresh frame-arena range and points
+        // GetRootDataAddress at it. Failure (arena overflow, unreadable
+        // prefix) invalidates the snapshot so draws fall back to the
+        // persistent buffer — today's pre-fix semantics, never garbage.
+        void PushSnapshot(const void* data, u32 size, u32 offset);
+        void InvalidateSnapshot()
+        {
+            m_SnapshotAddress = 0;
+            m_SnapshotCpu = nullptr;
+            m_SnapshotBytes = 0;
+        }
 
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;
         void* m_Mapped = nullptr; ///< Non-null when VMA gave a host-visible placement.
         bool m_NeedsFlush = false;
         VkDeviceAddress m_DeviceAddress = 0;
+        // Command-ordered draw-read snapshot (see GetRootDataAddress).
+        // Valid only while m_SnapshotFrameGeneration matches the arena's
+        // current frame — arena ranges recycle after kFramesInFlight.
+        u64 m_SnapshotFrameGeneration = ~0ull;
+        VkDeviceAddress m_SnapshotAddress = 0;
+        void* m_SnapshotCpu = nullptr;
+        u32 m_SnapshotBytes = 0;
         // Generation-checked identity for m_Buffer, kept in lockstep by
         // m_RHIHandle.Sync — same pattern as the GL twin (issue #691).
         RHI::ScopedResourceHandle m_RHIHandle;

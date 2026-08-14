@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/OpenGL/OpenGLDescriptorHeap.h" // the shared kDescriptorHeap* capacities
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
+#include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
@@ -286,15 +287,16 @@ namespace OloEngine
             return false;
         }
 
-        const bool cube = viewType == VK_IMAGE_VIEW_TYPE_CUBE;
+        const bool cube = viewType == VK_IMAGE_VIEW_TYPE_CUBE || viewType == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
         const bool array = viewType == VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        const bool volume = viewType == VK_IMAGE_VIEW_TYPE_3D;
         const u32 layers = cube ? 6u : (array ? 2u : 1u);
         const bool storage = type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.flags = cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u;
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.imageType = volume ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
         imageInfo.format = format;
         imageInfo.extent = { 1u, 1u, 1u };
         imageInfo.mipLevels = 1u;
@@ -398,6 +400,45 @@ namespace OloEngine
                    : heap.WriteSampledImage(slot, staged.ViewInfo, staged.Layout);
     }
 
+    u32 VulkanDescriptorHeapBackend::GetNullSampledHeapSlot(const VkImageViewType viewType)
+    {
+        if (const auto it = m_NullSampledSlots.find(static_cast<u32>(viewType)); it != m_NullSampledSlots.end())
+        {
+            return it->second;
+        }
+
+        u64 token = kNullSampled2DToken;
+        switch (viewType)
+        {
+            case VK_IMAGE_VIEW_TYPE_CUBE:
+                token = kNullSampledCubeToken;
+                break;
+            case VK_IMAGE_VIEW_TYPE_2D_ARRAY:
+                token = kNullSampledArrayToken;
+                break;
+            case VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:
+                token = kNullSampledCubeArrayToken;
+                break;
+            case VK_IMAGE_VIEW_TYPE_3D:
+                token = kNullSampled3DToken;
+                break;
+            default:
+                break;
+        }
+        if (!EnsureNullImage(token, viewType, VK_FORMAT_R8G8B8A8_UNORM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE))
+        {
+            return VulkanResourceHeap::InvalidSlot;
+        }
+        const Staged& staged = m_Staged.at(token);
+        const u32 slot = VulkanDescriptorSlotCache::Get().AcquireSlot(staged.Image, staged.ViewInfo,
+                                                                      VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, staged.Layout);
+        if (slot != VulkanResourceHeap::InvalidSlot)
+        {
+            m_NullSampledSlots.emplace(static_cast<u32>(viewType), slot);
+        }
+        return slot;
+    }
+
     void VulkanDescriptorHeapBackend::ReleaseDeviceObjects()
     {
         for (auto& [token, null] : m_NullImages)
@@ -407,6 +448,10 @@ namespace OloEngine
         }
         m_NullImages.clear();
         m_NullStorageTokenByFormat.clear();
+        // Slot indices die with the heap (the caller resets the slot cache in
+        // the same cascade); the next GetNullSampledHeapSlot re-creates both
+        // the image and the slot against the new heap.
+        m_NullSampledSlots.clear();
         m_NextNullStorageToken = kFirstNullStorageToken;
     }
 } // namespace OloEngine

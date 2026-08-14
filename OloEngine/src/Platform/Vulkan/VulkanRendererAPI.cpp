@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanContext.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
@@ -1715,7 +1716,8 @@ namespace OloEngine
             m_HeapBoundThisRecording = true;
         }
 
-        const bool assembled = AssembleAndPushRootData(layout, shader->GetName().c_str(), vao);
+        const bool assembled =
+            AssembleAndPushRootData(layout, shader->GetName().c_str(), vao, /*commandOrderedBufferReads=*/true);
         if (assembled)
             ++m_PreparedDrawsThisRecording;
         else
@@ -1723,8 +1725,35 @@ namespace OloEngine
         return assembled;
     }
 
+    namespace
+    {
+        // View type for the unfed-binding null-texture fallback (#691
+        // Phase 8) — the sampled-image twin of the frame arena's null buffer
+        // block. The null image itself is owned by
+        // VulkanDescriptorHeapBackend (reclaimed with the heap), because a
+        // leaked VMA image outliving the allocator trips VMA's
+        // "allocations not freed" assert at device teardown.
+        [[nodiscard]] VkImageViewType ToNullViewType(const VulkanShaderBinding::TexDim dim)
+        {
+            switch (dim)
+            {
+                case VulkanShaderBinding::TexDim::Tex2DArray:
+                    return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                case VulkanShaderBinding::TexDim::TexCube:
+                    return VK_IMAGE_VIEW_TYPE_CUBE;
+                case VulkanShaderBinding::TexDim::TexCubeArray:
+                    return VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+                case VulkanShaderBinding::TexDim::Tex3D:
+                    return VK_IMAGE_VIEW_TYPE_3D;
+                case VulkanShaderBinding::TexDim::Tex2D:
+                default:
+                    return VK_IMAGE_VIEW_TYPE_2D;
+            }
+        }
+    } // namespace
+
     bool VulkanRendererAPI::AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
-                                                    const VulkanVertexArray* vao)
+                                                    const VulkanVertexArray* vao, bool commandOrderedBufferReads)
     {
         // Root-struct assembly: one u64 device address per buffer block, one
         // u32 heap slot per image, from the process-global binding state
@@ -1774,7 +1803,17 @@ namespace OloEngine
                     // the two bind-point namespaces overlap by design, so an
                     // unfed UBO block must resolve to the zero address (warned
                     // below) rather than to whatever SSBO shares its number.
-                    address = ssbo->GetDeviceAddress();
+                    //
+                    // Draws take the command-ordered snapshot seam (a mid-
+                    // frame SetData hands later draws a NEW arena range —
+                    // GL's glNamedBufferSubData ordering; the batched-
+                    // instance archetype, #691 Phase 8). Compute keeps the
+                    // persistent address: its SSBOs are GPU-write
+                    // participants (cull survivors, indirect seeds) whose
+                    // writes must land where the indirect/copy consumers
+                    // resolve, and the culler's slot pool already gives each
+                    // dispatch fresh buffers.
+                    address = commandOrderedBufferReads ? ssbo->GetRootDataAddress() : ssbo->GetDeviceAddress();
                 }
                 if (address == 0)
                 {
@@ -1806,13 +1845,28 @@ namespace OloEngine
                                         : bindingState.GetTextureHeapSlot(binding.Binding);
                 if (slot == VulkanBindingState::kNoHeapSlot)
                 {
+                    // Sampled bindings resolve to the zero-filled null
+                    // texture of the declaration's dimensionality — GL's
+                    // "unbound sampler reads black" (#691 Phase 8; slot 0
+                    // leaked the first-registered texture into every unfed
+                    // sampler). Storage images keep the slot-0 fallback: a
+                    // write target has no safe neutral image, and no
+                    // production shader dispatches with an unfed image unit.
+                    u32 nullSlot = VulkanResourceHeap::InvalidSlot;
+                    if (!storageImage)
+                    {
+                        nullSlot =
+                            VulkanDescriptorHeapBackend::Get().GetNullSampledHeapSlot(ToNullViewType(binding.ImageDim));
+                    }
                     static std::unordered_set<std::string> s_WarnedSlots;
                     if (s_WarnedSlots.insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)).second)
                     {
-                        OLO_CORE_WARN("[RHI/Vulkan] '{}' {} binding {} has no staged heap slot — slot 0", shaderName,
-                                      storageImage ? "image" : "texture", binding.Binding);
+                        OLO_CORE_WARN("[RHI/Vulkan] '{}' {} binding {} has no staged heap slot — {}", shaderName,
+                                      storageImage ? "image" : "texture", binding.Binding,
+                                      nullSlot != VulkanResourceHeap::InvalidSlot ? "null texture (black)"
+                                                                                  : "slot 0");
                     }
-                    slot = 0;
+                    slot = nullSlot != VulkanResourceHeap::InvalidSlot ? nullSlot : 0u;
                 }
                 std::memcpy(m_RootScratch.data() + field.Offset, &slot, sizeof(slot));
                 if (!storageImage)
@@ -2227,7 +2281,8 @@ namespace OloEngine
             VulkanResourceHeap::Get().CmdBind(m_Cmd);
             m_HeapBoundThisRecording = true;
         }
-        if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr))
+        if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr,
+                                     /*commandOrderedBufferReads=*/false))
         {
             return;
         }

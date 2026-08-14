@@ -621,8 +621,12 @@ namespace OloEngine
         // Kind-aware: CombinedImageSampler bindings read the TEXTURE slot
         // table, StorageImage bindings the IMAGE-UNIT table (amendment (29):
         // two namespaces), buffers the bind-point tables (57 = vertex pull).
+        // `commandOrderedBufferReads` — draws pass true so SSBO reads embed
+        // the command-ordered SetData snapshot (VulkanStorageBuffer::
+        // GetRootDataAddress); compute passes false to keep the persistent
+        // address its GPU-write participants require (#691 Phase 8).
         [[nodiscard]] bool AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
-                                                   const VulkanVertexArray* vao);
+                                                   const VulkanVertexArray* vao, bool commandOrderedBufferReads);
 
         // Selection-map plumbing (see FramebufferAttachmentSelection above).
         [[nodiscard]] static u64 SelectionKey(RHI::ResourceHandle framebuffer)
