@@ -4033,16 +4033,17 @@ namespace OloEngine
         // (CreateDepthArrayCompareOffViewHandle) are cached second handles to
         // a still-live image the SOURCE owns — ShadowMap retires those
         // through this entry on GL, where the view is a real second texture.
-        // Destroying anything here would double-free, so the honest lowering
-        // is a no-op. TRACE, not WARN: ShadowMap's alias retirement reaches
-        // here BY DESIGN in every editor session (same clean-log rule as the
-        // unfed-sampler typed-null fallback).
+        // Destroying anything here would double-free; ownership already
+        // covers the destruction, so there is nothing left for this entry to
+        // do. TRACE: this path is reached BY DESIGN in every editor session
+        // (ShadowMap's alias retirement), same clean-log rule as the
+        // unfed-sampler typed-null fallback.
         static bool s_TracedForeign = false;
         if (!s_TracedForeign)
         {
             s_TracedForeign = true;
-            OLO_CORE_TRACE("[RHI/Vulkan] DeleteTexture on a non-raw-registry handle (object-owned texture or "
-                           "compare-off view alias) — no-op by design (trace-once)");
+            OLO_CORE_TRACE("[RHI/Vulkan] DeleteTexture: handle names an object-owned texture or cached view "
+                           "alias — its owner destroys the image; nothing to do here (trace-once)");
         }
     }
 
@@ -4623,12 +4624,15 @@ namespace OloEngine
             if (context == nullptr || !context->FlushFrameRecordingAndWait())
             {
                 borrowLayout = true;
-                static bool s_Warned = false;
-                if (!s_Warned)
+                // TRACE: borrow mode IS the designed path for a post-blit
+                // read (the viewport entity pick) — previous-frame contents
+                // are exactly what GL's double-buffered PBO pick returns.
+                static bool s_Traced = false;
+                if (!s_Traced)
                 {
-                    s_Warned = true;
-                    OLO_CORE_WARN("[Vulkan] mid-frame ReadTextureSubImage without a frame flush — reading the "
-                                  "previous frame's contents without disturbing the recording (warn-once)");
+                    s_Traced = true;
+                    OLO_CORE_TRACE("[Vulkan] mid-frame ReadTextureSubImage in borrow mode — previous-frame "
+                                   "contents, GL's double-buffered pick semantics (trace-once)");
                 }
             }
         }
