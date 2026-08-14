@@ -549,9 +549,26 @@ namespace OloEngine
         // A10: the tessellation state exists ONLY on a patch pipeline; the
         // draw front-end sets PATCH_LIST through the dynamic topology so the
         // baked value above and the recorded one agree.
+        //
+        // Domain origin (#691 Phase 8, the water-murk bug): Vulkan's default
+        // is UPPER_LEFT, GL's convention is LOWER_LEFT. The GLSL tess stages
+        // were authored against GL semantics — with the default, the
+        // tessellator's v coordinate mirrors and every generated triangle's
+        // winding flips, so a back-culled tessellated surface keeps its BACK
+        // face: geometry lands in the right place (barycentric weights are a
+        // corner permutation, still on the patch) while gl_FrontFacing,
+        // two-sided normal flips and NdotV-driven shading all invert. On the
+        // water that collapsed fresnel to zero and slammed the depth blend to
+        // the deep colour — a murky grey sea with every binding, UBO and the
+        // planar-reflection mirror verified correct. LOWER_LEFT restores GL
+        // parity by construction for water and terrain alike.
         VkPipelineTessellationStateCreateInfo tessellation{};
         tessellation.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
         tessellation.patchControlPoints = key.PatchControlPoints;
+        VkPipelineTessellationDomainOriginStateCreateInfo domainOrigin{};
+        domainOrigin.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_DOMAIN_ORIGIN_STATE_CREATE_INFO;
+        domainOrigin.domainOrigin = VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT;
+        tessellation.pNext = &domainOrigin;
 
         VkPipelineViewportStateCreateInfo viewport{};
         viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;

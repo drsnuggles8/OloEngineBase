@@ -9092,6 +9092,54 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
     // subdivided patch covers its triangle and not the whole target.
     EXPECT_GT(coveredTexels, 1000u) << "the patch covered " << coveredTexels << " texels";
     EXPECT_LT(coveredTexels, 2600u) << "the patch covered " << coveredTexels << " texels";
+
+    // --- Phase 2: the SAME patch with back-face culling ON (#691 Phase 8, the
+    // water-murk regression). The TES declares `ccw` against GL's LOWER_LEFT
+    // tessellation domain; Vulkan's default UPPER_LEFT origin mirrors the
+    // generated v coordinate, which flips every emitted triangle's winding —
+    // this exact draw back-culled to nothing while the editor's sea shaded its
+    // BACK face into a grey murk (normal down, fresnel collapsed, deep-colour
+    // blend pinned) with every binding, UBO and mirror input verified correct.
+    // Pinned by VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT on every patch
+    // pipeline: culled coverage here means the domain origin regressed.
+    SubmitFrame(
+        [&]()
+        {
+            sceneFramebuffer->Bind();
+            sceneFramebuffer->AttachDepthTextureArrayLayer(patchDepth->GetRHIHandle(), 0u);
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetBlendState(false);
+            RenderCommand::BackCull();
+            RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+
+            waterShader->Bind();
+            patchVao->Bind();
+            RenderCommand::DrawIndexedPatches(patchVao, 3u, 3u);
+            RenderCommand::DisableCulling();
+            sceneFramebuffer->Unbind();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = patchDepth->GetRHIHandle();
+            toSampled.Range.BaseMip = 0u;
+            toSampled.Range.MipCount = 1u;
+            toSampled.Range.BaseLayer = 0u;
+            toSampled.Range.LayerCount = 1u;
+            toSampled.Before = RHI::Access::DepthStencilAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    std::vector<f32> culledDepth;
+    ASSERT_TRUE(ReadDepthArrayLayer(patchDepth, 0u, culledDepth)) << "phase-2 depth readback failed";
+    ASSERT_EQ(culledDepth.size(), static_cast<sizet>(kSize) * kSize);
+    EXPECT_LT(culledDepth[static_cast<sizet>(40) * kSize + 8], 0.999f)
+        << "the ccw tessellated patch was BACK-CULLED — the pipeline's tessellation domain origin is not "
+           "GL's LOWER_LEFT, so the tessellator mirrored the generated winding";
 }
 
 // =============================================================================

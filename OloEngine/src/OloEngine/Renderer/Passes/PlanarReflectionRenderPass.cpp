@@ -116,8 +116,19 @@ namespace OloEngine
             }
         };
 
+        const auto logArm = [&](u8 arm, const char* what)
+        {
+            if (m_LoggedExecuteArm != arm)
+            {
+                m_LoggedExecuteArm = arm;
+                OLO_CORE_INFO("[PlanarReflection] {} (enabled={}, scenePass={}, fb={})", what, m_Enabled,
+                              m_ScenePass != nullptr, m_ReflectionFB != nullptr);
+            }
+        };
+
         if (!m_Enabled || !m_ScenePass)
         {
+            logArm(2, "mirror replay off");
             publishDisabled();
             return;
         }
@@ -125,9 +136,11 @@ namespace OloEngine
         EnsureFramebuffer();
         if (!m_ReflectionFB)
         {
+            logArm(3, "mirror replay blocked — no reflection framebuffer");
             publishDisabled();
             return;
         }
+        logArm(1, "mirror replay running");
 
         // Snapshot the real camera (CommandDispatch holds it from BeginScene; the
         // scene pass never mutates it). Restored before we return.

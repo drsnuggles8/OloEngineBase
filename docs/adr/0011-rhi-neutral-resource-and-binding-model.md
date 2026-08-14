@@ -3144,6 +3144,43 @@ sampler-heap lesson, relearned). Storage-image units keep the slot-0
 fallback: there is no safe neutral WRITE target, and no production shader
 dispatches with an unfed image unit.
 
+### (82) The tessellation domain origin is part of the GL-parity contract, and its failure mode is a shading bug, not a geometry bug
+
+The Phase 8 water-murk hunt: VehiclesTest's sea rendered as a flat grey
+gradient under Vulkan while every input checked out one by one — the six
+"unfed" texture warnings were benign (unassigned assets, GL skips them
+too), the water UBO and its per-draw time arrived (live MCP A/B:
+WaveAmplitude 5 erupted identically on both backends), tessellation levels
+matched (the GL control faceted the same), the underwater fog contributed
+nothing (fog-off was pixel-identical), and the planar-reflection mirror
+pass ran and produced real content (in-pass centre-texel readback through
+the Phase 8b spine). The killer was one absent pipeline field:
+`VkPipelineTessellationDomainOriginStateCreateInfo`.
+
+- Vulkan's default tessellation domain origin is UPPER_LEFT; GL's
+  convention is LOWER_LEFT. For a GLSL TES authored against GL semantics
+  (`layout(triangles, …, ccw)`), the default mirrors the tessellator's v
+  coordinate — the barycentric weights become a corner permutation, so
+  **generated positions stay on the patch and the surface lands exactly
+  where GL puts it**, while every emitted triangle's **winding flips**.
+- With two-sided/uncull water that meant: right geometry, BACK face
+  visible. `gl_FrontFacing` inverted, the two-sided normal flip pointed
+  the shading normal down, NdotV collapsed the fresnel term (killing SSR,
+  environment AND planar reflection in one multiply) and pinned the
+  view-depth blend to the deep colour — a murky sea with zero validation
+  errors, zero warnings, and every binding fed. A back-culled tessellated
+  surface would instead disappear outright.
+- Fix: every patch pipeline chains
+  `VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT` (maintenance2, core 1.1) —
+  GL parity by construction for water and terrain alike. Pinned by the
+  water tenant's phase 2: the same ccw patch draw with back-cull ON must
+  keep its coverage; under the default origin it culls to nothing.
+- The diagnostic lesson: a winding-level bug on a two-sided surface
+  presents as a *lighting/material* bug (dark, flat, "missing
+  reflections"), and every per-binding audit will come back clean. When a
+  tessellated surface shades wrong under one backend with all inputs
+  verified, check the domain origin before re-auditing the inputs.
+
 ---
 
 ## Consequences
