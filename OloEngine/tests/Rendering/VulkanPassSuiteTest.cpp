@@ -3031,7 +3031,10 @@ TEST_F(VulkanPassSuite, SsaoRunsBothHalfResDrawsAndCopiesUnoccludedAOThroughTheG
         aoSpec.GenerateMips = false;
         aoOutput = Texture2D::Create(aoSpec);
         ASSERT_NE(aoOutput, nullptr);
-        std::vector<u8> zeros(static_cast<sizet>(kHalf) * kHalf * 4u, 0u);
+        // Facade client contract for the 16F formats: f32 PER CHANNEL (the
+        // GL driver converts; this backend converts CPU-side) — 8 bytes per
+        // RG16F texel, not the native 4. Zeros are zeros in either width.
+        std::vector<u8> zeros(static_cast<sizet>(kHalf) * kHalf * 2u * sizeof(f32), 0u);
         aoOutput->SetData(zeros.data(), static_cast<u32>(zeros.size()));
     }
 
@@ -7425,8 +7428,11 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     // Each export target must be TEXEL-SIZE COMPATIBLE with the G-Buffer
     // attachment it copies from (VUID-vkCmdCopyImage-srcImage-01548): albedo
     // is RGBA8 (RT0), normals are RGBA16F (RT1). A copy is not a conversion.
+    // The 16F seed ships 16 bytes/texel — the facade's f32-per-channel client
+    // contract (the backend converts to halves); the seed's exact value is
+    // irrelevant, it only has to differ from the copied G-Buffer content.
     auto exportedAlbedo = makeSeededExport(ImageFormat::RGBA8, 4u, 17u);
-    auto exportedNormals = makeSeededExport(ImageFormat::RGBA16F, 8u, 19u);
+    auto exportedNormals = makeSeededExport(ImageFormat::RGBA16F, 16u, 19u);
     ASSERT_TRUE(exportedAlbedo && exportedNormals);
 
     auto decalPass = Ref<DecalRenderPass>::Create();
@@ -9624,6 +9630,31 @@ TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion
     ASSERT_TRUE(api.ReadTextureImage(texture->GetRHIHandle(), 0, RHI::Format::RGBA8UNorm, whole.size(),
                                      whole.data()));
     EXPECT_EQ(whole, texels);
+
+    // Half-float client contract (#691 Phase 8): the GL facade takes f32 PER
+    // CHANNEL for the 16F formats and converts driver-side — this backend
+    // must convert CPU-side, not size-assert (SlugFontProcessor's RGBA16F
+    // curve texture crashed the first Vulkan play of a scene with UI text)
+    // and not reinterpret f32 bits as halves. Round-trip through the float
+    // readback proves both the accepted size and the converted values.
+    TextureSpecification halfSpec;
+    halfSpec.Width = 2;
+    halfSpec.Height = 2;
+    halfSpec.Format = ImageFormat::RGBA16F;
+    halfSpec.GenerateMips = false;
+    auto halfTexture = Texture2D::Create(halfSpec);
+    ASSERT_NE(halfTexture, nullptr);
+    const std::array<f32, 16> halfClient{ 0.25f, 0.5f, 0.75f, 1.0f, 2.0f, 4.0f, -1.0f, 0.0f,
+                                          8.0f, 16.0f, 0.1f, 1.0f, -0.5f, 0.0f, 1.5f, 1.0f };
+    halfTexture->SetData(const_cast<f32*>(halfClient.data()), static_cast<u32>(halfClient.size() * sizeof(f32)));
+    std::vector<f32> halfBack(halfClient.size(), -99.0f);
+    ASSERT_TRUE(api.ReadTextureSubImage(halfTexture->GetRHIHandle(), 0, 0, 0, 0, 2u, 2u, 1u,
+                                        RHI::Format::RGBA32Float, halfBack.size() * sizeof(f32), halfBack.data()));
+    for (sizet i = 0; i < halfClient.size(); ++i)
+    {
+        // Half precision: ~11 bits of mantissa — 1e-2 covers every value above.
+        EXPECT_NEAR(halfBack[i], halfClient[i], 1.0e-2f) << "texel float " << i;
+    }
 
     EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
         << "the readback family must not fall through to a stub anymore";

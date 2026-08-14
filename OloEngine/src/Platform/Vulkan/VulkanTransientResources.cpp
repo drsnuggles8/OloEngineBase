@@ -15,6 +15,7 @@
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 
+#include <glm/gtc/packing.hpp>
 #include <stb_image/stb_image.h>
 
 #include <algorithm>
@@ -320,6 +321,31 @@ namespace OloEngine
                 }
             }
             return out;
+        }
+
+        // The GL facade's SetData/SubImage contract for the half-float
+        // formats hands the backend f32 PER CHANNEL and lets the driver
+        // convert down (OpenGLTexture.cpp: "Upload as GL_FLOAT ... OpenGL
+        // converts to half-float"). vkCmdCopyBufferToImage copies bytes
+        // verbatim, so the conversion happens here instead — the call sites
+        // are backend-neutral and ship f32 by that contract.
+        // SlugFontProcessor's RGBA16F curve texture was the first to hit the
+        // mismatch: the whole-texture size assert fired the moment a scene
+        // with a UI text component played under Vulkan (#691 Phase 8).
+        [[nodiscard]] bool EngineFormatClientIsF32ToHalf(ImageFormat format)
+        {
+            return format == ImageFormat::RGBA16F || format == ImageFormat::RG16F;
+        }
+
+        [[nodiscard]] std::vector<u16> PackF32ClientToHalf(const void* data, u64 floatCount)
+        {
+            std::vector<u16> halves(floatCount);
+            const auto* src = static_cast<const f32*>(data);
+            for (u64 i = 0; i < floatCount; ++i)
+            {
+                halves[i] = glm::packHalf1x16(src[i]);
+            }
+            return halves;
         }
 
         // One VkImageMemoryBarrier2 over a mip/layer range of a color image —
@@ -991,13 +1017,18 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const u32 clientBpp = EngineFormatClientBpp(m_Specification.Format);
-        if (clientBpp == 0)
+        const u32 nativeBpp = EngineFormatClientBpp(m_Specification.Format);
+        if (nativeBpp == 0)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SetData: format {} has no client-upload path",
                            static_cast<u32>(m_Specification.Format));
             return;
         }
+        // Half-float formats take f32 per channel from the caller (the GL
+        // facade contract — see EngineFormatClientIsF32ToHalf) — the client
+        // payload is twice the native image size.
+        const bool f32Client = EngineFormatClientIsF32ToHalf(m_Specification.Format);
+        const u32 clientBpp = f32Client ? nativeBpp * 2u : nativeBpp;
         const u64 expected = static_cast<u64>(m_Width) * m_Height * clientBpp;
         OLO_CORE_ASSERT(size == expected, "VulkanTexture2D::SetData: size must cover the whole texture");
         if (size != expected)
@@ -1007,6 +1038,12 @@ namespace OloEngine
             return;
         }
 
+        if (f32Client)
+        {
+            const std::vector<u16> halves = PackF32ClientToHalf(data, expected / sizeof(f32));
+            m_IsLoaded = UploadPixels(halves.data(), halves.size() * sizeof(u16)) || m_IsLoaded;
+            return;
+        }
         m_IsLoaded = UploadPixels(data, size) || m_IsLoaded;
     }
 
@@ -1015,8 +1052,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto* device = VulkanDevice::Get();
-        const u32 clientBpp = EngineFormatClientBpp(m_Specification.Format);
-        if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr || clientBpp == 0)
+        const u32 nativeBpp = EngineFormatClientBpp(m_Specification.Format);
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr || nativeBpp == 0)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: no upload path (device/image/format)");
             return;
@@ -1027,11 +1064,24 @@ namespace OloEngine
                            m_Width, m_Height);
             return;
         }
+        // Same client contract as SetData: half-float formats arrive as f32
+        // per channel and convert here (before this, a 16F region upload
+        // passed the too-small size check and reinterpreted the f32 bits as
+        // halves — silent garbage rather than an assert).
+        const bool f32Client = EngineFormatClientIsF32ToHalf(m_Specification.Format);
+        const u32 clientBpp = f32Client ? nativeBpp * 2u : nativeBpp;
         const u64 expected = static_cast<u64>(width) * height * clientBpp;
         if (dataSize < expected)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: got {} bytes, region needs {}", dataSize, expected);
             return;
+        }
+        std::vector<u16> halfPayload;
+        if (f32Client)
+        {
+            halfPayload = PackF32ClientToHalf(data, expected / sizeof(f32));
+            data = halfPayload.data();
+            dataSize = static_cast<u32>(halfPayload.size() * sizeof(u16));
         }
 
         // Mid-frame (#691 Phase 8): a region flush between two GPU uses (the
@@ -1069,6 +1119,13 @@ namespace OloEngine
                             return RHI::Format::RGB32Float;
                         case ImageFormat::RGBA32F:
                             return RHI::Format::RGBA32Float;
+                        // The payload for these two was converted to native
+                        // halves above, so the staged upload sees the image's
+                        // own format — no further conversion downstream.
+                        case ImageFormat::RG16F:
+                            return RHI::Format::RG16Float;
+                        case ImageFormat::RGBA16F:
+                            return RHI::Format::RGBA16Float;
                         default:
                             return RHI::Format::Unknown;
                     }
@@ -1087,8 +1144,11 @@ namespace OloEngine
             }
         }
 
+        // Native byte count for the staging copy — differs from `expected`
+        // exactly when the client payload was f32-to-half converted above.
+        const u64 nativeExpected = static_cast<u64>(width) * height * nativeBpp;
         const void* uploadData = data;
-        u64 uploadSize = expected;
+        u64 uploadSize = nativeExpected;
         std::vector<u8> expanded;
         if (m_Specification.Format == ImageFormat::RGB8 || m_Specification.Format == ImageFormat::RGB32F)
         {
