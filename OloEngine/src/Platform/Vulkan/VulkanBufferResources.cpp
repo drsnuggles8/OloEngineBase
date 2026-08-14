@@ -387,6 +387,10 @@ namespace OloEngine
         addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         addressInfo.buffer = m_Buffer;
         m_DeviceAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
+        // Trace the address range so a VK_EXT_device_fault report (see
+        // VulkanDevice::LogDeviceFaultInfo) can be matched to its buffer.
+        OLO_CORE_TRACE("[RHI/Vulkan] vertex buffer {:#x}..{:#x} ({} bytes, {})", m_DeviceAddress,
+                       m_DeviceAddress + m_Size, m_Size, m_Mapped != nullptr ? "BAR-mapped" : "staged");
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
 

@@ -47,6 +47,16 @@ namespace OloEngine
         {
             if (result != VK_SUCCESS)
             {
+                if (result == VK_ERROR_DEVICE_LOST)
+                {
+                    // Get the driver's fault report (address + fault type)
+                    // into the log BEFORE the throw unwinds — the crash
+                    // handler only sees the VkResult.
+                    if (auto* device = VulkanDevice::Get())
+                    {
+                        device->LogDeviceFaultInfo();
+                    }
+                }
                 throw std::runtime_error(std::string("Vulkan bring-up: ") + what + " failed (VkResult " +
                                          std::to_string(static_cast<int>(result)) + ")");
             }
@@ -499,6 +509,10 @@ namespace OloEngine
                     // territory; destroying the fence below is the least-bad
                     // cleanup.
                     OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences failed (VkResult {})", static_cast<int>(result));
+                    if (result == VK_ERROR_DEVICE_LOST)
+                    {
+                        d.Device.LogDeviceFaultInfo();
+                    }
                     ok = false;
                 }
             }
