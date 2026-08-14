@@ -127,6 +127,13 @@ namespace OloEngine
         // Check if a save file has a valid checksum
         static bool ValidateSave(const std::string& slotName);
 
+        // The save-file extension. PUBLIC because it is part of the on-disk format contract, not
+        // an implementation detail: the Steam Cloud mirror (#644) maps "<slot>.olosave" between
+        // the flat cloud namespace and the local Saves/ directory, and its tests need the same
+        // constant. Re-spelling ".olosave" at each of those sites would be a second copy of a
+        // fact that must not drift.
+        static constexpr std::string_view kSaveFileExtension = ".olosave";
+
       private:
         // Capture scene state on the calling thread, then dispatch compression + I/O to background.
         // onWorkerComplete runs on the worker thread after I/O finishes (before game-thread callback).
@@ -152,7 +159,6 @@ namespace OloEngine
 
         static std::array<std::atomic<bool>, kMaxQuickSaveSlots> s_QuickSaveInFlight;
         static std::array<std::atomic<bool>, kMaxAutoSaveSlots> s_AutoSaveInFlight;
-        static constexpr std::string_view kSaveFileExtension = ".olosave";
     };
 
 } // namespace OloEngine

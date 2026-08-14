@@ -800,6 +800,7 @@ add_executable(OloEngine-Tests
 		Platform/Steam/SteamManagerTest.cpp
 		Platform/Steam/SteamScriptBindingCoverageTest.cpp
 		Platform/Steam/SteamStubOnPathTest.cpp
+		Platform/Steam/SteamCloudSaveMirrorTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
 		Functional/FunctionalTest.cpp
 		Functional/UI/UINavigationTest.cpp
