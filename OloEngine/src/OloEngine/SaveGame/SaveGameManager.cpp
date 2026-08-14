@@ -74,17 +74,21 @@ namespace OloEngine
         // MUST run on the game thread — SteamManager is game-thread-only. The save write finishes
         // on a WORKER thread, so the caller there hops via EnqueueGameThreadTask rather than
         // calling this directly.
-        void MirrorSaveToCloud(const std::filesystem::path& path, const std::string& slotName)
+        //
+        // Takes the bytes ALREADY READ rather than a path, deliberately. Re-reading the file here
+        // would put save-sized disk I/O on the frame thread for no reason: the worker that just
+        // wrote the file is a perfectly good place to read it back, and it is not frame-critical.
+        // Only the Steam call itself is forced onto this thread.
+        //
+        // Remaining caveat, stated rather than hidden: ISteamRemoteStorage::FileWrite is itself a
+        // synchronous call on the game thread. It was not observably slow against App ID 480, but
+        // that quota is 4096 bytes, so this is NOT evidence about realistic save sizes. If a game
+        // with real saves sees a hitch here, the fix is an async backend write, not moving the
+        // call off-thread — Steamworks would not tolerate that.
+        void MirrorSaveToCloud(std::vector<u8> bytes, const std::string& slotName)
         {
-            if (!SteamManager::IsCloudEnabled())
+            if (!SteamManager::IsCloudEnabled() || bytes.empty())
             {
-                return;
-            }
-
-            std::vector<u8> bytes;
-            if (!ReadWholeFile(path, bytes))
-            {
-                OLO_CORE_WARN("[SaveGameManager] Could not re-read '{}' to mirror it to Steam Cloud.", path.string());
                 return;
             }
 
@@ -152,6 +156,37 @@ namespace OloEngine
                     return false;
                 }
             }
+
+            // VALIDATE BEFORE THE RENAME. Cloud bytes are untrusted — a partially-synced file, a
+            // save from a newer build, or plain corruption all arrive looking like a normal blob.
+            //
+            // Validating here rather than after is what keeps a bad copy from being permanently
+            // stuck: SaveGameManager::Load tests `exists(path)` FIRST and only falls back to
+            // cloud when there is no local file. So a corrupt blob renamed into place would be
+            // found by every later Load, fail its checksum, and return ChecksumMismatch forever —
+            // shadowing a cloud copy that might since have finished syncing and become good. By
+            // failing here the local path stays empty and the fallback remains available to retry.
+            //
+            // The same two checks Load applies, in the same order.
+            if (!SaveGameFile::ValidateChecksum(temp))
+            {
+                OLO_CORE_WARN("[SaveGameManager] Steam Cloud copy of '{}' failed checksum validation; discarding it "
+                              "rather than letting it shadow the cloud copy on future loads.",
+                              slotName);
+                std::filesystem::remove(temp, ec);
+                return false;
+            }
+
+            SaveGameHeader header;
+            SaveGameMetadata metadata;
+            if (!SaveGameFile::ReadMetadata(temp, header, metadata))
+            {
+                OLO_CORE_WARN("[SaveGameManager] Steam Cloud copy of '{}' has an unreadable header; discarding it.",
+                              slotName);
+                std::filesystem::remove(temp, ec);
+                return false;
+            }
+
             std::filesystem::rename(temp, path, ec);
             if (ec)
             {
@@ -690,8 +725,21 @@ namespace OloEngine
                 removedFromCloud = SteamSucceeded(SteamManager::CloudDelete(cloudName));
                 if (!removedFromCloud)
                 {
-                    OLO_CORE_WARN("[SaveGameManager] Could not delete '{}' from Steam Cloud; it may reappear.",
-                                  slotName);
+                    // ABORT — do NOT fall through and delete the local copy.
+                    //
+                    // Deleting locally while the cloud copy survives is strictly worse than
+                    // failing: EnumerateSaves unions in cloud-only slots, so the very next load
+                    // menu re-downloads the save the player just deleted. It comes back from the
+                    // dead, which reads as the delete being ignored — and meanwhile the local
+                    // file, the only copy they could still have loaded, is gone.
+                    //
+                    // Failing with both copies intact keeps the two in sync and leaves the player
+                    // able to retry.
+                    OLO_CORE_ERROR("[SaveGameManager] Could not delete '{}' from Steam Cloud; keeping the local copy "
+                                   "too so the two stay in sync (deleting locally would let the cloud copy "
+                                   "reappear on the next enumerate).",
+                                   slotName);
+                    return false;
                 }
             }
         }
@@ -903,18 +951,34 @@ namespace OloEngine
                     // is game-thread-only, so hop rather than calling it inline — this is the one
                     // place the cloud integration could have introduced a data race.
                     //
-                    // Enqueued unconditionally and re-checked inside: querying Steam availability
-                    // from this thread would itself be a contract violation, and the task is a
-                    // cheap no-op when Steam is absent.
+                    // Read the bytes HERE, on the worker, and move them into the task. The game
+                    // thread then only makes the Steam call, never touches the disk: re-reading a
+                    // save-sized file on the frame thread would be a hitch for no benefit, since
+                    // this thread just finished writing it and is not frame-critical.
+                    //
+                    // Enqueued without checking Steam availability first — querying it from this
+                    // thread would itself violate the game-thread contract — so the task re-checks
+                    // and no-ops when Steam is absent. The read is skipped in that case only by
+                    // the emptiness guard inside, which is the price of not being able to ask.
                     //
                     // Deliberately AFTER the local write succeeded, and it cannot affect `result`:
                     // a cloud failure must never turn a good local save into a reported error.
-                    Tasks::EnqueueGameThreadTask(
-                        [path, slotName]()
-                        {
-                            MirrorSaveToCloud(path, slotName);
-                        },
-                        "SteamCloudMirror");
+                    std::vector<u8> cloudBytes;
+                    if (ReadWholeFile(path, cloudBytes))
+                    {
+                        Tasks::EnqueueGameThreadTask(
+                            [bytes = std::move(cloudBytes), slotName]() mutable
+                            {
+                                MirrorSaveToCloud(std::move(bytes), slotName);
+                            },
+                            "SteamCloudMirror");
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("[SaveGameManager] Could not re-read '{}' to mirror it to Steam Cloud; "
+                                      "the local save is intact.",
+                                      path.string());
+                    }
                 }
 
                 // Worker-thread completion hook (e.g., release in-flight slot)

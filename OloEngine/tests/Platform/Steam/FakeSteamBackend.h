@@ -56,6 +56,7 @@ namespace OloEngine::Testing
         bool SetAchievementFails = false;
         bool StoreStatsFails = false;
         bool CloudWriteFails = false;
+        bool CloudDeleteFails = false;
 
         // --- ISteamBackend ------------------------------------------------------------------
 
@@ -201,6 +202,10 @@ namespace OloEngine::Testing
 
         SteamResult CloudDelete(std::string_view name) override
         {
+            if (CloudDeleteFails)
+            {
+                return SteamResult::Failed; // leaves the entry in place, as a real failure would
+            }
             return CloudFiles.erase(std::string{ name }) > 0 ? SteamResult::Success : SteamResult::NotFound;
         }
 

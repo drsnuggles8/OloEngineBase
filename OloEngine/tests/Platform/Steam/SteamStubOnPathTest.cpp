@@ -216,13 +216,28 @@ namespace
         EXPECT_FALSE(SteamManager::IsOverlayActive()) << "the overlay-closed callback did not reach the backend";
     }
 
-    // Shutdown unregisters the callback. Pumping afterwards must not dispatch into a backend that
-    // has torn down — the ordering that makes this safe is Unregister() before SteamAPI_Shutdown().
-    TEST_F(SteamStubOnPathTest, OverlayCallbackIsNotDeliveredAfterShutdown)
+    // Shutdown must UNREGISTER the callback, so nothing can dispatch into a backend that has torn
+    // down. The ordering that makes this safe is Unregister() before SteamAPI_Shutdown().
+    //
+    // Asserted through SteamStub::IsOverlayCallbackRegistered() rather than through behaviour,
+    // because the behavioural version of this test is worthless: after Shutdown the manager has
+    // no backend, so RunCallbacks returns before reaching any dispatch and IsOverlayActive() is
+    // false regardless. Such a test passes whether or not Unregister() is ever called — it looks
+    // like coverage while asserting nothing about the thing it names.
+    TEST_F(SteamStubOnPathTest, ShutdownUnregistersTheOverlayCallback)
     {
-        SteamManager::Initialize();
-        SteamManager::Shutdown();
+        EXPECT_FALSE(SteamStub::IsOverlayCallbackRegistered()) << "a callback was registered before Initialize";
 
+        SteamManager::Initialize();
+        ASSERT_TRUE(SteamManager::IsAvailable());
+        EXPECT_TRUE(SteamStub::IsOverlayCallbackRegistered())
+            << "Initialize did not register the overlay callback — the backend cannot receive events";
+
+        SteamManager::Shutdown();
+        EXPECT_FALSE(SteamStub::IsOverlayCallbackRegistered())
+            << "Shutdown left the overlay callback registered, pointing at a destroyed backend";
+
+        // ...and pumping afterwards is still safe.
         SteamStub::SetOverlayActive(true);
         EXPECT_NO_THROW(SteamManager::RunCallbacks());
         EXPECT_FALSE(SteamManager::IsOverlayActive());

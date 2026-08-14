@@ -389,6 +389,11 @@ namespace OloEngine::SteamStub
         return State().StoreStatsCalls;
     }
 
+    bool IsOverlayCallbackRegistered()
+    {
+        return static_cast<bool>(SteamStubInternal::g_OverlayCallback);
+    }
+
     void SetOverlayActive(bool active)
     {
         StubState& state = State();
@@ -450,6 +455,10 @@ namespace OloEngine::SteamStub
     u32 GetStoreStatsCallCount()
     {
         return 0;
+    }
+    bool IsOverlayCallbackRegistered()
+    {
+        return false;
     }
     void SetOverlayActive(bool) {}
     void SetCloudEnabled(bool, bool) {}

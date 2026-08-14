@@ -44,8 +44,19 @@ namespace OloEngine::SteamStub
     // a repeat unlock — the whole point of the dedup is avoiding a network store per frame.
     [[nodiscard]] u32 GetStoreStatsCallCount();
 
-    // Overlay display state, as if a GameOverlayActivated_t had arrived.
+    // Overlay display state. Queues a transition; the engine does not observe it until
+    // SteamAPI_RunCallbacks delivers the event, so a test must pump to see the change — which is
+    // what puts the real callback path under test rather than a directly-poked flag.
     void SetOverlayActive(bool active);
+
+    // True while the engine has an overlay callback registered with the stub.
+    //
+    // Exists so a test can assert REGISTRATION/UNREGISTRATION directly. Trying to observe it
+    // through behaviour instead does not work: after SteamManager::Shutdown the backend is gone,
+    // so RunCallbacks returns before reaching any dispatch and IsOverlayActive() is false no
+    // matter what Unregister() did. A test written that way passes whether or not unregistration
+    // happens at all — it looks like coverage and is worth nothing.
+    [[nodiscard]] bool IsOverlayCallbackRegistered();
 
     // Cloud switches. Both must be true for writes to land, mirroring Steam's account-wide and
     // per-app settings.

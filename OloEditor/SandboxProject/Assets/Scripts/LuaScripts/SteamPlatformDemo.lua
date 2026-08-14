@@ -32,8 +32,14 @@ local function setPresence(text)
     if text ~= lastPresence then
         -- "status" is the well-known key Steam shows in the friends list. Values over Steam's
         -- 256-byte limit are REJECTED (returns false), not silently truncated.
-        Steam.setRichPresence("status", text)
-        lastPresence = text
+        --
+        -- Cache the text ONLY on success. Updating it unconditionally would mean a rejected or
+        -- failed call still marks the value as "already sent", so the change-detection above
+        -- suppresses every later retry and the presence stays permanently stale — the failure
+        -- becomes sticky. Leaving lastPresence alone lets the next call try again.
+        if Steam.setRichPresence("status", text) then
+            lastPresence = text
+        end
     end
 end
 

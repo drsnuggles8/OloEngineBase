@@ -242,20 +242,46 @@ namespace
         EXPECT_FALSE(SaveGameManager::DeleteSave(kSlot));
     }
 
-    // A corrupt or truncated cloud blob must not produce a half-written local file that then
-    // fails its checksum — the restore writes to a temp file and renames.
-    TEST_F(SteamCloudSaveMirrorTest, GarbageCloudBlobDoesNotLeaveAPartialLocalFile)
+    // A corrupt cloud blob must never land on disk at all.
+    //
+    // This is the failure that would be permanent rather than transient. SaveGameManager::Load
+    // tests `exists(path)` FIRST and only falls back to cloud when there is no local file — so a
+    // bad blob renamed into place is found by every subsequent Load, fails its checksum, and
+    // returns ChecksumMismatch forever, shadowing a cloud copy that may since have finished
+    // syncing and become perfectly good. The restore therefore validates BEFORE the rename.
+    TEST_F(SteamCloudSaveMirrorTest, CorruptCloudBlobIsNeverWrittenToTheRealSavePath)
     {
         m_Fake->CloudFiles[std::string(kSlot) + std::string(SaveGameManager::kSaveFileExtension)] =
             std::vector<u8>{ 'n', 'o', 't', 'a', 's', 'a', 'v', 'e' };
 
         const std::vector<SaveFileInfo> saves = SaveGameManager::EnumerateSaves();
-
-        // The blob is written out (it is opaque bytes to the mirror) but must fail metadata
-        // parsing and therefore never be offered as a loadable save.
         EXPECT_TRUE(saves.empty()) << "an unparseable cloud blob was listed as a save";
 
-        std::filesystem::path leftover = LocalPath(kSlot).string() + ".cloudtmp";
+        // The real path must be untouched, so the cloud fallback stays available to retry.
+        EXPECT_FALSE(std::filesystem::exists(LocalPath(kSlot)))
+            << "a corrupt cloud blob was written to the save path; it would shadow the cloud copy "
+               "on every future Load";
+
+        const std::filesystem::path leftover = LocalPath(kSlot).string() + ".cloudtmp";
         EXPECT_FALSE(std::filesystem::exists(leftover)) << "a .cloudtmp temp file was left behind";
+    }
+
+    // Deleting locally while the cloud copy survives is strictly worse than failing: the next
+    // EnumerateSaves unions the cloud slot back in, so the save the player just deleted returns —
+    // and the local copy they could still have loaded is gone. Both must stay, and the call fails.
+    TEST_F(SteamCloudSaveMirrorTest, FailedCloudDeleteDoesNotRemoveTheLocalSave)
+    {
+        const auto local = LocalPath(kSlot);
+        std::filesystem::create_directories(local.parent_path());
+        ASSERT_FALSE(MakeSaveFileBytes(local, "KeepMe").empty());
+        SeedCloudOnlySave(kSlot, "KeepMe");
+        ASSERT_TRUE(CloudHas(kSlot));
+
+        m_Fake->CloudDeleteFails = true;
+
+        EXPECT_FALSE(SaveGameManager::DeleteSave(kSlot)) << "a failed cloud delete reported success";
+        EXPECT_TRUE(std::filesystem::exists(local))
+            << "the local save was deleted even though the cloud copy survived — it will reappear";
+        EXPECT_TRUE(CloudHas(kSlot));
     }
 } // namespace

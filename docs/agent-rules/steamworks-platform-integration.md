@@ -259,6 +259,32 @@ person.
 `StubSDK/public/steam/steam_api.h` and the canned implementation to `StubSDK/SteamStubSDK.cpp`. That is
 the mechanism working. Do not delete the job.
 
+### Reproducing the stub build locally on Windows — do NOT copy the CI flags
+
+The CI job configures with `-DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF`
+to keep the runner cheap. That flag set is verified on **`x64-linux` only**, because that is the
+only place the job runs.
+
+Copying it into a local Windows configure produces a build that compiles fine and then dies at
+link with **46 unresolved `google::protobuf` externals referenced from
+`GameNetworkingSockets_s.lib`** — `__declspec(dllimport)` symbols, i.e. GNS expecting a shared
+protobuf against a static one. Turning those subsystems off changes the vcpkg feature set, and on
+`x64-windows-static-md` the protobuf that GNS ends up linking no longer matches.
+
+Nothing to do with Steam: **zero** of the unresolved symbols are Steamworks API. Do not go hunting
+in the stub for them.
+
+To reproduce the stub build on Windows, configure it like the normal tree — leave USD / Alembic /
+MaterialX **on** — and add only `-DOLO_WITH_STEAM_STUB_SDK=ON`:
+
+```powershell
+cmake -S . -B build-steamstub -DOLO_WITH_STEAM_STUB_SDK=ON `
+  -DOLO_FFMPEG_PREFIX="<repo>/OloEngine/vendor/ffmpeg-install"
+```
+
+Note also that `STEAMWORKS_SDK_ROOT` should be **unset** for that configure — the stub path must
+not need an SDK, and unsetting it is what proves so.
+
 ---
 
 ## 7. Steamworks API details that are easy to get wrong
