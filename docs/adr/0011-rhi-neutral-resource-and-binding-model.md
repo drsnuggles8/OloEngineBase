@@ -3181,6 +3181,39 @@ the Phase 8b spine). The killer was one absent pipeline field:
   tessellated surface shades wrong under one backend with all inputs
   verified, check the domain origin before re-auditing the inputs.
 
+### (83) A GL framebuffer has no intrinsic size; a Vulkan one does — and a native-id gate is always a Vulkan no-op
+
+The MaterialSpheres "exposure delta" (GL bright with specular hotspots,
+Vulkan uniformly dim) was the directional light dying to TWO stacked
+shadow bugs, split by a live MCP A/B (intensity ×10 changed nothing;
+CastShadows=false restored the full light — so the light data was fine
+and the CSM *sampling* returned fully-shadowed):
+
+- **The identity gate.** `PopulateBlackboard` declared the CSM/atlas into
+  the graph only when `GetCSMRendererID() != 0` — the native-GL-name
+  currency, 0 by contract on Vulkan. No Vulkan graph ever contained a
+  shadow target (six on GL, zero on Vulkan in
+  `olo_render_list_targets`), so the shadow pass declared no writes.
+  Rule: **a gate must key on the currency that exists on every backend —
+  the RHI identity — never the native id**, which is diagnostics-only.
+- **The stale framebuffer spec.** The scene bumps the CSM from the 1024
+  startup default to 4096 (`ShadowMap::SetSettings` recreates the
+  textures), but nothing resized the shadow pass's framebuffer. GL
+  forgave it forever: a GL FBO has no intrinsic size — its size IS its
+  attachments', and `glClear` covers the whole attached 4096 layer. On
+  Vulkan the framebuffer spec drives the rendering scope's render area,
+  so every cascade cleared and rendered only its top-left 1024² quarter
+  while sampling spanned the full layer — depth 0 outside it, every
+  fragment fully shadowed. Found by capturing `ShadowMapCSMCascade0` on
+  both backends: GL all-white, Vulkan black with one white quarter. The
+  pass now resizes its framebuffer whenever it disagrees with the
+  shadow-map resolution.
+- The genre note: both bugs are **GL-tolerated latency** — states that
+  were always wrong (or wrong-shaped) under GL but harmless there, made
+  load-bearing by a backend where framebuffer size and resource identity
+  are real contracts. The parity gate, not any unit test, is what forces
+  them out.
+
 ---
 
 ## Consequences
