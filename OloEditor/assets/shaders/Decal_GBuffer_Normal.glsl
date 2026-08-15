@@ -53,7 +53,16 @@ void main()
 layout(location = 0) in vec4 v_ClipPos;
 
 // Writes only RT1 — caller binds only attachment 1 via glNamedFramebufferDrawBuffers.
-layout(location = 0) out vec4 gNormalRoughAO;
+//
+// The location must equal the G-BUFFER RT INDEX, not 0: DecalRenderPass's
+// per-mode draw-attachment map routes fragment output LOCATION n to the
+// attachment named at slot n, and the Normal mode's map is
+// {NoAttachment, 1, NoAttachment, NoAttachment, NoAttachment}. At location 0
+// this write landed on GL_NONE / VK_ATTACHMENT_UNUSED and the decal rendered
+// nothing at all, on either backend (issue #770). The other three G-Buffer
+// decal modes already follow the same rule — Albedo writes location 0 (RT0),
+// RMA writes 0 and 1, Emissive writes location 2 (RT2) with no 0 or 1.
+layout(location = 1) out vec4 gNormalRoughAO;
 
 #include "include/CameraCommon.glsl"
 

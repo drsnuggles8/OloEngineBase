@@ -4156,15 +4156,13 @@ TEST_F(VulkanPassSuite, OitResolveCompositesAccumOverTheSceneByRevealage)
 // nearest-upscaled depth, RT1 the nearest-upscaled velocity. No producer:
 // both inputs are imported reduced-resolution textures.
 //
-// ENGINE GAP (reported, not fixed here): the production declaration asks for
-// an R32Float colour attachment, but FramebufferTextureFormat has NO
-// single-channel float colour member at all — RenderGraph::ToFramebufferFormat
-// maps RGResourceFormat::R32Float to None, so the POOLED materialization path
-// silently DROPS production's RT0 (UpscaledDepthVelocity becomes a
-// one-attachment FB and the RT1 attachment view dangles). This tenant backs
-// the FB with RG32F for RT0 instead (float depth in .r, exact) and mirrors
-// production's {R32Float, RG16Float} in the DECLARED desc, which caller
-// backing renders inert.
+// The caller backing mirrors production's {R32Float, RG16Float} exactly. It
+// used to stand RT0 up as RG32F because FramebufferTextureFormat had no
+// single-channel float colour member and ToFramebufferFormat answered None for
+// RGResourceFormat::R32Float — which silently dropped production's RT0 on the
+// POOLED path (issue #772, fixed: the enum now carries R32F and both backends
+// translate it). RT0 is a true R32F here so the tenant rides the same
+// attachment format production does.
 //
 // Contract: a 64x64 two-band depth/velocity pair lands in the 128x128 output
 // with EXACT per-texel values and a hard band edge at the doubled row — the
@@ -4201,9 +4199,8 @@ TEST_F(VulkanPassSuite, DepthVelocityUpscaleNearestUpsamplesExactValues)
     FramebufferSpecification outputSpec;
     outputSpec.Width = kSize;
     outputSpec.Height = kSize;
-    // RG32F stands in for the unrepresentable R32F (see the header comment);
-    // only .r is asserted. RT1 is the production RG16F.
-    outputSpec.Attachments = { FramebufferTextureFormat::RG32F, FramebufferTextureFormat::RG16F };
+    // The production pair, verbatim: R32F depth + RG16F velocity (#772).
+    outputSpec.Attachments = { FramebufferTextureFormat::R32F, FramebufferTextureFormat::RG16F };
     Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
     ASSERT_TRUE(outputFramebuffer);
 
@@ -4260,7 +4257,7 @@ TEST_F(VulkanPassSuite, DepthVelocityUpscaleNearestUpsamplesExactValues)
     auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
     std::vector<u8> depthBytes;
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(depthBytes, 0));
-    ASSERT_EQ(depthBytes.size(), static_cast<sizet>(kSize) * kSize * 8); // RG32F
+    ASSERT_EQ(depthBytes.size(), static_cast<sizet>(kSize) * kSize * 4); // R32F
     std::vector<u8> velocityBytes;
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(1)->GetData(velocityBytes, 0));
     ASSERT_EQ(velocityBytes.size(), static_cast<sizet>(kSize) * kSize * 4); // RG16F
@@ -4268,7 +4265,7 @@ TEST_F(VulkanPassSuite, DepthVelocityUpscaleNearestUpsamplesExactValues)
     const auto depthAt = [&](u32 x, u32 y) -> f32
     {
         const auto* floats = reinterpret_cast<const f32*>(depthBytes.data());
-        return floats[(static_cast<sizet>(y) * kSize + x) * 2];
+        return floats[static_cast<sizet>(y) * kSize + x];
     };
     const auto velocityAt = [&](u32 x, u32 y) -> glm::vec2
     {
@@ -7038,18 +7035,18 @@ namespace
 // coverage exactly once is what the additive emissive mode needs, and it takes
 // the front-face-winding question off the table.
 //
-// DEFECT FOUND (documented, not fixed): Normal-mode decals write NOTHING, on
-// EITHER backend. Decal_GBuffer_Normal.glsl declares its output at
-// `layout(location = 0)` while the mode's draw map is {NONE, 1, NONE, NONE,
-// NONE} — location 0 is mapped to no attachment and location 1 is never
-// written. The other three modes' locations and maps agree. The Vulkan
-// validation layer says it in as many words while this tenant runs ("writes to
-// [Output variable, Location 0, \"gNormalRoughAO\"] but there is no
-// VkRenderingInfo::pColorAttachments[0] ... and this write is unused" — a
-// WARNING, so it does not trip the zero-error gate), which is corroboration
-// from outside the engine. Pinned below as the observed behaviour so the fix
-// (move the output to location 1) fails this assertion loudly instead of
-// passing silently.
+// DEFECT FOUND HERE, FIXED IN THIS CHANGE (issue #770): Normal-mode decals used
+// to write NOTHING, on EITHER backend. Decal_GBuffer_Normal.glsl declared its
+// output at `layout(location = 0)` while the mode's draw map is {NONE, 1, NONE,
+// NONE, NONE} — location 0 mapped to no attachment and location 1 was never
+// written. The other three modes' locations and maps already agreed (the rule
+// is "output location == G-Buffer RT index"), so the shader moved to
+// `layout(location = 1)`. The Vulkan validation layer had said it in as many
+// words while this tenant ran ("writes to [Output variable, Location 0,
+// \"gNormalRoughAO\"] but there is no VkRenderingInfo::pColorAttachments[0] ...
+// and this write is unused" — a WARNING, so it never tripped the zero-error
+// gate), which was corroboration from outside the engine. The Normal block
+// below now asserts the mode's real contract, like the other three.
 // =============================================================================
 TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
 {
@@ -7193,9 +7190,9 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     // attachment still takes a COLOR_ATTACHMENT_WRITE from the storeOp at
     // vkCmdEndRendering (which is exactly how its content survives), so its
     // readback barrier must name that as the source scope. Naming the transfer
-    // clear instead is a WRITE_AFTER_WRITE the sync validation reports — and
-    // the Normal mode, whose map ATTACHES RT1 while its shader writes location
-    // 0 and therefore touches nothing, is the case that separates the two.
+    // clear instead is a WRITE_AFTER_WRITE the sync validation reports — RMA's
+    // RT0, attached so its .a can be written while .rgb is masked off, is the
+    // standing case that separates the two.
     const auto attachedBy = [](DrawDecalCommand::DecalMode mode)
     {
         switch (mode)
@@ -7334,18 +7331,36 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
         }
     }
 
-    // --- Normal: the DEFECT (see the tenant header) -------------------------
+    // --- Normal: RT1.xy only, RT1.zw preserved (issue #770) -----------------
     {
         runMode(DrawDecalCommand::DecalMode::Normal);
+        const auto rt1 = readAttachment(1, 8);
+        const auto* halves = reinterpret_cast<const u16*>(rt1.Bytes.data());
+        const auto normalAt = [&](u32 x, u32 y)
+        {
+            const sizet base = (static_cast<sizet>(y) * kSize + x) * 4;
+            return std::array<f32, 4>{ HalfToFloat(halves[base]), HalfToFloat(halves[base + 1]),
+                                       HalfToFloat(halves[base + 2]), HalfToFloat(halves[base + 3]) };
+        };
+        const auto inside = normalAt(64, 64);
+        const auto outside = normalAt(8, 8);
+        // The oct-encoded normal is asserted as "not the clear" rather than a
+        // literal: it comes out of a screen-space derivative frame, so its exact
+        // value depends on the reconstructed surface orientation. What the mode
+        // owes is that RT1.xy MOVED inside the footprint — which is precisely
+        // what a location-0 output could never do.
+        EXPECT_GT(std::abs(inside[0] - outside[0]) + std::abs(inside[1] - outside[1]), 0.01f)
+            << "RT1.xy (the oct normal) is the Normal mode's own channel pair — a decal that writes "
+               "nothing here is issue #770 back (shader output location must equal the G-Buffer RT index)";
+        EXPECT_NEAR(inside[2], outside[2], 1e-4f) << "RT1.z (roughness) is masked out and must survive";
+        EXPECT_NEAR(inside[3], outside[3], 1e-4f) << "RT1.w (AO) is masked out and must survive";
+
         for (const auto& [attachment, bytesPerPixel] :
-             { std::pair<u32, u32>{ 0u, 4u }, { 1u, 8u }, { 2u, 8u }, { 3u, 4u }, { 4u, 4u } })
+             { std::pair<u32, u32>{ 0u, 4u }, { 2u, 8u }, { 3u, 4u }, { 4u, 4u } })
         {
             const auto rb = readAttachment(attachment, bytesPerPixel);
             EXPECT_EQ(texel(rb, 64, 64), texel(rb, 8, 8))
-                << "DEFECT PIN: Decal_GBuffer_Normal.glsl writes location 0 while the Normal draw "
-                   "map is {NONE, 1, NONE, NONE, NONE}, so the mode lands on NO attachment (RT"
-                << attachment << "). Move the output to location 1 and flip this to an RT1 "
-                                 "assertion.";
+                << "Normal mode must leave RT" << attachment << " byte-exact (NoAttachment hole)";
         }
     }
 
