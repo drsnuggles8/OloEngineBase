@@ -4,8 +4,10 @@
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Texture3D.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <algorithm>
 #include <limits>
@@ -24,6 +26,11 @@ namespace OloEngine
         constexpr u32 kLocalSize = 4;
         // Fixed seed — the default weather map is fully deterministic
         constexpr u32 kWeatherMapSeed = 0x633C10DDu;
+
+        // Std140 twin of CloudNoise_Generate.comp's CloudNoiseGenParams block.
+        // File-scope (the header's CloudNoiseData is out of this slice's reach)
+        // like VirtualGeometryShadow's statics; released in Shutdown().
+        Ref<UniformBuffer> s_GenParamsUBO;
 
         // ---- Deterministic CPU value noise (integer hash — no std::rand,
         // no transcendentals, so the output is bit-identical everywhere) ----
@@ -87,11 +94,23 @@ namespace OloEngine
         }
 
         /// Dispatch one bake pass of CloudNoise_Generate.comp into a 3D volume.
-        void DispatchNoiseBake(const ComputeShader& shader, RHI::ResourceHandle texture, int mode, u32 size)
+        void DispatchNoiseBake(RHI::ResourceHandle texture, int mode, u32 size)
         {
-            shader.SetInt("u_Mode", mode);
-            shader.SetInt("u_Size", static_cast<int>(size));
-            shader.SetFloat("u_InvSize", 1.0f / static_cast<f32>(size));
+            // Former bare uniforms via ComputeShader::Set*, a deliberate no-op
+            // on the Vulkan route — now one std140 refill per dispatch (issue
+            // #691 Phase 8, the HZB pattern: GL re-uploads the bound buffer;
+            // the Vulkan arena mints a fresh address each SetData).
+            if (!s_GenParamsUBO)
+            {
+                s_GenParamsUBO = UniformBuffer::Create(UBOStructures::CloudNoiseGenUBO::GetSize(),
+                                                       ShaderBindingLayout::UBO_CLOUD_NOISE_GEN);
+            }
+            UBOStructures::CloudNoiseGenUBO genParams{};
+            genParams.Mode = mode;
+            genParams.Size = static_cast<i32>(size);
+            genParams.InvSize = 1.0f / static_cast<f32>(size);
+            s_GenParamsUBO->SetData(&genParams, sizeof(genParams));
+            s_GenParamsUBO->Bind();
 
             // Bind the volume for writing (image unit 0, mip 0, layered for 3D)
             // Persistent: the noise volumes are generated once at startup and live
@@ -157,8 +176,8 @@ namespace OloEngine
 
         // --- Bake both volumes on the GPU ---
         s_Data.m_GenerateShader->Bind();
-        DispatchNoiseBake(*s_Data.m_GenerateShader, s_Data.m_BaseNoise->GetRHIHandle(), 0, kBaseNoiseSize);
-        DispatchNoiseBake(*s_Data.m_GenerateShader, s_Data.m_DetailNoise->GetRHIHandle(), 1, kDetailNoiseSize);
+        DispatchNoiseBake(s_Data.m_BaseNoise->GetRHIHandle(), 0, kBaseNoiseSize);
+        DispatchNoiseBake(s_Data.m_DetailNoise->GetRHIHandle(), 1, kDetailNoiseSize);
         s_Data.m_GenerateShader->Unbind();
 
         // --- Default weather map (deterministic CPU value-noise FBM) ---
@@ -239,6 +258,7 @@ namespace OloEngine
         s_Data.m_BaseNoise = nullptr;
         s_Data.m_DetailNoise = nullptr;
         s_Data.m_WeatherMap = nullptr;
+        s_GenParamsUBO = nullptr;
         s_Data.m_Generated = false;
         s_Data.m_GenerationFailed = false;
 

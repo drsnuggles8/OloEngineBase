@@ -217,9 +217,32 @@ namespace OloEngine
             const spirv_cross::ShaderResources resources = reflector.get_shader_resources();
             const auto append = [&](const spirv_cross::Resource& resource, VulkanShaderBinding::Kind kind)
             {
+                // Same dimensionality capture as VulkanShader::ReflectStage —
+                // the unfed-binding null-texture fallback (#691 Phase 8).
+                auto imageDim = VulkanShaderBinding::TexDim::Tex2D;
+                if (kind == VulkanShaderBinding::Kind::CombinedImageSampler ||
+                    kind == VulkanShaderBinding::Kind::StorageImage)
+                {
+                    const auto& type = reflector.get_type(resource.type_id);
+                    switch (type.image.dim)
+                    {
+                        case spv::DimCube:
+                            imageDim = type.image.arrayed ? VulkanShaderBinding::TexDim::TexCubeArray
+                                                          : VulkanShaderBinding::TexDim::TexCube;
+                            break;
+                        case spv::Dim3D:
+                            imageDim = VulkanShaderBinding::TexDim::Tex3D;
+                            break;
+                        default:
+                            imageDim = type.image.arrayed ? VulkanShaderBinding::TexDim::Tex2DArray
+                                                          : VulkanShaderBinding::TexDim::Tex2D;
+                            break;
+                    }
+                }
                 newBindings.push_back({ .Set = reflector.get_decoration(resource.id, spv::DecorationDescriptorSet),
                                         .Binding = reflector.get_decoration(resource.id, spv::DecorationBinding),
                                         .BindingKind = kind,
+                                        .ImageDim = imageDim,
                                         .Stages = VK_SHADER_STAGE_COMPUTE_BIT,
                                         .Name = resource.name });
             };

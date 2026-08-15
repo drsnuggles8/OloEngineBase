@@ -10,6 +10,7 @@
 #include "OloEngine/Debug/DebugOverlayLayer.h"
 #include "OloEngine/Debug/PerformanceLayer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/BackendSelection.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -21,6 +22,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/NamedThreads.h"
+#include "Platform/Steam/SteamManager.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -175,6 +177,22 @@ namespace OloEngine
             }
             OLO_CORE_INFO("NetworkManager initialized successfully");
 
+            // Steamworks platform services (#644). Deliberately NOT guarded by a throw, unlike
+            // AudioEngine and NetworkManager above: a missing or non-running Steam client is an
+            // ordinary state (developer machine, CI runner, exe launched outside Steam) and must
+            // never stop the engine starting. SteamManager::Initialize() warns and disables.
+            //
+            // Skipped headless: OloServer has no Steam client to talk to, and the client API is
+            // the wrong one for a dedicated server anyway (that would be ISteamGameServer, which
+            // is out of scope here). Shutdown is still called unconditionally below — it is a
+            // no-op when Initialize() never ran, so the two guards cannot drift into a leak.
+            //
+            // Before the script engines so scripts can query Steam during their own init.
+            if (!m_Specification.IsHeadless)
+            {
+                SteamManager::Initialize();
+            }
+
             ScriptEngine::Init();
             LuaScriptEngine::Init();
         }
@@ -193,6 +211,9 @@ namespace OloEngine
             }
             LuaScriptEngine::Shutdown();
             ScriptEngine::Shutdown();
+            // Shutdown site 1 of 2 (exception path). Unconditional and safe when Initialize()
+            // never ran; missing either site leaks the Steam session.
+            SteamManager::Shutdown();
             NetworkManager::Shutdown();
             if (!m_Specification.IsHeadless)
             {
@@ -221,10 +242,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        OLO_CORE_INFO("Application: teardown begins");
         // Clear calls OnDetach() on all layers and releases their memory.
         // Do this before shutting down subsystems so layers detach while systems are live.
         m_LayerStack.Clear();
         m_ImGuiLayer = nullptr;
+        OLO_CORE_INFO("Application: layers detached");
+
+        // Drop the active project + asset manager NOW, while the renderer is
+        // still alive: their static Refs otherwise keep every loaded asset's
+        // GPU buffers alive past the window's graphics-context teardown —
+        // which vmaDestroyAllocator answers with an "allocations not freed"
+        // abort on Vulkan (#691 Phase 8, the close-button crash).
+        Project::Unload();
 
         if (!m_Specification.IsHeadless)
         {
@@ -233,6 +263,8 @@ namespace OloEngine
         }
         LuaScriptEngine::Shutdown();
         ScriptEngine::Shutdown();
+        // Shutdown site 2 of 2 (normal destructor path). Reverse of the init order above.
+        SteamManager::Shutdown();
         NetworkManager::Shutdown();
         if (!m_Specification.IsHeadless)
         {
@@ -302,6 +334,7 @@ namespace OloEngine
 
     void Application::Close()
     {
+        OLO_CORE_INFO("Application: close requested");
         m_Running = false;
     }
 
@@ -457,6 +490,16 @@ namespace OloEngine
             InputActionManager::Update();
             OLO_PROFILE_FRAMEMARK_END("InputActionManager Update");
 
+            // Drain Steam's callback queue (#644). Position matters twice over:
+            //   * AFTER the input/platform block and BEFORE ProcessTasks below, so a Steam
+            //     callback that enqueues a game-thread task is drained in the SAME frame rather
+            //     than sitting until the next one;
+            //   * in Run(), NOT in RenderFrameLayers — that function has a re-entrancy latch and
+            //     the nested-swap path would pump Steam callbacks twice per frame.
+            OLO_PROFILE_FRAMEMARK_START("Steam RunCallbacks");
+            SteamManager::RunCallbacks();
+            OLO_PROFILE_FRAMEMARK_END("Steam RunCallbacks");
+
             // Process tasks targeted at the Game Thread
             Tasks::FNamedThreadManager::Get().ProcessTasks(true);
 
@@ -520,6 +563,7 @@ namespace OloEngine
                 m_Running = false;
             }
         }
+        OLO_CORE_INFO("Application: frame loop exited");
     }
 
     void Application::RunHeadless()

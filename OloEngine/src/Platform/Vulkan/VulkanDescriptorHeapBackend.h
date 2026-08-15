@@ -83,6 +83,14 @@ namespace OloEngine
         // black). Creates the null images on first use.
         bool WriteNullAt(u32 slot, VkDescriptorType type);
 
+        // Heap slot of the 1x1 black null SAMPLED image for `viewType` — the
+        // root-data writer's unfed-binding fallback (#691 Phase 8; slot 0
+        // leaked the first-registered texture into every unfed sampler).
+        // Acquired through VulkanDescriptorSlotCache so the slot dies with
+        // the heap; the image is reclaimed by ReleaseDeviceObjects like the
+        // token nulls. VulkanResourceHeap::InvalidSlot on failure.
+        [[nodiscard]] u32 GetNullSampledHeapSlot(VkImageViewType viewType);
+
         // Enqueue every null image for deferred reclaim and forget the
         // tokens. Called when the resource heap itself is released — the
         // descriptors pointing at these images die with it.
@@ -112,6 +120,10 @@ namespace OloEngine
         static constexpr u64 kNullSampledCubeToken = 2;
         static constexpr u64 kNullSampledArrayToken = 3;
         static constexpr u64 kFirstNullStorageToken = 4; // per-format, minted upward
+        // The unfed-binding fallback's two extra shapes (#691 Phase 8) —
+        // parked just below the dynamic range, clear of the storage mints.
+        static constexpr u64 kNullSampledCubeArrayToken = 62;
+        static constexpr u64 kNullSampled3DToken = 63;
         static constexpr u64 kFirstDynamicToken = 64;
 
         struct NullImage
@@ -128,6 +140,7 @@ namespace OloEngine
         std::unordered_map<u64, Staged> m_Staged;
         std::unordered_map<u64, NullImage> m_NullImages;         ///< token -> owned image
         std::unordered_map<u32, u64> m_NullStorageTokenByFormat; ///< VkFormat -> token
+        std::unordered_map<u32, u32> m_NullSampledSlots;         ///< VkImageViewType -> acquired heap slot
         u64 m_NextNullStorageToken = kFirstNullStorageToken;
         u64 m_NextToken = kFirstDynamicToken;
     };

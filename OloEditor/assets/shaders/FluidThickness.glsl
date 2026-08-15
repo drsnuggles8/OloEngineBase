@@ -94,7 +94,10 @@ void main()
     // Same analytic sphere surface as the depth splat, used only for the
     // scene-depth rejection here — depth test is off and no depth is written.
     vec3 viewSurface = v_ViewCenter + radius * vec3(v_UV, nz);
-    vec4 clipPos = u_Projection * vec4(viewSurface, 1.0);
+    // Reconstruction flavour (#691 Phase 8): the *0.5+0.5 below is the GL
+    // remap; the rasterizer-flavour u_Projection would double-apply it on
+    // Vulkan (see FluidDepthSplat).
+    vec4 clipPos = u_ProjectionForReconstruction * vec4(viewSurface, 1.0);
     float windowDepth = clamp((clipPos.z / clipPos.w) * 0.5 + 0.5, 0.0, 1.0);
 
     vec2 screenUV = gl_FragCoord.xy * u_FluidRender.ScreenParams.zw;

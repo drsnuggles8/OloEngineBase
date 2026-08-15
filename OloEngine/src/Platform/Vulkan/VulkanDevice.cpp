@@ -4,6 +4,7 @@
 
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanShader.h"
 
 #include <algorithm>
 #include <atomic>
@@ -64,7 +65,32 @@ namespace OloEngine
             }
             else if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
             {
-                OLO_CORE_WARN("[Vulkan] {}", message);
+                // Two SELF-DECLARED-benign interface classes drop to trace —
+                // both message texts literally state the write is legal and
+                // merely discarded, and both fire for every pipeline whose
+                // consuming stage skips a shared-include varying
+                // (InstanceBlock's flat v_InstanceIndex under depth-only /
+                // tess consumers, MRT shaders on narrower attachment sets).
+                // A real interface ERROR (consumer reads an undeclared input)
+                // is invalid usage and arrives at ERROR severity — this
+                // filter cannot swallow it.
+                const std::string_view text(message);
+                const bool benignInterfaceNoise =
+                    text.find("but there is no corresponding Input declared") != std::string_view::npos ||
+                    text.find("this write is unused") != std::string_view::npos;
+                if (benignInterfaceNoise)
+                {
+                    // Validation cannot name the pipeline's shader; the
+                    // callback runs synchronously during recording, so the
+                    // currently-bound shader IS the offender — name it.
+                    const auto* bound = VulkanShader::GetCurrentlyBound();
+                    OLO_CORE_TRACE("[Vulkan] (bound shader: '{}') {}",
+                                   bound != nullptr ? bound->GetName() : "<none>", message);
+                }
+                else
+                {
+                    OLO_CORE_WARN("[Vulkan] {}", message);
+                }
             }
             else
             {
@@ -416,6 +442,12 @@ namespace OloEngine
         VkPhysicalDeviceExtendedDynamicState3FeaturesEXT supportedEds3{};
         supportedEds3.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
         bool hasEds3Extension = false;
+        // VK_EXT_device_fault: OPTIONAL post-mortem instrument (see
+        // LogDeviceFaultInfo). Same when-supported rule as EDS3 — never a
+        // gate row.
+        VkPhysicalDeviceFaultFeaturesEXT supportedFault{};
+        supportedFault.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+        bool hasDeviceFaultExtension = false;
         {
             u32 extCount = 0;
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, nullptr);
@@ -423,12 +455,20 @@ namespace OloEngine
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, available.data());
             hasEds3Extension = std::ranges::any_of(available, [](const VkExtensionProperties& p)
                                                    { return std::string_view(p.extensionName) == VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME; });
-            if (hasEds3Extension)
+            hasDeviceFaultExtension = std::ranges::any_of(available, [](const VkExtensionProperties& p)
+                                                          { return std::string_view(p.extensionName) == VK_EXT_DEVICE_FAULT_EXTENSION_NAME; });
+            if (hasEds3Extension || hasDeviceFaultExtension)
             {
                 VkPhysicalDeviceFeatures2 probe{};
                 probe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-                probe.pNext = &supportedEds3;
+                probe.pNext = hasEds3Extension ? static_cast<void*>(&supportedEds3) : nullptr;
+                if (hasDeviceFaultExtension)
+                {
+                    supportedFault.pNext = probe.pNext;
+                    probe.pNext = &supportedFault;
+                }
                 vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probe);
+                supportedFault.pNext = nullptr;
             }
         }
         const bool wantDynamicBlend = hasEds3Extension &&
@@ -533,10 +573,31 @@ namespace OloEngine
         vulkan11Features.shaderDrawParameters = supported11.shaderDrawParameters;
         m_ShaderDrawParametersEnabled = supported11.shaderDrawParameters == VK_TRUE;
 
+        // Device-fault reporting costs nothing until a device loss, at which
+        // point it is the difference between "VkResult -4" and a fault
+        // address — enable whenever the driver offers it.
+        VkPhysicalDeviceFaultFeaturesEXT faultFeatures{};
+        faultFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+        const bool wantDeviceFault = hasDeviceFaultExtension && supportedFault.deviceFault == VK_TRUE;
+        if (wantDeviceFault)
+        {
+            deviceExtensions.push_back(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+            faultFeatures.deviceFault = VK_TRUE;
+            // deviceFaultVendorBinary deliberately left off: it gates a
+            // vendor blob dump we have no decoder for.
+        }
+
+        void* featureChainHead = wantDynamicBlend ? static_cast<void*>(&eds3Features)
+                                                  : static_cast<void*>(&vulkan11Features);
+        if (wantDeviceFault)
+        {
+            faultFeatures.pNext = featureChainHead;
+            featureChainHead = &faultFeatures;
+        }
+
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceInfo.pNext = wantDynamicBlend ? static_cast<void*>(&eds3Features)
-                                            : static_cast<void*>(&vulkan11Features);
+        deviceInfo.pNext = featureChainHead;
         deviceInfo.queueCreateInfoCount = 1;
         deviceInfo.pQueueCreateInfos = &queueInfo;
         deviceInfo.enabledExtensionCount = static_cast<u32>(deviceExtensions.size());
@@ -548,6 +609,7 @@ namespace OloEngine
         // three blend feature bits are now enabled facts of the logical
         // device — commit the flag the pipeline builder branches on.
         m_DynamicBlendStateEnabled = wantDynamicBlend;
+        m_DeviceFaultEnabled = wantDeviceFault;
         volkLoadDevice(m_Device);
         vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
 
@@ -598,6 +660,24 @@ namespace OloEngine
             }
             if (m_Allocator != VK_NULL_HANDLE)
             {
+                // vmaDestroyAllocator ASSERTS (debug-CRT abort in Debug) when
+                // allocations are still alive — name the leaks first so the
+                // abort is attributable instead of a bare VMA call stack.
+                VmaTotalStatistics stats{};
+                vmaCalculateStatistics(m_Allocator, &stats);
+                if (stats.total.statistics.allocationCount > 0)
+                {
+                    OLO_CORE_ERROR("[Vulkan] {} VMA allocation(s) still alive at allocator teardown ({} bytes) — "
+                                   "dumping detailed stats",
+                                   stats.total.statistics.allocationCount, stats.total.statistics.allocationBytes);
+                    char* statsString = nullptr;
+                    vmaBuildStatsString(m_Allocator, &statsString, VK_TRUE);
+                    if (statsString != nullptr)
+                    {
+                        OLO_CORE_ERROR("[Vulkan] VMA leak dump:\n{}", statsString);
+                        vmaFreeStatsString(m_Allocator, statsString);
+                    }
+                }
                 vmaDestroyAllocator(m_Allocator);
                 m_Allocator = VK_NULL_HANDLE;
             }
@@ -622,6 +702,84 @@ namespace OloEngine
         if (s_ActiveDevice == this)
         {
             s_ActiveDevice = nullptr;
+        }
+    }
+
+    void VulkanDevice::LogDeviceFaultInfo() const
+    {
+        if (!m_DeviceFaultEnabled || m_Device == VK_NULL_HANDLE || vkGetDeviceFaultInfoEXT == nullptr)
+        {
+            return;
+        }
+
+        VkDeviceFaultCountsEXT counts{};
+        counts.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT;
+        if (vkGetDeviceFaultInfoEXT(m_Device, &counts, nullptr) < VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[Vulkan] device fault: vkGetDeviceFaultInfoEXT(counts) itself failed");
+            return;
+        }
+
+        std::vector<VkDeviceFaultAddressInfoEXT> addresses(counts.addressInfoCount);
+        std::vector<VkDeviceFaultVendorInfoEXT> vendors(counts.vendorInfoCount);
+        VkDeviceFaultInfoEXT info{};
+        info.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT;
+        info.pAddressInfos = addresses.empty() ? nullptr : addresses.data();
+        info.pVendorInfos = vendors.empty() ? nullptr : vendors.data();
+        counts.vendorBinarySize = 0; // deviceFaultVendorBinary is not enabled
+        if (vkGetDeviceFaultInfoEXT(m_Device, &counts, &info) < VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[Vulkan] device fault: vkGetDeviceFaultInfoEXT(info) itself failed");
+            return;
+        }
+
+        OLO_CORE_ERROR("[Vulkan] DEVICE FAULT REPORT: '{}' ({} address record(s), {} vendor record(s))",
+                       info.description, counts.addressInfoCount, counts.vendorInfoCount);
+        // The info call updates the counts to what it actually WROTE (it may
+        // return VK_INCOMPLETE with fewer records than the first call
+        // promised) — iterate only the written prefix, never the full
+        // first-call-sized vectors (review finding).
+        addresses.resize(std::min<sizet>(addresses.size(), counts.addressInfoCount));
+        vendors.resize(std::min<sizet>(vendors.size(), counts.vendorInfoCount));
+        for (const auto& a : addresses)
+        {
+            const char* type = "?";
+            switch (a.addressType)
+            {
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_EXT:
+                    type = "none";
+                    break;
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_EXT:
+                    type = "READ of invalid address";
+                    break;
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_EXT:
+                    type = "WRITE to invalid address";
+                    break;
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_EXECUTE_INVALID_EXT:
+                    type = "EXECUTE of invalid address";
+                    break;
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_UNKNOWN_EXT:
+                    type = "instruction pointer (unknown)";
+                    break;
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_INVALID_EXT:
+                    type = "instruction pointer (invalid)";
+                    break;
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_FAULT_EXT:
+                    type = "instruction pointer (faulting)";
+                    break;
+                default:
+                    break;
+            }
+            // reportedAddress is only precise to addressPrecision (a power of
+            // two) — log the ±window so it can be matched against buffer
+            // device addresses.
+            OLO_CORE_ERROR("[Vulkan]   fault address: {:#x} (precision ±{:#x}) — {}",
+                           static_cast<u64>(a.reportedAddress), static_cast<u64>(a.addressPrecision), type);
+        }
+        for (const auto& v : vendors)
+        {
+            OLO_CORE_ERROR("[Vulkan]   vendor fault: '{}' code={:#x} data={:#x}", v.description,
+                           static_cast<u64>(v.vendorFaultCode), static_cast<u64>(v.vendorFaultData));
         }
     }
 

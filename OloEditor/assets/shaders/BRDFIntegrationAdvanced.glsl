@@ -16,13 +16,32 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 8 (ADR 0011 §5): V1 vertex pull. On the Vulkan route the
+// pipeline has no vertex-input state, so attributes are READ from binding 57
+// (the engine-wide vertex-pull binding; the root struct carries this buffer's
+// device address). This pass draws MeshPrimitives::GetFullscreenTriangle(),
+// a 20-byte {vec3 position @0, vec2 uv @12} interleave, so the stride is
+// 5 floats. The GL attribute branch below is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec2 a_TexCoord;
+#endif
 
 layout(location = 0) out vec2 v_TexCoord;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    int vertBase = gl_VertexIndex * 5;
+    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+    vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4]);
+#endif
     v_TexCoord = a_TexCoord;
     gl_Position = vec4(a_Position, 1.0);
 }

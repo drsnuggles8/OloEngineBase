@@ -259,13 +259,21 @@ namespace OloEngine::HeapBinding
             // Through the CALLER'S api when it has one — the dispatch handlers are
             // executed against MockRendererAPI in the test suite, and the static
             // facade would bypass it invisibly.
+            //
+            // The DESC travels with the bind (#691 Phase 8): on GL the slot
+            // path samples with the texture object's state and the default
+            // three-arg body reduces to the old two-arg bind — but the Vulkan
+            // backend's samplers are heap objects, and dropping the desc here
+            // was exactly how an explicit compare/filter request (the
+            // ShadowDepthSampler state, SSAO's Nearest/Repeat noise) silently
+            // degraded to the inherit state on that backend.
             if (api != nullptr)
             {
-                api->BindTexture(slot, texture);
+                api->BindTexture(slot, texture, sampler);
             }
             else
             {
-                RenderCommand::BindTexture(slot, texture);
+                RenderCommand::BindTexture(slot, texture, sampler);
             }
 
             // …but when the heap is ON, falling back is not enough: the shader is the
@@ -355,7 +363,10 @@ namespace OloEngine::HeapBinding
         // TEX_WIND_FIELD's Particle_Simulate.comp today. This bind is what keeps
         // those working, and it is the mechanism BindlessShaderPipeline's
         // SlotAlwaysReceivesARealBind allowlist is allowed to point at.
-        RenderCommand::BindTexture(slot, texture);
+        // The DESC travels with the bind (the BindTextureOrOffsetImpl rule):
+        // dropping it here degraded an explicit compare/filter request to the
+        // inherit state on the Vulkan backend, where samplers are heap objects.
+        RenderCommand::BindTexture(slot, texture, sampler);
 
         return published;
     }

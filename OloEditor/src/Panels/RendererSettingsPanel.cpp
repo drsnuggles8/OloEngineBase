@@ -2,6 +2,7 @@
 #include "RendererSettingsPanel.h"
 #include "SettingsChangeLog.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/BackendSelection.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
@@ -12,8 +13,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -154,6 +159,7 @@ namespace OloEngine
 
         const RendererSettings settingsBefore = Renderer3D::GetRendererSettings();
 
+        DrawBackendSection();
         DrawQualityTieringSection();
         DrawRenderingPathSection();
         DrawCullingSection();
@@ -286,6 +292,72 @@ namespace OloEngine
             changed = true;
         if (ImGui::Checkbox("Chromatic Aberration##qt", &qt.ChromaticAberrationEnabled))
             changed = true;
+    }
+
+    void RendererSettingsPanel::DrawBackendSection()
+    {
+        if (!ImGui::CollapsingHeader("Backend"))
+            return;
+
+        // ADR 0011 §2: backend selection is a RUNTIME switch, startup-scoped —
+        // `--rhi=` beats the config file, the config file beats the OpenGL
+        // default, and nothing hot-swaps a live device (same model as
+        // Unreal/Unity/Godot). This dropdown is the "editor exposes it as a
+        // dropdown that takes effect on restart" half of that decision: it
+        // writes `Renderer: { RHI: <name> }` to config/renderer.yaml (relative
+        // to the editor working directory, which Application pins before
+        // selection runs) and the next launch picks it up.
+        const bool activeIsVulkan = RendererAPI::GetAPI() == RendererAPI::API::Vulkan;
+        ImGui::Text("Active: %s", activeIsVulkan ? "Vulkan" : "OpenGL");
+
+        if (m_ConfiguredBackend < 0)
+        {
+            // First draw: reflect a pending choice from a previous session if
+            // the config file already holds one; otherwise mirror the active
+            // backend. Uses the SAME parser the engine boots with (no argv →
+            // config-file → default chain) — a substring scan here could
+            // false-positive on a comment mentioning the other backend.
+            const BackendSelection configured = SelectRendererBackend(0, nullptr, DefaultRendererConfigPath());
+            if (configured.Source == "config file")
+                m_ConfiguredBackend = configured.Api == RendererAPI::API::Vulkan ? 1 : 0;
+            else
+                m_ConfiguredBackend = activeIsVulkan ? 1 : 0;
+        }
+
+        static constexpr std::array<const char*, 2> kBackendNames{ "OpenGL", "Vulkan" };
+        int selection = m_ConfiguredBackend;
+        if (ImGui::Combo("Backend##RendererBackend", &selection, kBackendNames.data(),
+                         static_cast<int>(kBackendNames.size())) &&
+            selection != m_ConfiguredBackend)
+        {
+            const auto path = DefaultRendererConfigPath();
+            std::error_code ec;
+            if (const auto dir = path.parent_path(); !dir.empty())
+                std::filesystem::create_directories(dir, ec);
+            if (std::ofstream config(path, std::ios::trunc); config)
+            {
+                config << "# Written by the Renderer Settings panel (ADR 0011 s2).\n"
+                       << "# `--rhi=opengl|vulkan` on the command line overrides this file.\n"
+                       << "Renderer:\n"
+                       << "  RHI: " << (selection == 1 ? "vulkan" : "opengl") << "\n";
+                m_ConfiguredBackend = selection;
+                OLO_CORE_INFO("RendererSettingsPanel: wrote {} = {} (applies on restart)", path.string(),
+                              selection == 1 ? "vulkan" : "opengl");
+            }
+            else
+            {
+                OLO_CORE_ERROR("RendererSettingsPanel: could not write '{}' — backend selection not saved",
+                               path.string());
+            }
+        }
+
+        if ((m_ConfiguredBackend == 1) != activeIsVulkan)
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Takes effect on the next editor launch.");
+        }
+        ImGui::TextDisabled("Written to %s; a --rhi= command-line flag overrides it.",
+                            DefaultRendererConfigPath().string().c_str());
+        ImGui::Separator();
     }
 
     void RendererSettingsPanel::DrawQualityTieringSection() const

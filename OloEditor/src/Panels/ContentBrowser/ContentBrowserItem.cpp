@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "ContentBrowserItem.h"
 
+#include "OloEngine/ImGui/ImGuiLayer.h"
+
 #include <imgui.h>
 #include <algorithm>
 
@@ -235,11 +237,19 @@ namespace OloEngine
                 IM_COL32(230, 150, 40, 200), 4.0f, 0, 2.0f);
         }
 
-        // Thumbnail button
+        // Thumbnail button. Backend-neutral ImTextureID (#691 Phase 8): 0
+        // means no binding exists on this backend — fall back to a plain
+        // button rather than hand imgui_impl_vulkan a null descriptor set.
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-        ImGui::ImageButton(m_DisplayName.c_str(),
-                           (ImTextureID)(m_Icon->GetRendererID()),
-                           { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+        if (const u64 thumbId = ImGuiLayer::GetTextureID(*m_Icon); thumbId != 0)
+        {
+            ImGui::ImageButton(m_DisplayName.c_str(), static_cast<ImTextureID>(thumbId),
+                               { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+        }
+        else
+        {
+            ImGui::Button(m_DisplayName.c_str(), { thumbnailSize, thumbnailSize });
+        }
         ImGui::PopStyleColor();
 
         // Label or rename input

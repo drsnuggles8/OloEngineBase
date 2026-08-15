@@ -20,9 +20,25 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 8 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
+// pipeline has no vertex-input state, so attributes are READ from binding 57
+// (the engine-wide vertex-pull binding; the root struct carries this buffer's
+// device address). The casters are MeshSource VAOs, whose stream is the
+// engine `Vertex` (32 B: vec3 position @0, vec3 normal @12, vec2 uv @24),
+// so the stride is 8 floats. Pulled locals in main() carry the ATTRIBUTE
+// NAMES, which keeps the body identical on both routes; the GL attribute
+// branch below is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord;
+#endif
 
 layout(std140, binding = 0) uniform CameraMatrices
 {
@@ -48,6 +64,12 @@ layout(location = 2) out vec2 v_TexCoord;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    int vertBase = gl_VertexIndex * 8;
+    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+    vec3 a_Normal   = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
+    vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
+#endif
     vec4 worldPos = u_DDGIModel * vec4(a_Position, 1.0);
     v_WorldPos = worldPos.xyz;
     v_Normal = mat3(u_DDGINormalMatrix) * a_Normal;

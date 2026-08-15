@@ -136,6 +136,23 @@ namespace OloEngine
 
         const u32 resolution = m_ShadowMap->GetResolution();
 
+        // The CSM resolution is scene-driven (ShadowMap::SetSettings recreates
+        // the textures on load), but nothing resized THIS framebuffer with it —
+        // it kept its startup spec. GL forgave the mismatch (an FBO has no
+        // intrinsic size; glClear covers the whole attached 4096 layer), but on
+        // Vulkan the framebuffer spec IS the rendering scope's render area, so
+        // a stale 1024 spec cleared and rendered only the top-left quarter of
+        // each 4096 cascade while sampling spanned the full layer — depth 0
+        // everywhere else, every fragment fully shadowed, and the whole
+        // directional-light term vanished from the frame (#691 Phase 8; found
+        // via olo_render_capture_target on ShadowMapCSMCascade0: GL all-white,
+        // Vulkan black with one white quarter).
+        if (m_ShadowFramebuffer->GetSpecification().Width != resolution ||
+            m_ShadowFramebuffer->GetSpecification().Height != resolution)
+        {
+            m_ShadowFramebuffer->Resize(resolution, resolution);
+        }
+
         // Save current viewport
         const auto prevViewport = RenderCommand::GetViewport();
 
@@ -293,6 +310,10 @@ namespace OloEngine
         // far plane needs to ride the camera UBO.
         cameraUBOData.Position = glm::vec3(0.0f);
         cameraUBOData._padding0 = 0.0f;
+        // Reconstruction flavour of the same matrix (#691 Phase 8) — no known
+        // caster shader reads it under this camera, but the member must never
+        // be a zero/identity mismatch with Projection on any writer.
+        cameraUBOData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(lightVPRel);
 
         auto& cameraUBO = shadowMap.GetShadowCameraUBO();
         cameraUBO->SetData(&cameraUBOData, ShaderBindingLayout::CameraUBO::GetSize());

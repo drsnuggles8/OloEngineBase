@@ -98,9 +98,12 @@ vec2 octEncode(vec3 n)
 // projection's focal terms: x_ndc = P00 * x_view / d  =>  x_view = x_ndc * d / P00.
 vec3 ReconstructViewPos(vec2 uv, float viewDepth)
 {
+    // Reconstruction flavour (#691 Phase 8). The negated [1][1] on Vulkan is
+    // deliberate here: it cancels the y-down uv convention exactly like SSR's
+    // marcher — do not abs() it.
     vec2 ndc = uv * 2.0 - 1.0;
-    return vec3(ndc.x * viewDepth / u_Projection[0][0],
-                ndc.y * viewDepth / u_Projection[1][1],
+    return vec3(ndc.x * viewDepth / u_ProjectionForReconstruction[0][0],
+                ndc.y * viewDepth / u_ProjectionForReconstruction[1][1],
                 -viewDepth);
 }
 
@@ -117,7 +120,8 @@ void main()
 
     // Guard against smoothing bleed pushing fluid behind opaque geometry:
     // compare the smoothed surface's window depth against the scene depth.
-    vec4 clipPos = u_Projection * vec4(viewPos, 1.0);
+    // Reconstruction flavour: the *0.5+0.5 is the GL remap (see FluidDepthSplat).
+    vec4 clipPos = u_ProjectionForReconstruction * vec4(viewPos, 1.0);
     float windowDepth = clamp((clipPos.z / clipPos.w) * 0.5 + 0.5, 0.0, 1.0);
     float sceneDepth = texture(u_SceneDepth, v_TexCoord).r;
     if (windowDepth > sceneDepth + 0.001)

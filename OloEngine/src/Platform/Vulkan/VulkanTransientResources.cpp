@@ -10,8 +10,12 @@
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "Platform/Vulkan/VulkanContext.h"
+#include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
 
+#include <glm/gtc/packing.hpp>
 #include <stb_image/stb_image.h>
 
 #include <algorithm>
@@ -21,11 +25,43 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#ifdef OLO_DEBUG
+#include <mutex>
+#include <stacktrace>
+#include <unordered_map>
+#endif
 
 namespace OloEngine
 {
     namespace
     {
+#ifdef OLO_DEBUG
+        // Teardown forensics for object textures / storage buffers (#691
+        // Phase 8 — the close-button VMA abort): a Ref surviving the full
+        // renderer teardown keeps its VMA allocation alive into
+        // vmaDestroyAllocator. The VAO twin lives in VulkanBufferResources
+        // (LogSurvivingVertexArrays); this covers the classes owned here.
+        std::mutex s_LiveTrackMutex;
+        std::unordered_map<const void*, std::pair<const char*, std::stacktrace>> s_LiveGpuObjects;
+        void TrackLive(const void* object, const char* what)
+        {
+            std::scoped_lock lock(s_LiveTrackMutex);
+            s_LiveGpuObjects.emplace(object, std::make_pair(what, std::stacktrace::current(2)));
+        }
+        void UntrackLive(const void* object)
+        {
+            std::scoped_lock lock(s_LiveTrackMutex);
+            s_LiveGpuObjects.erase(object);
+        }
+#else
+        void TrackLive(const void*, const char*)
+        {
+        }
+        void UntrackLive(const void*)
+        {
+        }
+#endif
+
         // Kept in sync with VulkanDevice.cpp's / VulkanContext.cpp's copies
         // (all anonymous-namespace, trivially small — not worth a shared header).
         void VkCheck(VkResult result, const char* what)
@@ -319,12 +355,40 @@ namespace OloEngine
             return out;
         }
 
-        // One VkImageMemoryBarrier2 over a mip range of a color image —
+        // The GL facade's SetData/SubImage contract for the half-float
+        // formats hands the backend f32 PER CHANNEL and lets the driver
+        // convert down (OpenGLTexture.cpp: "Upload as GL_FLOAT ... OpenGL
+        // converts to half-float"). vkCmdCopyBufferToImage copies bytes
+        // verbatim, so the conversion happens here instead — the call sites
+        // are backend-neutral and ship f32 by that contract.
+        // SlugFontProcessor's RGBA16F curve texture was the first to hit the
+        // mismatch: the whole-texture size assert fired the moment a scene
+        // with a UI text component played under Vulkan (#691 Phase 8).
+        [[nodiscard]] bool EngineFormatClientIsF32ToHalf(ImageFormat format)
+        {
+            return format == ImageFormat::RGBA16F || format == ImageFormat::RG16F;
+        }
+
+        [[nodiscard]] std::vector<u16> PackF32ClientToHalf(const void* data, u64 floatCount)
+        {
+            std::vector<u16> halves(floatCount);
+            const auto* src = static_cast<const f32*>(data);
+            for (u64 i = 0; i < floatCount; ++i)
+            {
+                halves[i] = glm::packHalf1x16(src[i]);
+            }
+            return halves;
+        }
+
+        // One VkImageMemoryBarrier2 over a mip/layer range of a color image —
         // upload-path plumbing (the graph's barriers go through
-        // VulkanBarrierLowering, not this).
+        // VulkanBarrierLowering, not this). The layer pair defaults to the
+        // single-layer shape every 2D upload uses; the cubemap face paths
+        // (#691 Phase 8) pass a face index.
         void RecordImageBarrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
                                 VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
-                                VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess, u32 baseMip, u32 mipCount)
+                                VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess, u32 baseMip, u32 mipCount,
+                                u32 baseLayer = 0u, u32 layerCount = 1u)
         {
             VkImageMemoryBarrier2 barrier{};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -337,7 +401,7 @@ namespace OloEngine
             barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.image = image;
-            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, baseMip, mipCount, 0u, 1u };
+            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, baseMip, mipCount, baseLayer, layerCount };
 
             VkDependencyInfo dep{};
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -404,6 +468,30 @@ namespace OloEngine
         if (it != m_Infos.end())
         {
             it->second.InitialLayout = layout;
+        }
+    }
+
+    void VulkanImageInfoRegistry::SetSamplerFilter(VkImage image, const VkFilter minFilter, const VkFilter magFilter)
+    {
+        const auto it = m_Infos.find(image);
+        if (it != m_Infos.end())
+        {
+            it->second.MinFilter = minFilter;
+            it->second.MagFilter = magFilter;
+            // GL couples the mip filter into MIN_FILTER; NEAREST min means
+            // no linear mip blend either (the GL_NEAREST /
+            // GL_NEAREST_MIPMAP_NEAREST shape callers actually use).
+            it->second.MipmapMode =
+                minFilter == VK_FILTER_NEAREST ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        }
+    }
+
+    void VulkanImageInfoRegistry::SetSamplerAddressMode(VkImage image, const VkSamplerAddressMode mode)
+    {
+        const auto it = m_Infos.find(image);
+        if (it != m_Infos.end())
+        {
+            it->second.AddressMode = mode;
         }
     }
 
@@ -587,10 +675,12 @@ namespace OloEngine
 
         CreateImage();
         m_IsLoaded = true;
+        TrackLive(this, "VulkanTexture2D(spec)");
     }
 
     VulkanTexture2D::VulkanTexture2D(const std::string& path, bool srgb)
     {
+        TrackLive(this, "VulkanTexture2D(path)");
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(VulkanDevice::Get() != nullptr, "VulkanTexture2D requires a live VulkanDevice");
 
@@ -624,6 +714,7 @@ namespace OloEngine
 
     VulkanTexture2D::~VulkanTexture2D()
     {
+        UntrackLive(this);
         // Retire the identity first (outstanding handles go stale), then hand
         // the native object to the deferred queue — NEVER vmaDestroyImage
         // inline, prior frames may still be executing. Destructors must not
@@ -698,12 +789,15 @@ namespace OloEngine
 
         VkCheck(vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr),
                 "vmaCreateImage (VulkanTexture2D)");
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2D");
 
         // HasStencil follows the RESOLVED VkFormat: the engine's combined
         // depth format lowers to D32_SFLOAT_S8_UINT, which carries a stencil
         // aspect — the orchestrator derives barrier aspect masks from this.
         VulkanImageInfoRegistry::Get().Register(m_Image, VulkanImageInfo{
                                                              .Format = format,
+                                                             .Width = m_Width,
+                                                             .Height = m_Height,
                                                              .MipLevels = m_MipLevels,
                                                              .ArrayLayers = 1u,
                                                              .HasDepth = isDepth,
@@ -868,8 +962,14 @@ namespace OloEngine
                 // this transition covers, and a transition visible only to
                 // COPY leaves those writes unordered (sync validation caught
                 // exactly this — WAW between the transition and vkCmdBlitImage).
+                // src scope is non-empty even though oldLayout is UNDEFINED:
+                // SetData re-uploads reach this on an ALREADY-written image
+                // (hot reload), and an empty src scope leaves those earlier
+                // writes unordered against the transition (the same
+                // WRITE_AFTER_WRITE shape sync validation caught on the
+                // cubemap chain). Discard semantics are unchanged.
                 RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                                    VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
                                    VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels);
 
@@ -947,13 +1047,18 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const u32 clientBpp = EngineFormatClientBpp(m_Specification.Format);
-        if (clientBpp == 0)
+        const u32 nativeBpp = EngineFormatClientBpp(m_Specification.Format);
+        if (nativeBpp == 0)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SetData: format {} has no client-upload path",
                            static_cast<u32>(m_Specification.Format));
             return;
         }
+        // Half-float formats take f32 per channel from the caller (the GL
+        // facade contract — see EngineFormatClientIsF32ToHalf) — the client
+        // payload is twice the native image size.
+        const bool f32Client = EngineFormatClientIsF32ToHalf(m_Specification.Format);
+        const u32 clientBpp = f32Client ? nativeBpp * 2u : nativeBpp;
         const u64 expected = static_cast<u64>(m_Width) * m_Height * clientBpp;
         OLO_CORE_ASSERT(size == expected, "VulkanTexture2D::SetData: size must cover the whole texture");
         if (size != expected)
@@ -963,6 +1068,12 @@ namespace OloEngine
             return;
         }
 
+        if (f32Client)
+        {
+            const std::vector<u16> halves = PackF32ClientToHalf(data, expected / sizeof(f32));
+            m_IsLoaded = UploadPixels(halves.data(), halves.size() * sizeof(u16)) || m_IsLoaded;
+            return;
+        }
         m_IsLoaded = UploadPixels(data, size) || m_IsLoaded;
     }
 
@@ -971,27 +1082,119 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto* device = VulkanDevice::Get();
-        const u32 clientBpp = EngineFormatClientBpp(m_Specification.Format);
-        if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr || clientBpp == 0)
+        const u32 nativeBpp = EngineFormatClientBpp(m_Specification.Format);
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr || nativeBpp == 0)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: no upload path (device/image/format)");
             return;
         }
-        if (x + width > m_Width || y + height > m_Height)
+        // Reject the origin first, then compare sizes against the REMAINING
+        // extent — `x + width > m_Width` wraps on huge x and lets an
+        // out-of-range region through (review finding).
+        if (x >= m_Width || y >= m_Height || width > m_Width - x || height > m_Height - y)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: region {}x{}+{}+{} exceeds {}x{}", width, height, x, y,
                            m_Width, m_Height);
             return;
         }
+        // Same client contract as SetData: half-float formats arrive as f32
+        // per channel and convert here (before this, a 16F region upload
+        // passed the too-small size check and reinterpreted the f32 bits as
+        // halves — silent garbage rather than an assert).
+        const bool f32Client = EngineFormatClientIsF32ToHalf(m_Specification.Format);
+        const u32 clientBpp = f32Client ? nativeBpp * 2u : nativeBpp;
         const u64 expected = static_cast<u64>(width) * height * clientBpp;
         if (dataSize < expected)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: got {} bytes, region needs {}", dataSize, expected);
             return;
         }
+        std::vector<u16> halfPayload;
+        if (f32Client)
+        {
+            halfPayload = PackF32ClientToHalf(data, expected / sizeof(f32));
+            data = halfPayload.data();
+            dataSize = static_cast<u32>(halfPayload.size() * sizeof(u16));
+        }
 
+        // Mid-frame (#691 Phase 8): a region flush between two GPU uses (the
+        // terrain sculpt/paint shape) must be ORDERED within the frame
+        // command buffer — the one-shot below submits BEFORE the
+        // still-recording frame and also diverges from the API's layout
+        // tracker. Route through the facade's staged frame-CB upload, which
+        // owns both. The one-shot arm below stays for load time (no
+        // recording), where it is correct and the tracker learns the layout
+        // through InitialLayout.
+        // Probed off the LIVE object, not RendererAPI::GetAPI(): a fixture can
+        // set the static flag without recreating the process API (amendment
+        // (39)'s construction-order gap), and a static_cast through the wrong
+        // object was an access violation the first time a device-gated test
+        // ran this path.
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI()); vk != nullptr)
+        {
+            if (vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+            {
+                // The 3-channel engine formats live in WIDENED 4-channel
+                // images (there is no linear-filterable RGB8/RGB32F on the
+                // Vulkan floor) — widen the payload FIRST and hand the staged
+                // path the image's own 4-channel format. Passing the raw RGB
+                // format matched neither the image nor any conversion pair
+                // downstream, so the mid-frame region upload silently dropped
+                // (review finding, #691 Phase 8).
+                std::vector<u8> widened;
+                const void* stagedData = data;
+                const RHI::Format clientFormat = [&]
+                {
+                    switch (m_Specification.Format)
+                    {
+                        case ImageFormat::R8:
+                            return RHI::Format::R8UNorm;
+                        case ImageFormat::RGB8:
+                            widened = ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
+                            stagedData = widened.data();
+                            return RHI::Format::RGBA8UNorm;
+                        case ImageFormat::RGBA8:
+                            return RHI::Format::RGBA8UNorm;
+                        case ImageFormat::R32F:
+                            return RHI::Format::R32Float;
+                        case ImageFormat::RG32F:
+                            return RHI::Format::RG32Float;
+                        case ImageFormat::RGB32F:
+                            widened = ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
+                            stagedData = widened.data();
+                            return RHI::Format::RGBA32Float;
+                        case ImageFormat::RGBA32F:
+                            return RHI::Format::RGBA32Float;
+                        // The payload for these two was converted to native
+                        // halves above, so the staged upload sees the image's
+                        // own format — no further conversion downstream.
+                        case ImageFormat::RG16F:
+                            return RHI::Format::RG16Float;
+                        case ImageFormat::RGBA16F:
+                            return RHI::Format::RGBA16Float;
+                        default:
+                            return RHI::Format::Unknown;
+                    }
+                }();
+                if (clientFormat != RHI::Format::Unknown)
+                {
+                    vk->UploadTextureSubImage2D(m_RHIHandle.Get(), static_cast<i32>(x), static_cast<i32>(y), width,
+                                                height, clientFormat, stagedData);
+                    return;
+                }
+                // An unmapped format falls through to the one-shot with the
+                // known previous-frame-ordering caveat — loud, not silent.
+                OLO_CORE_WARN("VulkanTexture2D::SubImage: mid-frame upload of unmapped format {} takes the "
+                              "one-shot path (ordered BEFORE this frame's GPU work)",
+                              static_cast<u32>(m_Specification.Format));
+            }
+        }
+
+        // Native byte count for the staging copy — differs from `expected`
+        // exactly when the client payload was f32-to-half converted above.
+        const u64 nativeExpected = static_cast<u64>(width) * height * nativeBpp;
         const void* uploadData = data;
-        u64 uploadSize = expected;
+        u64 uploadSize = nativeExpected;
         std::vector<u8> expanded;
         if (m_Specification.Format == ImageFormat::RGB8 || m_Specification.Format == ImageFormat::RGB32F)
         {
@@ -1122,8 +1325,11 @@ namespace OloEngine
 
     void VulkanTexture2D::Bind(u32 slot) const
     {
-        (void)slot;
-        OLO_VK_PHASE6_STUB("VulkanTexture2D::Bind");
+        // #691 Phase 8: forward like the 3D/array/cube classes always did —
+        // this stub was the one dead end in the family, silently dropping
+        // every ShaderResourceRegistry-routed bind (shader-graph materials,
+        // ShadowMap's raw views, wind/snow fields, video textures).
+        RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
     }
 
     bool VulkanTexture2D::GetData(std::vector<u8>& outData, u32 mipLevel) const
@@ -1250,12 +1456,20 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture3D");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = imageInfo.format;
+        // Register the CLAMPED extent (imageInfo.extent) — a zero-sized spec
+        // creates a 1x1x1 image, and readback/capture sizing reads this.
+        registryInfo.Width = imageInfo.extent.width;
+        registryInfo.Height = imageInfo.extent.height;
         registryInfo.MipLevels = 1;
         registryInfo.ArrayLayers = 1;
         registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_3D;
+        // §4f sampler table: 3D volumes are caller-supplied on GL; the
+        // engine's volumes (froxel fog, noise) all clamp.
+        registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
 
         m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);
@@ -1341,14 +1555,18 @@ namespace OloEngine
         m_Specification.Height = height;
         m_Specification.Format = spec.Format;
 
+        // Clamp an authored MipLevels to the chain the extent supports (the
+        // DeriveMipLevels rule): an over-large count from a stale IBL cache
+        // is a vkCreateImage failure, not a request (#691 Phase 8).
+        const u32 fullChain = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height)))));
         m_MipLevels = 1u;
         if (spec.MipLevels > 0u)
         {
-            m_MipLevels = spec.MipLevels;
+            m_MipLevels = std::min(spec.MipLevels, fullChain);
         }
         else if (spec.GenerateMips)
         {
-            m_MipLevels = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height)))));
+            m_MipLevels = fullChain;
         }
 
         const VkFormat format = ImageFormatToVkFormat(spec.Format, false);
@@ -1377,12 +1595,17 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTextureCubemap");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = format;
+        registryInfo.Width = width;
+        registryInfo.Height = height;
         registryInfo.MipLevels = m_MipLevels;
         registryInfo.ArrayLayers = 6u;
         registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_CUBE;
+        // §4f sampler table: cubemaps are CLAMP_TO_EDGE on GL.
+        registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
 
         m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);
@@ -1431,33 +1654,469 @@ namespace OloEngine
         WarnCubemapCpuPathOnce("Invalidate");
     }
 
-    void VulkanTextureCubemap::SetFaceData(u32 /*faceIndex*/, void* /*data*/, u32 /*size*/)
+    void VulkanTextureCubemap::SetFaceData(u32 faceIndex, void* data, u32 size)
     {
-        WarnCubemapCpuPathOnce("SetFaceData");
+        // GL contract (OpenGLTextureCubemap::SetFaceData): mip-0 face upload
+        // plus a full mip regeneration when the spec asks for mips.
+        if (!SetFaceDataMip(faceIndex, 0u, data, size))
+        {
+            return;
+        }
+        if (m_CubemapSpecification.GenerateMips && m_MipLevels > 1u)
+        {
+            GenerateMipmaps();
+        }
     }
 
-    bool VulkanTextureCubemap::SetFaceDataMip(u32 /*faceIndex*/, u32 /*mipLevel*/, void* /*data*/, u32 /*size*/)
+    bool VulkanTextureCubemap::SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size)
     {
-        WarnCubemapCpuPathOnce("SetFaceDataMip");
-        return false;
+        // #691 Phase 8: the cubemap CPU face upload — six layers of the
+        // VulkanTexture2D staging shape. This is the IBL cache's load path
+        // and the reflection-probe baker's face write, i.e. most of what
+        // stood between the flat grey sky and a lit environment.
+        auto* device = VulkanDevice::Get();
+        const u32 clientBpp = EngineFormatClientBpp(m_CubemapSpecification.Format);
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr || clientBpp == 0u || faceIndex >= 6u ||
+            mipLevel >= m_MipLevels)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemap::SetFaceDataMip: no upload path (face {}, mip {}/{})", faceIndex,
+                           mipLevel, m_MipLevels);
+            return false;
+        }
+        const u32 mipWidth = std::max(m_CubemapSpecification.Width >> mipLevel, 1u);
+        const u32 mipHeight = std::max(m_CubemapSpecification.Height >> mipLevel, 1u);
+        const u64 expected = static_cast<u64>(mipWidth) * mipHeight * clientBpp;
+        if (size < expected)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemap::SetFaceDataMip: got {} bytes, face mip needs {}", size, expected);
+            return false;
+        }
+
+        const void* uploadData = data;
+        u64 uploadSize = expected;
+        std::vector<u8> expanded;
+        if (m_CubemapSpecification.Format == ImageFormat::RGB8 || m_CubemapSpecification.Format == ImageFormat::RGB32F)
+        {
+            expanded = ExpandRgbToRgba(m_CubemapSpecification.Format, data, static_cast<u64>(mipWidth) * mipHeight);
+            uploadData = expanded.data();
+            uploadSize = expanded.size();
+        }
+
+        // Mid-frame (the IBL cache load runs inside the frame on this
+        // backend): record into the FRAME command buffer through the API's
+        // tracker — a one-shot here would submit BEFORE the frame and race
+        // the layout tracking (the 1c ordering rule).
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            return vk->RecordStagedImageUpload(m_Image, mipLevel, faceIndex, mipWidth, mipHeight, uploadData,
+                                               uploadSize);
+        }
+
+        // Load time (no recording): the blocking one-shot, the
+        // VulkanTexture2D::UploadPixels shape with the face as the layer.
+        VkBufferCreateInfo stagingInfo{};
+        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingInfo.size = uploadSize;
+        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo stagingAlloc{};
+        stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo stagingOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                            &stagingOut) != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemap::SetFaceDataMip: staging allocation failed ({} bytes)", uploadSize);
+            return false;
+        }
+        std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+        const VkImageLayout priorLayout = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTextureCubemap::SetFaceDataMip",
+            [&](VkCommandBuffer cmd)
+            {
+                // Whole image through the transition, not just this face:
+                // partial-face-uploaded cubes must keep a UNIFORM tracked
+                // layout or CurrentLayout answers UNDEFINED (a legal discard)
+                // for whole-image queries — the mixed-layout trap.
+                RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   priorLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ACCESS_2_NONE
+                                                                            : VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                                   6u);
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, faceIndex, 1u };
+                region.imageExtent = { mipWidth, mipHeight, 1u };
+                vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, 6u);
+            });
+        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        if (ok)
+        {
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        return ok;
     }
 
     void VulkanTextureCubemap::GenerateMipmaps() const
     {
-        WarnCubemapCpuPathOnce("GenerateMipmaps");
+        // Mip chain by blit, all six faces per level in ONE blit (the
+        // subresource layerCount carries the fan-out). Runs in the frame
+        // command buffer when one is live (transfer ops are legal outside the
+        // rendering scope), else as a one-shot.
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || m_MipLevels <= 1u)
+        {
+            return;
+        }
+
+        const auto recordChain = [this](VkCommandBuffer cmd, const VkImageLayout priorLayout)
+        {
+            // src access stays MEMORY_WRITE even when priorLayout is
+            // UNDEFINED: for this image UNDEFINED can mean "mixed after
+            // per-face copies" (SetFaceData collapses a partially-uploaded
+            // layout to UNDEFINED), so the face uploads' TRANSFER_WRITEs may
+            // still be in flight — an empty src scope is the WRITE_AFTER_WRITE
+            // sync-validation hazard the live editor hit. A transition FROM
+            // UNDEFINED with a non-empty src scope is legal; it only orders
+            // the prior writes, the contents are discarded either way.
+            RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                               VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
+                               VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                               6u);
+            u32 srcWidth = m_CubemapSpecification.Width;
+            u32 srcHeight = m_CubemapSpecification.Height;
+            for (u32 mip = 1u; mip < m_MipLevels; ++mip)
+            {
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                   VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u, 0u, 6u);
+                VkImageBlit blit{};
+                blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1u, 0u, 6u };
+                blit.srcOffsets[1] = { static_cast<i32>(std::max(srcWidth, 1u)),
+                                       static_cast<i32>(std::max(srcHeight, 1u)), 1 };
+                blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0u, 6u };
+                blit.dstOffsets[1] = { static_cast<i32>(std::max(srcWidth >> 1u, 1u)),
+                                       static_cast<i32>(std::max(srcHeight >> 1u, 1u)), 1 };
+                // Integer formats reject LINEAR blits — same guard as the 2D
+                // mip path (review finding; latent, cubemaps are HDR color
+                // today).
+                vkCmdBlitImage(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit,
+                               IsIntegerFormat(m_CubemapSpecification.Format) ? VK_FILTER_NEAREST
+                                                                              : VK_FILTER_LINEAR);
+                srcWidth = std::max(srcWidth >> 1u, 1u);
+                srcHeight = std::max(srcHeight >> 1u, 1u);
+            }
+            // Unify: mips [0, N-1) sit in TRANSFER_SRC, the last in DST.
+            RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                               VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                               VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u, 0u, 6u);
+            RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                               VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                               VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, 6u);
+        };
+
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            // In-frame: the tracker must agree with the chain's transitions.
+            // The chain works in whole-subresource strokes, so drive it with
+            // the tracker's whole-image answer and settle everything to
+            // SHADER_READ_ONLY afterwards.
+            auto& tracker = vk->LayoutTracker();
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+            tracker.RegisterImage(m_Image, m_MipLevels, 6u, info != nullptr ? info->RegistrationId : 0u,
+                                  info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED);
+            const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, 6u };
+            const VkImageLayout prior = tracker.CurrentLayout(m_Image, whole);
+            recordChain(vk->CurrentCommandBuffer(), prior);
+            tracker.SetLayout(m_Image, whole, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        else
+        {
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+            const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+            (void)VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps",
+                                        [&](VkCommandBuffer cmd)
+                                        { recordChain(cmd, prior); });
+        }
+        VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 
-    bool VulkanTextureCubemap::GetFaceData(u32 /*faceIndex*/, std::vector<u8>& outData, u32 /*mipLevel*/) const
+    bool VulkanTextureCubemap::GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel) const
     {
         outData.clear();
-        WarnCubemapCpuPathOnce("GetFaceData");
+        auto* device = VulkanDevice::Get();
+        const u32 clientBpp = EngineFormatClientBpp(m_CubemapSpecification.Format);
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || clientBpp == 0u || faceIndex >= 6u ||
+            mipLevel >= m_MipLevels)
+        {
+            return false;
+        }
+        // Mid-frame: the face's content may still sit unsubmitted in the
+        // frame command buffer — the StorageBuffer::GetData rule. Flush; a
+        // refusal falls back to previous-frame data with the 1c warn-once.
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            auto* context = VulkanContext::Get();
+            if (context == nullptr || !context->FlushFrameRecordingAndWait())
+            {
+                static bool s_Warned = false;
+                if (!s_Warned)
+                {
+                    s_Warned = true;
+                    OLO_CORE_WARN("[Vulkan] mid-frame cubemap GetFaceData without a frame flush — the readback "
+                                  "may return stale contents");
+                }
+            }
+        }
+
+        const u32 mipWidth = std::max(m_CubemapSpecification.Width >> mipLevel, 1u);
+        const u32 mipHeight = std::max(m_CubemapSpecification.Height >> mipLevel, 1u);
+        // The engine face format is what GL hands back (RGB stays RGB); the
+        // backend stores RGB widened to RGBA, so read RGBA and narrow.
+        const bool widened =
+            m_CubemapSpecification.Format == ImageFormat::RGB8 || m_CubemapSpecification.Format == ImageFormat::RGB32F;
+        const u32 storedBpp = widened ? (clientBpp / 3u) * 4u : clientBpp;
+        const u64 storedSize = static_cast<u64>(mipWidth) * mipHeight * storedBpp;
+
+        VkBufferCreateInfo readbackInfo{};
+        readbackInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        readbackInfo.size = storedSize;
+        readbackInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        readbackInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo readbackAlloc{};
+        readbackAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        readbackAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer readback = VK_NULL_HANDLE;
+        VmaAllocation readbackAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo readbackOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
+                            &readbackOut) != VK_SUCCESS)
+        {
+            return false;
+        }
+
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+        const VkImageLayout priorLayout = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        if (priorLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+        {
+            // Nothing was ever uploaded/rendered — a read would be garbage.
+            vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+            return false;
+        }
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTextureCubemap::GetFaceData",
+            [&](VkCommandBuffer cmd)
+            {
+                RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, 0u, m_MipLevels, 0u,
+                                   6u);
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, faceIndex, 1u };
+                region.imageExtent = { mipWidth, mipHeight, 1u };
+                vkCmdCopyImageToBuffer(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, priorLayout,
+                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels,
+                                   0u, 6u);
+            });
+        if (ok)
+        {
+            vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, storedSize);
+            const auto* stored = static_cast<const u8*>(readbackOut.pMappedData);
+            if (widened)
+            {
+                // Narrow RGBA back to the RGB the caller's format promises.
+                const u64 texels = static_cast<u64>(mipWidth) * mipHeight;
+                outData.resize(texels * clientBpp);
+                for (u64 i = 0; i < texels; ++i)
+                {
+                    std::memcpy(outData.data() + i * clientBpp, stored + i * storedBpp,
+                                static_cast<sizet>(clientBpp));
+                }
+            }
+            else
+            {
+                outData.assign(stored, stored + storedSize);
+            }
+        }
+        vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        return ok;
+    }
+
+    bool VulkanTextureCubemap::GetData(std::vector<u8>& outData, u32 mipLevel) const
+    {
+        // GL contract (OpenGLTextureCubemap::GetData): all six faces
+        // contiguous in face order.
+        outData.clear();
+        std::vector<u8> face;
+        for (u32 i = 0; i < 6u; ++i)
+        {
+            if (!GetFaceData(i, face, mipLevel))
+            {
+                outData.clear();
+                return false;
+            }
+            outData.insert(outData.end(), face.begin(), face.end());
+        }
+        return true;
+    }
+
+    // --- VulkanTextureCubemapArray (#691 Phase 8) ----------------------------
+    namespace
+    {
+        void WarnCubemapArrayCpuPathOnce(const char* what)
+        {
+            static std::unordered_set<std::string> s_Warned;
+            if (s_Warned.insert(what).second)
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] TextureCubemapArray::{} is not implemented (#691 Phase 8: the probe "
+                              "bake fill path is capture work) — no-op",
+                              what);
+            }
+        }
+    } // namespace
+
+    VulkanTextureCubemapArray::VulkanTextureCubemapArray(const CubemapArraySpecification& spec)
+        : m_ArraySpecification(spec)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto* device = VulkanDevice::Get();
+        OLO_CORE_ASSERT(device != nullptr, "VulkanTextureCubemapArray requires a live VulkanDevice");
+
+        const u32 resolution = std::max(spec.Resolution, 1u);
+        const u32 layers = std::max(spec.Layers, 1u);
+        m_Specification.Width = resolution;
+        m_Specification.Height = resolution;
+        m_Specification.Format = spec.Format;
+
+        // Clamp an authored mip count to the chain the resolution supports —
+        // the same guard VulkanTextureCubemap applies; an over-long chain is
+        // invalid image creation.
+        const u32 fullCubeArrayChain = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(resolution))));
+        m_MipLevels = spec.MipLevels > 0u ? std::min(spec.MipLevels, fullCubeArrayChain) : fullCubeArrayChain;
+
+        const VkFormat format = ImageFormatToVkFormat(spec.Format, false);
+
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        // CUBE_COMPATIBLE + 6*N layers is what makes the image addressable as
+        // samplerCubeArray (the view type carries the rest).
+        imageInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = format;
+        imageInfo.extent = { resolution, resolution, 1u };
+        imageInfo.mipLevels = m_MipLevels;
+        imageInfo.arrayLayers = 6u * layers;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
+            VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemapArray: image creation failed ({}x{}, {} layers, {} mips)", resolution,
+                           resolution, layers, m_MipLevels);
+            m_Image = VK_NULL_HANDLE;
+            m_Allocation = VK_NULL_HANDLE;
+            return;
+        }
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTextureCubemapArray");
+
+        VulkanImageInfo registryInfo{};
+        registryInfo.Format = format;
+        registryInfo.Width = resolution;
+        registryInfo.Height = resolution;
+        registryInfo.MipLevels = m_MipLevels;
+        registryInfo.ArrayLayers = 6u * layers;
+        registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+        // §4f sampler table: cubemaps are CLAMP_TO_EDGE on GL — the array
+        // flavour follows its element type.
+        registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
+
+        m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);
+    }
+
+    VulkanTextureCubemapArray::~VulkanTextureCubemapArray()
+    {
+        try
+        {
+            RHI::DescriptorHeap::Get().RetireResource(m_RHIHandle.Get());
+            m_RHIHandle.Reset();
+            if (m_Image != VK_NULL_HANDLE || m_Allocation != VK_NULL_HANDLE)
+            {
+                // Slots free in DestroyEntry, not here — the
+                // VulkanDescriptorSlotCache recycling contract.
+                VulkanDeferredReclaim::Get().Enqueue(m_Image, m_Allocation);
+                m_Image = VK_NULL_HANDLE;
+                m_Allocation = VK_NULL_HANDLE;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemapArray dtor: reclaim enqueue threw ({}); the array leaks", e.what());
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("VulkanTextureCubemapArray dtor: reclaim enqueue threw; the array leaks");
+        }
+    }
+
+    void VulkanTextureCubemapArray::Bind(u32 slot) const
+    {
+        RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
+    }
+
+    void VulkanTextureCubemapArray::SetData(void* /*data*/, u32 /*size*/)
+    {
+        WarnCubemapArrayCpuPathOnce("SetData");
+    }
+
+    void VulkanTextureCubemapArray::Invalidate(std::string_view /*path*/, u32 /*width*/, u32 /*height*/,
+                                               const void* /*data*/, u32 /*channels*/)
+    {
+        WarnCubemapArrayCpuPathOnce("Invalidate");
+    }
+
+    bool VulkanTextureCubemapArray::SetLayerMipData(u32 /*layer*/, u32 /*mip*/, const void* /*data*/,
+                                                    sizet /*sizeBytes*/)
+    {
+        WarnCubemapArrayCpuPathOnce("SetLayerMipData");
         return false;
     }
 
-    bool VulkanTextureCubemap::GetData(std::vector<u8>& outData, u32 /*mipLevel*/) const
+    bool VulkanTextureCubemapArray::CopyLayerFromCubemap(u32 /*layer*/, const TextureCubemap& /*source*/)
+    {
+        WarnCubemapArrayCpuPathOnce("CopyLayerFromCubemap");
+        return false;
+    }
+
+    bool VulkanTextureCubemapArray::GetData(std::vector<u8>& outData, u32 /*mipLevel*/) const
     {
         outData.clear();
-        WarnCubemapCpuPathOnce("GetData");
+        WarnCubemapArrayCpuPathOnce("GetData");
         return false;
     }
 
@@ -1506,13 +2165,23 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2DArray");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = imageInfo.format;
+        // The CLAMPED locals, not the raw spec — a zero-sized spec creates a
+        // 1x1 image and readback/capture sizing reads this registration.
+        registryInfo.Width = width;
+        registryInfo.Height = height;
         registryInfo.MipLevels = m_MipLevels;
         registryInfo.ArrayLayers = imageInfo.arrayLayers;
         registryInfo.HasDepth = isDepth;
         registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        // §4f sampler table: colour arrays are CLAMP_TO_EDGE on GL, depth
+        // arrays CLAMP_TO_BORDER with an opaque-white border (the
+        // out-of-cascade shadow lookup must read "fully lit").
+        registryInfo.AddressMode =
+            isDepth ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
 
         m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);
@@ -1551,24 +2220,210 @@ namespace OloEngine
         RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
     }
 
-    void VulkanTexture2DArray::SetLayerData(u32 /*layer*/, const void* /*data*/, u32 /*width*/, u32 /*height*/)
+    void VulkanTexture2DArray::SetLayerData(u32 layer, const void* data, u32 width, u32 height)
     {
-        static bool s_Warned = false;
-        if (!s_Warned)
+        OLO_PROFILE_FUNCTION();
+
+        // The GL twin's contract (OpenGLTexture2DArray::SetLayerData): full-
+        // layer mip-0 upload, dimensions must match, colour formats only, and
+        // — unlike Texture2D — the client data is NATIVE per format (RGBA8 =
+        // u8x4, RGBA16F = halves via GL_HALF_FLOAT, RGBA32F = f32). The
+        // terrain material's layer albedo/normal arrays are the production
+        // caller; this was the last "Wave C concern" no-op a real scene hit
+        // (#691 Phase 8 — FoliageGenerationTest rendered black terrain).
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr)
         {
-            s_Warned = true;
-            OLO_CORE_WARN("[RHI/Vulkan] Texture2DArray::SetLayerData is a Wave C concern (#691) — no-op");
+            OLO_CORE_ERROR("VulkanTexture2DArray::SetLayerData: no upload path (device/image/data)");
+            return;
+        }
+        if (layer >= m_Specification.Layers)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray::SetLayerData: layer {} out of {}", layer, m_Specification.Layers);
+            return;
+        }
+        if (width != m_Specification.Width || height != m_Specification.Height)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray::SetLayerData: {}x{} must match the array's {}x{}", width, height,
+                           m_Specification.Width, m_Specification.Height);
+            return;
+        }
+        u32 bpp = 0;
+        switch (m_Specification.Format)
+        {
+            case Texture2DArrayFormat::RGBA8:
+                bpp = 4;
+                break;
+            case Texture2DArrayFormat::RGBA16F:
+                bpp = 8;
+                break;
+            case Texture2DArrayFormat::RGBA32F:
+                bpp = 16;
+                break;
+            case Texture2DArrayFormat::DEPTH_COMPONENT32F:
+            default:
+                OLO_CORE_ERROR("VulkanTexture2DArray::SetLayerData: not supported for depth formats");
+                return;
+        }
+        const u64 uploadSize = static_cast<u64>(width) * height * bpp;
+
+        // Mid-frame: record into the frame command buffer through the API's
+        // tracker (the SetFaceDataMip discipline — a one-shot here would
+        // submit BEFORE the frame and race the layout tracking).
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            if (vk->RecordStagedImageUpload(m_Image, 0u, layer, width, height, data, uploadSize))
+            {
+                return;
+            }
+        }
+
+        // Load time (no recording): blocking one-shot, the cubemap face shape
+        // with the layer as the array index.
+        VkBufferCreateInfo stagingInfo{};
+        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingInfo.size = uploadSize;
+        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo stagingAlloc{};
+        stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo stagingOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                            &stagingOut) != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray::SetLayerData: staging allocation failed ({} bytes)", uploadSize);
+            return;
+        }
+        std::memcpy(stagingOut.pMappedData, data, uploadSize);
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+
+        const u32 layerCount = std::max(m_Specification.Layers, 1u);
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+        const VkImageLayout priorLayout = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTexture2DArray::SetLayerData",
+            [&](VkCommandBuffer cmd)
+            {
+                // Whole image through the transition (every mip, every
+                // layer): partially-uploaded arrays must keep a UNIFORM
+                // tracked layout — the cubemap's mixed-layout lesson.
+                RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   // Src scope stays MEMORY_WRITE even from UNDEFINED — prior
+                                   // copy-writes into other layers/mips of this image must be in
+                                   // scope or sync validation flags WRITE_AFTER_WRITE (the
+                                   // cubemap-chain lesson, #691 Phase 8).
+                                   VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                                   layerCount);
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, layer, 1u };
+                region.imageExtent = { width, height, 1u };
+                vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, layerCount);
+            });
+        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        if (ok)
+        {
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
     }
 
     void VulkanTexture2DArray::GenerateMipmaps()
     {
-        static bool s_Warned = false;
-        if (!s_Warned)
+        // Mip chain by blit, every layer per level in ONE blit (the
+        // subresource layerCount carries the fan-out) — the cubemap's
+        // GenerateMipmaps with the array's layer count. Depth arrays have no
+        // colour blit path and no caller generates mips for them.
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || m_Image == VK_NULL_HANDLE || m_MipLevels <= 1u)
         {
-            s_Warned = true;
-            OLO_CORE_WARN("[RHI/Vulkan] Texture2DArray::GenerateMipmaps is a Wave C concern (#691) — no-op");
+            return;
         }
+        if (m_Specification.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray::GenerateMipmaps: not supported for depth formats");
+            return;
+        }
+
+        const u32 layerCount = std::max(m_Specification.Layers, 1u);
+        const auto record = [&](VkCommandBuffer cmd, VkImageLayout priorLayout)
+        {
+            RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                               // Same MEMORY_WRITE-from-UNDEFINED hardening as above: the
+                               // just-recorded layer copies must be in the src scope.
+                               VK_ACCESS_2_MEMORY_WRITE_BIT,
+                               VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                               layerCount);
+
+            i32 mipWidth = static_cast<i32>(m_Specification.Width);
+            i32 mipHeight = static_cast<i32>(m_Specification.Height);
+            for (u32 mip = 1; mip < m_MipLevels; ++mip)
+            {
+                // Source mip: TRANSFER_DST -> TRANSFER_SRC once its content
+                // is final (mip 0 from the uploads, mip N from the previous
+                // blit).
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                   VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u, 0u, layerCount);
+
+                const i32 nextWidth = std::max(mipWidth / 2, 1);
+                const i32 nextHeight = std::max(mipHeight / 2, 1);
+                VkImageBlit blit{};
+                blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1u, 0u, layerCount };
+                blit.srcOffsets[1] = { mipWidth, mipHeight, 1 };
+                blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0u, layerCount };
+                blit.dstOffsets[1] = { nextWidth, nextHeight, 1 };
+                vkCmdBlitImage(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
+                mipWidth = nextWidth;
+                mipHeight = nextHeight;
+
+                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                   VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   VK_ACCESS_2_MEMORY_READ_BIT, mip - 1u, 1u, 0u, layerCount);
+            }
+            // The last mip never became a blit source — settle it directly.
+            RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                               VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                               VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, layerCount);
+        };
+
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            // In-frame: the tracker must agree with the chain's transitions —
+            // the cubemap GenerateMipmaps discipline, with the array's layer
+            // count in place of the six faces.
+            auto& tracker = vk->LayoutTracker();
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+            tracker.RegisterImage(m_Image, m_MipLevels, layerCount, info != nullptr ? info->RegistrationId : 0u,
+                                  info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED);
+            const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, layerCount };
+            const VkImageLayout prior = tracker.CurrentLayout(m_Image, whole);
+            record(vk->CurrentCommandBuffer(), prior);
+            tracker.SetLayout(m_Image, whole, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        else
+        {
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+            const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+            (void)VulkanOneShot::Submit("VulkanTexture2DArray::GenerateMipmaps",
+                                        [&](VkCommandBuffer cmd)
+                                        { record(cmd, prior); });
+        }
+        VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 
     namespace
@@ -1652,6 +2507,14 @@ namespace OloEngine
 
     VulkanFramebuffer::~VulkanFramebuffer()
     {
+        // API-side state must not outlive the object: end a scope targeting
+        // this framebuffer and drop any pending lazy clear naming it (a later
+        // materialization would dereference the freed object). Live-object
+        // probe, the ClearData rule.
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI()); vk != nullptr)
+        {
+            vk->NotifyFramebufferDestroyed(this, m_RHIHandle.Get());
+        }
         VulkanBindingState::Get().ClearIfCurrentFramebuffer(this);
         VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
         // The per-cascade depth views (AttachDepthTextureArrayLayer) are owned
@@ -1697,15 +2560,31 @@ namespace OloEngine
             return texSpec;
         };
 
+        // GL's PrepareTexture (OpenGLUtilities.cpp) stamps every framebuffer
+        // attachment CLAMP_TO_EDGE + LINEAR — different from a plain
+        // OpenGLTexture2D's REPEAT — and the inherit sampler path (#691
+        // Phase 8) reproduces whatever the creator stamped. Without this, a
+        // post-process read past uv 1.0 wraps to the far side of the frame
+        // (the chromatic-aberration tenant's white edge sampled the black
+        // left border the moment inherit landed).
+        const auto stampAttachmentSamplerState = [](const Ref<VulkanTexture2D>& attachment)
+        {
+            auto& registry = VulkanImageInfoRegistry::Get();
+            registry.SetSamplerFilter(attachment->GetVkImage(), VK_FILTER_LINEAR, VK_FILTER_LINEAR);
+            registry.SetSamplerAddressMode(attachment->GetVkImage(), VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+        };
+
         m_ColorAttachments.reserve(m_ColorAttachmentSpecifications.size());
         for (const auto& attachmentSpec : m_ColorAttachmentSpecifications)
         {
             m_ColorAttachments.push_back(Ref<VulkanTexture2D>::Create(makeAttachmentSpec(attachmentSpec.TextureFormat)));
+            stampAttachmentSamplerState(m_ColorAttachments.back());
         }
 
         if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
         {
             m_DepthAttachment = Ref<VulkanTexture2D>::Create(makeAttachmentSpec(m_DepthAttachmentSpecification.TextureFormat));
+            stampAttachmentSamplerState(m_DepthAttachment);
         }
     }
 
@@ -1736,6 +2615,15 @@ namespace OloEngine
             OLO_CORE_WARN("VulkanFramebuffer::Resize: ignoring zero extent {}x{}", width, height);
             return;
         }
+        if (m_HasExternalAttachments)
+        {
+            // CreateAttachments would replace the externally-owned wiring
+            // with fresh internal textures — the owner must re-attach at its
+            // own new size instead.
+            OLO_CORE_WARN("VulkanFramebuffer::Resize: framebuffer holds EXTERNAL attachments — refusing the "
+                          "rebuild; re-attach at the new size from the owner");
+            return;
+        }
 
         m_Specification.Width = width;
         m_Specification.Height = height;
@@ -1760,25 +2648,54 @@ namespace OloEngine
 
     int VulkanFramebuffer::ReadPixel(u32 attachmentIndex, int x, int y)
     {
-        (void)attachmentIndex;
-        (void)x;
-        (void)y;
-        OLO_VK_PHASE6_STUB("VulkanFramebuffer::ReadPixel");
-        return -1; // the entity-picking "nothing here" value
+        // glReadPixels(GL_RED_INTEGER, GL_INT) of one texel, on the
+        // ReadTextureSubImage spine (#691 Phase 8b). The caller hands GL
+        // window coordinates (y up from the bottom) — and they are used
+        // UNFLIPPED: scene intermediates keep GL row order on Vulkan (the
+        // projection seam's y-flip lands once, at the swapchain blit), so an
+        // attachment texel address is the same on both backends. The first
+        // MCP viewport capture proved this the hard way (a per-backend flip
+        // came back upside-down).
+        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        {
+            return -1;
+        }
+        const u32 height = m_Specification.Height;
+        if (x < 0 || y < 0 || static_cast<u32>(x) >= m_Specification.Width || static_cast<u32>(y) >= height)
+        {
+            return -1;
+        }
+        int value = -1;
+        if (!RenderCommand::GetRendererAPI().ReadTextureSubImage(
+                m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0, x, y, 0, 1u, 1u, 1u,
+                RHI::Format::R32Int, sizeof(value), &value))
+        {
+            return -1; // the entity-picking "nothing here" value
+        }
+        return value;
     }
 
     void VulkanFramebuffer::ClearAttachment(u32 attachmentIndex, int value)
     {
-        (void)attachmentIndex;
-        (void)value;
-        OLO_VK_PHASE6_STUB("VulkanFramebuffer::ClearAttachment(int)");
+        // Single-attachment integer clear (the entity-ID -1 wipe) — the
+        // per-attachment slice of ClearAllAttachments, riding the same facade
+        // transfer clear (#691 Phase 8: last ClearAttachment stub retired).
+        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        {
+            return;
+        }
+        RenderCommand::ClearTextureUInt(m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0u,
+                                        static_cast<u32>(value));
     }
 
     void VulkanFramebuffer::ClearAttachment(u32 attachmentIndex, const glm::vec4& value)
     {
-        (void)attachmentIndex;
-        (void)value;
-        OLO_VK_PHASE6_STUB("VulkanFramebuffer::ClearAttachment(vec4)");
+        // Single-attachment float clear — same shape as the int form above.
+        if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
+        {
+            return;
+        }
+        RenderCommand::ClearTextureFloat(m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0u, value);
     }
 
     void VulkanFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)
@@ -1793,12 +2710,23 @@ namespace OloEngine
         // whatever samples or renders these attachments next (#691 Phase 7
         // Wave A — UICompositePass's mixed int/float clear is the first
         // caller on this backend).
-        for (sizet i = 0; i < m_ColorAttachmentSpecifications.size() && i < m_ColorAttachments.size(); ++i)
+        for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
         {
             if (!m_ColorAttachments[i])
                 continue;
             const RHI::ResourceHandle attachment = m_ColorAttachments[i]->GetRHIHandle();
-            if (m_ColorAttachmentSpecifications[i].TextureFormat == FramebufferTextureFormat::RED_INTEGER)
+            // Spec-created slots carry their format in the spec list, but an
+            // EXTERNAL slot may sit past it (raw framebuffers have an empty
+            // spec) or shadow a spec entry with a different format — decide
+            // int-vs-float from the attached texture itself there, because a
+            // float clear on an integer image is a validation error (review
+            // finding, #691 Phase 8).
+            const bool isExternal = m_ExternalColorIndices.contains(static_cast<u32>(i));
+            const bool isInteger =
+                (!isExternal && i < m_ColorAttachmentSpecifications.size())
+                    ? m_ColorAttachmentSpecifications[i].TextureFormat == FramebufferTextureFormat::RED_INTEGER
+                    : IsIntegerFormat(m_ColorAttachments[i]->GetSpecification().Format);
+            if (isInteger)
             {
                 // vkCmdClearColorImage on an SINT image reads the int32 union
                 // lanes; the uint clear writes the same bit pattern, so the
@@ -1824,6 +2752,13 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(index < m_ColorAttachments.size());
         if (index >= m_ColorAttachments.size())
+        {
+            return {};
+        }
+        // A null slot is legal on raw framebuffers (a detached or never-
+        // attached index below a higher attached one) — "no identity", not a
+        // crash.
+        if (m_ColorAttachments[index] == nullptr)
         {
             return {};
         }
@@ -1931,6 +2866,117 @@ namespace OloEngine
         return m_ColorAttachments[index];
     }
 
+    bool VulkanFramebuffer::HasLiveAttachmentOtherThan(i32 excludeColorIndex, bool excludeDepth) const
+    {
+        for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
+        {
+            if (static_cast<i32>(i) != excludeColorIndex && m_ColorAttachments[i] != nullptr)
+            {
+                return true;
+            }
+        }
+        return !excludeDepth && m_DepthAttachment != nullptr;
+    }
+
+    void VulkanFramebuffer::RecomputeHasExternalAttachments()
+    {
+        m_HasExternalAttachments = m_ExternalDepth || !m_ExternalColorIndices.empty();
+    }
+
+    bool VulkanFramebuffer::AcceptExternalExtent(const VulkanTexture2D& texture, i32 excludeColorIndex,
+                                                 bool excludeDepth)
+    {
+        // Raw callers attach same-sized textures (the GL completeness rule).
+        // The first live attachment owns the spec extent — a raw framebuffer
+        // is born 0x0, and after a detach-all the owner may legitimately
+        // re-attach at a new size. Once any OTHER attachment is live, a
+        // mismatched extent is a caller bug: refuse it rather than silently
+        // renaming the framebuffer's size under the existing attachments,
+        // which would skew the scope's renderArea for all of them (review
+        // finding, #691 Phase 8).
+        const u32 width = texture.GetWidth();
+        const u32 height = texture.GetHeight();
+        if (m_Specification.Width != 0u && m_Specification.Height != 0u &&
+            (m_Specification.Width != width || m_Specification.Height != height) &&
+            HasLiveAttachmentOtherThan(excludeColorIndex, excludeDepth))
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] AttachExternal*: {}x{} texture does not match the framebuffer's "
+                          "{}x{} live attachments — attach refused",
+                          width, height, m_Specification.Width, m_Specification.Height);
+            return false;
+        }
+        m_Specification.Width = width;
+        m_Specification.Height = height;
+        return true;
+    }
+
+    void VulkanFramebuffer::AttachExternalColorTexture(u32 index, Ref<VulkanTexture2D> texture)
+    {
+        if (texture == nullptr)
+        {
+            // Detach (GL's texture-0 form). An index that was never attached
+            // needs no slot minted for it.
+            if (index < m_ColorAttachments.size())
+            {
+                m_ColorAttachments[index] = nullptr;
+            }
+            m_ExternalColorIndices.erase(index);
+            RecomputeHasExternalAttachments();
+            return;
+        }
+        // The rendering scope opens color attachments COLOR_OPTIMAL with a
+        // color-aspect view — a depth-format image there is a validation
+        // error, so refuse it here where the mistake is nameable (the mirror
+        // of AttachExternalDepthTexture's no-depth-aspect refusal).
+        if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(texture->GetVkImage());
+            info != nullptr && info->HasDepth)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] AttachExternalColorTexture: texture has a depth aspect — attach refused");
+            return;
+        }
+        if (!AcceptExternalExtent(*texture, static_cast<i32>(index), /*excludeDepth*/ false))
+        {
+            return;
+        }
+        if (index >= m_ColorAttachments.size())
+        {
+            // Growth leaves null gaps below `index` — the scope's
+            // VK_ATTACHMENT_UNUSED shape, and IsFramebufferComplete only
+            // requires the NON-null attachments to be live.
+            m_ColorAttachments.resize(static_cast<sizet>(index) + 1u);
+        }
+        m_ColorAttachments[index] = std::move(texture);
+        m_ExternalColorIndices.insert(index);
+        m_HasExternalAttachments = true;
+    }
+
+    void VulkanFramebuffer::AttachExternalDepthTexture(Ref<VulkanTexture2D> texture)
+    {
+        if (texture == nullptr)
+        {
+            m_DepthAttachment = nullptr;
+            m_ExternalDepth = false;
+            RecomputeHasExternalAttachments();
+            return;
+        }
+        // The rendering scope opens this attachment DEPTH_STENCIL_OPTIMAL
+        // with a depth-aspect view — a color-format image there is a
+        // validation error, so refuse it here where the mistake is nameable.
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(texture->GetVkImage());
+        if (info == nullptr || !info->HasDepth)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] AttachExternalDepthTexture: texture has no depth aspect — attach refused");
+            return;
+        }
+        if (!AcceptExternalExtent(*texture, /*excludeColorIndex*/ -1, /*excludeDepth*/ true))
+        {
+            return;
+        }
+        m_DepthAttachment = std::move(texture);
+        m_ExternalDepth = true;
+        m_HasExternalAttachments = true;
+    }
+
     // =========================================================================
     // VulkanStorageBuffer
     // =========================================================================
@@ -1942,10 +2988,12 @@ namespace OloEngine
         OLO_CORE_ASSERT(VulkanDevice::Get() != nullptr, "VulkanStorageBuffer requires a live VulkanDevice");
 
         CreateBuffer();
+        TrackLive(this, "VulkanStorageBuffer");
     }
 
     VulkanStorageBuffer::~VulkanStorageBuffer()
     {
+        UntrackLive(this);
         // Identity first, then the deferred queue — never vmaDestroyBuffer
         // inline (prior frames may still be executing). No exception may
         // escape a destructor: a failed enqueue leaks one buffer until
@@ -2009,6 +3057,7 @@ namespace OloEngine
         VmaAllocationInfo outInfo{};
         VkCheck(vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &outInfo),
                 "vmaCreateBuffer (VulkanStorageBuffer)");
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanStorageBuffer");
 
         m_Mapped = nullptr;
         m_NeedsFlush = false;
@@ -2092,10 +3141,123 @@ namespace OloEngine
             {
                 vmaFlushAllocation(VulkanDevice::Get()->GetAllocator(), m_Allocation, offset, size);
             }
+        }
+        else
+        {
+            VulkanOneShot::UploadToBuffer(m_Buffer, offset, data, size, "VulkanStorageBuffer::SetData");
+        }
+
+        // Command-ordered draw reads (#691 Phase 8): draws recorded after
+        // this write must see THESE bytes even though the persistent buffer
+        // keeps getting overwritten until submit. See GetRootDataAddress.
+        PushSnapshot(data, size, offset);
+    }
+
+    void VulkanStorageBuffer::PushSnapshot(const void* data, u32 size, u32 offset)
+    {
+        // Only a write that lands between recorded draws needs command-
+        // ordering; outside a recording bracket (load time, scene opens
+        // between frames) the persistent write-through IS the ordered value,
+        // and snapshotting every setup upload would burn frame-arena space.
+        // Live-object probe, not the static flag — same rule as ClearData.
+        auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+        if (vk == nullptr || vk->CurrentCommandBuffer() == VK_NULL_HANDLE)
+        {
+            InvalidateSnapshot();
             return;
         }
 
-        VulkanOneShot::UploadToBuffer(m_Buffer, offset, data, size, "VulkanStorageBuffer::SetData");
+        auto& arena = VulkanFrameArena::Get();
+        const u64 generation = arena.GetFrameGeneration();
+        const bool liveSnapshot = m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == generation;
+
+        // Bytes the new snapshot must carry: everything written so far this
+        // frame (a shader may read any prefix the draw's instance count
+        // covers), never less than a live snapshot already promised.
+        const u32 newBytes = std::max(offset + size, liveSnapshot ? m_SnapshotBytes : 0u);
+
+        // A write that does not start at 0 needs prefix bytes [0, offset)
+        // from somewhere CPU-readable: the live snapshot, or the mapped
+        // persistent buffer (write-combined — a slow read, but no hot path
+        // writes partial ranges). A staged (non-mapped) buffer with no live
+        // snapshot cannot supply them: drop the snapshot and let draws read
+        // the persistent buffer, which is the pre-snapshot behaviour.
+        const void* prefixSource = liveSnapshot ? m_SnapshotCpu : m_Mapped;
+        if (offset > 0 && prefixSource == nullptr)
+        {
+            static bool s_WarnedPrefix = false;
+            if (!s_WarnedPrefix)
+            {
+                s_WarnedPrefix = true;
+                OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer::SetData(offset {}) on a staged buffer with no "
+                              "live snapshot — draw reads fall back to last-write-wins ordering (warn-once)",
+                              offset);
+            }
+            InvalidateSnapshot();
+            return;
+        }
+
+        // std430 block alignment: 16 covers any scalar/vector/matrix start.
+        const auto allocation = arena.Allocate(newBytes, 16);
+        if (!allocation.IsValid())
+        {
+            static bool s_WarnedOverflow = false;
+            if (!s_WarnedOverflow)
+            {
+                s_WarnedOverflow = true;
+                OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer snapshot dropped — frame arena overflow "
+                              "({} bytes); draw reads fall back to last-write-wins ordering (warn-once)",
+                              newBytes);
+            }
+            InvalidateSnapshot();
+            return;
+        }
+
+        auto* dst = static_cast<u8*>(allocation.Cpu);
+        if (offset > 0)
+        {
+            // A live snapshot may be SHORTER than this write's offset — clamp
+            // the prefix to what it actually holds and zero the gap (bytes no
+            // writer defined this frame). The mapped persistent buffer always
+            // covers the validated offset, so its copy stays whole.
+            const u64 prefixAvailable = liveSnapshot ? std::min<u64>(offset, m_SnapshotBytes) : offset;
+            std::memcpy(dst, prefixSource, prefixAvailable);
+            if (prefixAvailable < offset)
+            {
+                std::memset(dst + prefixAvailable, 0, offset - prefixAvailable);
+            }
+        }
+        std::memcpy(dst + offset, data, size);
+        if (const u32 writtenEnd = offset + size; writtenEnd < newBytes)
+        {
+            // Tail beyond this write: carry the live snapshot's remainder so
+            // earlier-promised content survives, else zero-fill (reads past
+            // the written range were never defined by any writer this frame).
+            if (liveSnapshot)
+            {
+                std::memcpy(dst + writtenEnd, static_cast<const u8*>(m_SnapshotCpu) + writtenEnd,
+                            newBytes - writtenEnd);
+            }
+            else
+            {
+                std::memset(dst + writtenEnd, 0, newBytes - writtenEnd);
+            }
+        }
+        arena.FlushWrite(allocation, newBytes);
+
+        m_SnapshotFrameGeneration = generation;
+        m_SnapshotAddress = allocation.Gpu;
+        m_SnapshotCpu = allocation.Cpu;
+        m_SnapshotBytes = newBytes;
+    }
+
+    VkDeviceAddress VulkanStorageBuffer::GetRootDataAddress()
+    {
+        if (m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == VulkanFrameArena::Get().GetFrameGeneration())
+        {
+            return m_SnapshotAddress;
+        }
+        return m_DeviceAddress;
     }
 
     void VulkanStorageBuffer::GetData(void* outData, u32 size, u32 offset) const
@@ -2118,6 +3280,32 @@ namespace OloEngine
         {
             std::memset(outData, 0, size);
             return;
+        }
+
+        // Mid-frame (#691 Phase 8): the producing dispatch may still sit
+        // unsubmitted in the frame command buffer, and queue submissions
+        // execute in submit order — the one-shot below would read the
+        // PREVIOUS frame's contents (plus a full GPU stall for nothing).
+        // Submit-and-continue the frame first; a refused flush (headless
+        // recording, backbuffer already written, open query) falls back to
+        // the old behaviour with a warn-once, never silently.
+        // Live-object probe, not the static flag — see SubImage's note.
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            {
+                auto* context = VulkanContext::Get();
+                if (context == nullptr || !context->FlushFrameRecordingAndWait())
+                {
+                    static bool s_Warned = false;
+                    if (!s_Warned)
+                    {
+                        s_Warned = true;
+                        OLO_CORE_WARN("[Vulkan] mid-frame StorageBuffer::GetData without a frame flush — the "
+                                      "readback may return the previous frame's contents");
+                    }
+                }
+            }
         }
 
         // Always a one-shot copy, even on a mapped placement: a DynamicCopy
@@ -2193,6 +3381,29 @@ namespace OloEngine
             return;
         }
 
+        // A clear supersedes any command-ordered snapshot: draws recorded
+        // after it must observe zeros (persistent buffer), not the pre-clear
+        // snapshot bytes. No-op for the GPU-written tenants below, which
+        // never SetData mid-frame.
+        InvalidateSnapshot();
+
+        // Mid-frame (#691 Phase 8): a ClearData between two GPU uses
+        // (ToneMap's exposure-reset shape, the fluid solver's grid-head
+        // clears) must be ORDERED within the frame command buffer — both the
+        // one-shot below (submits BEFORE the still-recording frame) and the
+        // mapped memset (a CPU write the frame's earlier-recorded dispatches
+        // would observe at submit time) break that ordering. Route through
+        // the facade's frame-CB fill, which ends the rendering scope and
+        // brackets the fill with the right barriers. This check deliberately
+        // PRECEDES the mapped fast path.
+        // Live-object probe, not the static flag — see SubImage's note.
+        if (auto* vk = dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
+            vk != nullptr && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            vk->ClearBufferUInt(m_RHIHandle.Get(), 0u);
+            return;
+        }
+
         if (m_Mapped != nullptr)
         {
             std::memset(m_Mapped, 0, m_Size);
@@ -2203,11 +3414,8 @@ namespace OloEngine
             return;
         }
 
-        // Load-time/one-shot fill. NOTE: a mid-frame ClearData between two
-        // GPU uses (ToneMap's exposure reset shape) must instead be recorded
-        // into the FRAME command buffer via the facade's ClearBuffer* path —
-        // a one-shot here executes before the frame's submission. That
-        // routing lands with the ToneMap port (Wave B).
+        // Load-time/one-shot fill (no frame recording live, so submit order
+        // cannot invert anything).
         VulkanOneShot::Submit("VulkanStorageBuffer::ClearData",
                               [&](VkCommandBuffer cmd)
                               {
@@ -2247,9 +3455,140 @@ namespace OloEngine
         // Sync inside CreateBuffer PRESERVES the identity — same object, new
         // storage.
         CreateBuffer();
+        // Resize invalidates content; a stale snapshot must not outlive it.
+        InvalidateSnapshot();
+    }
+
+    // =========================================================================
+    // VulkanRawTextureRegistry (#691 Phase 8 — see the header comment)
+    // =========================================================================
+
+    VulkanRawTextureRegistry& VulkanRawTextureRegistry::Get()
+    {
+        static auto* s_Instance = new VulkanRawTextureRegistry(); // deliberately leaked
+        return *s_Instance;
+    }
+
+    RHI::ResourceHandle VulkanRawTextureRegistry::Adopt(Ref<VulkanTexture2D> texture)
+    {
+        if (texture == nullptr)
+        {
+            return {};
+        }
+        const RHI::ResourceHandle handle = texture->GetRHIHandle();
+        if (!handle.IsValid())
+        {
+            return {};
+        }
+        m_Entries[Key(handle)] = Entry{ .Texture2D = std::move(texture) };
+        return handle;
+    }
+
+    RHI::ResourceHandle VulkanRawTextureRegistry::Adopt(Ref<VulkanTextureCubemap> cubemap)
+    {
+        if (cubemap == nullptr)
+        {
+            return {};
+        }
+        const RHI::ResourceHandle handle = cubemap->GetRHIHandle();
+        if (!handle.IsValid())
+        {
+            return {};
+        }
+        m_Entries[Key(handle)] = Entry{ .Cubemap = std::move(cubemap) };
+        return handle;
+    }
+
+    Ref<VulkanTexture2D> VulkanRawTextureRegistry::Lookup2D(RHI::ResourceHandle handle) const
+    {
+        const auto it = m_Entries.find(Key(handle));
+        return it != m_Entries.end() ? it->second.Texture2D : nullptr;
+    }
+
+    bool VulkanRawTextureRegistry::Contains(RHI::ResourceHandle handle) const
+    {
+        return m_Entries.contains(Key(handle));
+    }
+
+    bool VulkanRawTextureRegistry::Destroy(RHI::ResourceHandle handle)
+    {
+        // Erasing drops the owning Ref: the texture destructor retires the
+        // identity (outstanding handles go stale) and routes the VkImage
+        // through VulkanDeferredReclaim — never an inline destroy.
+        return m_Entries.erase(Key(handle)) != 0u;
+    }
+
+    void VulkanRawTextureRegistry::ReleaseAll()
+    {
+        m_Entries.clear();
+    }
+
+    // =========================================================================
+    // VulkanRawFramebufferRegistry (#691 Phase 8 — see the header comment)
+    // =========================================================================
+
+    VulkanRawFramebufferRegistry& VulkanRawFramebufferRegistry::Get()
+    {
+        static auto* s_Instance = new VulkanRawFramebufferRegistry(); // deliberately leaked
+        return *s_Instance;
+    }
+
+    RHI::ResourceHandle VulkanRawFramebufferRegistry::Adopt(Ref<VulkanFramebuffer> framebuffer)
+    {
+        if (framebuffer == nullptr)
+        {
+            return {};
+        }
+        const RHI::ResourceHandle handle = framebuffer->GetRHIHandle();
+        if (!handle.IsValid())
+        {
+            return {};
+        }
+        m_Entries[Key(handle)] = std::move(framebuffer);
+        return handle;
+    }
+
+    bool VulkanRawFramebufferRegistry::Contains(RHI::ResourceHandle handle) const
+    {
+        return m_Entries.contains(Key(handle));
+    }
+
+    bool VulkanRawFramebufferRegistry::Destroy(RHI::ResourceHandle handle)
+    {
+        // The framebuffer destructor unregisters from VulkanRootObjectRegistry
+        // and retires the identity; the attachment Refs it holds release with
+        // it (each routing through VulkanDeferredReclaim if this was the last
+        // owner).
+        return m_Entries.erase(Key(handle)) != 0u;
+    }
+
+    void VulkanRawFramebufferRegistry::ReleaseAll()
+    {
+        m_Entries.clear();
     }
 
 #undef OLO_VK_PHASE6_STUB
+    void VulkanLogSurvivingTransients()
+    {
+#ifdef OLO_DEBUG
+        std::scoped_lock lock(s_LiveTrackMutex);
+        for (const auto& [object, info] : s_LiveGpuObjects)
+        {
+            std::string trace = std::to_string(info.second);
+            sizet cut = 0;
+            for (int newlines = 0; cut < trace.size(); ++cut)
+            {
+                if (trace[cut] == '\n' && ++newlines == 12)
+                    break;
+            }
+            OLO_CORE_ERROR("[Vulkan] surviving {} created at:\n{}", info.first, trace.substr(0, cut));
+        }
+        if (!s_LiveGpuObjects.empty())
+        {
+            OLO_CORE_ERROR("[Vulkan] {} texture/storage-buffer object(s) survived full teardown", s_LiveGpuObjects.size());
+        }
+#endif
+    }
 } // namespace OloEngine
 
 #endif // OLO_WITH_VULKAN

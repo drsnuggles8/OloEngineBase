@@ -1090,6 +1090,16 @@ namespace OloEngine
             return ids;
         }
 
+        // Depth-only water program for the surface-depth capture
+        // (Water_Depth.glsl). Snapshot per capture in
+        // CommandDispatch::SetWaterDepthCaptureActive so shader hot-reloads
+        // are picked up — same rationale as the prepass IDs above. Null while
+        // shaders are unloaded, which disables the swap safely.
+        static RHI::ResourceHandle GetWaterDepthShaderID()
+        {
+            return s_Data.WaterDepthShader ? s_Data.WaterDepthShader->GetRHIHandle() : RHI::ResourceHandle{};
+        }
+
         static Ref<Shader> GetTerrainPBRShader()
         {
             return s_Data.TerrainPBRShader;
@@ -1772,6 +1782,9 @@ namespace OloEngine
 
             // Water
             Ref<Shader> WaterShader;
+            // Depth-only variant for the surface-depth capture: shared
+            // VS/TCS/TES displacement chain, no color outputs (#691 Phase 8).
+            Ref<Shader> WaterDepthShader;
 
             // Decals
             Ref<Shader> DecalShader;

@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/GraphicsContext.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -17,6 +18,25 @@ namespace OloEngine
 
     static constexpr const char* s_BootVertexSrc = R"glsl(
 #version 450 core
+#ifdef OLO_VULKAN
+// ADR 0011 §5 vertex pull: same 20-byte {vec3 position, vec2 uv} fullscreen
+// triangle stream as the attribute branch, read by gl_VertexIndex through the
+// engine-wide binding-57 pull block (the Vulkan pipeline has no vertex input
+// state). OLO_VULKAN comes from the shaderc route only.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+    int base = gl_VertexIndex * 5;
+    vec2 pos = vec2(b_Vertices.v[base + 0], b_Vertices.v[base + 1]);
+    v_UV = pos * 0.5 + 0.5;
+    gl_Position = vec4(pos, 0.0, 1.0);
+}
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 0) out vec2 v_UV;
 
@@ -25,6 +45,7 @@ void main()
     v_UV = a_Position.xy * 0.5 + 0.5;
     gl_Position = vec4(a_Position.xy, 0.0, 1.0);
 }
+#endif
 )glsl";
 
     static constexpr const char* s_BootFragmentSrc = R"glsl(
@@ -228,24 +249,61 @@ void main()
         window->SetTitle("OloEngine — Loading " + std::string(label) + " (" +
                          std::to_string(static_cast<int>(progress * 100.0f)) + "%)");
 
-        auto fullscreenTriangle = MeshPrimitives::GetFullscreenTriangle();
+        const auto recordProgressDraws = [&](const u32 width, const u32 height)
+        {
+            auto fullscreenTriangle = MeshPrimitives::GetFullscreenTriangle();
 
-        RenderCommand::BindDefaultFramebuffer();
-        RenderCommand::SetViewport(0, 0, window->GetWidth(), window->GetHeight());
-        RenderCommand::SetClearColor({ 0.08f, 0.08f, 0.08f, 1.0f });
-        RenderCommand::Clear();
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetBlendState(false);
+            RenderCommand::BindDefaultFramebuffer();
+            RenderCommand::SetViewport(0, 0, width, height);
+            RenderCommand::SetClearColor({ 0.08f, 0.08f, 0.08f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetBlendState(false);
 
-        OLO_CORE_TRACE("RenderProgressFrame: Binding boot shader...");
-        s_BootShader->Bind();
-        OLO_CORE_TRACE("RenderProgressFrame: Setting UBO data...");
-        const BootUBOData uboData{ progress, current, total, phase };
-        s_BootUBO->SetData(&uboData, sizeof(BootUBOData));
+            s_BootShader->Bind();
+            const BootUBOData uboData{ progress, current, total, phase };
+            s_BootUBO->SetData(&uboData, sizeof(BootUBOData));
 
-        OLO_CORE_TRACE("RenderProgressFrame: Drawing...");
-        fullscreenTriangle->Bind();
-        RenderCommand::DrawIndexed(fullscreenTriangle);
+            fullscreenTriangle->Bind();
+            RenderCommand::DrawIndexed(fullscreenTriangle);
+        };
+
+        // A backend whose SwapBuffers OWNS frame recording (Vulkan: acquire →
+        // record → submit → present) drops facade draws issued outside the
+        // bracket — the GL immediate-then-swap shape below presented only the
+        // clear-fallback frame (a bare blue window for the whole warmup,
+        // #691 Phase 8). Exchange the frame callback for one that records
+        // this progress frame INSIDE the bracket, present, restore. During
+        // startup the exchanged-out callback is simply null; a nested call
+        // (RenderProgressFrame reached from inside a frame) is dropped by the
+        // context's nested-present guard either way.
+        if (auto* context = window->GetGraphicsContext(); context != nullptr && context->DrivesFrameRendering())
+        {
+            // Restore via RAII, not a straight-line call: the exchanged-in
+            // callback captures this scope's locals by reference, so if the
+            // present throws, a leaked callback dangles into the next frame.
+            struct CallbackRestore
+            {
+                GraphicsContext* Context;
+                GraphicsContext::FrameRenderCallback Previous;
+                ~CallbackRestore()
+                {
+                    Context->SetFrameRenderCallback(std::move(Previous));
+                }
+            };
+            const CallbackRestore restore{ context, context->ExchangeFrameRenderCallback(
+                                                        [&](const GraphicsContext::FrameRenderTarget& target) -> bool
+                                                        {
+                                                            if (target.Width == 0 || target.Height == 0)
+                                                                return false;
+                                                            recordProgressDraws(target.Width, target.Height);
+                                                            return true;
+                                                        }) };
+            window->SwapBuffers();
+            return;
+        }
+
+        recordProgressDraws(window->GetWidth(), window->GetHeight());
 
         OLO_CORE_TRACE("RenderProgressFrame: SwapBuffers...");
         window->SwapBuffers();
