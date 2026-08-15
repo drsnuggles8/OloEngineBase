@@ -10,6 +10,7 @@
 #include "OloEngine/Debug/DebugOverlayLayer.h"
 #include "OloEngine/Debug/PerformanceLayer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/BackendSelection.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -241,10 +242,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        OLO_CORE_INFO("Application: teardown begins");
         // Clear calls OnDetach() on all layers and releases their memory.
         // Do this before shutting down subsystems so layers detach while systems are live.
         m_LayerStack.Clear();
         m_ImGuiLayer = nullptr;
+        OLO_CORE_INFO("Application: layers detached");
+
+        // Drop the active project + asset manager NOW, while the renderer is
+        // still alive: their static Refs otherwise keep every loaded asset's
+        // GPU buffers alive past the window's graphics-context teardown —
+        // which vmaDestroyAllocator answers with an "allocations not freed"
+        // abort on Vulkan (#691 Phase 8, the close-button crash).
+        Project::Unload();
 
         if (!m_Specification.IsHeadless)
         {
@@ -324,6 +334,7 @@ namespace OloEngine
 
     void Application::Close()
     {
+        OLO_CORE_INFO("Application: close requested");
         m_Running = false;
     }
 
@@ -552,6 +563,7 @@ namespace OloEngine
                 m_Running = false;
             }
         }
+        OLO_CORE_INFO("Application: frame loop exited");
     }
 
     void Application::RunHeadless()

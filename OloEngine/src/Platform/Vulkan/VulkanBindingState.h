@@ -79,6 +79,16 @@ namespace OloEngine
         void SetTextureHeapSlot(u32 slot, u32 heapSlot);
         [[nodiscard]] u32 GetTextureHeapSlot(u32 slot) const;
 
+        // --- sampler slots (#691 Phase 8) ------------------------------------
+        // The SAMPLER-heap slot staged beside each texture slot: BindTexture
+        // derives it from the image's recorded sampler state (or an explicit
+        // RHI::SamplerDesc) and the draw assembly writes it into the root
+        // struct's sampler-index half. An unstaged slot answers
+        // VulkanSamplerHeap::DefaultSlot (0), which is the old embedded
+        // linear/clamp default — never a garbage index.
+        void SetTextureSamplerSlot(u32 slot, u32 samplerSlot);
+        [[nodiscard]] u32 GetTextureSamplerSlot(u32 slot) const;
+
         // --- image units (BindImageTexture) — a SEPARATE index space ---------
         // GL's image units and texture units are disjoint namespaces that both
         // start at zero (amendment (29)); folding them here would let unit 0
@@ -102,6 +112,7 @@ namespace OloEngine
         std::array<VulkanUniformBuffer*, kMaxBufferBindings> m_UniformBuffers{};
         std::array<VulkanStorageBuffer*, kMaxBufferBindings> m_StorageBuffers{};
         std::array<u32, kMaxTextureSlots> m_TextureHeapSlots{};
+        std::array<u32, kMaxTextureSlots> m_TextureSamplerSlots{}; ///< Zero-init IS DefaultSlot.
         std::array<u32, kMaxTextureSlots> m_ImageHeapSlots{};
         VulkanFramebuffer* m_CurrentFramebuffer = nullptr;
 

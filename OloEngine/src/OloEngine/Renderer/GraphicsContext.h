@@ -43,6 +43,26 @@ namespace OloEngine
             (void)callback;
         }
 
+        // True when SwapBuffers OWNS frame recording (the callback seam
+        // above). Facade draws issued outside that bracket are dropped, so a
+        // caller presenting a one-off frame (the shader-warmup progress
+        // screen) must route its draws through a temporarily exchanged frame
+        // callback instead of the GL immediate-draws-then-swap shape.
+        [[nodiscard]] virtual bool DrivesFrameRendering() const
+        {
+            return false;
+        }
+
+        // Swap the installed frame callback, returning the previous one so a
+        // one-off presenter can restore it. The no-op default matches
+        // SetFrameRenderCallback's: backends that ignore the seam hold no
+        // callback to exchange.
+        [[nodiscard]] virtual FrameRenderCallback ExchangeFrameRenderCallback(FrameRenderCallback callback)
+        {
+            (void)callback;
+            return {};
+        }
+
         static Scope<GraphicsContext> Create(void* window);
     };
 } // namespace OloEngine

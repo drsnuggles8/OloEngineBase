@@ -7,9 +7,11 @@
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
+#include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -82,6 +84,9 @@ namespace OloEngine
             VkCheck(vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &out.Buffer, &out.Allocation,
                                     &outInfo),
                     what);
+            // Owner tag for the teardown leak dump (VulkanDevice::Shutdown):
+            // an allocation alive at vmaDestroyAllocator prints this name.
+            vmaSetAllocationName(device->GetAllocator(), out.Allocation, what);
 
             VkMemoryPropertyFlags memProps = 0;
             vmaGetAllocationMemoryProperties(device->GetAllocator(), out.Allocation, &memProps);
@@ -123,6 +128,127 @@ namespace OloEngine
     {
         const auto it = m_Entries.find(Key(handle));
         return it != m_Entries.end() ? &it->second : nullptr;
+    }
+
+#if defined(OLO_DEBUG) && defined(OLO_PLATFORM_WINDOWS)
+    namespace
+    {
+        // "Who holds the Ref?" — scan every committed writable page of the
+        // process for pointer cells containing `target` and report each hit.
+        // A hit inside the exe module's data sections IS a static holder
+        // (resolve the printed module+RVA with `cdb ln OloEditor+<rva>`);
+        // a heap hit means a container/capture holds it. Teardown-only
+        // forensics: a full-VA scan costs seconds and runs once per
+        // surviving object, in Debug, at exit.
+        void ReportRefHolders(const void* target, const char* name)
+        {
+            const auto targetValue = reinterpret_cast<std::uintptr_t>(target);
+            const auto* moduleBase = reinterpret_cast<const u8*>(GetModuleHandleW(nullptr));
+            MEMORY_BASIC_INFORMATION info{};
+            const u8* address = nullptr;
+            while (VirtualQuery(address, &info, sizeof(info)) == sizeof(info))
+            {
+                const u8* regionEnd = static_cast<const u8*>(info.BaseAddress) + info.RegionSize;
+                const bool writableData = info.State == MEM_COMMIT &&
+                                          (info.Protect == PAGE_READWRITE || info.Protect == PAGE_WRITECOPY) &&
+                                          (info.Type == MEM_PRIVATE || info.Type == MEM_IMAGE);
+                if (writableData)
+                {
+                    const auto* begin = static_cast<const std::uintptr_t*>(info.BaseAddress);
+                    const auto* end = reinterpret_cast<const std::uintptr_t*>(regionEnd);
+                    for (const std::uintptr_t* cell = begin; cell < end; ++cell)
+                    {
+                        if (*cell != targetValue)
+                            continue;
+                        const auto* cellBytes = reinterpret_cast<const u8*>(cell);
+                        if (info.Type == MEM_IMAGE)
+                        {
+                            // The RVA is computed against the MAIN module's
+                            // base; a hit inside another loaded image would
+                            // resolve nonsense there, so always print the
+                            // absolute address too (review finding).
+                            OLO_CORE_TRACE("[Vulkan]   holder of '{}': STATIC at {:p} (main-module RVA {:#x}; "
+                                           "resolve: cdb> ln OloEditor+{:#x}, or ln on the absolute address "
+                                           "if the cell is in another module)",
+                                           name, static_cast<const void*>(cellBytes),
+                                           static_cast<std::uintptr_t>(cellBytes - moduleBase),
+                                           static_cast<std::uintptr_t>(cellBytes - moduleBase));
+                        }
+                        else
+                        {
+                            OLO_CORE_TRACE("[Vulkan]   holder of '{}': heap cell at {:p}", name,
+                                           static_cast<const void*>(cell));
+                        }
+                    }
+                }
+                address = regionEnd;
+            }
+        }
+    } // namespace
+#endif
+
+    void VulkanRootObjectRegistry::ReleaseSurvivingShaderModules()
+    {
+        // The forced device-object release (the pattern big engines use: a
+        // central registry owns native-handle lifetime; outstanding Refs in
+        // stray statics become harmless zombies instead of
+        // vkDestroyDevice-time leaks). Trace names the untidy owners so
+        // they can still be fixed at the source.
+        sizet released = 0;
+        for (auto& [key, entry] : m_Entries)
+        {
+            if (entry.Kind != VulkanRootObjectKind::Shader || entry.Object == nullptr)
+            {
+                continue;
+            }
+            auto* shader = static_cast<VulkanShader*>(entry.Object);
+            OLO_CORE_TRACE("[Vulkan] releasing modules of surviving shader '{}' (refcount {}) at context teardown",
+                           shader->GetName(), shader->GetRefCount());
+#if defined(OLO_DEBUG) && defined(OLO_PLATFORM_WINDOWS)
+            ReportRefHolders(shader, shader->GetName().c_str());
+#endif
+            shader->ReleaseDeviceObjects();
+            ++released;
+        }
+        if (released > 0)
+        {
+            OLO_CORE_TRACE("[Vulkan] {} shader(s) survived teardown — modules force-released (their Refs are now "
+                           "inert)",
+                           released);
+        }
+    }
+
+    void VulkanRootObjectRegistry::LogSurvivingVertexArrays() const
+    {
+#ifdef OLO_DEBUG
+        sizet survivors = 0;
+        for (const auto& [key, entry] : m_Entries)
+        {
+            if (entry.Kind != VulkanRootObjectKind::VertexArray || entry.Object == nullptr)
+            {
+                continue;
+            }
+            ++survivors;
+            const auto* vao = static_cast<const VulkanVertexArray*>(entry.Object);
+            std::string trace = std::to_string(vao->GetCreationStack());
+            // The full stack is long; the engine-side creator is what names
+            // the owner. Keep the first ~12 frames.
+            sizet cut = 0;
+            for (int newlines = 0; cut < trace.size(); ++cut)
+            {
+                if (trace[cut] == '\n' && ++newlines == 12)
+                    break;
+            }
+            OLO_CORE_ERROR("[Vulkan] surviving VertexArray ({} stream(s)) created at:\n{}",
+                           vao->GetVertexBuffers().size(), trace.substr(0, cut));
+        }
+        if (survivors > 0)
+        {
+            OLO_CORE_ERROR("[Vulkan] {} shader/vertex-array object(s) survived full teardown — see the lines above "
+                           "for owners",
+                           survivors);
+        }
+#endif
     }
 
     // =========================================================================
@@ -208,6 +334,7 @@ namespace OloEngine
             return;
         }
 
+        vmaSetAllocationName(device->GetAllocator(), allocation, "raw buffer (CreateBufferHandle)");
         entry->Buffer = buffer;
         entry->Allocation = allocation;
         entry->Size = sizeBytes;
@@ -387,6 +514,21 @@ namespace OloEngine
         addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         addressInfo.buffer = m_Buffer;
         m_DeviceAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
+        // Address-range trace for matching a VK_EXT_device_fault report (see
+        // VulkanDevice::LogDeviceFaultInfo) to its buffer. Opt-in: dozens of
+        // create lines per scene load are noise in a clean session, but when
+        // hunting a GPU fault the ranges are the decisive currency (the
+        // foliage OOB was named by exactly this pairing).
+        static const bool s_TraceBuffers = []
+        {
+            const char* env = std::getenv("OLO_VK_TRACE_BUFFERS");
+            return env != nullptr && *env != '\0' && *env != '0';
+        }();
+        if (s_TraceBuffers)
+        {
+            OLO_CORE_TRACE("[RHI/Vulkan] vertex buffer {:#x}..{:#x} ({} bytes, {})", m_DeviceAddress,
+                           m_DeviceAddress + m_Size, m_Size, m_Mapped != nullptr ? "BAR-mapped" : "staged");
+        }
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
 
@@ -506,6 +648,9 @@ namespace OloEngine
 
     VulkanVertexArray::VulkanVertexArray()
     {
+#ifdef OLO_DEBUG
+        m_CreationStack = std::stacktrace::current(1);
+#endif
         m_RHIHandle.Adopt(RHI::ResourceKind::VertexArray, 0u, RHI::Backend::Vulkan);
         VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::VertexArray, this);
     }

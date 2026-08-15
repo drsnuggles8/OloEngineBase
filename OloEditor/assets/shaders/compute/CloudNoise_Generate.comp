@@ -28,10 +28,20 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 layout(rgba8, binding = 0) uniform writeonly image3D u_Output;
 #endif
 
-// ---- Uniforms set by CloudNoise::EnsureGenerated() ----
-uniform int   u_Mode;    // 0 = base, 1 = detail
-uniform int   u_Size;    // texels per axis (128 base, 32 detail)
-uniform float u_InvSize; // 1.0 / u_Size
+// ---- Parameters set by CloudNoise::EnsureGenerated() ----
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 8):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Refilled per dispatch (base then detail bake). C++ twin:
+// UBOStructures::CloudNoiseGenUBO (ShaderBindingLayout::UBO_CLOUD_NOISE_GEN).
+layout(std140, binding = 74) uniform CloudNoiseGenParams
+{
+    int   u_Mode;             // 0  — 0 = base, 1 = detail
+    int   u_Size;             // 4  — texels per axis (128 base, 32 detail)
+    float u_InvSize;          // 8  — 1.0 / u_Size (computed on the CPU)
+    float _cloudNoiseGenPad0; // 12
+};
 
 void main()
 {

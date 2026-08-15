@@ -124,6 +124,37 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Headless / agent sessions cannot click a native modal — a
+        // WM_CLOSE-driven shutdown with a dirty scene would block on this
+        // MessageBox forever (the same shape as the auto-save recovery
+        // modal, OLO_EDITOR_AUTOSAVE_RECOVERY, issue #316 Part 5).
+        // OLO_EDITOR_UNSAVED_PROMPT pre-answers every unsaved-changes
+        // prompt: 'save'/'yes', 'discard'/'no', 'cancel'. Unset /
+        // unrecognized keeps the interactive dialog, so a human's editor
+        // never changes behavior.
+        if (const char* env = std::getenv("OLO_EDITOR_UNSAVED_PROMPT"); env != nullptr && *env != '\0')
+        {
+            std::string value(env);
+            std::ranges::transform(value, value.begin(),
+                                   [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            if (value == "save" || value == "yes")
+            {
+                OLO_CORE_INFO("MessagePrompt('{}'): pre-answered YES via OLO_EDITOR_UNSAVED_PROMPT", title);
+                return MessagePromptResult::Yes;
+            }
+            if (value == "discard" || value == "no")
+            {
+                OLO_CORE_INFO("MessagePrompt('{}'): pre-answered NO via OLO_EDITOR_UNSAVED_PROMPT", title);
+                return MessagePromptResult::No;
+            }
+            if (value == "cancel")
+            {
+                OLO_CORE_INFO("MessagePrompt('{}'): pre-answered CANCEL via OLO_EDITOR_UNSAVED_PROMPT", title);
+                return MessagePromptResult::Cancel;
+            }
+        }
+
         HWND hwnd = GLFWAPI::glfwGetWin32Window(static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow()));
         int const result = ::MessageBoxA(hwnd, message, title, MB_YESNOCANCEL | MB_ICONWARNING);
         switch (result)

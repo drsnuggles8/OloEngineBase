@@ -185,8 +185,8 @@ namespace OloEngine
             const u32 fullHeight = spec.Height;
             if (fullWidth == 0 || fullHeight == 0)
                 return {};
-            const u32 textureId = framebuffer->GetColorAttachmentRendererID(0);
-            if (textureId == 0)
+            const RHI::ResourceHandle attachment = framebuffer->GetColorAttachmentHandle(0);
+            if (!attachment.IsValid())
                 return {};
 
             if (region.IsWholeImage())
@@ -199,22 +199,32 @@ namespace OloEngine
 
             const u32 width = region.Width;
             const u32 height = region.Height;
-            // The rect arrives top-left-origin; GL rows run bottom-up.
-            const u32 glRegionY = fullHeight - region.Y - region.Height;
+            // The rect arrives top-left-origin. Row order of the UIComposite
+            // attachment is PER-BACKEND (ADR 0011 amendment (79)): GL stores
+            // bottom-up; under Vulkan the editor chain's fullscreen hops
+            // leave it TOP-DOWN — the first Phase 8 parity gate proved it on
+            // screen (the viewport widget's GL uv flip showed the whole
+            // scene upside-down while the ImGui chrome was upright). Keyed
+            // on the live backend, matching the viewport widget's uv choice
+            // so capture and screen can never disagree.
+            const bool bottomUpRows = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+            const u32 readY = bottomUpRows ? fullHeight - region.Y - region.Height : region.Y;
 
             std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
-            ::glGetTextureSubImage(textureId, 0,
-                                   static_cast<GLint>(region.X), static_cast<GLint>(glRegionY), 0,
-                                   static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1,
-                                   GL_RGBA, GL_UNSIGNED_BYTE,
-                                   static_cast<GLsizei>(pixels.size()), pixels.data());
+            if (!RenderCommand::ReadTextureSubImage(attachment, 0, static_cast<i32>(region.X),
+                                                    static_cast<i32>(readY), 0, width, height, 1u,
+                                                    RHI::Format::RGBA8UNorm, pixels.size(), pixels.data()))
+                return {};
 
-            // glGetTextureSubImage returns rows bottom-up; flip for PNG (top-down).
+            // PNG rows are top-down; only bottom-up (GL) rows need the flip.
             const u32 rowBytes = width * 4;
             std::vector<u8> flipped(pixels.size());
             for (u32 y = 0; y < height; ++y)
+            {
+                const u32 srcRow = bottomUpRows ? height - 1 - y : y;
                 std::memcpy(flipped.data() + static_cast<sizet>(y) * rowBytes,
-                            pixels.data() + static_cast<sizet>(height - 1 - y) * rowBytes, rowBytes);
+                            pixels.data() + static_cast<sizet>(srcRow) * rowBytes, rowBytes);
+            }
 
             u32 outW = width;
             u32 outH = height;
@@ -1412,7 +1422,18 @@ namespace OloEngine
                 }
                 else
                 {
-                    // No additional handling required.
+                    // 3D without the GL PBO ring (any non-GL backend — the
+                    // ring's init is GL-guarded): synchronous 1x1 read of the
+                    // EntityID attachment through the framebuffer virtual,
+                    // which lowers onto ReadTextureSubImage (#691 Phase 8b).
+                    // One texel through a blocking one-shot per hovered frame
+                    // is measurable but small; promote to an async ring if it
+                    // ever shows up in a profile.
+                    if (auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+                        framebuffer != nullptr)
+                    {
+                        pixelData = framebuffer->ReadPixel(1, mouseX, mouseY);
+                    }
                 }
                 m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
             }
@@ -1844,29 +1865,52 @@ namespace OloEngine
         else
             m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-        // Display appropriate framebuffer based on mode
+        // Display appropriate framebuffer based on mode. The ImTextureID
+        // comes from ImGuiLayer::GetFramebufferTextureID (#691 Phase 8):
+        // on GL it is the raw GL texture name as before, on Vulkan an
+        // imgui_impl_vulkan descriptor set for the attachment.
         u64 textureID = 0;
         if (m_Is3DMode)
         {
             // Use UICompositePass output (post-processed scene + 2D overlays + UI)
             if (auto uiFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); uiFramebuffer)
             {
-                textureID = uiFramebuffer->GetColorAttachmentRendererID(0);
+                textureID = ImGuiLayer::GetFramebufferTextureID(*uiFramebuffer, 0);
             }
             // Fallback to scene pass if post-process pass is not available
             if (textureID == 0)
             {
                 if (auto sceneFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); sceneFramebuffer)
                 {
-                    textureID = sceneFramebuffer->GetColorAttachmentRendererID(0);
+                    textureID = ImGuiLayer::GetFramebufferTextureID(*sceneFramebuffer, 0);
                 }
             }
         }
         else
         {
-            textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
+            textureID = ImGuiLayer::GetFramebufferTextureID(*m_Framebuffer, 0);
         }
-        ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+        if (textureID != 0)
+        {
+            // UV convention is per-backend (ADR 0011 amendment (79)): the GL
+            // attachment is bottom-up (flip V), the Vulkan editor chain's
+            // UIComposite lands top-down (identity). Must agree with
+            // CaptureFramebufferPng's bottomUpRows so the screen and every
+            // screenshot show the same frame.
+            const bool bottomUpRows = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+            const ImVec2 uv0 = bottomUpRows ? ImVec2{ 0, 1 } : ImVec2{ 0, 0 };
+            const ImVec2 uv1 = bottomUpRows ? ImVec2{ 1, 0 } : ImVec2{ 1, 1 };
+            ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, uv0, uv1);
+        }
+        else
+        {
+            // No presentable attachment (e.g. the Vulkan backend before the
+            // first rendered frame). A Dummy keeps the layout, the border /
+            // badge draws below (GetItemRectMin) and the drag-drop target
+            // anchored to a real item; passing 0 to ImGui::Image would bind a
+            // null descriptor set on Vulkan.
+            ImGui::Dummy(ImVec2{ m_ViewportSize.x, m_ViewportSize.y });
+        }
 
         // Play-mode visual indicator: draw colored border around viewport
         if (m_SceneState != SceneState::Edit)
@@ -2098,6 +2142,25 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        // #691 Phase 8: toolbar icon button that stays clickable when the
+        // icon has no ImTextureID on this backend (ImGuiLayer::GetTextureID
+        // returns 0 — e.g. an unresolvable texture under Vulkan). Falls back
+        // to a plain same-size button; passing 0 to ImGui::ImageButton would
+        // bind a null descriptor set in imgui_impl_vulkan.
+        [[nodiscard]] bool ToolbarIconButton(const char* strId, const Texture2D& icon, const ImVec2& size,
+                                             const ImVec4& tint)
+        {
+            if (const u64 texId = ImGuiLayer::GetTextureID(icon); texId != 0)
+            {
+                return ImGui::ImageButton(strId, static_cast<ImTextureID>(texId), size, ImVec2(0, 0), ImVec2(1, 1),
+                                          ImVec4(0, 0, 0, 0), tint);
+            }
+            return ImGui::Button(strId, size);
+        }
+    } // namespace
+
     void EditorLayer::UI_Toolbar()
     {
         const auto toolbarEnabled = static_cast<bool>(m_ActiveScene);
@@ -2178,7 +2241,7 @@ namespace OloEngine
         if (hasPlayButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
-            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop; ImGui::ImageButton("##play_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop; ToolbarIconButton("##play_stop_icon", *icon, btnSize, tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Simulate))
                 {
@@ -2200,7 +2263,7 @@ namespace OloEngine
         if (hasSimulateButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
-            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop; ImGui::ImageButton("##simulate_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop; ToolbarIconButton("##simulate_stop_icon", *icon, btnSize, tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Play))
                 {
@@ -2221,7 +2284,7 @@ namespace OloEngine
         // Pause button
         if (hasPauseButton)
         {
-            if (Ref<Texture2D> const icon = m_IconPause; ImGui::ImageButton("##pause_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (Ref<Texture2D> const icon = m_IconPause; ToolbarIconButton("##pause_icon", *icon, btnSize, tintColor) && toolbarEnabled)
             {
                 m_ActiveScene->SetPaused(!isPaused);
             }
@@ -2232,7 +2295,7 @@ namespace OloEngine
         if (isPaused)
         {
             Ref<Texture2D> const icon = m_IconStep;
-            if (ImGui::ImageButton("##step_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            if (ToolbarIconButton("##step_icon", *icon, btnSize, tintColor) && toolbarEnabled)
             {
                 m_ActiveScene->Step();
             }

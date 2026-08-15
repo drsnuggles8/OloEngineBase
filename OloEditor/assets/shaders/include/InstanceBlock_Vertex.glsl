@@ -33,8 +33,39 @@ layout(std430, binding = 15) readonly buffer InstanceBuffer {
 // addressable after CommandBucket auto-batching collapses N draws into one
 // glDrawElementsInstanced. The vertex `void main()` must call
 // `OLO_INSTANCE_FORWARD();` for the varying to be written.
+//
+// OLO_INSTANCE_NO_FORWARD (define before including): the consuming stage
+// does not read v_InstanceIndex (depth-only passes, trivial fragment
+// shaders), so declare NO varying at all — a written-but-unconsumed output
+// is a validation interface warning per pipeline under Vulkan.
+#ifndef OLO_INSTANCE_NO_FORWARD
 layout(location = 14) flat out int v_InstanceIndex;
+#endif
 
+#ifdef OLO_INSTANCE_SINGLE
+// Single-entry contract: the draw's per-instance data lives in its OWN
+// vertex stream (foliage's 48-byte instance VB) and the C++ side uploads
+// exactly ONE InstanceData entry — a shared model matrix for all N
+// instances. Indexing by gl_InstanceIndex here reads 224*gl_InstanceIndex
+// bytes into a 224-byte upload: GL clamps that OOB read to garbage/zero
+// (foliage silently collapsed), a Vulkan buffer-device-address pointer
+// page-faults the whole device once the read crosses an unmapped page
+// (the #691 Phase 8 foliage VK_ERROR_DEVICE_LOST — fault address 32 MB
+// past a 12 MB buffer at 254k instances). Define OLO_INSTANCE_SINGLE
+// before this include for any shader whose instancing rides its own
+// stream; the varying interface stays identical so fragment-stage
+// InstanceBlock.glsl consumers keep working (they resolve instances[0]).
+#define u_Model        (instances[0].Transform)
+#define u_Normal       (instances[0].Normal)
+#define u_PrevModel    (instances[0].PrevTransform)
+#define u_EntityID     (instances[0].EntityID)
+#define u_NormalMatrix (instances[0].Normal)
+#ifdef OLO_INSTANCE_NO_FORWARD
+#define OLO_INSTANCE_FORWARD()
+#else
+#define OLO_INSTANCE_FORWARD() v_InstanceIndex = 0
+#endif
+#else
 #define u_Model        (instances[gl_InstanceIndex].Transform)
 #define u_Normal       (instances[gl_InstanceIndex].Normal)
 #define u_PrevModel    (instances[gl_InstanceIndex].PrevTransform)
@@ -45,6 +76,11 @@ layout(location = 14) flat out int v_InstanceIndex;
 
 // Forward the current gl_InstanceIndex to the fragment stage. Must be called
 // at the top of every vertex shader's main() that includes this file.
+#ifdef OLO_INSTANCE_NO_FORWARD
+#define OLO_INSTANCE_FORWARD()
+#else
 #define OLO_INSTANCE_FORWARD() v_InstanceIndex = gl_InstanceIndex
+#endif
+#endif // OLO_INSTANCE_SINGLE
 
 #endif // INSTANCE_BLOCK_VERTEX_GLSL

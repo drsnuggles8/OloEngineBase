@@ -110,6 +110,25 @@ namespace OloEngine
         return m_TextureHeapSlots[slot];
     }
 
+    void VulkanBindingState::SetTextureSamplerSlot(u32 slot, u32 samplerSlot)
+    {
+        if (slot >= kMaxTextureSlots)
+        {
+            // The heap-slot setter already warned for this slot.
+            return;
+        }
+        m_TextureSamplerSlots[slot] = samplerSlot;
+    }
+
+    u32 VulkanBindingState::GetTextureSamplerSlot(u32 slot) const
+    {
+        if (slot >= kMaxTextureSlots)
+        {
+            return 0u; // VulkanSamplerHeap::DefaultSlot
+        }
+        return m_TextureSamplerSlots[slot];
+    }
+
     void VulkanBindingState::SetCurrentFramebuffer(VulkanFramebuffer* framebuffer)
     {
         m_CurrentFramebuffer = framebuffer;

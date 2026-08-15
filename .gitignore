@@ -164,3 +164,6 @@ steam_appid.txt
 # build time rather than committed, which sidesteps having to reason about what "redistribution"
 # means in a public repo and costs nothing.
 steam_api64.dll
+
+# Per-user renderer backend selection written by the Renderer Settings panel (ADR 0011 s2)
+OloEditor/config/renderer.yaml

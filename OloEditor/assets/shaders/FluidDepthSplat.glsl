@@ -99,7 +99,12 @@ void main()
     // toward the camera.
     vec3 viewSurface = v_ViewCenter + radius * vec3(v_UV, nz);
 
-    vec4 clipPos = u_Projection * vec4(viewSurface, 1.0);
+    // Reconstruction flavour (#691 Phase 8): this math applies the GL depth
+    // remap itself, so it must NOT read the rasterizer-flavour u_Projection —
+    // on Vulkan that matrix is already z-remapped and the *0.5+0.5 here would
+    // apply it twice, squeezing every depth into [0.5,1] and discarding the
+    // fluid against all opaque geometry.
+    vec4 clipPos = u_ProjectionForReconstruction * vec4(viewSurface, 1.0);
     float windowDepth = clamp((clipPos.z / clipPos.w) * 0.5 + 0.5, 0.0, 1.0);
 
     // Reject fluid behind opaque geometry (+ small bias against shimmer at

@@ -2,24 +2,26 @@
 
 // =============================================================================
 // VulkanRendererAPI — the Vulkan implementation of the RendererAPI facade
-// (issue #691 Phase 5).
+// (issue #691; brought to editor-parity scope in Phase 8).
 //
-// Phase 5 scope: the render graph's EXECUTION layer — barrier batches
-// (IssueBarrierBatch via VulkanBarrierLowering + the layout tracker),
-// transient clears (the poison instrument's ClearTexture*/ClearBuffer*),
-// dynamic viewport/scissor, device queries, and debug labels. Everything
-// pipeline-shaped (draws, shader binds, buffer lifecycle, queries, fences)
-// is a WARN-ONCE stub naming Phase 6 — deliberately loud, never silent,
-// which is what ADR 0011 amendment (42) demanded of the first
-// VulkanRendererAPI ("~100 no-op virtuals inviting silent fallthrough" was
-// the reason Phase 4 refused to build one; the stubs' warn-once counters are
-// the mitigation).
+// Current scope: the full facade — barrier batches, transient clears, draws
+// (lazy dynamic-rendering scopes + root-data assembly per ADR 0011 §4/§5),
+// compute dispatch, buffer/texture lifecycle including the raw-handle
+// facade families, staged uploads (frame command buffer, with a blocking
+// one-shot fallback outside a bracket), readbacks (ReadTextureSubImage —
+// the MCP diagnostics spine), per-target pending clears, and the sampler
+// heap routing. The remaining warn-once stubs are counted BY KIND (see
+// StubKind): a deferred feature, a precondition failure, or a call outside
+// a recording bracket — deliberately loud, never silent (the amendment (42)
+// contract).
 //
 // Recording model: Vulkan has no GL-style implicit current context — every
-// vkCmd* needs a live VkCommandBuffer. Whoever drives execution (the
-// device-gated execution test now, VulkanContext's frame loop when the graph
-// is wired into it) brackets work in BeginRecording/EndRecording. A
-// recording-dependent entry point called outside a bracket warn-once skips.
+// vkCmd* needs a live VkCommandBuffer. VulkanContext's frame loop (and the
+// device-gated tests) bracket work in BeginRecording/EndRecording; a
+// mid-frame READ of GPU state flushes via FlushFrameRecordingAndWait
+// (suspend / submit / fence-wait / resume). A recording-dependent entry
+// point called outside a bracket either falls back to a one-shot (uploads,
+// readbacks) or warn-once skips.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -199,6 +201,34 @@ namespace OloEngine
         {
             return m_Cmd;
         }
+
+        // --- Mid-frame flush (#691 Phase 8) --------------------------------
+        // A synchronous mid-frame readback (StorageBuffer::GetData between
+        // two dispatches — the fluid solver's coupling shape) needs the
+        // frame command buffer SUBMITTED first, or it reads the previous
+        // frame's contents: queue submissions execute in submit order, and a
+        // one-shot submitted now runs BEFORE the still-recording frame.
+        // VulkanContext::FlushFrameRecordingAndWait drives these two around
+        // its submit: Suspend closes the rendering scope and hands the
+        // command buffer over (null = refuse: no recording, or an occlusion
+        // query is open — a query span cannot cross command buffers); Resume
+        // re-enters the bracket on the reset buffer, dropping only the
+        // per-command-buffer bind caches. Frame-scoped state (the backbuffer
+        // publication, a pending clear, draw counters, framebuffer
+        // selections) deliberately survives — the frame continues, it does
+        // not restart.
+        [[nodiscard]] VkCommandBuffer SuspendRecordingForFlush();
+        void ResumeRecordingAfterFlush(VkCommandBuffer cmd);
+
+        // Backend-internal (#691 Phase 8): record a staged buffer→image copy
+        // of one (mip, layer) region into the CURRENT frame command buffer,
+        // with tracker-exact transitions and the staging buffer routed
+        // through deferred reclaim. The cubemap face-upload paths call this
+        // when a recording is live (the IBL cache load runs mid-frame on
+        // this backend); false when no recording is open or staging failed —
+        // callers then take their blocking one-shot arm.
+        [[nodiscard]] bool RecordStagedImageUpload(VkImage image, u32 mip, u32 baseLayer, u32 width, u32 height,
+                                                   const void* data, u64 sizeBytes);
         [[nodiscard]] VulkanImageLayoutTracker& LayoutTracker()
         {
             return m_LayoutTracker;
@@ -265,10 +295,28 @@ namespace OloEngine
         [[nodiscard]] bool FinalizeBackbufferForPresent(bool frameRendered);
 
         // Observability for the execution test: how many packets/entry points
-        // hit a Phase 6 stub (nothing may fall through silently).
+        // hit a Phase 6 stub (nothing may fall through silently). Split by
+        // KIND (#691 Phase 8, Step 4): a deferred FEATURE (no Vulkan lowering
+        // yet), a PRECONDITION failure (the lowering exists but an input
+        // handle/image did not resolve), and an outside-recording-bracket
+        // call (the timing contract). The total stays the back-compat sum.
+        enum class StubKind : u8
+        {
+            DeferredFeature = 0,
+            PreconditionFailure,
+            OutsideRecording,
+            Count
+        };
         [[nodiscard]] u64 GetPhase6StubHitCount() const
         {
             return m_Phase6StubHits;
+        }
+        [[nodiscard]] u64 GetStubHitCount(StubKind kind) const
+        {
+            // Count (and anything out of range) is not a bucket — 0, not an
+            // out-of-bounds read.
+            const auto index = static_cast<sizet>(kind);
+            return index < static_cast<sizet>(StubKind::Count) ? m_StubHitsByKind[index] : 0u;
         }
 
         // Draw observability (issue #691 Phase 7): PrepareDraw's failure
@@ -341,6 +389,7 @@ namespace OloEngine
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override;
         void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
+        void BindTexture(u32 slot, RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler) override;
         void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered, u32 layer, RHI::Access access, RHI::Format format) override;
         void SetPolygonOffset(f32 factor, f32 units) override;
         void EnableMultisampling() override;
@@ -432,7 +481,7 @@ namespace OloEngine
       private:
         // Const: several facade getters are const-qualified and still must
         // count their stub hit (nothing may fall through silently).
-        void Phase6Stub(const char* entryPoint) const;
+        void Phase6Stub(const char* entryPoint, StubKind kind = StubKind::DeferredFeature) const;
 
         // --- Phase 7: lazy dynamic-rendering scope + draw assembly ----------
         //
@@ -455,14 +504,49 @@ namespace OloEngine
             /// DepthArrayView is: the publication changes per frame.
             bool TargetIsBackbuffer = false;
             VkImageView BackbufferView = VK_NULL_HANDLE;
-            bool PendingClearColor = false; ///< Fold into loadOp at scope begin.
-            bool PendingClearDepth = false;
             /// The per-layer depth view this scope was opened with, or
             /// VK_NULL_HANDLE when the target's OWN depth attachment was used
             /// (#691 Wave C §4). A shadow pass walks N cascades against ONE
             /// framebuffer object, so "same Target" is NOT enough to reuse the
             /// scope — see ScopeMatchesCurrentTarget.
             VkImageView DepthArrayView = VK_NULL_HANDLE;
+        };
+
+        // A clear requested while no scope was open, waiting to fold into the
+        // next scope-open's loadOp (#691 Phase 8). GL clears the BOUND
+        // framebuffer eagerly, so the request must remember WHO asked:
+        // Phase 7's target-blind bool pair meant `Bind(A); Clear(); Bind(B);
+        // Draw()` cleared B and left A untouched, and a clear whose target
+        // never drew again (a shadow-atlas entry culled to zero draws)
+        // survived into the NEXT pass as that pass's loadOp — a pass that
+        // intended LOAD lost its whole depth buffer. The identity is the
+        // ScopeMatchesCurrentTarget triple, and the clear VALUES are captured
+        // at request time (GL uses the state at glClear time, not at first
+        // draw). A pending clear that stops matching the bound target is
+        // MATERIALIZED as an eager transfer clear (MaterializePendingClear)
+        // — exactly what GL did all along.
+        struct PendingClear
+        {
+            bool Color = false;
+            bool Depth = false;
+            VulkanFramebuffer* Target = nullptr;
+            bool TargetIsBackbuffer = false;
+            VkImageView BackbufferView = VK_NULL_HANDLE;
+            VkImageView DepthArrayView = VK_NULL_HANDLE;
+            // Materialization needs the depth-array selection AS OF the
+            // request — the pass may re-attach a different layer before the
+            // pending is flushed (the CSM cascade walk), and the view alone
+            // cannot recover image/layer.
+            VkImage DepthArrayImage = VK_NULL_HANDLE;
+            u32 DepthArrayLayer = 0;
+            RHI::ResourceHandle DepthArrayHandle{};
+            glm::vec4 ClearColor{ 0.0f };
+            f32 ClearDepth = 1.0f;
+
+            [[nodiscard]] bool Any() const
+            {
+                return Color || Depth;
+            }
         };
 
         /// True when the live scope still describes what a draw/clear would
@@ -473,6 +557,22 @@ namespace OloEngine
         /// True when a draw right now would target the published backbuffer:
         /// nothing bound (GL's framebuffer 0) and a publication live.
         [[nodiscard]] bool ShouldTargetBackbuffer() const;
+
+        // --- Pending-clear plumbing (#691 Phase 8; see PendingClear) --------
+        /// True when the pending clear's recorded requester is what a draw
+        /// would target right now (the ScopeMatchesCurrentTarget triple).
+        [[nodiscard]] bool PendingClearMatchesCurrentTarget() const;
+        /// Record a clear request against the CURRENTLY bound target,
+        /// capturing the live clear values. Materializes any earlier pending
+        /// clear that belongs to a different target first.
+        void RecordPendingClear(bool color, bool depth);
+        /// Eagerly clear the pending clear's target with transfer clears
+        /// (vkCmdClearColorImage / vkCmdClearDepthStencilImage through the
+        /// layout tracker) and drop the record. Called when the pending
+        /// requester is superseded by another target's clear/draw, and at
+        /// EndRecording so an unconsumed clear still happens (GL semantics).
+        /// Must be called OUTSIDE a rendering scope.
+        void MaterializePendingClear();
         /// The live scope's render area — the framebuffer's spec, or the
         /// published backbuffer's extent. {0,0} when no scope is open.
         [[nodiscard]] VkExtent2D ScopeExtent() const;
@@ -524,8 +624,12 @@ namespace OloEngine
         // Kind-aware: CombinedImageSampler bindings read the TEXTURE slot
         // table, StorageImage bindings the IMAGE-UNIT table (amendment (29):
         // two namespaces), buffers the bind-point tables (57 = vertex pull).
+        // `commandOrderedBufferReads` — draws pass true so SSBO reads embed
+        // the command-ordered SetData snapshot (VulkanStorageBuffer::
+        // GetRootDataAddress); compute passes false to keep the persistent
+        // address its GPU-write participants require (#691 Phase 8).
         [[nodiscard]] bool AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
-                                                   const VulkanVertexArray* vao);
+                                                   const VulkanVertexArray* vao, bool commandOrderedBufferReads);
 
         // Selection-map plumbing (see FramebufferAttachmentSelection above).
         [[nodiscard]] static u64 SelectionKey(RHI::ResourceHandle framebuffer)
@@ -549,7 +653,19 @@ namespace OloEngine
         // stale handle or one no command buffer has written yet.
         [[nodiscard]] bool ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const;
 
+      public:
+        // Called by ~VulkanFramebuffer (before the identity resets) so no
+        // API-side state outlives the object: the live scope ends if it
+        // targets the dying framebuffer, and a pending lazy clear naming it
+        // is dropped — materializing it later would dereference the freed
+        // object (review finding, #691 Phase 8). Covers both death paths
+        // (raw-registry Destroy and object-owned destruction) through the
+        // one destructor they share.
+        void NotifyFramebufferDestroyed(const VulkanFramebuffer* framebuffer, RHI::ResourceHandle handle);
+
+      private:
         RenderingScope m_Scope;
+        PendingClear m_PendingClear;      ///< At most one outstanding clear request (see PendingClear).
         FrameBackbuffer m_Backbuffer;     ///< Live only inside a frame-callback recording.
         bool m_BackbufferWritten = false; ///< A backbuffer scope opened this recording.
         std::unordered_map<u64, FramebufferAttachmentSelection> m_FramebufferSelections;
@@ -587,6 +703,7 @@ namespace OloEngine
         Viewport m_Viewport{};
 
         mutable u64 m_Phase6StubHits = 0;
+        mutable std::array<u64, static_cast<sizet>(StubKind::Count)> m_StubHitsByKind{};
         mutable std::unordered_set<std::string> m_WarnedStubs;
 
         VulkanRecordedPipelineState m_State;

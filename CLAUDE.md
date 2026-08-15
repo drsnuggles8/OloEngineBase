@@ -78,6 +78,7 @@ you are in.
 **Renderer**
 
 - [rhi-abstraction-boundary.md](docs/agent-rules/rhi-abstraction-boundary.md) — where the OpenGL boundary actually leaks: the include graph, not a `glXxx(` grep.
+- [vulkan-command-ordered-buffer-writes.md](docs/agent-rules/vulkan-command-ordered-buffer-writes.md) — a CPU buffer write between two recorded draws is GL command order; a life-stable Vulkan address silently makes it last-write-wins, and the failure is scene-shaped.
 - [gpu-debug-draws.md](docs/agent-rules/gpu-debug-draws.md) — **the instrument for GPU-driven work**: any shader can draw a primitive into the viewport the same frame. Read the two-counter overflow protocol before concluding "it drew nothing".
 - [gl-clear-program-revalidation.md](docs/agent-rules/gl-clear-program-revalidation.md) — NVIDIA recompiles the *bound* program at `glClear`; wrap any new clear site in `GLClearProgramGuard` (unbind **and restore**).
 - [render-pass-published-state.md](docs/agent-rules/render-pass-published-state.md) — a pass whose outputs are engine-global bindings must publish last, and must not be wrapped in `GLStateGuard(Restore)`.

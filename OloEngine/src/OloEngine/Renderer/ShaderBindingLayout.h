@@ -42,6 +42,20 @@ namespace OloEngine
             // grid cell, so the add-back is a no-op near origin.
             glm::vec3 RenderOrigin = glm::vec3(0.0f);
             f32 _padding1 = 0.0f;
+            // The SHADER-RECONSTRUCTION flavour of Projection (#691 Phase 8).
+            // `Projection` above carries the rasterizer flavour (full F: y flip
+            // + z remap on Vulkan), which every `gl_Position` consumer needs —
+            // but a shader doing its own `(clip.z/clip.w)*0.5+0.5`, extracting
+            // near/far from rows 2/3, or inverting the matrix needs the
+            // row-flip-only flavour, or the z remap is double-applied
+            // (ADR 0011 (59): a seam is defined by how a value is READ).
+            // On GL both members are identical. Appended so every existing
+            // truncated CameraMatrices declaration stays valid (std140
+            // trailing-byte tolerance, same as RenderOrigin above).
+            // Writers using the CAPTURE flavour for `Projection` (sky/IBL/DDGI
+            // face bakes: z remap WITHOUT y flip) fill this with the RAW
+            // matrix — their math sibling has neither flip nor remap.
+            glm::mat4 ProjectionForReconstruction = glm::mat4(1.0f);
 
             static constexpr u32 GetSize()
             {
@@ -54,11 +68,12 @@ namespace OloEngine
         // field) fails compile-time instead of producing silently-wrong
         // matrices at runtime. Expected: 3*mat4(192) + vec3+pad(16) +
         // mat4(64) + vec3+pad(16) = 288 B (the trailing vec3 is the
-        // camera-relative render origin, issue #429). Alignment is not
-        // asserted: GLM mat4 is not 16-byte-aligned by default, but the
-        // C++-side SetData() call uploads the raw byte buffer so only total
-        // size matters.
-        static_assert(sizeof(CameraUBO) == 288, "CameraUBO std140 size drifted from GLSL expectation (288 B)");
+        // camera-relative render origin, issue #429; the trailing mat4 is the
+        // reconstruction-flavour projection, issue #691 Phase 8 — 288 + 64 =
+        // 352). Alignment is not asserted: GLM mat4 is not 16-byte-aligned by
+        // default, but the C++-side SetData() call uploads the raw byte
+        // buffer so only total size matters.
+        static_assert(sizeof(CameraUBO) == 352, "CameraUBO std140 size drifted from GLSL expectation (352 B)");
 
         // @brief Per-light record in the multi-light UBO (binding 5). Packed
         // by Scene::ProcessScene3DSharedLogic; decoded in PBRCommon.glsl /
@@ -857,6 +872,126 @@ namespace OloEngine
         static_assert(sizeof(InstanceCullUBO) == 128,
                       "InstanceCullUBO std140 size drifted from GLSL expectation (128 B)");
 
+        // @brief Ocean FFT compute-chain parameters, uploaded at UBO_OCEAN_FFT
+        // (73). GLSL twin: the OceanFFTParams block shared verbatim by
+        // compute/Ocean_SpectrumEvolve.comp, compute/Ocean_FFTButterfly.comp
+        // and compute/Ocean_Assemble.comp (the SnowComputeUBO precedent): the
+        // three agree on Resolution and each reads its own slice of the tail.
+        // Refilled PER DISPATCH — Stage/Vertical change on every butterfly
+        // iteration (2·log2(N) dispatches per Evaluate).
+        struct OceanFFTUBO
+        {
+            i32 Resolution; // 0  — N (power of two), read by all three passes
+            f32 PatchSize;  // 4  — L, world tile size (m) — SpectrumEvolve only
+            f32 Gravity;    // 8  — g — SpectrumEvolve only
+            f32 Time;       // 12 — t (seconds) — SpectrumEvolve only
+            i32 Stage;      // 16 — 0 .. log2(N)-1 — FFTButterfly only
+            i32 Vertical;   // 20 — 0 = rows, 1 = columns — FFTButterfly only
+            f32 Choppiness; // 24 — λ, horizontal-displacement scale — Assemble only
+            f32 _pad0;      // 28
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(OceanFFTUBO));
+            }
+        };
+
+        static_assert(sizeof(OceanFFTUBO) % 16 == 0, "OceanFFTUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(OceanFFTUBO) == 32, "OceanFFTUBO std140 size drifted from GLSL expectation (32 B)");
+
+        // @brief Cloud-noise volume bake parameters, uploaded at
+        // UBO_CLOUD_NOISE_GEN (74). GLSL twin: the CloudNoiseGenParams block in
+        // compute/CloudNoise_Generate.comp. Refilled per dispatch — the bake
+        // runs twice (base 128³, detail 32³) at startup, not per frame.
+        struct CloudNoiseGenUBO
+        {
+            i32 Mode;    // 0  — 0 = base, 1 = detail
+            i32 Size;    // 4  — texels per axis (128 base, 32 detail)
+            f32 InvSize; // 8  — 1.0 / Size (computed on the CPU)
+            f32 _pad0;   // 12
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(CloudNoiseGenUBO));
+            }
+        };
+
+        static_assert(sizeof(CloudNoiseGenUBO) % 16 == 0, "CloudNoiseGenUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(CloudNoiseGenUBO) == 16,
+                      "CloudNoiseGenUBO std140 size drifted from GLSL expectation (16 B)");
+
+        // @brief Cloud shadow-map generation parameters, uploaded at
+        // UBO_CLOUD_SHADOW_GEN (75). GLSL twin: the CloudShadowGenParams block
+        // in compute/CloudShadow_Generate.comp — the GENERATOR's own map
+        // placement; NOT folded into CloudscapeUBO (53), whose block is shared
+        // by every cloud-field consumer. Refilled once per frame.
+        struct CloudShadowGenUBO
+        {
+            glm::vec2 ShadowCenter; // 0  — world XZ of the map center (texel-snapped)
+            f32 ShadowWorldSize;    // 8  — world meters covered by the full map
+            i32 ShadowResolution;   // 12 — texels per axis
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(CloudShadowGenUBO));
+            }
+        };
+
+        static_assert(sizeof(CloudShadowGenUBO) % 16 == 0, "CloudShadowGenUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(CloudShadowGenUBO) == 16,
+                      "CloudShadowGenUBO std140 size drifted from GLSL expectation (16 B)");
+
+        // @brief Precipitation→snow accumulation feed parameters, uploaded at
+        // UBO_PRECIPITATION_FEED (76). GLSL twin: the PrecipitationFeedParams
+        // block in compute/Precipitation_Feed.comp. Clipmap trio first (the
+        // SnowComputeUBO ordering) so the vec2 sits on its natural 8-byte
+        // boundary with no implicit padding. Refilled once per update.
+        struct PrecipitationFeedUBO
+        {
+            glm::vec2 ClipmapCenter;  // 0  — world XZ centre of the snow clipmap
+            f32 ClipmapExtent;        // 8  — half-extent in world units
+            i32 ClipmapResolution;    // 12 — texels per axis (e.g. 2048)
+            f32 AccumulationFeedRate; // 16 — depth each landed particle contributes
+            f32 GroundY;              // 20 — ground plane Y
+            f32 GroundThreshold;      // 24 — ground-contact tolerance
+            f32 _pad0;                // 28
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(PrecipitationFeedUBO));
+            }
+        };
+
+        static_assert(sizeof(PrecipitationFeedUBO) % 16 == 0,
+                      "PrecipitationFeedUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(PrecipitationFeedUBO) == 32,
+                      "PrecipitationFeedUBO std140 size drifted from GLSL expectation (32 B)");
+
+        // @brief Reflection-probe cluster-cull params (issue #691 Phase 8),
+        // uploaded at UBO_REFLECTION_PROBE_CULL (77). GLSL twin: the
+        // ReflectionProbeCullParams block in compute/ReflectionProbeCull.comp.
+        // The SEVENTH bare-uniform compute file — invisible to the Phase 7
+        // sweep because its pass never ran in that session's live log; found
+        // by the first --rhi=vulkan editor launch of Phase 8.
+        struct ReflectionProbeCullUBO
+        {
+            glm::mat4 ViewMatrix;              // 0   — RELATIVE world -> view
+            glm::mat4 InverseProjectionMatrix; // 64
+            f32 NearPlane;                     // 128
+            f32 FarPlane;                      // 132
+            glm::vec2 _pad0;                   // 136
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(ReflectionProbeCullUBO));
+            }
+        };
+
+        static_assert(sizeof(ReflectionProbeCullUBO) % 16 == 0,
+                      "ReflectionProbeCullUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(ReflectionProbeCullUBO) == 144,
+                      "ReflectionProbeCullUBO std140 size drifted from GLSL expectation (144 B)");
+
         // @brief Volumetric cloudscape raymarch parameters (issue #633),
         // uploaded at UBO_CLOUDSCAPE (53). GLSL twin: the CloudscapeData block
         // in include/CloudscapeCommon.glsl — shared by the raymarch pass, the
@@ -1313,6 +1448,14 @@ namespace OloEngine
         static constexpr u32 UBO_VIRTUAL_CLUSTER_CULL = 69; // Virtual-geometry cluster cull params (VirtualClusterCullUBO) — refilled per instance dispatch
         static constexpr u32 UBO_VIRTUAL_RASTER = 70;       // Virtual-geometry SW raster + debug colorize params (VirtualRasterUBO)
         static constexpr u32 UBO_INSTANCE_CULL = 71;        // GPU instance frustum/occlusion cull params (InstanceCullUBO)
+        // The Phase 8 completion of the same sweep — the six compute shaders
+        // whose passes never ran in the Phase 7 live log but carried the
+        // identical bare-uniform debt (issue #691 Phase 8).
+        static constexpr u32 UBO_OCEAN_FFT = 73;             // Ocean FFT chain params (OceanFFTUBO) — one block shared by SpectrumEvolve/FFTButterfly/Assemble, refilled per dispatch
+        static constexpr u32 UBO_CLOUD_NOISE_GEN = 74;       // Cloud-noise volume bake params (CloudNoiseGenUBO) — startup bake, two dispatches
+        static constexpr u32 UBO_CLOUD_SHADOW_GEN = 75;      // Cloud shadow-map generation params (CloudShadowGenUBO) — the generator side; consumers read UBO_ATMOSPHERE_SHADING (54)
+        static constexpr u32 UBO_PRECIPITATION_FEED = 76;    // Precipitation→snow feed params (PrecipitationFeedUBO) — NOT UBO_PRECIPITATION (18), the render-side block
+        static constexpr u32 UBO_REFLECTION_PROBE_CULL = 77; // Reflection-probe cluster-cull params (ReflectionProbeCullUBO) — the seventh bare-uniform file, found live
 
         // (The GL 4.6 GL_MAX_UNIFORM_BUFFER_BINDINGS minimum guarantee of 84 is
         // asserted once, against UBO_BINDING_LIMIT, below — naming a single
@@ -1351,10 +1494,11 @@ namespace OloEngine
         // that). A hand-picked name has to be MOVED on every addition; this
         // one only has to be RAISED when a binding exceeds it, which the
         // static_assert below makes a compile error rather than a black frame.
-        static constexpr u32 UBO_BINDING_LIMIT = 73;
+        static constexpr u32 UBO_BINDING_LIMIT = 78;
         static_assert(UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
+                          UBO_REFLECTION_PROBE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBES < UBO_BINDING_LIMIT && UBO_HEAP_OFFSETS < UBO_BINDING_LIMIT &&
-                          UBO_DEBUG_DRAW < UBO_BINDING_LIMIT,
+                          UBO_DEBUG_DRAW < UBO_BINDING_LIMIT && UBO_PRECIPITATION_FEED < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         static_assert(UBO_BINDING_LIMIT <= 84,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
@@ -1845,6 +1989,17 @@ namespace OloEngine
                     return name.contains("VirtualRaster") || name.contains("virtualRaster");
                 case UBO_INSTANCE_CULL:
                     return name.contains("InstanceCull") || name.contains("instanceCull");
+                // Issue #691 Phase 8 — the sweep's completion.
+                case UBO_OCEAN_FFT:
+                    return name.contains("OceanFFT") || name.contains("oceanFFT");
+                case UBO_CLOUD_NOISE_GEN:
+                    return name.contains("CloudNoiseGen") || name.contains("cloudNoiseGen");
+                case UBO_CLOUD_SHADOW_GEN:
+                    return name.contains("CloudShadowGen") || name.contains("cloudShadowGen");
+                case UBO_PRECIPITATION_FEED:
+                    return name.contains("PrecipitationFeed") || name.contains("precipitationFeed");
+                case UBO_REFLECTION_PROBE_CULL:
+                    return name.contains("ReflectionProbeCull") || name.contains("reflectionProbeCull");
                 default:
                     return false;
             }

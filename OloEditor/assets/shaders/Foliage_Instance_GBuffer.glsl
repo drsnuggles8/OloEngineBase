@@ -50,6 +50,12 @@ layout(std140, binding = 0) uniform CameraMatrices
     float _padding1;
 };
 
+// Foliage uploads ONE shared InstanceData entry for all N pulled instances
+// (see FoliageRenderer::Render) — per-instance data rides the 48-byte
+// instance stream instead. OLO_INSTANCE_SINGLE keeps the include from
+// indexing that one entry by gl_InstanceIndex (GL: garbage read, Vulkan:
+// device-losing page fault at high instance counts).
+#define OLO_INSTANCE_SINGLE 1
 #include "include/InstanceBlock_Vertex.glsl"
 
 layout(std140, binding = 12) uniform FoliageParams

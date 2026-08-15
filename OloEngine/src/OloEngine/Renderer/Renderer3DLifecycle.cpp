@@ -6,6 +6,8 @@
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
+#include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
@@ -16,6 +18,7 @@
 
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
+#include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -208,7 +211,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 48;
+        constexpr u32 totalShaders3D = 49;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -263,6 +266,7 @@ namespace OloEngine
             "assets/shaders/Foliage_Impostor.glsl",
             "assets/shaders/Impostor_Bake.glsl",
             "assets/shaders/Water.glsl",
+            "assets/shaders/Water_Depth.glsl",
             "assets/shaders/Decal.glsl",
             "assets/shaders/Decal_OIT.glsl",
             "assets/shaders/Decal_GBuffer.glsl",
@@ -329,6 +333,7 @@ namespace OloEngine
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
         s_Data.FoliageImpostorShader = m_ShaderLibrary.Get("Foliage_Impostor");
         s_Data.WaterShader = m_ShaderLibrary.Get("Water");
+        s_Data.WaterDepthShader = m_ShaderLibrary.Get("Water_Depth");
         s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
         s_Data.DecalGBufferShader = m_ShaderLibrary.Get("Decal_GBuffer");
         s_Data.DecalGBufferNormalShader = m_ShaderLibrary.Get("Decal_GBuffer_Normal");
@@ -535,6 +540,10 @@ namespace OloEngine
         CloudShadowMap::Shutdown();
         CloudNoise::Shutdown();
 
+        // Release the shared ocean FFT params UBO (#691 Phase 8) while the
+        // graphics device is still valid.
+        Ocean::OceanFFTGpu::ShutdownSharedResources();
+
         // Shutdown precipitation system
         ScreenSpacePrecipitation::Shutdown();
         PrecipitationSystem::Shutdown();
@@ -607,6 +616,79 @@ namespace OloEngine
         s_Data.PrevBoneMatricesUBO.Reset();
         s_Data.UnderwaterFogBuffer.Reset();
 
+        // The primitive meshes are the same static-outlives-the-context shape
+        // as the GPUFrustumCuller above: each MeshSource holds a main + shadow
+        // vertex array whose VMA allocations must die before the window
+        // destroys the graphics context, or vmaDestroyAllocator aborts with
+        // "allocations not freed" on Vulkan (#691 Phase 8, the close-button
+        // crash — found via the surviving-VertexArray teardown dump).
+        s_Data.CubeMesh.Reset();
+        s_Data.SphereMesh.Reset();
+        s_Data.QuadMesh.Reset();
+        s_Data.SkyboxMesh.Reset();
+        s_Data.DecalCubeMesh.Reset();
+        s_Data.LineQuadMesh.Reset();
+        s_Data.FullscreenQuadVAO.Reset();
+        s_Data.WhiteTexture.Reset();
+
+        // CommandDispatch's static mirror of the shared UBO / instance-buffer
+        // Refs (SetUBOReferences) is a CO-OWNER: without this, the
+        // ModelInstanceBuffer's storage survives to static destruction and
+        // trips the same vmaDestroyAllocator abort as the meshes above.
+        CommandDispatch::Shutdown();
+
+        // Shaders: the static library plus s_Data's named aliases. Shaders
+        // surviving to static destruction leak their VkShaderModules into
+        // vkDestroyDevice (VUID-vkDestroyDevice-device-05137).
+        s_Data.LightCubeShader.Reset();
+        s_Data.DefaultForwardShader.Reset();
+        s_Data.DefaultForwardSkinnedShader.Reset();
+        s_Data.QuadShader.Reset();
+        s_Data.PBRShader.Reset();
+        s_Data.PBRSkinnedShader.Reset();
+        s_Data.PBRMultiLightShader.Reset();
+        s_Data.PBRMultiLightSkinnedShader.Reset();
+        s_Data.PBRGBufferShader.Reset();
+        s_Data.PBRGBufferSkinnedShader.Reset();
+        s_Data.SkyboxShader.Reset();
+        s_Data.SkyboxGBufferShader.Reset();
+        s_Data.LightCubeGBufferShader.Reset();
+        s_Data.InfiniteGridShader.Reset();
+        s_Data.InfiniteGridGBufferShader.Reset();
+        s_Data.ForwardPlusDebugShader.Reset();
+        s_Data.ShadowDepthShader.Reset();
+        s_Data.ShadowDepthSkinnedShader.Reset();
+        s_Data.DepthPrepassShader.Reset();
+        s_Data.DepthPrepassSkinnedShader.Reset();
+        s_Data.DepthPrepassMaskShader.Reset();
+        s_Data.DepthPrepassMaskSkinnedShader.Reset();
+        s_Data.TerrainPBRShader.Reset();
+        s_Data.TerrainGBufferShader.Reset();
+        s_Data.TerrainDepthShader.Reset();
+        s_Data.VoxelPBRShader.Reset();
+        s_Data.VoxelGBufferShader.Reset();
+        s_Data.VoxelDepthShader.Reset();
+        s_Data.FoliageShader.Reset();
+        s_Data.FoliageGBufferShader.Reset();
+        s_Data.FoliageDepthShader.Reset();
+        s_Data.FoliageImpostorShader.Reset();
+        s_Data.WaterShader.Reset();
+        s_Data.WaterDepthShader.Reset();
+        s_Data.DecalShader.Reset();
+        s_Data.DecalGBufferShader.Reset();
+        s_Data.DecalGBufferNormalShader.Reset();
+        s_Data.DecalGBufferRMAShader.Reset();
+        s_Data.DecalGBufferEmissiveShader.Reset();
+        // ParallelSceneContext caches its OWN Ref<Shader> copies for the
+        // worker-thread submission path — the co-owner the teardown
+        // ref-holder scan found at s_Data.ParallelContext (the five
+        // "surviving shader" traces on every close).
+        s_Data.ParallelContext = ParallelSceneContext{};
+        m_ShaderLibrary.Clear();
+        ShaderLibrary::ShutdownFallbackShader();
+
+        IBLPrecompute::Shutdown();
+        ImpostorBaker::Shutdown();
         MeshPrimitives::Shutdown();
 
         FrameResourceManager::Get().Shutdown();

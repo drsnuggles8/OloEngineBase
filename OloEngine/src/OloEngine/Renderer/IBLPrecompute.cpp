@@ -14,9 +14,12 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <stb_image/stb_image.h>
+#include <stb_image/stb_image_write.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <chrono>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace OloEngine
@@ -24,11 +27,16 @@ namespace OloEngine
     // Static member definitions
     Ref<Mesh> IBLPrecompute::s_CubeMesh = nullptr;
 
+    // File-scope (not function-local) so IBLPrecompute::Shutdown can release
+    // it before the graphics context dies — a function-local static Ref is
+    // unreachable from Shutdown and its destructor runs at static-destruction
+    // time, after the binding-state/root-object singletons it unregisters
+    // from may already be gone (review finding, #691 Phase 8).
+    static Ref<UniformBuffer> s_IBLCameraUBO = nullptr;
+
     // Helper method to update camera matrices UBO for IBL rendering
     static void UpdateIBLCameraUBO(const glm::mat4& view, const glm::mat4& projection)
     {
-        // Create or get static UBO for IBL camera matrices
-        static Ref<UniformBuffer> s_IBLCameraUBO = nullptr;
         if (!s_IBLCameraUBO)
         {
             s_IBLCameraUBO = UniformBuffer::Create(
@@ -48,6 +56,8 @@ namespace OloEngine
         cameraData.Projection = RHI::AdjustCaptureProjectionForBackend(projection);
         cameraData.Position = glm::vec3(0.0f); // IBL rendering is done from origin
         cameraData._padding0 = 0.0f;
+        // Capture flavour's reconstruction sibling = the raw matrix (#691 Phase 8).
+        cameraData.ProjectionForReconstruction = projection;
 
         // Scene rendering may have bound a different buffer to UBO_CAMERA since
         // the one-time creation above; SetData (glNamedBufferSubData) only
@@ -158,6 +168,35 @@ namespace OloEngine
         f32* data = stbi_loadf(filePath.c_str(), &width, &height, &channels, 0);
         stbi_set_flip_vertically_on_load(false); // reset global flag to avoid polluting later stbi calls
 
+        // OLO_ENV_BAKE_DUMP diagnostics (#797): CPU-side ground truth of the loaded HDR.
+        if (data != nullptr && std::getenv("OLO_ENV_BAKE_DUMP") != nullptr)
+        {
+            // Skip non-finite texels in the mean but COUNT them — a NaN-laden
+            // source is itself a finding, and one NaN would otherwise poison
+            // the printed mean into uselessness.
+            f64 srcSum[3] = {};
+            sizet srcNonFinite = 0;
+            const sizet srcTexels = static_cast<sizet>(width) * height;
+            for (sizet i = 0; i < srcTexels; ++i)
+                for (int c = 0; c < 3 && c < channels; ++c)
+                {
+                    const f32 v = data[i * channels + c];
+                    if (std::isfinite(v))
+                        srcSum[c] += v;
+                    else
+                        ++srcNonFinite;
+                }
+            OLO_CORE_INFO("[EnvBakeDump] SOURCE {}x{} ch={} mean HDR = ({:.3f}, {:.3f}, {:.3f}), {} non-finite",
+                          width, height, channels, srcSum[0] / srcTexels, srcSum[1] / srcTexels,
+                          srcSum[2] / srcTexels, srcNonFinite);
+            if (channels >= 3)
+            {
+                const sizet center = (static_cast<sizet>(height / 2) * width + width / 2) * channels;
+                OLO_CORE_INFO("[EnvBakeDump] SOURCE center texel = ({:.3f}, {:.3f}, {:.3f})", data[center],
+                              data[center + 1], data[center + 2]);
+            }
+        }
+
         if (!data)
         {
             OLO_CORE_ERROR("Failed to load HDR image: {}", filePath);
@@ -173,6 +212,36 @@ namespace OloEngine
 
         auto hdrTexture = Texture2D::Create(hdrSpec);
         hdrTexture->SetData(data, width * height * channels * sizeof(f32));
+
+        // OLO_ENV_BAKE_DUMP diagnostics (#797): read the UPLOADED texture back — splits a
+        // broken upload from a broken bake.
+        if (std::getenv("OLO_ENV_BAKE_DUMP") != nullptr)
+        {
+            std::vector<u8> up;
+            if (hdrTexture->GetData(up, 0) && !up.empty())
+            {
+                // memcpy decode — reading the byte buffer through a
+                // reinterpret_cast<const f32*> is an aliasing violation.
+                std::vector<f32> upf(up.size() / sizeof(f32));
+                std::memcpy(upf.data(), up.data(), upf.size() * sizeof(f32));
+                const sizet upCount = upf.size();
+                const int upCh = static_cast<int>(upCount / (static_cast<sizet>(width) * height));
+                f64 upSum[3] = {};
+                const sizet upTexels = static_cast<sizet>(width) * height;
+                for (sizet i = 0; i < upTexels && upCh >= 3; ++i)
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        if (const f32 v = upf[i * upCh + c]; std::isfinite(v))
+                            upSum[c] += v;
+                    }
+                OLO_CORE_INFO("[EnvBakeDump] UPLOADED texture readback: {} floats ({} ch) mean = ({:.3f}, {:.3f}, {:.3f})",
+                              upCount, upCh, upSum[0] / upTexels, upSum[1] / upTexels, upSum[2] / upTexels);
+            }
+            else
+            {
+                OLO_CORE_ERROR("[EnvBakeDump] UPLOADED texture readback FAILED or empty");
+            }
+        }
 
         stbi_image_free(data);
 
@@ -197,6 +266,12 @@ namespace OloEngine
 
         auto shader = shaderLibrary.Get("EquirectangularToCubemap");
 
+        // Build the cube mesh BEFORE publishing the HDR texture: mesh build is
+        // a GPU-resource path, and any bind it performs must not land after
+        // the unit-0 publish below (#797's framebuffer-creation clobber was
+        // exactly this shape, one step later).
+        auto cubeMesh = GetCubeMesh();
+
         // Bind HDR texture
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DIFFUSE,
                                                  hdrTexture->GetRHIHandle(),
@@ -204,8 +279,49 @@ namespace OloEngine
 
         // Render to cubemap (fills mip 0 of each face), then build the mip chain
         // for the advanced IBL passes' mip-biased sampling.
-        RenderToCubemap(cubemap, shader, GetCubeMesh());
+        RenderToCubemap(cubemap, shader, cubeMesh);
         cubemap->GenerateMipmaps();
+
+        // OLO_ENV_BAKE_DUMP diagnostics (#797): dump per-face means + face PNGs when
+        // OLO_ENV_BAKE_DUMP is set, to localize the GL-white-environment bug.
+        if (const char* dumpDir = std::getenv("OLO_ENV_BAKE_DUMP"); dumpDir != nullptr && *dumpDir != '\0')
+        {
+            for (u32 face = 0; face < 6; ++face)
+            {
+                std::vector<u8> faceData;
+                if (!cubemap->GetFaceData(face, faceData, 0))
+                {
+                    OLO_CORE_ERROR("[EnvBakeDump] face {} readback FAILED", face);
+                    continue;
+                }
+                const auto* px = reinterpret_cast<const f32*>(faceData.data());
+                const sizet texels = faceData.size() / (4 * sizeof(f32));
+                f64 sum[3] = {};
+                for (sizet i = 0; i < texels; ++i)
+                {
+                    sum[0] += px[i * 4 + 0];
+                    sum[1] += px[i * 4 + 1];
+                    sum[2] += px[i * 4 + 2];
+                }
+                OLO_CORE_INFO("[EnvBakeDump] face {}: {} texels, mean HDR = ({:.3f}, {:.3f}, {:.3f})", face, texels,
+                              sum[0] / texels, sum[1] / texels, sum[2] / texels);
+                // Tonemapped PNG for eyeballing
+                std::vector<u8> ldr(texels * 3);
+                for (sizet i = 0; i < texels; ++i)
+                {
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        const f32 v = px[i * 4 + c];
+                        const f32 tm = std::pow(v / (1.0f + v), 1.0f / 2.2f);
+                        ldr[i * 3 + c] = static_cast<u8>(std::clamp(tm, 0.0f, 1.0f) * 255.0f);
+                    }
+                }
+                const u32 side = cubemap->GetWidth();
+                const std::string path = std::string(dumpDir) + "/face" + std::to_string(face) + ".png";
+                stbi_write_png(path.c_str(), static_cast<int>(side), static_cast<int>(side), 3, ldr.data(),
+                               static_cast<int>(side * 3));
+            }
+        }
 
         OLO_CORE_INFO("Equirectangular to cubemap conversion complete");
         return cubemap;
@@ -368,6 +484,12 @@ namespace OloEngine
         return s_CubeMesh;
     }
 
+    void IBLPrecompute::Shutdown()
+    {
+        s_CubeMesh.Reset();
+        s_IBLCameraUBO.Reset();
+    }
+
     namespace
     {
         // Force a GPU sync so the elapsed-time log lines actually reflect the
@@ -422,6 +544,13 @@ namespace OloEngine
         // block uniforms, so the parameters cannot be set via SetInt/SetFloat.
         // The legacy IrradianceConvolution fallback ignores the UBO entirely.
         shader->Bind();
+        // Function-scoped, NOT inside the if: the UBO must outlive the
+        // RenderToCubemap draw below. On Vulkan its destructor clears the
+        // published binding-state occupant, so a block-scoped UBO left the
+        // bake shader reading a NULL device address — a GPU page fault that
+        // escalated to VK_ERROR_DEVICE_LOST (#691 Phase 8). GL only tolerated
+        // the dangling bind by accident of its object lifetime rules.
+        Ref<UniformBuffer> paramsUBO;
         if (advancedAvailable)
         {
             const auto qualityMultiplier = [&]() -> f32
@@ -449,7 +578,7 @@ namespace OloEngine
             params.UseImportanceSampling = config.UseImportanceSampling ? 1 : 0;
             params.SourceResolution = static_cast<i32>(environmentMap->GetWidth());
 
-            auto paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+            paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
             paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
             paramsUBO->Bind();
         }
@@ -605,6 +734,10 @@ namespace OloEngine
         // Drive the advanced integrator's sample count through IBLAdvancedParams
         // (binding 7). The legacy BRDFLutGeneration fallback hard-codes its count
         // and ignores the UBO entirely.
+        // Function-scoped for the same reason as the irradiance bake above:
+        // the UBO must outlive the RenderToTexture draw, or on Vulkan the
+        // shader reads a NULL device address and faults the GPU.
+        Ref<UniformBuffer> paramsUBO;
         if (usingAdvancedShader)
         {
             const i32 sampleCount = [&]() -> i32
@@ -632,7 +765,7 @@ namespace OloEngine
             params.UseImportanceSampling = 1;
             params.SourceResolution = 1; // unused by the BRDF path
 
-            auto paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+            paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
             paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
             paramsUBO->Bind();
         }

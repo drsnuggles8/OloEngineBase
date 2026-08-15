@@ -35,9 +35,11 @@ namespace OloEngine
         };
         static_assert(sizeof(ImpostorBakeUBO) == 112, "ImpostorBakeUBO must match GLSL std140 (112 bytes)");
 
+        Ref<Texture2D> s_WhiteFallback;
+
         Ref<Texture2D> GetWhiteFallback()
         {
-            static Ref<Texture2D> s_White;
+            Ref<Texture2D>& s_White = s_WhiteFallback;
             if (!s_White)
             {
                 TextureSpecification spec;
@@ -63,6 +65,11 @@ namespace OloEngine
             return Texture2D::Create(spec);
         }
     } // namespace
+
+    void ImpostorBaker::Shutdown()
+    {
+        s_WhiteFallback.Reset();
+    }
 
     ImpostorAtlas ImpostorBaker::Bake(
         const Ref<Mesh>& mesh,

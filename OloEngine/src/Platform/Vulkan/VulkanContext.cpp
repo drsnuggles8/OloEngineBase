@@ -8,14 +8,17 @@
 // et al.) when VK_VERSION_1_0 is already visible.
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanGpuFence.h"
+#include "Platform/Vulkan/VulkanImGuiBackend.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <GLFW/glfw3.h>
@@ -45,6 +48,16 @@ namespace OloEngine
         {
             if (result != VK_SUCCESS)
             {
+                if (result == VK_ERROR_DEVICE_LOST)
+                {
+                    // Get the driver's fault report (address + fault type)
+                    // into the log BEFORE the throw unwinds — the crash
+                    // handler only sees the VkResult.
+                    if (auto* device = VulkanDevice::Get())
+                    {
+                        device->LogDeviceFaultInfo();
+                    }
+                }
                 throw std::runtime_error(std::string("Vulkan bring-up: ") + what + " failed (VkResult " +
                                          std::to_string(static_cast<int>(result)) + ")");
             }
@@ -67,6 +80,10 @@ namespace OloEngine
         VkSwapchainKHR Swapchain = VK_NULL_HANDLE;
         VkFormat SwapchainFormat = VK_FORMAT_UNDEFINED;
         VkExtent2D SwapchainExtent{};
+        // The minImageCount requested at vkCreateSwapchainKHR — the ImGui
+        // renderer backend's InitInfo wants it alongside the actual image
+        // count (#691 Phase 8).
+        u32 SwapchainMinImageCount = 0;
         std::vector<VkImage> SwapchainImages;
         // Attachment views for dynamic rendering (#691 Phase 6 — the frame
         // loop renders now, it no longer only clears).
@@ -101,10 +118,13 @@ namespace OloEngine
         : m_WindowHandle(windowHandle), m_Data(CreateScope<VulkanContextData>())
     {
         OLO_CORE_ASSERT(windowHandle, "Window handle is null!");
+        OLO_CORE_ASSERT(s_Instance == nullptr, "A VulkanContext already exists");
+        s_Instance = this;
     }
 
     VulkanContext::~VulkanContext()
     {
+        s_Instance = nullptr;
         VulkanContextData& d = *m_Data;
         const VkDevice device = d.Device.GetDevice();
         if (device != VK_NULL_HANDLE)
@@ -117,11 +137,19 @@ namespace OloEngine
             // production drain), and entries surviving past Device.Shutdown()
             // are dropped with a leak warning instead of destroyed.
             VulkanPipelineBuilder::Get().ReleaseAll();
+            // The raw-facade registries (deliberately leaked singletons) hold
+            // the LAST Ref on adopted textures/framebuffers a caller never
+            // Destroy()ed — release them here so they retire through the
+            // reclaim drain below; left alone they outlive vmaDestroyAllocator
+            // and abort (review finding, #691 Phase 8). Framebuffers first:
+            // they hold Refs to the textures.
+            VulkanRawFramebufferRegistry::Get().ReleaseAll();
+            VulkanRawTextureRegistry::Get().ReleaseAll();
             // The engine heap's slots index the resource heap below — retire
             // them first (amendment (33): state must not outlive what gives
             // it meaning).
             RHI::DescriptorHeap::Get().Shutdown();
-            VulkanResourceHeap::Get().Release();
+            VulkanResourceHeap::Get().Release(); // cascades to the sampler heap
             VulkanFrameArena::Get().ReleaseBuffers();
             VulkanDeferredReclaim::Get().FlushAll();
             // Serialise + destroy the process-wide pipeline cache while the
@@ -149,6 +177,21 @@ namespace OloEngine
             vkDestroySurfaceKHR(d.Device.GetInstance(), d.Surface, nullptr);
             d.Surface = VK_NULL_HANDLE;
         }
+        // Anything still in the root registry at this point outlived the
+        // full teardown — name the owners (Debug) before the allocator
+        // teardown turns them into a bare VMA leak count, and force-release
+        // surviving shaders' modules so a stray static Ref cannot leak them
+        // into vkDestroyDevice.
+        VulkanRootObjectRegistry::Get().LogSurvivingVertexArrays();
+        VulkanRootObjectRegistry::Get().ReleaseSurvivingShaderModules();
+        VulkanLogSurvivingTransients();
+        // Second (final) reclaim drain: objects destroyed AFTER the FlushAll
+        // above — swapchain teardown, late Ref releases on other threads —
+        // re-populate the queue, and an entry that reaches
+        // vmaDestroyAllocator is the "allocations not freed" abort. The
+        // device is idle (nothing has submitted since the wait above), so
+        // the flush precondition holds.
+        VulkanDeferredReclaim::Get().FlushAll();
         d.Device.Shutdown();
         OLO_CORE_INFO("[Vulkan] Context shut down cleanly");
     }
@@ -287,6 +330,7 @@ namespace OloEngine
         {
             imageCount = std::min(imageCount, caps.maxImageCount);
         }
+        d.SwapchainMinImageCount = imageCount;
 
         VkSwapchainCreateInfoKHR swapchainInfo{};
         swapchainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -347,6 +391,8 @@ namespace OloEngine
         {
             VulkanImageInfo info{};
             info.Format = d.SwapchainFormat;
+            info.Width = extent.width;
+            info.Height = extent.height;
             info.MipLevels = 1;
             info.ArrayLayers = 1;
             VulkanImageInfoRegistry::Get().Register(d.SwapchainImages[i], info);
@@ -401,6 +447,163 @@ namespace OloEngine
         DestroySwapchain();
         CreateSwapchain();
         OLO_CORE_INFO("[Vulkan] Swapchain recreated ({}x{})", d.SwapchainExtent.width, d.SwapchainExtent.height);
+    }
+
+    bool VulkanContext::FlushFrameRecordingAndWait()
+    {
+        if (!m_InSwapBuffers)
+        {
+            return false;
+        }
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        if (api.BackbufferWasWrittenThisRecording())
+        {
+            // The acquire semaphore is a single-wait binary the FINAL submit
+            // owns; swapchain-image work in a flush would need it first.
+            // TRACE, not WARN: the caller's borrow-mode fallback (previous-
+            // frame read, ReadTextureSubImage) is the DESIGNED behavior for
+            // this case — it is GL's double-buffered PBO pick semantics —
+            // so a viewport click after the final blit lands here in every
+            // editor session by design.
+            static bool s_Traced = false;
+            if (!s_Traced)
+            {
+                s_Traced = true;
+                OLO_CORE_TRACE("[Vulkan] mid-frame flush declined (backbuffer already written) — the caller "
+                               "reads previous-frame contents instead, GL's double-buffered pick semantics");
+            }
+            return false;
+        }
+        const VkCommandBuffer cmd = api.SuspendRecordingForFlush();
+        if (cmd == VK_NULL_HANDLE)
+        {
+            return false;
+        }
+
+        VulkanContextData& d = *m_Data;
+        const VkDevice device = d.Device.GetDevice();
+
+        // Runtime path, not bring-up: no VkCheck throws here. Whatever
+        // fails, the fence must not leak and the recording bracket must be
+        // re-opened, so the caller can fall back to the one-shot
+        // (previous-frame) read on false and the frame can continue.
+        bool ok = true;
+        VkResult result = vkEndCommandBuffer(cmd);
+        if (result != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[Vulkan] flush: vkEndCommandBuffer failed (VkResult {})", static_cast<int>(result));
+            ok = false;
+        }
+
+        VkFence fence = VK_NULL_HANDLE;
+        if (ok)
+        {
+            VkFenceCreateInfo fenceInfo{};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            result = vkCreateFence(device, &fenceInfo, nullptr, &fence);
+            if (result != VK_SUCCESS)
+            {
+                OLO_CORE_ERROR("[Vulkan] flush: vkCreateFence failed (VkResult {})", static_cast<int>(result));
+                fence = VK_NULL_HANDLE;
+                ok = false;
+            }
+        }
+        if (ok)
+        {
+            VkCommandBufferSubmitInfo cmdInfo{};
+            cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+            cmdInfo.commandBuffer = cmd;
+            VkSubmitInfo2 submit{};
+            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+            submit.commandBufferInfoCount = 1;
+            submit.pCommandBufferInfos = &cmdInfo;
+            // Deliberately NO semaphores: the acquire wait and the present signal
+            // belong to the frame's final submit, and any staged RHI::GpuFence
+            // queue ops stay staged for it too — this submission is an ordering
+            // detail inside the frame, invisible to frame pacing.
+            result = vkQueueSubmit2(d.Device.GetQueue(), 1, &submit, fence);
+            if (result != VK_SUCCESS)
+            {
+                OLO_CORE_ERROR("[Vulkan] flush: vkQueueSubmit2 failed (VkResult {})", static_cast<int>(result));
+                ok = false;
+            }
+            else
+            {
+                constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — a flush slower than this is a hang
+                result = vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs);
+                if (result == VK_TIMEOUT)
+                {
+                    // The submission may STILL be executing, and the
+                    // vkResetCommandBuffer below on a PENDING command buffer
+                    // is invalid usage (review finding) — so wait it out
+                    // rather than recycle under it. A truly hung GPU turns
+                    // into DEVICE_LOST via the OS watchdog (Windows TDR),
+                    // which exits this wait and makes the reset legal
+                    // (pending buffers become invalid-state on device loss).
+                    OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences timed out after 10 s — waiting for "
+                                   "completion or device loss before recycling the command buffer");
+                    result = vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+                }
+                if (result != VK_SUCCESS)
+                {
+                    OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences failed (VkResult {})", static_cast<int>(result));
+                    if (result == VK_ERROR_DEVICE_LOST)
+                    {
+                        d.Device.LogDeviceFaultInfo();
+                    }
+                    else
+                    {
+                        // An error wait (OOM) proves nothing about the fence:
+                        // destroying a possibly-in-flight fence is invalid
+                        // usage (VUID-vkDestroyFence-fence-01120).
+                        // Deliberately leak this one instead — the leak beats
+                        // UB. (On DEVICE_LOST the destroy below is legal.)
+                        fence = VK_NULL_HANDLE;
+                    }
+                    ok = false;
+                }
+            }
+        }
+        if (fence != VK_NULL_HANDLE)
+        {
+            vkDestroyFence(device, fence, nullptr);
+        }
+
+        // Re-open the recording bracket on EVERY path (reset also recovers a
+        // command buffer left invalid by a failed end above), and always hand
+        // it back to the API so its recording state stays consistent.
+        result = vkResetCommandBuffer(cmd, 0);
+        if (result != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[Vulkan] flush: vkResetCommandBuffer failed (VkResult {})", static_cast<int>(result));
+            ok = false;
+        }
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        result = vkBeginCommandBuffer(cmd, &beginInfo);
+        if (result != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[Vulkan] flush: vkBeginCommandBuffer failed (VkResult {})", static_cast<int>(result));
+            ok = false;
+        }
+        api.ResumeRecordingAfterFlush(cmd);
+        return ok;
+    }
+
+    u32 VulkanContext::GetSwapchainImageCount() const
+    {
+        return static_cast<u32>(m_Data->SwapchainImages.size());
+    }
+
+    u32 VulkanContext::GetSwapchainMinImageCount() const
+    {
+        return m_Data->SwapchainMinImageCount;
+    }
+
+    u32 VulkanContext::GetSwapchainColorFormat() const
+    {
+        return static_cast<u32>(m_Data->SwapchainFormat);
     }
 
     void VulkanContext::SwapBuffers()
@@ -548,12 +751,39 @@ namespace OloEngine
                 OLO_CORE_ERROR("[Vulkan] frame render callback threw: {} — falling back to the clear frame", e.what());
                 callbackRendered = false;
             }
+            // --- ImGui overlay (#691 Phase 8) ------------------------------
+            // The UI is recorded INSIDE this bracket, after the 3D frame,
+            // before the present transition. ImGuiLayer::End produced the
+            // draw data during the frame callback above (RenderFrameLayers
+            // runs inside it); RecordOverlay opens its own dynamic-rendering
+            // scope on the acquired backbuffer view — loadOp LOAD over a
+            // written frame, loadOp CLEAR (the bring-up colour) when the
+            // callback declined but UI exists, in which case the overlay also
+            // owns the transition to Present (Finalize below reports false
+            // for a frame whose facade scope never opened). This seam — a
+            // direct call between the frame callback and Finalize — was
+            // chosen over a second registered callback: both live in
+            // Platform/Vulkan, the overlay needs backend types (view,
+            // extent, the facade), and a std::function adds a seam nothing
+            // else would ever plug into.
+            const VulkanImGuiBackend::OverlayResult overlay = VulkanImGuiBackend::RecordOverlay(
+                api, d.SwapchainViews[imageIndex], d.SwapchainExtent, d.SwapchainImageHandles[imageIndex].Get(),
+                api.BackbufferWasWrittenThisRecording());
+
             // Owning the present transition here (rather than asking the
             // callback for it) keeps swapchain-layout knowledge inside the
             // presenting backend, and lets the fallback below stay correct:
             // it returns false ONLY when nothing touched the image, so the
             // fallback's UNDEFINED oldLayout can never discard real work.
             rendered = api.FinalizeBackbufferForPresent(callbackRendered);
+            if (overlay == VulkanImGuiBackend::OverlayResult::DrawnAndPresented)
+            {
+                // The overlay cleared + drew the UI and transitioned the
+                // image to Present itself — the frame holds defined content,
+                // so the clear-only fallback below must not run (it would
+                // clobber the UI via its UNDEFINED oldLayout).
+                rendered = true;
+            }
             api.EndRecording();
         }
         if (!rendered)

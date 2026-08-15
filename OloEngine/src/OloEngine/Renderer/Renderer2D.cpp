@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Core/UTF8.h"
@@ -309,6 +310,42 @@ namespace OloEngine
         s_Data.LineVertexBufferBase = nullptr;
         delete[] s_Data.TextVertexBufferBase;
         s_Data.TextVertexBufferBase = nullptr;
+
+        // Release the GPU-object Refs too: s_Data is static, so without this
+        // they survive to static destruction — AFTER the window destroyed the
+        // graphics context. GL never noticed; on Vulkan every one of these is
+        // a VMA allocation still alive at vmaDestroyAllocator, which aborts
+        // with "allocations not freed" on window close (#691 Phase 8).
+        s_Data.QuadVertexArray.Reset();
+        s_Data.QuadVertexBuffer.Reset();
+        s_Data.QuadShader.Reset();
+        s_Data.WhiteTexture.Reset();
+        s_Data.PolygonVertexArray.Reset();
+        s_Data.PolygonVertexBuffer.Reset();
+        s_Data.PolygonShader.Reset();
+        s_Data.CircleVertexArray.Reset();
+        s_Data.CircleVertexBuffer.Reset();
+        s_Data.CircleShader.Reset();
+        s_Data.LineVertexArray.Reset();
+        s_Data.LineVertexBuffer.Reset();
+        s_Data.LineShader.Reset();
+        s_Data.TextVertexArray.Reset();
+        s_Data.TextVertexBuffer.Reset();
+        s_Data.TextShader.Reset();
+        s_Data.SlugCurveTexture.Reset();
+        s_Data.SlugBandTexture.Reset();
+        // The camera UBO too: no VMA allocation behind it on Vulkan (frame-
+        // arena backed), but its destructor unregisters from the binding-state
+        // and root-object singletons — at static-destruction time those may
+        // already be gone (review finding, #691 Phase 8).
+        s_Data.CameraUniformBuffer.Reset();
+        for (auto& slot : s_Data.TextureSlots)
+        {
+            slot.Reset();
+        }
+        // The 2D shader library is its own static (separate from
+        // Renderer3D's) — same must-not-outlive-the-context rule.
+        m_ShaderLibrary.Clear();
     }
 
     void Renderer2D::BeginSceneImpl(const glm::mat4& viewProjectionWorld, const glm::vec3& cameraWorldPos)
@@ -323,7 +360,14 @@ namespace OloEngine
         // VP_rel * (worldPos - O) == VP_world * worldPos, so the 2D shaders
         // that only project a_Position / a_WorldPosition stay correct unmodified.
         s_Data.RenderOrigin = s_Data.CameraRelativeEnabled ? ComputeRenderOrigin(cameraWorldPos) : glm::vec3(0.0f);
-        s_Data.CameraBuffer.ViewProjection = MakeViewProjectionRelative(viewProjectionWorld, s_Data.RenderOrigin);
+        // AdjustProjectionForBackend: the 2D camera UBO feeds gl_Position
+        // directly, so it needs the same Vulkan clip-space adjustment the 3D
+        // camera packing applies (RenderPipeline / CommandDispatch) — without
+        // it every Renderer2D scene rendered vertically mirrored under
+        // Vulkan (#691 Phase 8, found by the 80-scene A/B sweep's
+        // LuaGameplayTest). Identity on GL.
+        s_Data.CameraBuffer.ViewProjection =
+            RHI::AdjustProjectionForBackend(MakeViewProjectionRelative(viewProjectionWorld, s_Data.RenderOrigin));
 
         UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
         s_Data.CameraUniformBuffer->SetData(data);

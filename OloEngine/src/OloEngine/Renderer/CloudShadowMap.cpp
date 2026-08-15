@@ -6,6 +6,8 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,6 +20,12 @@ namespace OloEngine
     {
         // Must match local_size_x/y in CloudShadow_Generate.comp
         constexpr u32 kLocalSize = 8;
+
+        // Std140 twin of CloudShadow_Generate.comp's CloudShadowGenParams
+        // block. File-scope (the header's CloudShadowMapData is out of this
+        // slice's reach) like VirtualGeometryShadow's statics; released in
+        // Shutdown().
+        Ref<UniformBuffer> s_GenParamsUBO;
     } // namespace
 
     void CloudShadowMap::Update(const CloudscapeRenderState& state, const glm::vec3& cameraPosAbsolute)
@@ -73,13 +81,25 @@ namespace OloEngine
         const glm::vec2 center(std::floor(cameraPosAbsolute.x / texelSize) * texelSize,
                                std::floor(cameraPosAbsolute.z / texelSize) * texelSize);
 
-        // NOTE: the compute also reads the CloudscapeData UBO (binding 52)
-        // and the noise samplers (59/60/61) — the caller uploaded/bound those
-        // BEFORE this call (see the class comment in CloudShadowMap.h).
+        // NOTE: the compute also reads the CloudscapeData UBO (binding 53,
+        // UBO_CLOUDSCAPE) and the noise samplers (59/60/61) — the caller
+        // uploaded/bound those BEFORE this call (see the class comment in
+        // CloudShadowMap.h).
         s_Data.m_GenerateShader->Bind();
-        s_Data.m_GenerateShader->SetFloat2("u_ShadowCenter", center);
-        s_Data.m_GenerateShader->SetFloat("u_ShadowWorldSize", worldSize);
-        s_Data.m_GenerateShader->SetInt("u_ShadowResolution", static_cast<int>(kShadowResolution));
+        // Former bare uniforms via ComputeShader::Set*, a deliberate no-op on
+        // the Vulkan route — now one std140 refill per frame (issue #691
+        // Phase 8, the HZB pattern).
+        if (!s_GenParamsUBO)
+        {
+            s_GenParamsUBO = UniformBuffer::Create(UBOStructures::CloudShadowGenUBO::GetSize(),
+                                                   ShaderBindingLayout::UBO_CLOUD_SHADOW_GEN);
+        }
+        UBOStructures::CloudShadowGenUBO genParams{};
+        genParams.ShadowCenter = center;
+        genParams.ShadowWorldSize = worldSize;
+        genParams.ShadowResolution = static_cast<i32>(kShadowResolution);
+        s_GenParamsUBO->SetData(&genParams, sizeof(genParams));
+        s_GenParamsUBO->Bind();
 
         // Persistent: the shadow map is owned by this system for the process's
         // life, not by the frame graph, so its descriptor is memoised once rather
@@ -118,6 +138,7 @@ namespace OloEngine
             RenderCommand::DeleteTexture(s_Data.m_Texture);
         }
         s_Data.m_GenerateShader = nullptr;
+        s_GenParamsUBO = nullptr;
         s_Data.m_Texture = {};
         s_Data.m_Center = glm::vec2(0.0f, 0.0f);
         s_Data.m_WorldSize = 0.0f;
