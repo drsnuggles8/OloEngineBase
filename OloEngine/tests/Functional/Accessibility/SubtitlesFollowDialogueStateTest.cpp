@@ -374,8 +374,17 @@ TEST_F(SubtitlesFollowDialogueStateTest, RuntimeStopIsWiredToTearTheSubtitleSyst
     const auto stopAt = source.find("void Scene::OnRuntimeStop()");
     ASSERT_NE(stopAt, std::string::npos) << "Scene::OnRuntimeStop not found — has it been renamed?";
 
+    // Bound the search to OnRuntimeStop's OWN body. Searching to end-of-file
+    // would let a call in any LATER method satisfy this guard after the one in
+    // OnRuntimeStop was removed — which would make this test worse than no test
+    // at all, because it would report the leak as guarded. The needle is a
+    // newline + four-space closing brace: the end of a namespace-scope method
+    // at this file's clang-format-enforced indentation.
+    const auto stopEndAt = source.find("\n    }\n", stopAt);
+    ASSERT_NE(stopEndAt, std::string::npos) << "could not find the end of Scene::OnRuntimeStop";
+
     const auto shutdownAt = source.find("m_SubtitleSystem->Shutdown(*this)", stopAt);
-    EXPECT_NE(shutdownAt, std::string::npos)
+    EXPECT_TRUE(shutdownAt != std::string::npos && shutdownAt < stopEndAt)
         << "Scene::OnRuntimeStop no longer calls m_SubtitleSystem->Shutdown(*this) — every "
            "Play/Stop cycle now leaks the caption overlay's three UI entities, and no "
            "behavioural test can catch it because the functional harness cannot drive "
