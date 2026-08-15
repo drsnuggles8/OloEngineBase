@@ -1,0 +1,335 @@
+# Anti-rot gate for the Steamworks platform integration (#644).
+#
+# WHY THIS WORKFLOW EXISTS
+# ------------------------
+# The Steamworks SDK downloads from partner.steamgames.com behind a Valve login and its licence
+# forbids redistribution. OloEngineBase is a PUBLIC repository, so the real headers can NEVER be
+# vendored or reach a CI runner. (A repo secret smuggling the SDK onto the runner was considered
+# and rejected: it is a licence question we should not answer unilaterally, and secrets are not
+# exposed to fork PRs, so outside contributors would be no better off.)
+#
+# Every other workflow therefore builds OLO_WITH_STEAM=OFF, which means the enabled code would be
+# compiled on developer machines only — the exact shape of Trap 3 in
+# docs/agent-rules/vcpkg-dependency-management.md, where guarded code bitrots silently because
+# nothing ever compiles it.
+#
+# This job closes that hole using hand-written stub headers (our own declarations of only the
+# entry points the engine calls, NOT Valve's headers) plus a .cpp providing their symbols. The
+# result is a genuine OLO_WITH_STEAM=1 binary that CI COMPILES, LINKS and RUNS — including the
+# SteamAPI_Init()-returns-false branch, the single behaviour that must never regress, because a
+# missing Steam client must never stop the engine starting.
+#
+# WHAT IT DOES NOT PROVE
+# ----------------------
+# Nothing about Valve's servers, the Steam client, or the overlay. Live behaviour is manually
+# verified against App ID 480 on a developer machine holding the real SDK.
+#
+# IF THIS JOB FAILS because a new Steamworks call is missing from the stubs, add the declaration
+# to StubSDK/public/steam/steam_api.h and the canned implementation to StubSDK/SteamStubSDK.cpp. That is
+# the mechanism working — it means a call was added that CI cannot otherwise see. Do not delete
+# the job.
+name: Steam (stub SDK)
+
+# TRIGGERS ARE DELIBERATELY ASYMMETRIC between the two jobs below, because their costs differ by
+# two orders of magnitude:
+#
+#   single-valve-tu  — ~20 s, no build. Runs on EVERY PR. It catches a mistake someone makes *in
+#                      that PR* (a Valve include in the wrong file, or reverting to a bare
+#                      `steam/` include), so per-PR is exactly the right cadence and it is free.
+#
+#   stub-build       — builds the whole engine + test suite to run ~16 Steam tests, ~30-60 min on
+#                      a hosted runner. Runs on master, weekly, and on demand — NOT on every PR.
+#
+# Why that is the right trade for the build job: what it defends against is guarded code ROTTING
+# over months, not "this specific PR broke it". A weekly cadence catches that with a bounded blast
+# radius, while running it per-PR would add ~30-60 min of runner time to every PR in the repo
+# forever — for a feature exactly one machine can exercise for real.
+#
+# The residual risk is honest and small: a PR can merge green and break the Steam path, discovered
+# on the next master run rather than in review. Given the alternative cost, that is the better
+# side of the trade. If Steam grows to something the project actually ships on, revisit.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: '0 5 * * 3' # weekly, Wednesday 05:00 UTC (deliberately off video-ffmpeg's Monday slot)
+  workflow_dispatch:
+
+# Both jobs only read the checkout and build; neither comments, labels, or publishes anything.
+# Declared explicitly rather than inherited so a future step cannot quietly acquire write scopes
+# from a repo-level default. Matches asan.yml / reflection-status-check.yml.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cheap, no-build guard on the invariant the whole design rests on: exactly ONE translation
+  # unit may include a Valve header. If that spreads, the logic stops being fake-testable and the
+  # stub SDK stops being a sufficient stand-in for CI — and both failures are silent until
+  # someone without the SDK tries to build.
+  single-valve-tu:
+    name: Only one TU includes the Steamworks SDK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Assert the Valve include is confined to SteamworksBackend.cpp
+        shell: bash
+        run: |
+          # The Steamworks SDK is included as "public/steam/…", NOT "steam/…", and its include
+          # directory is the SDK ROOT rather than root/public. That is deliberate and is what this
+          # check enforces.
+          #
+          # WHY: GameNetworkingSockets also ships headers under a steam/ prefix, and the two SDKs
+          # share FILE NAMES — isteamnetworkingutils.h, steamnetworkingtypes.h,
+          # isteamnetworkingsockets.h, steam_api_common.h, steamtypes.h all exist in both. If a
+          # directory containing a steam/ child is ever put on the engine include path, the
+          # netcode's <steam/isteamnetworkingutils.h> silently starts resolving to Valve's copy
+          # while <steam/steamnetworkingsockets.h> (which Valve does not ship) still comes from
+          # GNS — half of each SDK in one TU, failing with 12 × C2365 redefinitions reported
+          # inside a Steamworks header from Networking files that never mention Steam.
+          #
+          # So there are two things to catch, and neither is "any steam/ include":
+          # Patterns are anchored to a real preprocessor directive (`^\s*#include`). An unanchored
+          # match also fires on prose — the files below explain the rule in comments that quote
+          # the very includes being banned, which made the first version of this check fail on
+          # its own documentation.
+          OFFENDERS=$(grep -rlE --include=*.cpp --include=*.h '^[[:space:]]*#include[[:space:]]*[<"]public/steam/' \
+            OloEngine/src OloEditor/src OloRuntime/src OloServer/src OloEngine/tests \
+            | grep -v 'Platform/Steam/StubSDK/' \
+            | grep -v 'Platform/Steam/SteamworksBackend.cpp' || true)
+
+          if [ -n "$OFFENDERS" ]; then
+            echo "::error::A Steamworks SDK header is included outside Platform/Steam/SteamworksBackend.cpp."
+            echo "The seam in Platform/Steam/SteamBackend.h exists so that exactly one TU touches"
+            echo "Valve's platform API — that is what keeps the logic fake-testable and lets the"
+            echo "stub SDK stand in for the real one in CI. Add the call to ISteamBackend instead."
+            echo "Offending files:"
+            echo "$OFFENDERS"
+            exit 1
+          fi
+
+          # The Steam TU must never use a bare steam/ include, or the SDK include dir would have
+          # to be rooted at public/ again and the GNS hijack comes straight back.
+          if grep -qE '^[[:space:]]*#include[[:space:]]*[<"]steam/' \
+               OloEngine/src/Platform/Steam/SteamworksBackend.cpp \
+               OloEngine/src/Platform/Steam/StubSDK/SteamStubSDK.cpp; then
+            echo "::error::Steam SDK included as \"steam/...\" instead of \"public/steam/...\"."
+            echo "That requires rooting the include dir at <sdk>/public, which puts a resolvable"
+            echo "steam/ prefix on the engine include path and hijacks GameNetworkingSockets'"
+            echo "identically-named headers for every Networking TU. Keep the public/ prefix."
+            exit 1
+          fi
+          echo "OK: the Steamworks SDK is included only by SteamworksBackend.cpp, via public/steam/."
+
+  stub-build:
+    name: Build + test OLO_WITH_STEAM=ON (stub SDK)
+    runs-on: ubuntu-24.04
+    # Not on pull_request — see the trigger rationale at the top of this file. The cheap
+    # single-valve-tu guard above still runs on every PR; this full build does not.
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Python 3.10
+        id: py
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+      # Version-pinned deliberately (SonarCloud githubactions:S8544, "dependencies without locking
+      # resolved versions"). Every other workflow here installs jinja2 unpinned and is grandfathered
+      # in as existing code; the gate only holds NEW code to it, so this job is the first that has
+      # to comply — and pinning a build-tool dependency is the right answer regardless, since an
+      # unpinned install lets a compromised or merely broken release change what CI runs.
+      #
+      # jinja2 is used only by the glad2 GL-loader generator. 3.1.6 is the current 3.1.x; bump it
+      # deliberately rather than floating.
+      #
+      # The separate `pip install --upgrade pip` the other workflows run is dropped rather than
+      # pinned: actions/setup-python already provides a current pip, so it bought nothing and was
+      # itself a second unpinned install.
+      - name: Python deps (OloHeaderTool)
+        run: python -m pip install jinja2==3.1.6
+
+      - name: Setup Vulkan SDK
+        uses: ./.github/actions/setup-vulkan
+
+      # The engine needs a C++23 STANDARD LIBRARY, not just a C++23 compiler: Core/Reflection
+      # uses std::forward_like, which ubuntu-24.04's default GCC/libstdc++ does not provide
+      # ("error: 'forward_like' is not a member of 'std'"). Every other Linux job in this repo
+      # pins clang-19 from apt.llvm.org for the same reason — see asan.yml.
+      - name: Add LLVM apt repository
+        run: |
+          wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+
+      - name: Install Linux deps
+        run: |
+          # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that
+          # periodically return 403 Forbidden; we never use them (Clang comes from
+          # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
+          # Drop any Microsoft source so a Microsoft-side outage can't break our update.
+          sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-19 lld-19 \
+            libgl-dev libglu1-mesa-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-linux
+
+      # Runs on Linux deliberately. The stub path is platform-agnostic by design — only the
+      # REAL-SDK path is gated to 64-bit Windows — so this job can use the cheapest, fastest
+      # runner. The heavy optional subsystems are off: this job's question is "does the Steam
+      # path still compile, link and behave", not "does the whole engine still work", which the
+      # main Windows/Linux workflows already answer.
+      # clang-19 + lld to match every other Linux job here: the default toolchain's libstdc++
+      # lacks C++23 library pieces this engine uses, and the default linker can OOM a hosted
+      # runner while linking the full static engine.
+      - name: Configure (Steam ON, stub SDK)
+        run: |
+          cmake -S . -B build \
+            -DOLO_WITH_STEAM_STUB_SDK=ON \
+            -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+            -DOLO_VIDEO_FFMPEG=OFF \
+            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DCMAKE_C_COMPILER=clang-19 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
+            ${{ steps.vcpkg.outputs.toolchain-args }} \
+            -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+
+      # Fail loudly if the option plumbing did not actually take. Without this the job could pass
+      # green while quietly building OLO_WITH_STEAM=0 — which would make the whole workflow a
+      # reassuring no-op, the precise failure it exists to prevent.
+      - name: Verify the ON path is actually enabled
+        run: |
+          if ! grep -q '^OLO_WITH_STEAM:BOOL=ON' build/CMakeCache.txt; then
+            echo "::error::OLO_WITH_STEAM did not resolve to ON — the stub implies-rule is broken."
+            grep -E '^OLO_WITH_STEAM' build/CMakeCache.txt || true
+            exit 1
+          fi
+          if ! grep -q '^OLO_WITH_STEAM_STUB_SDK:BOOL=ON' build/CMakeCache.txt; then
+            echo "::error::OLO_WITH_STEAM_STUB_SDK did not resolve to ON."
+            exit 1
+          fi
+          echo "OK: building OLO_WITH_STEAM=ON against the stub SDK."
+
+      # Capped parallelism, per CLAUDE.md — a bare --parallel forwards the omission to the native
+      # tool and takes its default (cores + 2 for Ninja), which is wider, not narrower.
+      - name: Build tests
+        # No --config: this is the single-config Unix Makefiles generator, so the build type
+        # comes from CMAKE_BUILD_TYPE at configure time and --config would be silently ignored.
+        run: cmake --build build --target OloEngine-Tests --parallel 4
+
+      # Resolved ONCE and exported, rather than repeating the find in each test step: two lookups
+      # can disagree (a stale binary from an earlier layout still on disk would be picked by one
+      # and not the other), and a single failure point is easier to read in the log.
+      - name: Locate the test binary
+        run: |
+          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
+          if [ -z "$BIN" ]; then
+            echo "::error::OloEngine-Tests binary not found under build/OloEngine/tests."
+            exit 1
+          fi
+          echo "OLO_TESTS_BIN=${GITHUB_WORKSPACE}/${BIN}" >> "$GITHUB_ENV"
+          echo "Test binary: ${BIN}"
+
+      # Runs from OloEditor/ to match the suite's working-directory contract.
+      - name: Run Steam tests
+        run: |
+          cd OloEditor
+
+          # Capture the status explicitly instead of letting the assignment run bare.
+          #
+          # GitHub runs `run:` blocks under `bash -e`, so `OUTPUT=$(cmd)` with a FAILING cmd aborts
+          # the step right there — before the echo below — and the job reports a failure whose
+          # output was never printed. Exactly when the log matters most, it would be empty. Guard
+          # the call, keep the status, print unconditionally, then fail with that status.
+          set +e
+          OUTPUT=$("$OLO_TESTS_BIN" --gtest_filter='Steam*' 2>&1)
+          STATUS=$?
+          set -e
+          echo "$OUTPUT"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::Steam tests exited with status $STATUS."
+            exit "$STATUS"
+          fi
+
+          # Explicit `if` rather than `grep -q … && exit 1`: an AND-list whose left side fails is
+          # a well-known `set -e` footgun, and getting it wrong here would silently skip the
+          # remaining assertions instead of failing.
+          if echo "$OUTPUT" | grep -qE '\[  FAILED  \]'; then
+            echo "::error::Steam tests reported failures."
+            exit 1
+          fi
+
+          # Assert the filter actually matched something. A renamed suite or a typo'd filter
+          # otherwise yields "0 tests ran" and a zero exit code — a green job that tested nothing.
+          #
+          # NOTE this deliberately does NOT forbid skips, unlike the SteamStubOnPathTest check
+          # below. That suite must fully execute in a stub build, but `Steam*` is a broad net:
+          # this repo has an established pattern of tests that SKIP cleanly without a GL 4.6
+          # context, so a future GL-gated Steam test would make a blanket zero-skip rule fail for
+          # a correct reason. Assert coverage exists; let individual cases gate themselves.
+          PASSED=$(echo "$OUTPUT" | sed -nE 's/^\[  PASSED  \] ([0-9]+) tests?.*/\1/p' | tail -1)
+          if [ -z "${PASSED:-}" ] || [ "$PASSED" -eq 0 ]; then
+            echo "::error::The Steam* filter matched no passing tests — filter or suite names changed?"
+            exit 1
+          fi
+          echo "OK: $PASSED Steam tests passed."
+
+      # The ON-path tests SKIP rather than fail when the stub is inactive, which is right for a
+      # developer's normal build but would make this job vacuously green if the wiring broke. So
+      # assert the ON-path suite actually RAN something here.
+      - name: Assert the ON-path tests were not all skipped
+        run: |
+          cd OloEditor
+
+          # Same capture discipline as the step above: print the output even when the run fails.
+          set +e
+          OUTPUT=$("$OLO_TESTS_BIN" --gtest_filter='SteamStubOnPathTest.*' 2>&1)
+          STATUS=$?
+          set -e
+          echo "$OUTPUT"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::SteamStubOnPathTest exited with status $STATUS."
+            exit "$STATUS"
+          fi
+
+          if echo "$OUTPUT" | grep -q 'stub SDK not compiled in'; then
+            echo "::error::SteamStubOnPathTest skipped — the stub SDK was not active despite the cache saying ON."
+            exit 1
+          fi
+          if echo "$OUTPUT" | grep -qE '\[  PASSED  \] 0 tests'; then
+            echo "::error::SteamStubOnPathTest ran zero tests."
+            exit 1
+          fi
+
+          # A PASSED count alone is not enough. GoogleTest reports skips separately, so a run
+          # where SOME cases skipped still shows a healthy "[  PASSED  ] n tests" line — the job
+          # would go green while silently losing coverage. In a stub build EVERY case in this
+          # suite must execute, so any skip at all is a failure.
+          SKIPPED=$(echo "$OUTPUT" | sed -nE 's/^\[  SKIPPED \] ([0-9]+) tests?.*/\1/p' | tail -1)
+          if [ -n "${SKIPPED:-}" ] && [ "$SKIPPED" -gt 0 ]; then
+            echo "::error::SteamStubOnPathTest skipped $SKIPPED test(s); with the stub SDK active none may skip."
+            echo "$OUTPUT" | grep -E '^\[  SKIPPED \]' || true
+            exit 1
+          fi
+          echo "OK: the ON path was genuinely exercised, with no skipped cases."

@@ -14,3 +14,7 @@ endif()
 # olo_copy_ffmpeg_runtime in cmake/CommonProperties.cmake.
 olo_copy_ffmpeg_runtime(OloRuntime)
 
+# Stage steam_api64.dll next to the exe (#644). No-op unless OLO_WITH_STEAM is on with the real
+# SDK. A packaged game needs this beside the binary or the process fails to start.
+olo_copy_steam_runtime(OloRuntime)
+

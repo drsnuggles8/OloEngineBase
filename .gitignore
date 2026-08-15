@@ -148,3 +148,19 @@ OloEditor/SandboxProject/Assets/Models/Stanford/
 # only survives a hard kill mid-write; ignore it so it can't be committed by
 # accident (tools/OloHeaderTool/main.cpp, issue #758).
 *.oht-tmp
+
+# Steamworks (#644). NOTHING from the SDK may ever be committed: this repo is PUBLIC and the
+# licence forbids redistribution, so the SDK lives outside the tree entirely, found via
+# STEAMWORKS_SDK_ROOT (see docs/ops/build.md). These two are what leak into the tree anyway:
+#
+# steam_appid.txt — the dev-only App ID (480 = Spacewar) that SteamAPI_Init reads from the
+# process working directory, which CLAUDE.md pins to OloEditor/. Valve's guidance is to REMOVE
+# it for a release build; the shipped game gets its App ID from the Steam client, and leaving
+# it in is how a build accidentally reports itself as Spacewar.
+steam_appid.txt
+#
+# steam_api64.dll — staged next to the executables by the build. It IS the one redistributable
+# piece (that is what redistributable_bin/ means), but it is copied from STEAMWORKS_SDK_ROOT at
+# build time rather than committed, which sidesteps having to reason about what "redistribution"
+# means in a public repo and costs nothing.
+steam_api64.dll
