@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/Input.h"
@@ -49,6 +50,13 @@ namespace OloEngine
             std::filesystem::current_path(m_Specification.WorkingDirectory);
         }
         s_StartupWorkingDirectory = std::filesystem::current_path();
+
+        // Player accessibility preferences (issue #458). Loaded here rather than
+        // in a layer so the editor, the runtime and the server all get them from
+        // one place, and AFTER the working-directory switch above so the relative
+        // prefs path resolves against the app's real cwd. A missing file is the
+        // normal first-run case and leaves the construction defaults installed.
+        (void)Accessibility::LoadFromFile(Accessibility::DefaultSettingsPath());
 
         // Start the task scheduler workers
         LowLevelTasks::FScheduler::Get().StartWorkers();

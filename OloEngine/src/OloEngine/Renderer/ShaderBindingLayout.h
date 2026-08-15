@@ -1341,6 +1341,14 @@ namespace OloEngine
         // ReflectionProbeArray, read by the deferred/forward lit passes and
         // the ReflectionProbeCull compute.
         static constexpr u32 UBO_REFLECTION_PROBES = 58;
+        // Colour-vision deficiency adaptation params (issue #458): mode,
+        // severity, correct-vs-simulate, display gamma. Read by
+        // PostProcess_ColorBlind.glsl; the C++ twin is
+        // OloEngine/Accessibility/AccessibilitySettings.h's ColorBlindUBOData.
+        // Deliberately NOT folded into UBO_USER_0 (PostProcessUBOData): that
+        // block is full, and growing it would change the std140 layout every
+        // PostProcess_*.glsl declares.
+        static constexpr u32 UBO_COLORBLIND = 73;
 
         // ONE past the highest engine UBO binding above. Every consumer that
         // needs to size an array over "all UBO bindings" derives it from here
@@ -1351,10 +1359,10 @@ namespace OloEngine
         // that). A hand-picked name has to be MOVED on every addition; this
         // one only has to be RAISED when a binding exceeds it, which the
         // static_assert below makes a compile error rather than a black frame.
-        static constexpr u32 UBO_BINDING_LIMIT = 73;
+        static constexpr u32 UBO_BINDING_LIMIT = 74;
         static_assert(UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBES < UBO_BINDING_LIMIT && UBO_HEAP_OFFSETS < UBO_BINDING_LIMIT &&
-                          UBO_DEBUG_DRAW < UBO_BINDING_LIMIT,
+                          UBO_DEBUG_DRAW < UBO_BINDING_LIMIT && UBO_COLORBLIND < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         static_assert(UBO_BINDING_LIMIT <= 84,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
@@ -1845,6 +1853,8 @@ namespace OloEngine
                     return name.contains("VirtualRaster") || name.contains("virtualRaster");
                 case UBO_INSTANCE_CULL:
                     return name.contains("InstanceCull") || name.contains("instanceCull");
+                case UBO_COLORBLIND:
+                    return name.contains("ColorBlind") || name.contains("colorBlind");
                 default:
                     return false;
             }

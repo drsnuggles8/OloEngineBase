@@ -262,6 +262,8 @@ namespace OloEngine
             RGTextureHandle SelectionOutlineColorTexture; // Color attachment view of SelectionOutlineColor
             RGFramebufferHandle UIComposite;              // UI composited over post-processed scene
             RGTextureHandle UICompositeTexture;           // UIComposite RT0 attachment view
+            RGFramebufferHandle ColorBlindColor;          // Colour-vision adaptation over the UI composite (only valid when a mode is active)
+            RGTextureHandle ColorBlindColorTexture;       // Color attachment view of ColorBlindColor
             RGFramebufferHandle Backbuffer;               // Imported external output target (default framebuffer / swapchain)
         };
 

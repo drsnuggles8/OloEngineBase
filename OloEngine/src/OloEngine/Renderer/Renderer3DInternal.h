@@ -42,6 +42,7 @@
 #include "OloEngine/Renderer/Passes/UpscalerRenderPass.h"
 #include "OloEngine/Renderer/Passes/EASURenderPass.h"
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
+#include "OloEngine/Renderer/Passes/ColorBlindRenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
@@ -80,6 +81,7 @@ namespace OloEngine
         Ref<SelectionOutlineRenderPass> SelectionOutline;
         Ref<OverdrawRenderPass> Overdraw;
         Ref<UICompositeRenderPass> UIComposite;
+        Ref<ColorBlindRenderPass> ColorBlind; // #458 accessibility remap; runs after UIComposite so the HUD is adapted too
         Ref<FinalRenderPass> Final;
 
         void Reset()
@@ -108,6 +110,7 @@ namespace OloEngine
             SelectionOutline.Reset();
             Overdraw.Reset();
             UIComposite.Reset();
+            ColorBlind.Reset();
             Final.Reset();
         }
     };

@@ -918,6 +918,8 @@
 		"OloEngine/Renderer/Passes/OITResolveRenderPass.cpp"
 		"OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 		"OloEngine/Renderer/Passes/UICompositeRenderPass.cpp"
+		"OloEngine/Renderer/Passes/ColorBlindRenderPass.h"
+		"OloEngine/Renderer/Passes/ColorBlindRenderPass.cpp"
 		"OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 		"OloEngine/Renderer/Passes/SelectionOutlineRenderPass.cpp"
 		"OloEngine/Renderer/PostProcessSettings.h"
@@ -1315,6 +1317,11 @@
 		"OloEngine/Dialogue/DialogueSystem.cpp"
 		"OloEngine/Dialogue/DialogueUIController.h"
 		"OloEngine/Dialogue/DialogueUIController.cpp"
+
+		"OloEngine/Accessibility/AccessibilitySettings.h"
+		"OloEngine/Accessibility/AccessibilitySettings.cpp"
+		"OloEngine/Accessibility/SubtitleSystem.h"
+		"OloEngine/Accessibility/SubtitleSystem.cpp"
 
 		"OloEngine/Localization/LocaleDefinition.h"
 		"OloEngine/Localization/LocalizationEvents.h"

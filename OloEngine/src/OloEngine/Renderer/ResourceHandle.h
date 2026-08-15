@@ -418,6 +418,8 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SelectionOutlineColorTexture = "SelectionOutlineColorTexture"; // Color attachment view of SelectionOutlineColor
     inline constexpr std::string_view UIComposite = "UIComposite";                                   // UI composite over post-processed scene
     inline constexpr std::string_view UICompositeTexture = "UICompositeTexture";                     // Color attachment view of UIComposite RT0
+    inline constexpr std::string_view ColorBlindColor = "ColorBlindColor";                           // Colour-vision adaptation, applied over the UI composite (issue #458)
+    inline constexpr std::string_view ColorBlindColorTexture = "ColorBlindColorTexture";             // Color attachment view of ColorBlindColor
     inline constexpr std::string_view Backbuffer = "Backbuffer";                                     // External present target (default framebuffer / swapchain)
 
     // Temporal histories — imported each frame from the previous frame's

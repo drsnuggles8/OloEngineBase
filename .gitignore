@@ -50,6 +50,11 @@ OloEngine/vendor/*
 # imgui profiles
 **/imgui.ini
 
+# Accessibility preferences (issue #458). A PLAYER preference file written next
+# to the running app, deliberately not scene or project data — see
+# OloEngine/Accessibility/AccessibilitySettings.h.
+**/accessibility.yaml
+
 # Log files
 **.log
 **.tlog

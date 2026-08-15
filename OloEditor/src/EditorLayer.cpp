@@ -395,7 +395,13 @@ namespace OloEngine
                 Ref<Framebuffer> target = m_Framebuffer;
                 if (m_Is3DMode)
                 {
-                    if (auto ui = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); ui)
+                    // ColorBlindColor first (issue #458): the accessibility stage runs
+                    // AFTER UICompositePass, so resolving UIComposite here would hand
+                    // back the pre-adaptation image and an MCP screenshot would show a
+                    // frame the player never sees.
+                    if (auto cb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ColorBlindColor); cb)
+                        target = cb;
+                    else if (auto ui = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); ui)
                         target = ui;
                     else if (auto scene = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); scene)
                         target = scene;
@@ -1848,10 +1854,22 @@ namespace OloEngine
         u64 textureID = 0;
         if (m_Is3DMode)
         {
-            // Use UICompositePass output (post-processed scene + 2D overlays + UI)
-            if (auto uiFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); uiFramebuffer)
+            // Colour-vision adaptation (issue #458) is the LAST stage before the
+            // backbuffer, so it outranks UIComposite here. This viewport is an
+            // ImGui image of a graph resource, not the presented backbuffer —
+            // without this branch the accessibility remap would be correct on the
+            // swapchain and invisible in the editor, which is where it gets looked at.
+            if (auto colorBlindFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ColorBlindColor); colorBlindFramebuffer)
             {
-                textureID = uiFramebuffer->GetColorAttachmentRendererID(0);
+                textureID = colorBlindFramebuffer->GetColorAttachmentRendererID(0);
+            }
+            // Otherwise the UICompositePass output (post-processed scene + 2D overlays + UI)
+            if (textureID == 0)
+            {
+                if (auto uiFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); uiFramebuffer)
+                {
+                    textureID = uiFramebuffer->GetColorAttachmentRendererID(0);
+                }
             }
             // Fallback to scene pass if post-process pass is not available
             if (textureID == 0)

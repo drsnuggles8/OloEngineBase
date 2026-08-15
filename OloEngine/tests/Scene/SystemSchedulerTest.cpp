@@ -276,6 +276,11 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "Aircraft",
         "PhysicsKick",
         "Dialogue",
+        // Captions (issue #458) read the DialogueStateComponent Dialogue writes,
+        // so this slot is an explicit After("Dialogue") edge, not a tie-break.
+        // Shadow-legal for the same reasons Dialogue is: UI entities and the
+        // process-global accessibility settings only.
+        "Subtitles",
         "Quest",
         "Progression",
         "PhysicsFence",
@@ -511,10 +516,18 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     // directions.
     EXPECT_FALSE(sched.DependsOn("Dialogue", "PhysicsKick"));
     EXPECT_FALSE(sched.DependsOn("PhysicsFence", "Dialogue"));
+    EXPECT_FALSE(sched.DependsOn("Subtitles", "PhysicsKick"));
+    EXPECT_FALSE(sched.DependsOn("PhysicsFence", "Subtitles"));
     EXPECT_FALSE(sched.DependsOn("Quest", "PhysicsKick"));
     EXPECT_FALSE(sched.DependsOn("PhysicsFence", "Quest"));
     EXPECT_FALSE(sched.DependsOn("Progression", "PhysicsKick"));
     EXPECT_FALSE(sched.DependsOn("PhysicsFence", "Progression"));
+
+    // Captions consume the line Dialogue publishes into DialogueStateComponent.
+    // Asserted as REACHABILITY, not as a position: the registration-order
+    // tie-break would mask a missing edge in the sequential order and only
+    // surface it as a one-tick-late caption under the parallel executor.
+    EXPECT_TRUE(sched.DependsOn("Subtitles", "Dialogue"));
 
     // Post-physics consumers: every transform reader/writer downstream of the
     // fence, in the documented relative order.

@@ -118,6 +118,16 @@ namespace OloEngine::RenderPipelineBuilderInternal
         }
         graph.AddNode(PrepareGraphNode("UICompositePass",
                                        inputs.Passes->UIComposite));
+        // Colour-vision deficiency adaptation (issue #458). Registered AFTER
+        // UIComposite on purpose: an accessibility remap that stops at the world
+        // leaves the HUD — where colour most often carries meaning on its own —
+        // unadapted. Self-skips when the mode is None (its ColorBlindColor
+        // resource is never declared), and FinalPass reads it at top priority.
+        if (inputs.Passes->ColorBlind)
+        {
+            graph.AddNode(PrepareGraphNode("ColorBlindPass",
+                                           inputs.Passes->ColorBlind));
+        }
         graph.AddNode(PrepareGraphNode("FinalPass",
                                        inputs.Passes->Final));
     }

@@ -25,6 +25,10 @@ namespace OloEngine
             builder,
             this,
             {
+                // Colour-vision adaptation (issue #458) runs after UIComposite, so it
+                // outranks it here. Without this entry the stage is silently dropped —
+                // the frame still presents, just unadapted (glsl-shaders.md §9).
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ColorBlindColor, ResourceNames::ColorBlindColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::UIComposite, ResourceNames::UICompositeTexture),
                 // Overdraw heatmap debug view (#519) — if UIComposite is disabled it
                 // still reaches the backbuffer directly.
