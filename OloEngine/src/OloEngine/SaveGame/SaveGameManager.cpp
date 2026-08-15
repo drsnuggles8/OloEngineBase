@@ -8,9 +8,14 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/Task/NamedThreads.h"
+#include "Platform/Steam/SteamManager.h"
 
 #include <cctype>
 #include <chrono>
+#include <fstream>
+#include <mutex>
+#include <span>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -22,6 +27,240 @@ namespace OloEngine
     std::atomic<u32> SaveGameManager::s_AutoSaveSlotIndex{ 0 };
     std::array<std::atomic<bool>, SaveGameManager::kMaxQuickSaveSlots> SaveGameManager::s_QuickSaveInFlight{};
     std::array<std::atomic<bool>, SaveGameManager::kMaxAutoSaveSlots> SaveGameManager::s_AutoSaveInFlight{};
+
+    // --- Steam Cloud mirror (#644) --------------------------------------------------------
+    //
+    // The local atomic-rename write in SaveGameFile stays EXACTLY as it is and remains the source
+    // of truth; the cloud copy is a mirror pushed afterwards. Local-first is deliberate: Steam
+    // Cloud is unavailable for a large fraction of sessions (offline, Cloud switched off
+    // account-wide or per-app, no Steam at all), and a save must never depend on it.
+    //
+    // Every function here is a no-op when Steam or Cloud is unavailable, so the SaveGame system
+    // behaves identically on a machine that has never had Steam.
+    namespace
+    {
+        // Steam Cloud is a FLAT namespace — no directories — so the on-disk
+        // "<project>/Saves/<slot>.olosave" becomes just "<slot>.olosave" in the cloud.
+        [[nodiscard]] std::string CloudNameForSlot(const std::string& slotName)
+        {
+            return slotName + std::string(SaveGameManager::kSaveFileExtension);
+        }
+
+        [[nodiscard]] std::string SlotForCloudName(const std::string& cloudName)
+        {
+            const std::string ext{ SaveGameManager::kSaveFileExtension };
+            if (cloudName.size() > ext.size() && cloudName.ends_with(ext))
+            {
+                return cloudName.substr(0, cloudName.size() - ext.size());
+            }
+            return {};
+        }
+
+        // Per-slot generation counter for cloud mirroring (#644).
+        //
+        // Saves complete on WORKER threads, and two saves to the same slot can finish out of
+        // order — the general Save() has no per-slot in-flight guard (only the quick/auto rotating
+        // slots do). Without a guard the older worker's mirror task could run last and overwrite
+        // the newer save in the cloud, leaving cloud and local disagreeing with no error anywhere.
+        //
+        // Each dispatch takes a ticket; the mirror task uploads only if its ticket is still the
+        // latest for that slot. A superseded task drops its bytes silently, which is correct: the
+        // newer save's own mirror task is already queued behind it.
+        //
+        // Guards the CLOUD side only. Local writes are unaffected — they were already
+        // last-writer-wins through SaveGameFile's atomic rename, which is pre-existing behaviour
+        // and not something this change should quietly alter.
+        std::mutex s_CloudGenerationMutex;
+        std::unordered_map<std::string, u64> s_CloudGeneration;
+
+        [[nodiscard]] bool IsLatestCloudGeneration(const std::string& slotName, u64 generation)
+        {
+            const std::lock_guard lock(s_CloudGenerationMutex);
+            const auto found = s_CloudGeneration.find(slotName);
+            return found != s_CloudGeneration.end() && found->second == generation;
+        }
+
+        [[nodiscard]] bool ReadWholeFile(const std::filesystem::path& path, std::vector<u8>& outBytes)
+        {
+            std::ifstream in(path, std::ios::binary | std::ios::ate);
+            if (!in)
+            {
+                return false;
+            }
+            const std::streamoff size = in.tellg();
+            if (size <= 0)
+            {
+                return false;
+            }
+            in.seekg(0, std::ios::beg);
+            outBytes.resize(static_cast<sizet>(size));
+            return static_cast<bool>(in.read(reinterpret_cast<char*>(outBytes.data()), size));
+        }
+
+        // Read the just-written save AND take its cloud ticket as ONE atomic step.
+        //
+        // Doing these separately reintroduces the very reordering the ticket exists to prevent,
+        // because the ticket order then need not match the byte order:
+        //
+        //   worker A  writes v1, reads v1
+        //   worker B  writes v2, reads v2, takes ticket 1
+        //   worker A                        takes ticket 2   <-- A now "wins" carrying v1
+        //
+        // A's older bytes hold the higher ticket, so the newest upload is the stale one and cloud
+        // silently disagrees with local — exactly the failure the generation counter was added for.
+        // Holding the lock across both makes "read last" and "ticket highest" the same event.
+        //
+        // The lock spans a file read, which serialises concurrent mirrors across slots too. That
+        // is accepted: saves are infrequent, this is a worker thread and not frame-critical, and a
+        // per-slot lock would buy contention we have no evidence of needing.
+        [[nodiscard]] bool ReadSaveAndTakeCloudTicket(const std::filesystem::path& path, const std::string& slotName,
+                                                      std::vector<u8>& outBytes, u64& outGeneration)
+        {
+            const std::lock_guard lock(s_CloudGenerationMutex);
+            if (!ReadWholeFile(path, outBytes))
+            {
+                return false;
+            }
+            outGeneration = ++s_CloudGeneration[slotName];
+            return true;
+        }
+
+        // MUST run on the game thread — SteamManager is game-thread-only. The save write finishes
+        // on a WORKER thread, so the caller there hops via EnqueueGameThreadTask rather than
+        // calling this directly.
+        //
+        // Takes the bytes ALREADY READ rather than a path, deliberately. Re-reading the file here
+        // would put save-sized disk I/O on the frame thread for no reason: the worker that just
+        // wrote the file is a perfectly good place to read it back, and it is not frame-critical.
+        // Only the Steam call itself is forced onto this thread.
+        //
+        // Remaining caveat, stated rather than hidden: ISteamRemoteStorage::FileWrite is itself a
+        // synchronous call on the game thread. It was not observably slow against App ID 480, but
+        // that quota is 4096 bytes, so this is NOT evidence about realistic save sizes. If a game
+        // with real saves sees a hitch here, the fix is an async backend write, not moving the
+        // call off-thread — Steamworks would not tolerate that.
+        void MirrorSaveToCloud(std::vector<u8> bytes, const std::string& slotName, u64 generation)
+        {
+            if (!SteamManager::IsCloudEnabled() || bytes.empty())
+            {
+                return;
+            }
+
+            // A newer save for this slot was dispatched while this task waited. Uploading now
+            // would push the OLDER bytes over the newer ones, so drop them — the newer save's own
+            // mirror task is already queued and will carry the current state.
+            if (!IsLatestCloudGeneration(slotName, generation))
+            {
+                OLO_CORE_TRACE("[SaveGameManager] Skipping a superseded Steam Cloud mirror of '{}'.", slotName);
+                return;
+            }
+
+            const SteamResult result = SteamManager::CloudWrite(CloudNameForSlot(slotName), std::span<const u8>{ bytes });
+            if (SteamSucceeded(result))
+            {
+                OLO_CORE_TRACE("[SaveGameManager] Mirrored '{}' to Steam Cloud ({} bytes).", slotName, bytes.size());
+            }
+            else
+            {
+                // Not an error for the player: the local save already succeeded. Worth a warning
+                // because the usual cause is an exhausted cloud quota, which is silent otherwise.
+                OLO_CORE_WARN("[SaveGameManager] Steam Cloud mirror of '{}' failed ({}). The local save is intact.",
+                              slotName, SteamResultToString(result));
+            }
+        }
+
+        // Pull a cloud-only save down to disk so the normal local load path can handle it
+        // unchanged. Returns true when the file now exists locally.
+        [[nodiscard]] bool RestoreSaveFromCloud(const std::filesystem::path& path, const std::string& slotName)
+        {
+            if (!SteamManager::IsCloudEnabled())
+            {
+                return false;
+            }
+
+            const std::string cloudName = CloudNameForSlot(slotName);
+            if (!SteamManager::CloudExists(cloudName))
+            {
+                return false;
+            }
+
+            std::vector<u8> bytes;
+            if (!SteamSucceeded(SteamManager::CloudRead(cloudName, bytes)) || bytes.empty())
+            {
+                return false;
+            }
+
+            std::error_code ec;
+            std::filesystem::create_directories(path.parent_path(), ec);
+
+            // Write via a temp file + rename, matching SaveGameFile's own atomicity: a process
+            // killed mid-restore must not leave a half-written save that then fails its checksum.
+            const std::filesystem::path temp = path.string() + ".cloudtmp";
+            {
+                std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+                if (!out || !out.write(reinterpret_cast<const char*>(bytes.data()),
+                                       static_cast<std::streamsize>(bytes.size())))
+                {
+                    std::filesystem::remove(temp, ec);
+                    return false;
+                }
+
+                // Close EXPLICITLY and check the result. Letting the destructor do it discards
+                // any error from the final flush, so a disk-full or I/O failure at that moment
+                // would leave a truncated temp file that the rename below then promotes to the
+                // real save — defeating the entire point of writing via temp+rename.
+                out.close();
+                if (!out)
+                {
+                    OLO_CORE_WARN("[SaveGameManager] Failed to flush the Steam Cloud restore of '{}'; "
+                                  "discarding the partial file.",
+                                  slotName);
+                    std::filesystem::remove(temp, ec);
+                    return false;
+                }
+            }
+
+            // VALIDATE BEFORE THE RENAME. Cloud bytes are untrusted — a partially-synced file, a
+            // save from a newer build, or plain corruption all arrive looking like a normal blob.
+            //
+            // Validating here rather than after is what keeps a bad copy from being permanently
+            // stuck: SaveGameManager::Load tests `exists(path)` FIRST and only falls back to
+            // cloud when there is no local file. So a corrupt blob renamed into place would be
+            // found by every later Load, fail its checksum, and return ChecksumMismatch forever —
+            // shadowing a cloud copy that might since have finished syncing and become good. By
+            // failing here the local path stays empty and the fallback remains available to retry.
+            //
+            // The same two checks Load applies, in the same order.
+            if (!SaveGameFile::ValidateChecksum(temp))
+            {
+                OLO_CORE_WARN("[SaveGameManager] Steam Cloud copy of '{}' failed checksum validation; discarding it "
+                              "rather than letting it shadow the cloud copy on future loads.",
+                              slotName);
+                std::filesystem::remove(temp, ec);
+                return false;
+            }
+
+            SaveGameHeader header;
+            SaveGameMetadata metadata;
+            if (!SaveGameFile::ReadMetadata(temp, header, metadata))
+            {
+                OLO_CORE_WARN("[SaveGameManager] Steam Cloud copy of '{}' has an unreadable header; discarding it.",
+                              slotName);
+                std::filesystem::remove(temp, ec);
+                return false;
+            }
+
+            std::filesystem::rename(temp, path, ec);
+            if (ec)
+            {
+                std::filesystem::remove(temp, ec);
+                return false;
+            }
+
+            OLO_CORE_INFO("[SaveGameManager] Restored '{}' from Steam Cloud ({} bytes).", slotName, bytes.size());
+            return true;
+        }
+    } // namespace
 
     // Reject slot names containing path separators, "..", reserved Windows names, or other dangerous patterns
     static bool IsValidSlotName(const std::string& slotName)
@@ -279,8 +518,19 @@ namespace OloEngine
         auto path = GetSaveFilePath(slotName);
         if (!std::filesystem::exists(path))
         {
-            OLO_CORE_ERROR("[SaveGameManager] Save file not found: {}", path.string());
-            return SaveLoadResult::FileNotFound;
+            // Steam Cloud fallback (#644). LOCAL IS PREFERRED — this only runs when there is no
+            // local file at all, so a cloud copy can never silently overwrite newer local
+            // progress. The typical case is a fresh machine where Steam has synced the slot but
+            // the player has not saved locally yet.
+            //
+            // Restores to disk and then falls through to the normal load path rather than
+            // deserializing from memory, so checksum validation, header/version gating and every
+            // other guard below apply to a cloud save exactly as they do to a local one.
+            if (!RestoreSaveFromCloud(path, slotName))
+            {
+                OLO_CORE_ERROR("[SaveGameManager] Save file not found: {}", path.string());
+                return SaveLoadResult::FileNotFound;
+            }
         }
 
         // Validate checksum first
@@ -369,38 +619,87 @@ namespace OloEngine
         std::vector<SaveFileInfo> saves;
         auto saveDir = GetSaveDirectory();
 
-        if (!std::filesystem::exists(saveDir))
+        std::error_code ec;
+        if (std::filesystem::exists(saveDir))
         {
-            return saves;
+            for (const auto& entry : std::filesystem::directory_iterator(saveDir, ec))
+            {
+                if (!entry.is_regular_file(ec))
+                {
+                    continue;
+                }
+
+                if (entry.path().extension() != kSaveFileExtension)
+                {
+                    continue;
+                }
+
+                SaveGameHeader header;
+                SaveGameMetadata metadata;
+                if (SaveGameFile::ReadMetadata(entry.path(), header, metadata))
+                {
+                    SaveFileInfo info;
+                    info.FilePath = entry.path();
+                    info.Metadata = metadata;
+                    info.FileSizeBytes = entry.file_size(ec);
+                    if (ec)
+                    {
+                        info.FileSizeBytes = 0;
+                    }
+                    info.HasThumbnail = metadata.ThumbnailAvailable;
+                    saves.push_back(std::move(info));
+                }
+            }
         }
 
-        std::error_code ec;
-        for (const auto& entry : std::filesystem::directory_iterator(saveDir, ec))
+        // Union in CLOUD-ONLY slots (#644).
+        //
+        // Without this, a player on a fresh machine sees an empty load menu even though Steam has
+        // their saves — the files exist in the cloud but not yet on disk, so the directory scan
+        // above finds nothing. That is the single most visible way a cloud integration can look
+        // broken while working perfectly.
+        //
+        // Cloud entries are added ONLY when the slot has no local file: a local save always wins,
+        // and this must never shadow it with a possibly-older cloud copy. Metadata comes from
+        // pulling the file down (the same restore the load path uses), because the header lives
+        // inside the file and there is no cheaper way to read it — and having done so, the slot is
+        // no longer cloud-only, so the next enumerate finds it locally.
+        if (SteamManager::IsCloudEnabled())
         {
-            if (!entry.is_regular_file(ec))
+            for (const std::string& cloudName : SteamManager::CloudEnumerate())
             {
-                continue;
-            }
-
-            if (entry.path().extension() != kSaveFileExtension)
-            {
-                continue;
-            }
-
-            SaveGameHeader header;
-            SaveGameMetadata metadata;
-            if (SaveGameFile::ReadMetadata(entry.path(), header, metadata))
-            {
-                SaveFileInfo info;
-                info.FilePath = entry.path();
-                info.Metadata = metadata;
-                info.FileSizeBytes = entry.file_size(ec);
-                if (ec)
+                const std::string slotName = SlotForCloudName(cloudName);
+                if (slotName.empty() || !IsValidSlotName(slotName))
                 {
-                    info.FileSizeBytes = 0;
+                    continue;
                 }
-                info.HasThumbnail = metadata.ThumbnailAvailable;
-                saves.push_back(std::move(info));
+
+                const auto localPath = GetSaveFilePath(slotName);
+                if (localPath.empty() || std::filesystem::exists(localPath))
+                {
+                    continue; // local wins
+                }
+
+                if (!RestoreSaveFromCloud(localPath, slotName))
+                {
+                    continue;
+                }
+
+                SaveGameHeader header;
+                SaveGameMetadata metadata;
+                if (SaveGameFile::ReadMetadata(localPath, header, metadata))
+                {
+                    SaveFileInfo info;
+                    info.FilePath = localPath;
+                    info.Metadata = metadata;
+                    info.FileSizeBytes = std::filesystem::file_size(localPath, ec);
+                    if (ec)
+                    {
+                        info.FileSizeBytes = 0;
+                    }
+                    info.HasThumbnail = metadata.ThumbnailAvailable;
+                    saves.push_back(std::move(info));
+                }
             }
         }
 
@@ -473,9 +772,66 @@ namespace OloEngine
         }
 
         auto path = GetSaveFilePath(slotName);
+
+        // Keep the bytes so a failed LOCAL delete can put the cloud copy back (#644).
+        //
+        // There is no two-phase commit across the filesystem and Steam Cloud, so some ordering
+        // always loses. Deleting cloud-then-local and failing on the local step would report
+        // failure while having already destroyed the cloud copy — the player retries, sees it
+        // fail again, and their off-machine copy is silently gone. Holding the bytes lets that
+        // case be undone, so a reported failure really does mean "nothing was removed".
+        //
+        // Read before touching anything, and only when there is something to lose. Deletes are
+        // rare and user-initiated, so the read cost is acceptable where it would not be on a
+        // per-frame path.
+        std::vector<u8> localBytesForRollback;
+        const bool localExisted = std::filesystem::exists(path);
+        if (localExisted)
+        {
+            // Best-effort: if this fails we simply cannot roll back, which is no worse than
+            // before. Do not abort the delete over it.
+            (void)ReadWholeFile(path, localBytesForRollback);
+        }
+
+        // Delete the cloud copy too (#644), BEFORE the local-existence check below.
+        //
+        // Without this a deleted save comes straight back: EnumerateSaves unions in cloud-only
+        // slots, so the next load menu would re-download the very file the player just deleted.
+        // A cloud-only slot must also be deletable, which is why this runs even when there is no
+        // local file — hence its placement above the early return.
+        bool removedFromCloud = false;
+        if (SteamManager::IsCloudEnabled())
+        {
+            const std::string cloudName = CloudNameForSlot(slotName);
+            if (SteamManager::CloudExists(cloudName))
+            {
+                removedFromCloud = SteamSucceeded(SteamManager::CloudDelete(cloudName));
+                if (!removedFromCloud)
+                {
+                    // ABORT — do NOT fall through and delete the local copy.
+                    //
+                    // Deleting locally while the cloud copy survives is strictly worse than
+                    // failing: EnumerateSaves unions in cloud-only slots, so the very next load
+                    // menu re-downloads the save the player just deleted. It comes back from the
+                    // dead, which reads as the delete being ignored — and meanwhile the local
+                    // file, the only copy they could still have loaded, is gone.
+                    //
+                    // Failing with both copies intact keeps the two in sync and leaves the player
+                    // able to retry.
+                    OLO_CORE_ERROR("[SaveGameManager] Could not delete '{}' from Steam Cloud; keeping the local copy "
+                                   "too so the two stay in sync (deleting locally would let the cloud copy "
+                                   "reappear on the next enumerate).",
+                                   slotName);
+                    return false;
+                }
+            }
+        }
+
         if (!std::filesystem::exists(path))
         {
-            return false;
+            // Nothing local, but a cloud-only slot really was removed — report success so a load
+            // menu refreshes rather than telling the player the delete failed.
+            return removedFromCloud;
         }
 
         std::error_code ec;
@@ -483,8 +839,42 @@ namespace OloEngine
         if (removed)
         {
             OLO_CORE_INFO("[SaveGameManager] Deleted save: {}", slotName);
+            return true;
         }
-        return removed;
+
+        // Local delete failed — typically the file is locked or permissions changed.
+        //
+        // If the cloud copy was already removed above, restore it. Otherwise this returns false
+        // having destroyed the player's off-machine copy while telling them nothing was deleted,
+        // which is the worst of both outcomes: they retry, it fails again, and the cloud copy
+        // never comes back.
+        if (removedFromCloud && !localBytesForRollback.empty())
+        {
+            const SteamResult restored =
+                SteamManager::CloudWrite(CloudNameForSlot(slotName), std::span<const u8>{ localBytesForRollback });
+            if (SteamSucceeded(restored))
+            {
+                OLO_CORE_WARN("[SaveGameManager] Could not delete '{}' locally ({}); restored the Steam Cloud copy so "
+                              "both copies survive and the delete can be retried.",
+                              slotName, ec.message());
+            }
+            else
+            {
+                // Both the local delete and the rollback failed. Nothing further to try, but say
+                // so plainly — this is the one path where the two copies genuinely disagree.
+                OLO_CORE_ERROR("[SaveGameManager] Could not delete '{}' locally ({}) AND could not restore its Steam "
+                               "Cloud copy ({}). The local save remains; the cloud copy is gone.",
+                               slotName, ec.message(), SteamResultToString(restored));
+            }
+        }
+        else if (removedFromCloud)
+        {
+            OLO_CORE_ERROR("[SaveGameManager] Could not delete '{}' locally ({}) and had no bytes to restore its "
+                           "Steam Cloud copy. The local save remains; the cloud copy is gone.",
+                           slotName, ec.message());
+        }
+
+        return false;
     }
 
     // ========================================================================
@@ -547,7 +937,7 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveGameManager] GetSaveFilePath called with invalid slot name: '{}'", slotName);
             return {};
         }
-        return GetSaveDirectory() / (slotName + std::string(kSaveFileExtension));
+        return GetSaveDirectory() / (slotName + std::string(SaveGameManager::kSaveFileExtension));
     }
 
     bool SaveGameManager::ValidateSave(const std::string& slotName)
@@ -673,6 +1063,40 @@ namespace OloEngine
                     OLO_CORE_INFO("[SaveGameManager] Saved '{}' ({} entities, {:.1f} KB)",
                                   slotName, entityCount,
                                   ec ? 0.0f : static_cast<f32>(fileSize) / 1024.0f);
+
+                    // Steam Cloud mirror (#644). We are on a WORKER thread here and SteamManager
+                    // is game-thread-only, so hop rather than calling it inline — this is the one
+                    // place the cloud integration could have introduced a data race.
+                    //
+                    // Read the bytes HERE, on the worker, and move them into the task. The game
+                    // thread then only makes the Steam call, never touches the disk: re-reading a
+                    // save-sized file on the frame thread would be a hitch for no benefit, since
+                    // this thread just finished writing it and is not frame-critical.
+                    //
+                    // Enqueued without checking Steam availability first — querying it from this
+                    // thread would itself violate the game-thread contract — so the task re-checks
+                    // and no-ops when Steam is absent. The read is skipped in that case only by
+                    // the emptiness guard inside, which is the price of not being able to ask.
+                    //
+                    // Deliberately AFTER the local write succeeded, and it cannot affect `result`:
+                    // a cloud failure must never turn a good local save into a reported error.
+                    std::vector<u8> cloudBytes;
+                    u64 generation = 0;
+                    if (ReadSaveAndTakeCloudTicket(path, slotName, cloudBytes, generation))
+                    {
+                        Tasks::EnqueueGameThreadTask(
+                            [bytes = std::move(cloudBytes), slotName, generation]() mutable
+                            {
+                                MirrorSaveToCloud(std::move(bytes), slotName, generation);
+                            },
+                            "SteamCloudMirror");
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("[SaveGameManager] Could not re-read '{}' to mirror it to Steam Cloud; "
+                                      "the local save is intact.",
+                                      path.string());
+                    }
                 }
 
                 // Worker-thread completion hook (e.g., release in-flight slot)

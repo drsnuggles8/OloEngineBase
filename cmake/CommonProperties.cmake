@@ -167,6 +167,27 @@ function(olo_copy_ffmpeg_runtime target_name)
     endif()
 endfunction()
 
+# Stage steam_api64.dll next to an executable (#644). No-op unless OLO_WITH_STEAM is on with the
+# real SDK — a stub-SDK build has no DLL to stage (the symbols are compiled in), and an OFF build
+# has no Steam at all.
+#
+# The DLL is copied from STEAMWORKS_SDK_ROOT at build time rather than committed. It IS the one
+# redistributable piece of the SDK — that is what redistributable_bin/ means, Valve intends it to
+# ship with your game — but copying sidesteps having to reason about what "redistribution" means
+# in a PUBLIC repo, and costs nothing.
+#
+# Same directory-scope rule as olo_copy_ffmpeg_runtime above: add_custom_command(TARGET ...) must
+# run in the directory that created the target, so call this next to each add_executable.
+function(olo_copy_steam_runtime target_name)
+    if(OLO_WITH_STEAM AND NOT OLO_WITH_STEAM_STUB_SDK AND DEFINED OLO_STEAM_RUNTIME_DLL)
+        add_custom_command(TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${OLO_STEAM_RUNTIME_DLL}" "$<TARGET_FILE_DIR:${target_name}>"
+            COMMENT "Staging steam_api64.dll next to ${target_name}"
+            VERBATIM)
+    endif()
+endfunction()
+
 # Complete setup for an application target (combines all the above).
 # Pass PCH_HEADER <path/to/pch.h> to opt-in to PCH; omit it to skip PCH entirely.
 function(olo_configure_app target_name)

@@ -121,6 +121,7 @@ you are in.
 - [server-authoritative-networking-loop.md](docs/agent-rules/server-authoritative-networking-loop.md) — ~20 well-tested networking classes produced nothing, because the entry point had zero call sites.
 - [mcp-setter-based-field-registry.md](docs/agent-rules/mcp-setter-based-field-registry.md) — the copy-then-swap MCP write path is unsound when `operator=` can't reproduce a field write's side effects.
 - [mcp-protocol-eras.md](docs/agent-rules/mcp-protocol-eras.md) — the 2026-07-28 stateless core is a second transport, not a field addition; `server/discover` added on its own actively breaks working clients.
+- [steamworks-platform-integration.md](docs/agent-rules/steamworks-platform-integration.md) — a public repo can't hold the SDK, so CI can't build the enabled path; plus the import-lib DLL that every exe needs and the auto-detect that fails silently.
 
 **Concurrency & memory**
 
@@ -156,6 +157,8 @@ git -C D:\vcpkg config core.fsmonitor false   # or every `vcpkg install` fails o
 ```
 
 A configure without it stops at a guard in the root `CMakeLists.txt` pointing at [docs/agent-rules/vcpkg-dependency-management.md](docs/agent-rules/vcpkg-dependency-management.md) — read that before touching `vcpkg.json`, `cmake/triplets/`, or `cmake/overlay-ports/`.
+
+**`STEAMWORKS_SDK_ROOT` is optional and developer-supplied** (issue #644). The Steamworks SDK is *not* in this repo and cannot be: its licence forbids redistribution and this repo is public, so there is no vendored copy and no vcpkg port — each developer downloads it themselves (free; the Steamworks SDK Access Agreement, not the $100 Steam Direct publishing fee) and points the variable at the inner `sdk` directory, the one *directly* containing `public/` and `redistributable_bin/`. `OLO_WITH_STEAM` then auto-detects to ON; without the variable it is OFF and the whole engine builds, runs and tests normally. Setup and traps: [docs/ops/build.md](docs/ops/build.md#steamworks-sdk-optional--you-must-obtain-it-yourself). Two consequences worth not re-deriving: **CI can never build the enabled path**, so a hand-written stub SDK (`-DOLO_WITH_STEAM_STUB_SDK=ON`, `.github/workflows/steam-stub.yml`) compiles/links/runs it instead — add any new Steamworks call to the stubs or that job goes red; and **exactly one TU may include a Valve header** (`Platform/Steam/SteamworksBackend.cpp`), enforced by a CI grep, because that is what keeps the logic fake-testable. Everything else talks to `ISteamBackend`.
 
 CMake presets ([CMakePresets.json](CMakePresets.json)) — note all three require **CMake 4.2+** because the `msvc` preset's `Visual Studio 18 2026` generator only exists in CMake 4.2 and the others inherit / share the version requirement at the top of the file:
 
