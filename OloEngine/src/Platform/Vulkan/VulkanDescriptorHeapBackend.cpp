@@ -9,8 +9,10 @@
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
 
@@ -193,6 +195,19 @@ namespace OloEngine
             }
 
             const Staged& staged = it->second;
+            // The heap route's half of the bind-time layout seam (#691
+            // Phase 9; the slot route's BindTexture/BindImageTexture always
+            // had it). A descriptor written here BAKES its layout; if the
+            // image isn't actually there when the draw samples it — the
+            // reproducible case: a window resize recreates a pass target
+            // mid-frame and this slot is rewritten to the fresh UNDEFINED
+            // image before anything renders into it — the submit fails
+            // VUID-vkCmdDraw-None-09600. No-op outside a recording.
+            if (auto* vk = TryGetRecordingVulkanAPI(); vk != nullptr)
+            {
+                vk->EnsureImageLayoutForDescriptor(staged.Image, staged.Layout,
+                                                   staged.ViewInfo.subresourceRange);
+            }
             const bool ok = staged.Type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
                                 ? heap.WriteStorageImage(slot, staged.ViewInfo, staged.Layout)
                                 : heap.WriteSampledImage(slot, staged.ViewInfo, staged.Layout);

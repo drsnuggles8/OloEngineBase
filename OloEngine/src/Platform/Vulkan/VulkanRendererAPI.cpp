@@ -2466,12 +2466,7 @@ namespace OloEngine
         // MemoryBarrier those paths issue. It is safe to move now because
         // BindImageTexture transitions BACK to GENERAL when the image is next
         // bound for storage — the write half is no longer stranded.
-        if (m_Cmd != VK_NULL_HANDLE)
         {
-            const u32 mipCount = std::max(info->MipLevels, 1u);
-            const u32 layerCount = std::max(info->ArrayLayers, 1u);
-            m_LayoutTracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId, info->InitialLayout);
-
             VkImageSubresourceRange whole{};
             // A BARRIER on a combined depth-stencil image must name BOTH
             // aspects while separateDepthStencilLayouts is off
@@ -2488,61 +2483,7 @@ namespace OloEngine
             whole.levelCount = VK_REMAINING_MIP_LEVELS;
             whole.baseArrayLayer = 0;
             whole.layerCount = VK_REMAINING_ARRAY_LAYERS;
-
-            std::vector<VkImageMemoryBarrier2> toSampled;
-            m_LayoutTracker.ForEachLayoutRun(
-                image, whole,
-                [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
-                {
-                    const bool producedByPriorCommand =
-                        trackedLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_GENERAL ||
-                        // UNDEFINED too: a never-written subresource (a shadow
-                        // cascade with no casters, an imported stand-in) would
-                        // otherwise stay UNDEFINED while this descriptor claims
-                        // SHADER_READ_ONLY. Transitioning it is free — it
-                        // discards contents that are undefined anyway.
-                        trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED;
-                    if (!producedByPriorCommand)
-                        return;
-
-                    VkImageMemoryBarrier2 b{};
-                    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    // Conservative all-stage scopes: the producer may be
-                    // raster, a transfer, or the harness — over-sync beats a
-                    // silent race on a correctness seam.
-                    b.srcStageMask = kAllStages;
-                    b.srcAccessMask = kAllAccess;
-                    b.dstStageMask = kAllStages;
-                    b.dstAccessMask = kAllAccess;
-                    b.oldLayout = trackedLayout;
-                    b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    b.image = image;
-                    b.subresourceRange = run;
-                    toSampled.push_back(b);
-                });
-            if (!toSampled.empty())
-            {
-                // vkCmdPipelineBarrier2 is illegal inside a rendering scope;
-                // ending here also closes the scope that RENDERED the runs
-                // being transitioned (the JFA/bloom shape: the source's scope
-                // is still open when the next iteration binds it).
-                EndRenderingScope();
-                VkDependencyInfo dep{};
-                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-                dep.imageMemoryBarrierCount = static_cast<u32>(toSampled.size());
-                dep.pImageMemoryBarriers = toSampled.data();
-                vkCmdPipelineBarrier2(m_Cmd, &dep);
-                for (const auto& b : toSampled)
-                {
-                    m_LayoutTracker.SetLayout(image, b.subresourceRange, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                }
-            }
+            EnsureImageLayoutForDescriptor(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, whole);
         }
 
         // Default whole-image sampled view. Depth-stencil formats sample the
@@ -2768,58 +2709,122 @@ namespace OloEngine
         // this bind exposes (one mip, one layer or all): transition every run
         // that is not already GENERAL, including UNDEFINED runs, which cost
         // nothing because they discard contents that are undefined anyway.
-        if (m_Cmd != VK_NULL_HANDLE)
         {
-            m_LayoutTracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
-                                          info->RegistrationId, info->InitialLayout);
-
             VkImageSubresourceRange bound{};
             bound.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // storage images are colour-aspect
             bound.baseMipLevel = view.subresourceRange.baseMipLevel;
             bound.levelCount = 1u;
             bound.baseArrayLayer = view.subresourceRange.baseArrayLayer;
             bound.layerCount = view.subresourceRange.layerCount;
-
-            std::vector<VkImageMemoryBarrier2> toGeneral;
-            m_LayoutTracker.ForEachLayoutRun(image, bound,
-                                             [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
-                                             {
-                                                 if (trackedLayout == VK_IMAGE_LAYOUT_GENERAL)
-                                                     return; // already where a storage access needs it
-
-                                                 VkImageMemoryBarrier2 b{};
-                                                 b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                                                 // Conservative scopes, same reasoning as the sampled seam:
-                                                 // the producer may be raster, transfer, or a prior dispatch.
-                                                 b.srcStageMask = kAllStages;
-                                                 b.srcAccessMask = kAllAccess;
-                                                 b.dstStageMask = kAllStages;
-                                                 b.dstAccessMask = kAllAccess;
-                                                 b.oldLayout = trackedLayout;
-                                                 b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-                                                 b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                                                 b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                                                 b.image = image;
-                                                 b.subresourceRange = run;
-                                                 toGeneral.push_back(b);
-                                             });
-            if (!toGeneral.empty())
-            {
-                EndRenderingScope(); // vkCmdPipelineBarrier2 is illegal inside a rendering scope
-                VkDependencyInfo dep{};
-                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-                dep.imageMemoryBarrierCount = static_cast<u32>(toGeneral.size());
-                dep.pImageMemoryBarriers = toGeneral.data();
-                vkCmdPipelineBarrier2(m_Cmd, &dep);
-                for (const auto& b : toGeneral)
-                    m_LayoutTracker.SetLayout(image, b.subresourceRange, VK_IMAGE_LAYOUT_GENERAL);
-            }
+            EnsureImageLayoutForDescriptor(image, VK_IMAGE_LAYOUT_GENERAL, bound);
         }
 
         const u32 heapSlot = VulkanDescriptorSlotCache::Get().AcquireSlot(
             image, view, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_LAYOUT_GENERAL);
         bindingState.SetImageHeapSlot(
             unit, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
+    }
+
+    void VulkanRendererAPI::EnsureImageLayoutForDescriptor(VkImage image, VkImageLayout target,
+                                                           const VkImageSubresourceRange& range)
+    {
+        // The bind-time layout seam behind BOTH descriptor routes — see the
+        // header note. GL-parity mid-pass visibility (#691 Phase 7 Wave A): GL
+        // makes a just-rendered (or just-copied) image visible to a later
+        // texture() with NO application barrier, so pass bodies sample an
+        // attachment they drew two draws ago without saying anything — the
+        // bloom mip ladder, the JFA ping-pong, fog's and cloudscape's half-res
+        // write-then-sample all do exactly this inside ONE Execute, where the
+        // graph's per-pass planner barriers cannot reach. Without this seam
+        // the sample raced the raster and read the PRE-draw content (the
+        // clear), while the baked descriptor lied about the image's actual
+        // layout. Transition exactly the layout runs a previous command
+        // produced, at bind/publish time, scope-ended first (the
+        // ClearTextureFloat shape).
+        //
+        // For a SAMPLED target, GENERAL is included. It used to be skipped, on
+        // the reasoning that a compute store-then-sample chain keeps its image
+        // in GENERAL and moving it here "would break the write half" — but
+        // that left the baked SHADER_READ_ONLY descriptor disagreeing with the
+        // image's real layout on exactly those chains (HZB mip ladder, fog
+        // scatter -> integrate, snow, cloud shadows, the ocean FFT), which is
+        // invalid usage even though the RAW hazard is covered by the explicit
+        // MemoryBarrier those paths issue. Safe because a storage publish
+        // transitions BACK to GENERAL — the write half is never stranded.
+        // UNDEFINED is included for both targets: a never-written subresource
+        // (a shadow cascade with no casters, a mid-frame-recreated resize
+        // target) would otherwise stay UNDEFINED while the descriptor claims
+        // otherwise; transitioning it is free — it discards contents that are
+        // undefined anyway.
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        if (info == nullptr)
+        {
+            return;
+        }
+        m_LayoutTracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
+                                      info->RegistrationId, info->InitialLayout);
+
+        std::vector<VkImageMemoryBarrier2> barriers;
+        m_LayoutTracker.ForEachLayoutRun(
+            image, range,
+            [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
+            {
+                if (trackedLayout == target)
+                    return; // already where this descriptor kind needs it
+                if (target == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                {
+                    // The sampled filter: only runs a prior command produced
+                    // (or UNDEFINED, per above) move; anything else is a
+                    // layout some OTHER machinery owns right now.
+                    const bool producedByPriorCommand =
+                        trackedLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_GENERAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED;
+                    if (!producedByPriorCommand)
+                        return;
+                }
+
+                VkImageMemoryBarrier2 b{};
+                b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                // Conservative all-stage scopes: the producer may be raster, a
+                // transfer, a prior dispatch, or the harness — over-sync beats
+                // a silent race on a correctness seam.
+                b.srcStageMask = kAllStages;
+                b.srcAccessMask = kAllAccess;
+                b.dstStageMask = kAllStages;
+                b.dstAccessMask = kAllAccess;
+                b.oldLayout = trackedLayout;
+                b.newLayout = target;
+                b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.image = image;
+                b.subresourceRange = run;
+                barriers.push_back(b);
+            });
+        if (!barriers.empty())
+        {
+            // vkCmdPipelineBarrier2 is illegal inside a rendering scope;
+            // ending here also closes the scope that RENDERED the runs being
+            // transitioned (the JFA/bloom shape: the source's scope is still
+            // open when the next iteration binds it).
+            EndRenderingScope();
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount = static_cast<u32>(barriers.size());
+            dep.pImageMemoryBarriers = barriers.data();
+            vkCmdPipelineBarrier2(m_Cmd, &dep);
+            for (const auto& b : barriers)
+            {
+                m_LayoutTracker.SetLayout(image, b.subresourceRange, target);
+            }
+        }
     }
 
     void VulkanRendererAPI::StageTransferTransition(VkImage image, const VkImageSubresourceRange& range,

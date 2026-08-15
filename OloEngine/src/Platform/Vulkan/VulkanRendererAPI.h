@@ -471,6 +471,23 @@ namespace OloEngine
         void BeginQuery(RHI::QueryType type, RHI::ResourceHandle query) override;
         void EndQuery(RHI::QueryType type) override;
         void WriteTimestamp(RHI::ResourceHandle query) override;
+
+        // The bind-time layout seam, callable by BOTH descriptor routes (#691
+        // Phase 9; closes the "amendment (63) covers the slot path only" debt
+        // the Phase 8 issue text carried). BindTexture / BindImageTexture used
+        // to own private copies for the SLOT path; the HEAP route
+        // (VulkanDescriptorHeapBackend::UploadSlots) wrote descriptors
+        // declaring SHADER_READ_ONLY / GENERAL with no transition at all —
+        // harmless while every heap-bound image was also transitioned by the
+        // graph's plan or a pass's own barriers, and a validation error the
+        // first time one wasn't: a window resize recreates every pass
+        // framebuffer MID-FRAME, the frame skips the scene render, and the
+        // UI-composite pass samples the fresh (UNDEFINED) image through its
+        // rewritten heap slot. One resize = one bad submit, self-healing next
+        // frame — reproduced 4-for-4, fixed here. No-op outside a recording
+        // (load-time descriptor writes get their layouts from first use).
+        void EnsureImageLayoutForDescriptor(VkImage image, VkImageLayout target,
+                                            const VkImageSubresourceRange& range);
         [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle query) override;
         [[nodiscard("Store this!")]] u32 GetQueryResultU32(RHI::ResourceHandle query) override;
         [[nodiscard("Store this!")]] u64 GetQueryResultU64(RHI::ResourceHandle query) override;
