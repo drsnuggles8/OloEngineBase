@@ -53,6 +53,11 @@ namespace OloEngine
                 case S::ColorGradingColor:
                 case S::ToneMapColor:
                 case S::VignetteColor:
+                // The colour-vision adaptation output (issue #458) is the LAST
+                // stage before present when a mode is active, so it is the most
+                // presentation-like source there is — a transparent capture here
+                // must raise the same diagnostic as its neighbours.
+                case S::ColorBlindColor:
                 case S::FXAAColor:
                 case S::SelectionOutlineColor:
                 case S::UIComposite:

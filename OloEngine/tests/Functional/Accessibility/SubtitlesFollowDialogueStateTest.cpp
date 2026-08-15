@@ -39,6 +39,9 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <string>
 
@@ -315,6 +318,68 @@ TEST_F(SubtitlesFollowDialogueStateTest, OverlayEntitiesAreCreatedOnceAndReusedA
     EXPECT_EQ(CountOverlayEntities(), 3u);
     EXPECT_EQ(static_cast<u64>(subtitles->GetTextEntity()), static_cast<u64>(firstTextEntity))
         << "the overlay must be reused, not rebuilt, between lines";
+}
+
+TEST_F(SubtitlesFollowDialogueStateTest, ShutdownTearsTheOverlayDownAndALaterCaptionRebuildsIt)
+{
+    // The third failure mode this file's header names, and the one that was
+    // previously unasserted: the overlay must be torn down with the session, or
+    // every Play -> Stop -> Play cycle leaks three UI entities.
+    //
+    // Driven through SubtitleSystem::Shutdown — the exact call
+    // Scene::OnRuntimeStop makes. Calling OnRuntimeStop itself is NOT possible
+    // from this harness: it tears down streaming, scripting and physics
+    // subsystems that FunctionalTest wires by hand and never starts, and it
+    // access-violates (verified, SEH 0xC0000005). The companion test below
+    // covers the call site instead.
+    EnableSubtitles(true);
+
+    auto* subtitles = GetScene().GetSubtitleSystem();
+    ASSERT_NE(subtitles, nullptr);
+    subtitles->ShowCaption("Session one", "", 5.0f);
+    RunFrames(2);
+    ASSERT_EQ(CountOverlayEntities(), 3u) << "the overlay was never created, so teardown proves nothing";
+
+    subtitles->Shutdown(GetScene());
+
+    EXPECT_EQ(CountOverlayEntities(), 0u)
+        << "Shutdown left the caption overlay behind — a Play/Stop cycle would leak three UI entities";
+    EXPECT_FALSE(subtitles->IsVisible());
+    EXPECT_TRUE(subtitles->GetVisibleText().empty());
+
+    // ...and the system is reusable afterwards, which is the "Play again" half.
+    subtitles->ShowCaption("Session two", "", 5.0f);
+    RunFrames(2);
+    EXPECT_EQ(CountOverlayEntities(), 3u) << "the overlay was not rebuilt for the next session";
+    EXPECT_NE(subtitles->GetVisibleText().find("Session two"), std::string::npos);
+}
+
+TEST_F(SubtitlesFollowDialogueStateTest, RuntimeStopIsWiredToTearTheSubtitleSystemDown)
+{
+    // The companion to the test above. Shutdown works; this asserts it is
+    // actually CALLED when a session ends. Losing that one line in
+    // Scene::OnRuntimeStop is a silent per-session entity leak, and the
+    // behavioural test cannot see it because the harness cannot run
+    // OnRuntimeStop (see above).
+    //
+    // A source scan, like AccessibilitySettingsTest's UIRenderer draw-site
+    // check: not elegant, but it fails loudly on the one edit that would
+    // reintroduce the leak. Resolved from the compile-time root, never the CWD.
+    const auto scenePath = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path() /
+                           "OloEngine" / "src" / "OloEngine" / "Scene" / "Scene.cpp";
+    std::ifstream file(scenePath);
+    ASSERT_TRUE(file.is_open()) << "Scene.cpp not found at " << scenePath.string();
+    const std::string source((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+
+    const auto stopAt = source.find("void Scene::OnRuntimeStop()");
+    ASSERT_NE(stopAt, std::string::npos) << "Scene::OnRuntimeStop not found — has it been renamed?";
+
+    const auto shutdownAt = source.find("m_SubtitleSystem->Shutdown(*this)", stopAt);
+    EXPECT_NE(shutdownAt, std::string::npos)
+        << "Scene::OnRuntimeStop no longer calls m_SubtitleSystem->Shutdown(*this) — every "
+           "Play/Stop cycle now leaks the caption overlay's three UI entities, and no "
+           "behavioural test can catch it because the functional harness cannot drive "
+           "OnRuntimeStop.";
 }
 
 TEST_F(SubtitlesFollowDialogueStateTest, CaptionFontSizeTracksTheSettingAndStaysAuthorAuthored)

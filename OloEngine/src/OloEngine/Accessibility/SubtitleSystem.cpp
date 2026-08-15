@@ -70,12 +70,19 @@ namespace OloEngine
 
     void SubtitleSystem::DestroyEntities(Scene& scene)
     {
+        // TryGetEntityWithUUID, not GetEntityByUUID: the latter ASSERTS when the
+        // UUID is absent from m_EntityMap, and `if (Entity e = Get(...))` does
+        // not protect against that — the assert fires inside the accessor,
+        // before the check. These three UUIDs can outlive their entities (a
+        // scene reload, a script destroying them), which is the whole reason
+        // EnsureEntities has a rebuild path; using the asserting accessor would
+        // make that path unreachable in a debug build.
         const auto destroyIfValid = [&scene](UUID& uuid)
         {
             if (static_cast<u64>(uuid) != 0)
             {
-                if (Entity ent = scene.GetEntityByUUID(uuid))
-                    scene.DestroyEntity(ent);
+                if (auto ent = scene.TryGetEntityWithUUID(uuid); ent && *ent)
+                    scene.DestroyEntity(*ent);
                 uuid = 0;
             }
         };
@@ -105,12 +112,14 @@ namespace OloEngine
 
         // All three, not just the text entity: a partially-destroyed hierarchy
         // would otherwise be kept and the caption would render unparented.
-        const bool intact = static_cast<u64>(m_TextEntity) != 0 &&
-                            static_cast<u64>(m_PanelEntity) != 0 &&
-                            static_cast<u64>(m_CanvasEntity) != 0 &&
-                            scene.GetEntityByUUID(m_TextEntity) &&
-                            scene.GetEntityByUUID(m_PanelEntity) &&
-                            scene.GetEntityByUUID(m_CanvasEntity);
+        const auto alive = [&scene](UUID uuid)
+        {
+            if (static_cast<u64>(uuid) == 0)
+                return false;
+            const auto ent = scene.TryGetEntityWithUUID(uuid);
+            return ent.has_value() && static_cast<bool>(*ent);
+        };
+        const bool intact = alive(m_TextEntity) && alive(m_PanelEntity) && alive(m_CanvasEntity);
         if (intact)
             return true;
 
@@ -195,21 +204,21 @@ namespace OloEngine
         // time a character draws breath.
         if (static_cast<u64>(m_CanvasEntity) != 0)
         {
-            if (Entity canvasEnt = scene.GetEntityByUUID(m_CanvasEntity);
-                canvasEnt && canvasEnt.HasComponent<UICanvasComponent>())
+            if (auto canvasEnt = scene.TryGetEntityWithUUID(m_CanvasEntity);
+                canvasEnt && *canvasEnt && canvasEnt->HasComponent<UICanvasComponent>())
             {
-                canvasEnt.GetComponent<UICanvasComponent>().m_SortOrder =
+                canvasEnt->GetComponent<UICanvasComponent>().m_SortOrder =
                     visible ? kSubtitleCanvasSortOrder : kHiddenCanvasSortOrder;
             }
         }
 
         if (static_cast<u64>(m_PanelEntity) != 0)
         {
-            if (Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
-                panelEnt && panelEnt.HasComponent<UIPanelComponent>())
+            if (auto panelEnt = scene.TryGetEntityWithUUID(m_PanelEntity);
+                panelEnt && *panelEnt && panelEnt->HasComponent<UIPanelComponent>())
             {
                 const f32 alpha = visible ? Accessibility::Get().SubtitleBackgroundOpacity : 0.0f;
-                panelEnt.GetComponent<UIPanelComponent>().m_BackgroundColor = { 0.0f, 0.0f, 0.0f, alpha };
+                panelEnt->GetComponent<UIPanelComponent>().m_BackgroundColor = { 0.0f, 0.0f, 0.0f, alpha };
             }
         }
 
@@ -221,11 +230,11 @@ namespace OloEngine
         if (static_cast<u64>(m_TextEntity) == 0)
             return;
 
-        Entity textEnt = scene.GetEntityByUUID(m_TextEntity);
-        if (!textEnt || !textEnt.HasComponent<UITextComponent>())
+        auto textEnt = scene.TryGetEntityWithUUID(m_TextEntity);
+        if (!textEnt || !*textEnt || !textEnt->HasComponent<UITextComponent>())
             return;
 
-        auto& textComp = textEnt.GetComponent<UITextComponent>();
+        auto& textComp = textEnt->GetComponent<UITextComponent>();
         textComp.m_Text = text;
         // The AUTHORED size only. UIRenderer multiplies the global text scale on
         // top at draw time, so the two accessibility settings compose instead of

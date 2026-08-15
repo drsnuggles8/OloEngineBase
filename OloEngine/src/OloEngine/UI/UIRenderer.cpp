@@ -38,6 +38,15 @@ namespace OloEngine
     static f32 s_ViewportHeight = 0.0f;
     static glm::mat4 s_CurrentProjection{ 1.0f };
 
+    // Em size the input-field and dropdown text paths normalise by: their font
+    // size is a pixel height while Renderer2D::DrawString takes a transform
+    // scale. Named once because it appeared at three call sites — and the
+    // text-scale coverage test only proves each site wraps m_FontSize in
+    // ResolveFontSize, so it could not catch one site drifting to a different
+    // divisor. DrawUIText does NOT use this: it derives its own normalisation
+    // from the font metrics (fsScale).
+    static constexpr f32 kTextTransformEmSize = 48.0f;
+
     void UIRenderer::BeginScene(const glm::mat4& projection)
     {
         OLO_PROFILE_FUNCTION();
@@ -521,7 +530,7 @@ namespace OloEngine
 
         // Text or placeholder. Global accessibility text scale applied at draw
         // time (issue #458) — see DrawUIText for why it is not written back.
-        const f32 scale = Accessibility::ResolveFontSize(inputField.m_FontSize) / 48.0f;
+        const f32 scale = Accessibility::ResolveFontSize(inputField.m_FontSize) / kTextTransformEmSize;
         const f32 padding = 4.0f;
         glm::vec2 textPos = { position.x + padding, position.y + size.y * 0.5f };
         glm::mat4 transform = glm::translate(glm::mat4(1.0f), { textPos.x, textPos.y, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
@@ -592,7 +601,7 @@ namespace OloEngine
         if (dropdown.m_SelectedIndex >= 0 && dropdown.m_SelectedIndex < static_cast<i32>(dropdown.m_Options.size()))
         {
             // Global accessibility text scale (issue #458).
-            const f32 scale = Accessibility::ResolveFontSize(dropdown.m_FontSize) / 48.0f;
+            const f32 scale = Accessibility::ResolveFontSize(dropdown.m_FontSize) / kTextTransformEmSize;
             const f32 padding = 4.0f;
             glm::mat4 transform = glm::translate(glm::mat4(1.0f), { position.x + padding, position.y + size.y * 0.5f, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
             Renderer2D::TextParams params;
@@ -611,6 +620,9 @@ namespace OloEngine
         // Popup list when open
         if (dropdown.m_IsOpen && !dropdown.m_Options.empty())
         {
+            // Hoisted: dropdown.m_FontSize does not change across options, so
+            // resolving the scale per option was redundant work in the loop.
+            const f32 optionScale = Accessibility::ResolveFontSize(dropdown.m_FontSize) / kTextTransformEmSize;
             const f32 listHeight = static_cast<f32>(dropdown.m_Options.size()) * dropdown.m_ItemHeight;
             const glm::vec2 listPos = { position.x, position.y + size.y };
 
@@ -625,10 +637,8 @@ namespace OloEngine
                     DrawRect({ listPos.x, itemY }, { size.x, dropdown.m_ItemHeight }, dropdown.m_HighlightColor, entityID);
                 }
 
-                // Global accessibility text scale (issue #458).
-                const f32 scale = Accessibility::ResolveFontSize(dropdown.m_FontSize) / 48.0f;
                 const f32 padding = 4.0f;
-                glm::mat4 transform = glm::translate(glm::mat4(1.0f), { listPos.x + padding, itemY + dropdown.m_ItemHeight * 0.5f, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
+                glm::mat4 transform = glm::translate(glm::mat4(1.0f), { listPos.x + padding, itemY + dropdown.m_ItemHeight * 0.5f, 0.0f }) * glm::scale(glm::mat4(1.0f), { optionScale, optionScale, 1.0f });
                 Renderer2D::TextParams params;
                 params.Color = dropdown.m_TextColor;
                 if (dropdown.m_FontAsset)

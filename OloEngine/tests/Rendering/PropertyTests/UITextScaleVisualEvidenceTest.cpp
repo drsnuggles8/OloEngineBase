@@ -192,7 +192,10 @@ namespace OloEngine::Tests
 
         void ApplyScale(f32 scale)
         {
-            AccessibilitySettings s;
+            // Read-modify-write, not default-construct: overwriting the whole
+            // global would silently reset every other preference, so a later
+            // case that sets one first would measure the wrong configuration.
+            AccessibilitySettings s = Accessibility::Get();
             s.UITextScale = scale;
             Accessibility::Set(s);
         }

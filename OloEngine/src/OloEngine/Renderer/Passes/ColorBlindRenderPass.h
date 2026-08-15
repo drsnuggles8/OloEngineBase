@@ -54,7 +54,7 @@ namespace OloEngine
 
         // The parameters uploaded to UBO_COLORBLIND on the next Execute. Set from
         // the process-global accessibility settings in
-        // RenderPipeline::UploadExecutionState, so the render thread reads a
+        // RenderPipeline::ConfigurePassesForFrame, so the render thread reads a
         // snapshot rather than the live global mid-frame.
         void SetParams(const ColorBlindUBOData& params) noexcept
         {

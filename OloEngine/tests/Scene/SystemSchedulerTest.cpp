@@ -550,6 +550,19 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
                                                { return n.Name == "Destructible"; });
         ASSERT_NE(node, graph.Nodes.end()) << "Destructible node missing from the exported graph";
         EXPECT_FALSE(node->Parallel) << "the Destructible node must not be Parallelizable — it makes structural ECS changes";
+
+        // Subtitles (issue #458) is the same class of node: SubtitleSystem::Update
+        // CREATES and DESTROYS the caption overlay entities, which is a structural
+        // registry change. The physics shadow permits that on the game thread;
+        // a worker dispatch would not. Marking it Parallelizable would be silently
+        // wrong — the entity churn is rare (only when a caption first appears), so
+        // a race would surface as an occasional unexplained crash rather than a
+        // reproducible failure.
+        const auto subtitles = std::ranges::find_if(graph.Nodes,
+                                                    [](const auto& n)
+                                                    { return n.Name == "Subtitles"; });
+        ASSERT_NE(subtitles, graph.Nodes.end()) << "Subtitles node missing from the exported graph";
+        EXPECT_FALSE(subtitles->Parallel) << "the Subtitles node must not be Parallelizable — it makes structural ECS changes";
     }
     EXPECT_TRUE(sched.DependsOn("Audio", "PhysicsFence")); // pose sync reads post-physics transforms
     EXPECT_TRUE(sched.DependsOn("Audio", "Navigation"));

@@ -278,7 +278,12 @@ namespace OloEngine::Tests
 
         // Render with the CURRENT accessibility settings, read back the final
         // composited frame, write PNG evidence, and verify the PNG round-trips.
-        void Capture(const std::string& tag, std::vector<u8>& outPixels)
+        // requireAdaptedTarget: when a mode is ACTIVE the adapted target must
+        // exist. Without this the fallback chain silently measures the
+        // pre-adaptation image and the failure surfaces two assertions later as
+        // "the stage is not reaching the presented image" — an indirect
+        // diagnosis of a missing or renamed resource.
+        void Capture(const std::string& tag, std::vector<u8>& outPixels, bool requireAdaptedTarget = false)
         {
             EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
@@ -291,6 +296,12 @@ namespace OloEngine::Tests
             // read the image from BEFORE the adaptation and this whole test would
             // silently measure nothing.
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ColorBlindColor);
+            if (requireAdaptedTarget)
+            {
+                ASSERT_TRUE(fb) << "ColorBlindColor did not resolve for capture '" << tag
+                                << "' while a mode was active — the pass did not declare its resource. "
+                                   "Falling back here would measure the pre-adaptation frame.";
+            }
             if (!fb)
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
             if (!fb)
@@ -385,14 +396,14 @@ namespace OloEngine::Tests
         // --- Simulation frame: show what the deuteranope sees ---
         ApplyMode(ColorBlindMode::Deuteranopia, ColorBlindAdaptation::Simulate, 1.0f);
         std::vector<u8> simPixels;
-        Capture("DeuteranopiaSimulated", simPixels);
+        Capture("DeuteranopiaSimulated", simPixels, /*requireAdaptedTarget=*/true);
         if (::testing::Test::HasFatalFailure())
             return;
 
         // --- Correction frame: the accessibility feature ---
         ApplyMode(ColorBlindMode::Deuteranopia, ColorBlindAdaptation::Correct, 1.0f);
         std::vector<u8> fixPixels;
-        Capture("DeuteranopiaCorrected", fixPixels);
+        Capture("DeuteranopiaCorrected", fixPixels, /*requireAdaptedTarget=*/true);
         if (::testing::Test::HasFatalFailure())
             return;
 

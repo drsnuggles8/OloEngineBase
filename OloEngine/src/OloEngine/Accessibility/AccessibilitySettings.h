@@ -181,6 +181,15 @@ namespace OloEngine
     // renderer, the UI renderer, the subtitle system and the editor panel all
     // read the same instance, so a change is visible everywhere on the next
     // frame with no propagation step to forget.
+    //
+    // NOT THREAD-SAFE, by design: Get()/Set() are unsynchronised. Every current
+    // caller is on the game/main thread — the UIRenderer draw sites (main-thread
+    // only, like Renderer3D::BeginScene/EndScene), the Subtitles scheduler node
+    // (unmarked, so never dispatched to a worker), the editor panel, and
+    // Application's startup load. The render path does not read the live global
+    // at all: RenderPipeline::ConfigurePassesForFrame snapshots it into the pass.
+    // If a worker ever needs these, add synchronisation here rather than
+    // assuming the current call graph holds.
     class Accessibility
     {
       public:
