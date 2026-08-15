@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/Passes/AOTargetIdentity.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -173,6 +174,13 @@ namespace OloEngine
             aoOutputTexture = context.ResolveTextureHandle(m_SelectedAOOutputTexture);
         if (!depthTexture.IsValid() || !normalsTexture.IsValid() || !aoOutputTexture.IsValid())
         {
+            // AOApplyPass samples AOBuffer whether or not we produced anything,
+            // so a skipped frame must leave the "no occlusion" identity behind
+            // rather than whatever the transient pool handed us — see
+            // AOTargetIdentity.h and issue #771. (The clear-to-white further
+            // down only covers this pass's own SSAORaw/SSAOBlur scratch, and it
+            // sits AFTER these returns, so it never protected AOBuffer.)
+            PublishAOTargetAsFullyVisible(aoOutputTexture);
             return;
         }
 
@@ -187,7 +195,10 @@ namespace OloEngine
         if (m_SelectedBlurFramebuffer.IsValid())
             blurFB = context.ResolveFramebuffer(m_SelectedBlurFramebuffer);
         if (!rawFB || !blurFB)
+        {
+            PublishAOTargetAsFullyVisible(aoOutputTexture);
             return;
+        }
 
         m_Target = blurFB;
 

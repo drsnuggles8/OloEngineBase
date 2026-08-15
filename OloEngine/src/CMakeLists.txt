@@ -911,6 +911,7 @@
 		"OloEngine/Renderer/Passes/OverdrawRenderPass.cpp"
 		"OloEngine/Renderer/Passes/ContactShadowRenderPass.h"
 		"OloEngine/Renderer/Passes/ContactShadowRenderPass.cpp"
+		"OloEngine/Renderer/Passes/AOTargetIdentity.h"
 		"OloEngine/Renderer/Passes/GTAORenderPass.h"
 		"OloEngine/Renderer/Passes/GTAORenderPass.cpp"
 		"OloEngine/Renderer/Passes/SSSRenderPass.h"
