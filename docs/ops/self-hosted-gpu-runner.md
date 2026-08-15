@@ -122,8 +122,19 @@ sudo dnf install -y \
   libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel \
   wayland-devel wayland-protocols-devel libxkbcommon-devel \
   glslang-devel spirv-tools \
-  python3-jinja2
+  python3-jinja2 \
+  autoconf autoconf-archive automake libtool pkgconf-pkg-config
 ```
+
+**The autotools row is required since the vcpkg manifest migration (#773/#781).**
+Ports with an autotools Linux build (libsodium is the one in this manifest) need
+`autoconf`/`automake`/`libtoolize`/`autoconf-archive`/`pkg-config` from the
+system. The `setup-vcpkg` composite action *verifies* these on a self-hosted
+runner and fails with a provisioning message naming this section — it only
+auto-installs on GitHub-hosted images, where passwordless sudo + apt-get exist.
+(An earlier version ran `sudo apt-get` unconditionally, which died on this
+Rocky host with "sudo: a terminal is required to read the password" and kept
+the nightly red for days before the suite ever built.)
 
 **`python3-jinja2` from dnf, not `pip install --user`.** glad2's code generation
 imports jinja2, and `--user` installs it into the *installing* user's home —
@@ -163,6 +174,14 @@ every job inherits it:
 ```
 VULKAN_SDK=/opt/vulkan-sdk/1.4.350.1/x86_64
 ```
+
+> **Version note (#691 Phase 9):** ADR 0010's *tooling* floor is SDK
+> **1.4.357.0** — the first SDK whose GPU-assisted validation understands
+> `VK_EXT_descriptor_heap`. The 1.4.350.1 install above predates that: the
+> engine builds and the device-gated tenants run (the capability gate reads
+> *driver* extensions, not the SDK), but GPU-AV diagnostics for heap traffic
+> are unavailable until the SDK is upgraded. When touching this host, prefer
+> installing 1.4.357.0+ alongside and repointing `actions-runner/.env`.
 
 The workflow preflights this and fails with a "provision the runner" message
 rather than a CMake stack trace several minutes into configure.

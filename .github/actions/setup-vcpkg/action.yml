@@ -29,14 +29,46 @@ runs:
     #
     # `autoconf-archive` in particular is NOT on the GitHub Ubuntu image. pkg-config
     # is included because vcpkg_fixup_pkgconfig and several ports expect it.
+    #
+    # Detect-first, install-second — and only ever install where that can work.
+    # An unconditional `sudo apt-get` here killed the gpu-conformance-amd nightly
+    # for days: the self-hosted Rocky runner has neither apt-get nor passwordless
+    # sudo, so the step died on "sudo: a terminal is required to read the
+    # password" before the suite ever built (#691 Phase 9). Self-hosted runners
+    # are provisioned system-wide, ahead of time (docs/ops/self-hosted-gpu-runner.md)
+    # — a workflow step must verify, not install. GitHub-hosted Ubuntu images keep
+    # the install path: passwordless sudo + apt-get are guaranteed there, and
+    # autoconf-archive genuinely is missing from the stock image.
     - name: Install autotools (Linux)
       if: runner.os == 'Linux'
       shell: bash
       run: |
         set -euo pipefail
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          autoconf autoconf-archive automake libtool pkg-config
+        missing=()
+        for tool in autoconf autoreconf automake libtoolize pkg-config; do
+          command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+        done
+        # autoconf-archive ships m4 macros, not a binary; probe a canonical
+        # macro file in the aclocal search path instead of a command.
+        have_archive=false
+        for dir in $(aclocal --print-ac-dir 2>/dev/null) /usr/share/aclocal /usr/local/share/aclocal; do
+          if [ -f "$dir/ax_check_compile_flag.m4" ]; then have_archive=true; break; fi
+        done
+        [ "$have_archive" = true ] || missing+=("autoconf-archive")
+        if [ ${#missing[@]} -eq 0 ]; then
+          echo "autotools already provisioned; nothing to install"
+          exit 0
+        fi
+        if command -v apt-get >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf autoconf-archive automake libtool pkg-config
+        else
+          echo "::error::autotools missing (${missing[*]}) and this runner has no apt-get with passwordless sudo."
+          echo "::error::Provision the runner system-wide: sudo dnf install -y autoconf autoconf-archive automake libtool pkgconf-pkg-config"
+          echo "::error::See docs/ops/self-hosted-gpu-runner.md (Host provisioning)."
+          exit 1
+        fi
 
     - name: Resolve vcpkg root
       shell: bash
