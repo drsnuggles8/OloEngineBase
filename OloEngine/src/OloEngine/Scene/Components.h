@@ -4550,9 +4550,10 @@ namespace OloEngine
 
     enum class FluidSolverMode : i32
     {
-        Auto = 0, // GPU when a GL context exists, CPU otherwise (headless / OloServer)
-        GPU = 1,
-        CPU = 2 // deterministic CPU reference solver (also forced by OLO_FLUID_SEQUENTIAL=1)
+        Auto = 0, // GPU when a graphics device exists, CPU otherwise (headless / OloServer)
+        GPU = 1,  // GPU solver; demotes to CPU (warn-once) on a device-less process —
+                  // authored content cannot force GL calls on OloServer (ADR 0011 (86))
+        CPU = 2   // deterministic CPU reference solver (also forced by OLO_FLUID_SEQUENTIAL=1)
     };
 
     /// A particle-fluid domain. The simulation runs inside an axis-aligned box
