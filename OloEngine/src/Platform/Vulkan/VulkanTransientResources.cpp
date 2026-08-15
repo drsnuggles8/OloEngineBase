@@ -1088,7 +1088,10 @@ namespace OloEngine
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: no upload path (device/image/format)");
             return;
         }
-        if (x + width > m_Width || y + height > m_Height)
+        // Reject the origin first, then compare sizes against the REMAINING
+        // extent — `x + width > m_Width` wraps on huge x and lets an
+        // out-of-range region through (review finding).
+        if (x >= m_Width || y >= m_Height || width > m_Width - x || height > m_Height - y)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: region {}x{}+{}+{} exceeds {}x{}", width, height, x, y,
                            m_Width, m_Height);
@@ -1807,8 +1810,13 @@ namespace OloEngine
                 blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0u, 6u };
                 blit.dstOffsets[1] = { static_cast<i32>(std::max(srcWidth >> 1u, 1u)),
                                        static_cast<i32>(std::max(srcHeight >> 1u, 1u)), 1 };
+                // Integer formats reject LINEAR blits — same guard as the 2D
+                // mip path (review finding; latent, cubemaps are HDR color
+                // today).
                 vkCmdBlitImage(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit,
+                               IsIntegerFormat(m_CubemapSpecification.Format) ? VK_FILTER_NEAREST
+                                                                              : VK_FILTER_LINEAR);
                 srcWidth = std::max(srcWidth >> 1u, 1u);
                 srcHeight = std::max(srcHeight >> 1u, 1u);
             }
@@ -2690,14 +2698,6 @@ namespace OloEngine
         RenderCommand::ClearTextureFloat(m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0u, value);
     }
 
-    // Integer-sampled image formats take the UInt transfer clear; a float
-    // clear on a SINT/UINT image is a validation error.
-    static bool IsIntegerImageFormat(ImageFormat format)
-    {
-        return format == ImageFormat::R8UI || format == ImageFormat::R16UI || format == ImageFormat::RG16UI ||
-               format == ImageFormat::R32I;
-    }
-
     void VulkanFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)
     {
         // GL-parity semantics (OpenGLFramebuffer::ClearAllAttachments): every
@@ -2725,7 +2725,7 @@ namespace OloEngine
             const bool isInteger =
                 (!isExternal && i < m_ColorAttachmentSpecifications.size())
                     ? m_ColorAttachmentSpecifications[i].TextureFormat == FramebufferTextureFormat::RED_INTEGER
-                    : IsIntegerImageFormat(m_ColorAttachments[i]->GetSpecification().Format);
+                    : IsIntegerFormat(m_ColorAttachments[i]->GetSpecification().Format);
             if (isInteger)
             {
                 // vkCmdClearColorImage on an SINT image reads the int32 union
@@ -2922,6 +2922,16 @@ namespace OloEngine
             }
             m_ExternalColorIndices.erase(index);
             RecomputeHasExternalAttachments();
+            return;
+        }
+        // The rendering scope opens color attachments COLOR_OPTIMAL with a
+        // color-aspect view — a depth-format image there is a validation
+        // error, so refuse it here where the mistake is nameable (the mirror
+        // of AttachExternalDepthTexture's no-depth-aspect refusal).
+        if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(texture->GetVkImage());
+            info != nullptr && info->HasDepth)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] AttachExternalColorTexture: texture has a depth aspect — attach refused");
             return;
         }
         if (!AcceptExternalExtent(*texture, static_cast<i32>(index), /*excludeDepth*/ false))

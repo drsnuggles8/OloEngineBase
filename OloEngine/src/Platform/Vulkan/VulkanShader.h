@@ -75,6 +75,12 @@ namespace OloEngine
             TexCube,
             TexCubeArray,
             Tex3D,
+            // Multisampled declarations (sampler2DMS et al.) are tracked so
+            // the fallback can REFUSE them loudly — no null MS image exists,
+            // and quietly handing a single-sample null to an MS sampler is
+            // exactly the wrong-view-type bug the typed fallback fixed.
+            Tex2DMS,
+            Tex2DMSArray,
         };
 
         u32 Set = 0;

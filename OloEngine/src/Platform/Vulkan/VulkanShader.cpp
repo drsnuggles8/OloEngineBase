@@ -501,8 +501,15 @@ namespace OloEngine
                         imageDim = VulkanShaderBinding::TexDim::Tex3D;
                         break;
                     default:
-                        imageDim = type.image.arrayed ? VulkanShaderBinding::TexDim::Tex2DArray
-                                                      : VulkanShaderBinding::TexDim::Tex2D;
+                        // Preserve multisampling (sampler2DMS) instead of
+                        // collapsing it to Tex2D — the null fallback has no MS
+                        // image and must know to refuse (review finding).
+                        if (type.image.ms)
+                            imageDim = type.image.arrayed ? VulkanShaderBinding::TexDim::Tex2DMSArray
+                                                          : VulkanShaderBinding::TexDim::Tex2DMS;
+                        else
+                            imageDim = type.image.arrayed ? VulkanShaderBinding::TexDim::Tex2DArray
+                                                          : VulkanShaderBinding::TexDim::Tex2D;
                         break;
                 }
             }

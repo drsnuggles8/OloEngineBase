@@ -11,6 +11,7 @@
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>

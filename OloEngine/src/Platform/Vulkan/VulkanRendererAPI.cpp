@@ -1872,7 +1872,14 @@ namespace OloEngine
                     // write target has no safe neutral image, and no
                     // production shader dispatches with an unfed image unit.
                     u32 nullSlot = VulkanResourceHeap::InvalidSlot;
-                    if (!storageImage)
+                    // Multisampled declarations (sampler2DMS) have no null MS
+                    // image to fall back to, and a single-sample null under an
+                    // MS sampler is the wrong-view-type bug the typed fallback
+                    // exists to prevent — leave the slot invalid so the
+                    // warn-once below names the shader and binding instead.
+                    const bool multisampled = binding.ImageDim == VulkanShaderBinding::TexDim::Tex2DMS ||
+                                              binding.ImageDim == VulkanShaderBinding::TexDim::Tex2DMSArray;
+                    if (!storageImage && !multisampled)
                     {
                         nullSlot =
                             VulkanDescriptorHeapBackend::Get().GetNullSampledHeapSlot(ToNullViewType(binding.ImageDim));

@@ -18,6 +18,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <chrono>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace OloEngine
@@ -169,16 +171,30 @@ namespace OloEngine
         // OLO_ENV_BAKE_DUMP diagnostics (#797): CPU-side ground truth of the loaded HDR.
         if (data != nullptr && std::getenv("OLO_ENV_BAKE_DUMP") != nullptr)
         {
+            // Skip non-finite texels in the mean but COUNT them — a NaN-laden
+            // source is itself a finding, and one NaN would otherwise poison
+            // the printed mean into uselessness.
             f64 srcSum[3] = {};
+            sizet srcNonFinite = 0;
             const sizet srcTexels = static_cast<sizet>(width) * height;
             for (sizet i = 0; i < srcTexels; ++i)
                 for (int c = 0; c < 3 && c < channels; ++c)
-                    srcSum[c] += data[i * channels + c];
-            OLO_CORE_INFO("[EnvBakeDump] SOURCE {}x{} ch={} mean HDR = ({:.3f}, {:.3f}, {:.3f})", width, height,
-                          channels, srcSum[0] / srcTexels, srcSum[1] / srcTexels, srcSum[2] / srcTexels);
-            const sizet center = (static_cast<sizet>(height / 2) * width + width / 2) * channels;
-            OLO_CORE_INFO("[EnvBakeDump] SOURCE center texel = ({:.3f}, {:.3f}, {:.3f})", data[center],
-                          data[center + 1], data[center + 2]);
+                {
+                    const f32 v = data[i * channels + c];
+                    if (std::isfinite(v))
+                        srcSum[c] += v;
+                    else
+                        ++srcNonFinite;
+                }
+            OLO_CORE_INFO("[EnvBakeDump] SOURCE {}x{} ch={} mean HDR = ({:.3f}, {:.3f}, {:.3f}), {} non-finite",
+                          width, height, channels, srcSum[0] / srcTexels, srcSum[1] / srcTexels,
+                          srcSum[2] / srcTexels, srcNonFinite);
+            if (channels >= 3)
+            {
+                const sizet center = (static_cast<sizet>(height / 2) * width + width / 2) * channels;
+                OLO_CORE_INFO("[EnvBakeDump] SOURCE center texel = ({:.3f}, {:.3f}, {:.3f})", data[center],
+                              data[center + 1], data[center + 2]);
+            }
         }
 
         if (!data)
@@ -204,14 +220,20 @@ namespace OloEngine
             std::vector<u8> up;
             if (hdrTexture->GetData(up, 0) && !up.empty())
             {
-                const auto* upf = reinterpret_cast<const f32*>(up.data());
-                const sizet upCount = up.size() / sizeof(f32);
+                // memcpy decode — reading the byte buffer through a
+                // reinterpret_cast<const f32*> is an aliasing violation.
+                std::vector<f32> upf(up.size() / sizeof(f32));
+                std::memcpy(upf.data(), up.data(), upf.size() * sizeof(f32));
+                const sizet upCount = upf.size();
                 const int upCh = static_cast<int>(upCount / (static_cast<sizet>(width) * height));
                 f64 upSum[3] = {};
                 const sizet upTexels = static_cast<sizet>(width) * height;
                 for (sizet i = 0; i < upTexels && upCh >= 3; ++i)
                     for (int c = 0; c < 3; ++c)
-                        upSum[c] += upf[i * upCh + c];
+                    {
+                        if (const f32 v = upf[i * upCh + c]; std::isfinite(v))
+                            upSum[c] += v;
+                    }
                 OLO_CORE_INFO("[EnvBakeDump] UPLOADED texture readback: {} floats ({} ch) mean = ({:.3f}, {:.3f}, {:.3f})",
                               upCount, upCh, upSum[0] / upTexels, upSum[1] / upTexels, upSum[2] / upTexels);
             }

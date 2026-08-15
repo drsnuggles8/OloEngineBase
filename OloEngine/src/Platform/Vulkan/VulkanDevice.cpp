@@ -735,6 +735,12 @@ namespace OloEngine
 
         OLO_CORE_ERROR("[Vulkan] DEVICE FAULT REPORT: '{}' ({} address record(s), {} vendor record(s))",
                        info.description, counts.addressInfoCount, counts.vendorInfoCount);
+        // The info call updates the counts to what it actually WROTE (it may
+        // return VK_INCOMPLETE with fewer records than the first call
+        // promised) — iterate only the written prefix, never the full
+        // first-call-sized vectors (review finding).
+        addresses.resize(std::min<sizet>(addresses.size(), counts.addressInfoCount));
+        vendors.resize(std::min<sizet>(vendors.size(), counts.vendorInfoCount));
         for (const auto& a : addresses)
         {
             const char* type = "?";

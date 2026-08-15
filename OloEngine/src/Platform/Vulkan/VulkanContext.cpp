@@ -531,6 +531,19 @@ namespace OloEngine
             {
                 constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — a flush slower than this is a hang
                 result = vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs);
+                if (result == VK_TIMEOUT)
+                {
+                    // The submission may STILL be executing, and the
+                    // vkResetCommandBuffer below on a PENDING command buffer
+                    // is invalid usage (review finding) — so wait it out
+                    // rather than recycle under it. A truly hung GPU turns
+                    // into DEVICE_LOST via the OS watchdog (Windows TDR),
+                    // which exits this wait and makes the reset legal
+                    // (pending buffers become invalid-state on device loss).
+                    OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences timed out after 10 s — waiting for "
+                                   "completion or device loss before recycling the command buffer");
+                    result = vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+                }
                 if (result != VK_SUCCESS)
                 {
                     OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences failed (VkResult {})", static_cast<int>(result));
@@ -540,12 +553,11 @@ namespace OloEngine
                     }
                     else
                     {
-                        // VK_TIMEOUT: the submission may STILL be executing —
-                        // destroying an in-flight fence is invalid usage
-                        // (VUID-vkDestroyFence-fence-01120). Deliberately leak
-                        // this one fence instead; a hung GPU is fatal
-                        // territory anyway and the leak beats UB. (On
-                        // DEVICE_LOST the destroy below is legal.)
+                        // An error wait (OOM) proves nothing about the fence:
+                        // destroying a possibly-in-flight fence is invalid
+                        // usage (VUID-vkDestroyFence-fence-01120).
+                        // Deliberately leak this one instead — the leak beats
+                        // UB. (On DEVICE_LOST the destroy below is legal.)
                         fence = VK_NULL_HANDLE;
                     }
                     ok = false;
