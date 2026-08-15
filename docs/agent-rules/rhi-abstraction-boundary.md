@@ -2756,3 +2756,28 @@ sites that had hand-rolled the convention instead of sharing a predicate —
 the writer-enumeration failure of amendment (59), replayed at the reader
 level. When a convention is global, give it one spelling and make every
 consumer call it.
+
+### 13d. Closing a named gap is not the same as fixing the symptom that led you there
+
+Phase 9 chased one validation error per window resize (a sampled image in
+`UNDEFINED` where its descriptor promised `SHADER_READ_ONLY`). Reading the
+bind paths found a real, *documented* hole on the way: the heap descriptor
+route baked layouts into descriptors and issued no transition at all — the
+debt the Phase 8 issue text carried as "the heap path's own mid-pass
+visibility seam (amendment (63) covers the slot path only)". Closing it is
+correct and it was closed.
+
+It was not the bug. The same reproduction still fired afterwards, because the
+failing sample reaches the image by a third path entirely. The near-miss is
+the lesson: a plausible mechanism that *also* explains the symptom is not
+evidence that it *is* the symptom's cause, and a fix motivated by a
+reproduction owes that reproduction a re-run before the commit message says
+"fixed". Here the re-run is what caught it — the error count was unchanged,
+which is a far more honest signal than a green test suite, because no test
+covered the case in the first place.
+
+The corollary for reporting: when a change closes a gap without fixing the
+motivating symptom, say both things. The gap-closing still ships (it is
+correct on its own terms); the symptom gets filed with what was *ruled out*,
+which is the expensive half of the next person's work — the ruled-out path is
+worth as much as the suspected one.
