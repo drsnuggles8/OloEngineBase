@@ -60,8 +60,12 @@ namespace OloEngine
             u32 Height = 0;
             u32 DepthOrLayers = 1;
             u32 MipLevels = 1;
-            u32 GLInternalFormat = 0;
-            u32 GLTarget = 0;
+            // Backend-native enums describing the clone's storage, kept as
+            // opaque u32s: native-currency debug info per ADR 0011 amendment
+            // (77) — the MCP readback tools need the exact storage description
+            // and no RHI enum can round-trip an arbitrary native format.
+            u32 NativeInternalFormat = 0;
+            u32 NativeTarget = 0;
         };
 
         RenderGraphPassSnapshot() = default;
@@ -120,9 +124,10 @@ namespace OloEngine
             u32 Mips = 0;
         };
 
-        // Reuse (or reallocate) scratch slot `slot` for the given shape.
+        // Reuse (or reallocate) scratch slot `slot` for the given shape
+        // (native target / internal-format enums as opaque u32s).
         // Returns 0 when the target/format cannot be allocated.
-        [[nodiscard]] u32 AcquireScratch(sizet slot, u32 glTarget, u32 glInternalFormat, u32 width, u32 height,
+        [[nodiscard]] u32 AcquireScratch(sizet slot, u32 nativeTarget, u32 nativeInternalFormat, u32 width, u32 height,
                                          u32 depthOrLayers, u32 mipLevels);
 
         // Clone one resolved source into scratch slot `slot`, filling `out`.

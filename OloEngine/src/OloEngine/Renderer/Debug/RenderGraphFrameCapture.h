@@ -1,8 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
-#include <glad/gl.h>
 #include <imgui.h>
 
 #include <array>
@@ -80,7 +80,12 @@ namespace OloEngine
             std::string PassName;
             std::string ResourceName;
             Source SourceKind = Source::SceneColor;
-            u32 TextureID = 0; // GL texture name (RGBA8)
+            // Native GPU object names, deliberately (native-currency debug
+            // info, ADR 0011 amendment (77)): TextureID feeds the debugger's
+            // ImGui thumbnails as an ImTextureID, and the source ids exist
+            // purely for diagnostics output. The capture path itself works in
+            // RHI::ResourceHandle currency.
+            u32 TextureID = 0; // native texture name of the RGBA8 capture
             u32 SourceTextureID = 0;
             u32 SourceFramebufferID = 0;
             u32 Width = 0;
@@ -99,7 +104,7 @@ namespace OloEngine
         RenderGraphFrameCapture() = default;
         ~RenderGraphFrameCapture();
 
-        // No copy / move — owns GL handles.
+        // No copy / move — owns GPU capture textures.
         RenderGraphFrameCapture(const RenderGraphFrameCapture&) = delete;
         RenderGraphFrameCapture& operator=(const RenderGraphFrameCapture&) = delete;
 
@@ -146,10 +151,11 @@ namespace OloEngine
         [[nodiscard]] static const char* SourceName(Source s);
 
       private:
-        // Allocate (or recycle) a GL texture for (passName, source) at
-        // (width, height). Returns the GL handle. The texture is stored
-        // in m_TextureCache keyed on (passName + source).
-        [[nodiscard]] u32 AcquireTexture(const std::string& passName, Source source, u32 width, u32 height);
+        // Allocate (or recycle) an RGBA8 capture texture for (passName,
+        // source) at (width, height). Returns its identity (RHI::NullResource
+        // on failure). The texture is stored in m_TextureCache keyed on
+        // (passName + source).
+        [[nodiscard]] RHI::ResourceHandle AcquireTexture(const std::string& passName, Source source, u32 width, u32 height);
 
         struct GraphMetadata
         {
@@ -160,7 +166,10 @@ namespace OloEngine
         };
 
         // Copy a color-renderable texture into the per-pass texture.
-        void CaptureFramebuffer(const std::string& passName, Source source, u32 sourceTextureID, u32 width, u32 height,
+        // `sourceFramebufferID` is the source FB's native name, carried purely
+        // as diagnostic info for CaptureEntry / logging.
+        void CaptureFramebuffer(const std::string& passName, Source source, RHI::ResourceHandle sourceTexture,
+                                u32 width, u32 height,
                                 std::string_view resourceName, u32 sourceFramebufferID, const GraphMetadata& metadata);
 
         // Copy the default framebuffer after FinalPass into the per-pass texture.
@@ -168,7 +177,7 @@ namespace OloEngine
                                        std::string_view resourceName, const GraphMetadata& metadata);
 
         void RecordCapture(const std::string& passName, Source source, std::string_view resourceName,
-                           u32 sourceTextureID, u32 sourceFramebufferID, u32 dstTexture,
+                           RHI::ResourceHandle sourceTexture, u32 sourceFramebufferID, RHI::ResourceHandle dstTexture,
                            u32 width, u32 height, const GraphMetadata& metadata);
 
         struct CacheKey
@@ -192,7 +201,7 @@ namespace OloEngine
 
         struct CachedTexture
         {
-            u32 TextureID = 0;
+            RHI::ResourceHandle Texture;
             u32 Width = 0;
             u32 Height = 0;
         };

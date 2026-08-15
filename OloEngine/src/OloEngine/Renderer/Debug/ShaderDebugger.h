@@ -7,7 +7,6 @@
 #include "DebugUtils.h"
 
 #include <imgui.h>
-#include <glad/gl.h>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -325,21 +324,7 @@ namespace OloEngine
         u32 m_TotalReloads = 0;
     };
 
-    // Helper function to convert OpenGL shader stage to our enum
-    inline ShaderDebugger::ShaderStage GLStageToShaderStage(GLenum stage)
-    {
-        switch (stage)
-        {
-            case GL_VERTEX_SHADER:
-                return ShaderDebugger::ShaderStage::Vertex;
-            case GL_FRAGMENT_SHADER:
-                return ShaderDebugger::ShaderStage::Fragment;
-            case GL_GEOMETRY_SHADER:
-                return ShaderDebugger::ShaderStage::Geometry;
-            case GL_COMPUTE_SHADER:
-                return ShaderDebugger::ShaderStage::Compute;
-            default:
-                return ShaderDebugger::ShaderStage::Vertex;
-        }
-    }
+    // NOTE (#691 Phase 9): the GLenum-taking GLStageToShaderStage helper that
+    // used to live here moved to its one caller, Platform/OpenGL/OpenGLShader.cpp
+    // — this header is graphics-API-neutral and includes no <glad/gl.h>.
 } // namespace OloEngine

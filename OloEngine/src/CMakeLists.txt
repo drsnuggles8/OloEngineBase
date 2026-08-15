@@ -769,8 +769,10 @@
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
 		"OloEngine/Renderer/Debug/RenderGraphFrameCapture.h"
 		"OloEngine/Renderer/Debug/RenderGraphFrameCapture.cpp"
+		"OloEngine/Renderer/Debug/FrameCaptureBackend.h"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.h"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.cpp"
+		"OloEngine/Renderer/Debug/PassSnapshotBackend.h"
 		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.cpp"
 		"OloEngine/Renderer/Debug/CapturedFrameData.h"
@@ -794,12 +796,17 @@
 		"OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 		"OloEngine/Renderer/Debug/GPUResourceInspector.h"
 		"OloEngine/Renderer/Debug/GPUResourceInspector.cpp"
+		# Neutral inspector-backend interface + the sanctioned factory TU
+		# (ADR 0011 s1.6); the GL implementation lives in Platform/OpenGL.
+		"OloEngine/Renderer/Debug/ResourceInspectorBackend.h"
+		"OloEngine/Renderer/Debug/ResourceInspectorBackend.cpp"
 		"OloEngine/Renderer/Debug/ShaderDebugger.h"
 		"OloEngine/Renderer/Debug/ShaderDebugger.cpp"
 		"OloEngine/Renderer/Debug/DebugUtils.h"
 		"OloEngine/Renderer/Debug/DebugUtils.cpp"
 		"OloEngine/Renderer/Debug/GLStateGuard.h"
 		"OloEngine/Renderer/Debug/GLStateGuard.cpp"
+		"OloEngine/Renderer/Debug/StateGuardBackend.h"
 		"OloEngine/Renderer/Debug/RendererValidate.h"
 		"OloEngine/Renderer/Debug/RendererValidate.cpp"
 
@@ -1455,14 +1462,27 @@
 		"Platform/OpenGL/OpenGLDescriptorHeap.h"
 		"Platform/OpenGL/OpenGLFramebuffer.cpp"
 		"Platform/OpenGL/OpenGLFramebuffer.h"
+		# GL half of the RenderGraphFrameCapture seam (#691 Phase 9): definitions for
+		# the Detail:: functions declared in Renderer/Debug/FrameCaptureBackend.h.
+		"Platform/OpenGL/OpenGLFrameCapture.cpp"
 		"Platform/OpenGL/OpenGLIndexBuffer.cpp"
 		"Platform/OpenGL/OpenGLIndexBuffer.h"
 		"Platform/OpenGL/OpenGLRendererAPI.cpp"
 		"Platform/OpenGL/OpenGLRendererAPI.h"
 		"Platform/OpenGL/OpenGLProgramBinaryCache.cpp"
 		"Platform/OpenGL/OpenGLProgramBinaryCache.h"
+		# GL half of the RenderGraphPassSnapshot clone engine (#691 Phase 9): definitions
+		# for the Detail:: functions declared in Renderer/Debug/PassSnapshotBackend.h.
+		"Platform/OpenGL/OpenGLPassSnapshot.cpp"
 		"Platform/OpenGL/OpenGLShader.cpp"
 		"Platform/OpenGL/OpenGLShader.h"
+		# GL half of the GLStateGuard seam (#691 Phase 9): definitions for the
+		# Detail:: capture/apply functions declared in Renderer/Debug/StateGuardBackend.h.
+		"Platform/OpenGL/OpenGLStateGuard.cpp"
+		"Platform/OpenGL/OpenGLStateGuard.h"
+		# GPUResourceInspector's GL machinery (ADR 0011 s1.6 relocation).
+		"Platform/OpenGL/OpenGLResourceInspectorBackend.cpp"
+		"Platform/OpenGL/OpenGLResourceInspectorBackend.h"
 		"Platform/OpenGL/OpenGLTexture.cpp"
 		"Platform/OpenGL/OpenGLTexture.h"
 		"Platform/OpenGL/OpenGLTextureCubemap.cpp"
