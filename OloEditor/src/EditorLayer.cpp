@@ -37,6 +37,7 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneCameraFraming.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scripting/VisualScript/VisualScriptSystem.h"
 #include "OloEngine/Scene/SceneTransition.h"
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Scene/Prefab.h"
@@ -1807,6 +1808,7 @@ namespace OloEngine
             ImGui::MenuItem("Behavior Tree Editor", nullptr, &m_ShowBehaviorTreeEditor);
             ImGui::MenuItem("State Machine Editor", nullptr, &m_ShowFSMEditor);
             ImGui::MenuItem("Shader Graph Editor", nullptr, &m_ShowShaderGraphEditor);
+            ImGui::MenuItem("Visual Script Editor", nullptr, &m_ShowVisualScriptEditor);
             ImGui::MenuItem("Animation Graph Editor", nullptr, &m_ShowAnimationGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
             ImGui::MenuItem("Localization", nullptr, &m_ShowLocalizationPanel);
@@ -2381,6 +2383,19 @@ namespace OloEngine
             m_ShowShaderGraphEditor = m_ShaderGraphEditorPanel.IsOpen();
         }
 
+        // Visual Script Editor Panel (issue #634)
+        if (m_ShowVisualScriptEditor)
+        {
+            m_VisualScriptEditorPanel.SetOpen(true);
+            // The debugger reads the LIVE scene (m_ActiveScene, which is the play
+            // copy while running) and follows the hierarchy selection, so
+            // clicking an entity while playing shows that entity's graph state.
+            m_VisualScriptEditorPanel.SetContext(m_ActiveScene);
+            m_VisualScriptEditorPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
+            m_VisualScriptEditorPanel.OnImGuiRender();
+            m_ShowVisualScriptEditor = m_VisualScriptEditorPanel.IsOpen();
+        }
+
         // Sound Graph Editor Panel
         if (m_ShowSoundGraphEditor)
         {
@@ -2761,7 +2776,9 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
-                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
+                    if (m_ShowVisualScriptEditor && m_VisualScriptEditorPanel.IsOpen() && m_VisualScriptEditorPanel.IsFocused())
+                        m_VisualScriptEditorPanel.Undo();
+                    else if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
                         m_ShaderGraphEditorPanel.Undo();
                     else
                         m_CommandHistory.Undo();
@@ -2773,7 +2790,9 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
-                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
+                    if (m_ShowVisualScriptEditor && m_VisualScriptEditorPanel.IsOpen() && m_VisualScriptEditorPanel.IsFocused())
+                        m_VisualScriptEditorPanel.Redo();
+                    else if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
                         m_ShaderGraphEditorPanel.Redo();
                     else
                         m_CommandHistory.Redo();
@@ -3075,6 +3094,30 @@ namespace OloEngine
             {
                 m_CinematicTimelinePanel.OpenSequence(path);
                 m_ShowCinematicTimeline = true;
+            }
+            else if (type == ContentFileType::VisualScript)
+            {
+                if (m_VisualScriptEditorPanel.HasUnsavedChanges())
+                {
+                    auto const result = MessagePrompt::YesNoCancel(
+                        "Unsaved Visual Script",
+                        "The current visual script has unsaved changes. Do you want to save before opening a new one?");
+
+                    switch (result)
+                    {
+                        case MessagePromptResult::Yes:
+                            if (!m_VisualScriptEditorPanel.SaveIfNeeded())
+                                return;
+                            break;
+                        case MessagePromptResult::Cancel:
+                            return;
+                        case MessagePromptResult::No:
+                        default:
+                            break;
+                    }
+                }
+                m_VisualScriptEditorPanel.OpenGraph(path);
+                m_ShowVisualScriptEditor = true;
             }
             else if (type == ContentFileType::ShaderGraph)
             {
@@ -4046,6 +4089,30 @@ namespace OloEngine
 
     bool EditorLayer::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
     {
+        if (m_VisualScriptEditorPanel.HasUnsavedChanges())
+        {
+            auto const result = MessagePrompt::YesNoCancel(
+                "Unsaved Visual Script",
+                "The current visual script has unsaved changes. Do you want to save before closing?");
+
+            switch (result)
+            {
+                case MessagePromptResult::Yes:
+                    if (!m_VisualScriptEditorPanel.SaveIfNeeded())
+                    {
+                        Application::Get().CancelClose();
+                        return true;
+                    }
+                    break;
+                case MessagePromptResult::Cancel:
+                    Application::Get().CancelClose();
+                    return true;
+                case MessagePromptResult::No:
+                default:
+                    break;
+            }
+        }
+
         // Check shader graph unsaved changes first
         if (m_ShaderGraphEditorPanel.HasUnsavedChanges())
         {
@@ -4709,6 +4776,19 @@ namespace OloEngine
                 // If the user is in the middle of editing the same graph it'll prompt
                 // before clobbering their work; otherwise it just reloads.
                 m_SoundGraphEditorPanel.NotifyAssetReloaded(e.GetHandle(), e.GetPath());
+                break;
+            }
+            case AssetType::VisualScript:
+            {
+                // AC#1's hot-reload: the panel reloads unless the author has
+                // unsaved edits to the same graph, and the running scene's
+                // VisualScriptSystem rebuilds every live instance from it.
+                m_VisualScriptEditorPanel.NotifyAssetReloaded(e.GetHandle(), e.GetPath());
+                if (m_ActiveScene)
+                {
+                    if (auto* system = m_ActiveScene->GetVisualScripts(); system != nullptr)
+                        system->NotifyGraphReloaded(e.GetHandle());
+                }
                 break;
             }
             default:

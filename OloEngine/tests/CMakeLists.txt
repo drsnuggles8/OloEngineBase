@@ -420,6 +420,9 @@ add_executable(OloEngine-Tests
 		Serialization/SceneBinarySidecarTest.cpp
 		Serialization/MeshAssetSerializerTest.cpp
 		Serialization/SoundGraphSerializerTest.cpp
+		Serialization/VisualScriptSerializerTest.cpp
+		Scripting/VisualScriptVMTest.cpp
+		Scripting/VisualScriptNodeLibraryTest.cpp
 		Serialization/SoundConfigSerializerTest.cpp
 		Serialization/EnvironmentSerializerTest.cpp
 		Serialization/FontAssetPackSerializerTest.cpp
@@ -944,6 +947,7 @@ add_executable(OloEngine-Tests
 		# queue driven from Lua through real Scene::OnUpdateRuntime ticks, under
 		# both the parallel and the sequential gameplay executor.
 		Functional/Scripting/LuaSpawnsAndDestroysEntitiesTest.cpp
+		Functional/Scripting/VisualScriptDrivesGameplayTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

@@ -2239,6 +2239,17 @@ namespace OloEngine
 		internal static extern void VideoSurfaceComponent_SetVideoPath(ulong entityID, string value);
 		#endregion
 
+		#region VisualScriptComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong VisualScriptComponent_GetGraph(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VisualScriptComponent_SetGraph(ulong entityID, ulong value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool VisualScriptComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VisualScriptComponent_SetEnabled(ulong entityID, bool value);
+		#endregion
+
 		#region WeatherStateComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool WeatherStateComponent_GetEnabled(ulong entityID);

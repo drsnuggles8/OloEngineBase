@@ -1152,6 +1152,12 @@ OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_SetVolume);
 OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_GetVideoPath);
 OLO_ADD_INTERNAL_CALL(VideoSurfaceComponent_SetVideoPath);
 
+// VisualScriptComponent
+OLO_ADD_INTERNAL_CALL(VisualScriptComponent_GetGraph);
+OLO_ADD_INTERNAL_CALL(VisualScriptComponent_SetGraph);
+OLO_ADD_INTERNAL_CALL(VisualScriptComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(VisualScriptComponent_SetEnabled);
+
 // WeatherStateComponent
 OLO_ADD_INTERNAL_CALL(WeatherStateComponent_GetEnabled);
 OLO_ADD_INTERNAL_CALL(WeatherStateComponent_SetEnabled);

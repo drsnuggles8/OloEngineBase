@@ -1159,6 +1159,9 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
     "LocomotionComponent",
     "TerrainComponent",
     "NavAgentComponent",
+    // Issue #634: the live VM instance lives on the per-scene VisualScriptSystem,
+    // keyed by entity UUID, so removing the component has to drop it explicitly.
+    "VisualScriptComponent",
 };
 
 // Components that ARE all-trivial-fields (every data member is a primitive /

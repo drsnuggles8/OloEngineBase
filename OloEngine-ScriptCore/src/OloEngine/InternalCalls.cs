@@ -28,6 +28,17 @@ namespace OloEngine
 		internal static extern object GetScriptInstance(ulong entityID);
         #endregion
 
+        #region VisualScript
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VisualScript_SendEvent(ulong targetEntityID, string name, string payload);
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string VisualScript_GetVariable(ulong entityID, string name);
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool VisualScript_SetVariable(ulong entityID, string name, string value);
+        #endregion
+
         #region Spawning
         // Deferred by design — see Scene.CreateEntity / Scene.Instantiate.
         [MethodImpl(MethodImplOptions.InternalCall)]

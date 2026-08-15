@@ -3533,6 +3533,21 @@ namespace OloEngine
 		}
 	}
 
+	public partial class VisualScriptComponent : Component
+	{
+		public ulong Graph
+		{
+			get => InternalCalls.VisualScriptComponent_GetGraph(Entity.ID);
+			set => InternalCalls.VisualScriptComponent_SetGraph(Entity.ID, value);
+		}
+
+		public bool Enabled
+		{
+			get => InternalCalls.VisualScriptComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.VisualScriptComponent_SetEnabled(Entity.ID, value);
+		}
+	}
+
 	public partial class WeatherStateComponent : Component
 	{
 		public bool Enabled

@@ -105,6 +105,12 @@ namespace OloEngine::Functional
         /// `m_DialogueSystem` is null.
         void EnableDialogue();
 
+        /// Bring up `Scene::VisualScriptSystem` (issue #634) so node graphs
+        /// compile, tick and receive events inside `OnUpdateRuntime`. Without
+        /// this the VisualScript scheduler node is a no-op because the system
+        /// is null — the harness deliberately never calls `OnRuntimeStart`.
+        void EnableVisualScripting();
+
         /// Mount an isolated, throwaway editor project under the OS temp
         /// directory, copy `assetsToStage` from the real SandboxProject into
         /// its `Assets/` subdirectory, then bring up an EditorAssetManager

@@ -2253,7 +2253,7 @@ namespace OloEngine::Tests
             const char* Subdir;
             const char* Extension;
         };
-        const std::array<AssetTypeRoot, 7> roots = { {
+        const std::array<AssetTypeRoot, 8> roots = { {
             { "Items", ".oloitem" },
             { "Quests", ".oloquest" },
             { "Dialogues", ".olodialogue" },
@@ -2261,6 +2261,7 @@ namespace OloEngine::Tests
             { "Progression", ".oloxpcurve" },
             { "Progression", ".oloskilltree" },
             { "Progression", ".olocharclass" },
+            { "VisualScripts", ".olovs" },
         } };
 
         std::vector<Failure> failures;

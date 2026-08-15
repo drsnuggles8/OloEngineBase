@@ -149,6 +149,7 @@ namespace OloEngine
         friend class ExperienceCurveSerializer;
         friend class SkillTreeDatabaseSerializer;
         friend class CharacterClassDatabaseSerializer;
+        friend class VisualScriptAssetSerializer;
 
         bool IsValid() const
         {

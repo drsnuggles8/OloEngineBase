@@ -116,6 +116,7 @@ you are in.
 **Scripting, networking & tooling**
 
 - [script-structural-command-safe-point.md](docs/agent-rules/script-structural-command-safe-point.md) — a script binding that changes the registry structurally must queue a command, never act inline.
+- [visual-script-vm.md](docs/agent-rules/visual-script-vm.md) — the node-graph VM: a loop node must charge its own iteration, memoization is per exec step, and `PinType`'s numbering is on disk.
 - [runtime-scene-switching.md](docs/agent-rules/runtime-scene-switching.md) — the host applies a scene swap after the tick; five ordering rules, plus the `Project` mount shipped games were missing.
 - [server-authoritative-networking-loop.md](docs/agent-rules/server-authoritative-networking-loop.md) — ~20 well-tested networking classes produced nothing, because the entry point had zero call sites.
 - [mcp-setter-based-field-registry.md](docs/agent-rules/mcp-setter-based-field-registry.md) — the copy-then-swap MCP write path is unsound when `operator=` can't reproduce a field write's side effects.

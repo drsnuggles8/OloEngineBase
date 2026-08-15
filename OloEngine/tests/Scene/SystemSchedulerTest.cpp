@@ -249,6 +249,12 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
 {
     const std::vector<std::string> expected{
         "Scripts",
+        // Node-graph gameplay logic (issue #634): After("Scripts") so a graph
+        // sees this tick's text-script writes, and a LocalTransforms
+        // reader/writer so it lands before the physics kick. Unmarked, for the
+        // same reasons Scripts is — it drains the deferred entity-command queue
+        // and publishes to the synchronous GameplayEventBus.
+        "VisualScript",
         "Cinematics",
         // Player rig (issue #645): after Scripts so a script-driven rig's
         // intent is honoured the same tick, and before PhysicsKick so the same
@@ -590,6 +596,19 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_FALSE(sched.DependsOn("Audio", "BoidSteering"));
     EXPECT_FALSE(sched.DependsOn("BoidSteering", "ParticlesCPU"));
     EXPECT_FALSE(sched.DependsOn("ParticlesCPU", "BoidSteering"));
+
+    // ── Visual scripting seams (issue #634) ──────────────────────────────────
+    // Both edges are invisible in the sequential order — the registration-order
+    // tie-break satisfies them regardless — and both are the design.
+    //
+    // 1. A graph must see THIS tick's text-script writes, not last tick's, so a
+    //    C#/Lua script and a graph can co-drive one entity without a frame of
+    //    skew between them.
+    EXPECT_TRUE(sched.DependsOn("VisualScript", "Scripts"));
+    // 2. …and the graph's transform writes must be integrated by THIS tick's
+    //    physics step. Lose this edge and every graph-driven motion lands a tick
+    //    late — the same failure the PlayerRig edge below guards against.
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "VisualScript"));
 
     // ── Player + camera rig seams (issue #645) ───────────────────────────────
     // The rig is split into two nodes for ORDERING, not for parallelism, so

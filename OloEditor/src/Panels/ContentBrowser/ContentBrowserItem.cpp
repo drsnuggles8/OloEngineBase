@@ -71,6 +71,8 @@ namespace OloEngine
         { ".olosg", ContentFileType::ShaderGraph },
         // Sound Graphs
         { ".olosoundgraph", ContentFileType::SoundGraph },
+        // Visual Scripts (issue #634)
+        { ".olovs", ContentFileType::VisualScript },
         // Cinematic Sequences
         { ".olocine", ContentFileType::Cinematic },
         // Fluid Settings
@@ -121,6 +123,8 @@ namespace OloEngine
                 return "CONTENT_BROWSER_SHADERGRAPH";
             case ContentFileType::SoundGraph:
                 return "CONTENT_BROWSER_SOUNDGRAPH";
+            case ContentFileType::VisualScript:
+                return "CONTENT_BROWSER_VISUALSCRIPT";
             default:
                 return "CONTENT_BROWSER_ITEM";
         }
@@ -165,6 +169,9 @@ namespace OloEngine
                 break;
             case ContentFileType::ShaderGraph:
                 ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "Shader Graph");
+                break;
+            case ContentFileType::VisualScript:
+                ImGui::TextColored(ImVec4(0.8f, 0.6f, 1.0f, 1.0f), "Visual Script");
                 break;
             case ContentFileType::SaveGame:
                 ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.4f, 1.0f), "Save Game");

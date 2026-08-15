@@ -8,6 +8,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scripting/VisualScript/VisualScriptSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Gameplay/GameplayEventBus.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h" // SkeletonComponent (ragdoll skeleton resolution)
@@ -1576,6 +1577,7 @@ namespace OloEngine
         {
             case ContactType::ContactAdded:
                 OLO_CORE_TRACE("Contact added between entities {0} and {1}", (u64)entityA, (u64)entityB);
+                NotifyVisualScriptContact(entityA, entityB);
                 break;
             case ContactType::ContactPersisted:
                 // Usually too verbose to log
@@ -1584,6 +1586,35 @@ namespace OloEngine
                 OLO_CORE_TRACE("Contact removed between entities {0} and {1}", (u64)entityA, (u64)entityB);
                 break;
         }
+    }
+
+    void JoltScene::NotifyVisualScriptContact(UUID entityA, UUID entityB) const
+    {
+        auto* visualScripts = m_Scene ? m_Scene->GetVisualScripts() : nullptr;
+        if (visualScripts == nullptr)
+        {
+            return;
+        }
+
+        // Both sides are notified, each with the other as "Other". Whether an
+        // entity sees OnTriggerEnter or OnCollisionEnter is decided by ITS OWN
+        // body being a sensor, which is what makes "put a graph on the trigger
+        // volume" the obvious authoring shape.
+        //
+        // Queued, never dispatched: this runs inside the contact-event drain,
+        // itself inside the physics fence, and a graph reacting to a hit may
+        // spawn or destroy entities.
+        const auto notify = [&](UUID self, UUID other)
+        {
+            bool isTrigger = false;
+            if (const auto entity = m_Scene->TryGetEntityWithUUID(self); entity.has_value() && entity->HasComponent<Rigidbody3DComponent>())
+            {
+                isTrigger = entity->GetComponent<Rigidbody3DComponent>().m_IsTrigger;
+            }
+            visualScripts->QueueContact(self, other, isTrigger);
+        };
+        notify(entityA, entityB);
+        notify(entityB, entityA);
     }
 
     std::vector<std::pair<UUID, UUID>> JoltScene::GetActiveContactPairs() const

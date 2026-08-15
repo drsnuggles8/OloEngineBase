@@ -128,5 +128,6 @@ using AllComponents = ComponentGroup<
     VideoOverlayComponent,
     VideoSurfaceComponent,
     VirtualMeshComponent,
+    VisualScriptComponent,
     WaterComponent,
     WeatherStateComponent>;
