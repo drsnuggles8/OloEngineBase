@@ -1525,6 +1525,8 @@
 		"Platform/Vulkan/VulkanComputeShader.h"
 		"Platform/Vulkan/VulkanContext.cpp"
 		"Platform/Vulkan/VulkanContext.h"
+		"Platform/Vulkan/VulkanDeferredReclaim.cpp"
+		"Platform/Vulkan/VulkanDeferredReclaim.h"
 		"Platform/Vulkan/VulkanDescriptorHeapBackend.cpp"
 		"Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 		"Platform/Vulkan/VulkanDescriptorSlotCache.cpp"
@@ -1533,8 +1535,12 @@
 		"Platform/Vulkan/VulkanDevice.h"
 		"Platform/Vulkan/VulkanFrameArena.cpp"
 		"Platform/Vulkan/VulkanFrameArena.h"
+		"Platform/Vulkan/VulkanFramebuffer.cpp"
+		"Platform/Vulkan/VulkanFramebuffer.h"
 		"Platform/Vulkan/VulkanGpuFence.cpp"
 		"Platform/Vulkan/VulkanGpuFence.h"
+		"Platform/Vulkan/VulkanImageInfoRegistry.cpp"
+		"Platform/Vulkan/VulkanImageInfoRegistry.h"
 		"Platform/Vulkan/VulkanImageLayoutTracker.cpp"
 		"Platform/Vulkan/VulkanImageLayoutTracker.h"
 		"Platform/Vulkan/VulkanImGuiBackend.cpp"
@@ -1546,6 +1552,8 @@
 		"Platform/Vulkan/VulkanPipelineBuilder.h"
 		"Platform/Vulkan/VulkanPipelineCache.cpp"
 		"Platform/Vulkan/VulkanPipelineCache.h"
+		"Platform/Vulkan/VulkanRawResourceRegistries.cpp"
+		"Platform/Vulkan/VulkanRawResourceRegistries.h"
 		"Platform/Vulkan/VulkanRendererAPI.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.h"
@@ -1554,8 +1562,24 @@
 		"Platform/Vulkan/VulkanRendererAPI.h"
 		"Platform/Vulkan/VulkanShader.cpp"
 		"Platform/Vulkan/VulkanShader.h"
-		"Platform/Vulkan/VulkanTransientResources.cpp"
+		"Platform/Vulkan/VulkanStorageBuffer.cpp"
+		"Platform/Vulkan/VulkanStorageBuffer.h"
+		"Platform/Vulkan/VulkanTexture.cpp"
+		"Platform/Vulkan/VulkanTexture.h"
+		"Platform/Vulkan/VulkanTexture2DArray.cpp"
+		"Platform/Vulkan/VulkanTexture2DArray.h"
+		"Platform/Vulkan/VulkanTexture3D.cpp"
+		"Platform/Vulkan/VulkanTexture3D.h"
+		"Platform/Vulkan/VulkanTextureCubemap.cpp"
+		"Platform/Vulkan/VulkanTextureCubemap.h"
+		"Platform/Vulkan/VulkanTextureCubemapArray.cpp"
+		"Platform/Vulkan/VulkanTextureCubemapArray.h"
+		# VulkanTransientResources.h is a transitional umbrella (#691 Phase 9):
+		# it #includes the per-class headers above so existing consumers keep
+		# compiling; its old .cpp was split into the per-class TUs.
 		"Platform/Vulkan/VulkanTransientResources.h"
+		"Platform/Vulkan/VulkanTransientUpload.cpp"
+		"Platform/Vulkan/VulkanTransientUpload.h"
 )
 
 # Platform-specific sources
@@ -1654,6 +1678,22 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp" # static IsFiniteVec3 (+ macro-heavy Sol2 glue)
 		"OloEngine/Audio/DSP/HighPassFilter.cpp"   # namespace-scope consts FilterOrder/Min/MaxFrequencyHz
 		"OloEngine/Audio/DSP/LowPassFilter.cpp"    #   "
+		# Vulkan transient-resource TUs (#691 Phase 9 split): each includes the
+		# TU-internal VulkanTransientUpload.h, whose OloEngine-namespace helper
+		# declarations (VkCheck / VkHandleToU64 / ImageFormatToVkFormat /
+		# ExpandRgbToRgba / ...) duplicate anonymous-namespace copies kept by
+		# sibling Vulkan TUs (VulkanDevice/VulkanContext/VulkanBufferResources/
+		# VulkanImGuiBackend/VulkanRendererAPI). In a shared jumbo the header's
+		# declarations leak to files concatenated after them and make those
+		# siblings' unqualified calls ambiguous — keep every Upload.h consumer
+		# out of unity batches.
+		"Platform/Vulkan/VulkanFramebuffer.cpp"
+		"Platform/Vulkan/VulkanStorageBuffer.cpp"
+		"Platform/Vulkan/VulkanTexture.cpp"
+		"Platform/Vulkan/VulkanTexture2DArray.cpp"
+		"Platform/Vulkan/VulkanTextureCubemap.cpp"
+		"Platform/Vulkan/VulkanTextureCubemapArray.cpp"
+		"Platform/Vulkan/VulkanTransientUpload.cpp"
 
 		PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
 	)
