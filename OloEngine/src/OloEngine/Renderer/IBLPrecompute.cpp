@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <stb_image/stb_image.h>
+#include <stb_image/stb_image_write.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <chrono>
@@ -160,6 +161,21 @@ namespace OloEngine
         f32* data = stbi_loadf(filePath.c_str(), &width, &height, &channels, 0);
         stbi_set_flip_vertically_on_load(false); // reset global flag to avoid polluting later stbi calls
 
+        // OLO_ENV_BAKE_DUMP diagnostics (#797): CPU-side ground truth of the loaded HDR.
+        if (data != nullptr && std::getenv("OLO_ENV_BAKE_DUMP") != nullptr)
+        {
+            f64 srcSum[3] = {};
+            const sizet srcTexels = static_cast<sizet>(width) * height;
+            for (sizet i = 0; i < srcTexels; ++i)
+                for (int c = 0; c < 3 && c < channels; ++c)
+                    srcSum[c] += data[i * channels + c];
+            OLO_CORE_INFO("[EnvBakeDump] SOURCE {}x{} ch={} mean HDR = ({:.3f}, {:.3f}, {:.3f})", width, height,
+                          channels, srcSum[0] / srcTexels, srcSum[1] / srcTexels, srcSum[2] / srcTexels);
+            const sizet center = (static_cast<sizet>(height / 2) * width + width / 2) * channels;
+            OLO_CORE_INFO("[EnvBakeDump] SOURCE center texel = ({:.3f}, {:.3f}, {:.3f})", data[center],
+                          data[center + 1], data[center + 2]);
+        }
+
         if (!data)
         {
             OLO_CORE_ERROR("Failed to load HDR image: {}", filePath);
@@ -175,6 +191,30 @@ namespace OloEngine
 
         auto hdrTexture = Texture2D::Create(hdrSpec);
         hdrTexture->SetData(data, width * height * channels * sizeof(f32));
+
+        // OLO_ENV_BAKE_DUMP diagnostics (#797): read the UPLOADED texture back — splits a
+        // broken upload from a broken bake.
+        if (std::getenv("OLO_ENV_BAKE_DUMP") != nullptr)
+        {
+            std::vector<u8> up;
+            if (hdrTexture->GetData(up, 0) && !up.empty())
+            {
+                const auto* upf = reinterpret_cast<const f32*>(up.data());
+                const sizet upCount = up.size() / sizeof(f32);
+                const int upCh = static_cast<int>(upCount / (static_cast<sizet>(width) * height));
+                f64 upSum[3] = {};
+                const sizet upTexels = static_cast<sizet>(width) * height;
+                for (sizet i = 0; i < upTexels && upCh >= 3; ++i)
+                    for (int c = 0; c < 3; ++c)
+                        upSum[c] += upf[i * upCh + c];
+                OLO_CORE_INFO("[EnvBakeDump] UPLOADED texture readback: {} floats ({} ch) mean = ({:.3f}, {:.3f}, {:.3f})",
+                              upCount, upCh, upSum[0] / upTexels, upSum[1] / upTexels, upSum[2] / upTexels);
+            }
+            else
+            {
+                OLO_CORE_ERROR("[EnvBakeDump] UPLOADED texture readback FAILED or empty");
+            }
+        }
 
         stbi_image_free(data);
 
@@ -199,6 +239,12 @@ namespace OloEngine
 
         auto shader = shaderLibrary.Get("EquirectangularToCubemap");
 
+        // Build the cube mesh BEFORE publishing the HDR texture: mesh build is
+        // a GPU-resource path, and any bind it performs must not land after
+        // the unit-0 publish below (#797's framebuffer-creation clobber was
+        // exactly this shape, one step later).
+        auto cubeMesh = GetCubeMesh();
+
         // Bind HDR texture
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DIFFUSE,
                                                  hdrTexture->GetRHIHandle(),
@@ -206,8 +252,49 @@ namespace OloEngine
 
         // Render to cubemap (fills mip 0 of each face), then build the mip chain
         // for the advanced IBL passes' mip-biased sampling.
-        RenderToCubemap(cubemap, shader, GetCubeMesh());
+        RenderToCubemap(cubemap, shader, cubeMesh);
         cubemap->GenerateMipmaps();
+
+        // OLO_ENV_BAKE_DUMP diagnostics (#797): dump per-face means + face PNGs when
+        // OLO_ENV_BAKE_DUMP is set, to localize the GL-white-environment bug.
+        if (const char* dumpDir = std::getenv("OLO_ENV_BAKE_DUMP"); dumpDir != nullptr && *dumpDir != '\0')
+        {
+            for (u32 face = 0; face < 6; ++face)
+            {
+                std::vector<u8> faceData;
+                if (!cubemap->GetFaceData(face, faceData, 0))
+                {
+                    OLO_CORE_ERROR("[EnvBakeDump] face {} readback FAILED", face);
+                    continue;
+                }
+                const auto* px = reinterpret_cast<const f32*>(faceData.data());
+                const sizet texels = faceData.size() / (4 * sizeof(f32));
+                f64 sum[3] = {};
+                for (sizet i = 0; i < texels; ++i)
+                {
+                    sum[0] += px[i * 4 + 0];
+                    sum[1] += px[i * 4 + 1];
+                    sum[2] += px[i * 4 + 2];
+                }
+                OLO_CORE_INFO("[EnvBakeDump] face {}: {} texels, mean HDR = ({:.3f}, {:.3f}, {:.3f})", face, texels,
+                              sum[0] / texels, sum[1] / texels, sum[2] / texels);
+                // Tonemapped PNG for eyeballing
+                std::vector<u8> ldr(texels * 3);
+                for (sizet i = 0; i < texels; ++i)
+                {
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        const f32 v = px[i * 4 + c];
+                        const f32 tm = std::pow(v / (1.0f + v), 1.0f / 2.2f);
+                        ldr[i * 3 + c] = static_cast<u8>(std::clamp(tm, 0.0f, 1.0f) * 255.0f);
+                    }
+                }
+                const u32 side = cubemap->GetWidth();
+                const std::string path = std::string(dumpDir) + "/face" + std::to_string(face) + ".png";
+                stbi_write_png(path.c_str(), static_cast<int>(side), static_cast<int>(side), 3, ldr.data(),
+                               static_cast<int>(side * 3));
+            }
+        }
 
         OLO_CORE_INFO("Equirectangular to cubemap conversion complete");
         return cubemap;

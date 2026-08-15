@@ -65,11 +65,6 @@ namespace OloEngine
             glCreateTextures(TextureTarget(multisampled), count, outID);
         }
 
-        void BindTexture(const u32 id)
-        {
-            glBindTextureUnit(0, id);
-        }
-
         void BindTextures(const u32 firstID, const u32 count, const GLuint* id)
         {
             glBindTextures(firstID, static_cast<int>(count), id);
