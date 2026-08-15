@@ -144,6 +144,9 @@ namespace OloEngine
         VkPhysicalDeviceProperties props{};
         vkGetPhysicalDeviceProperties(device->GetPhysicalDevice(), &props);
         m_MaxUniformBlockSize = props.limits.maxUniformBufferRange;
+        // Nanoseconds per timestamp tick — the query readback's tick→ns
+        // scaling factor (facade contract: timestamps read back in ns).
+        m_TimestampPeriodNs = static_cast<f64>(props.limits.timestampPeriod);
 
         // Three DISTINCT caps, mirroring the GL getters they implement:
         // framebuffer = the color∩depth attachment intersection (a framebuffer
@@ -1693,28 +1696,21 @@ namespace OloEngine
             viewport.width = static_cast<f32>(targetExtent.width);
             viewport.height = static_cast<f32>(targetExtent.height);
 
-            // THE Y FLIP CANCELS EVERYWHERE EXCEPT HERE (#691 Phase 7 Final).
-            // Every graph-owned image is authored in a row order the whole
-            // chain agrees on — source and destination share it, so it
-            // cancels pass to pass. The swapchain is the one target that does
-            // NOT share it: the presentation engine displays row 0 at the
-            // TOP. Without this the entire live frame reached the screen
-            // upside down while every offscreen readback still looked
-            // perfect — which is exactly why no tenant could see it (each one
-            // reads its output back in the same order it wrote it), and why
-            // it took looking at the window.
-            //
-            // A negative-height viewport flips rasterisation for exactly the
-            // draws that target the backbuffer and nothing else. It is safe
-            // HERE and nowhere else in the chain: the only thing ever drawn
-            // to the default framebuffer is a fullscreen blit
-            // (FinalRenderPass, and the shader-warmup progress screen), which
-            // samples a texture rather than reconstructing world space from
-            // uv — so no screen-space shader has to know. Both run with
-            // culling off, so the winding reversal a negative viewport
-            // implies has nothing to act on.
-            viewport.y += viewport.height;
-            viewport.height = -viewport.height;
+            // NO Y FLIP — DELIBERATELY (#691 Phase 9, ADR 0011 amendment (85);
+            // supersedes the Phase 7 negative-height mirror that lived here).
+            // Every off-screen target is authored TOP-DOWN under Vulkan: the
+            // (59) projection seam's clip-y negation lands a view's top row at
+            // memory row 0, NDC-passthrough fullscreen hops preserve memory
+            // order, and the Phase 9 live inventory measured every archetype
+            // (geometry, post hop, compute imageStore, depth, shadow) agreeing.
+            // The swapchain also displays row 0 at the top, so the present
+            // blit must PRESERVE row order; the Phase 7 mirror was written
+            // against a chain believed to be GL-ordered, and nothing displayed
+            // the graph chain through this path since (the editor composites
+            // via ImGui; the runtime was Vulkan-gated until Phase 9) — the
+            // (67) rule that orientation is a window-only proof, in action.
+            // Pinned by the FinalPassBlits... tenant, which asserts the
+            // presented rows EQUAL the chain rows.
         }
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
@@ -4929,8 +4925,16 @@ namespace OloEngine
 
         VkQueryPoolCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
-        info.queryType = type == RHI::QueryType::TimeElapsed ? VK_QUERY_TYPE_TIMESTAMP : VK_QUERY_TYPE_OCCLUSION;
-        info.queryCount = static_cast<u32>(outQueries.size());
+        // Slot layout per query KIND (#691 Phase 9): occlusion and plain
+        // timestamps are one slot per handle; a TimeElapsed handle owns a PAIR
+        // of timestamp slots (begin at 2i, end at 2i+1) because Vulkan has no
+        // native elapsed query — Begin/EndQuery bracket it with two
+        // vkCmdWriteTimestamp2 stamps and readback subtracts.
+        const bool elapsedPair = type == RHI::QueryType::TimeElapsed;
+        info.queryType = type == RHI::QueryType::OcclusionAnySamples ? VK_QUERY_TYPE_OCCLUSION
+                                                                     : VK_QUERY_TYPE_TIMESTAMP;
+        const u32 slotsPerQuery = elapsedPair ? 2u : 1u;
+        info.queryCount = static_cast<u32>(outQueries.size()) * slotsPerQuery;
         VkQueryPool pool = VK_NULL_HANDLE;
         if (vkCreateQueryPool(device->GetDevice(), &info, nullptr, &pool) != VK_SUCCESS || pool == VK_NULL_HANDLE)
         {
@@ -4952,7 +4956,10 @@ namespace OloEngine
                 continue;
             }
             outQueries[i] = handle;
-            m_Entries.emplace(Key(handle), Entry{ .Pool = pool, .Index = static_cast<u32>(i), .Recorded = false });
+            m_Entries.emplace(Key(handle), Entry{ .Pool = pool,
+                                                  .Index = static_cast<u32>(i) * slotsPerQuery,
+                                                  .Recorded = false,
+                                                  .Type = type });
             ++live;
         }
         if (live == 0)
@@ -5054,15 +5061,32 @@ namespace OloEngine
         {
             // GL keeps one active query per target and errors on nesting; do
             // the same loudly rather than record an illegal command buffer.
-            OLO_CORE_WARN("[RHI/Vulkan] BeginQuery while another occlusion query is active — ignored");
+            OLO_CORE_WARN("[RHI/Vulkan] BeginQuery while another query is active — ignored");
+            return;
+        }
+        if (entry->Type == RHI::QueryType::Timestamp)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] BeginQuery on a Timestamp query — timestamps are stamped via "
+                          "WriteTimestamp, never bracketed; ignored");
             return;
         }
         // Discipline 1 + 2 (see the block comment above): both the reset and
-        // the begin must sit outside a render pass instance.
+        // the begin/stamp must sit outside a render pass instance.
         EndRenderingScope();
+        if (entry->Type == RHI::QueryType::TimeElapsed)
+        {
+            // The elapsed pair: reset both slots, stamp the begin timestamp
+            // now; EndQuery stamps Index+1 and only then marks Recorded —
+            // reading a pair whose end was never stamped would block forever
+            // under WAIT.
+            vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 2u);
+            vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
+            m_ActiveQuery = { .Pool = entry->Pool, .Index = entry->Index, .IsElapsed = true, .Handle = query };
+            return;
+        }
         vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 1u);
         vkCmdBeginQuery(m_Cmd, entry->Pool, entry->Index, 0u);
-        m_ActiveQuery = { entry->Pool, entry->Index };
+        m_ActiveQuery = { .Pool = entry->Pool, .Index = entry->Index, .IsElapsed = false, .Handle = query };
         entry->Recorded = true;
     }
 
@@ -5079,8 +5103,49 @@ namespace OloEngine
             return;
         }
         EndRenderingScope();
+        if (m_ActiveQuery.IsElapsed)
+        {
+            vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, m_ActiveQuery.Pool,
+                                 m_ActiveQuery.Index + 1u);
+            // Re-look-up rather than caching the Entry* across the bracket —
+            // the registry map can rehash between Begin and End.
+            if (auto* entry = VulkanQueryRegistry::Get().Lookup(m_ActiveQuery.Handle); entry != nullptr)
+            {
+                entry->Recorded = true;
+            }
+            m_ActiveQuery = {};
+            return;
+        }
         vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
         m_ActiveQuery = {};
+    }
+
+    void VulkanRendererAPI::WriteTimestamp(RHI::ResourceHandle query)
+    {
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("WriteTimestamp(outside recording bracket)", StubKind::OutsideRecording);
+            return;
+        }
+        auto* entry = VulkanQueryRegistry::Get().Lookup(query);
+        if (entry == nullptr)
+        {
+            Phase6Stub("WriteTimestamp(unresolved query)", StubKind::PreconditionFailure);
+            return;
+        }
+        if (entry->Type != RHI::QueryType::Timestamp)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] WriteTimestamp on a non-Timestamp query — ignored");
+            return;
+        }
+        // Reset + stamp, both outside a render pass instance. The slot is
+        // rewritten every ring cycle by its pool owner (GPUPassTimerPool's
+        // 4-slot ring); an unread result that old was already dropped by the
+        // owner's own staleness handling, same overwrite semantics as GL.
+        EndRenderingScope();
+        vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 1u);
+        vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
+        entry->Recorded = true;
     }
 
     bool VulkanRendererAPI::ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const
@@ -5097,30 +5162,62 @@ namespace OloEngine
             return false;
         }
 
+        // Per-kind readback (#691 Phase 9): occlusion reads its single slot
+        // raw; Timestamp reads one timestamp slot and scales ticks →
+        // nanoseconds; TimeElapsed reads its PAIR (availability keyed on the
+        // END slot — the last one stamped, so its availability implies the
+        // begin's) and returns the scaled difference. The nanosecond contract
+        // is the facade's (RendererAPI::WriteTimestamp): GL timestamps are
+        // nanoseconds natively, so the pools' subtraction math stays
+        // backend-blind.
+        const bool isElapsed = entry->Type == RHI::QueryType::TimeElapsed;
+        const u32 slotCount = isElapsed ? 2u : 1u;
+
+        const auto finish = [&](const u64* slots) -> bool
+        {
+            switch (entry->Type)
+            {
+                case RHI::QueryType::OcclusionAnySamples:
+                    outValue = slots[0];
+                    return true;
+                case RHI::QueryType::Timestamp:
+                    outValue = static_cast<u64>(static_cast<f64>(slots[0]) * m_TimestampPeriodNs);
+                    return true;
+                case RHI::QueryType::TimeElapsed:
+                {
+                    const u64 ticks = slots[1] > slots[0] ? slots[1] - slots[0] : 0u;
+                    outValue = static_cast<u64>(static_cast<f64>(ticks) * m_TimestampPeriodNs);
+                    return true;
+                }
+            }
+            return false;
+        };
+
         // Availability first, never blocking: this is both the answer for
         // IsQueryResultAvailable and the guard that keeps the WAIT read below
-        // off a slot whose submission has not been made yet.
-        std::array<u64, 2> probe{ 0u, 0u };
-        const VkResult status =
-            vkGetQueryPoolResults(device->GetDevice(), entry->Pool, entry->Index, 1u, sizeof(probe), probe.data(),
-                                  sizeof(probe), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
-        if (status == VK_SUCCESS && probe[1] != 0u)
+        // off a slot whose submission has not been made yet. Layout: pairs of
+        // (value, availability) per slot.
+        std::array<u64, 4> probe{ 0u, 0u, 0u, 0u };
+        const VkResult status = vkGetQueryPoolResults(
+            device->GetDevice(), entry->Pool, entry->Index, slotCount, sizeof(u64) * 2u * slotCount, probe.data(),
+            sizeof(u64) * 2u, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+        if (status == VK_SUCCESS && probe[(slotCount - 1u) * 2u + 1u] != 0u)
         {
-            outValue = probe[0];
-            return true;
+            const std::array<u64, 2> values{ probe[0], probe[2] };
+            return finish(values.data());
         }
         if (!wait)
         {
             return false;
         }
-        u64 value = 0;
-        if (vkGetQueryPoolResults(device->GetDevice(), entry->Pool, entry->Index, 1u, sizeof(value), &value,
-                                  sizeof(value), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) != VK_SUCCESS)
+        std::array<u64, 2> values{ 0u, 0u };
+        if (vkGetQueryPoolResults(device->GetDevice(), entry->Pool, entry->Index, slotCount, sizeof(u64) * slotCount,
+                                  values.data(), sizeof(u64),
+                                  VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) != VK_SUCCESS)
         {
             return false;
         }
-        outValue = value;
-        return true;
+        return finish(values.data());
     }
 
     bool VulkanRendererAPI::IsQueryResultAvailable(RHI::ResourceHandle query)

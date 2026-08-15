@@ -199,15 +199,12 @@ namespace OloEngine
 
             const u32 width = region.Width;
             const u32 height = region.Height;
-            // The rect arrives top-left-origin. Row order of the UIComposite
-            // attachment is PER-BACKEND (ADR 0011 amendment (79)): GL stores
-            // bottom-up; under Vulkan the editor chain's fullscreen hops
-            // leave it TOP-DOWN — the first Phase 8 parity gate proved it on
-            // screen (the viewport widget's GL uv flip showed the whole
-            // scene upside-down while the ImGui chrome was upright). Keyed
-            // on the live backend, matching the viewport widget's uv choice
-            // so capture and screen can never disagree.
-            const bool bottomUpRows = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+            // The rect arrives top-left-origin. Row order is ONE per backend
+            // for every off-screen target (ADR 0011 amendment (85)): GL
+            // stores bottom-up, Vulkan top-down. The shared predicate matches
+            // the viewport widget's uv choice so capture and screen can never
+            // disagree.
+            const bool bottomUpRows = ImGuiLayer::RenderTargetRowsAreBottomUp();
             const u32 readY = bottomUpRows ? fullHeight - region.Y - region.Height : region.Y;
 
             std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
@@ -1371,7 +1368,15 @@ namespace OloEngine
             mx -= m_ViewportBounds[0].x;
             my -= m_ViewportBounds[0].y;
             glm::vec2 const viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
-            my = viewportSize.y - my;
+            // Mouse y is top-down; the EntityID attachment is bottom-up on GL
+            // only (ADR 0011 amendment (85)), so the origin conversion is a
+            // GL-arm concern: glReadPixels / OpenGLFramebuffer::ReadPixel
+            // address bottom-up rows, while VulkanFramebuffer::ReadPixel reads
+            // the top-down image verbatim and wants the top-down coordinate.
+            if (ImGuiLayer::RenderTargetRowsAreBottomUp())
+            {
+                my = viewportSize.y - my;
+            }
 
             // Scale logical mouse coords to framebuffer pixel coords for entity picking
             const f32 pickDpiScale = Window::s_HighDPIScaleFactor;
@@ -1892,12 +1897,12 @@ namespace OloEngine
         }
         if (textureID != 0)
         {
-            // UV convention is per-backend (ADR 0011 amendment (79)): the GL
-            // attachment is bottom-up (flip V), the Vulkan editor chain's
-            // UIComposite lands top-down (identity). Must agree with
-            // CaptureFramebufferPng's bottomUpRows so the screen and every
-            // screenshot show the same frame.
-            const bool bottomUpRows = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+            // ONE row order per backend (ADR 0011 amendment (85), retiring
+            // (79)'s per-target regime): GL render targets are bottom-up
+            // (flip V), Vulkan's are top-down (identity). The shared predicate
+            // keeps this widget, CaptureFramebufferPng, and every thumbnail
+            // panel agreeing about which way up the frame is.
+            const bool bottomUpRows = ImGuiLayer::RenderTargetRowsAreBottomUp();
             const ImVec2 uv0 = bottomUpRows ? ImVec2{ 0, 1 } : ImVec2{ 0, 0 };
             const ImVec2 uv1 = bottomUpRows ? ImVec2{ 1, 0 } : ImVec2{ 1, 1 };
             ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, uv0, uv1);

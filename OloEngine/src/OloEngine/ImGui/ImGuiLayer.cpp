@@ -293,6 +293,11 @@ namespace OloEngine
         return texture.GetRendererID();
     }
 
+    bool ImGuiLayer::RenderTargetRowsAreBottomUp()
+    {
+        return RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+    }
+
     void ImGuiLayer::SetDarkThemeColors()
     {
         auto& style = ImGui::GetStyle();

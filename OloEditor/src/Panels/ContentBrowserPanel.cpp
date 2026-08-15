@@ -610,8 +610,9 @@ namespace OloEngine
         for (auto& file : m_CurrentDirectory->Files)
         {
             ContentFileType type = GetFileTypeFromExtension(file);
-            Ref<Texture2D> icon = GetFileIcon(file);
-            m_Items.emplace_back(file, type, icon);
+            bool iconIsRenderTarget = false;
+            Ref<Texture2D> icon = GetFileIcon(file, iconIsRenderTarget);
+            m_Items.emplace_back(file, type, icon, iconIsRenderTarget);
         }
 
         SortContentBrowserItems(m_Items);
@@ -697,8 +698,9 @@ namespace OloEngine
             }
             else
             {
-                Ref<Texture2D> icon = GetFileIcon(path);
-                m_Items.emplace_back(path, type, icon);
+                bool iconIsRenderTarget = false;
+                Ref<Texture2D> icon = GetFileIcon(path, iconIsRenderTarget);
+                m_Items.emplace_back(path, type, icon, iconIsRenderTarget);
             }
         }
 
@@ -922,7 +924,7 @@ namespace OloEngine
     // Icon Resolution
     // =========================================================================
 
-    Ref<Texture2D> ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath)
+    Ref<Texture2D> ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath, bool& outIsRenderTarget)
     {
         // `m_ImageIcons` is the path-keyed cache for raw image previews
         // loaded via `Texture2D::Create` — those have no separate owner so
@@ -987,7 +989,10 @@ namespace OloEngine
                                                    ? m_ThumbnailCache.GetMaterialThumbnail(handle)
                                                    : m_ThumbnailCache.GetMeshThumbnail(handle);
                     if (thumbnail)
+                    {
+                        outIsRenderTarget = true;
                         return thumbnail;
+                    }
                 }
             }
         }

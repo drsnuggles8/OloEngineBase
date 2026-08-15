@@ -522,7 +522,7 @@ namespace OloEngine::MCP
         GPUResourceInspector::TextureCaptureResult CaptureTargetThroughFacade(
             const RenderGraph& graph, const std::string& name, u32 mipLevel, u32 faceOrLayer,
             GPUResourceInspector::CaptureNormalizeMode normalize, int maxWidth,
-            GPUResourceInspector::CaptureRegion region, bool flipY)
+            GPUResourceInspector::CaptureRegion region)
         {
             GPUResourceInspector::TextureCaptureResult result;
 
@@ -606,13 +606,13 @@ namespace OloEngine::MCP
                 return result;
             }
 
-            // Row order is PER-TARGET under Vulkan: fullscreen hops between
-            // the projection-flipped geometry passes flip content per hop, so
-            // some intermediates are GL-oriented (bottom-up — UIComposite)
-            // and some Vulkan-oriented (top-down — SceneColor). flipY=true is
-            // the GL-parity default; an inverted capture means the target is
-            // top-down — retry with flipY:false (#691 Phase 8b).
-            const u32 readY = flipY ? fullHeight - region.Y - region.Height : region.Y;
+            // ONE row order per backend (#691 Phase 9, ADR 0011 amendment
+            // (85), retiring (79)'s per-target flipY knob): every off-screen
+            // target is top-down under Vulkan and bottom-up under GL, so the
+            // top-left-origin capture region converts iff the backend is GL —
+            // the single predicate that replaced the per-call argument.
+            const bool glRowOrder = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+            const u32 readY = glRowOrder ? fullHeight - region.Y - region.Height : region.Y;
             const RHI::Format destFormat = isDepth || channels == 1 ? RHI::Format::R32Float
                                            : channels == 2          ? RHI::Format::RG32Float
                                                                     : RHI::Format::RGBA32Float;
@@ -682,7 +682,7 @@ namespace OloEngine::MCP
 
             const sizet rowBytes = static_cast<sizet>(region.Width) * outChannels;
             std::vector<u8> flipped;
-            if (flipY)
+            if (glRowOrder)
             {
                 flipped.resize(pixels8.size());
                 for (sizet y = 0; y < region.Height; ++y)
@@ -837,11 +837,6 @@ namespace OloEngine::MCP
                 normalizeMode = args["normalize"].get<bool>() ? GPUResourceInspector::CaptureNormalizeMode::On
                                                               : GPUResourceInspector::CaptureNormalizeMode::Off;
 
-            // Row-order override for the non-GL facade arm (see
-            // CaptureTargetThroughFacade). GL targets are uniformly bottom-up
-            // so the knob is a no-op there.
-            const bool flipY = args.value("flipY", true);
-
             // afterPass (issue #607): snapshot the resource AS OF that pass's
             // execution and capture the snapshot clone — end-of-frame contents
             // can differ (ParticlePass re-exports SceneDepth after GTAOPass).
@@ -880,7 +875,7 @@ namespace OloEngine::MCP
 
             Json result = server.MarshalRead([&server, name, mipLevel, hasLayerSelector, requestedLayer,
                                               normalizeMode, maxWidth, region, afterPass, afterPassFrameRendered,
-                                              deliverLink, flipY]() -> Json
+                                              deliverLink]() -> Json
                                              {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
@@ -927,8 +922,7 @@ namespace OloEngine::MCP
                         : CaptureTargetThroughFacade(
                               *graph, name, mipLevel, selection.Layer, normalizeMode, maxWidth,
                               GPUResourceInspector::CaptureRegion{ region.X, region.Y, region.Width,
-                                                                   region.Height },
-                              flipY);
+                                                                   region.Height });
                 if (!capture.Error.empty())
                     return Json{ { "__error", "Capture of '" + name + "' failed: " + capture.Error } };
 
@@ -958,8 +952,6 @@ namespace OloEngine::MCP
                     capture.Width, capture.Height);
                 meta["format"] = capture.FormatName;
                 meta["isDepth"] = capture.IsDepth;
-                if (!glBackend)
-                    meta["flipY"] = flipY;
                 meta["normalized"] = capture.Normalized;
                 if (capture.MaxValue > capture.MinValue)
                 {
@@ -5361,7 +5353,6 @@ namespace OloEngine::MCP
                                    .Prop("layer", Schema::Int().Min(0).Max(64).Desc("Texture-array layer (e.g. CSM cascade 0..3), cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z), or 3D-volume z-slice (e.g. the froxel fog volumes). Default 0, or the resource's own layer when it is a per-layer view. Out of range is an error."))
                                    .Prop("face", Schema::Int().Min(0).Max(64).Desc("Alias of 'layer' (the original spelling); give only one."))
                                    .Prop("normalize", Schema::Bool().Desc("Min-max normalise float values to [0,1] before encoding (default: true for depth, false otherwise)."))
-                                   .Prop("flipY", Schema::Bool().Desc("Non-GL backends only: treat the target's rows as bottom-up (default true, the GL-parity assumption). Vulkan row order is per-target — if a capture comes back upside-down, retry with flipY:false."))
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
                                    .Prop("region", CaptureRegionArg::SchemaNode())
                                    .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before capturing (default false). Use after any change (scene open, setting flip) so you cannot read a stale target. Implied by 'afterPass'."))

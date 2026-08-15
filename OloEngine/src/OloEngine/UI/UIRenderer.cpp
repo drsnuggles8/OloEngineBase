@@ -76,9 +76,15 @@ namespace OloEngine
         // Flush current batch before changing scissor state
         Renderer2D::EndScene();
 
-        // Convert from UI space (Y-down) to OpenGL scissor space (Y-up)
+        // Scissor origin is per-backend (ADR 0011 amendment (85)): glScissor
+        // is bottom-left/Y-up, so GL converts from UI space (Y-down);
+        // VkRect2D is top-left/Y-down — the same space UI coordinates and the
+        // top-down Vulkan render target already live in — so the old
+        // unconditional conversion clipped the vertically mirrored band there.
+        const bool glScissorSpace = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
         i32 x = static_cast<i32>(position.x);
-        i32 y = static_cast<i32>(s_ViewportHeight - position.y - size.y);
+        i32 y = glScissorSpace ? static_cast<i32>(s_ViewportHeight - position.y - size.y)
+                               : static_cast<i32>(position.y);
         u32 w = static_cast<u32>(size.x);
         u32 h = static_cast<u32>(size.y);
 

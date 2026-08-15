@@ -142,7 +142,17 @@ namespace OloEngine
         {
             VkQueryPool Pool = VK_NULL_HANDLE;
             u32 Index = 0;
-            bool Recorded = false; ///< a Begin/End pair reached a command buffer
+            bool Recorded = false; ///< the query's write(s) reached a command buffer
+            // How this entry reads back (#691 Phase 9): OcclusionAnySamples is
+            // one occlusion slot (raw count); Timestamp is one timestamp slot
+            // (ticks × timestampPeriod → nanoseconds, stamped via
+            // WriteTimestamp); TimeElapsed is a PAIR of timestamp slots
+            // (Index, Index+1) bracketed by Begin/EndQuery — Vulkan has no
+            // native elapsed query, and vkCmdBeginQuery on a TIMESTAMP pool is
+            // invalid, which the pre-Phase-9 single-slot shape would have hit
+            // the moment a TimeElapsed tenant ran (none did: the only user was
+            // GL-gated until the Phase 9 tool conversions).
+            RHI::QueryType Type = RHI::QueryType::OcclusionAnySamples;
         };
 
         [[nodiscard]] static VulkanQueryRegistry& Get();
@@ -460,6 +470,7 @@ namespace OloEngine
         void DeleteQueries(std::span<const RHI::ResourceHandle> queries) override;
         void BeginQuery(RHI::QueryType type, RHI::ResourceHandle query) override;
         void EndQuery(RHI::QueryType type) override;
+        void WriteTimestamp(RHI::ResourceHandle query) override;
         [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle query) override;
         [[nodiscard("Store this!")]] u32 GetQueryResultU32(RHI::ResourceHandle query) override;
         [[nodiscard("Store this!")]] u64 GetQueryResultU64(RHI::ResourceHandle query) override;
@@ -689,6 +700,11 @@ namespace OloEngine
         {
             VkQueryPool Pool = VK_NULL_HANDLE;
             u32 Index = 0;
+            // TimeElapsed brackets stamp a second timestamp at Index+1 on
+            // EndQuery; the handle re-Looks-up the entry there (never a cached
+            // Entry* — the registry map can rehash between Begin and End).
+            bool IsElapsed = false;
+            RHI::ResourceHandle Handle{};
         };
         ActiveQuery m_ActiveQuery{};
         // Host-side conditional-render predicate: true between
@@ -710,6 +726,10 @@ namespace OloEngine
 
         // Cached at Init() from the physical device.
         u32 m_MaxUniformBlockSize = 16384;
+        // limits.timestampPeriod: nanoseconds per timestamp tick, cached at
+        // Init so query readback (Timestamp / TimeElapsed scaling to the
+        // facade's nanosecond contract) never touches the physical device.
+        f64 m_TimestampPeriodNs = 1.0;
         u32 m_MaxFramebufferSamples = 1;
         u32 m_MaxColorTextureSamples = 1;
         u32 m_MaxDepthTextureSamples = 1;
