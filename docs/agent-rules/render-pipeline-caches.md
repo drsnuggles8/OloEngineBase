@@ -123,6 +123,91 @@ a 2-frame warm-up and fails on a black frame if the pool keeps stale transients.
 
 ---
 
+# A consumer must key off what the GRAPH is wired for, not what the settings ask for (#771)
+
+`ActiveAOTechnique` decides **which AO pass is registered** — `RegisterSceneAndLightingNodes`
+switches on it and calls `graph.AddNode("SSAOPass" | "GTAOPass")`. That switch runs at
+**topology-build time**, so the field has two readers with different clocks: the topology (updated
+only by `ConfigureRenderGraph`, recorded in `s_Data.ActiveGraphAOTechnique`) and the per-frame
+pipeline hook (reading `s_Data.PostProcess.ActiveAOTechnique` live). Setting the field without
+`Renderer3D::ApplyRendererSettings()` makes them disagree indefinitely.
+
+## The trap (issue #771)
+
+While they disagreed, `PopulateBlackboard` declared `AOBuffer` and enabled `AOApplyPass` because the
+*requested* technique was GTAO — but no `GTAOPass` was in the graph to write it. `AOApplyPass` does
+not know its producer is missing; it samples `AO.AOBuffer` unconditionally and computes
+`sceneColor * mix(1.0, ao, intensity)`. So the whole frame was multiplied by a transient nobody had
+written.
+
+**`ao = 0` is not "no data" — it is maximum occlusion.** On a freshly allocated (zeroed) transient
+that is `sceneColor * 0`, an *exactly* black frame; on a recycled, still-dirty one it is merely very
+dark. That single difference is the entire "flake":
+
+- **It tracked allocation history, not code.** The `Off → Performance` FSR1 switch resizes the scene
+  band and evicts the transient pool on the same edge (#563), so the AO buffer landed on fresh
+  storage exactly there. Whether that storage read as zeroes depended on which tests had run before.
+  It passed in isolation, in its own suite, and against most subsets; it failed only in full-suite
+  order — and it was dismissed as order-dependent for weeks, including in PR #794's evidence.
+- **The instrument that "fixed" it is the tell.** `OLO_RG_POISON_TRANSIENTS=1` made it pass while
+  `OLO_RG_DISABLE_ALIASING=1` did not. Poison writes non-zero into every freshly acquired transient,
+  so "poison fixes it, aliasing does not" reads as *some consumer is sampling storage nobody wrote
+  this frame*. Treat that pair as a diagnosis, not a workaround.
+- **The graph will tell you outright.** The `RenderGraph AO/Post order:` trace printed `GTAO=n/a`
+  and the submission plan contained no `GTAOPass` at all. When a pass's output looks wrong, check it
+  is in the plan before debugging its contents.
+
+This had already bitten twice — issue #533, and `olo_render_toggle_pass` in `McpTools.cpp` — and
+both were fixed by remembering to call `ApplyRendererSettings()` at that one call site. Enumerating
+call sites is the fragile half of the rule at the top of this document; the third victim was a test
+that simply set the field.
+
+## The rule
+
+**Where a setting decides graph TOPOLOGY, every per-frame consumer of that decision must read the
+value the graph was built with, not the pending one.** `RenderPipeline`'s AO gates — the `AOBuffer`
+declaration, the SSAO/GTAO scratch declarations, and `AOApplyPass::SetEnabled` — now key off
+`data.ActiveGraphAOTechnique`. A technique change that has not reached the topology yet degrades to
+**"no AO"**, which is correct-looking, instead of a black frame. Applying the setting still requires
+`ApplyRendererSettings()`; what changed is the cost of forgetting.
+
+Corollaries worth carrying:
+
+- **Ask what a consumer's "unwritten" value MEANS to it.** For a multiplicative modulation (AO,
+  shadow mask, fog transmittance) the neutral element is 1.0 and zero is the maximum-effect end of
+  the range — exactly what fresh storage supplies. Publish the neutral element on every path where
+  the producer does not produce. Both AO producers now do, via
+  `Passes/AOTargetIdentity.h::PublishAOTargetAsFullyVisible` — deliberately shared, because the two
+  write the same graph resource under the same contract and a reimplementation in each is how this
+  invariant drifts. `SSAORenderPass` *looks* like it always had this (it clears to white every
+  frame), but that clear is on its own SSAORaw/SSAOBlur scratch and sits **after** its early
+  returns, so it never protected `AOBuffer` either.
+- **The gate must cover BOTH ends of the seam.** Keying only the consumer off the graph's technique
+  fixes one direction and leaves the mirror: the producers bail out of `Setup`/`Execute` on their
+  own `m_Settings.ActiveAOTechnique`, so feeding them the *requested* technique while the consumer
+  reads the *graph's* reproduces the identical black frame with the roles swapped. `RenderPipeline`
+  hands both ends the graph's technique from one place.
+- **A value the producer cannot emit is a free assertion.** `GTAO.comp` clamps visibility to
+  `[0.03, 1.0]`, so an AO texel of exactly 0 reaching the apply pass can *only* be unwritten
+  storage. Where a producer has such a floor, say so in the test suite — it converts "the frame
+  looked dark" into "this texel was never written".
+- **Silent skips cost weeks.** All four of `GTAORenderPass::Execute`'s early returns were unlogged,
+  so the differential evidence had to be gathered by bisecting suite order. They now emit a
+  rate-limited warning naming which guard fired.
+
+## Guard
+
+`GTAOMath.AoConsumersKeyOffTheGraphsTechniqueNotTheRequestedOne` (CPU, `GTAOMathTest.cpp`) pins the
+gate: the AOApply enable decision and the `AOBuffer` declaration must read `ActiveGraphAOTechnique`.
+`GTAOMath.GtaoAoTargetIsNeverLeftUnwrittenForTheApplyPass` (CPU) pins the second layer — the
+shader's positive visibility floor, and that **every** early return in `GTAORenderPass::Execute`
+after the AO target resolves publishes the no-occlusion identity first, so a fifth guard added later
+cannot reintroduce the hole. `EASUVisualEvidenceTest.GTAOSurvivesRuntimeUpscaleSwitch` (GPU, SKIPs
+headless) is the end-to-end repro — and note it never actually exercised GTAO until it was taught to
+call `ApplyRendererSettings()`, which is why a green run of it had proven nothing.
+
+---
+
 # Pass objects survive a topology reset — but `RenderGraphNode::OnReset()` is a dead hook (#595)
 
 Two different "resets" exist and they have **different** lifetimes for the pass

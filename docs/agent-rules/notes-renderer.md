@@ -285,15 +285,29 @@ full-size spec and ignore the override; graph-owned FB passes are never reached 
 > candidate list must **not** include `PostProcessColor` — that alias points at `EASUColor` once
 > EASU runs, so EASU would read its own output.
 >
-> Known limitation: depth and velocity stay reduced, so full-res post passes reading them (DOF, Fog,
-> TAA) get bilinear-upscaled reduced depth.
+> Depth and velocity used to stay reduced, so full-res post passes reading them (DOF, Fog, TAA) got
+> bilinear-upscaled reduced depth. `DepthVelocityUpscalePass` (#480) fixed that with a NEAREST
+> upscale into `UpscaledDepthVelocity` — see the attachment-drop trap below before trusting it.
 
-**Open bug:** switching `PostProcessSettings::Upscale` to a non-`Off` mode **at runtime** produces a
-fully black frame plus a per-frame flood of `GL_INVALID_VALUE … y values exceeds the boundaries`
-(id 1281) — a read/blit-bounds bug in the reduced-scale → EASU path. Shaders compile fine; a
-viewport resize does not fix it; restoring `Off` recovers instantly. Filed as **#504**; the fix is
-likely clamping the EASU sample/blit region to the DRS render rect. It is a pre-existing FSR1 bug,
-not an MCP-tool bug — don't "fix" it in the settings tool.
+**The MRT that came back one attachment short (#772).** `UpscaledDepthVelocity` is declared
+`{R32Float depth, RG16Float velocity}` and the pass writes both, but `FramebufferTextureFormat` had
+no single-channel float colour member, so `RenderGraph::ToFramebufferFormat` answered `None` for
+`R32Float`. The materializer's MRT loop *skips* an unrepresentable attachment rather than failing —
+which **re-indexes** every survivor. The pooled framebuffer came back with ONE attachment (the
+RG16F velocity, now at index 0), the depth write landed on no attachment at all, and
+`CreateFramebufferAttachmentView(…, 0)` — published as `Post.UpscaledSceneDepthTexture` — handed
+DOF / Fog / MotionBlur / TAA / ToneMap the **velocity** texture as their depth. Silent on both
+backends; only the Vulkan port noticed, and only because its validation layer names unused fragment
+outputs. Generalise: **an attachment list is not a set — a dropped entry moves every later index**,
+so partial representability is never a safe degradation. The planner now refuses the whole
+descriptor (`IsAllocatable` uses `all_of`, not `any_of`) so the pass fails to resolve loudly.
+
+**Fixed, was open:** switching `PostProcessSettings::Upscale` to a non-`Off` mode at runtime used to
+produce a fully black frame plus a flood of `GL_INVALID_VALUE … y values exceeds the boundaries`
+(id 1281) — GTAO's scratch targets were declared at display res while `AOBuffer` shrank with the
+scene band. Fixed in **#504** (every GTAO scratch resource now tracks `sceneBandWidth/Height`). The
+*second*, quieter half of the same transition is **#771** — see
+[render-pipeline-caches.md](render-pipeline-caches.md).
 
 ## 14. GPU timer queries
 
