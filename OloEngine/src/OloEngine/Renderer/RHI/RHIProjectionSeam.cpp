@@ -65,4 +65,12 @@ namespace OloEngine::RHI
         // direction-addressed face bake stores GL-identical rows.
         return BackendFlips() ? DepthOnlyFlipMatrix() * projection : projection;
     }
+
+    bool RenderTargetRowsAreBottomUp()
+    {
+        // Same BackendFlips() question the matrices ask, answered for rows:
+        // GL rasterizes and stores bottom-up; the Vulkan seam's clip-y
+        // negation lands a view's top row at memory row 0.
+        return !BackendFlips();
+    }
 } // namespace OloEngine::RHI

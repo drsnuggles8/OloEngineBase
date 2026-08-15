@@ -2748,8 +2748,13 @@ every window-only property along its path.
 
 The endgame shape that retired `flipY`: row order is a per-BACKEND constant
 (bottom-up GL, top-down Vulkan), so exactly one predicate expresses it —
-`ImGuiLayer::RenderTargetRowsAreBottomUp()` for uv pairs, the same test
-inlined in the two readback helpers for PNG row emission. The four consumers
+`RHI::RenderTargetRowsAreBottomUp()`, living with the projection seam that
+owns the convention; `ImGuiLayer::RenderTargetRowsAreBottomUp()` is the
+uv-facing spelling and forwards to it, and the readback helpers call it
+directly. (The first cut of this change inlined the `GetAPI() == OpenGL` test
+in three consumers and *documented* it as one predicate — review caught the
+gap between the claim and the code, which is its own small instance of the
+rule.) The four consumers
 found silently wrong under Vulkan (content-browser thumbnails, render-graph
 debugger previews, save-game thumbnails, UI clip rects) were exactly the
 sites that had hand-rolled the convention instead of sharing a predicate —

@@ -106,7 +106,7 @@ namespace OloEngine
                 case ImageFormat::RGB32F:
                     return 16; // widened to RGBA32F
                 default:
-                    return EngineFormatClientBpp(format);
+                    return VulkanUpload::EngineFormatClientBpp(format);
             }
         }
 
@@ -163,12 +163,12 @@ namespace OloEngine
 
         CreateImage();
         m_IsLoaded = true;
-        TrackLive(this, "VulkanTexture2D(spec)");
+        VulkanUpload::TrackLive(this, "VulkanTexture2D(spec)");
     }
 
     VulkanTexture2D::VulkanTexture2D(const std::string& path, bool srgb)
     {
-        TrackLive(this, "VulkanTexture2D(path)");
+        VulkanUpload::TrackLive(this, "VulkanTexture2D(path)");
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(VulkanDevice::Get() != nullptr, "VulkanTexture2D requires a live VulkanDevice");
 
@@ -202,7 +202,7 @@ namespace OloEngine
 
     VulkanTexture2D::~VulkanTexture2D()
     {
-        UntrackLive(this);
+        VulkanUpload::UntrackLive(this);
         // Retire the identity first (outstanding handles go stale), then hand
         // the native object to the deferred queue — NEVER vmaDestroyImage
         // inline, prior frames may still be executing. Destructors must not
@@ -237,7 +237,7 @@ namespace OloEngine
             throw std::runtime_error("VulkanTexture2D::CreateImage: no live VulkanDevice");
         }
 
-        const VkFormat format = ImageFormatToVkFormat(m_Specification.Format, m_Specification.SRGB);
+        const VkFormat format = VulkanUpload::ImageFormatToVkFormat(m_Specification.Format, m_Specification.SRGB);
         const bool isDepth = IsDepthImageFormat(m_Specification.Format);
 
         VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
@@ -275,8 +275,8 @@ namespace OloEngine
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 
-        VkCheck(vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr),
-                "vmaCreateImage (VulkanTexture2D)");
+        VulkanUpload::VkCheck(vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr),
+                              "vmaCreateImage (VulkanTexture2D)");
         vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2D");
 
         // HasStencil follows the RESOLVED VkFormat: the engine's combined
@@ -292,7 +292,7 @@ namespace OloEngine
                                                              .HasStencil = isDepth,
                                                          });
 
-        m_RHIHandle.Sync(RHI::ResourceKind::Texture, VkHandleToU64(m_Image), RHI::Backend::Vulkan);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, VulkanUpload::VkHandleToU64(m_Image), RHI::Backend::Vulkan);
     }
 
     void VulkanTexture2D::ReleaseImage()
@@ -408,7 +408,7 @@ namespace OloEngine
         std::vector<u8> expanded;
         if (m_Specification.Format == ImageFormat::RGB8 || m_Specification.Format == ImageFormat::RGB32F)
         {
-            expanded = ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(m_Width) * m_Height);
+            expanded = VulkanUpload::ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(m_Width) * m_Height);
             uploadData = expanded.data();
             uploadSize = expanded.size();
         }
@@ -456,10 +456,10 @@ namespace OloEngine
                 // writes unordered against the transition (the same
                 // WRITE_AFTER_WRITE shape sync validation caught on the
                 // cubemap chain). Discard semantics are unchanged.
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
-                                   VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                 VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels);
 
                 VkBufferImageCopy region{};
                 region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
@@ -477,11 +477,11 @@ namespace OloEngine
                         // src scope: mip 0's last write was the COPY, later
                         // mips' the previous BLIT — cover both rather than
                         // special-casing the first iteration.
-                        RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                           VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                           VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                           VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u);
+                        VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                         VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                         VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                         VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u);
 
                         const i32 dstW = std::max(srcW / 2, 1);
                         const i32 dstH = std::max(srcH / 2, 1);
@@ -500,21 +500,21 @@ namespace OloEngine
 
                     // Mips [0, N-1) sit in TRANSFER_SRC, the last in
                     // TRANSFER_DST — bring all to SHADER_READ_ONLY.
-                    RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                       VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                       VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u);
-                    RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                       VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                       VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u);
+                    VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                     VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                     VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u);
+                    VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                     VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                     VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u);
                 }
                 else
                 {
-                    RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
-                                       VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                       VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels);
+                    VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                     VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                     VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels);
                 }
             });
 
@@ -535,7 +535,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const u32 nativeBpp = EngineFormatClientBpp(m_Specification.Format);
+        const u32 nativeBpp = VulkanUpload::EngineFormatClientBpp(m_Specification.Format);
         if (nativeBpp == 0)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SetData: format {} has no client-upload path",
@@ -570,7 +570,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto* device = VulkanDevice::Get();
-        const u32 nativeBpp = EngineFormatClientBpp(m_Specification.Format);
+        const u32 nativeBpp = VulkanUpload::EngineFormatClientBpp(m_Specification.Format);
         if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr || nativeBpp == 0)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: no upload path (device/image/format)");
@@ -613,7 +613,7 @@ namespace OloEngine
         // owns both. The one-shot arm below stays for load time (no
         // recording), where it is correct and the tracker learns the layout
         // through InitialLayout.
-        if (auto* vk = TryGetRecordingVulkanAPI(); vk != nullptr)
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
             // The 3-channel engine formats live in WIDENED 4-channel
             // images (there is no linear-filterable RGB8/RGB32F on the
@@ -631,7 +631,7 @@ namespace OloEngine
                     case ImageFormat::R8:
                         return RHI::Format::R8UNorm;
                     case ImageFormat::RGB8:
-                        widened = ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
+                        widened = VulkanUpload::ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
                         stagedData = widened.data();
                         return RHI::Format::RGBA8UNorm;
                     case ImageFormat::RGBA8:
@@ -641,7 +641,7 @@ namespace OloEngine
                     case ImageFormat::RG32F:
                         return RHI::Format::RG32Float;
                     case ImageFormat::RGB32F:
-                        widened = ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
+                        widened = VulkanUpload::ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
                         stagedData = widened.data();
                         return RHI::Format::RGBA32Float;
                     case ImageFormat::RGBA32F:
@@ -678,7 +678,7 @@ namespace OloEngine
         std::vector<u8> expanded;
         if (m_Specification.Format == ImageFormat::RGB8 || m_Specification.Format == ImageFormat::RGB32F)
         {
-            expanded = ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
+            expanded = VulkanUpload::ExpandRgbToRgba(m_Specification.Format, data, static_cast<u64>(width) * height);
             uploadData = expanded.data();
             uploadSize = expanded.size();
         }
@@ -719,11 +719,11 @@ namespace OloEngine
         const bool ok = VulkanOneShot::Submit("VulkanTexture2D::SubImage",
                                               [&](VkCommandBuffer cmd)
                                               {
-                                                  RecordImageBarrier(cmd, m_Image, priorLayout,
-                                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
-                                                                     VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u,
-                                                                     1u);
+                                                  VulkanUpload::RecordImageBarrier(cmd, m_Image, priorLayout,
+                                                                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
+                                                                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u,
+                                                                                   1u);
 
                                                   VkBufferImageCopy region{};
                                                   region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
@@ -732,11 +732,11 @@ namespace OloEngine
                                                   vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                                                          1u, &region);
 
-                                                  RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                                                     VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                                                                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
-                                                                     0u, 1u);
+                                                  VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                                                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                                                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
+                                                                                   0u, 1u);
                                               });
 
         vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
@@ -855,20 +855,20 @@ namespace OloEngine
             {
                 // Steady-state invariant again: sampled content sits in
                 // SHADER_READ_ONLY between graph executions.
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                   VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
-                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, mipLevel, 1u);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+                                                 VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, mipLevel, 1u);
 
                 VkBufferImageCopy region{};
                 region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, 0u, 1u };
                 region.imageExtent = { mipW, mipH, 1u };
                 vkCmdCopyImageToBuffer(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
 
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
-                                   VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                   VK_ACCESS_2_MEMORY_READ_BIT, mipLevel, 1u);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_READ_BIT, mipLevel, 1u);
             });
 
         if (ok)

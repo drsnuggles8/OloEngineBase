@@ -208,7 +208,7 @@ namespace OloEngine
             // survives this seam, so its failing sample comes from another
             // path — most likely the ImGui viewport binding. Closing this gap
             // is worth doing on its own terms; do not read it as that fix.
-            if (auto* vk = TryGetRecordingVulkanAPI(); vk != nullptr)
+            if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
             {
                 vk->EnsureImageLayoutForDescriptor(staged.Image, staged.Layout,
                                                    staged.ViewInfo.subresourceRange);

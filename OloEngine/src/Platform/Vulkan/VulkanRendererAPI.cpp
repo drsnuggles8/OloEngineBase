@@ -223,9 +223,27 @@ namespace OloEngine
         {
             // An unbalanced vkCmdBeginQuery makes the whole command buffer
             // invalid at vkEndCommandBuffer — close it loudly instead.
-            OLO_CORE_WARN("[RHI/Vulkan] recording ended with an occlusion query still active — auto-ending it");
             EndRenderingScope();
-            vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
+            if (m_ActiveQuery.IsElapsed)
+            {
+                // An elapsed bracket is a TIMESTAMP pair, not a query span:
+                // vkCmdEndQuery on a timestamp pool is invalid usage
+                // (VUID-vkCmdEndQuery-queryPool-01041), so close it the way
+                // EndQuery does — stamp the end slot and mark the entry
+                // readable, or the pair would block forever under WAIT.
+                OLO_CORE_WARN("[RHI/Vulkan] recording ended with an elapsed-time bracket still open — closing it");
+                vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, m_ActiveQuery.Pool,
+                                     m_ActiveQuery.Index + 1u);
+                if (auto* entry = VulkanQueryRegistry::Get().Lookup(m_ActiveQuery.Handle); entry != nullptr)
+                {
+                    entry->Recorded = true;
+                }
+            }
+            else
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] recording ended with an occlusion query still active — auto-ending it");
+                vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
+            }
             m_ActiveQuery = {};
         }
         EndRenderingScope();
@@ -249,8 +267,11 @@ namespace OloEngine
         }
         if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
         {
-            // A vkCmdBeginQuery span cannot cross command buffers — refuse
-            // rather than corrupt the recording.
+            // A query span cannot cross command buffers — refuse rather than
+            // corrupt the recording. (An elapsed-time TIMESTAMP pair could in
+            // principle be split across buffers, but its two stamps would then
+            // measure across a submit boundary, which is not what the caller
+            // asked for; refusing keeps one meaning for both kinds.)
             static bool s_Warned = false;
             if (!s_Warned)
             {
@@ -5227,12 +5248,22 @@ namespace OloEngine
 
     bool VulkanRendererAPI::IsQueryResultAvailable(RHI::ResourceHandle query)
     {
+        // Timestamp scaling reads m_TimestampPeriodNs, which Init() caches —
+        // and a query can be read on an instance whose Init was skipped (the
+        // headless/test shapes, and the pre-window RecreateForSelectedBackend
+        // instance). CacheDeviceLimits early-outs once cached, so this is the
+        // same no-op-on-the-steady-path guard IssueBarrierBatch uses. Without
+        // it the period stays at its 1.0 default and every timestamp reads as
+        // ticks — invisible on NVIDIA (period IS 1.0 ns there) and wrong
+        // everywhere else, which is the worst possible way to be wrong.
+        CacheDeviceLimits();
         u64 ignored = 0;
         return ReadQueryResult(query, false, ignored);
     }
 
     u32 VulkanRendererAPI::GetQueryResultU32(RHI::ResourceHandle query)
     {
+        CacheDeviceLimits(); // the timestamp period — see IsQueryResultAvailable
         u64 value = 0;
         // GL's glGetQueryObjectuiv(GL_QUERY_RESULT) blocks until the result is
         // there; the WAIT read is the parity (Recorded gates the deadlock).
@@ -5242,6 +5273,7 @@ namespace OloEngine
 
     u64 VulkanRendererAPI::GetQueryResultU64(RHI::ResourceHandle query)
     {
+        CacheDeviceLimits(); // the timestamp period — see IsQueryResultAvailable
         u64 value = 0;
         (void)ReadQueryResult(query, true, value);
         return value;

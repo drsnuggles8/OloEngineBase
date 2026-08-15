@@ -50,7 +50,7 @@ namespace OloEngine
         const u32 fullCubeArrayChain = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(resolution))));
         m_MipLevels = spec.MipLevels > 0u ? std::min(spec.MipLevels, fullCubeArrayChain) : fullCubeArrayChain;
 
-        const VkFormat format = ImageFormatToVkFormat(spec.Format, false);
+        const VkFormat format = VulkanUpload::ImageFormatToVkFormat(spec.Format, false);
 
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;

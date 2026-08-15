@@ -2817,7 +2817,8 @@ and did not survive #794's fixes. The decision:
   argument is retired (schema and meta echo removed); `CaptureFramebufferPng`
   and the save-game thumbnail capture share the rule.
 - **ImGui uv pairs collapse to one predicate** —
-  `ImGuiLayer::RenderTargetRowsAreBottomUp()` — for every panel drawing a
+  `RHI::RenderTargetRowsAreBottomUp()` (ImGuiLayer's same-named helper is
+  the uv-facing spelling and forwards to it) — for every panel drawing a
   RENDER TARGET. File-loaded textures (stbi pre-flipped) keep the fixed
   GL-convention pair; the content browser threads provenance
   (rendered-thumbnail vs loaded-icon) to choose. Entity picking keys its

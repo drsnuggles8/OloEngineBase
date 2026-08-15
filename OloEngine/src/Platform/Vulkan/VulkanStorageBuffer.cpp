@@ -27,12 +27,12 @@ namespace OloEngine
         OLO_CORE_ASSERT(VulkanDevice::Get() != nullptr, "VulkanStorageBuffer requires a live VulkanDevice");
 
         CreateBuffer();
-        TrackLive(this, "VulkanStorageBuffer");
+        VulkanUpload::TrackLive(this, "VulkanStorageBuffer");
     }
 
     VulkanStorageBuffer::~VulkanStorageBuffer()
     {
-        UntrackLive(this);
+        VulkanUpload::UntrackLive(this);
         // Identity first, then the deferred queue — never vmaDestroyBuffer
         // inline (prior frames may still be executing). No exception may
         // escape a destructor: a failed enqueue leaks one buffer until
@@ -94,8 +94,8 @@ namespace OloEngine
         }
 
         VmaAllocationInfo outInfo{};
-        VkCheck(vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &outInfo),
-                "vmaCreateBuffer (VulkanStorageBuffer)");
+        VulkanUpload::VkCheck(vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &outInfo),
+                              "vmaCreateBuffer (VulkanStorageBuffer)");
         vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanStorageBuffer");
 
         m_Mapped = nullptr;
@@ -113,7 +113,7 @@ namespace OloEngine
         addressInfo.buffer = m_Buffer;
         m_DeviceAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
 
-        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VulkanUpload::VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
         // Root-object registration so the dispatch path can resolve a
         // BindStorageBuffer packet's handle back to this object (#691
         // Phase 7). Identity is preserved across Resize (Sync), so
@@ -199,7 +199,7 @@ namespace OloEngine
         // between frames) the persistent write-through IS the ordered value,
         // and snapshotting every setup upload would burn frame-arena space.
         // Live-object probe, not the static flag — same rule as ClearData.
-        if (TryGetRecordingVulkanAPI() == nullptr)
+        if (VulkanUpload::TryGetRecordingVulkanAPI() == nullptr)
         {
             InvalidateSnapshot();
             return;
@@ -328,7 +328,7 @@ namespace OloEngine
         // recording, backbuffer already written, open query) falls back to
         // the old behaviour with a warn-once, never silently.
         // Live-object probe, not the static flag — see SubImage's note.
-        if (TryGetRecordingVulkanAPI() != nullptr)
+        if (VulkanUpload::TryGetRecordingVulkanAPI() != nullptr)
         {
             auto* context = VulkanContext::Get();
             if (context == nullptr || !context->FlushFrameRecordingAndWait())
@@ -432,7 +432,7 @@ namespace OloEngine
         // brackets the fill with the right barriers. This check deliberately
         // PRECEDES the mapped fast path.
         // Live-object probe, not the static flag — see SubImage's note.
-        if (auto* vk = TryGetRecordingVulkanAPI(); vk != nullptr)
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
             vk->ClearBufferUInt(m_RHIHandle.Get(), 0u);
             return;

@@ -269,6 +269,14 @@ namespace OloEngine
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: FBO incomplete (srcComplete={} dstComplete={})",
                           passName, SourceName(source), resourceName, srcComplete, dstComplete);
+            // Detach on THIS path too (review finding): both FBOs are
+            // process-wide shared objects, so bailing with the textures still
+            // attached leaves a live reference on a framebuffer nobody owns
+            // AND leaks this capture's attachments into the next caller's
+            // completeness check — which is exactly the state that produced
+            // the incompleteness being reported.
+            RenderCommand::AttachFramebufferColorTexture(srcFBO, 0, RHI::NullResource, 0);
+            RenderCommand::AttachFramebufferColorTexture(dstFBO, 0, RHI::NullResource, 0);
             return;
         }
 

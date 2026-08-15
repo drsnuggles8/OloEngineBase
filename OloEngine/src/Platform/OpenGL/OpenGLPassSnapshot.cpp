@@ -124,6 +124,8 @@ namespace OloEngine::Detail
         glTextureParameteri(texture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTextureParameteri(texture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
+        // The read below must answer for THIS creation only — see the drain
+        // note in OpenGLFrameCapture (review finding).
         if (glGetError() != GL_NO_ERROR)
         {
             glDeleteTextures(1, &texture);
@@ -143,6 +145,9 @@ namespace OloEngine::Detail
                                  u32 width, u32 height, u32 depthOrLayers,
                                  u32 mipLevels)
     {
+        // The trailing glGetError must answer for THESE copies only — see the
+        // drain note in OpenGLFrameCapture (review finding).
+        Utils::DrainGLErrors();
         for (u32 mip = 0; mip < mipLevels; ++mip)
         {
             const auto mipWidth = std::max(width >> mip, 1u);

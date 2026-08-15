@@ -16,7 +16,7 @@
 #include <utility>
 #endif
 
-namespace OloEngine
+namespace OloEngine::VulkanUpload
 {
 #ifdef OLO_DEBUG
     namespace
@@ -213,11 +213,19 @@ namespace OloEngine
         return dynamic_cast<VulkanRendererAPI*>(&RenderCommand::GetRendererAPI());
     }
 
+} // namespace OloEngine::VulkanUpload
+
+namespace OloEngine
+{
+    // At OloEngine scope deliberately: a cross-module teardown entry
+    // point (VulkanContext.cpp calls it unqualified via the
+    // VulkanTransientResources.h umbrella). It reads VulkanUpload's
+    // tracking state, hence living in this TU.
     void VulkanLogSurvivingTransients()
     {
 #ifdef OLO_DEBUG
-        std::scoped_lock lock(s_LiveTrackMutex);
-        for (const auto& [object, info] : s_LiveGpuObjects)
+        std::scoped_lock lock(VulkanUpload::s_LiveTrackMutex);
+        for (const auto& [object, info] : VulkanUpload::s_LiveGpuObjects)
         {
             std::string trace = std::to_string(info.second);
             sizet cut = 0;
@@ -228,9 +236,9 @@ namespace OloEngine
             }
             OLO_CORE_ERROR("[Vulkan] surviving {} created at:\n{}", info.first, trace.substr(0, cut));
         }
-        if (!s_LiveGpuObjects.empty())
+        if (!VulkanUpload::s_LiveGpuObjects.empty())
         {
-            OLO_CORE_ERROR("[Vulkan] {} texture/storage-buffer object(s) survived full teardown", s_LiveGpuObjects.size());
+            OLO_CORE_ERROR("[Vulkan] {} texture/storage-buffer object(s) survived full teardown", VulkanUpload::s_LiveGpuObjects.size());
         }
 #endif
     }

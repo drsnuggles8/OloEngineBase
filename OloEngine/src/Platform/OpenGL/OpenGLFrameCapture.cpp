@@ -50,6 +50,10 @@ namespace OloEngine::Detail
             glDisable(GL_RASTERIZER_DISCARD);
         }
 
+        // Drain first: GL holds an error until someone reads it, so a stale
+        // error from unrelated earlier work would be attributed to this blit
+        // and suppress a capture that actually succeeded (review finding).
+        Utils::DrainGLErrors();
         glBlitNamedFramebuffer(srcID, dstID,
                                0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
                                0, 0, static_cast<GLint>(width), static_cast<GLint>(height),

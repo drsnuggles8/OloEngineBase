@@ -64,7 +64,7 @@ namespace OloEngine
             m_MipLevels = fullChain;
         }
 
-        const VkFormat format = ImageFormatToVkFormat(spec.Format, false);
+        const VkFormat format = VulkanUpload::ImageFormatToVkFormat(spec.Format, false);
 
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -170,7 +170,7 @@ namespace OloEngine
         // and the reflection-probe baker's face write, i.e. most of what
         // stood between the flat grey sky and a lit environment.
         auto* device = VulkanDevice::Get();
-        const u32 clientBpp = EngineFormatClientBpp(m_CubemapSpecification.Format);
+        const u32 clientBpp = VulkanUpload::EngineFormatClientBpp(m_CubemapSpecification.Format);
         if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr || clientBpp == 0u || faceIndex >= 6u ||
             mipLevel >= m_MipLevels)
         {
@@ -192,7 +192,7 @@ namespace OloEngine
         std::vector<u8> expanded;
         if (m_CubemapSpecification.Format == ImageFormat::RGB8 || m_CubemapSpecification.Format == ImageFormat::RGB32F)
         {
-            expanded = ExpandRgbToRgba(m_CubemapSpecification.Format, data, static_cast<u64>(mipWidth) * mipHeight);
+            expanded = VulkanUpload::ExpandRgbToRgba(m_CubemapSpecification.Format, data, static_cast<u64>(mipWidth) * mipHeight);
             uploadData = expanded.data();
             uploadSize = expanded.size();
         }
@@ -201,7 +201,7 @@ namespace OloEngine
         // backend): record into the FRAME command buffer through the API's
         // tracker — a one-shot here would submit BEFORE the frame and race
         // the layout tracking (the 1c ordering rule).
-        if (auto* vk = TryGetRecordingVulkanAPI(); vk != nullptr)
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
             return vk->RecordStagedImageUpload(m_Image, mipLevel, faceIndex, mipWidth, mipHeight, uploadData,
                                                uploadSize);
@@ -239,20 +239,20 @@ namespace OloEngine
                 // partial-face-uploaded cubes must keep a UNIFORM tracked
                 // layout or CurrentLayout answers UNDEFINED (a legal discard)
                 // for whole-image queries — the mixed-layout trap.
-                RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                   priorLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ACCESS_2_NONE
-                                                                            : VK_ACCESS_2_MEMORY_WRITE_BIT,
-                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
-                                   6u);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 priorLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ACCESS_2_NONE
+                                                                                          : VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                 VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                                                 6u);
                 VkBufferImageCopy region{};
                 region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, faceIndex, 1u };
                 region.imageExtent = { mipWidth, mipHeight, 1u };
                 vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
-                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                   VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, 6u);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, 6u);
             });
         vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
         if (ok)
@@ -284,19 +284,19 @@ namespace OloEngine
             // sync-validation hazard the live editor hit. A transition FROM
             // UNDEFINED with a non-empty src scope is legal; it only orders
             // the prior writes, the contents are discarded either way.
-            RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
-                               VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
-                               VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
-                               6u);
+            VulkanUpload::RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                             VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                             VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                                             6u);
             u32 srcWidth = m_CubemapSpecification.Width;
             u32 srcHeight = m_CubemapSpecification.Height;
             for (u32 mip = 1u; mip < m_MipLevels; ++mip)
             {
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                   VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u, 0u, 6u);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u, 0u, 6u);
                 VkImageBlit blit{};
                 blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1u, 0u, 6u };
                 blit.srcOffsets[1] = { static_cast<i32>(std::max(srcWidth, 1u)),
@@ -315,17 +315,17 @@ namespace OloEngine
                 srcHeight = std::max(srcHeight >> 1u, 1u);
             }
             // Unify: mips [0, N-1) sit in TRANSFER_SRC, the last in DST.
-            RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                               VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                               VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u, 0u, 6u);
-            RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                               VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                               VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, 6u);
+            VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                             VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                             VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u, 0u, 6u);
+            VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                             VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                             VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, 6u);
         };
 
-        if (auto* vk = TryGetRecordingVulkanAPI(); vk != nullptr)
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
             // In-frame: the tracker must agree with the chain's transitions.
             // The chain works in whole-subresource strokes, so drive it with
@@ -356,7 +356,7 @@ namespace OloEngine
     {
         outData.clear();
         auto* device = VulkanDevice::Get();
-        const u32 clientBpp = EngineFormatClientBpp(m_CubemapSpecification.Format);
+        const u32 clientBpp = VulkanUpload::EngineFormatClientBpp(m_CubemapSpecification.Format);
         if (device == nullptr || m_Image == VK_NULL_HANDLE || clientBpp == 0u || faceCount == 0u || baseFace >= 6u ||
             faceCount > 6u - baseFace || mipLevel >= m_MipLevels)
         {
@@ -365,7 +365,7 @@ namespace OloEngine
         // Mid-frame: the faces' content may still sit unsubmitted in the
         // frame command buffer — the StorageBuffer::GetData rule. Flush; a
         // refusal falls back to previous-frame data with the 1c warn-once.
-        if (TryGetRecordingVulkanAPI() != nullptr)
+        if (VulkanUpload::TryGetRecordingVulkanAPI() != nullptr)
         {
             auto* context = VulkanContext::Get();
             if (context == nullptr || !context->FlushFrameRecordingAndWait())
@@ -419,10 +419,10 @@ namespace OloEngine
             what,
             [&](VkCommandBuffer cmd)
             {
-                RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
-                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, 0u, m_MipLevels, 0u,
-                                   6u);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                 VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, 0u, m_MipLevels, 0u,
+                                                 6u);
                 // One buffer-image-copy region per face, packed contiguously
                 // in face order — the whole read is ONE submit regardless of
                 // how many faces the caller asked for.
@@ -436,10 +436,10 @@ namespace OloEngine
                 }
                 vkCmdCopyImageToBuffer(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, faceCount,
                                        regions.data());
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, priorLayout,
-                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels,
-                                   0u, 6u);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, priorLayout,
+                                                 VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels,
+                                                 0u, 6u);
             });
         if (ok)
         {

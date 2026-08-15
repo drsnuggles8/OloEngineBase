@@ -90,6 +90,8 @@ namespace
                   "RHI::IndexType changed — update ToGL() and IndexTypeLowering");
     static_assert(static_cast<int>(RHI::FrontFace::Clockwise) == 1,
                   "RHI::FrontFace changed — update ToGL() and FrontFaceLowering");
+    static_assert(static_cast<int>(RHI::QueryType::TimeElapsed) == 1,
+                  "RHI::QueryType changed — update ToGL() and QueryTypeLowering");
     static_assert(static_cast<int>(RHI::QueryType::Timestamp) == 2,
                   "RHI::QueryType changed — update ToGL() and QueryTypeLowering");
     static_assert(static_cast<int>(RHI::MemoryResidency::DeviceToHost) == 2,

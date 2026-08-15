@@ -188,7 +188,7 @@ namespace OloEngine
         // Mid-frame: record into the frame command buffer through the API's
         // tracker (the SetFaceDataMip discipline — a one-shot here would
         // submit BEFORE the frame and race the layout tracking).
-        if (auto* vk = TryGetRecordingVulkanAPI(); vk != nullptr)
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
             if (vk->RecordStagedImageUpload(m_Image, 0u, layer, width, height, data, uploadSize))
             {
@@ -228,23 +228,23 @@ namespace OloEngine
                 // Whole image through the transition (every mip, every
                 // layer): partially-uploaded arrays must keep a UNIFORM
                 // tracked layout — the cubemap's mixed-layout lesson.
-                RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                   // Src scope stays MEMORY_WRITE even from UNDEFINED — prior
-                                   // copy-writes into other layers/mips of this image must be in
-                                   // scope or sync validation flags WRITE_AFTER_WRITE (the
-                                   // cubemap-chain lesson, #691 Phase 8).
-                                   VK_ACCESS_2_MEMORY_WRITE_BIT,
-                                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
-                                   layerCount);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 // Src scope stays MEMORY_WRITE even from UNDEFINED — prior
+                                                 // copy-writes into other layers/mips of this image must be in
+                                                 // scope or sync validation flags WRITE_AFTER_WRITE (the
+                                                 // cubemap-chain lesson, #691 Phase 8).
+                                                 VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                 VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                                                 layerCount);
                 VkBufferImageCopy region{};
                 region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, layer, 1u };
                 region.imageExtent = { width, height, 1u };
                 vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
-                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                   VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, layerCount);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, layerCount);
             });
         vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
         if (ok)
@@ -273,13 +273,13 @@ namespace OloEngine
         const u32 layerCount = std::max(m_Specification.Layers, 1u);
         const auto record = [&](VkCommandBuffer cmd, VkImageLayout priorLayout)
         {
-            RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                               // Same MEMORY_WRITE-from-UNDEFINED hardening as above: the
-                               // just-recorded layer copies must be in the src scope.
-                               VK_ACCESS_2_MEMORY_WRITE_BIT,
-                               VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
-                               layerCount);
+            VulkanUpload::RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                             // Same MEMORY_WRITE-from-UNDEFINED hardening as above: the
+                                             // just-recorded layer copies must be in the src scope.
+                                             VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                             VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
+                                             layerCount);
 
             i32 mipWidth = static_cast<i32>(m_Specification.Width);
             i32 mipHeight = static_cast<i32>(m_Specification.Height);
@@ -288,10 +288,10 @@ namespace OloEngine
                 // Source mip: TRANSFER_DST -> TRANSFER_SRC once its content
                 // is final (mip 0 from the uploads, mip N from the previous
                 // blit).
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                   VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                   VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u, 0u, layerCount);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u, 0u, layerCount);
 
                 const i32 nextWidth = std::max(mipWidth / 2, 1);
                 const i32 nextHeight = std::max(mipHeight / 2, 1);
@@ -305,19 +305,19 @@ namespace OloEngine
                 mipWidth = nextWidth;
                 mipHeight = nextHeight;
 
-                RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                   VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                   VK_ACCESS_2_MEMORY_READ_BIT, mip - 1u, 1u, 0u, layerCount);
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_READ_BIT, mip - 1u, 1u, 0u, layerCount);
             }
             // The last mip never became a blit source — settle it directly.
-            RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                               VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                               VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, layerCount);
+            VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                             VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                             VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, layerCount);
         };
 
-        if (auto* vk = TryGetRecordingVulkanAPI(); vk != nullptr)
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
             // In-frame: the tracker must agree with the chain's transitions —
             // the cubemap GenerateMipmaps discipline, with the array's layer

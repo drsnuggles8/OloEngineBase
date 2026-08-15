@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "MCP/McpEditorLiveness.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpCaptureRegion.h"
@@ -611,7 +612,7 @@ namespace OloEngine::MCP
             // target is top-down under Vulkan and bottom-up under GL, so the
             // top-left-origin capture region converts iff the backend is GL —
             // the single predicate that replaced the per-call argument.
-            const bool glRowOrder = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+            const bool glRowOrder = RHI::RenderTargetRowsAreBottomUp();
             const u32 readY = glRowOrder ? fullHeight - region.Y - region.Height : region.Y;
             const RHI::Format destFormat = isDepth || channels == 1 ? RHI::Format::R32Float
                                            : channels == 2          ? RHI::Format::RG32Float

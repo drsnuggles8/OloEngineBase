@@ -2,6 +2,7 @@
 #include "ThumbnailCapture.h"
 
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image/stb_image_write.h>
@@ -94,7 +95,7 @@ namespace OloEngine
         // (ADR 0011 amendment (85): one row order per backend — Vulkan
         // readbacks are already top-down, and the old unconditional flip
         // inverted every save-game thumbnail there).
-        const bool flipRows = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
+        const bool flipRows = RHI::RenderTargetRowsAreBottomUp();
         std::vector<u8> flipped(thumbData.size());
         u32 rowBytes = thumbWidth * 4;
         for (u32 y = 0; y < thumbHeight; ++y)

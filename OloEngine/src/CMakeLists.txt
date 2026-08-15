@@ -1699,14 +1699,18 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/Audio/DSP/HighPassFilter.cpp"   # namespace-scope consts FilterOrder/Min/MaxFrequencyHz
 		"OloEngine/Audio/DSP/LowPassFilter.cpp"    #   "
 		# Vulkan transient-resource TUs (#691 Phase 9 split): each includes the
-		# TU-internal VulkanTransientUpload.h, whose OloEngine-namespace helper
-		# declarations (VkCheck / VkHandleToU64 / ImageFormatToVkFormat /
-		# ExpandRgbToRgba / ...) duplicate anonymous-namespace copies kept by
-		# sibling Vulkan TUs (VulkanDevice/VulkanContext/VulkanBufferResources/
-		# VulkanImGuiBackend/VulkanRendererAPI). In a shared jumbo the header's
-		# declarations leak to files concatenated after them and make those
-		# siblings' unqualified calls ambiguous — keep every Upload.h consumer
-		# out of unity batches.
+		# TU-internal VulkanTransientUpload.h. Its helpers (VkCheck /
+		# VkHandleToU64 / ImageFormatToVkFormat / ExpandRgbToRgba / ...) share
+		# NAMES with anonymous-namespace copies kept by sibling Vulkan TUs
+		# (VulkanDevice/VulkanContext/VulkanBufferResources/VulkanImGuiBackend/
+		# VulkanRendererAPI). They now live in the nested OloEngine::VulkanUpload
+		# namespace and are called qualified, so a jumbo can no longer make
+		# those siblings' unqualified calls ambiguous — i.e. this list is NO
+		# LONGER load-bearing for correctness (review finding: build validity
+		# must not rest on a hand-maintained exclusion list). Kept as unity
+		# hygiene for a set of TUs that carry heavy Vulkan headers; removing
+		# an entry is safe, and a compile error here would be an ordinary
+		# jumbo clash, not a silent ambiguity.
 		"Platform/Vulkan/VulkanFramebuffer.cpp"
 		"Platform/Vulkan/VulkanStorageBuffer.cpp"
 		"Platform/Vulkan/VulkanTexture.cpp"

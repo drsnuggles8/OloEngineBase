@@ -24,7 +24,7 @@ namespace OloEngine
         // VulkanImageInfoRegistry entries come for free). Widening choices:
         //  - RGB16F -> RGBA16F: ImageFormat has no RGB16F member, and the
         //    Vulkan map would widen a 3-channel format anyway (see
-        //    ImageFormatToVkFormat).
+        //    VulkanUpload::ImageFormatToVkFormat).
         //  - DEPTH_COMPONENT32F -> DEPTH24STENCIL8: ImageFormat has no
         //    stencil-free depth member; the Vulkan map allocates
         //    D32_SFLOAT_S8_UINT for it, so a shadow depth attachment keeps its
@@ -153,7 +153,7 @@ namespace OloEngine
         // this framebuffer and drop any pending lazy clear naming it (a later
         // materialization would dereference the freed object). Live-object
         // probe, the ClearData rule.
-        if (auto* vk = TryGetVulkanAPI(); vk != nullptr)
+        if (auto* vk = VulkanUpload::TryGetVulkanAPI(); vk != nullptr)
         {
             vk->NotifyFramebufferDestroyed(this, m_RHIHandle.Get());
         }
@@ -459,7 +459,7 @@ namespace OloEngine
             return;
         }
 
-        const u64 cacheKey = VkHandleToU64(image) ^ (static_cast<u64>(layer + 1u) << 48u);
+        const u64 cacheKey = VulkanUpload::VkHandleToU64(image) ^ (static_cast<u64>(layer + 1u) << 48u);
         VkImageView view = VK_NULL_HANDLE;
         if (const auto it = m_DepthArrayViews.find(cacheKey); it != m_DepthArrayViews.end())
         {

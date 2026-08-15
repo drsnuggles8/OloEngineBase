@@ -43,7 +43,13 @@ namespace OloEngine
     void OpenGLResourceInspectorBackend::QueryTexture(u32 nativeTextureId, bool isCubemap, TextureQuery& outInfo)
     {
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
-        GLint width, height, internalFormat;
+        // Initialized: glGetTextureLevelParameteriv leaves its out-param
+        // untouched when the call errors (a deleted or wrong-target name), and
+        // an uninitialized width/height would propagate as a garbage extent
+        // into every consumer of this struct (review finding).
+        GLint width = 0;
+        GLint height = 0;
+        GLint internalFormat = 0;
         // For cubemaps, query the positive X face (they're all the same size)
         glGetTextureLevelParameteriv(nativeTextureId, 0, GL_TEXTURE_WIDTH, &width);
         glGetTextureLevelParameteriv(nativeTextureId, 0, GL_TEXTURE_HEIGHT, &height);
@@ -314,12 +320,17 @@ namespace OloEngine
                 outInfo.Width = static_cast<u32>(width);
                 outInfo.Height = static_cast<u32>(height);
 
-                // Estimate memory usage (simplified calculation)
-                outInfo.MemoryUsage = static_cast<sizet>(width * height * 4 * outInfo.ColorAttachmentCount);
+                // Estimate memory usage (simplified calculation). Widened
+                // BEFORE multiplying, not after (review finding): the operands
+                // are GLint, so the products were formed in 32 bits and only
+                // then cast — a large MRT target can overflow that on its own,
+                // and the cast would faithfully preserve the wrapped value.
+                const auto pixels = static_cast<sizet>(width) * static_cast<sizet>(height);
+                outInfo.MemoryUsage = pixels * 4u * static_cast<sizet>(outInfo.ColorAttachmentCount);
                 if (outInfo.HasDepthAttachment)
-                    outInfo.MemoryUsage += static_cast<sizet>(width * height * 4);
+                    outInfo.MemoryUsage += pixels * 4u;
                 if (outInfo.HasStencilAttachment)
-                    outInfo.MemoryUsage += static_cast<sizet>(width * height);
+                    outInfo.MemoryUsage += pixels;
             }
         }
 
@@ -701,6 +712,22 @@ namespace OloEngine
         glBindBuffer(nativeTarget, nativeBufferId);
 
         bool success = false;
+        // The whole buffer is mapped, so [offset, offset+size) must be proven
+        // inside it BEFORE the memcpy (review finding): an out-of-range
+        // request here is a read past the mapping — a heap fault, not a GL
+        // error, and no GL call would report it. Checked in u64 so the sum
+        // cannot wrap.
+        GLint64 bufferSize = 0;
+        glGetBufferParameteri64v(nativeTarget, GL_BUFFER_SIZE, &bufferSize);
+        const u64 end = static_cast<u64>(offset) + static_cast<u64>(size);
+        if (bufferSize <= 0 || end > static_cast<u64>(bufferSize))
+        {
+            OLO_CORE_WARN("[GPUResourceInspector] buffer read {}+{} exceeds buffer {} ({} bytes) — refused", offset,
+                          size, nativeBufferId, bufferSize);
+            glBindBuffer(nativeTarget, previousBinding);
+            return false;
+        }
+
         // Map buffer and copy data
         if (const void* data = glMapBuffer(nativeTarget, GL_READ_ONLY); data)
         {
@@ -832,6 +859,17 @@ namespace OloEngine
     {
         // The rect arrives in top-left-origin coords; GL rows run bottom-up, so
         // rows [Y, Y+H) from the top are GL rows [fullHeight - Y - H, ...).
+        // All three are u32, so a region hanging off the bottom underflows to
+        // ~4 billion and casts to a garbage GLint (review finding). Refuse
+        // instead: a caller asking for rows outside the image has a bug, and
+        // silently reading some other part of the texture hides it.
+        if (regionY + regionHeight > source.FullHeight)
+        {
+            outError = "capture region [" + std::to_string(regionY) + ", " +
+                       std::to_string(regionY + regionHeight) + ") exceeds height " +
+                       std::to_string(source.FullHeight);
+            return false;
+        }
         const auto glRegionY = static_cast<GLint>(source.FullHeight - regionY - regionHeight);
 
         // Tight packing + PBO unbind guard — same rationale as ReadTextureLevel
@@ -955,10 +993,16 @@ namespace OloEngine
         return data;
     }
 
-    void OpenGLResourceInspectorBackend::UnmapDownloadData(const DownloadTicket& /*ticket*/)
+    void OpenGLResourceInspectorBackend::UnmapDownloadData(const DownloadTicket& ticket)
     {
+        // Unmap the ticket's OWN buffer, not whatever currently occupies the
+        // PIXEL_PACK binding (review finding): map and unmap are separate
+        // calls with caller code in between, and any of it may bind another
+        // PBO — unmapping the wrong buffer leaves this one mapped forever and
+        // corrupts the other one's state. Re-binding is what makes the pair
+        // symmetric; the ticket carries the name precisely for this.
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, ticket.NativeBuffer);
         glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-        // Clean up
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     }
 

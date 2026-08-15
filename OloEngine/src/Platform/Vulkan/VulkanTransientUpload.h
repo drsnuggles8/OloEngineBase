@@ -15,11 +15,13 @@
 // .cpp files. Several sibling TUs (VulkanDevice.cpp, VulkanContext.cpp,
 // VulkanBufferResources.cpp, VulkanImGuiBackend.cpp, VulkanRendererAPI.cpp)
 // keep their own anonymous-namespace copies of some of these names (VkCheck,
-// VkHandleToU64, ImageFormatToVkFormat, ExpandRgbToRgba); making these
-// external declarations visible there would turn their unqualified calls
-// ambiguous. The VulkanTransientResources.h umbrella deliberately does NOT
-// include this header, and the transient-resource .cpps are excluded from
-// unity batching so these declarations never leak into a jumbo TU.
+// VkHandleToU64, ImageFormatToVkFormat, ExpandRgbToRgba). That is why these
+// live in a NESTED namespace and are called qualified (VulkanUpload::VkCheck):
+// at OloEngine scope they collided with those copies by name, so build
+// correctness rested on a hand-maintained unity-exclusion list — the
+// two-mirrors-drift shape this repo has a whole doc genre about (review
+// finding, #691 Phase 9). The nesting makes the collision unrepresentable;
+// no exclusion list is load-bearing any more.
 // =============================================================================
 
 // VulkanDevice.h provides <volk.h> and <vk_mem_alloc.h> (with the
@@ -36,7 +38,16 @@
 
 namespace OloEngine
 {
+    // Forward-declared at OloEngine scope ON PURPOSE: inside the nested
+    // namespace below it would declare a DISTINCT (never-defined)
+    // VulkanUpload::VulkanRendererAPI, and every use would be an
+    // incomplete type. Unqualified uses inside VulkanUpload resolve here
+    // by ordinary enclosing-scope lookup.
     class VulkanRendererAPI;
+} // namespace OloEngine
+
+namespace OloEngine::VulkanUpload
+{
 
     // Teardown forensics for object textures / storage buffers (#691
     // Phase 8 — the close-button VMA abort): a Ref surviving the full
@@ -44,12 +55,13 @@ namespace OloEngine
     // vmaDestroyAllocator. The VAO twin lives in VulkanBufferResources
     // (LogSurvivingVertexArrays); this covers the classes owned by the
     // transient-resource TUs. No-ops in non-Debug builds.
-    // VulkanLogSurvivingTransients walks the tracked set; its consumer-facing
-    // declaration lives in the VulkanTransientResources.h umbrella (this
-    // one exists so the defining TU sees a prior declaration).
+    // VulkanLogSurvivingTransients walks the tracked set, but it is NOT part
+    // of this namespace: it is a cross-module teardown entry point called
+    // unqualified from VulkanContext.cpp through the VulkanTransientResources.h
+    // umbrella, and it collides with nothing, so it stays at OloEngine scope
+    // (declared in the umbrella, defined next to the tracking state it reads).
     void TrackLive(const void* object, const char* what);
     void UntrackLive(const void* object);
-    void VulkanLogSurvivingTransients();
 
     // Kept in sync with VulkanDevice.cpp's / VulkanContext.cpp's
     // anonymous-namespace copies (trivially small).
@@ -122,6 +134,6 @@ namespace OloEngine
     // else nullptr — for callers that must reach API-side state outside any
     // frame bracket (~VulkanFramebuffer's NotifyFramebufferDestroyed).
     [[nodiscard]] VulkanRendererAPI* TryGetVulkanAPI();
-} // namespace OloEngine
+} // namespace OloEngine::VulkanUpload
 
 #endif // OLO_WITH_VULKAN
