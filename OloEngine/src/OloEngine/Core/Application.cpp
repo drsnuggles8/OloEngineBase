@@ -60,6 +60,7 @@ namespace OloEngine
         // LinuxWindow read Renderer::GetAPI() ahead of glfwCreateWindow to pick the
         // window's client API. Parsed after the working-directory switch above so
         // the config-file fallback resolves against the app's real cwd.
+        bool vulkanSelectedFromConfig = false;
         if (!m_Specification.IsHeadless)
         {
             const BackendSelection backend = SelectRendererBackend(
@@ -78,6 +79,15 @@ namespace OloEngine
             RenderCommand::RecreateForSelectedBackend();
             OLO_CORE_INFO("[RHI] Backend: {} (source: {})",
                           backend.Api == RendererAPI::API::Vulkan ? "Vulkan" : "OpenGL", backend.Source);
+            // A persisted preference is the SOFT half of the selection chain
+            // (#691 Phase 9): if Vulkan came from the config file and cannot
+            // actually initialise on this machine, the boot below retries on
+            // OpenGL and rewrites the file, instead of bricking the install
+            // with EXIT_FAILURE on every launch. An explicit `--rhi=vulkan`
+            // flag remains a hard assertion and keeps ADR 0010's
+            // refuse-to-init behaviour.
+            vulkanSelectedFromConfig =
+                backend.Api == RendererAPI::API::Vulkan && backend.Source == "config file";
         }
 
         // #691 Phase 7 (Final): the renderer now comes up on BOTH backends —
@@ -88,7 +98,10 @@ namespace OloEngine
         // ShaderDebugger are glad-call sites) and (b) the ImGui RENDERER
         // backend — the ImGui layer itself is pushed either way and runs
         // platform-only under Vulkan (see ImGuiLayer::OnAttach).
-        const bool glOnlyTooling = RendererAPI::GetAPI() != RendererAPI::API::Vulkan;
+        // Not const: the config-sourced Vulkan fallback below can switch the
+        // API back to OpenGL after a failed window creation, and this flag
+        // must follow (it also steers the unwind path in the catch block).
+        bool glOnlyTooling = RendererAPI::GetAPI() != RendererAPI::API::Vulkan;
 
         // Register the application name with the crash reporter
         CrashReporter::SetApplicationInfo(m_Specification.Name, OLO_ENGINE_VERSION);
@@ -98,7 +111,40 @@ namespace OloEngine
         {
             if (!m_Specification.IsHeadless)
             {
-                m_Window = Window::Create(WindowProps(m_Specification.Name));
+                try
+                {
+                    m_Window = Window::Create(WindowProps(m_Specification.Name));
+                }
+                catch (const std::exception& e)
+                {
+                    // #691 Phase 9: a Vulkan selection persisted in
+                    // config/renderer.yaml must not brick the install on a
+                    // machine whose device/driver cannot satisfy it — retry on
+                    // OpenGL, loudly, and rewrite the file so the next launch
+                    // starts clean. An explicit --rhi=vulkan flag never takes
+                    // this path (ADR 0010: a capability failure refuses to
+                    // init); neither does a failure on the OpenGL arm.
+                    if (!vulkanSelectedFromConfig)
+                    {
+                        throw;
+                    }
+                    OLO_CORE_ERROR("[RHI] Vulkan selected by config file but initialisation failed: {}",
+                                   e.what());
+                    const auto configPath = DefaultRendererConfigPath();
+                    if (WriteRendererConfig(configPath, RendererAPI::API::OpenGL))
+                    {
+                        OLO_CORE_ERROR("[RHI] Rewrote {} to opengl; retrying on OpenGL", configPath.string());
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("[RHI] Could not rewrite {}; retrying on OpenGL for this session only",
+                                       configPath.string());
+                    }
+                    RendererAPI::SetAPI(RendererAPI::API::OpenGL);
+                    RenderCommand::RecreateForSelectedBackend();
+                    glOnlyTooling = true;
+                    m_Window = Window::Create(WindowProps(m_Specification.Name));
+                }
                 m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 
                 if (glOnlyTooling)
@@ -118,7 +164,12 @@ namespace OloEngine
 
                 m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
                 Renderer::Init(m_Specification.PreferredRenderer, m_Window.get());
-                m_Window->SetTitle(m_Specification.Name);
+                // Surface the non-default backend where a player can see it
+                // (#691 Phase 9) — the log line above is invisible in a
+                // shipped game, and "which backend am I actually on?" is the
+                // first diagnostic question.
+                m_Window->SetTitle(glOnlyTooling ? m_Specification.Name
+                                                 : m_Specification.Name + " [Vulkan]");
 
                 // #691 Phase 7 (Final): a backend whose swap path owns frame
                 // recording (Vulkan: acquire → record → submit → present)

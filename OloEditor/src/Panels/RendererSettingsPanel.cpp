@@ -330,16 +330,12 @@ namespace OloEngine
                          static_cast<int>(kBackendNames.size())) &&
             selection != m_ConfiguredBackend)
         {
+            // One writer shape, owned by BackendSelection.cpp next to the parser
+            // (#691 Phase 9) — the schema cannot drift between the two, and a
+            // future runtime settings screen writes through the same helper.
             const auto path = DefaultRendererConfigPath();
-            std::error_code ec;
-            if (const auto dir = path.parent_path(); !dir.empty())
-                std::filesystem::create_directories(dir, ec);
-            if (std::ofstream config(path, std::ios::trunc); config)
+            if (WriteRendererConfig(path, selection == 1 ? RendererAPI::API::Vulkan : RendererAPI::API::OpenGL))
             {
-                config << "# Written by the Renderer Settings panel (ADR 0011 s2).\n"
-                       << "# `--rhi=opengl|vulkan` on the command line overrides this file.\n"
-                       << "Renderer:\n"
-                       << "  RHI: " << (selection == 1 ? "vulkan" : "opengl") << "\n";
                 m_ConfiguredBackend = selection;
                 OLO_CORE_INFO("RendererSettingsPanel: wrote {} = {} (applies on restart)", path.string(),
                               selection == 1 ? "vulkan" : "opengl");

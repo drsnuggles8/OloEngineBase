@@ -643,26 +643,29 @@ namespace OloEngine
             : Application(spec)
         {
             // In `--smoke-test` mode the RuntimeLayer is skipped: it loads the
-            // asset pack / start scene and renders through the GL pipeline, which
-            // needs a real OpenGL 4.6 context. ImGui isn't initialized in that
-            // window-less path either, so GetIO() must not be touched. See
-            // CreateApplication below.
+            // asset pack / start scene and renders the full pipeline, which needs
+            // a real graphics device. ImGui isn't initialized in that window-less
+            // path either, so GetIO() must not be touched. See CreateApplication
+            // below.
             //
-            // Under `--rhi=vulkan` (#691 Phase 4 bring-up) it is skipped for the
-            // same two reasons — the layer renders through GL and no ImGui context
-            // exists (the ImGui layer is not pushed in that mode).
-            if (pushRuntimeLayer && Renderer::GetAPI() == RendererAPI::API::OpenGL)
+            // #691 Phase 9: the layer is pushed on BOTH backends, mirroring the
+            // editor's Phase 8 un-gate (OloEditorApp.cpp). The two reasons the old
+            // Phase 4 gate cited are both gone — the scene renders through the
+            // Vulkan graph since Phase 7/8, and the ImGui layer is pushed on both
+            // backends (platform-only vs. VulkanImGuiBackend is an Application
+            // concern, not ours).
+            if (pushRuntimeLayer)
             {
                 // Disable ImGui ini persistence — the runtime doesn't need it and
                 // loading the editor's imgui.ini from CWD would cause stale state.
                 ImGui::GetIO().IniFilename = nullptr;
 
                 PushLayer(std::make_unique<RuntimeLayer>());
-            }
-            else if (pushRuntimeLayer)
-            {
-                OLO_CORE_INFO("[RHI] RuntimeLayer skipped under --rhi=vulkan (Phase 4 bring-up: "
-                              "expect only a cleared window)");
+                if (Renderer::GetAPI() != RendererAPI::API::OpenGL)
+                {
+                    OLO_CORE_INFO("[RHI] RuntimeLayer under --rhi=vulkan: full game session through "
+                                  "the Vulkan graph (#691 Phase 9)");
+                }
             }
         }
 

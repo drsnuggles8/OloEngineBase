@@ -39,9 +39,27 @@ namespace OloEngine
     // Recognised names (case-insensitive): "opengl", "vulkan".
     [[nodiscard]] BackendSelection SelectRendererBackend(int argc, char** argv, const std::filesystem::path& configFile);
 
-    // The config file the engine reads the fallback setting from, relative to the
-    // process working directory (which Application sets from its specification
-    // before selection runs). A future editor settings dropdown writes this file;
-    // it applies on restart.
+    // The config file the engine reads the fallback setting from. Resolution
+    // (#691 Phase 9): `config/renderer.yaml` under the process working directory
+    // if that file exists (the editor's shape — Application pins the cwd from its
+    // specification before selection runs); otherwise the same relative path under
+    // the executable's own directory if THAT file exists (the packaged-game shape,
+    // robust against a shortcut with a stale "Start in"); otherwise the cwd path,
+    // as the creation default. The editor Renderer Settings dropdown writes this
+    // file; it applies on restart.
     [[nodiscard]] std::filesystem::path DefaultRendererConfigPath();
+
+    // The pure resolution rule behind DefaultRendererConfigPath, parameterised on
+    // the two anchors so it is unit-testable with temp directories. `exeDir` may
+    // be empty (platform could not answer); the return is `base`-anchored then.
+    [[nodiscard]] std::filesystem::path ResolveRendererConfigPath(const std::filesystem::path& base,
+                                                                  const std::filesystem::path& exeDir);
+
+    // Persist a backend choice to `configFile` in exactly the schema
+    // SelectRendererBackend parses — one writer shape shared by every UI that
+    // offers the choice (the editor dropdown today, a runtime settings screen
+    // later), so the parser and the writer cannot drift. Creates the parent
+    // directory; returns false when the file cannot be written. The choice
+    // applies on the next process start, never live.
+    bool WriteRendererConfig(const std::filesystem::path& configFile, RendererAPI::API api);
 } // namespace OloEngine

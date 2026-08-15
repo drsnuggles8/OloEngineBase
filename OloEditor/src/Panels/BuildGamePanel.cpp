@@ -18,6 +18,7 @@
 namespace OloEngine
 {
     static constexpr const char* s_ConfigOptions[] = { "Debug", "Release", "Dist" };
+    static constexpr const char* s_BackendOptions[] = { "opengl", "vulkan" };
 
     BuildGamePanel::BuildGamePanel()
     {
@@ -101,6 +102,11 @@ namespace OloEngine
 
         ImGui::Spacing();
         ImGui::Combo("Build Configuration", &m_ConfigIndex, s_ConfigOptions, IM_ARRAYSIZE(s_ConfigOptions));
+
+        // Default renderer backend the shipped game boots with (#691 Phase 9)
+        // — written to config/renderer.yaml next to the game exe; the player's
+        // --rhi= flag or a later settings write overrides it.
+        ImGui::Combo("Default Renderer", &m_BackendIndex, s_BackendOptions, IM_ARRAYSIZE(s_BackendOptions));
 
         // Start scene selection
         ImGui::Spacing();
@@ -279,6 +285,7 @@ namespace OloEngine
         // Sync settings from UI
         m_Settings.GameName = m_GameNameBuffer.data();
         m_Settings.BuildConfiguration = s_ConfigOptions[m_ConfigIndex];
+        m_Settings.DefaultRendererBackend = s_BackendOptions[m_BackendIndex];
 
         // Resolve the output directory to an absolute path so the build pipeline
         // and "Open Output Folder" always work regardless of process cwd

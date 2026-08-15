@@ -160,4 +160,68 @@ namespace
         EXPECT_EQ(selection.Source, "default");
         EXPECT_TRUE(selection.Diagnostic.empty());
     }
+
+    // #691 Phase 9: the writer and the parser share one schema owner. This is
+    // the drift gate — if either side changes shape, the round-trip breaks
+    // here rather than in a shipped game's config directory.
+    TEST(BackendSelection, WriteRendererConfigRoundTripsThroughTheParser)
+    {
+        const auto path = OloEngine::Tests::TempFile("write-roundtrip.yaml");
+        ASSERT_TRUE(WriteRendererConfig(path, RendererAPI::API::Vulkan));
+        const BackendSelection vulkan = Select<1>({ "app.exe" }, path);
+#if OLO_WITH_VULKAN
+        EXPECT_EQ(vulkan.Api, RendererAPI::API::Vulkan);
+        EXPECT_TRUE(vulkan.Diagnostic.empty());
+#else
+        EXPECT_EQ(vulkan.Api, RendererAPI::API::OpenGL);
+        EXPECT_FALSE(vulkan.Diagnostic.empty());
+#endif
+        EXPECT_EQ(vulkan.Source, "config file");
+
+        ASSERT_TRUE(WriteRendererConfig(path, RendererAPI::API::OpenGL));
+        const BackendSelection opengl = Select<1>({ "app.exe" }, path);
+        EXPECT_EQ(opengl.Api, RendererAPI::API::OpenGL);
+        EXPECT_EQ(opengl.Source, "config file");
+        EXPECT_TRUE(opengl.Diagnostic.empty());
+
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // #691 Phase 9: config-path resolution — cwd wins when its file exists,
+    // the exe-dir file rescues a wrong working directory, and the creation
+    // default stays cwd-anchored so a fresh editor write cannot land in the
+    // build output tree.
+    TEST(BackendSelection, ConfigPathResolutionPrefersBaseThenExeDirThenBaseDefault)
+    {
+        const auto root = OloEngine::Tests::TempFile("cfg-resolve");
+        const auto base = root / "cwd";
+        const auto exeDir = root / "exe";
+        const auto relative = std::filesystem::path("config") / "renderer.yaml";
+        std::filesystem::create_directories(base / "config");
+        std::filesystem::create_directories(exeDir / "config");
+
+        // Neither file exists: creation default is base-anchored.
+        EXPECT_EQ(ResolveRendererConfigPath(base, exeDir), base / relative);
+
+        // Only the exe-dir file exists (packaged game, wrong "Start in"): rescued.
+        {
+            std::ofstream out(exeDir / relative);
+            out << "Renderer:\n  RHI: opengl\n";
+        }
+        EXPECT_EQ(ResolveRendererConfigPath(base, exeDir), exeDir / relative);
+
+        // An empty exe dir (platform could not answer) falls back to base.
+        EXPECT_EQ(ResolveRendererConfigPath(base, {}), base / relative);
+
+        // Both exist: base (cwd) wins — the editor's own config stays authoritative.
+        {
+            std::ofstream out(base / relative);
+            out << "Renderer:\n  RHI: opengl\n";
+        }
+        EXPECT_EQ(ResolveRendererConfigPath(base, exeDir), base / relative);
+
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
+    }
 } // namespace
