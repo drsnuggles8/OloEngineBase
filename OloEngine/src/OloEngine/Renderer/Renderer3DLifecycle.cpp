@@ -266,6 +266,7 @@ namespace OloEngine
             "assets/shaders/Foliage_Impostor.glsl",
             "assets/shaders/Impostor_Bake.glsl",
             "assets/shaders/Water.glsl",
+            "assets/shaders/Water_Depth.glsl",
             "assets/shaders/Decal.glsl",
             "assets/shaders/Decal_OIT.glsl",
             "assets/shaders/Decal_GBuffer.glsl",
@@ -332,6 +333,7 @@ namespace OloEngine
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
         s_Data.FoliageImpostorShader = m_ShaderLibrary.Get("Foliage_Impostor");
         s_Data.WaterShader = m_ShaderLibrary.Get("Water");
+        s_Data.WaterDepthShader = m_ShaderLibrary.Get("Water_Depth");
         s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
         s_Data.DecalGBufferShader = m_ShaderLibrary.Get("Decal_GBuffer");
         s_Data.DecalGBufferNormalShader = m_ShaderLibrary.Get("Decal_GBuffer_Normal");
@@ -671,6 +673,7 @@ namespace OloEngine
         s_Data.FoliageDepthShader.Reset();
         s_Data.FoliageImpostorShader.Reset();
         s_Data.WaterShader.Reset();
+        s_Data.WaterDepthShader.Reset();
         s_Data.DecalShader.Reset();
         s_Data.DecalGBufferShader.Reset();
         s_Data.DecalGBufferNormalShader.Reset();

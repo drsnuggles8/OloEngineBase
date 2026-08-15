@@ -141,6 +141,9 @@ namespace OloEngine
         // Water surface-depth capture: forces depth-only state even for the blended
         // water draw so the nearest water surface is written to its own depth target.
         bool WaterDepthCaptureActive = false;
+        // Depth-only water program swapped in during the capture (snapshot in
+        // SetWaterDepthCaptureActive so shader hot-reloads are picked up).
+        RHI::ResourceHandle WaterDepthShaderID{};
 
         CommandDispatch::Statistics Stats;
     };
@@ -1208,6 +1211,12 @@ namespace OloEngine
     void CommandDispatch::SetWaterDepthCaptureActive(bool active)
     {
         s_Data.WaterDepthCaptureActive = active;
+        if (active)
+        {
+            // Snapshot the depth-only water program once per capture — same
+            // hot-reload rationale as SetDepthPrepassActive.
+            s_Data.WaterDepthShaderID = Renderer3D::GetWaterDepthShaderID();
+        }
         // Invalidate so the next command — and the post-capture color command —
         // re-applies state; otherwise a same-render-state water command would
         // early-out and leak the depth-only override into the color pass.
@@ -2640,11 +2649,20 @@ namespace OloEngine
         // Resolve and apply render state from table (cull, depth, blend enable).
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
-        // Bind shader (cached).
-        if (s_Data.CurrentBoundShader != cmd->shaderRendererID)
+        // Bind shader (cached). During the surface-depth capture the water
+        // color program is swapped for Water_Depth — the same VS/TCS/TES
+        // displacement chain with a no-color-output fragment stage, so the
+        // depth-only capture target needs no scene-MRT attachment mirroring
+        // (the depth-prepass shader-swap shape, #691 Phase 8).
+        RHI::ResourceHandle shaderToBind = cmd->shaderRendererID;
+        if (s_Data.WaterDepthCaptureActive && s_Data.WaterDepthShaderID.IsValid())
         {
-            api.BindShaderProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShader = cmd->shaderRendererID;
+            shaderToBind = s_Data.WaterDepthShaderID;
+        }
+        if (s_Data.CurrentBoundShader != shaderToBind)
+        {
+            api.BindShaderProgram(shaderToBind);
+            s_Data.CurrentBoundShader = shaderToBind;
             ++s_Data.Stats.ShaderBinds;
         }
 
