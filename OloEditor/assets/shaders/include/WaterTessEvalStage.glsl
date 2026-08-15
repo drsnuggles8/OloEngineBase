@@ -65,6 +65,20 @@ layout(location = 2) in vec2 tc_TexCoord[];
 layout(location = 3) in vec3 tc_PrevWorldPos[];
 
 layout(location = 0) out vec3 v_WorldPos;
+#ifdef OLO_WATER_DEPTH_ONLY
+// Water_Depth's fragment stage reads ONLY v_WorldPos, and SPIR-V compilation
+// dead-strips unread FS inputs — so a real output here would be a
+// written-but-unconsumed interface warning per depth pipeline. Route the
+// rest into plain locals the compiler removes; the displacement math above
+// stays byte-identical to the color pass.
+vec3 v_Normal;
+vec2 v_TexCoord;
+vec3 v_ViewDir;
+vec3 v_Tangent;
+vec3 v_Bitangent;
+float v_WaveHeight;
+vec3 v_PrevWorldPos;
+#else
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
 layout(location = 3) out vec3 v_ViewDir;
@@ -72,6 +86,7 @@ layout(location = 4) out vec3 v_Tangent;
 layout(location = 5) out vec3 v_Bitangent;
 layout(location = 6) out float v_WaveHeight;
 layout(location = 7) out vec3 v_PrevWorldPos;
+#endif
 
 void main()
 {

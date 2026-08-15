@@ -20,22 +20,18 @@
 
 #type tess_evaluation
 #version 460 core
+// The depth TES emits ONLY v_WorldPos (see the include: SPIR-V dead-strips
+// unread FS inputs, so any other real output would be a
+// written-but-unconsumed interface warning per depth pipeline).
+#define OLO_WATER_DEPTH_ONLY 1
 #include "include/WaterTessEvalStage.glsl"
 
 #type fragment
 #version 460 core
 
-// Full varying interface declared (matching the shared TES outputs) even
-// though only v_WorldPos is read — a declared input consumes its location,
-// so the pipeline interface stays warning-free under Vulkan validation.
+// The one varying the waterline discard needs — the depth TES emits
+// nothing else (OLO_WATER_DEPTH_ONLY).
 layout(location = 0) in vec3 v_WorldPos;
-layout(location = 1) in vec3 v_Normal;
-layout(location = 2) in vec2 v_TexCoord;
-layout(location = 3) in vec3 v_ViewDir;
-layout(location = 4) in vec3 v_Tangent;
-layout(location = 5) in vec3 v_Bitangent;
-layout(location = 6) in float v_WaveHeight;
-layout(location = 7) in vec3 v_PrevWorldPos;
 
 // No color outputs — the capture target is depth-only.
 
