@@ -73,12 +73,6 @@ namespace OloEngine
         std::mutex s_CloudGenerationMutex;
         std::unordered_map<std::string, u64> s_CloudGeneration;
 
-        [[nodiscard]] u64 NextCloudGeneration(const std::string& slotName)
-        {
-            const std::lock_guard lock(s_CloudGenerationMutex);
-            return ++s_CloudGeneration[slotName];
-        }
-
         [[nodiscard]] bool IsLatestCloudGeneration(const std::string& slotName, u64 generation)
         {
             const std::lock_guard lock(s_CloudGenerationMutex);
@@ -101,6 +95,34 @@ namespace OloEngine
             in.seekg(0, std::ios::beg);
             outBytes.resize(static_cast<sizet>(size));
             return static_cast<bool>(in.read(reinterpret_cast<char*>(outBytes.data()), size));
+        }
+
+        // Read the just-written save AND take its cloud ticket as ONE atomic step.
+        //
+        // Doing these separately reintroduces the very reordering the ticket exists to prevent,
+        // because the ticket order then need not match the byte order:
+        //
+        //   worker A  writes v1, reads v1
+        //   worker B  writes v2, reads v2, takes ticket 1
+        //   worker A                        takes ticket 2   <-- A now "wins" carrying v1
+        //
+        // A's older bytes hold the higher ticket, so the newest upload is the stale one and cloud
+        // silently disagrees with local — exactly the failure the generation counter was added for.
+        // Holding the lock across both makes "read last" and "ticket highest" the same event.
+        //
+        // The lock spans a file read, which serialises concurrent mirrors across slots too. That
+        // is accepted: saves are infrequent, this is a worker thread and not frame-critical, and a
+        // per-slot lock would buy contention we have no evidence of needing.
+        [[nodiscard]] bool ReadSaveAndTakeCloudTicket(const std::filesystem::path& path, const std::string& slotName,
+                                                      std::vector<u8>& outBytes, u64& outGeneration)
+        {
+            const std::lock_guard lock(s_CloudGenerationMutex);
+            if (!ReadWholeFile(path, outBytes))
+            {
+                return false;
+            }
+            outGeneration = ++s_CloudGeneration[slotName];
+            return true;
         }
 
         // MUST run on the game thread — SteamManager is game-thread-only. The save write finishes
@@ -1059,11 +1081,9 @@ namespace OloEngine
                     // Deliberately AFTER the local write succeeded, and it cannot affect `result`:
                     // a cloud failure must never turn a good local save into a reported error.
                     std::vector<u8> cloudBytes;
-                    if (ReadWholeFile(path, cloudBytes))
+                    u64 generation = 0;
+                    if (ReadSaveAndTakeCloudTicket(path, slotName, cloudBytes, generation))
                     {
-                        // Ticket taken HERE, after the bytes are read, so it orders by "which
-                        // save finished writing last" — which is what the cloud should reflect.
-                        const u64 generation = NextCloudGeneration(slotName);
                         Tasks::EnqueueGameThreadTask(
                             [bytes = std::move(cloudBytes), slotName, generation]() mutable
                             {

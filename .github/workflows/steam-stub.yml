@@ -236,15 +236,48 @@ jobs:
         # comes from CMAKE_BUILD_TYPE at configure time and --config would be silently ignored.
         run: cmake --build build --target OloEngine-Tests --parallel 4
 
+      # Resolved ONCE and exported, rather than repeating the find in each test step: two lookups
+      # can disagree (a stale binary from an earlier layout still on disk would be picked by one
+      # and not the other), and a single failure point is easier to read in the log.
+      - name: Locate the test binary
+        run: |
+          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
+          if [ -z "$BIN" ]; then
+            echo "::error::OloEngine-Tests binary not found under build/OloEngine/tests."
+            exit 1
+          fi
+          echo "OLO_TESTS_BIN=${GITHUB_WORKSPACE}/${BIN}" >> "$GITHUB_ENV"
+          echo "Test binary: ${BIN}"
+
       # Runs from OloEditor/ to match the suite's working-directory contract.
       - name: Run Steam tests
         run: |
-          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
-          test -n "$BIN" || { echo "OloEngine-Tests binary not found"; exit 1; }
           cd OloEditor
-          OUTPUT=$("${GITHUB_WORKSPACE}/$BIN" --gtest_filter='Steam*' 2>&1)
+
+          # Capture the status explicitly instead of letting the assignment run bare.
+          #
+          # GitHub runs `run:` blocks under `bash -e`, so `OUTPUT=$(cmd)` with a FAILING cmd aborts
+          # the step right there — before the echo below — and the job reports a failure whose
+          # output was never printed. Exactly when the log matters most, it would be empty. Guard
+          # the call, keep the status, print unconditionally, then fail with that status.
+          set +e
+          OUTPUT=$("$OLO_TESTS_BIN" --gtest_filter='Steam*' 2>&1)
+          STATUS=$?
+          set -e
           echo "$OUTPUT"
-          echo "$OUTPUT" | grep -qE '\[  FAILED  \]' && exit 1
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::Steam tests exited with status $STATUS."
+            exit "$STATUS"
+          fi
+
+          # Explicit `if` rather than `grep -q … && exit 1`: an AND-list whose left side fails is
+          # a well-known `set -e` footgun, and getting it wrong here would silently skip the
+          # remaining assertions instead of failing.
+          if echo "$OUTPUT" | grep -qE '\[  FAILED  \]'; then
+            echo "::error::Steam tests reported failures."
+            exit 1
+          fi
 
           # Assert the filter actually matched something. A renamed suite or a typo'd filter
           # otherwise yields "0 tests ran" and a zero exit code — a green job that tested nothing.
@@ -266,10 +299,20 @@ jobs:
       # assert the ON-path suite actually RAN something here.
       - name: Assert the ON-path tests were not all skipped
         run: |
-          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
           cd OloEditor
-          OUTPUT=$("${GITHUB_WORKSPACE}/$BIN" --gtest_filter='SteamStubOnPathTest.*' 2>&1)
+
+          # Same capture discipline as the step above: print the output even when the run fails.
+          set +e
+          OUTPUT=$("$OLO_TESTS_BIN" --gtest_filter='SteamStubOnPathTest.*' 2>&1)
+          STATUS=$?
+          set -e
           echo "$OUTPUT"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::SteamStubOnPathTest exited with status $STATUS."
+            exit "$STATUS"
+          fi
+
           if echo "$OUTPUT" | grep -q 'stub SDK not compiled in'; then
             echo "::error::SteamStubOnPathTest skipped — the stub SDK was not active despite the cache saying ON."
             exit 1

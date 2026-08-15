@@ -72,7 +72,20 @@ namespace
         {
             SteamManager::ResetForTesting();
             m_Fake = nullptr;
+
             std::error_code ec;
+            // Restore write permission first. FailedLocalDeleteRestoresTheCloudCopy strips it from
+            // the Saves directory to force a delete failure and puts it back itself — but if an
+            // assertion fires before that point, remove_all would silently fail and leak the temp
+            // tree. Unconditional and best-effort: a no-op in every other case.
+            for (const auto& dir : { m_ProjectDir, m_ProjectDir / "Saves" })
+            {
+                if (std::filesystem::exists(dir, ec))
+                {
+                    std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
+                                                 std::filesystem::perm_options::add, ec);
+                }
+            }
             std::filesystem::remove_all(m_ProjectDir, ec);
         }
 
@@ -299,18 +312,48 @@ namespace
         SeedCloudOnlySave(kSlot, "Rollback");
         ASSERT_TRUE(CloudHas(kSlot));
 
-        // Hold the file open so std::filesystem::remove fails, the way a real lock would.
-        std::ifstream lock(local, std::ios::binary);
-        ASSERT_TRUE(lock.is_open());
+        // Forcing the local delete to fail takes a DIFFERENT lever on each platform, and getting
+        // this backwards is why the first version of this test was dead weight on CI.
+        //
+        // Windows: an open handle blocks deletion, so holding the file open is enough.
+        // POSIX:   unlink() succeeds happily on an open file — a held handle proves nothing, and
+        //          the test silently skipped on Linux, which is the only platform CI runs. Removing
+        //          WRITE permission from the CONTAINING DIRECTORY is what makes unlink fail
+        //          (EACCES); read+execute are kept so the file is still readable and the rollback
+        //          has bytes to restore, which is the whole point of the exercise.
+#if defined(_WIN32)
+        std::ifstream openHandle(local, std::ios::binary);
+        ASSERT_TRUE(openHandle.is_open());
+#else
+        const auto saveDir = local.parent_path();
+        std::error_code permEc;
+        const auto originalPerms = std::filesystem::status(saveDir, permEc).permissions();
+        ASSERT_FALSE(permEc) << "could not read the save directory permissions";
+        std::filesystem::permissions(saveDir,
+                                     std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec,
+                                     std::filesystem::perm_options::replace, permEc);
+        ASSERT_FALSE(permEc) << "could not make the save directory read-only";
+#endif
 
         const bool deleted = SaveGameManager::DeleteSave(kSlot);
-        lock.close();
+
+        // Undo the lever BEFORE asserting — the assertions below touch the filesystem, and TearDown
+        // has to be able to remove the directory afterwards.
+#if defined(_WIN32)
+        openHandle.close();
+#else
+        std::filesystem::permissions(saveDir, originalPerms, std::filesystem::perm_options::replace, permEc);
+#endif
 
         if (deleted)
         {
-            // Windows let the delete through despite the open handle (share mode permitting).
-            // Nothing to assert about rollback then — the delete simply succeeded.
-            GTEST_SKIP() << "the platform allowed deletion of an open file; rollback path not reachable here";
+            // Not reachable on either supported platform under normal CI conditions. The one
+            // realistic cause is running as root, which bypasses POSIX permission checks entirely
+            // (some container images do; GitHub's hosted runners do not — they run as `runner`).
+            // Skipping rather than failing keeps that environment usable, but it does mean the
+            // rollback path is unverified THERE, so say so plainly rather than passing quietly.
+            GTEST_SKIP() << "the local delete succeeded despite the lever (running as root?); "
+                            "the cloud-rollback path is NOT covered in this environment";
         }
 
         EXPECT_TRUE(std::filesystem::exists(local)) << "the local file vanished despite the reported failure";
