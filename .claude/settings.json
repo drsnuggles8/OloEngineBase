@@ -41,6 +41,20 @@
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "timeout": 15,
+            "statusMessage": "Checking the build mutex",
+            "command": "if command -v python >/dev/null 2>&1; then python scripts/claude-build-lock-guard.py; elif command -v python3 >/dev/null 2>&1; then python3 scripts/claude-build-lock-guard.py; else cat >/dev/null; fi"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
@@ -54,5 +68,5 @@
       }
     ]
   },
-  "_comment": "Shared Claude Code project settings. Per-user permissions live in settings.local.json (gitignored). Per-user state lives elsewhere in .claude/ (also gitignored). NOTE: bare `cmake --build` is deliberately NOT pre-authorized — builds go through .claude/skills/run-oloengine/build-lock.ps1, the cross-worktree mutex (one Debug build peaks at ~47 GiB of 64). A direct cmake build still works, it just prompts."
+  "_comment": "Shared Claude Code project settings. Per-user permissions live in settings.local.json (gitignored). Per-user state lives elsewhere in .claude/ (also gitignored). NOTE: builds go through .claude/skills/run-oloengine/build-lock.ps1, the cross-worktree mutex (one Debug build peaks at ~47 GiB of 64). That is enforced by the PreToolUse hook above, not by a permission rule — a deny rule degrades to a prompt, which an unattended session in auto mode approves. Escape hatch for a command that only mentions a build tool: the literal marker OLO_BUILD_LOCK_BYPASS."
 }

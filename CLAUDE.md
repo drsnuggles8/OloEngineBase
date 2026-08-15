@@ -178,6 +178,17 @@ cmake --preset clangcl
 cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6
 ```
 
+### Every build goes through the mutex
+
+Not the bare commands above — wrap them:
+
+```powershell
+pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
+  'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
+```
+
+[build-lock.ps1](.claude/skills/run-oloengine/build-lock.ps1) runs one build at a time across every worktree of this repo, and kills its own build if the session that launched it dies. A `PreToolUse` hook (`scripts/claude-build-lock-guard.py`) **blocks** a `cmake --build` / `ninja` / `msbuild` tool call that skips it and replies with the wrapped command to use; a command that merely *mentions* a build tool opts out with the literal marker `OLO_BUILD_LOCK_BYPASS`. Why it exists, and what it does and does not protect you from: [.claude/skills/run-oloengine/SKILL.md](.claude/skills/run-oloengine/SKILL.md).
+
 ### Cap build parallelism — a full-width build can OOM this machine
 
 **Never build uncapped.** Either pass an explicit job count — `--parallel 6`, or `ninja -j6` — or set `CMAKE_BUILD_PARALLEL_LEVEL`, which `cmake --build` uses whenever no `--parallel` is given (this is how the nightly workflow caps itself):
