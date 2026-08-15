@@ -37,6 +37,24 @@ namespace OloEngine
         SceneRenderPass();
         ~SceneRenderPass() override = default;
 
+        // The scene pass's MRT attachment layout, in attachment order. The
+        // ONE definition shared by the render-graph setup (which sizes the
+        // real scene target from it) and by every pass that REPLAYS
+        // scene-bucket shaders into its own target (planar reflections): a
+        // replayed pipeline's fragment interface must match its render
+        // targets, so a mirror that drifts from this list resurrects the
+        // per-draw unused-output validation warnings under Vulkan
+        // (#691 Phase 8).
+        [[nodiscard]] static FramebufferAttachmentSpecification SceneMRTAttachments()
+        {
+            return { FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
+                     FramebufferTextureFormat::RED_INTEGER, // [1] entity ID
+                     FramebufferTextureFormat::RG16F,       // [2] view-space normals (octahedral, SSAO input)
+                     FramebufferTextureFormat::RG16F,       // [3] screen-space velocity (forward-path TAA input;
+                                                            //     unused in Deferred, which reads G-Buffer RT3)
+                     FramebufferTextureFormat::Depth };
+        }
+
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;

@@ -25,6 +25,17 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // first grid cell (near origin), so the add-back is a no-op there.
     vec3 u_RenderOrigin;
     float _padding1;
+    // The SHADER-RECONSTRUCTION flavour of u_Projection (#691 Phase 8).
+    // u_Projection carries the rasterizer flavour (Vulkan: y flip + z remap
+    // into [0,1]) and is ONLY for gl_Position. Any math that re-applies the
+    // GL depth remap itself — `(clip.z/clip.w) * 0.5 + 0.5`, near/far
+    // extraction from rows 2/3, `inverse(...)` unprojection at ndc z = ±1 —
+    // must read THIS member instead, or the remap is applied twice on Vulkan
+    // (depths squeeze into [0.5, 1] and every reconstruction lands wrong).
+    // Identical to u_Projection on GL. Note [1][1] is NEGATIVE on Vulkan in
+    // both flavours — wrap in abs() where a magnitude (projection scale) is
+    // wanted.
+    mat4 u_ProjectionForReconstruction;
 };
 
 #endif // CAMERA_COMMON_GLSL

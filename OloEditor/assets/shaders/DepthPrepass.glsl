@@ -42,6 +42,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 
 // Instance transforms SSBO (binding 15)
+// This shader's consuming stage never reads v_InstanceIndex — declare no
+// varying (a written-but-unconsumed output is a per-pipeline Vulkan
+// validation interface warning).
+#define OLO_INSTANCE_NO_FORWARD 1
 #include "include/InstanceBlock_Vertex.glsl"
 
 // ROUTE PARITY, not a bindless conversion (issue #691 Phase 3, glsl-shaders §7a-bis).

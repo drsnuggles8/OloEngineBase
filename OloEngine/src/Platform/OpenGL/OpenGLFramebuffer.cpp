@@ -176,7 +176,15 @@ namespace OloEngine
             {
                 m_ColorAttachmentHandles[i].Sync(RHI::ResourceKind::Texture, m_ColorAttachments[i],
                                                  RHI::Backend::OpenGL);
-                Utils::BindTexture(m_ColorAttachments[i]);
+                // NO Utils::BindTexture here (#797): the attachment setup is fully
+                // DSA (glTextureStorage2D + glNamedFramebufferTexture), so binding
+                // the new attachment to TEXTURE UNIT 0 was a vestige — and an
+                // actively harmful one: it silently replaced whatever a caller had
+                // published on unit 0. The IBL equirect bake published its HDR
+                // pano there, then created its capture framebuffer, and every GL
+                // environment bake sampled this framebuffer's depth attachment
+                // (constant 1.0) instead — the blown-white sky in every
+                // HDRI-environment scene.
                 // TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
                 GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
                 Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], static_cast<int>(m_Specification.Samples), internalFormat, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height), static_cast<u32>(i));
@@ -187,8 +195,7 @@ namespace OloEngine
         {
             Utils::CreateTextures(multisample, 1, &m_DepthAttachment);
             m_DepthAttachmentHandle.Sync(RHI::ResourceKind::Texture, m_DepthAttachment, RHI::Backend::OpenGL);
-            Utils::BindTexture(m_DepthAttachment);
-
+            // No Utils::BindTexture — same #797 rule as the color attachments above.
             GLenum format = Utils::OloFBDepthTextureFormatToGL(m_DepthAttachmentSpecification.TextureFormat);
             GLenum attachmentType = (m_DepthAttachmentSpecification.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F)
                                         ? GL_DEPTH_ATTACHMENT

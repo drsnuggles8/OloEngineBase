@@ -35,6 +35,7 @@ run is **not** evidence.
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | a steady-state offset check passes with a full one-tick lag present |
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | a position check passes on the scheduler tie-break alone, with the dependency edge missing |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | adding `server/discover` alone keeps every test green — and converts a *working* legacy fallback into a broken modern conversation, because answering it is a client's proof the server is modern |
+| [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -77,7 +78,10 @@ including a forced port option that never applied) ·
 [asset-import-usd-alembic.md](asset-import-usd-alembic.md) (winding, up-axis, unit scale, UV origin) ·
 [mcp-protocol-eras.md](mcp-protocol-eras.md) (swapping the event stream's notification carrier drops
 pushes that nothing reports missing — which is why the new carrier runs *beside* the deprecated one,
-not instead of it)
+not instead of it) ·
+[steamworks-platform-integration.md](steamworks-platform-integration.md) (an SDK path set one level
+too high drops the whole feature — the build succeeds with Steam quietly switched off, and the error
+explaining the correct layout is the one thing that never fires)
 
 **The counter-move:** ask what the *absence* would look like, and whether anything in the system
 would be different. If the answer is "nothing", you need a coverage test, not a unit test.
@@ -122,7 +126,10 @@ decrement and a re-read) · [per-frame-scratch-reuse.md](per-frame-scratch-reuse
 per-tick local to persistent state) ·
 [parallelizable-mover-systems.md](parallelizable-mover-systems.md) (splitting a system at its write
 boundary) · [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) (what is *bound*
-when you clear)
+when you clear) ·
+[vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) (a CPU write
+between two recorded draws is GL command order; a life-stable Vulkan address makes it
+last-write-wins)
 
 ## 6. It was never actually called
 
@@ -180,6 +187,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [asset-import-usd-alembic.md](asset-import-usd-alembic.md)
 
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
+[vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) ·
 [gpu-debug-draws.md](gpu-debug-draws.md) ·
 [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) ·
 [render-pass-published-state.md](render-pass-published-state.md) ·
@@ -217,7 +225,8 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [runtime-scene-switching.md](runtime-scene-switching.md) ·
 [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md) ·
 [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md) ·
-[mcp-protocol-eras.md](mcp-protocol-eras.md)
+[mcp-protocol-eras.md](mcp-protocol-eras.md) ·
+[steamworks-platform-integration.md](steamworks-platform-integration.md)
 
 **Concurrency & memory** —
 [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) ·

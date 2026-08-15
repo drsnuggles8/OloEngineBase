@@ -111,6 +111,12 @@ namespace OloEngine
         glm::vec4 m_ReflectionPlane{ 0.0f, 1.0f, 0.0f, 0.0f };
         f32 m_Intensity = 1.0f;
         f32 m_Distortion = 0.0f;
+        // Execute-arm transition log (one line per CHANGE, never per frame):
+        // "did the mirror replay run this frame, and if not, why" is the first
+        // question every planar-reflection report needs answered — the #691
+        // Vulkan parity hunt spent a session inferring it from screenshots.
+        // 0 = unlogged, 1 = replaying, 2 = disabled(no state), 3 = no FB.
+        u8 m_LoggedExecuteArm = 0;
 
         // Resolution divisor for the reflection target. Currently 1u — the
         // second opaque pass replays at FULL scene resolution. Raise this

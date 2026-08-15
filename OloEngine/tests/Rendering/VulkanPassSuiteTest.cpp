@@ -586,6 +586,15 @@ class VulkanPassSuite : public ::testing::Test
         VulkanPipelineCache::Get().SaveAndDestroy();
         VulkanFrameArena::Get().ReleaseBuffers();
         VulkanResourceHeap::Get().Release();
+        // #691 Phase 8: raw facade resources (CreateTexture2DHandle /
+        // CreateFramebufferHandle) are OWNED by process-wide side registries.
+        // Tenants normally retire them through DeleteTexture/DeleteFramebuffer
+        // in their pass destructors, but an ASSERT exit skips that — and a
+        // registry entry surviving past device teardown is a leaked VMA image
+        // the allocator asserts on. Release BEFORE FlushAll so the dropped
+        // Refs' reclaim entries are destroyed on the still-live device.
+        VulkanRawTextureRegistry::Get().ReleaseAll();
+        VulkanRawFramebufferRegistry::Get().ReleaseAll();
         VulkanDeferredReclaim::Get().FlushAll();
         if (m_Fence != VK_NULL_HANDLE)
             vkDestroyFence(m_Device->GetDevice(), m_Fence, nullptr);
@@ -695,8 +704,9 @@ class VulkanPassSuite : public ::testing::Test
         // fixture carries, but this shared harness was omitting it — so nine
         // tenants could have had a facade entry point fall through to
         // Phase6Stub while still producing their pixels by other means. A
-        // DELTA, not an absolute: the counter is cumulative and the SSAO floor
-        // tenant deliberately expects hits.
+        // DELTA, not an absolute: the counter is cumulative across a fixture's
+        // tenants (and historically the SSAO stub-floor tenant deliberately
+        // accumulated hits before its Phase 8 promotion).
         const u32 stubsBefore =
             static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI()).GetPhase6StubHitCount();
 
@@ -1187,7 +1197,16 @@ TEST_F(VulkanPassSuite, ColorGradingIdentityLutPassesThePatternThrough)
             maxDiff = std::max(maxDiff, diff);
         }
     }
-    EXPECT_LE(maxDiff, 2u) << "identity LUT must pass the pattern through (bilinear strip tolerance)";
+    // One 33-tile LUT step is 255/32 ≈ 8: the identity round trip through an
+    // 8-bit strip loses up to a step to the intra-tile bilinear + inter-tile
+    // z-mix quantization. The old floor of 2 was calibrated while the Vulkan
+    // LUT upload was a stub — the pass detected the null LUT and PASSED THE
+    // PATTERN THROUGH untouched, so the tolerance measured the disabled path,
+    // not LUT sampling (#691 Phase 8: the raw-texture family made the LUT
+    // real, and the measured max error is exactly one LUT quantum). Follow-up
+    // recorded in the PR: capture the same tenant scene through the GL pass
+    // and pin both backends to a shared bound.
+    EXPECT_LE(maxDiff, 9u) << "identity LUT must stay within one 33-tile LUT quantum (255/32) of the pattern";
 }
 
 TEST_F(VulkanPassSuite, EasuPreservesAConstantFieldAtIdentityScale)
@@ -2629,56 +2648,76 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
 }
 
 // =============================================================================
-// FluidIntermediates: DOCUMENTED FLOOR, not a full-body tenant. Three
-// independent engine gaps keep the splat + smooth body off Vulkan today —
-// each named here so none is silently worked around:
+// FluidIntermediates: raw-target bring-up + the graph-level gating contracts.
+// The three engine gaps the floor predecessor of this tenant documented are
+// all CLOSED now:
 //
-//   1. The pass's render targets are raw-handle objects created through the
-//      RendererAPI raw-resource family (CreateTexture2DHandle,
-//      CreateFramebufferHandle, AttachFramebufferColor/DepthTexture,
-//      SetFramebufferDrawAttachments, IsFramebufferComplete,
-//      ClearFramebufferColorAttachment/Depth, SetTextureFilter/Wrap,
-//      DeleteTexture/DeleteFramebuffer) — ALL still Phase6Stub on Vulkan,
-//      so CreateTargets() cannot produce the splat FBOs (shared with the
-//      WaterRenderPass raw-FBO work in Wave C).
-//   2. (CLOSED in this batch) FluidSmooth.comp could not compile: the Vulkan
+//   1. (CLOSED in this batch — #691 Phase 8) The raw-handle resource family
+//      (CreateTexture2DHandle, CreateFramebufferHandle,
+//      AttachFramebufferColor/DepthTexture, SetFramebufferDrawAttachments,
+//      IsFramebufferComplete, SetTextureFilter/Wrap,
+//      DeleteTexture/DeleteFramebuffer) has a real Vulkan arm: raw handles
+//      are backed by real VulkanTexture2D/VulkanFramebuffer objects owned by
+//      the VulkanRaw{Texture,Framebuffer}Registry side tables, so
+//      CreateTargets() builds the splat FBOs for real below.
+//   2. (CLOSED earlier) FluidSmooth.comp could not compile: the Vulkan
 //      compute includer resolved "../include/FluidRenderCommon.glsl" against
 //      the shader root instead of the including file's directory. Fixed in
 //      VulkanComputeShader; see the VolumetricFog tenant's compile gate.
-//   3. (CLOSED in this batch) vkCreateShaderModule rejected the
+//   3. (CLOSED earlier) vkCreateShaderModule rejected the
 //      FluidDepthSplat/FluidThickness fragment SPIR-V, because glslang lowers
 //      `discard` to OpDemoteToHelperInvocation under vulkan1.4 and the device
 //      did not enable shaderDemoteToHelperInvocation (VUID-
 //      VkShaderModuleCreateInfo-pCode-08740). VulkanDevice now enables it.
 //
-// So gap 1 alone is what still keeps this tenant off the real pass resources:
-// Init() itself would now succeed, but target creation walks the stubbed
-// raw-handle family. This tenant can and should be strengthened to a real
-// execute once that family lands (Phase 8a) — it is deliberately weaker than
-// the backend currently allows, and this note is the reminder. Until then the
-// contracts it pins are the ones that hold independent of pass resources:
-//   a. The no-draw early-out through the REAL graph: with an empty draw list
+// What this tenant pins:
+//   a. Init() + SetupFramebuffer() walk the raw family for REAL with zero
+//      stub hits: 4 raw textures (R32F pair, RG16F thickness, the D32Float
+//      splat-z that must come out with a depth aspect), 2 raw FBOs, attach +
+//      draw-attachment selection + the IsFramebufferComplete gate. Live
+//      target ids afterwards ARE the completeness signal — CreateTargets
+//      releases everything when the gate says no — and IsReadyForExecution()
+//      confirms the shader/UBO/VAO half.
+//   b. The no-draw early-out through the REAL graph: with an empty draw list
 //      Setup declares NOTHING (the issue #530 fingerprint gate) and Execute
-//      returns before touching any raw handle — graph green, zero stubs.
-//   b. The one-shot draw-list contract: a submitted draw (real particle
-//      SSBOs — constructing them headlessly is NOT the blocker) is CONSUMED
-//      by the very next Execute even when the target guard then rejects the
-//      frame — a skipped frame can never replay stale draws.
+//      returns without running — graph green, zero stubs.
+//   c. The one-shot draw-list contract: a submitted draw (real particle
+//      SSBOs) is CONSUMED by the very next Execute even when the guard chain
+//      then rejects the frame — here the missing scene-depth attachment (the
+//      blackboard carries none), which gates AFTER the target guards but
+//      BEFORE the splat body records anything — a skipped frame can never
+//      replay stale draws.
+// The full splat + smooth EXECUTE body (two instanced draw loops + the
+// compute ping-pong into the raw targets, driven by a scene-depth import) is
+// the remaining promotion for this tenant.
 // =============================================================================
-TEST_F(VulkanPassSuite, FluidIntermediatesPinsTheNoDrawEarlyOutThroughTheGraph)
+TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyOutThroughTheGraph)
 {
+    constexpr u32 kSize = 128;
     VulkanFrameArena::Get().BeginFrame(0);
-
-    auto fluid = Ref<FluidIntermediatesPass>::Create();
-    // Deliberately NO Init() and NO SetupFramebuffer(): target creation walks
-    // into the stubbed raw-handle family (gap 1). The shader-side gaps 2 and 3
-    // are closed, so only target creation still blocks a fuller tenant here.
-    fluid->SetEnabled(true);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     const u64 stubsBefore = api.GetPhase6StubHitCount();
 
-    // (a) empty draw list: Setup declares nothing, Execute early-returns.
+    auto fluid = Ref<FluidIntermediatesPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    fluid->Init(initSpec);                 // splat/thickness shaders + FluidSmooth.comp + UBO + splat VAO
+    fluid->SetupFramebuffer(kSize, kSize); // CreateTargets: the raw texture/FBO family, for real (gap 1 closed)
+    fluid->SetEnabled(true);
+
+    ASSERT_TRUE(fluid->IsReadyForExecution())
+        << "fluid shaders/UBO/VAO must come up on Vulkan (gaps 2+3 stay closed)";
+    EXPECT_TRUE(fluid->GetSmoothedDepthTextureID().IsValid())
+        << "raw R32F depth target must survive the IsFramebufferComplete gate (raw family bring-up)";
+    EXPECT_TRUE(fluid->GetThicknessTextureID().IsValid())
+        << "raw RG16F thickness target must survive the IsFramebufferComplete gate (raw family bring-up)";
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "raw target creation (textures, FBOs, attach, filter/wrap, completeness) must not fall through "
+           "to a Phase 6 stub";
+
+    // (b) empty draw list: Setup declares nothing, Execute early-returns.
     {
         RenderGraph graph;
         graph.SetTransientMaterializationEnabled(true);
@@ -2697,8 +2736,10 @@ TEST_F(VulkanPassSuite, FluidIntermediatesPinsTheNoDrawEarlyOutThroughTheGraph)
         }
     }
 
-    // (b) a real submitted draw is consumed even though the guard chain then
-    // rejects the frame (no Init => not ready, and no targets exist).
+    // (c) a real submitted draw is consumed even though the guard chain then
+    // rejects the frame: targets and readiness pass now, so the gate that
+    // fires is the unresolved scene-depth attachment — still before any
+    // splat-body recording.
     {
         constexpr u32 kParticleCount = 4;
         const std::array<glm::vec4, kParticleCount> positions = {
@@ -2737,11 +2778,11 @@ TEST_F(VulkanPassSuite, FluidIntermediatesPinsTheNoDrawEarlyOutThroughTheGraph)
                     { graph.Execute(); });
 
         EXPECT_FALSE(fluid->HasPendingDraws()) << "Execute must CONSUME the draw list (one-shot contract)";
-        EXPECT_FALSE(fluid->RanThisFrame()) << "without raw-FBO targets the body must reject the frame";
+        EXPECT_FALSE(fluid->RanThisFrame()) << "without a scene-depth attachment the body must reject the frame";
     }
 
     EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
-        << "both gated paths must return before touching the stubbed raw-handle family";
+        << "the raw-family bring-up and both gated graph paths must record zero stub hits";
 }
 
 // =============================================================================
@@ -2940,35 +2981,33 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
 }
 
 // =============================================================================
-// SSAO: DOCUMENTED FLOOR, not a full-body tenant. The pass's Init creates its
-// 4x4 RG16F rotation-noise texture through the raw-handle texture family —
-// CreateTexture2DHandle + UploadTextureSubImage2D + SetTextureFilter +
-// SetTextureWrap — which is ENTIRELY Phase6Stub on Vulkan (the same family
-// that blocks FluidIntermediates' raw FBOs; it is NOT in this wave's
-// sanctioned stub-fix list, so it is reported rather than implemented). With
-// the noise handle invalid, IsReadyForExecution() is false and Execute
-// early-returns before its first resolve.
+// SSAO: full tenant (#691 Phase 8 — promoted from the raw-texture stub floor
+// the moment the raw-handle family gained its Vulkan arm, exactly as the
+// floor's embedded instruction demanded). Init creates the 4x4 RG16F
+// rotation-noise texture through that family for real — CreateTexture2DHandle
+// + UploadTextureSubImage2D + SetTextureFilter + SetTextureWrap — inside a
+// recording bracket, because the sub-image upload is the frame-command-buffer
+// staged path (GL's command-ordered semantics; outside a bracket it
+// warn-drops). The Nearest/Repeat the pass sets lands in the image-info
+// registry, which IS what the heap-off BindTexture derives the bind-time
+// sampler from — while the EXPLICIT RHI::SamplerDesc argument the pass also
+// passes remains dropped on this route (heap OFF: BindTextureOrOffsetImpl's
+// fallback discards it; heap ON: pipelines carry the single
+// DefaultEmbeddedSampler). That per-binding embedded-sampler gap is
+// unchanged by this promotion; here the two sources happen to agree.
 //
-// A second, independent gap this tenant documents (found while auditing the
-// noise bind): the EXPLICIT RHI::SamplerDesc the pass passes for its
-// Nearest/Repeat noise sampler is unreachable on this backend today —
-//   * heap OFF (this fixture): HeapBinding::BindTextureOrOffsetImpl's
-//     fallback calls plain BindTexture(slot, texture) and DROPS the
-//     SamplerDesc argument entirely;
-//   * heap ON: the Vulkan draw path builds every pipeline with the single
-//     DefaultEmbeddedSampler (linear / clamp-to-edge —
-//     VulkanPipelineBuilder::GetOrCreateGraphics is called with no
-//     embeddedSampler override), so a per-binding Nearest/Repeat sampler has
-//     no route into the descriptor mapping either.
-// Both must land before SSAO's noise sampling is correct on Vulkan.
-//
-// What this floor pins: the exact 4-stub blocking set at Init (this test
-// FAILS the moment someone implements the family — the prompt to promote it
-// to a full 2-draw + CopyImageSubData tenant), and the clean early-out
-// through the real graph (declares everything, resolves nothing, zero draws,
-// zero resolve failures, zero validation errors).
+// Chain contract (uniform inputs => analytic AO): depth is a constant ~0.502
+// plane and the solid-zero normals octDecode to the +Z view normal, so every
+// in-bounds spiral tap reconstructs to the SAME view depth as its center —
+// toSample ⟂ normal, ndotv = 0, zero occlusion — and the raw pass must write
+// AO = 1.0, which the bilateral blur of a constant field preserves. The
+// half-res blur result is then CopyImageSubData'd into the imported RG16F AO
+// output (format-matched to the blur attachment), whose pre-seeded ZEROS are
+// what prove the copy landed. Instruments: exactly the 2 half-res draws,
+// none dropped, zero resolve failures, zero stub hits end to end, zero
+// validation errors in teardown.
 // =============================================================================
-TEST_F(VulkanPassSuite, SsaoPinsTheRawTextureStubFloorThroughTheGraph)
+TEST_F(VulkanPassSuite, SsaoRunsBothHalfResDrawsAndCopiesUnoccludedAOThroughTheGraph)
 {
     constexpr u32 kSize = 128;
     constexpr u32 kHalf = kSize / 2;
@@ -2978,8 +3017,26 @@ TEST_F(VulkanPassSuite, SsaoPinsTheRawTextureStubFloorThroughTheGraph)
     ASSERT_NE(depthTexture, nullptr);
     auto normalTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
     ASSERT_NE(normalTexture, nullptr);
-    auto aoOutput = MakeSolidTexture(kSize, 0, 0, 0, 255);
-    ASSERT_NE(aoOutput, nullptr);
+
+    // Half-res RG16F AO output, zero-seeded: half-res because the pass copies
+    // a kHalf x kHalf region (its production AOBuffer contract), RG16F
+    // because vkCmdCopyImage needs size-compatible texels with the blur
+    // attachment, and zeros so the readback proves the copy replaced them.
+    Ref<Texture2D> aoOutput;
+    {
+        TextureSpecification aoSpec;
+        aoSpec.Width = kHalf;
+        aoSpec.Height = kHalf;
+        aoSpec.Format = ImageFormat::RG16F;
+        aoSpec.GenerateMips = false;
+        aoOutput = Texture2D::Create(aoSpec);
+        ASSERT_NE(aoOutput, nullptr);
+        // Facade client contract for the 16F formats: f32 PER CHANNEL (the
+        // GL driver converts; this backend converts CPU-side) — 8 bytes per
+        // RG16F texel, not the native 4. Zeros are zeros in either width.
+        std::vector<u8> zeros(static_cast<sizet>(kHalf) * kHalf * 2u * sizeof(f32), 0u);
+        aoOutput->SetData(zeros.data(), static_cast<u32>(zeros.size()));
+    }
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     const u64 stubsBefore = api.GetPhase6StubHitCount();
@@ -2988,19 +3045,28 @@ TEST_F(VulkanPassSuite, SsaoPinsTheRawTextureStubFloorThroughTheGraph)
     FramebufferSpecification initSpec;
     initSpec.Width = kSize;
     initSpec.Height = kSize;
-    ssao->Init(initSpec); // CreateNoiseTexture walks the stubbed raw-handle family
+    // Init inside a recording bracket — see the tenant header.
+    SubmitFrame([&]()
+                { ssao->Init(initSpec); });
 
-    EXPECT_EQ(api.GetPhase6StubHitCount() - stubsBefore, 4u)
-        << "Init must hit exactly CreateTexture2DHandle + UploadTextureSubImage2D + SetTextureFilter + "
-           "SetTextureWrap — if this shrank, the raw-texture family gained a Vulkan arm: promote this "
-           "floor to the full SSAO tenant (2 half-res draws + CopyImageSubData + Nearest/Repeat noise)";
-    EXPECT_FALSE(ssao->IsReadyForExecution()) << "an invalid noise handle must gate execution off";
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "the noise-import calls (CreateTexture2DHandle + UploadTextureSubImage2D + "
+           "SetTextureFilter/Wrap) must not fall through to a stub anymore";
+    ASSERT_TRUE(ssao->IsReadyForExecution())
+        << "a valid raw noise handle + compiled SSAO shaders must gate execution ON";
 
     PostProcessSettings settings{};
     settings.SSAOEnabled = true;
     settings.ActiveAOTechnique = AOTechnique::SSAO;
     ssao->SetSettings(settings);
     SSAOUBOData ssaoData{};
+    // A real projection pair: the shader reconstructs view positions through
+    // u_InverseProjection and projects the AO radius through u_Projection.
+    // (The analytic contract — zero occlusion on a constant-depth plane —
+    // holds for any invertible projection; a genuine perspective keeps the
+    // tenant on the production math.)
+    ssaoData.Projection = glm::perspective(glm::radians(45.0f), 1.0f, 0.1f, 1000.0f);
+    ssaoData.InverseProjection = glm::inverse(ssaoData.Projection);
     auto ssaoUbo = UniformBuffer::Create(sizeof(SSAOUBOData), 9);
     ssaoUbo->SetData(&ssaoData, sizeof(ssaoData));
     ssao->SetSSAOUBO(ssaoUbo, &ssaoData);
@@ -3018,8 +3084,13 @@ TEST_F(VulkanPassSuite, SsaoPinsTheRawTextureStubFloorThroughTheGraph)
         graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
     blackboard.Scene.SceneNormals =
         graph.ImportTextureHandle(ResourceNames::SceneNormals, normalTexture->GetRHIHandle(), importDesc);
-    blackboard.AO.AOBuffer =
-        graph.ImportTextureHandle(ResourceNames::AOBuffer, aoOutput->GetRHIHandle(), importDesc);
+
+    RGResourceDesc aoDesc;
+    aoDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    aoDesc.Format = RGResourceFormat::RG16Float;
+    aoDesc.Width = kHalf;
+    aoDesc.Height = kHalf;
+    blackboard.AO.AOBuffer = graph.ImportTextureHandle(ResourceNames::AOBuffer, aoOutput->GetRHIHandle(), aoDesc);
 
     RGResourceDesc scratchDesc;
     scratchDesc.Kind = RGResourceHandle::Kind::Framebuffer;
@@ -3035,18 +3106,55 @@ TEST_F(VulkanPassSuite, SsaoPinsTheRawTextureStubFloorThroughTheGraph)
     graph.SetFinalPass("SSAOPass");
     graph.BuildFrameGraph();
 
-    SubmitFrame([&]()
-                { graph.Execute(); });
+    SubmitFrame(
+        [&]()
+        {
+            graph.Execute();
 
-    EXPECT_FALSE(ssao->GetTarget()) << "not-ready SSAO must reject the frame before its first resolve";
+            // TRANSFER_DST after the pass's final CopyImageSubData; GetData's
+            // one-shot readback assumes the SHADER_READ_ONLY steady state
+            // (the GTAO tenant's pattern).
+            RHI::Barrier toSampled{};
+            toSampled.Resource = aoOutput->GetRHIHandle();
+            toSampled.Before = RHI::Access::TransferWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_TRUE(ssao->GetTarget()) << "ready SSAO must run through to the blur target";
     for (const auto& failure : graph.GetResolveFailures())
     {
         ADD_FAILURE() << "SSAO resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
                       << "' x" << failure.Count;
     }
-    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 0u) << "the gated pass must record no draws";
-    EXPECT_EQ(api.GetPhase6StubHitCount() - stubsBefore, 4u)
-        << "Execute must early-return without touching another stubbed entry";
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u)
+        << "raw SSAO + bilateral blur — exactly the two half-res draws";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a draw dropped silently";
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "the whole chain (noise bind + 2 draws + CopyImageSubData) must record without a stub";
+
+    std::vector<u8> aoBytes;
+    ASSERT_TRUE(aoOutput->GetData(aoBytes, 0)) << "AO readback failed";
+    ASSERT_EQ(aoBytes.size(), static_cast<sizet>(kHalf) * kHalf * 4u); // RG16F: 4 bytes/texel
+    const auto aoAt = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kHalf + x) * 4u;
+        const u16 half = static_cast<u16>(aoBytes[i]) | static_cast<u16>(static_cast<u16>(aoBytes[i + 1u]) << 8u);
+        return HalfToFloat(half);
+    };
+    // Uniform depth + camera-facing normals => zero occlusion: the copy must
+    // have replaced the pre-seeded zeros with AO = 1.0 (half-exact). Sampled
+    // on a grid, not just the centre — a blur cannot manufacture occlusion
+    // out of a constant field, so any dip is a real chain break.
+    for (u32 y = 8; y < kHalf; y += 16)
+    {
+        for (u32 x = 8; x < kHalf; x += 16)
+        {
+            const f32 ao = aoAt(x, y);
+            EXPECT_GE(ao, 0.9f) << "unoccluded flat field must stay open at (" << x << "," << y << ")";
+            EXPECT_LE(ao, 1.01f) << "AO is a [0,1] visibility at (" << x << "," << y << ")";
+        }
+    }
 }
 
 // =============================================================================
@@ -7320,8 +7428,11 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     // Each export target must be TEXEL-SIZE COMPATIBLE with the G-Buffer
     // attachment it copies from (VUID-vkCmdCopyImage-srcImage-01548): albedo
     // is RGBA8 (RT0), normals are RGBA16F (RT1). A copy is not a conversion.
+    // The 16F seed ships 16 bytes/texel — the facade's f32-per-channel client
+    // contract (the backend converts to halves); the seed's exact value is
+    // irrelevant, it only has to differ from the copied G-Buffer content.
     auto exportedAlbedo = makeSeededExport(ImageFormat::RGBA8, 4u, 17u);
-    auto exportedNormals = makeSeededExport(ImageFormat::RGBA16F, 8u, 19u);
+    auto exportedNormals = makeSeededExport(ImageFormat::RGBA16F, 16u, 19u);
     ASSERT_TRUE(exportedAlbedo && exportedNormals);
 
     auto decalPass = Ref<DecalRenderPass>::Create();
@@ -8987,6 +9098,54 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
     // subdivided patch covers its triangle and not the whole target.
     EXPECT_GT(coveredTexels, 1000u) << "the patch covered " << coveredTexels << " texels";
     EXPECT_LT(coveredTexels, 2600u) << "the patch covered " << coveredTexels << " texels";
+
+    // --- Phase 2: the SAME patch with back-face culling ON (#691 Phase 8, the
+    // water-murk regression). The TES declares `ccw` against GL's LOWER_LEFT
+    // tessellation domain; Vulkan's default UPPER_LEFT origin mirrors the
+    // generated v coordinate, which flips every emitted triangle's winding —
+    // this exact draw back-culled to nothing while the editor's sea shaded its
+    // BACK face into a grey murk (normal down, fresnel collapsed, deep-colour
+    // blend pinned) with every binding, UBO and mirror input verified correct.
+    // Pinned by VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT on every patch
+    // pipeline: culled coverage here means the domain origin regressed.
+    SubmitFrame(
+        [&]()
+        {
+            sceneFramebuffer->Bind();
+            sceneFramebuffer->AttachDepthTextureArrayLayer(patchDepth->GetRHIHandle(), 0u);
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetBlendState(false);
+            RenderCommand::BackCull();
+            RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+
+            waterShader->Bind();
+            patchVao->Bind();
+            RenderCommand::DrawIndexedPatches(patchVao, 3u, 3u);
+            RenderCommand::DisableCulling();
+            sceneFramebuffer->Unbind();
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = patchDepth->GetRHIHandle();
+            toSampled.Range.BaseMip = 0u;
+            toSampled.Range.MipCount = 1u;
+            toSampled.Range.BaseLayer = 0u;
+            toSampled.Range.LayerCount = 1u;
+            toSampled.Before = RHI::Access::DepthStencilAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    std::vector<f32> culledDepth;
+    ASSERT_TRUE(ReadDepthArrayLayer(patchDepth, 0u, culledDepth)) << "phase-2 depth readback failed";
+    ASSERT_EQ(culledDepth.size(), static_cast<sizet>(kSize) * kSize);
+    EXPECT_LT(culledDepth[static_cast<sizet>(40) * kSize + 8], 0.999f)
+        << "the ccw tessellated patch was BACK-CULLED — the pipeline's tessellation domain origin is not "
+           "GL's LOWER_LEFT, so the tessellator mirrored the generated winding";
 }
 
 // =============================================================================
@@ -9280,14 +9439,10 @@ namespace
 {
     // The files this sweep migrated. Each declares exactly one pass-owned
     // std140 block (some SHARE one block across the sibling shaders of a
-    // system — see UBOStructures in ShaderBindingLayout.h for which).
-    //
-    // NOT the whole compute directory: CloudNoise_Generate, CloudShadow_Generate,
-    // Ocean_Assemble, Ocean_FFTButterfly, Ocean_SpectrumEvolve and
-    // Precipitation_Feed still declare bare uniforms. They did not appear in the
-    // live log (their passes never ran in that session) and are outside this
-    // sweep's scope — they are remaining debt, not an exemption. Add them here
-    // when they are migrated.
+    // system — see UBOStructures in ShaderBindingLayout.h for which). The
+    // Phase 8 tail (CloudNoise/CloudShadow, the three Ocean FFT passes,
+    // Precipitation_Feed) carried the identical debt but never appeared in the
+    // Phase 7 live log — their passes never ran in that session.
     constexpr const char* kPhase7MigratedComputeShaders[] = {
         "assets/shaders/compute/Particle_Simulate.comp",
         "assets/shaders/compute/Particle_Emit.comp",
@@ -9302,6 +9457,14 @@ namespace
         "assets/shaders/compute/VirtualDebugColorize.comp",
         "assets/shaders/compute/InstanceOcclusionCull.comp",
         "assets/shaders/compute/InstanceFrustumCull.comp",
+        // Issue #691 Phase 8 — the sweep's completion.
+        "assets/shaders/compute/CloudNoise_Generate.comp",
+        "assets/shaders/compute/CloudShadow_Generate.comp",
+        "assets/shaders/compute/Ocean_SpectrumEvolve.comp",
+        "assets/shaders/compute/Ocean_FFTButterfly.comp",
+        "assets/shaders/compute/Ocean_Assemble.comp",
+        "assets/shaders/compute/Precipitation_Feed.comp",
+        "assets/shaders/compute/ReflectionProbeCull.comp",
     };
 } // namespace
 
@@ -9396,6 +9559,275 @@ TEST(VulkanComputeBareUniformSweep, MigratedComputeShadersDeclareNoBareUniforms)
         << "default-block uniform(s) reintroduced into a shader the #691 Phase 7 sweep migrated:" << joined
         << "\nThe Vulkan SPIR-V route rejects these outright and VulkanComputeShader::Set* is a no-op "
            "there — move the value into the shader's pass-owned std140 block instead.";
+}
+
+// =============================================================================
+// ReadTextureSubImage / ReadTextureImage (#691 Phase 8b): the MCP diagnostics
+// readback spine — olo_screenshot / olo_render_capture_target, thumbnail
+// capture, the probe bakers and entity picking all lower onto these. Pins
+// three contracts: the identity path returns the uploaded bytes verbatim
+// (rows unflipped — glGetTextureSubImage semantics), the conversion path
+// decodes native texels to the caller's float format, and a sub-region read
+// addresses texels in image coordinates.
+// =============================================================================
+TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion)
+{
+    constexpr u32 kSize = 8;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    TextureSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+    auto texture = Texture2D::Create(spec);
+    ASSERT_NE(texture, nullptr);
+
+    std::vector<u8> texels(static_cast<sizet>(kSize) * kSize * 4u);
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            u8* t = texels.data() + (static_cast<sizet>(y) * kSize + x) * 4u;
+            t[0] = static_cast<u8>(x * 16u);
+            t[1] = static_cast<u8>(y * 16u);
+            t[2] = 128u;
+            t[3] = 255u;
+        }
+    }
+    texture->SetData(texels.data(), static_cast<u32>(texels.size()));
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    // Identity: RGBA8 image read as RGBA8 — byte-exact, no row flip.
+    std::vector<u8> identity(texels.size(), 0u);
+    ASSERT_TRUE(api.ReadTextureSubImage(texture->GetRHIHandle(), 0, 0, 0, 0, kSize, kSize, 1u,
+                                        RHI::Format::RGBA8UNorm, identity.size(), identity.data()));
+    EXPECT_EQ(identity, texels) << "identity readback must return the uploaded bytes verbatim";
+
+    // Conversion: the render-graph/MCP capture shape — any attachment read
+    // as floats.
+    std::vector<f32> floats(static_cast<sizet>(kSize) * kSize * 4u, -1.0f);
+    ASSERT_TRUE(api.ReadTextureSubImage(texture->GetRHIHandle(), 0, 0, 0, 0, kSize, kSize, 1u,
+                                        RHI::Format::RGBA32Float, floats.size() * sizeof(f32), floats.data()));
+    const sizet probe = (static_cast<sizet>(5) * kSize + 3) * 4u; // texel (3, 5)
+    EXPECT_NEAR(floats[probe + 0], 48.0f / 255.0f, 1.0e-6f);
+    EXPECT_NEAR(floats[probe + 1], 80.0f / 255.0f, 1.0e-6f);
+    EXPECT_NEAR(floats[probe + 2], 128.0f / 255.0f, 1.0e-6f);
+    EXPECT_NEAR(floats[probe + 3], 1.0f, 1.0e-6f);
+
+    // Sub-region: 2x2 at (4, 2), image coordinates.
+    std::vector<u8> region(2u * 2u * 4u, 0u);
+    ASSERT_TRUE(api.ReadTextureSubImage(texture->GetRHIHandle(), 0, 4, 2, 0, 2u, 2u, 1u,
+                                        RHI::Format::RGBA8UNorm, region.size(), region.data()));
+    EXPECT_EQ(region[0], 64u) << "region texel (0,0) must be image texel (4,2).r";
+    EXPECT_EQ(region[1], 32u) << "region texel (0,0) must be image texel (4,2).g";
+    EXPECT_EQ(region[4], 80u) << "region texel (1,0) must be image texel (5,2).r";
+
+    // Whole-level convenience wrapper sizes the read from the registry extent.
+    std::vector<u8> whole(texels.size(), 0u);
+    ASSERT_TRUE(api.ReadTextureImage(texture->GetRHIHandle(), 0, RHI::Format::RGBA8UNorm, whole.size(),
+                                     whole.data()));
+    EXPECT_EQ(whole, texels);
+
+    // Half-float client contract (#691 Phase 8): the GL facade takes f32 PER
+    // CHANNEL for the 16F formats and converts driver-side — this backend
+    // must convert CPU-side, not size-assert (SlugFontProcessor's RGBA16F
+    // curve texture crashed the first Vulkan play of a scene with UI text)
+    // and not reinterpret f32 bits as halves. Round-trip through the float
+    // readback proves both the accepted size and the converted values.
+    TextureSpecification halfSpec;
+    halfSpec.Width = 2;
+    halfSpec.Height = 2;
+    halfSpec.Format = ImageFormat::RGBA16F;
+    halfSpec.GenerateMips = false;
+    auto halfTexture = Texture2D::Create(halfSpec);
+    ASSERT_NE(halfTexture, nullptr);
+    const std::array<f32, 16> halfClient{ 0.25f, 0.5f, 0.75f, 1.0f, 2.0f, 4.0f, -1.0f, 0.0f,
+                                          8.0f, 16.0f, 0.1f, 1.0f, -0.5f, 0.0f, 1.5f, 1.0f };
+    halfTexture->SetData(const_cast<f32*>(halfClient.data()), static_cast<u32>(halfClient.size() * sizeof(f32)));
+    std::vector<f32> halfBack(halfClient.size(), -99.0f);
+    ASSERT_TRUE(api.ReadTextureSubImage(halfTexture->GetRHIHandle(), 0, 0, 0, 0, 2u, 2u, 1u,
+                                        RHI::Format::RGBA32Float, halfBack.size() * sizeof(f32), halfBack.data()));
+    for (sizet i = 0; i < halfClient.size(); ++i)
+    {
+        // Half precision: ~11 bits of mantissa — 1e-2 covers every value above.
+        EXPECT_NEAR(halfBack[i], halfClient[i], 1.0e-2f) << "texel float " << i;
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "the readback family must not fall through to a stub anymore";
+}
+
+// =============================================================================
+// Command-ordered SSBO SetData (#691 Phase 8): the batched-instance archetype.
+//
+// CommandDispatch::DrawMeshInstanced re-uploads the ONE shared
+// ModelInstanceBuffer (SSBO 15) before every batch and records the draw
+// between the writes. GL executes upload/draw in command order; on Vulkan the
+// draws execute at submit, so with a life-stable buffer address every draw in
+// the frame read the LAST upload — which emptied every auto-batched instanced
+// draw in the sandbox scenes (spheres/cubes vanished while unique-mesh draws
+// survived; found by the Phase 8 Step 3 screenshot parity gate, root-caused
+// through an all-far-plane SceneDepth capture). VulkanStorageBuffer::SetData
+// now snapshots the written range into the frame arena and draws embed the
+// snapshot's address (GetRootDataAddress), so each recorded draw keeps the
+// bytes that were current when it was recorded.
+//
+// The tenant is the archetype in miniature: one SSBO at binding 15, upload a
+// LEFT transform, draw, upload a RIGHT transform, draw — both quads must land.
+// Under last-write-wins ordering the first draw also reads RIGHT and the left
+// half stays background.
+// =============================================================================
+TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDraws)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto lightCubeShader = Shader::Create("assets/shaders/LightCube.glsl");
+    ASSERT_TRUE(lightCubeShader);
+    ASSERT_EQ(lightCubeShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // A flat quad in the engine Vertex shape (32 B: pos3 @0, normal3 @12,
+    // uv2 @24) — the stride LightCube's pull branch hard-codes (8 floats).
+    const f32 quadVertices[] = {
+        -0.5f,
+        -0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        0.0f,
+        0.0f, // bottom-left
+        0.5f,
+        -0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        1.0f,
+        0.0f, // bottom-right
+        0.5f,
+        0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        1.0f,
+        1.0f, // top-right
+        -0.5f,
+        0.5f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        0.0f,
+        1.0f, // top-left
+    };
+    u32 quadIndices[] = { 0u, 1u, 2u, 2u, 3u, 0u };
+    auto vao = VertexArray::Create();
+    auto quadVB = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
+    quadVB->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                        { ShaderDataType::Float3, "a_Normal" },
+                        { ShaderDataType::Float2, "a_TexCoord" } });
+    vao->AddVertexBuffer(quadVB);
+    vao->SetIndexBuffer(IndexBuffer::Create(quadIndices, 6));
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.Position = glm::vec3(0.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    // Quad scaled to 0.8 wide and shifted -0.5 / +0.5: LEFT spans x NDC
+    // [-0.9, -0.1], RIGHT [0.1, 0.9]; both span y [-0.4, 0.4]. The strip
+    // between them stays background under EITHER ordering, so the probe set
+    // separates the two behaviours unambiguously.
+    const auto makeInstance = [](f32 xShift)
+    {
+        InstanceData inst{};
+        inst.Transform = glm::translate(glm::mat4(1.0f), { xShift, 0.0f, 0.0f }) *
+                         glm::scale(glm::mat4(1.0f), { 0.8f, 0.8f, 1.0f });
+        inst.Normal = glm::mat4(1.0f);
+        inst.PrevTransform = inst.Transform;
+        return inst;
+    };
+    const InstanceData leftInstance = makeInstance(-0.5f);
+    const InstanceData rightInstance = makeInstance(0.5f);
+
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+    ASSERT_TRUE(sceneFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            sceneFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetDepthMask(false);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+
+            lightCubeShader->Bind();
+            vao->Bind();
+
+            // The archetype: write, draw, write, draw — same buffer object.
+            instanceSSBO->SetData(&leftInstance, sizeof(InstanceData));
+            instanceSSBO->Bind();
+            RenderCommand::DrawIndexed(vao, 6);
+
+            instanceSSBO->SetData(&rightInstance, sizeof(InstanceData));
+            instanceSSBO->Bind();
+            RenderCommand::DrawIndexed(vao, 6);
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+            toSampled.Before = RHI::Access::ColorAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u);
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+    std::vector<u8> rendered;
+    auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+    ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+    const auto px = [&](u32 x, u32 y)
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
+    };
+
+    // LightCube writes solid white. Centres: LEFT x NDC -0.5 -> column 32,
+    // RIGHT +0.5 -> column 96, both row 64 (y-symmetric quads, so either row
+    // orientation covers them).
+    EXPECT_EQ(px(32, 64)[0], 255)
+        << "the FIRST draw must render the transform uploaded BEFORE it (command-ordered SetData) — "
+           "a black left quad means every draw read the frame's final upload";
+    EXPECT_EQ(px(96, 64)[0], 255) << "the second draw must render the transform uploaded before it";
+    EXPECT_EQ(px(64, 64)[0], 0) << "the strip between the quads keeps the clear";
+    EXPECT_EQ(px(5, 5)[0], 0) << "corner background keeps the clear";
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
 }
 
 #endif // OLO_WITH_VULKAN

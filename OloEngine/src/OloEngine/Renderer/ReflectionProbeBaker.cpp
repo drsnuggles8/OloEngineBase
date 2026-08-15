@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
@@ -330,13 +331,22 @@ namespace OloEngine
 
             glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
             UBOStructures::CameraUBO camera{};
-            camera.ViewProjection = proj * view;
+            // A8 seam, CAPTURE flavour (#691 Phase 8): these faces are read
+            // back with ReadTextureImage and pushed into cube faces by
+            // direction, the same shape as SkyCubemapBake / DDGI — the y flip
+            // must NOT be applied or each face stores row-mirrored relative to
+            // the GL bake. This writer predates the seam and uploaded the raw
+            // matrix; identity on GL, so nothing changes there, and the path
+            // is dormant on Vulkan until the cubemap CPU upload lands.
+            camera.ViewProjection = RHI::AdjustCaptureProjectionForBackend(proj * view);
             camera.View = view;
-            camera.Projection = proj;
+            camera.Projection = RHI::AdjustCaptureProjectionForBackend(proj);
             camera.Position = position;
             camera._padding0 = 0.0f;
             camera.PrevViewProjection = camera.ViewProjection;
             camera.RenderOrigin = glm::vec3(0.0f);
+            // Capture flavour's reconstruction sibling = the raw matrix.
+            camera.ProjectionForReconstruction = proj;
             cameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
 
             for (auto const& caster : casters)

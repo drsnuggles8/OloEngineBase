@@ -61,9 +61,32 @@ namespace OloEngine
             StorageImage,
         };
 
+        // Sampled-image dimensionality from SPIR-V reflection (#691 Phase 8).
+        // The unfed-binding fallback must hand the shader a null texture whose
+        // VIEW TYPE matches the sampler declaration — a 2D view under a
+        // samplerCube is undefined under the descriptor heap, and the old
+        // slot-0 fallback leaked whatever texture registered first (the loft
+        // HDRI) into every unfed sampler. Meaningful only for
+        // CombinedImageSampler bindings; buffers keep the default.
+        enum class TexDim : u8
+        {
+            Tex2D,
+            Tex2DArray,
+            TexCube,
+            TexCubeArray,
+            Tex3D,
+            // Multisampled declarations (sampler2DMS et al.) are tracked so
+            // the fallback can REFUSE them loudly — no null MS image exists,
+            // and quietly handing a single-sample null to an MS sampler is
+            // exactly the wrong-view-type bug the typed fallback fixed.
+            Tex2DMS,
+            Tex2DMSArray,
+        };
+
         u32 Set = 0;
         u32 Binding = 0;
         Kind BindingKind = Kind::UniformBuffer;
+        TexDim ImageDim = TexDim::Tex2D;
         VkShaderStageFlags Stages = 0;
         std::string Name;
     };
@@ -158,6 +181,18 @@ namespace OloEngine
         // The shader whose Bind() ran last on the render thread — what the
         // draw-time pipeline lookup consumes. Null when none.
         [[nodiscard]] static VulkanShader* GetCurrentlyBound();
+
+        // Forced device-object release for context teardown (#691 Phase 8):
+        // a shader Ref surviving in some static (a library, a cached
+        // material) would otherwise carry its VkShaderModules into
+        // vkDestroyDevice (VUID-vkDestroyDevice-device-05137). The context
+        // walks the root registry and releases every survivor's modules
+        // here, turning the straggler into a harmless zombie — the eventual
+        // destructor's DestroyModules() is idempotent on the cleared map.
+        void ReleaseDeviceObjects()
+        {
+            DestroyModules();
+        }
 
       private:
         // Shared ctor tail: compile-or-load every stage, reflect, create

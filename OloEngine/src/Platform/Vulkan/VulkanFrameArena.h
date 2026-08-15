@@ -125,6 +125,16 @@ namespace OloEngine
             return m_Slots[frameSlot % kFramesInFlight].Buffer;
         }
 
+        // Device address of a persistent ZERO-FILLED block (kNullBlockBytes).
+        // Root-data assembly substitutes this for an unfed buffer binding so
+        // the shader reads deterministic zeros instead of dereferencing GPU
+        // address 0 — the null deref is a page fault that escalates to
+        // VK_ERROR_DEVICE_LOST (#691 Phase 8, the IBL-bake incident). Returns
+        // 0 when no device is up (the caller's draw is already doomed then).
+        // In-bounds contract only: an SSBO runtime array indexed past
+        // kNullBlockBytes still faults — shaders guard their counts.
+        [[nodiscard]] VkDeviceAddress GetNullBlockAddress();
+
         // Matches VulkanContextData::kFramesInFlight / VulkanDeferredReclaim.
         static constexpr u32 kFramesInFlight = 2;
         // Root structs are tens of bytes and per-draw block payloads hundreds;
@@ -132,6 +142,10 @@ namespace OloEngine
         // draws x 224 B InstanceData ~= 2.2 MiB) while costing 32 MiB of BAR —
         // generous beats a mid-frame cliff. Revisit with real Phase 7 numbers.
         static constexpr u64 kSlotCapacityBytes = 16ull * 1024 * 1024;
+        // Null-block size: covers any UBO block (the 16 KiB
+        // maxUniformBufferRange floor, ×4 for headroom) so an unfed uniform
+        // block always reads in-bounds zeros.
+        static constexpr u64 kNullBlockBytes = 64ull * 1024;
 
       private:
         VulkanFrameArena() = default;
@@ -151,6 +165,11 @@ namespace OloEngine
         };
 
         std::array<Slot, kFramesInFlight> m_Slots{};
+        // The zero-filled fallback block (see GetNullBlockAddress). Created
+        // lazily alongside first use, released with the slots.
+        VkBuffer m_NullBlockBuffer = VK_NULL_HANDLE;
+        VmaAllocation m_NullBlockAllocation = VK_NULL_HANDLE;
+        VkDeviceAddress m_NullBlockAddress = 0;
         u32 m_CurrentSlot = 0;
         u64 m_FrameGeneration = 0;
         u64 m_AllocationsThisFrame = 0;

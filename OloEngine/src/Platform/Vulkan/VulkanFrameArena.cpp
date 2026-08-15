@@ -174,6 +174,64 @@ namespace OloEngine
         }
     }
 
+    VkDeviceAddress VulkanFrameArena::GetNullBlockAddress()
+    {
+        if (m_NullBlockAddress != 0)
+        {
+            return m_NullBlockAddress;
+        }
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            return 0;
+        }
+
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = kNullBlockBytes;
+        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        allocInfo.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+        VmaAllocationInfo resultInfo{};
+        if (vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_NullBlockBuffer,
+                            &m_NullBlockAllocation, &resultInfo) != VK_SUCCESS ||
+            resultInfo.pMappedData == nullptr)
+        {
+            OLO_CORE_ERROR("VulkanFrameArena: null-block creation failed — unfed bindings stay at address 0");
+            if (m_NullBlockBuffer != VK_NULL_HANDLE || m_NullBlockAllocation != VK_NULL_HANDLE)
+            {
+                vmaDestroyBuffer(device->GetAllocator(), m_NullBlockBuffer, m_NullBlockAllocation);
+                m_NullBlockBuffer = VK_NULL_HANDLE;
+                m_NullBlockAllocation = VK_NULL_HANDLE;
+            }
+            return 0;
+        }
+        std::memset(resultInfo.pMappedData, 0, kNullBlockBytes);
+        vmaFlushAllocation(device->GetAllocator(), m_NullBlockAllocation, 0, kNullBlockBytes);
+
+        VkBufferDeviceAddressInfo addressInfo{};
+        addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+        addressInfo.buffer = m_NullBlockBuffer;
+        m_NullBlockAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
+        if (m_NullBlockAddress == 0)
+        {
+            // A zero address is the failure this block exists to prevent —
+            // release the orphaned buffer so a later call can retry cleanly.
+            OLO_CORE_ERROR("VulkanFrameArena: null-block device address is 0 — releasing and leaving unfed "
+                           "bindings at address 0");
+            vmaDestroyBuffer(device->GetAllocator(), m_NullBlockBuffer, m_NullBlockAllocation);
+            m_NullBlockBuffer = VK_NULL_HANDLE;
+            m_NullBlockAllocation = VK_NULL_HANDLE;
+        }
+        return m_NullBlockAddress;
+    }
+
     void VulkanFrameArena::ReleaseBuffers()
     {
         for (Slot& slot : m_Slots)
@@ -183,6 +241,13 @@ namespace OloEngine
                 VulkanDeferredReclaim::Get().Enqueue(slot.Buffer, slot.Allocation);
             }
             slot = {};
+        }
+        if (m_NullBlockBuffer != VK_NULL_HANDLE || m_NullBlockAllocation != VK_NULL_HANDLE)
+        {
+            VulkanDeferredReclaim::Get().Enqueue(m_NullBlockBuffer, m_NullBlockAllocation);
+            m_NullBlockBuffer = VK_NULL_HANDLE;
+            m_NullBlockAllocation = VK_NULL_HANDLE;
+            m_NullBlockAddress = 0;
         }
         m_CurrentSlot = 0;
         m_AllocationsThisFrame = 0;

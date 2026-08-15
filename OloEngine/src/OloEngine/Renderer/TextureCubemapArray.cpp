@@ -3,6 +3,10 @@
 
 #include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLTextureCubemapArray.h"
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanTransientResources.h"
+#endif
 
 namespace OloEngine
 {
@@ -17,7 +21,16 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan has no resource factories until #691 Phase 5/6!");
+                // #691 Phase 8: the amendment (64) leftover — this assert
+                // wedged the first --rhi=vulkan editor launch during
+                // ReflectionProbeArray::Init.
+#if OLO_WITH_VULKAN
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<VulkanTextureCubemapArray>::Create(specification);
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan selected but no VulkanDevice is live!");
                 return nullptr;
             }
             case RendererAPI::API::OpenGL:

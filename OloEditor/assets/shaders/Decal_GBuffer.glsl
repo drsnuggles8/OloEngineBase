@@ -26,6 +26,10 @@ layout(location = 0) in vec3 a_Position;
 
 #include "include/CameraCommon.glsl"
 
+// This shader's consuming stage never reads v_InstanceIndex — declare no
+// varying (a written-but-unconsumed output is a per-pipeline Vulkan
+// validation interface warning).
+#define OLO_INSTANCE_NO_FORWARD 1
 #include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec4 v_ClipPos;

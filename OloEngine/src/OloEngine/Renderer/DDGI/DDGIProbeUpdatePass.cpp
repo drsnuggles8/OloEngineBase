@@ -682,6 +682,8 @@ namespace OloEngine
             camera._padding0 = 0.0f;
             camera.PrevViewProjection = RHI::AdjustCaptureProjectionForBackend(vp);
             camera.RenderOrigin = m_RenderOrigin;
+            // Capture flavour's reconstruction sibling = the raw matrix (#691 Phase 8).
+            camera.ProjectionForReconstruction = proj;
             m_CaptureCameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
 
             RenderCommand::SetViewport(static_cast<u32>((face % 3u) * static_cast<u32>(faceRes)),

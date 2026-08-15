@@ -40,13 +40,23 @@ layout(std430, binding = 2) readonly buffer CounterBuffer
 layout(r32ui, binding = 1) coherent uniform uimage2D u_SnowDepth;
 #endif
 
-// Per-dispatch uniforms
-uniform float u_AccumulationFeedRate;  // How much depth each landed particle contributes
-uniform float u_GroundY;              // Ground plane Y coordinate
-uniform float u_GroundThreshold;      // Tolerance for ground contact detection
-uniform vec2  u_ClipmapCenter;        // World XZ center of the snow clipmap
-uniform float u_ClipmapExtent;        // Half-extent of the clipmap in world units
-uniform int   u_ClipmapResolution;    // Texture resolution (e.g. 2048)
+// Per-dispatch parameters. Former bare uniforms, migrated to a std140 block
+// (issue #691 Phase 8): GLSL-for-Vulkan forbids a non-opaque uniform outside a
+// block, and VulkanComputeShader::Set* is a deliberate no-op there — so these
+// were both a hard SPIR-V compile error and a guaranteed zero-read on the
+// Vulkan route. Clipmap trio first so the vec2 sits on its natural 8-byte
+// boundary (the SnowComputeParams ordering). C++ twin:
+// UBOStructures::PrecipitationFeedUBO (ShaderBindingLayout::UBO_PRECIPITATION_FEED).
+layout(std140, binding = 76) uniform PrecipitationFeedParams
+{
+    vec2  u_ClipmapCenter;        // 0  — world XZ center of the snow clipmap
+    float u_ClipmapExtent;        // 8  — half-extent of the clipmap in world units
+    int   u_ClipmapResolution;    // 12 — texture resolution (e.g. 2048)
+    float u_AccumulationFeedRate; // 16 — depth each landed particle contributes
+    float u_GroundY;              // 20 — ground plane Y coordinate
+    float u_GroundThreshold;      // 24 — tolerance for ground contact detection
+    float _precipFeedPad0;        // 28
+};
 
 void main()
 {

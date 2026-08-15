@@ -1,0 +1,47 @@
+Scene: SteamPlatformDemo.olo
+Entities:
+  - Entity: 6440000000000000001
+    TagComponent:
+      Tag: Steam Platform Demo
+    TransformComponent:
+      Translation: [0, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.11, 0.63, 0.95, 1]
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/SteamPlatformDemo.lua
+  - Entity: 6440000000000000002
+    TagComponent:
+      Tag: Label
+    TransformComponent:
+      Translation: [0, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TextComponent:
+      TextString: "Steamworks demo - needs the Steam client + OloEditor/steam_appid.txt containing 480. Without Steam every call no-ops and this scene still runs."
+      Color: [1, 1, 1, 1]
+      Kerning: 0
+      LineSpacing: 0
+      MaxWidth: 0
+      DropShadow: false
+      ShadowDistance: 0.01
+      ShadowColor: [0, 0, 0, 0.8]
+  - Entity: 6440000000000000003
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1, 8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 1
+        PerspectiveFOV: 0.78539816
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

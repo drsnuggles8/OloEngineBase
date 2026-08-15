@@ -52,6 +52,12 @@ namespace OloEngine::Ocean
         /// GL context). False ⇒ use the CPU path.
         [[nodiscard]] bool IsAvailable();
 
+        /// Release the file-scope FFT-params UBO shared by all instances.
+        /// Called from Renderer3D shutdown (the CloudNoise::Shutdown wiring)
+        /// so the Ref drops while the graphics device is still valid instead
+        /// of at static destruction. Idempotent; lazily re-creatable.
+        static void ShutdownSharedResources();
+
         /// Upload the (already amplitude-normalised) base spectrum h0 and
         /// (re)build the per-resolution butterfly LUT and ping-pong arrays.
         /// `h0` is the GenerateH0()-layout N×N grid.

@@ -146,6 +146,15 @@ namespace OloEngine
             return m_DynamicBlendStateEnabled;
         }
 
+        // VK_EXT_device_fault (enabled when the driver has it): after a
+        // VK_ERROR_DEVICE_LOST, logs the driver's fault report — fault type
+        // (page fault vs. hang) and the faulting GPU address — so a device
+        // loss names its cause instead of just its VkResult. Safe to call
+        // any time; no-ops when the extension is absent or no fault is
+        // pending. (#691 Phase 8 — added to diagnose the foliage device
+        // loss, kept as a permanent post-mortem instrument.)
+        void LogDeviceFaultInfo() const;
+
         // Validation-error counter: the debug messenger increments this on
         // every ERROR-severity validation message. Tests assert it stays 0.
         // Always 0 outside OLO_DEBUG (no messenger exists there).
@@ -174,6 +183,7 @@ namespace OloEngine
         bool m_DrawIndirectCountEnabled = false;
         bool m_MultiDrawIndirectEnabled = false;
         bool m_ShaderDrawParametersEnabled = false;
+        bool m_DeviceFaultEnabled = false;
     };
 } // namespace OloEngine
 

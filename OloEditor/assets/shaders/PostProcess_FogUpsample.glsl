@@ -72,6 +72,12 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
+    // Reconstruction flavour (#691 Phase 8) — GL-convention z rows for the
+    // near/far extraction below. Identical to u_Projection on GL.
+    mat4 u_ProjectionForReconstruction;
 };
 
 // ---------------------------------------------------------------------------
@@ -79,9 +85,10 @@ layout(std140, binding = 0) uniform CameraMatrices
 // ---------------------------------------------------------------------------
 float linearizeDepth(float d)
 {
-    // Extract near/far from projection matrix
-    float near = u_Projection[3][2] / (u_Projection[2][2] - 1.0);
-    float far  = u_Projection[3][2] / (u_Projection[2][2] + 1.0);
+    // Extract near/far from projection matrix (reconstruction flavour — the
+    // rasterizer flavour's remapped z rows break this formula on Vulkan).
+    float near = u_ProjectionForReconstruction[3][2] / (u_ProjectionForReconstruction[2][2] - 1.0);
+    float far  = u_ProjectionForReconstruction[3][2] / (u_ProjectionForReconstruction[2][2] + 1.0);
     float ndc = d * 2.0 - 1.0;
     return (2.0 * near * far) / (far + near - ndc * (far - near));
 }

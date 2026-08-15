@@ -44,6 +44,16 @@ layout(std140, binding = 0) uniform CameraMatrices
 };
 
 // Model UBO (binding 3)
+// Foliage uploads ONE shared InstanceData entry for all N pulled instances
+// (see FoliageRenderer::Render) — per-instance data rides the 48-byte
+// instance stream instead. OLO_INSTANCE_SINGLE keeps the include from
+// indexing that one entry by gl_InstanceIndex (GL: garbage read, Vulkan:
+// device-losing page fault at high instance counts).
+#define OLO_INSTANCE_SINGLE 1
+// This shader's consuming stage never reads v_InstanceIndex — declare no
+// varying (a written-but-unconsumed output is a per-pipeline Vulkan
+// validation interface warning).
+#define OLO_INSTANCE_NO_FORWARD 1
 #include "include/InstanceBlock_Vertex.glsl"
 
 // Foliage UBO (binding 12)

@@ -149,6 +149,14 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
+    // Reconstruction flavour of u_Projection (#691 Phase 8): GL-convention z
+    // rows for NearPlane()'s extraction below — u_Projection's rasterizer
+    // flavour has remapped z rows on Vulkan and breaks the formula. Identical
+    // to u_Projection on GL.
+    mat4 u_ProjectionForReconstruction;
 };
 
 // ---------------------------------------------------------------------------
@@ -261,7 +269,9 @@ void DebugEmitCluster(uint clusterIndex, vec3 worldCenter, float worldRadius, in
 // produce a zero/negative denominator in the error projection.
 float NearPlane()
 {
-    return max(u_Projection[3][2] / (u_Projection[2][2] - 1.0), 1e-4);
+    // Reconstruction flavour (#691 Phase 8): the GL-form extraction needs
+    // unremapped z rows.
+    return max(u_ProjectionForReconstruction[3][2] / (u_ProjectionForReconstruction[2][2] - 1.0), 1e-4);
 }
 
 // Approximate perspective-projected screen-space error in PIXELS. Mirrors
@@ -272,7 +282,10 @@ float ProjectErrorPixels(vec3 worldCenter, float worldRadius, float worldError)
 {
     float dist = length(worldCenter - u_CameraPosition);
     float denom = max(dist - worldRadius, NearPlane());
-    return worldError / denom * (u_Projection[1][1] * 0.5) * u_ViewportHeight;
+    // abs(): [1][1] is NEGATIVE on Vulkan (projection-seam y flip, #691
+    // Phase 8) — unsigned, every projected error would be negative and no
+    // cluster would ever refine. A magnitude is wanted; abs is a no-op on GL.
+    return worldError / denom * (abs(u_Projection[1][1]) * 0.5) * u_ViewportHeight;
 }
 
 float ProjectGroupErrorPixels(VirtualGroup grp, VirtualInstance inst)
@@ -400,7 +413,8 @@ void EmitSurvivor(uint instanceIndex, uint clusterIndex, VirtualInstance inst, V
     {
         float dist = length(worldCenter - u_CameraPosition);
         float denom = max(dist - worldRadius, NearPlane());
-        float projRadiusPixels = worldRadius / denom * (u_Projection[1][1] * 0.5) * u_ViewportHeight;
+        // abs(): see ProjectErrorPixels — [1][1] is negative on Vulkan.
+        float projRadiusPixels = worldRadius / denom * (abs(u_Projection[1][1]) * 0.5) * u_ViewportHeight;
         // Sphere fully in front of the near plane <=> signed distance exceeds
         // the radius (with margin for w-precision).
         float nearDistance = dot(nearPlane.xyz, worldCenter) + nearPlane.w;

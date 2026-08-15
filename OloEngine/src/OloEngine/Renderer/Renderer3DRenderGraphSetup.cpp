@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/RenderPipelineBuilder.h"
 #include "OloEngine/Renderer/ShaderConstants.h"
 
@@ -52,13 +53,7 @@ namespace OloEngine
         scenePassSpec.Width = width;
         scenePassSpec.Height = height;
         scenePassSpec.Samples = 1;
-        scenePassSpec.Attachments = {
-            FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
-            FramebufferTextureFormat::RED_INTEGER, // [1] Entity ID attachment
-            FramebufferTextureFormat::RG16F,       // [2] View-space normals (octahedral encoded for SSAO)
-            FramebufferTextureFormat::RG16F,       // [3] Screen-space velocity (forward-path TAA input; unused in Deferred, which reads G-Buffer RT3)
-            FramebufferTextureFormat::Depth
-        };
+        scenePassSpec.Attachments = SceneRenderPass::SceneMRTAttachments();
 
         FramebufferSpecification finalPassSpec;
         finalPassSpec.Width = width;

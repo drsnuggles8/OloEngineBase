@@ -16,10 +16,12 @@
 //     from root + Field.Offset), then one u32 heap slot index per sampled
 //     texture (HEAP_WITH_INDIRECT_INDEX reads the index from root +
 //     Field.Offset and scales by the heap's descriptor stride).
-//   - Samplers are EMBEDDED per pipeline for now (pEmbeddedSampler): the
-//     pilot passes sample with one known sampler state, and the sampler-heap
-//     half (§1.2a's deduplicated second heap) composes in when the engine's
-//     RHI::DescriptorHeap starts running on this backend (Phase 7/8).
+//   - Samplers come from the SAMPLER HEAP (#691 Phase 8, §1.2a's
+//     deduplicated second heap): each combined-image-sampler field carries a
+//     second u32 (Offset + kSamplerIndexOffset) that indexes
+//     VulkanSamplerHeap; BindTexture stages it from the image's own recorded
+//     state (or an explicit desc). Nothing is embedded per pipeline, so
+//     sampler state is not a PSO axis.
 //
 // THIN PSO (§5): no VkPipelineVertexInputStateCreateInfo contents (vertex
 // pulling — geometry arrives as a root-struct buffer address), dynamic
@@ -52,6 +54,12 @@ namespace OloEngine
             u32 Offset = 0; ///< Byte offset of this field inside the root struct.
         };
 
+        // A CombinedImageSampler field is TWO u32s (#691 Phase 8): the image
+        // heap index at Offset and the sampler heap index at
+        // Offset + kSamplerIndexOffset — the mapping's samplerAddressOffset
+        // and AssembleAndPushRootData both add this same constant.
+        static constexpr u32 kSamplerIndexOffset = 4u;
+
         std::vector<Field> Fields;
         u32 SizeBytes = 0;
 
@@ -69,25 +77,24 @@ namespace OloEngine
         [[nodiscard]] static VulkanPipelineBuilder& Get();
 
         // Cached lookup or creation of the thin graphics pipeline for
-        // (shader, targets[, baked blend]). `embeddedSampler` is baked into
-        // every sampled-texture mapping (null → a linear/clamp-to-edge
-        // default, the post-process read shape).
+        // (shader, targets[, baked blend]). Sampler state is NOT a pipeline
+        // axis (#691 Phase 8): the mappings source the sampler half from the
+        // SAMPLER heap, indexed per draw from root data — the embedded
+        // per-pipeline sampler retired with the sampler heap.
         [[nodiscard]] VkPipeline GetOrCreateGraphics(VulkanShader& shader, const VulkanRootDataLayout& layout,
                                                      const VulkanRecordedPipelineState& state,
-                                                     const VulkanRenderTargetDesc& targets,
-                                                     const VkSamplerCreateInfo* embeddedSampler = nullptr);
+                                                     const VulkanRenderTargetDesc& targets);
 
         // The compute sibling (#691 Phase 7): same mapping chain, same
         // VK_NULL_HANDLE layout + DESCRIPTOR_HEAP flag, no fixed-function
-        // state at all. Keyed on (shaderKey, layout, sampler) — target and
+        // state at all. Keyed on (shaderKey, layout) — target and
         // blend fields stay zero, and shader keys are process-unique so a
         // compute key can never collide with a graphics one. `shaderKey` and
         // `module` are passed directly so this header needs no
         // VulkanComputeShader dependency; InvalidateShader(shaderKey) covers
         // compute pipelines through the same reverse index.
         [[nodiscard]] VkPipeline GetOrCreateCompute(u64 shaderKey, VkShaderModule module,
-                                                    const VulkanRootDataLayout& layout,
-                                                    const VkSamplerCreateInfo* embeddedSampler = nullptr);
+                                                    const VulkanRootDataLayout& layout);
 
         // Issue every vkCmdSet* for the states the pipelines above declare
         // dynamic, from the recorded state. Must run after vkCmdBindPipeline,
@@ -118,10 +125,10 @@ namespace OloEngine
         VulkanPipelineBuilder() = default;
 
         // The §4 mapping array for one root layout — shared verbatim by the
-        // graphics and compute paths so the two cannot drift. `sampler` must
-        // outlive pipeline creation (pEmbeddedSampler points at it).
+        // graphics and compute paths so the two cannot drift. Samplers come
+        // from the sampler heap (see GetOrCreateGraphics), never embedded.
         [[nodiscard]] static std::vector<VkDescriptorSetAndBindingMappingEXT>
-        BuildBindingMappings(const VulkanRootDataLayout& layout, const VkSamplerCreateInfo& sampler);
+        BuildBindingMappings(const VulkanRootDataLayout& layout);
 
         struct Key
         {
@@ -131,8 +138,7 @@ namespace OloEngine
             u32 ColorCount = 0;
             u32 Samples = 1;
             u64 BakedBlendHash = 0; ///< 0 when blend is dynamic (EDS3 present).
-            u64 SamplerHash = 0;
-            u64 LayoutHash = 0; ///< Root-data layout — drives the baked binding mappings.
+            u64 LayoutHash = 0;     ///< Root-data layout — drives the baked binding mappings.
             /// Baked patch size for a tessellated pipeline; 0 when the shader
             /// has no TCS/TES stage. patchControlPoints is only dynamic under
             /// extendedDynamicState2PatchControlPoints, which is NOT on the

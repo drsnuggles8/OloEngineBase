@@ -141,6 +141,9 @@ namespace OloEngine
         // Water surface-depth capture: forces depth-only state even for the blended
         // water draw so the nearest water surface is written to its own depth target.
         bool WaterDepthCaptureActive = false;
+        // Depth-only water program swapped in during the capture (snapshot in
+        // SetWaterDepthCaptureActive so shader hot-reloads are picked up).
+        RHI::ResourceHandle WaterDepthShaderID{};
 
         CommandDispatch::Statistics Stats;
     };
@@ -586,14 +589,27 @@ namespace OloEngine
                 HeapBinding::ResolveTextureOffset(texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
             if (!offset.IsValid())
             {
-                // Warned a bounded number of times: a heap that has run out stays
-                // out, so an unbounded log would bury every other message.
-                if (static std::atomic<u64> s_ResolveFailures{ 0 };
-                    s_ResolveFailures.fetch_add(1, std::memory_order_relaxed) < 8)
+                // ADR 0011 (68): a diagnostic naming a CAUSE must exclude the
+                // other causes of the same symptom. An invalid offset here has
+                // two structurally different sources, and only one is a
+                // failure: when the heap path simply is not live (Vulkan's
+                // deliberate slot-path design, or OLO_RHI_BINDLESS off on GL)
+                // the slot binds carry the texture and nothing renders black —
+                // warning "render BLACK" there sent live bring-up to the wrong
+                // layer. Only a program that actually READS material offsets
+                // can be hurt by a null offset.
+                if (HeapBinding::WritesOffsetsForBoundProgram())
                 {
-                    OLO_CORE_WARN("CommandDispatch: material texture has no heap descriptor — it will sample the "
-                                  "reserved null and render BLACK. The bindless program cannot fall back to slot "
-                                  "binds (issue #691 Phase 3).");
+                    // Warned a bounded number of times: a heap that has run
+                    // out stays out, so an unbounded log would bury every
+                    // other message.
+                    if (static std::atomic<u64> s_ResolveFailures{ 0 };
+                        s_ResolveFailures.fetch_add(1, std::memory_order_relaxed) < 8)
+                    {
+                        OLO_CORE_WARN("CommandDispatch: material texture heap-descriptor ACQUISITION failed — the "
+                                      "bindless program will sample the reserved null and render BLACK (it cannot "
+                                      "fall back to slot binds, issue #691 Phase 3).");
+                    }
                 }
                 return RHI::NullOffsetForSamplerKind(kind);
             }
@@ -1195,6 +1211,12 @@ namespace OloEngine
     void CommandDispatch::SetWaterDepthCaptureActive(bool active)
     {
         s_Data.WaterDepthCaptureActive = active;
+        if (active)
+        {
+            // Snapshot the depth-only water program once per capture — same
+            // hot-reload rationale as SetDepthPrepassActive.
+            s_Data.WaterDepthShaderID = Renderer3D::GetWaterDepthShaderID();
+        }
         // Invalidate so the next command — and the post-capture color command —
         // re-applies state; otherwise a same-render-state water command would
         // early-out and leak the depth-only override into the color pass.
@@ -1292,6 +1314,9 @@ namespace OloEngine
         cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(
             MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, origin));
         cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)
+        // Reconstruction flavour (#691 Phase 8): terrain tessellation scale,
+        // water depth math and the culling compute read this member.
+        cameraData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(projection);
         s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
         BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
     }
@@ -2624,11 +2649,20 @@ namespace OloEngine
         // Resolve and apply render state from table (cull, depth, blend enable).
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
-        // Bind shader (cached).
-        if (s_Data.CurrentBoundShader != cmd->shaderRendererID)
+        // Bind shader (cached). During the surface-depth capture the water
+        // color program is swapped for Water_Depth — the same VS/TCS/TES
+        // displacement chain with a no-color-output fragment stage, so the
+        // depth-only capture target needs no scene-MRT attachment mirroring
+        // (the depth-prepass shader-swap shape, #691 Phase 8).
+        RHI::ResourceHandle shaderToBind = cmd->shaderRendererID;
+        if (s_Data.WaterDepthCaptureActive && s_Data.WaterDepthShaderID.IsValid())
         {
-            api.BindShaderProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShader = cmd->shaderRendererID;
+            shaderToBind = s_Data.WaterDepthShaderID;
+        }
+        if (s_Data.CurrentBoundShader != shaderToBind)
+        {
+            api.BindShaderProgram(shaderToBind);
+            s_Data.CurrentBoundShader = shaderToBind;
             ++s_Data.Stats.ShaderBinds;
         }
 

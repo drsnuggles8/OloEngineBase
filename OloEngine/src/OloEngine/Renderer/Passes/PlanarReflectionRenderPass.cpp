@@ -48,9 +48,15 @@ namespace OloEngine
             FramebufferSpecification spec;
             spec.Width = m_Width;
             spec.Height = m_Height;
-            // HDR colour so the reflected lit scene keeps its dynamic range, plus
-            // a depth attachment so the re-rendered opaque geometry depth-sorts.
-            spec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::Depth };
+            // The replay re-runs the SCENE bucket's shaders, which write four
+            // MRT outputs — use the scene pass's own attachment-layout
+            // definition ([1] entity ID, [2] view normals, [3] velocity are
+            // simply ignored here) so every replayed pipeline's fragment
+            // interface matches its render targets. With only the colour
+            // attachment, each replayed draw triggered a Vulkan validation
+            // warning per unused output, and the replay-built PSOs could
+            // never be shared with the scene pass's (#691 Phase 8).
+            spec.Attachments = SceneRenderPass::SceneMRTAttachments();
             m_ReflectionFB = Framebuffer::Create(spec);
         }
         else if (m_ReflectionFB->GetSpecification().Width != m_Width ||
@@ -116,8 +122,19 @@ namespace OloEngine
             }
         };
 
+        const auto logArm = [&](u8 arm, const char* what)
+        {
+            if (m_LoggedExecuteArm != arm)
+            {
+                m_LoggedExecuteArm = arm;
+                OLO_CORE_INFO("[PlanarReflection] {} (enabled={}, scenePass={}, fb={})", what, m_Enabled,
+                              m_ScenePass != nullptr, m_ReflectionFB != nullptr);
+            }
+        };
+
         if (!m_Enabled || !m_ScenePass)
         {
+            logArm(2, "mirror replay off");
             publishDisabled();
             return;
         }
@@ -125,9 +142,11 @@ namespace OloEngine
         EnsureFramebuffer();
         if (!m_ReflectionFB)
         {
+            logArm(3, "mirror replay blocked — no reflection framebuffer");
             publishDisabled();
             return;
         }
+        logArm(1, "mirror replay running");
 
         // Snapshot the real camera (CommandDispatch holds it from BeginScene; the
         // scene pass never mutates it). Restored before we return.

@@ -5,6 +5,7 @@
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 namespace OloEngine
@@ -221,6 +222,13 @@ namespace OloEngine
         bindInfo.reservedRangeOffset = 0;
         bindInfo.reservedRangeSize = m_ReservedRangeSize;
         vkCmdBindResourceHeapEXT(cmd, &bindInfo);
+        // The SAMPLER heap rides along (#691 Phase 8): every pipeline's
+        // combined-image-sampler mappings source their sampler half from it,
+        // so any recording that binds this heap needs both or the first draw
+        // trips VUID-11308. Cascading here (like Release) is what keeps
+        // hand-recording callers — the Phase 6 pilot test was the first —
+        // from having to know a second heap exists.
+        VulkanSamplerHeap::Get().CmdBind(cmd);
     }
 
     void VulkanResourceHeap::Release()
@@ -242,6 +250,13 @@ namespace OloEngine
         // descriptors pointing at them just did).
         VulkanDescriptorSlotCache::Get().Reset();
         VulkanDescriptorHeapBackend::Get().ReleaseDeviceObjects();
+        // The SAMPLER heap is the other half of the same binding model (#691
+        // Phase 8) with the identical lifetime — cascading here is what keeps
+        // every device-gated test fixture (five of them release this heap at
+        // teardown) from having to know a second heap exists. Found the hard
+        // way: the first fixture teardown after the sampler heap landed
+        // tripped VMA's "allocations not freed" assert on its buffer.
+        VulkanSamplerHeap::Get().Release();
     }
 } // namespace OloEngine
 

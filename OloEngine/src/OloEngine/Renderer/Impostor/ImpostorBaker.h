@@ -37,6 +37,11 @@ namespace OloEngine
     class ImpostorBaker
     {
       public:
+        // Release the lazily-created 1x1 white fallback texture. Must run
+        // before the graphics context dies — a static Ref surviving into
+        // vmaDestroyAllocator is the Vulkan close-crash shape (#691 Phase 8).
+        static void Shutdown();
+
         // albedoTexture may be null (bakes tint-only via a white fallback).
         // tint multiplies the sampled albedo. framesPerAxis and atlasResolution
         // are clamped to sane ranges. Returns an invalid ImpostorAtlas on failure.
