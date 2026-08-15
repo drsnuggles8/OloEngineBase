@@ -1257,12 +1257,18 @@ namespace OloEngine
     // button. Runs whenever a graph is assigned — INCLUDING when it declares no
     // variables at all, which is precisely the case where every override present
     // is stale. Scoping this to the has-variables branch made those unreachable.
+    /// `graphAsset` is null when the component's handle resolves to nothing (no
+    /// graph assigned, or the asset was deleted/renamed). That case is treated as
+    /// "declares no variables", so every override shows up as stale and can be
+    /// removed — otherwise those keys are invisible in the inspector yet still
+    /// serialize into the scene, and the only way to get rid of them is to hand-edit
+    /// the .olo file.
     static void DrawVisualScriptStaleOverrides(VisualScriptComponent& component,
-                                               const OloEngine::VisualScript::VisualScriptAsset& graphAsset)
+                                               const OloEngine::VisualScript::VisualScriptAsset* graphAsset)
     {
         for (auto it = component.m_VariableOverrides.begin(); it != component.m_VariableOverrides.end();)
         {
-            if (graphAsset.FindVariable(it->first) != nullptr)
+            if (graphAsset != nullptr && graphAsset->FindVariable(it->first) != nullptr)
             {
                 ++it;
                 continue;
@@ -7141,11 +7147,14 @@ namespace OloEngine
             if (!graphAsset)
             {
                 ImGui::TextDisabled("Assign a graph to override its variables.");
+                // Overrides already on the component outlive the graph reference —
+                // clearing the handle, or deleting the asset, must not hide them.
+                DrawVisualScriptStaleOverrides(component, nullptr);
             }
             else if (graphAsset->m_Variables.empty())
             {
                 ImGui::TextDisabled("This graph declares no variables.");
-                DrawVisualScriptStaleOverrides(component, *graphAsset);
+                DrawVisualScriptStaleOverrides(component, graphAsset.Raw());
             }
             else
             {
@@ -7176,7 +7185,7 @@ namespace OloEngine
                     ImGui::PopID();
                 }
 
-                DrawVisualScriptStaleOverrides(component, *graphAsset);
+                DrawVisualScriptStaleOverrides(component, graphAsset.Raw());
             } });
 
         DrawComponent<DialogueComponent>("Dialogue", entity, [](auto& component)

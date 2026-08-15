@@ -31,6 +31,23 @@ namespace OloEngine::VisualScript
     inline constexpr NodeId kInvalidNodeId = 0;
     inline constexpr LinkId kInvalidLinkId = 0;
 
+    //-- Guarded numeric narrowing -------------------------------------------------
+    // Every value crossing into a graph arrives unvalidated — a Lua script's
+    // arithmetic, a YAML scalar someone hand-edited, a C# float. Narrowing a
+    // floating value that does not fit the destination is UNDEFINED BEHAVIOUR, not
+    // a saturating or wrapping result, so both directions get a checked helper
+    // rather than a bare static_cast at each of the (many) call sites.
+
+    /// True when `value` is finite AND within f32's range, i.e. `static_cast<f32>`
+    /// is defined for it. Callers refuse rather than clamp: an infinity written
+    /// into a blackboard variable poisons every node downstream of it, silently.
+    [[nodiscard]] bool IsRepresentableAsFloat(f64 value) noexcept;
+
+    /// Truncates toward zero like the cast it replaces, but yields 0 for anything
+    /// non-finite or outside i64. A finite f32 reaches ~3.4e38 against i64's
+    /// ~9.2e18, so "it was finite" is nowhere near enough of a guard.
+    [[nodiscard]] i64 IntFromFloat(f64 value) noexcept;
+
     /// A pin's value domain.
     ///
     /// `Exec` is a first-class member rather than a separate flag on purpose: link

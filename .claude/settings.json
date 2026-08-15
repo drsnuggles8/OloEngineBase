@@ -50,7 +50,7 @@
             "shell": "bash",
             "timeout": 15,
             "statusMessage": "Checking the build mutex",
-            "command": "if command -v python >/dev/null 2>&1; then python scripts/claude-build-lock-guard.py; elif command -v python3 >/dev/null 2>&1; then python3 scripts/claude-build-lock-guard.py; else cat >/dev/null; fi"
+            "command": "if command -v python >/dev/null 2>&1; then python scripts/claude-build-lock-guard.py; elif command -v python3 >/dev/null 2>&1; then python3 scripts/claude-build-lock-guard.py; else payload=$(cat); case \"$payload\" in *build-lock.ps1*|*OLO_BUILD_LOCK_BYPASS*) : ;; *'cmake --build'*|*ninja*|*msbuild*|*MSBuild*) printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked: Python is unavailable, so the build-lock guard cannot classify this command and fails CLOSED rather than letting an unlocked build through. Route the build through .claude/skills/run-oloengine/build-lock.ps1, install Python, or add the literal marker OLO_BUILD_LOCK_BYPASS if this is not a build.\"}}' ;; esac; fi"
           }
         ]
       }

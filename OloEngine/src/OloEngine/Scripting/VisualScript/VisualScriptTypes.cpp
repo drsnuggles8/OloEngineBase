@@ -6,6 +6,7 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <limits>
 #include <sstream>
 #include <system_error>
 
@@ -52,6 +53,12 @@ namespace OloEngine::VisualScript
             return value;
         }
 
+        // Exact powers of two either side of i64, so both comparisons below are
+        // exact in f64. 2^63 itself is NOT representable as i64, hence the strict
+        // upper bound.
+        constexpr f64 kIntMinAsFloat = -9223372036854775808.0; // -2^63
+        constexpr f64 kIntMaxAsFloat = 9223372036854775808.0;  //  2^63
+
         i64 IntFromStorage(std::string_view text)
         {
             i64 value = 0;
@@ -66,7 +73,9 @@ namespace OloEngine::VisualScript
             {
                 // Tolerate "3.7" landing in an Int pin — truncate rather than
                 // silently producing 0, which reads as a deliberate value.
-                return static_cast<i64>(FloatFromStorage(text));
+                // FloatFromStorage guarantees finite but NOT in-range for i64:
+                // "1e38" parses fine and is ~20 orders of magnitude too large.
+                return IntFromFloat(static_cast<f64>(FloatFromStorage(text)));
             }
             return value;
         }
@@ -130,6 +139,20 @@ namespace OloEngine::VisualScript
             return result;
         }
     } // namespace
+
+    bool IsRepresentableAsFloat(f64 value) noexcept
+    {
+        return std::isfinite(value) && std::abs(value) <= static_cast<f64>(std::numeric_limits<f32>::max());
+    }
+
+    i64 IntFromFloat(f64 value) noexcept
+    {
+        if (!std::isfinite(value) || value < kIntMinAsFloat || value >= kIntMaxAsFloat)
+        {
+            return 0;
+        }
+        return static_cast<i64>(value);
+    }
 
     const char* PinTypeToString(PinType type) noexcept
     {
@@ -339,10 +362,9 @@ namespace OloEngine::VisualScript
             case PinType::Int:
                 return std::get<i64>(m_Storage);
             case PinType::Float:
-            {
-                const f32 raw = std::get<f32>(m_Storage);
-                return std::isfinite(raw) ? static_cast<i64>(raw) : 0;
-            }
+                // Finite is not sufficient: f32 reaches ~3.4e38 against i64's
+                // ~9.2e18, and the out-of-range cast is undefined behaviour.
+                return IntFromFloat(static_cast<f64>(std::get<f32>(m_Storage)));
             case PinType::String:
                 return IntFromStorage(std::get<std::string>(m_Storage));
             case PinType::Entity:

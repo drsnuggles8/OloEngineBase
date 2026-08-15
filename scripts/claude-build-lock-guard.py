@@ -36,7 +36,12 @@ BYPASS_MARKER = "OLO_BUILD_LOCK_BYPASS"
 # is not good enough -- `Get-Process -Name cl,link,MSBuild` is a diagnostic, and
 # blocking it (which the first version of this did, within minutes) trains people
 # to reach for the bypass marker, which is worse than the check not existing.
-_STATEMENT = r"(?:^|[;&|(){}\n\"'])\s*"
+# A quote does NOT open a statement on its own: a line whose text merely BEGINS
+# with a build word (`"msbuild alive: " + ...` in a diagnostic script) is not an
+# invocation, and treating it as one is the second false positive this check has
+# produced. A quote only counts where a command genuinely follows one -- after the
+# call operator `&`, or after -Command / -c.
+_STATEMENT = r"(?:^|[;|(){}\n]\s*|&+\s*[\"']?\s*|(?:-Command|-c)\s+[\"']?\s*)"
 _PATH = r"(?:[A-Za-z]:)?(?:[\w.\-]*[\\/])*"
 
 # `cmake` alone is not enough -- `cmake --preset msvc` only configures, and
@@ -53,9 +58,32 @@ BUILD_PATTERNS = (
     ("msbuild", re.compile(_STATEMENT + _PATH + r"msbuild(?:\.exe)?(?![\w.\-])", re.IGNORECASE)),
 )
 
+# Splits a command into shell statements. Used so the exemption below is decided
+# per statement: `rg foo; cmake --build .` must NOT inherit rg's exemption.
+STATEMENT_SPLIT = re.compile(r"\|\||&&|[;&|\n]")
+
+# A heredoc body is DATA, not shell. Commit messages and docs routinely quote a
+# build command (`git commit -F - <<'MSG' ... cmake --build ... MSG`), and reading
+# that as an invocation blocks the commit describing the build system.
+HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
+
+
+def strip_heredocs(command):
+    """Removes `<<WORD ... WORD` bodies so only actual shell text is classified."""
+    while True:
+        start = HEREDOC_START.search(command)
+        if start is None:
+            return command
+        word = start.group(2)
+        rest = command[start.end():]
+        terminator = re.search(r"^[ \t]*" + re.escape(word) + r"[ \t]*$", rest, re.MULTILINE)
+        consumed = terminator.end() if terminator else len(rest)
+        command = command[: start.start()] + " " + command[start.end() + consumed :]
+
 # Tools that never start a build, but whose arguments routinely name one
-# (`rg "cmake --build" docs/`). Matched on the FIRST token only, so
-# `cd x && rg ...` is still inspected -- and so is `rg foo; cmake --build ...`.
+# (`rg "cmake --build" docs/`). The exemption applies only when EVERY statement
+# in the command leads with one of these, so `cd x && rg ...` is still
+# inspected, and so is `rg foo; cmake --build ...`.
 NON_BUILDING_TOOLS = frozenset(
     {
         "rg",
@@ -106,6 +134,14 @@ def matched_build_tool(command):
     return None
 
 
+def leads_with_non_building_tool(command):
+    """True only when EVERY statement in the command leads with a non-builder."""
+    statements = [s for s in STATEMENT_SPLIT.split(command) if s.strip()]
+    if not statements:
+        return False
+    return all(first_token(s) in NON_BUILDING_TOOLS for s in statements)
+
+
 def verdict(command):
     """The build tool this command would start unlocked, or None to allow it."""
     if not isinstance(command, str) or not command.strip():
@@ -114,9 +150,10 @@ def verdict(command):
         return None
     if BYPASS_MARKER in command:
         return None
-    if first_token(command) in NON_BUILDING_TOOLS:
+    shell = strip_heredocs(command)
+    if leads_with_non_building_tool(shell):
         return None
-    return matched_build_tool(command)
+    return matched_build_tool(shell)
 
 
 def deny(reason):
@@ -145,6 +182,9 @@ SELF_TEST_CASES = (
     ("msbuild OloEngine.sln /p:Configuration=Debug", True),
     ("& 'D:\\tools\\ninja.exe' -j6", True),
     ("CMAKE --BUILD build", True),
+    # A non-building leader must not exempt the statements after it.
+    ('rg -n "cmake --build" docs/; cmake --build build --parallel 6', True),
+    ("git log --oneline -5 && ninja -j6", True),
     ("pwsh -NoProfile -File " + LOCK_SCRIPT + " -Command 'cmake --build build'", False),
     ("pwsh -NoProfile -File " + LOCK_SCRIPT.replace("/", "\\") + " -Command 'ninja -j6'", False),
     ('rg -n "cmake --build" docs/', False),
@@ -154,6 +194,17 @@ SELF_TEST_CASES = (
     ("Test-Path build/build.ninja", False),
     ("Get-Item build/build.ninja | Select-Object Length", False),
     ("tasklist | findstr MSBuild", False),
+    # Diagnostics whose OUTPUT text starts with a build word. Both of these were
+    # blocked by earlier versions of this check.
+    ('"msbuild alive: " + @(Get-Process -Name MSBuild).Count', False),
+    ('$n = 1\n"ninja processes: " + $n', False),
+    ('Write-Output "cmake --build is the wrapped form"', False),
+    # A heredoc body is data. A commit message describing the build system must
+    # not read as running one.
+    ("git commit -F - <<'MSG'\nfix: rg foo; cmake --build . now blocked\nMSG", False),
+    # ...but a heredoc must not become a hiding place either: shell AFTER the
+    # terminator is still shell.
+    ("git commit -F - <<'MSG'\nmessage\nMSG\ncmake --build build --parallel 6", True),
     ("cmake --preset msvc", False),
     ("cmake --version", False),
     ("git log --oneline -5", False),

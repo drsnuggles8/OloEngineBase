@@ -14,6 +14,9 @@
 
 #include <mono/jit/jit.h>
 #include <mono/metadata/assembly.h>
+#include <mono/metadata/blob.h>
+#include <mono/metadata/loader.h>
+#include <mono/metadata/metadata.h>
 #include <mono/metadata/object.h>
 #include "mono/metadata/tabledefs.h"
 #include "mono/metadata/mono-debug.h"
@@ -605,6 +608,24 @@ namespace OloEngine
         return method != nullptr && (::mono_method_get_flags(method, nullptr) & METHOD_ATTRIBUTE_STATIC) != 0;
     }
 
+    bool ScriptClass::IsMethodSingleFloatParameter(MonoMethod* method)
+    {
+        if (method == nullptr)
+        {
+            return false;
+        }
+        MonoMethodSignature* signature = ::mono_method_signature(method);
+        if (signature == nullptr || ::mono_signature_get_param_count(signature) != 1)
+        {
+            return false;
+        }
+        void* iterator = nullptr;
+        const MonoType* parameter = ::mono_signature_get_params(signature, &iterator);
+        // MONO_TYPE_R4 is `float`; MONO_TYPE_R8 (`double`) is deliberately refused
+        // too, because the caller passes the address of an f32.
+        return parameter != nullptr && ::mono_type_get_type(const_cast<MonoType*>(parameter)) == MONO_TYPE_R4;
+    }
+
     MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params, bool* outThrew)
     {
         MonoObject* exception = nullptr;
@@ -809,6 +830,13 @@ namespace OloEngine
     {
         // Scripting-disabled build: no method is ever invoked, so refuse rather
         // than claim a property we cannot check.
+        return false;
+    }
+
+    bool ScriptClass::IsMethodSingleFloatParameter(MonoMethod*)
+    {
+        // Same reasoning as IsMethodStatic: refuse rather than claim a signature
+        // property that cannot be inspected without Mono.
         return false;
     }
 

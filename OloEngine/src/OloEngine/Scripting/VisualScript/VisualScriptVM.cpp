@@ -347,6 +347,27 @@ namespace OloEngine::VisualScript
         for (const VisualScriptGraph& function : asset.m_Functions)
         {
             plan->m_Functions.push_back(compiler.Compile(function));
+
+            // A latent node inside a FUNCTION cannot work, and fails silently
+            // rather than loudly: NodeContext::CallFunction runs the body
+            // synchronously and pops the return frame the moment ExecuteFrom comes
+            // back. A Delay parks instead of finishing, so the call returns
+            // immediately with empty results, and when the latent later resumes its
+            // Function.Return finds no frame at all. Supporting it needs persistent
+            // call frames; until then, refusing at COMPILE time is the only honest
+            // outcome — the author sees an error on the graph instead of a function
+            // that quietly returns nothing. Latents in the EVENT graph are
+            // unaffected; that is where they are designed to live.
+            const CompiledGraph& compiled = plan->m_Functions.back();
+            for (const CompiledNode& node : compiled.m_Nodes)
+            {
+                if (node.m_Type != nullptr && HasFlag(node.m_Type->m_Flags, NodeFlags::Latent))
+                {
+                    outErrors.push_back({ function.m_Name, node.m_SourceId,
+                                          "Latent nodes (Delay, Wait For Event) are not supported inside a function; put them in the event graph" });
+                    compiler.m_Failed = true;
+                }
+            }
         }
 
         if (compiler.m_Failed)
@@ -687,6 +708,18 @@ namespace OloEngine::VisualScript
         if (depth > kMaxExecDepth)
         {
             ReportError("Exec chain deeper than " + std::to_string(kMaxExecDepth) + " nodes; halted");
+            return;
+        }
+        // A breakpoint must stop the WHOLE run, not just the node that hit it.
+        // Returning from the break below only unwinds ONE level, so without this
+        // guard a Sequence's later pins, the remaining entries of a multi-handler
+        // event, and anything after a nested ExecuteFrom all kept executing while
+        // the debugger claimed to be stopped. The budget guard gets this behaviour
+        // for free because its counter stays at zero once exhausted; the pause flag
+        // has to be re-checked explicitly. Checked BEFORE ConsumeBudget so a paused
+        // graph does not burn its per-tick budget while the author reads the canvas.
+        if (m_Debug.m_Paused)
+        {
             return;
         }
         if (!ConsumeBudget())

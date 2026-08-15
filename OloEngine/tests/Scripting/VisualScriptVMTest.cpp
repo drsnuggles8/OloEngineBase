@@ -27,6 +27,7 @@
 #include "OloEngine/Scripting/VisualScript/VisualScriptNodeRegistry.h"
 #include "OloEngine/Scripting/VisualScript/VisualScriptVM.h"
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -482,6 +483,39 @@ TEST_F(VisualScriptVMTest, FunctionCallRejectsAnUnknownTarget)
     EXPECT_FALSE(Instantiate()) << "a call to a function that does not exist must fail the compile";
 }
 
+TEST_F(VisualScriptVMTest, CompileRejectsALatentNodeInsideAFunction)
+{
+    // CallFunction runs the body synchronously and pops the return frame the
+    // moment ExecuteFrom returns, so a Delay inside a function parks, the call
+    // returns empty, and the later resume finds no frame to return into. None of
+    // that is visible at runtime — the function just quietly yields nothing — so
+    // the only honest place to catch it is the compile.
+    VisualScriptGraph& function = m_Asset->m_Functions.emplace_back();
+    function.m_Name = "Waits";
+    const NodeId entry = function.AddNode(std::string(NodeTypes::kFunctionEntry)).m_Id;
+    const NodeId delay = function.AddNode("Flow.Delay").m_Id;
+    const NodeId ret = function.AddNode(std::string(NodeTypes::kFunctionReturn)).m_Id;
+    function.AddLink(entry, "Then", delay, "Enter");
+    function.AddLink(delay, "Completed", ret, "Enter");
+
+    Graph().AddNode(std::string(NodeTypes::kOnBeginPlay));
+
+    EXPECT_FALSE(Instantiate()) << "a latent node in a function must fail the compile, not fail silently at runtime";
+    ASSERT_FALSE(m_Errors.empty());
+    EXPECT_NE(m_Errors.front().m_Message.find("Latent"), std::string::npos)
+        << "the diagnostic must name the actual problem; got: " << m_Errors.front().m_Message;
+}
+
+TEST_F(VisualScriptVMTest, LatentNodesStillCompileInTheEventGraph)
+{
+    // The guard above must not have outlawed latents outright — the event graph
+    // is where they are designed to live.
+    const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
+    const NodeId delay = Graph().AddNode("Flow.Delay").m_Id;
+    Graph().AddLink(begin, "Then", delay, "Enter");
+    EXPECT_TRUE(Instantiate());
+}
+
 //==============================================================================
 // Data pull
 //==============================================================================
@@ -679,6 +713,120 @@ TEST_F(VisualScriptVMTest, GuardDeepExecChainIsBoundedNotAStackOverflow)
     m_Instance.BeginPlay(runtime);
     EXPECT_FALSE(m_Instance.GetErrors().empty()) << "exceeding the depth cap must be reported";
     EXPECT_LT(m_Log.size(), 400u) << "the chain must have been cut short, not run to completion";
+}
+
+TEST_F(VisualScriptVMTest, BreakpointPauseAbandonsEveryLaterBranchInTheRun)
+{
+    // Hitting a breakpoint only RETURNS from one ExecuteFrom frame, so without an
+    // explicit re-check the caller keeps going: the sequence's second branch ran
+    // to completion while the debugger reported "paused". That is the worst kind
+    // of debugger bug — the side effects the author is stepping through happen
+    // behind the paused canvas.
+    AddVariable("First", PinType::Bool, PinValue::MakeBool(false));
+    AddVariable("Second", PinType::Bool, PinValue::MakeBool(false));
+
+    const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
+    const NodeId sequence = Graph().AddNode(std::string(NodeTypes::kSequence)).m_Id;
+    Graph().FindNode(sequence)->SetProperty(std::string(NodeProps::kOutputCount), "2");
+    Graph().AddLink(begin, "Then", sequence, "Enter");
+
+    const NodeId setFirst = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(setFirst)->SetProperty(std::string(NodeProps::kVariableName), "First");
+    Graph().FindNode(setFirst)->m_PinDefaults["Value"] = PinValue::MakeBool(true);
+    const NodeId setSecond = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(setSecond)->SetProperty(std::string(NodeProps::kVariableName), "Second");
+    Graph().FindNode(setSecond)->m_PinDefaults["Value"] = PinValue::MakeBool(true);
+
+    Graph().AddLink(sequence, "Then 0", setFirst, "Enter");
+    Graph().AddLink(sequence, "Then 1", setSecond, "Enter");
+
+    ASSERT_TRUE(Instantiate());
+    m_Instance.Debug().m_Breakpoints.insert(DebugState::MakeKey(0, setFirst));
+
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    EXPECT_TRUE(m_Instance.Debug().m_Paused);
+    EXPECT_FALSE(m_Instance.GetVariable("First").AsBool()) << "breaking happens BEFORE the node body runs";
+    EXPECT_FALSE(m_Instance.GetVariable("Second").AsBool())
+        << "a pause must abandon the whole run, including branches the paused node never reached";
+}
+
+TEST_F(VisualScriptVMTest, ResumingAfterABreakpointRunsTheGraphAgain)
+{
+    // The guard above early-returns from ExecuteFrom while paused; this proves it
+    // is a pause and not a permanent kill switch.
+    AddVariable("Count", PinType::Float, PinValue::MakeFloat(0.0f));
+
+    // Built inline rather than via BuildCounterGraph so the setter's NodeId is in
+    // hand for the breakpoint key.
+    const NodeId update = Graph().AddNode(std::string(NodeTypes::kOnUpdate)).m_Id;
+    const NodeId get = Graph().AddNode(std::string(NodeTypes::kGetVariable)).m_Id;
+    Graph().FindNode(get)->SetProperty(std::string(NodeProps::kVariableName), "Count");
+    const NodeId add = Graph().AddNode("Math.Add").m_Id;
+    Graph().FindNode(add)->m_PinDefaults["B"] = PinValue::MakeFloat(1.0f);
+    const NodeId set = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(set)->SetProperty(std::string(NodeProps::kVariableName), "Count");
+    Graph().AddLink(update, "Then", set, "Enter");
+    Graph().AddLink(get, "Value", add, "A");
+    Graph().AddLink(add, "Result", set, "Value");
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    m_Instance.Debug().m_Breakpoints.insert(DebugState::MakeKey(0, set));
+    m_Instance.Tick(runtime);
+    ASSERT_TRUE(m_Instance.Debug().m_Paused);
+    const f32 whilePaused = m_Instance.GetVariable("Count").AsFloat();
+
+    m_Instance.Tick(runtime);
+    EXPECT_FLOAT_EQ(m_Instance.GetVariable("Count").AsFloat(), whilePaused) << "a paused graph must not tick";
+
+    m_Instance.Debug().m_Breakpoints.clear();
+    m_Instance.DebugResume();
+    m_Instance.Tick(runtime);
+    EXPECT_GT(m_Instance.GetVariable("Count").AsFloat(), whilePaused) << "resuming must let the graph run again";
+}
+
+//==============================================================================
+// Numeric narrowing
+//==============================================================================
+
+TEST_F(VisualScriptVMTest, OutOfRangeFloatToIntYieldsZeroRatherThanUndefinedBehaviour)
+{
+    // f32 reaches ~3.4e38; i64 stops at ~9.2e18. "It is finite" was the old guard,
+    // and a finite-but-huge value made the cast undefined behaviour.
+    EXPECT_EQ(PinValue::MakeFloat(3.0e38f).AsInt(), 0);
+    EXPECT_EQ(PinValue::MakeFloat(-3.0e38f).AsInt(), 0);
+
+    // The string path reaches the same helper only when the INTEGER parse fails
+    // outright. std::from_chars' integer overload succeeds on a prefix, so "1e38"
+    // reads as 1 and "3.7" as 3 without ever consulting the float fallback —
+    // pinned here because it is surprising, and because a future rewrite of
+    // IntFromStorage that "fixed" it would silently change stored values.
+    EXPECT_EQ(PinValue::MakeString("1e38").ConvertTo(PinType::Int).AsInt(), 1);
+    EXPECT_EQ(PinValue::MakeString("3.7").ConvertTo(PinType::Int).AsInt(), 3);
+    // A leading '.' does fail the integer parse, so this one goes through the
+    // float fallback with a value ~19 orders of magnitude past i64.
+    EXPECT_EQ(PinValue::MakeString(".5e38").ConvertTo(PinType::Int).AsInt(), 0)
+        << "the float fallback must refuse an out-of-range value rather than cast it";
+
+    // In-range values still truncate toward zero exactly as before.
+    EXPECT_EQ(PinValue::MakeFloat(3.7f).AsInt(), 3);
+    EXPECT_EQ(PinValue::MakeFloat(-3.7f).AsInt(), -3);
+    EXPECT_EQ(PinValue::MakeString(".5").ConvertTo(PinType::Int).AsInt(), 0);
+}
+
+TEST_F(VisualScriptVMTest, IsRepresentableAsFloatRejectsWhatNarrowingCannotHold)
+{
+    EXPECT_TRUE(IsRepresentableAsFloat(0.0));
+    EXPECT_TRUE(IsRepresentableAsFloat(-1.5));
+    EXPECT_TRUE(IsRepresentableAsFloat(static_cast<f64>(std::numeric_limits<f32>::max())));
+    EXPECT_FALSE(IsRepresentableAsFloat(1.0e300)) << "finite, but narrowing it to f32 is undefined behaviour";
+    EXPECT_FALSE(IsRepresentableAsFloat(-1.0e300));
+    EXPECT_FALSE(IsRepresentableAsFloat(std::numeric_limits<f64>::infinity()));
+    EXPECT_FALSE(IsRepresentableAsFloat(std::numeric_limits<f64>::quiet_NaN()));
 }
 
 TEST_F(VisualScriptVMTest, EventsOnlyFireAfterBeginPlay)

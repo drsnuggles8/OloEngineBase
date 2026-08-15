@@ -6,6 +6,8 @@
 
 #include <sol/sol.hpp>
 
+#include <cmath>
+#include <limits>
 #include <string>
 
 namespace OloEngine
@@ -93,10 +95,36 @@ namespace OloEngine::VisualScript
                 case sol::type::number:
                 {
                     const f64 raw = object.as<f64>();
+                    // Every cast below is guarded first: converting a floating value
+                    // that does not fit the destination is undefined behaviour, not
+                    // a saturating or wrapping result, and Lua reaches this with
+                    // whatever a script computed — inf, NaN and 1e300 included.
+                    if (!std::isfinite(raw))
+                    {
+                        return {};
+                    }
+
                     // Lua has one number type; keep integral results integral so a
                     // count wired into an Int pin does not round-trip through f32.
-                    const i64 asInt = static_cast<i64>(raw);
-                    return (static_cast<f64>(asInt) == raw) ? PinValue::MakeInt(asInt) : PinValue::MakeFloat(static_cast<f32>(raw));
+                    // fpclassify rather than `fraction == 0.0`: comparing floats
+                    // with == is banned repo-wide (CLAUDE.md -> Conventions).
+                    f64 integral = 0.0;
+                    const f64 fraction = std::modf(raw, &integral);
+                    // Bounds are the exact powers of two either side of i64, so both
+                    // comparisons are exact in f64. 2^63 itself is NOT representable
+                    // as i64, hence the strict upper bound.
+                    constexpr f64 kIntMin = -9223372036854775808.0; // -2^63
+                    constexpr f64 kIntMax = 9223372036854775808.0;  //  2^63
+                    if (std::fpclassify(fraction) == FP_ZERO && integral >= kIntMin && integral < kIntMax)
+                    {
+                        return PinValue::MakeInt(static_cast<i64>(integral));
+                    }
+
+                    if (std::abs(raw) > static_cast<f64>(std::numeric_limits<f32>::max()))
+                    {
+                        return {};
+                    }
+                    return PinValue::MakeFloat(static_cast<f32>(raw));
                 }
                 case sol::type::string:
                     return PinValue::MakeString(object.as<std::string>());
@@ -192,6 +220,17 @@ namespace OloEngine::VisualScript
                              if (!ScriptClass::IsMethodStatic(method))
                              {
                                  ctx.Error("C# method '" + className + "." + methodName + "' must be static");
+                                 ctx.Trigger(4);
+                                 return;
+                             }
+
+                             // GetMethod matched on ARITY alone, so `void F(string)`
+                             // is still sitting here. Passing &argument to it makes
+                             // mono reinterpret an f32* as a MonoString* — memory
+                             // corruption, not a catchable managed error.
+                             if (!ScriptClass::IsMethodSingleFloatParameter(method))
+                             {
+                                 ctx.Error("C# method '" + className + "." + methodName + "' must take exactly one float parameter");
                                  ctx.Trigger(4);
                                  return;
                              }

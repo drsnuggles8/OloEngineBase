@@ -181,11 +181,18 @@ namespace OloEngine::VisualScript
             }
             m_EntityScratch.push_back(id);
 
-            // No graph assigned yet — the state a freshly added component is in,
-            // and also how a test installs a pre-compiled plan directly
-            // (InstallInstanceForTesting). Leave any existing instance alone.
+            // No graph assigned. A freshly added component is in this state, and so
+            // is a test that installed a pre-compiled plan directly
+            // (InstallInstanceForTesting) — that one has no recorded SOURCE, which
+            // is what distinguishes it from an author clearing the graph field. The
+            // latter must tear the instance down, or clearing the field reads as
+            // having done nothing while the old graph keeps ticking.
             if (static_cast<u64>(component.m_Graph) == 0)
             {
+                if (m_InstanceSource.contains(id))
+                {
+                    EndAndErase(id);
+                }
                 continue;
             }
 
@@ -197,12 +204,17 @@ namespace OloEngine::VisualScript
 
             // Either brand new, or the author repointed the component at a
             // different graph — in both cases the old instance's state is
-            // meaningless against the new plan.
+            // meaningless against the new plan. Route the replacement through
+            // EndAndErase (a no-op when there is no instance) so the OUTGOING graph
+            // still gets its OnEndPlay: insert_or_assign alone would drop it, and
+            // Event.OnEndPlay's contract is that it fires whenever the instance
+            // goes away. This has to happen before the compile, so a graph that
+            // fails to compile still ends the instance it replaced.
+            EndAndErase(id);
+
             Ref<VisualScriptPlan> plan = GetOrCompilePlan(component.m_Graph);
             if (!plan)
             {
-                m_Instances.erase(id);
-                m_InstanceSource.erase(id);
                 continue;
             }
 

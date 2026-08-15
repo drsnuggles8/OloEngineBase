@@ -115,6 +115,13 @@ namespace OloEngine
         /// here so callers do not have to include the Mono headers themselves.
         [[nodiscard("Store this!")]] static bool IsMethodStatic(MonoMethod* method);
 
+        /// True only for a method taking exactly one `float`. GetMethod matches on
+        /// ARITY alone, so a one-argument overload taking anything else — int,
+        /// string, a struct — comes back happily and then reinterprets the caller's
+        /// `f32*` as that type inside mono_runtime_invoke. That is memory
+        /// corruption, not a managed exception, so it has to be refused up front.
+        [[nodiscard("Store this!")]] static bool IsMethodSingleFloatParameter(MonoMethod* method);
+
         [[nodiscard("Store this!")]] const std::map<std::string, ScriptField>& GetFields() const
         {
             return m_Fields;

@@ -3979,13 +3979,14 @@ namespace OloEngine
                 else if (payload.is<f64>())
                 {
                     const f64 raw = payload.as<f64>();
-                    const f32 narrowed = static_cast<f32>(raw);
-                    // Checked on BOTH sides: a finite f64 past FLT_MAX becomes an
-                    // infinite f32, and an infinity in a graph variable poisons
-                    // every downstream node silently.
-                    if (!std::isfinite(raw) || !std::isfinite(narrowed))
+                    // Range-checked BEFORE the narrowing cast, not after: converting
+                    // a double whose magnitude exceeds FLT_MAX is undefined
+                    // behaviour, so inspecting the result is already too late. An
+                    // infinity in a graph variable poisons every downstream node
+                    // silently, which is why this refuses rather than clamps.
+                    if (!VisualScript::IsRepresentableAsFloat(raw))
                         return false;
-                    value = VisualScript::PinValue::MakeFloat(narrowed);
+                    value = VisualScript::PinValue::MakeFloat(static_cast<f32>(raw));
                 }
                 else if (payload.is<std::string>())
                     value = VisualScript::PinValue::MakeString(payload.as<std::string>());
@@ -4042,7 +4043,9 @@ namespace OloEngine
             else if (newValue.is<f64>())
             {
                 const f64 raw = newValue.as<f64>();
-                if (!std::isfinite(raw))
+                // Same pre-cast range check as send_event above: a finite Lua number
+                // past FLT_MAX is undefined behaviour to narrow, not an infinity.
+                if (!VisualScript::IsRepresentableAsFloat(raw))
                     return false;
                 value = VisualScript::PinValue::MakeFloat(static_cast<f32>(raw));
             }
