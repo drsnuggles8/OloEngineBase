@@ -2776,12 +2776,15 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
+                    // Ctrl+Shift+Z is the other conventional Redo binding; without
+                    // this it fell through to Undo, so the two shortcuts disagreed.
+                    const bool redo = shift;
                     if (m_ShowVisualScriptEditor && m_VisualScriptEditorPanel.IsOpen() && m_VisualScriptEditorPanel.IsFocused())
-                        m_VisualScriptEditorPanel.Undo();
+                        redo ? m_VisualScriptEditorPanel.Redo() : m_VisualScriptEditorPanel.Undo();
                     else if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
-                        m_ShaderGraphEditorPanel.Undo();
+                        redo ? m_ShaderGraphEditorPanel.Redo() : m_ShaderGraphEditorPanel.Undo();
                     else
-                        m_CommandHistory.Undo();
+                        redo ? m_CommandHistory.Redo() : m_CommandHistory.Undo();
                     SyncWindowTitle();
                 }
                 break;

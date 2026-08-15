@@ -186,10 +186,24 @@ namespace OloEngine::VisualScript
                                  return;
                              }
 
+                             // Instance is nullptr below, so the method MUST be static —
+                             // mono_runtime_invoke with a null `this` on an instance
+                             // method is undefined behaviour, not a catchable error.
+                             if (!ScriptClass::IsMethodStatic(method))
+                             {
+                                 ctx.Error("C# method '" + className + "." + methodName + "' must be static");
+                                 ctx.Trigger(4);
+                                 return;
+                             }
+
                              f32 argument = ctx.GetInputFloat(3);
                              void* params[] = { &argument };
-                             (void)scriptClass->InvokeMethod(nullptr, method, params);
-                             ctx.SetOutput(5, PinValue::MakeBool(true));
+                             bool threw = false;
+                             (void)scriptClass->InvokeMethod(nullptr, method, params, &threw);
+                             // Succeeded reflects whether the managed call actually
+                             // completed. The returned MonoObject* cannot: a void
+                             // method returns nullptr whether or not it threw.
+                             ctx.SetOutput(5, PinValue::MakeBool(!threw));
                              ctx.Trigger(4);
                          });
     }

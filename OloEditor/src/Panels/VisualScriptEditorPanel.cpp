@@ -760,8 +760,12 @@ namespace OloEngine
         }
 
         //-- Title -----------------------------------------------------------------
-        const std::string& title = layout.m_Type != nullptr ? layout.m_Type->m_DisplayName : std::string("<unknown node>");
-        draw->AddText(ImVec2(topLeft.x + 8.0f * zoom, topLeft.y + 5.0f * zoom), IM_COL32(240, 240, 240, 255), title.c_str());
+        // A ternary mixing an lvalue std::string with a temporary yields a PRVALUE,
+        // so the old form copied the display name into a new string for every node,
+        // every frame. Pick the C string instead — both operands are then plain
+        // pointers with no allocation and nothing to outlive.
+        const char* title = layout.m_Type != nullptr ? layout.m_Type->m_DisplayName.c_str() : "<unknown node>";
+        draw->AddText(ImVec2(topLeft.x + 8.0f * zoom, topLeft.y + 5.0f * zoom), IM_COL32(240, 240, 240, 255), title);
 
         //-- Pins ------------------------------------------------------------------
         for (sizet i = 0; i < layout.m_Pins.size(); ++i)
@@ -886,6 +890,15 @@ namespace OloEngine
         const NodeLayout* source = FindLayout(m_LinkSourceNode);
         const NodeLayout* target = FindLayout(targetNode);
         if (source == nullptr || target == nullptr || m_LinkSourcePin < 0 || targetPin < 0)
+        {
+            return;
+        }
+        // Upper bounds too: m_LinkSourcePin was captured on the PRESS frame, and
+        // the layout is rebuilt every frame from the live pin resolver. Anything
+        // that shrinks a node's pin list mid-drag (editing a Sequence's output
+        // count, retyping a variable) would leave the index past the end.
+        if (static_cast<sizet>(m_LinkSourcePin) >= source->m_Pins.size() ||
+            static_cast<sizet>(targetPin) >= target->m_Pins.size())
         {
             return;
         }
@@ -1137,10 +1150,10 @@ namespace OloEngine
 
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
             Save();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false))
-            Undo();
-        if (io.KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_Y, false) || (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false))))
-            Redo();
+        // Undo/redo are NOT handled here. EditorLayer::OnKeyPressed already routes
+        // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z to this panel when it has focus, so a
+        // second binding made every undo fire twice — and the old local pair also
+        // ran Undo AND Redo for Ctrl+Shift+Z, since both conditions matched.
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false))
             CopySelection();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false))

@@ -65,12 +65,12 @@ namespace
         bool Instantiate()
         {
             m_Errors.clear();
-            Ref<VisualScriptPlan> plan = VisualScriptPlan::Compile(*m_Asset, m_Errors);
-            if (!plan)
+            m_Plan = VisualScriptPlan::Compile(*m_Asset, m_Errors);
+            if (!m_Plan)
             {
                 return false;
             }
-            m_Instance = VisualScriptInstance(plan, UUID(1234));
+            m_Instance = VisualScriptInstance(m_Plan, UUID(1234));
             return true;
         }
 
@@ -85,6 +85,9 @@ namespace
         }
 
         Ref<VisualScriptAsset> m_Asset;
+        /// Kept so tests that build extra instances share the compiled plan
+        /// without const_cast-ing it back out of the instance.
+        Ref<VisualScriptPlan> m_Plan;
         VisualScriptInstance m_Instance;
         std::vector<CompileDiagnostic> m_Errors;
         std::vector<EmittedEvent> m_Outbox;
@@ -549,8 +552,8 @@ TEST_F(VisualScriptVMTest, DeterminismTwoInstancesOfOnePlanProduceIdenticalResul
     // Both instances share the compiled plan — this is the per-entity instancing
     // claim. If the plan carried mutable state, the second instance would start
     // wherever the first left off.
-    VisualScriptInstance first(Ref<VisualScriptPlan>(const_cast<VisualScriptPlan*>(m_Instance.GetPlan())), UUID(1));
-    VisualScriptInstance second(Ref<VisualScriptPlan>(const_cast<VisualScriptPlan*>(m_Instance.GetPlan())), UUID(2));
+    VisualScriptInstance first(m_Plan, UUID(1));
+    VisualScriptInstance second(m_Plan, UUID(2));
 
     RuntimeContext runtime = MakeRuntime();
     first.BeginPlay(runtime);
@@ -580,11 +583,10 @@ TEST_F(VisualScriptVMTest, DeterminismRandomNodeReproducesFromTheSameSeed)
     Graph().AddLink(random, "Result", set, "Value");
 
     ASSERT_TRUE(Instantiate());
-    Ref<VisualScriptPlan> plan(const_cast<VisualScriptPlan*>(m_Instance.GetPlan()));
 
     const auto run = [&](u64 seed)
     {
-        VisualScriptInstance instance(plan, UUID(1));
+        VisualScriptInstance instance(m_Plan, UUID(1));
         u64 state = seed;
         RuntimeContext runtime = MakeRuntime();
         runtime.m_RandomState = &state;

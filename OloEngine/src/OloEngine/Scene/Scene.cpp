@@ -1723,12 +1723,18 @@ namespace OloEngine
         // per-entity Lua cleanup in DestroyEntity still fires during callbacks.
         m_IsRunning = false;
 
-        // Fire OnEndPlay on every graph, then drop them. Runs BEFORE the bus is
-        // Clear()ed so an end-of-session graph event still reaches subscribers.
+        // Fire OnEndPlay on every graph and drop their instances. Runs BEFORE the
+        // bus is Clear()ed so an end-of-session graph event still reaches
+        // subscribers.
+        //
+        // The SYSTEM itself is deliberately NOT destroyed here — its bus handlers
+        // capture `this`, and the bus is not Clear()ed until further down. Freeing
+        // it now would leave every handler dangling for the rest of this function,
+        // so anything that published in between would be a use-after-free. The
+        // reset happens immediately after the Clear().
         if (m_VisualScriptSystem)
         {
             m_VisualScriptSystem->OnRuntimeStop();
-            m_VisualScriptSystem.reset();
         }
 
         // Shut down dialogue system
@@ -1785,6 +1791,11 @@ namespace OloEngine
         {
             m_GameplayEventBus->Clear();
         }
+
+        // Only now is it safe to free the visual-script system: its bus handlers
+        // captured `this`, and the Clear() above is what unregisters them.
+        // OnRuntimeStop already ran further up, so its graphs have had OnEndPlay.
+        m_VisualScriptSystem.reset();
 
         // Drop UI focus + widget-event delegates so a stop/play cycle starts with
         // a clean focus state and no stale callbacks (scripts/UI re-register on start).

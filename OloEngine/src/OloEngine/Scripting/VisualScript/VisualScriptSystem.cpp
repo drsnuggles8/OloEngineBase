@@ -215,9 +215,12 @@ namespace OloEngine::VisualScript
         // Drop instances whose entity or component is gone. Iterating the map and
         // erasing through the iterator (rather than collecting first) is safe:
         // nothing here re-enters the map.
+        // Built once per sync rather than scanning m_EntityScratch per instance:
+        // the sweep was O(instances x entities), which is the same set twice over.
+        const std::unordered_set<UUID> live(m_EntityScratch.begin(), m_EntityScratch.end());
         for (auto it = m_Instances.begin(); it != m_Instances.end();)
         {
-            const bool stillPresent = std::ranges::find(m_EntityScratch, it->first) != m_EntityScratch.end();
+            const bool stillPresent = live.contains(it->first);
             if (stillPresent)
             {
                 ++it;
@@ -482,17 +485,22 @@ namespace OloEngine::VisualScript
         // Forget every instance built from it. SyncInstances rebuilds them on the
         // next tick, which also re-runs OnBeginPlay — the right behaviour for a
         // graph whose logic just changed.
-        for (auto it = m_InstanceSource.begin(); it != m_InstanceSource.end();)
+        //
+        // Collected first, then removed: EndAndErase mutates BOTH maps, so doing
+        // it inside a walk of m_InstanceSource would invalidate the iterator. And
+        // it must be EndAndErase rather than a bare erase, or a hot-reload is the
+        // one teardown path that silently skips OnEndPlay.
+        std::vector<UUID> affected;
+        for (const auto& [entity, source] : m_InstanceSource)
         {
-            if (it->second == handle)
+            if (source == handle)
             {
-                m_Instances.erase(it->first);
-                it = m_InstanceSource.erase(it);
+                affected.push_back(entity);
             }
-            else
-            {
-                ++it;
-            }
+        }
+        for (const UUID entity : affected)
+        {
+            EndAndErase(entity);
         }
     }
 

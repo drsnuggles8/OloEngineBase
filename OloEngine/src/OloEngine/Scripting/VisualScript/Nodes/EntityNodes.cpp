@@ -7,6 +7,7 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 
+#include <cmath>
 #include <optional>
 
 namespace OloEngine::VisualScript
@@ -245,6 +246,16 @@ namespace OloEngine::VisualScript
                                  {
                                      ctx.Error("Unknown component name '" + name + "'");
                                  }
+                                 else if (!add && (name == "Transform" || name == "Tag"))
+                                 {
+                                     // Every entity is assumed to carry Transform and
+                                     // Tag: transform propagation, rendering, the
+                                     // spatial index, serialization and Entity::GetName
+                                     // all read them unconditionally. Letting a graph
+                                     // remove either turns a designer's typo into an
+                                     // engine-wide crash far from the cause.
+                                     ctx.Error("Refusing to remove '" + name + "' — every entity must keep it");
+                                 }
                                  else if (std::optional<Entity> entity = ResolveEntity(ctx, ctx.GetInputEntity(1), "Component mutator"); entity.has_value())
                                  {
                                      if (add)
@@ -313,10 +324,17 @@ namespace OloEngine::VisualScript
                                  return;
                              }
 
+                             // Same squared-length epsilon Vector.Normalize uses: a
+                             // near-zero direction makes glm::normalize produce NaNs,
+                             // and a NaN ray is a hard-to-trace physics query failure
+                             // rather than an obvious authoring mistake. length() on a
+                             // non-finite vector is itself non-finite, so comparing it
+                             // against 0 would let that case straight through.
                              const glm::vec3 direction = ctx.GetInputVec3(2);
-                             if (glm::length(direction) <= 0.0f)
+                             const f32 lengthSquared = glm::dot(direction, direction);
+                             if (!std::isfinite(lengthSquared) || lengthSquared < 1e-9f)
                              {
-                                 ctx.Error("Raycast direction is the zero vector");
+                                 ctx.Error("Raycast direction must be a finite, non-zero vector");
                                  ctx.Trigger(5);
                                  return;
                              }

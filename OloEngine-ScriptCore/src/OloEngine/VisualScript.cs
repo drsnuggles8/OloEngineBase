@@ -82,9 +82,10 @@ namespace OloEngine
 		/// <summary>Writes a graph blackboard variable from a float.</summary>
 		public static bool SetFloat(Entity entity, string name, float value)
 		{
-			// "R" round-trips exactly, matching the engine's shortest-round-trip
-			// storage form.
-			return SetString(entity, name, value.ToString("R", CultureInfo.InvariantCulture));
+			// "G9" is the documented round-trip format for float: 9 significant
+			// digits always recover the exact value, and unlike "R" it has no
+			// history of losing the last digit on some runtimes.
+			return SetString(entity, name, value.ToString("G9", CultureInfo.InvariantCulture));
 		}
 
 		/// <summary>Writes a graph blackboard variable from an int.</summary>

@@ -123,8 +123,13 @@ namespace OloEngine
                 return "CONTENT_BROWSER_SHADERGRAPH";
             case ContentFileType::SoundGraph:
                 return "CONTENT_BROWSER_SOUNDGRAPH";
+            // Deliberately the GENERIC payload: SceneHierarchyPanel's
+            // VisualScriptComponent drop target accepts CONTENT_BROWSER_ITEM (as
+            // every other asset-assign target in that panel does), so a bespoke
+            // payload name would make .olovs the one asset type that cannot be
+            // dragged onto its own component.
             case ContentFileType::VisualScript:
-                return "CONTENT_BROWSER_VISUALSCRIPT";
+                return "CONTENT_BROWSER_ITEM";
             default:
                 return "CONTENT_BROWSER_ITEM";
         }

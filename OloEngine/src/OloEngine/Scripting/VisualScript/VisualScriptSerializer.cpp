@@ -228,7 +228,16 @@ namespace OloEngine::VisualScript
                 {
                     for (const auto& property : properties)
                     {
-                        graphNode.m_Properties[property.first.as<std::string>()] = property.second.as<std::string>("");
+                        // A non-scalar key (a YAML map or sequence used as a key)
+                        // converts to an empty string; storing it would create a
+                        // property no resolver can ever look up, and silently
+                        // shadow a real one on the next save.
+                        auto key = property.first.as<std::string>("");
+                        if (key.empty())
+                        {
+                            continue;
+                        }
+                        graphNode.m_Properties[std::move(key)] = property.second.as<std::string>("");
                     }
                 }
 
@@ -361,6 +370,11 @@ namespace OloEngine::VisualScript
             return false;
         }
         stream << SerializeToString(asset);
+        // Flush BEFORE reading the state: a buffered write that fails at flush
+        // (disk full, a network share dropping) leaves good() true until the
+        // buffer is actually pushed, so returning early here would report a
+        // successful save of a truncated file.
+        stream.flush();
         return stream.good();
     }
 

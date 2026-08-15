@@ -30,6 +30,7 @@ namespace OloEngine::VisualScript
         {
             descriptor.m_DisplayName = descriptor.m_TypeName;
         }
+        const std::lock_guard lock(m_Mutex);
         std::string key = descriptor.m_TypeName;
         m_Types.insert_or_assign(std::move(key), std::move(descriptor));
         m_SortedDirty = true;
@@ -38,12 +39,17 @@ namespace OloEngine::VisualScript
 
     const NodeTypeDescriptor* NodeRegistry::Find(std::string_view typeName) const
     {
+        const std::lock_guard lock(m_Mutex);
+        // Returning the address is safe past the lock: node types are only ever
+        // inserted or replaced in place, never erased, and unordered_map keeps
+        // element addresses stable across rehash.
         const auto it = m_Types.find(typeName);
         return it == m_Types.end() ? nullptr : &it->second;
     }
 
-    const std::vector<const NodeTypeDescriptor*>& NodeRegistry::GetSorted() const
+    std::vector<const NodeTypeDescriptor*> NodeRegistry::GetSorted() const
     {
+        const std::lock_guard lock(m_Mutex);
         if (m_SortedDirty)
         {
             m_Sorted.clear();

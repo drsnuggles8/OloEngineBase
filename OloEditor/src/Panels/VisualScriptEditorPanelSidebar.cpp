@@ -10,6 +10,8 @@
 #include <cstring>
 #include <string>
 
+#include <glm/gtc/type_ptr.hpp>
+
 // =============================================================================
 // The Visual Script editor's left column: blackboard variables, the selected
 // node's properties and pin literals, and the live debugger.
@@ -31,14 +33,29 @@ namespace OloEngine
             PinType::Vec4, PinType::String, PinType::Entity, PinType::Asset
         };
 
-        /// One editable widget for a PinValue of any type. Returns true when the
-        /// value changed and the change is COMMITTED (deactivated-after-edit for
-        /// text/drag widgets), so a single undo entry covers a whole drag rather
-        /// than one per frame.
-        bool EditPinValue(const char* id, PinValue& value)
+        /// What one frame of an editing widget did.
+        struct EditOutcome
+        {
+            /// The widget took focus this frame — the caller's cue to snapshot
+            /// the PRE-edit state for undo, before any write lands.
+            bool m_Activated = false;
+            /// `value` was written this frame. Drag widgets report this on every
+            /// frame of the drag so the edit is visible while dragging.
+            bool m_Changed = false;
+            /// The edit finished (focus left the widget). One undo entry per
+            /// commit, not one per frame.
+            bool m_Committed = false;
+        };
+
+        /// One editable widget for a PinValue of any type.
+        ///
+        /// Drag widgets write through on EVERY change rather than only at
+        /// deactivation: the local copy is re-read from `value` each frame, so
+        /// deferring the write made a drag look completely frozen until release.
+        EditOutcome EditPinValue(const char* id, PinValue& value)
         {
             ImGui::PushID(id);
-            bool committed = false;
+            EditOutcome outcome;
 
             switch (value.GetType())
             {
@@ -47,8 +64,12 @@ namespace OloEngine
                     bool v = value.AsBool();
                     if (ImGui::Checkbox("##b", &v))
                     {
+                        // A checkbox has no drag phase: the click both starts and
+                        // finishes the edit.
+                        outcome.m_Activated = true;
                         value = PinValue::MakeBool(v);
-                        committed = true;
+                        outcome.m_Changed = true;
+                        outcome.m_Committed = true;
                     }
                     break;
                 }
@@ -56,60 +77,70 @@ namespace OloEngine
                 {
                     i32 v = static_cast<i32>(value.AsInt());
                     ImGui::SetNextItemWidth(-1.0f);
-                    ImGui::DragInt("##i", &v);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
+                    const bool changed = ImGui::DragInt("##i", &v);
+                    outcome.m_Activated = ImGui::IsItemActivated();
+                    if (changed)
                     {
                         value = PinValue::MakeInt(v);
-                        committed = true;
+                        outcome.m_Changed = true;
                     }
+                    outcome.m_Committed = ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 }
                 case PinType::Float:
                 {
                     f32 v = value.AsFloat();
                     ImGui::SetNextItemWidth(-1.0f);
-                    ImGui::DragFloat("##f", &v, 0.05f);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
+                    const bool changed = ImGui::DragFloat("##f", &v, 0.05f);
+                    outcome.m_Activated = ImGui::IsItemActivated();
+                    if (changed)
                     {
                         value = PinValue::MakeFloat(v);
-                        committed = true;
+                        outcome.m_Changed = true;
                     }
+                    outcome.m_Committed = ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 }
                 case PinType::Vec2:
                 {
                     glm::vec2 v = value.AsVec2();
                     ImGui::SetNextItemWidth(-1.0f);
-                    ImGui::DragFloat2("##v2", &v.x, 0.05f);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
+                    const bool changed = ImGui::DragFloat2("##v2", glm::value_ptr(v), 0.05f);
+                    outcome.m_Activated = ImGui::IsItemActivated();
+                    if (changed)
                     {
                         value = PinValue::MakeVec2(v);
-                        committed = true;
+                        outcome.m_Changed = true;
                     }
+                    outcome.m_Committed = ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 }
                 case PinType::Vec3:
                 {
                     glm::vec3 v = value.AsVec3();
                     ImGui::SetNextItemWidth(-1.0f);
-                    ImGui::DragFloat3("##v3", &v.x, 0.05f);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
+                    const bool changed = ImGui::DragFloat3("##v3", glm::value_ptr(v), 0.05f);
+                    outcome.m_Activated = ImGui::IsItemActivated();
+                    if (changed)
                     {
                         value = PinValue::MakeVec3(v);
-                        committed = true;
+                        outcome.m_Changed = true;
                     }
+                    outcome.m_Committed = ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 }
                 case PinType::Vec4:
                 {
                     glm::vec4 v = value.AsVec4();
                     ImGui::SetNextItemWidth(-1.0f);
-                    ImGui::DragFloat4("##v4", &v.x, 0.05f);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
+                    const bool changed = ImGui::DragFloat4("##v4", glm::value_ptr(v), 0.05f);
+                    outcome.m_Activated = ImGui::IsItemActivated();
+                    if (changed)
                     {
                         value = PinValue::MakeVec4(v);
-                        committed = true;
+                        outcome.m_Changed = true;
                     }
+                    outcome.m_Committed = ImGui::IsItemDeactivatedAfterEdit();
                     break;
                 }
                 case PinType::String:
@@ -123,8 +154,10 @@ namespace OloEngine
                     ImGui::InputText("##s", buffer, sizeof(buffer));
                     if (ImGui::IsItemDeactivatedAfterEdit())
                     {
+                        outcome.m_Activated = true;
                         value = PinValue::MakeString(buffer);
-                        committed = true;
+                        outcome.m_Changed = true;
+                        outcome.m_Committed = true;
                     }
                     break;
                 }
@@ -141,8 +174,10 @@ namespace OloEngine
                     ImGui::InputText("##id", buffer, sizeof(buffer), ImGuiInputTextFlags_CharsDecimal);
                     if (ImGui::IsItemDeactivatedAfterEdit())
                     {
+                        outcome.m_Activated = true;
                         value = PinValue::FromStorageString(value.GetType(), buffer);
-                        committed = true;
+                        outcome.m_Changed = true;
+                        outcome.m_Committed = true;
                     }
                     break;
                 }
@@ -153,7 +188,7 @@ namespace OloEngine
             }
 
             ImGui::PopID();
-            return committed;
+            return outcome;
         }
     } // namespace
 
@@ -269,9 +304,15 @@ namespace OloEngine
 
             ImGui::Indent();
             PinValue value = variable.m_DefaultValue;
-            if (EditPinValue("default", value))
+            // Snapshot on ACTIVATION, write on every change. Pushing undo at
+            // commit time would capture the post-edit state (the value has
+            // already been written by then), so the undo would restore nothing.
+            if (const EditOutcome outcome = EditPinValue("default", value); outcome.m_Activated || outcome.m_Changed)
             {
-                PushUndo();
+                if (outcome.m_Activated)
+                {
+                    PushUndo();
+                }
                 m_Asset->m_Variables[i].m_DefaultValue = value;
             }
             ImGui::Unindent();
@@ -423,9 +464,12 @@ namespace OloEngine
                 const auto existing = node->m_PinDefaults.find(pin.m_Name);
                 PinValue value = existing != node->m_PinDefaults.end() ? existing->second.ConvertTo(pin.m_Type)
                                                                        : pin.m_DefaultValue;
-                if (EditPinValue("v", value))
+                if (const EditOutcome outcome = EditPinValue("v", value); outcome.m_Activated || outcome.m_Changed)
                 {
-                    PushUndo();
+                    if (outcome.m_Activated)
+                    {
+                        PushUndo();
+                    }
                     graph.FindNode(m_DetailsNode)->m_PinDefaults[pin.m_Name] = value;
                 }
             }

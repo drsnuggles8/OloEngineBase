@@ -4,6 +4,7 @@
 #include "OloEngine/Scripting/VisualScript/VisualScriptTypes.h"
 #include "OloEngine/Scripting/VisualScript/VisualScriptVM.h"
 
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>

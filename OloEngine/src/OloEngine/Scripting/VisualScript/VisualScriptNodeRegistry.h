@@ -6,6 +6,7 @@
 #include "OloEngine/Scripting/VisualScript/VisualScriptTypes.h"
 
 #include <functional>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -95,10 +96,16 @@ namespace OloEngine::VisualScript
 
         /// Every registered type, sorted by (category, display name) so the menu
         /// and any generated documentation are stable across runs.
-        [[nodiscard]] const std::vector<const NodeTypeDescriptor*>& GetSorted() const;
+        ///
+        /// Returns BY VALUE: the descriptors themselves are stable (nothing is
+        /// ever erased), but the cache vector is rebuilt on registration, so
+        /// handing out a reference would let a caller hold a span that another
+        /// thread reallocates underneath it.
+        [[nodiscard]] std::vector<const NodeTypeDescriptor*> GetSorted() const;
 
         [[nodiscard]] sizet GetCount() const
         {
+            const std::lock_guard lock(m_Mutex);
             return m_Types.size();
         }
 
@@ -109,6 +116,12 @@ namespace OloEngine::VisualScript
         static void EnsureStandardLibrary();
 
       private:
+        /// Registration happens lazily via EnsureStandardLibrary, which the asset
+        /// serializer can reach from the asset-system worker thread while the
+        /// game thread is compiling a graph. call_once alone only orders the
+        /// one-time init — it does not protect Find/GetSorted against a
+        /// concurrent Register, nor the mutable sort cache against two readers.
+        mutable std::mutex m_Mutex;
         std::unordered_map<std::string, NodeTypeDescriptor, StringHash, StringEqual> m_Types;
         mutable std::vector<const NodeTypeDescriptor*> m_Sorted;
         mutable bool m_SortedDirty = true;

@@ -7,9 +7,10 @@ namespace OloEngine::VisualScript
 {
     const std::string& VisualScriptNode::GetProperty(std::string_view key, const std::string& fallback) const
     {
-        // Heterogeneous lookup: std::map<std::string, std::string> with the default
-        // std::less<std::string> would build a temporary per call.
-        const auto it = m_Properties.find(std::string(key));
+        // Heterogeneous lookup — m_Properties is keyed with std::less<> precisely
+        // so this takes the string_view directly instead of materialising a
+        // temporary std::string on every property read (SonarQube cpp:S6045).
+        const auto it = m_Properties.find(key);
         return it == m_Properties.end() ? fallback : it->second;
     }
 

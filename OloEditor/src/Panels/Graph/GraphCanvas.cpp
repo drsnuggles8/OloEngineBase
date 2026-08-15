@@ -167,20 +167,24 @@ namespace OloEngine::EditorUI
 
         // Index the line against graph-space coordinates, not screen position, so
         // the major lines stay on the same graph gridlines while panning.
-        const auto majorIndex = [this, step](f32 screenCoord, f32 originCoord)
+        // Must apply the SAME transform ToGraph does, pan included. Dropping the
+        // pan term left the major lines indexed off screen position, so they
+        // slid across the minor grid as the canvas panned instead of staying
+        // locked to fixed graph-space gridlines.
+        const auto majorIndex = [this](f32 screenCoord, f32 originCoord, f32 pan)
         {
-            const f32 graphCoord = (screenCoord - originCoord) / m_Zoom - 0.0f;
-            return static_cast<i64>(std::llround(graphCoord / (m_Style.m_GridSize)));
+            const f32 graphCoord = (screenCoord - originCoord) / m_Zoom - pan;
+            return static_cast<i64>(std::llround(graphCoord / m_Style.m_GridSize));
         };
 
         for (f32 x = m_Origin.x + offsetX; x < end.x; x += step)
         {
-            const bool major = m_Style.m_MajorEvery > 0 && (majorIndex(x, m_Origin.x) % static_cast<i64>(m_Style.m_MajorEvery)) == 0;
+            const bool major = m_Style.m_MajorEvery > 0 && (majorIndex(x, m_Origin.x, m_Pan.x) % static_cast<i64>(m_Style.m_MajorEvery)) == 0;
             m_DrawList->AddLine(ImVec2(x, m_Origin.y), ImVec2(x, end.y), major ? m_Style.m_GridLineMajor : m_Style.m_GridLine);
         }
         for (f32 y = m_Origin.y + offsetY; y < end.y; y += step)
         {
-            const bool major = m_Style.m_MajorEvery > 0 && (majorIndex(y, m_Origin.y) % static_cast<i64>(m_Style.m_MajorEvery)) == 0;
+            const bool major = m_Style.m_MajorEvery > 0 && (majorIndex(y, m_Origin.y, m_Pan.y) % static_cast<i64>(m_Style.m_MajorEvery)) == 0;
             m_DrawList->AddLine(ImVec2(m_Origin.x, y), ImVec2(end.x, y), major ? m_Style.m_GridLineMajor : m_Style.m_GridLine);
         }
     }

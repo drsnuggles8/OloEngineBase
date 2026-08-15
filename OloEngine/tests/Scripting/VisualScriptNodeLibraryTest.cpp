@@ -173,23 +173,27 @@ TEST_F(VisualScriptNodeLibraryTest, WellKnownTypeNamesResolve)
     }
 }
 
-TEST_F(VisualScriptNodeLibraryTest, SortOrderIsStable)
+TEST_F(VisualScriptNodeLibraryTest, SortOrderIsByCategoryThenDisplayName)
 {
-    // The editor's context-search menu and any generated node documentation
-    // read this order; a run-to-run difference would make both churn.
-    const auto& first = NodeRegistry::Get().GetSorted();
-    std::vector<std::string> firstNames;
-    firstNames.reserve(first.size());
-    for (const NodeTypeDescriptor* type : first)
-    {
-        firstNames.push_back(type->m_TypeName);
-    }
+    // The editor's context-search menu and any generated documentation read this
+    // order, so it must be a real, checkable ordering rather than "whatever the
+    // hash map happened to yield". Asserting adjacent pairs is what actually
+    // pins it — comparing GetSorted() against a second GetSorted() call only
+    // proves the cache is a cache.
+    const auto sorted = NodeRegistry::Get().GetSorted();
+    ASSERT_GE(sorted.size(), 2u);
 
-    const auto& second = NodeRegistry::Get().GetSorted();
-    ASSERT_EQ(first.size(), second.size());
-    for (sizet i = 0; i < second.size(); ++i)
+    for (sizet i = 1; i < sorted.size(); ++i)
     {
-        EXPECT_EQ(firstNames[i], second[i]->m_TypeName);
+        const NodeTypeDescriptor* previous = sorted[i - 1];
+        const NodeTypeDescriptor* current = sorted[i];
+        SCOPED_TRACE(previous->m_TypeName + " then " + current->m_TypeName);
+
+        // Non-strict: two node types may legitimately share a category, and two
+        // in the same category may share a display name.
+        const bool ordered = previous->m_Category < current->m_Category ||
+                             (previous->m_Category == current->m_Category && previous->m_DisplayName <= current->m_DisplayName);
+        EXPECT_TRUE(ordered) << "sorted order must be (category, display name) ascending";
     }
 }
 

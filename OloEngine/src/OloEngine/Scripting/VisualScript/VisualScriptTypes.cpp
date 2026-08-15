@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "VisualScriptTypes.h"
 
+#include <glm/gtc/type_ptr.hpp>
+
 #include <array>
 #include <charconv>
 #include <cmath>
@@ -394,7 +396,7 @@ namespace OloEngine::VisualScript
             case PinType::String:
             {
                 glm::vec2 out(0.0f);
-                ParseFloatList(std::get<std::string>(m_Storage), &out.x, 2);
+                ParseFloatList(std::get<std::string>(m_Storage), glm::value_ptr(out), 2);
                 return out;
             }
             default:
@@ -422,7 +424,7 @@ namespace OloEngine::VisualScript
             case PinType::String:
             {
                 glm::vec3 out(0.0f);
-                ParseFloatList(std::get<std::string>(m_Storage), &out.x, 3);
+                ParseFloatList(std::get<std::string>(m_Storage), glm::value_ptr(out), 3);
                 return out;
             }
             default:
@@ -453,7 +455,7 @@ namespace OloEngine::VisualScript
             case PinType::String:
             {
                 glm::vec4 out(0.0f);
-                ParseFloatList(std::get<std::string>(m_Storage), &out.x, 4);
+                ParseFloatList(std::get<std::string>(m_Storage), glm::value_ptr(out), 4);
                 return out;
             }
             default:
@@ -541,17 +543,17 @@ namespace OloEngine::VisualScript
             case PinType::Vec2:
             {
                 const glm::vec2 v = std::get<glm::vec2>(m_Storage);
-                return JoinFloats(&v.x, 2);
+                return JoinFloats(glm::value_ptr(v), 2);
             }
             case PinType::Vec3:
             {
                 const glm::vec3 v = std::get<glm::vec3>(m_Storage);
-                return JoinFloats(&v.x, 3);
+                return JoinFloats(glm::value_ptr(v), 3);
             }
             case PinType::Vec4:
             {
                 const glm::vec4 v = std::get<glm::vec4>(m_Storage);
-                return JoinFloats(&v.x, 4);
+                return JoinFloats(glm::value_ptr(v), 4);
             }
             case PinType::String:
                 return std::get<std::string>(m_Storage);
@@ -578,19 +580,19 @@ namespace OloEngine::VisualScript
             case PinType::Vec2:
             {
                 glm::vec2 out(0.0f);
-                ParseFloatList(text, &out.x, 2);
+                ParseFloatList(text, glm::value_ptr(out), 2);
                 return MakeVec2(out);
             }
             case PinType::Vec3:
             {
                 glm::vec3 out(0.0f);
-                ParseFloatList(text, &out.x, 3);
+                ParseFloatList(text, glm::value_ptr(out), 3);
                 return MakeVec3(out);
             }
             case PinType::Vec4:
             {
                 glm::vec4 out(0.0f);
-                ParseFloatList(text, &out.x, 4);
+                ParseFloatList(text, glm::value_ptr(out), 4);
                 return MakeVec4(out);
             }
             case PinType::String:

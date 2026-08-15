@@ -487,11 +487,15 @@ namespace OloEngine::VisualScript
         {
             return;
         }
-        m_BegunPlay = true;
+        // Latched only once the pause check has PASSED. Setting it first meant a
+        // graph paused at a breakpoint before its first tick recorded "begun"
+        // without ever firing OnBeginPlay — and, because BeginPlay early-outs on
+        // m_BegunPlay, could never fire it after the user resumed.
         if (m_Debug.m_Paused)
         {
             return;
         }
+        m_BegunPlay = true;
         BeginTickBookkeeping();
         FireEntries(VisualScriptPlan::MakeEventKey("Engine", NodeTypes::kOnBeginPlay), PinValue{}, UUID(0), runtime);
     }
@@ -589,6 +593,12 @@ namespace OloEngine::VisualScript
                 m_PendingLatents.erase(m_PendingLatents.begin() + static_cast<std::ptrdiff_t>(i - 1));
             }
         }
+        // The scan above walks backwards so erasure stays cheap, which leaves
+        // `resumed` in reverse suspend order. AdvanceLatents reverses for exactly
+        // this reason; two waits released by one event must resume in the order
+        // they were parked, not the order they happened to be erased.
+        std::ranges::reverse(resumed);
+
         for (const PendingLatent& pending : resumed)
         {
             m_CurrentEventPayload = event.m_Payload;
@@ -945,7 +955,7 @@ namespace OloEngine::VisualScript
     std::string NodeContext::Property(std::string_view key, std::string_view fallback) const
     {
         const CompiledNode& node = GetCompiledNode();
-        const auto it = node.m_Properties.find(std::string(key));
+        const auto it = node.m_Properties.find(key);
         return it == node.m_Properties.end() ? std::string(fallback) : it->second;
     }
 

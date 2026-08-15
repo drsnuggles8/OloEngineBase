@@ -1253,6 +1253,29 @@ namespace OloEngine
     // The value is COERCED to the variable's declared type on every edit rather
     // than trusted: the graph asset may have been re-typed since this scene was
     // saved, and the runtime would otherwise coerce silently at spawn time.
+    // Lists overrides whose variable the graph no longer declares, with a Remove
+    // button. Runs whenever a graph is assigned — INCLUDING when it declares no
+    // variables at all, which is precisely the case where every override present
+    // is stale. Scoping this to the has-variables branch made those unreachable.
+    static void DrawVisualScriptStaleOverrides(VisualScriptComponent& component,
+                                               const OloEngine::VisualScript::VisualScriptAsset& graphAsset)
+    {
+        for (auto it = component.m_VariableOverrides.begin(); it != component.m_VariableOverrides.end();)
+        {
+            if (graphAsset.FindVariable(it->first) != nullptr)
+            {
+                ++it;
+                continue;
+            }
+            ImGui::PushID(it->first.c_str());
+            ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f), "%s — not in this graph", it->first.c_str());
+            ImGui::SameLine();
+            const bool remove = ImGui::SmallButton("Remove");
+            ImGui::PopID();
+            it = remove ? component.m_VariableOverrides.erase(it) : std::next(it);
+        }
+    }
+
     static void DrawVisualScriptOverride(OloEngine::VisualScript::PinValue& value, OloEngine::VisualScript::PinType type)
     {
         using OloEngine::VisualScript::PinType;
@@ -7122,6 +7145,7 @@ namespace OloEngine
             else if (graphAsset->m_Variables.empty())
             {
                 ImGui::TextDisabled("This graph declares no variables.");
+                DrawVisualScriptStaleOverrides(component, *graphAsset);
             }
             else
             {
@@ -7152,24 +7176,7 @@ namespace OloEngine
                     ImGui::PopID();
                 }
 
-                // An override left behind by a renamed or deleted variable is
-                // dead data the runtime warns about every time the entity spawns.
-                // Surfacing it here is the only place it is fixable.
-                for (auto it = component.m_VariableOverrides.begin(); it != component.m_VariableOverrides.end();)
-                {
-                    const bool stillDeclared = graphAsset->FindVariable(it->first) != nullptr;
-                    if (stillDeclared)
-                    {
-                        ++it;
-                        continue;
-                    }
-                    ImGui::PushID(it->first.c_str());
-                    ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f), "%s — not in this graph", it->first.c_str());
-                    ImGui::SameLine();
-                    const bool remove = ImGui::SmallButton("Remove");
-                    ImGui::PopID();
-                    it = remove ? component.m_VariableOverrides.erase(it) : std::next(it);
-                }
+                DrawVisualScriptStaleOverrides(component, *graphAsset);
             } });
 
         DrawComponent<DialogueComponent>("Dialogue", entity, [](auto& component)

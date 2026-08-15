@@ -7,6 +7,8 @@
 #include "OloEngine/Scripting/VisualScript/VisualScriptNodeRegistry.h"
 #include "OloEngine/Scripting/VisualScript/VisualScriptTypes.h"
 
+#include <glm/glm.hpp>
+
 #include <map>
 #include <string>
 #include <string_view>
@@ -59,8 +61,10 @@ namespace OloEngine::VisualScript
         std::vector<PinDescriptor> m_Pins;
         std::vector<CompiledPin> m_PinInfo;
         /// Copied, not pointed at: the plan must stay valid across an asset
-        /// hot-reload that frees the authored graph out from under it.
-        std::map<std::string, std::string> m_Properties;
+        /// hot-reload that frees the authored graph out from under it. Same
+        /// comparator as VisualScriptNode::m_Properties so the copy is a plain
+        /// assignment and NodeContext::Property can look up by string_view.
+        std::map<std::string, std::string, std::less<>> m_Properties;
         /// Function.Call only — index into VisualScriptPlan::m_Functions.
         i32 m_FunctionIndex = -1;
     };

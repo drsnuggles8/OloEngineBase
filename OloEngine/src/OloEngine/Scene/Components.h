@@ -4999,9 +4999,15 @@ namespace OloEngine
         // done and docs/agent-rules/component-serializer-codegen.md.
         std::map<std::string, VisualScript::PinValue> m_VariableOverrides;
 
+        // All four explicitly defaulted. Declaring only the COPY operations would
+        // suppress implicit move generation, so every "move" of this component
+        // would deep-copy m_VariableOverrides instead — and Scene::Copy, prefab
+        // instancing and the editor's undo snapshot all move components around.
         VisualScriptComponent() = default;
         VisualScriptComponent(const VisualScriptComponent&) = default;
         VisualScriptComponent& operator=(const VisualScriptComponent&) = default;
+        VisualScriptComponent(VisualScriptComponent&&) noexcept = default;
+        VisualScriptComponent& operator=(VisualScriptComponent&&) noexcept = default;
 
         // Hand-written, not defaulted: AssetHandle is UUID, and a defaulted
         // operator== hits the UUID C2666 ambiguity under MSVC (see

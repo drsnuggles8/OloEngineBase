@@ -37,12 +37,21 @@ namespace OloEngine::VisualScript
         /// Authoring properties consumed by the pin resolver of a few node types.
         /// `std::map` (not unordered) so the serialized order is deterministic and
         /// a save → load → save round trip is byte-identical.
-        std::map<std::string, std::string> m_Properties;
+        std::map<std::string, std::string, std::less<>> m_Properties;
 
         [[nodiscard]] const std::string& GetProperty(std::string_view key, const std::string& fallback) const;
         void SetProperty(std::string key, std::string value);
 
-        [[nodiscard]] bool operator==(const VisualScriptNode& other) const = default;
+        // Hand-written rather than defaulted: a defaulted operator== compares
+        // m_Position with glm::vec2's operator==, i.e. raw float equality, which
+        // the repo's coding rules forbid outright (cpp-coding-quality.md section 2).
+        // BitwiseEqual is the sanctioned comparison and is exactly right here —
+        // two nodes are "the same" only if their stored coordinates are identical
+        // bit patterns, which is what a serializer round-trip must preserve.
+        [[nodiscard]] bool operator==(const VisualScriptNode& other) const
+        {
+            return m_Id == other.m_Id && m_TypeName == other.m_TypeName && Math::BitwiseEqual(m_Position, other.m_Position) && m_PinDefaults == other.m_PinDefaults && m_Properties == other.m_Properties;
+        }
     };
 
     //==============================================================================
@@ -89,7 +98,11 @@ namespace OloEngine::VisualScript
         NodeId m_NextNodeId = 1;
         LinkId m_NextLinkId = 1;
 
-        //-- Authoring helpers (also used by the tests and, later, the panel) ------
+        //-- Authoring helpers (also used by the tests and the editor panel) ------
+        /// WARNING: the returned reference points into m_Nodes and is invalidated
+        /// by the NEXT AddNode. Read what you need from it immediately (the
+        /// common `AddNode(...).m_Id` is safe); to hold on to a node across
+        /// further additions, keep the NodeId and re-resolve through FindNode.
         VisualScriptNode& AddNode(std::string typeName, glm::vec2 position = { 0.0f, 0.0f });
         LinkId AddLink(NodeId sourceNode, std::string sourcePin, NodeId targetNode, std::string targetPin);
         bool RemoveNode(NodeId id);

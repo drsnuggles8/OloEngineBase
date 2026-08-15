@@ -598,10 +598,21 @@ namespace OloEngine
         return ::mono_class_get_method_from_name(m_MonoClass, name.c_str(), parameterCount);
     }
 
-    MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params)
+    bool ScriptClass::IsMethodStatic(MonoMethod* method)
+    {
+        // METHOD_ATTRIBUTE_STATIC, from mono/metadata/tabledefs.h — the ECMA-335
+        // method attribute name, not a MONO_-prefixed one.
+        return method != nullptr && (::mono_method_get_flags(method, nullptr) & METHOD_ATTRIBUTE_STATIC) != 0;
+    }
+
+    MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params, bool* outThrew)
     {
         MonoObject* exception = nullptr;
         MonoObject* result = ::mono_runtime_invoke(method, instance, params, &exception);
+        if (outThrew != nullptr)
+        {
+            *outThrew = exception != nullptr;
+        }
 
         // Previously the exception out-param was ignored, so C# script errors were
         // silently swallowed. Capture them: log + record in the script-error ring
@@ -794,8 +805,20 @@ namespace OloEngine
     {
         return nullptr;
     }
-    MonoObject* ScriptClass::InvokeMethod(MonoObject*, MonoMethod*, void**)
+    bool ScriptClass::IsMethodStatic(MonoMethod*)
     {
+        // Scripting-disabled build: no method is ever invoked, so refuse rather
+        // than claim a property we cannot check.
+        return false;
+    }
+
+    MonoObject* ScriptClass::InvokeMethod(MonoObject*, MonoMethod*, void**, bool* outThrew)
+    {
+        // Scripting-disabled build: nothing ran, so nothing threw.
+        if (outThrew != nullptr)
+        {
+            *outThrew = false;
+        }
         return nullptr;
     }
 

@@ -38,7 +38,12 @@ namespace OloEngine::VisualScript
                 // stoul THROWS on a token too large to fit, which would take out
                 // the whole tick from inside a node body.
                 u32 index = 0;
-                if (std::from_chars(token.data(), token.data() + token.size(), index).ec == std::errc{} && index < args.size())
+                const auto parsed = std::from_chars(token.data(), token.data() + token.size(), index);
+                // The parse must consume the ENTIRE token, not just a numeric
+                // prefix: "{0abc}" would otherwise substitute argument 0 and
+                // silently swallow "abc". A partial parse falls through to the
+                // verbatim copy below, which is what an author expects to see.
+                if (parsed.ec == std::errc{} && parsed.ptr == token.data() + token.size() && index < args.size())
                 {
                     result += args[index];
                     consumed = true;

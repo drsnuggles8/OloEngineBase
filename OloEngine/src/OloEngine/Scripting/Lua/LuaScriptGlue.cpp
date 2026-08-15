@@ -3851,13 +3851,31 @@ namespace OloEngine
             if (!system || name.empty())
                 return false;
 
-            VisualScript::PinValue value;
-            if (payload.is<bool>())
-                value = VisualScript::PinValue::MakeBool(payload.as<bool>());
-            else if (payload.is<f64>())
-                value = VisualScript::PinValue::MakeFloat(static_cast<f32>(payload.as<f64>()));
-            else if (payload.is<std::string>())
-                value = VisualScript::PinValue::MakeString(payload.as<std::string>());
+            // A default-constructed PinValue is type Exec, which every data pin
+            // coerces to its own zero — indistinguishable from an authored 0 or
+            // "". Nil becomes an explicit empty string instead, and an
+            // unsupported type is refused rather than silently becoming one.
+            VisualScript::PinValue value = VisualScript::PinValue::MakeString("");
+            if (payload.valid() && payload.get_type() != sol::type::lua_nil)
+            {
+                if (payload.is<bool>())
+                    value = VisualScript::PinValue::MakeBool(payload.as<bool>());
+                else if (payload.is<f64>())
+                {
+                    const f64 raw = payload.as<f64>();
+                    const f32 narrowed = static_cast<f32>(raw);
+                    // Checked on BOTH sides: a finite f64 past FLT_MAX becomes an
+                    // infinite f32, and an infinity in a graph variable poisons
+                    // every downstream node silently.
+                    if (!std::isfinite(raw) || !std::isfinite(narrowed))
+                        return false;
+                    value = VisualScript::PinValue::MakeFloat(narrowed);
+                }
+                else if (payload.is<std::string>())
+                    value = VisualScript::PinValue::MakeString(payload.as<std::string>());
+                else
+                    return false;
+            }
 
             // 0 broadcasts, matching Utility.PublishEvent's unwired Target.
             system->QueueCustomEvent(name, std::move(value), UUID(targetEntityID), UUID(0));

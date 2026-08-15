@@ -52,17 +52,31 @@ namespace
     /// the SYSTEM's tick/dispatch behaviour, not asset loading —
     /// VisualScriptSerializerTest covers the file path. The component keeps its
     /// null graph handle, which is exactly the case SyncInstances leaves alone.
-    void InstallGraphOn(Scene& scene, Entity entity, const Ref<VisualScriptAsset>& asset)
+    /// Returns false on failure rather than asserting: a gtest ASSERT_* inside a
+    /// void helper returns from the HELPER only, so BuildScene would carry on and
+    /// the test body would then fail somewhere unrelated with a confusing message.
+    /// Callers use ASSERT_TRUE(InstallGraphOn(...)) so a setup failure stops the
+    /// test at its real cause.
+    [[nodiscard]] bool InstallGraphOn(Scene& scene, Entity entity, const Ref<VisualScriptAsset>& asset)
     {
         auto* system = scene.GetVisualScripts();
-        ASSERT_NE(system, nullptr) << "EnableVisualScripting() must run before installing a graph";
+        if (system == nullptr)
+        {
+            ADD_FAILURE() << "EnableVisualScripting() must run before installing a graph";
+            return false;
+        }
 
         std::vector<CompileDiagnostic> errors;
         Ref<VisualScriptPlan> plan = VisualScriptPlan::Compile(*asset, errors);
-        ASSERT_TRUE(plan) << (errors.empty() ? std::string("compile failed with no diagnostics") : errors[0].m_Message);
+        if (!plan)
+        {
+            ADD_FAILURE() << (errors.empty() ? std::string("compile failed with no diagnostics") : errors[0].m_Message);
+            return false;
+        }
 
         entity.AddComponent<VisualScriptComponent>();
         system->InstallInstanceForTesting(entity.GetUUID(), plan);
+        return true;
     }
 } // namespace
 
@@ -95,7 +109,7 @@ class VisualScriptMovesEntityTest : public FunctionalTest
         graph.AddLink(update, "Then", translate, "Enter");
         graph.AddLink(make, "Vector", translate, "Value");
 
-        InstallGraphOn(GetScene(), m_Entity, asset);
+        ASSERT_TRUE(InstallGraphOn(GetScene(), m_Entity, asset));
     }
 
     Entity m_Entity;
@@ -167,7 +181,7 @@ class VisualScriptSpawnsEntityTest : public FunctionalTest
         graph.AddLink(begin, "Then", destroy, "Enter");
         graph.AddLink(get, "Value", destroy, "Target");
 
-        InstallGraphOn(GetScene(), m_Spawner, asset);
+        ASSERT_TRUE(InstallGraphOn(GetScene(), m_Spawner, asset));
     }
 
     Entity m_Spawner;
@@ -230,7 +244,7 @@ class VisualScriptReactsToCollisionTest : public FunctionalTest
         graph.AddLink(get, "Value", add, "A");
         graph.AddLink(add, "Result", set, "Value");
 
-        InstallGraphOn(GetScene(), m_Falling, asset);
+        ASSERT_TRUE(InstallGraphOn(GetScene(), m_Falling, asset));
 
         EnablePhysics3D();
     }
@@ -292,7 +306,7 @@ class VisualScriptInteropsWithLuaTest : public FunctionalTest
         graph.AddLink(get, "Value", add, "A");
         graph.AddLink(add, "Result", set, "Value");
 
-        InstallGraphOn(GetScene(), m_Entity, asset);
+        ASSERT_TRUE(InstallGraphOn(GetScene(), m_Entity, asset));
 
         // The Lua half: poke the graph once, and write a graph variable.
         const std::string scriptSrc = R"(
@@ -378,7 +392,7 @@ class VisualScriptPublishesToEventBusTest : public FunctionalTest
         graph.FindNode(publish)->m_PinDefaults["To Gameplay Bus"] = PinValue::MakeBool(true);
         graph.AddLink(begin, "Then", publish, "Enter");
 
-        InstallGraphOn(GetScene(), m_Entity, asset);
+        ASSERT_TRUE(InstallGraphOn(GetScene(), m_Entity, asset));
     }
 
     Entity m_Entity;
@@ -423,7 +437,7 @@ TEST_F(VisualScriptPublishesToEventBusTest, ABusPublishedEventReachesListeningGr
     graph.AddLink(get, "Value", add, "A");
     graph.AddLink(add, "Result", set, "Value");
 
-    InstallGraphOn(GetScene(), listener, asset);
+    ASSERT_TRUE(InstallGraphOn(GetScene(), listener, asset));
 
     RunFrames(10);
 
@@ -460,7 +474,7 @@ class VisualScriptReactsToQuestEventTest : public FunctionalTest
         graph.AddLink(event, "Then", set, "Enter");
         graph.AddLink(event, "Payload", set, "Value");
 
-        InstallGraphOn(GetScene(), m_Entity, asset);
+        ASSERT_TRUE(InstallGraphOn(GetScene(), m_Entity, asset));
     }
 
     Entity m_Entity;
