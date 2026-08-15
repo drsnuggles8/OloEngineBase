@@ -478,14 +478,12 @@ namespace OloEngine
         // to own private copies for the SLOT path; the HEAP route
         // (VulkanDescriptorHeapBackend::UploadSlots) wrote descriptors
         // declaring SHADER_READ_ONLY / GENERAL with no transition at all —
-        // harmless while every heap-bound image was also transitioned by the
-        // graph's plan or a pass's own barriers, and a validation error the
-        // first time one wasn't: a window resize recreates every pass
-        // framebuffer MID-FRAME, the frame skips the scene render, and the
-        // UI-composite pass samples the fresh (UNDEFINED) image through its
-        // rewritten heap slot. One resize = one bad submit, self-healing next
-        // frame — reproduced 4-for-4, fixed here. No-op outside a recording
+        // harmless only while every heap-bound image happens to be
+        // transitioned by the graph's plan or a pass's own barriers, which is
+        // not a property anything enforces. No-op outside a recording
         // (load-time descriptor writes get their layouts from first use).
+        // This closes the named gap; it is NOT the fix for the per-resize
+        // validation error (#800), which survives it.
         void EnsureImageLayoutForDescriptor(VkImage image, VkImageLayout target,
                                             const VkImageSubresourceRange& range);
         [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle query) override;
