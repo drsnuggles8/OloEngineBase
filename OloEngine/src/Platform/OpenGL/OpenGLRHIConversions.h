@@ -404,6 +404,8 @@ namespace OloEngine::Utils
                 return GL_ANY_SAMPLES_PASSED;
             case RHI::QueryType::TimeElapsed:
                 return GL_TIME_ELAPSED;
+            case RHI::QueryType::Timestamp:
+                return GL_TIMESTAMP;
         }
         OLO_CORE_ERROR("ToGL(RHI::QueryType): unhandled value {}", static_cast<int>(type));
         return GL_ANY_SAMPLES_PASSED;

@@ -1,9 +1,7 @@
 #include "OloEnginePCH.h"
 #include "GPUTimerQueryPool.h"
 #include "OloEngine/Core/Log.h"
-#include "OloEngine/Renderer/RendererAPI.h"
-
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 namespace OloEngine
 {
@@ -24,27 +22,17 @@ namespace OloEngine
         if (m_Initialized)
             return;
 
-        // GL_TIME_ELAPSED queries, called directly rather than through the
-        // facade — GL-only until the Vulkan timestamp-query path exists (#691
-        // Phase 8). Staying UNinitialized is the complete disable: BeginFrame
-        // returns false and every other entry point gates on m_Active, which
-        // only BeginFrame can set. (The sibling GPUPassTimerPool has the same
-        // gate; this pool was simply never given one, and CommandBucket::
-        // ExecuteWithGPUTiming lazily Initializes it the moment a frame
-        // capture is armed.)
-        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-        {
-            OLO_CORE_INFO("GPUTimerQueryPool: disabled — GL elapsed-time queries only (#691 Phase 8)");
-            return;
-        }
-
+        // Elapsed-time queries through the facade (#691 Phase 9): RHI::QueryType::
+        // TimeElapsed lowers to GL_TIME_ELAPSED on GL and a timestamp pair on
+        // Vulkan (VulkanQueryRegistry), so the pool runs on both backends. The
+        // former GL-only early-out is gone with the direct glad calls it guarded.
         m_MaxQueries = maxQueries;
 
         // Create double-buffered query objects
         for (u32 buf = 0; buf < 2; ++buf)
         {
-            m_QueryObjects[buf].resize(maxQueries, 0);
-            glCreateQueries(GL_TIME_ELAPSED, static_cast<GLsizei>(maxQueries), m_QueryObjects[buf].data());
+            m_QueryObjects[buf].assign(maxQueries, RHI::NullResource);
+            RenderCommand::CreateQueries(RHI::QueryType::TimeElapsed, std::span<RHI::ResourceHandle>(m_QueryObjects[buf]));
         }
 
         m_Results.resize(maxQueries, 0.0);
@@ -67,7 +55,7 @@ namespace OloEngine
         {
             if (!m_QueryObjects[buf].empty())
             {
-                glDeleteQueries(static_cast<GLsizei>(m_QueryObjects[buf].size()), m_QueryObjects[buf].data());
+                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(m_QueryObjects[buf]));
                 m_QueryObjects[buf].clear();
             }
         }
@@ -98,13 +86,10 @@ namespace OloEngine
 
             for (u32 i = 0; i < m_ReadableQueryCount; ++i)
             {
-                GLint available = GL_FALSE;
-                glGetQueryObjectiv(m_QueryObjects[readBuffer][i], GL_QUERY_RESULT_AVAILABLE, &available);
-                if (!available)
+                if (!RenderCommand::IsQueryResultAvailable(m_QueryObjects[readBuffer][i]))
                     continue;
 
-                GLuint64 timeNs = 0;
-                glGetQueryObjectui64v(m_QueryObjects[readBuffer][i], GL_QUERY_RESULT, &timeNs);
+                const u64 timeNs = RenderCommand::GetQueryResultU64(m_QueryObjects[readBuffer][i]);
                 m_Results[i] = static_cast<f64>(timeNs) / 1'000'000.0; // ns -> ms
             }
             hasResults = (m_ReadableQueryCount > 0);
@@ -122,7 +107,7 @@ namespace OloEngine
         if (!m_Active || commandIndex >= m_MaxQueries)
             return;
 
-        glBeginQuery(GL_TIME_ELAPSED, m_QueryObjects[m_WriteBuffer][commandIndex]);
+        RenderCommand::BeginQuery(RHI::QueryType::TimeElapsed, m_QueryObjects[m_WriteBuffer][commandIndex]);
 
         if (commandIndex >= m_WriteQueryCount)
             m_WriteQueryCount = commandIndex + 1;
@@ -133,7 +118,7 @@ namespace OloEngine
         if (!m_Active)
             return;
 
-        glEndQuery(GL_TIME_ELAPSED);
+        RenderCommand::EndQuery(RHI::QueryType::TimeElapsed);
     }
 
     void GPUTimerQueryPool::EndFrame()
@@ -157,16 +142,13 @@ namespace OloEngine
 
         // Queries complete in submission order, so the last issued query being
         // available implies every earlier one is readable too.
-        GLint available = GL_FALSE;
-        glGetQueryObjectiv(queries[m_WriteQueryCount - 1], GL_QUERY_RESULT_AVAILABLE, &available);
-        if (!available)
+        if (!RenderCommand::IsQueryResultAvailable(queries[m_WriteQueryCount - 1]))
             return false;
 
         outResultsMs.resize(m_WriteQueryCount);
         for (u32 i = 0; i < m_WriteQueryCount; ++i)
         {
-            GLuint64 timeNs = 0;
-            glGetQueryObjectui64v(queries[i], GL_QUERY_RESULT, &timeNs);
+            const u64 timeNs = RenderCommand::GetQueryResultU64(queries[i]);
             outResultsMs[i] = static_cast<f64>(timeNs) / 1'000'000.0;
         }
         return true;

@@ -1,9 +1,7 @@
 #include "OloEnginePCH.h"
 #include "GPUPassTimerPool.h"
 #include "OloEngine/Core/Log.h"
-#include "OloEngine/Renderer/RendererAPI.h"
-
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 namespace OloEngine
 {
@@ -24,24 +22,20 @@ namespace OloEngine
         if (m_Initialized)
             return;
 
-        // GL timestamp queries, called directly rather than through the facade
-        // — the pool is a GL-only instrument until the Vulkan timestamp-query
-        // path exists (#691 Phase 8). Staying UNinitialized is the complete
-        // disable: every per-frame entry point below gates on m_Active, which
-        // only BeginFrame (itself gated on m_Initialized) can set.
-        if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-        {
-            OLO_CORE_INFO("GPUPassTimerPool: disabled — GL timestamp queries only (#691 Phase 8)");
-            return;
-        }
-
+        // Timestamp queries through the facade (#691 Phase 9): RHI::QueryType::
+        // Timestamp stamps via WriteTimestamp on both backends (glQueryCounter /
+        // vkCmdWriteTimestamp), with results in nanoseconds either way. The
+        // former GL-only early-out is gone with the direct glad calls it
+        // guarded; staying UNinitialized remains the complete disable if a
+        // backend ever refuses (every per-frame entry point gates on m_Active,
+        // which only BeginFrame — itself gated on m_Initialized — can set).
         m_MaxPasses = maxPassesPerFrame;
 
         const u32 queriesPerSlot = 2 + (2 * maxPassesPerFrame);
         for (auto& slot : m_Slots)
         {
-            slot.Queries.resize(queriesPerSlot, 0);
-            glCreateQueries(GL_TIMESTAMP, static_cast<GLsizei>(queriesPerSlot), slot.Queries.data());
+            slot.Queries.assign(queriesPerSlot, RHI::NullResource);
+            RenderCommand::CreateQueries(RHI::QueryType::Timestamp, std::span<RHI::ResourceHandle>(slot.Queries));
             slot.PassNames.resize(maxPassesPerFrame);
             slot.PassCount = 0;
             slot.FrameNumber = 0;
@@ -71,7 +65,7 @@ namespace OloEngine
         {
             if (!slot.Queries.empty())
             {
-                glDeleteQueries(static_cast<GLsizei>(slot.Queries.size()), slot.Queries.data());
+                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(slot.Queries));
                 slot.Queries.clear();
             }
             slot.PassNames.clear();
@@ -116,7 +110,7 @@ namespace OloEngine
         slot.PassCount = 0;
         slot.Pending = false;
 
-        glQueryCounter(slot.Queries[0], GL_TIMESTAMP);
+        RenderCommand::WriteTimestamp(slot.Queries[0]);
         m_Active = true;
         m_PassOpen = false;
         m_SubPassOpen = false;
@@ -135,7 +129,7 @@ namespace OloEngine
         EndPass();
 
         FrameSlot& slot = m_Slots[m_WriteSlot];
-        glQueryCounter(slot.Queries[1], GL_TIMESTAMP);
+        RenderCommand::WriteTimestamp(slot.Queries[1]);
         slot.Pending = true;
         m_Active = false;
     }
@@ -153,7 +147,7 @@ namespace OloEngine
         // opened inside this bracket gets its own pair without colliding.
         m_CurrentPassIndex = slot.PassCount++;
         slot.PassNames[m_CurrentPassIndex] = name;
-        glQueryCounter(slot.Queries[2 + (2 * m_CurrentPassIndex)], GL_TIMESTAMP);
+        RenderCommand::WriteTimestamp(slot.Queries[2 + (2 * m_CurrentPassIndex)]);
         m_PassOpen = true;
     }
 
@@ -166,7 +160,7 @@ namespace OloEngine
         EndSubPass();
 
         FrameSlot& slot = m_Slots[m_WriteSlot];
-        glQueryCounter(slot.Queries[3 + (2 * m_CurrentPassIndex)], GL_TIMESTAMP);
+        RenderCommand::WriteTimestamp(slot.Queries[3 + (2 * m_CurrentPassIndex)]);
         m_PassOpen = false;
     }
 
@@ -181,7 +175,7 @@ namespace OloEngine
 
         m_CurrentSubPassIndex = slot.PassCount++;
         slot.PassNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex] + "/" + name;
-        glQueryCounter(slot.Queries[2 + (2 * m_CurrentSubPassIndex)], GL_TIMESTAMP);
+        RenderCommand::WriteTimestamp(slot.Queries[2 + (2 * m_CurrentSubPassIndex)]);
         m_SubPassOpen = true;
     }
 
@@ -191,7 +185,7 @@ namespace OloEngine
             return;
 
         FrameSlot& slot = m_Slots[m_WriteSlot];
-        glQueryCounter(slot.Queries[3 + (2 * m_CurrentSubPassIndex)], GL_TIMESTAMP);
+        RenderCommand::WriteTimestamp(slot.Queries[3 + (2 * m_CurrentSubPassIndex)]);
         m_SubPassOpen = false;
     }
 
@@ -200,19 +194,17 @@ namespace OloEngine
         // The frame-end timestamp is the last query stamped in the slot; queries
         // complete in submission order, so its availability implies every earlier
         // timestamp in the slot is readable too.
-        GLint available = GL_FALSE;
-        glGetQueryObjectiv(slot.Queries[1], GL_QUERY_RESULT_AVAILABLE, &available);
-        if (!available)
+        if (!RenderCommand::IsQueryResultAvailable(slot.Queries[1]))
         {
             if (dropIfUnavailable)
                 slot.Pending = false;
             return;
         }
 
-        GLuint64 frameBegin = 0;
-        GLuint64 frameEnd = 0;
-        glGetQueryObjectui64v(slot.Queries[0], GL_QUERY_RESULT, &frameBegin);
-        glGetQueryObjectui64v(slot.Queries[1], GL_QUERY_RESULT, &frameEnd);
+        // Nanoseconds on both backends (the Vulkan arm owns the timestampPeriod
+        // scaling — see RendererAPI::WriteTimestamp's contract).
+        const u64 frameBegin = RenderCommand::GetQueryResultU64(slot.Queries[0]);
+        const u64 frameEnd = RenderCommand::GetQueryResultU64(slot.Queries[1]);
 
         m_LastFrameGpuMs = (frameEnd > frameBegin)
                                ? static_cast<f64>(frameEnd - frameBegin) / 1'000'000.0
@@ -222,10 +214,8 @@ namespace OloEngine
         m_LastPassTimings.reserve(slot.PassCount);
         for (u32 i = 0; i < slot.PassCount; ++i)
         {
-            GLuint64 passBegin = 0;
-            GLuint64 passEnd = 0;
-            glGetQueryObjectui64v(slot.Queries[2 + (2 * i)], GL_QUERY_RESULT, &passBegin);
-            glGetQueryObjectui64v(slot.Queries[3 + (2 * i)], GL_QUERY_RESULT, &passEnd);
+            const u64 passBegin = RenderCommand::GetQueryResultU64(slot.Queries[2 + (2 * i)]);
+            const u64 passEnd = RenderCommand::GetQueryResultU64(slot.Queries[3 + (2 * i)]);
 
             m_LastPassTimings.push_back(PassTiming{
                 .Name = slot.PassNames[i],

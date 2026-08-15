@@ -90,7 +90,7 @@ namespace
                   "RHI::IndexType changed — update ToGL() and IndexTypeLowering");
     static_assert(static_cast<int>(RHI::FrontFace::Clockwise) == 1,
                   "RHI::FrontFace changed — update ToGL() and FrontFaceLowering");
-    static_assert(static_cast<int>(RHI::QueryType::TimeElapsed) == 1,
+    static_assert(static_cast<int>(RHI::QueryType::Timestamp) == 2,
                   "RHI::QueryType changed — update ToGL() and QueryTypeLowering");
     static_assert(static_cast<int>(RHI::MemoryResidency::DeviceToHost) == 2,
                   "RHI::MemoryResidency changed — update ToGL() and MemoryResidencyLowering");
@@ -267,6 +267,7 @@ TEST(RHIEnumLowering, QueryTypeLowersToTheNamedGLTarget)
 {
     EXPECT_EQ(Utils::ToGL(RHI::QueryType::OcclusionAnySamples), GLenum{ GL_ANY_SAMPLES_PASSED });
     EXPECT_EQ(Utils::ToGL(RHI::QueryType::TimeElapsed), GLenum{ GL_TIME_ELAPSED });
+    EXPECT_EQ(Utils::ToGL(RHI::QueryType::Timestamp), GLenum{ GL_TIMESTAMP });
 }
 
 TEST(RHIEnumLowering, MemoryResidencyLowersToTheNamedGLHint)

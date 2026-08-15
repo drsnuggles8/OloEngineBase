@@ -1155,6 +1155,12 @@ namespace OloEngine::Testing
         {
             Record("EndQuery");
         }
+        void WriteTimestamp(RHI::ResourceHandle query) override
+        {
+            RecordedCall c{ "WriteTimestamp" };
+            c.ParamU32_0 = Native(query, RHI::ResourceKind::Query);
+            m_Calls.push_back(c);
+        }
         [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle /*query*/) override
         {
             Record("IsQueryResultAvailable");

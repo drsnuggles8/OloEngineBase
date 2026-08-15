@@ -586,6 +586,9 @@ namespace OloEngine::RHI
     {
         OcclusionAnySamples = 0, ///< GL_ANY_SAMPLES_PASSED / VK_QUERY_TYPE_OCCLUSION
         TimeElapsed,             ///< GL_TIME_ELAPSED / a VK_QUERY_TYPE_TIMESTAMP pair
+        Timestamp,               ///< GL_TIMESTAMP / VK_QUERY_TYPE_TIMESTAMP — written via
+                                 ///< WriteTimestamp (never Begin/EndQuery); result is
+                                 ///< NANOSECONDS on both backends (#691 Phase 9)
     };
 
     // The four outcomes of a client-side fence wait. Mirrors glClientWaitSync's

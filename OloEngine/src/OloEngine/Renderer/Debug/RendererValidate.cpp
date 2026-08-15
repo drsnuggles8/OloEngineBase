@@ -6,8 +6,7 @@
 #include "OloEngine/Renderer/Debug/RendererValidate.h"
 
 #include "OloEngine/Core/Log.h"
-
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,8 +20,8 @@ namespace OloEngine::RendererValidate
         bool IsFloatColorFormat(FramebufferTextureFormat f)
         {
             // Only RGBA float formats are supported here. ReadFloatAttachmentStats
-            // calls glGetTextureImage with GL_RGBA which would be invalid for
-            // RG/RGB textures (base format mismatch). Callers wanting to
+            // reads back as RGBA32Float, which would be invalid for RG/RGB
+            // textures (base format mismatch). Callers wanting to
             // validate RG/RGB attachments should extend both this predicate
             // and the readback to thread the component count through.
             return f == FramebufferTextureFormat::RGBA16F || f == FramebufferTextureFormat::RGBA32F;
@@ -50,9 +49,10 @@ namespace OloEngine::RendererValidate
             return stats;
         }
 
-        // Multisample attachments are backed by GL_TEXTURE_2D_MULTISAMPLE;
-        // glGetTextureImage on them yields GL_INVALID_OPERATION. Resolving
-        // to a single-sample texture via glBlitFramebuffer is possible but
+        // Multisample attachments cannot be read back directly (GL raises
+        // GL_INVALID_OPERATION on a multisample glGetTextureImage; the Vulkan
+        // readback spine refuses multisampled sources). Resolving
+        // to a single-sample texture is possible but
         // meaningful only if the caller wants validation on the resolved
         // output (at which point they should validate the resolve target
         // instead). Treat MS attachments as "unsupported / no opinion".
@@ -71,11 +71,13 @@ namespace OloEngine::RendererValidate
         //   1) pixel count representable by AttachmentStats::m_PixelCount (u32)
         //   2) byte count representable by GLsizei for glGetTextureImage.
         const u64 pixelCount64 = static_cast<u64>(width) * static_cast<u64>(height);
-        constexpr u64 bytesPerPixel = 4ull * sizeof(f32); // RGBA32F readback
-        const auto maxBytes = static_cast<u64>(std::numeric_limits<GLsizei>::max());
-        const auto maxPixelsByGlsizei = maxBytes / bytesPerPixel;
+        constexpr u64 bytesPerPixel = 4ull * sizeof(f32); // RGBA32Float readback
+        // GL's byte-count parameter is a 32-bit GLsizei; keep the same i32
+        // bound backend-neutrally so the facade's GL arm can never overflow.
+        const auto maxBytes = static_cast<u64>(std::numeric_limits<i32>::max());
+        const auto maxPixelsByByteBound = maxBytes / bytesPerPixel;
         const auto maxPixelsByStats = static_cast<u64>(std::numeric_limits<u32>::max());
-        if (const auto kMaxPixels = std::min(maxPixelsByGlsizei, maxPixelsByStats); pixelCount64 > kMaxPixels)
+        if (const auto kMaxPixels = std::min(maxPixelsByByteBound, maxPixelsByStats); pixelCount64 > kMaxPixels)
         {
             OLO_CORE_WARN("RendererValidate: attachment {} is {}x{} (>{} pixels); skipping readback to avoid overflow",
                           attachmentIndex, width, height, kMaxPixels);
@@ -87,19 +89,15 @@ namespace OloEngine::RendererValidate
 
         std::vector<f32> pixels(static_cast<std::size_t>(pixelCount) * 4);
         const auto byteSize64 = pixelCount64 * bytesPerPixel;
-        const auto byteSize = static_cast<GLsizei>(byteSize64);
-        const GLuint tex = static_cast<GLuint>(fb->GetColorAttachmentRendererID(attachmentIndex));
-        // Drain any stale GL error so we can distinguish a failed readback
-        // from a caller-induced error. Use glGetTextureImage (GL 4.5+ DSA)
-        // to avoid binding state churn.
-        while (::glGetError() != GL_NO_ERROR)
+        // Facade readback (#691 Phase 9, ADR 0011 amendment (7)): failure is the
+        // bool return, not a glGetError drain — and the same call reads back on
+        // both backends via each arm's readback spine.
+        const RHI::ResourceHandle tex = fb->GetColorAttachmentHandle(attachmentIndex);
+        if (!RenderCommand::ReadTextureImage(tex, 0, RHI::Format::RGBA32Float,
+                                             static_cast<sizet>(byteSize64), pixels.data()))
         {
-        }
-        ::glGetTextureImage(tex, 0, GL_RGBA, GL_FLOAT, byteSize, pixels.data());
-        if (const GLenum err = ::glGetError(); err != GL_NO_ERROR)
-        {
-            OLO_CORE_ERROR("RendererValidate: glGetTextureImage failed (GL error 0x{:x}) for attachment {}; marking readback as failed",
-                           static_cast<u32>(err), attachmentIndex);
+            OLO_CORE_ERROR("RendererValidate: texture readback failed for attachment {}; marking readback as failed",
+                           attachmentIndex);
             stats.m_ReadbackFailed = true;
             return stats;
         }

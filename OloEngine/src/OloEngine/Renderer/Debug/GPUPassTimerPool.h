@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <array>
 #include <string>
@@ -10,15 +11,17 @@ namespace OloEngine
 {
     /// @brief Always-on GPU timing for the whole frame and each render-graph pass.
     ///
-    /// Ring-buffered GL_TIMESTAMP query pairs: frame N stamps begin/end timestamps
-    /// around the frame's render and around every executed pass; the results are
-    /// resolved a few frames later via a non-blocking availability check, so the
-    /// published numbers always describe the most recent fully-completed frame.
+    /// Ring-buffered timestamp query pairs (RHI::QueryType::Timestamp through the
+    /// RenderCommand facade — backend-neutral since #691 Phase 9): frame N stamps
+    /// begin/end timestamps around the frame's render and around every executed
+    /// pass; the results are resolved a few frames later via a non-blocking
+    /// availability check, so the published numbers always describe the most
+    /// recent fully-completed frame.
     ///
-    /// Deliberately uses GL_TIMESTAMP (glQueryCounter) instead of GL_TIME_ELAPSED:
-    /// TIME_ELAPSED query scopes must not nest, and the frame-capture path
-    /// (GPUTimerQueryPool) already owns per-draw TIME_ELAPSED scopes *inside* the
-    /// pass brackets this pool times. Timestamps are scope-free and coexist.
+    /// Deliberately uses scope-free timestamps (WriteTimestamp) instead of
+    /// TimeElapsed brackets: elapsed-time query scopes must not nest, and the
+    /// frame-capture path (GPUTimerQueryPool) already owns per-draw TimeElapsed
+    /// scopes *inside* the pass brackets this pool times. Timestamps coexist.
     class GPUPassTimerPool
     {
       public:
@@ -38,7 +41,7 @@ namespace OloEngine
 
         static GPUPassTimerPool& GetInstance();
 
-        /// @brief Allocate query objects. Call once after the GL context is valid.
+        /// @brief Allocate query objects. Call once after the graphics device is live.
         void Initialize(u32 maxPassesPerFrame = 96);
 
         /// @brief Delete all query objects.
@@ -116,7 +119,7 @@ namespace OloEngine
             // sub-pass pair sits between its parent's begin and end stamps
             // (parent-first allocation order is what the MCP shaping relies on
             // to attach "Parent/Sub" entries to their parent).
-            std::vector<u32> Queries;
+            std::vector<RHI::ResourceHandle> Queries;
             std::vector<std::string> PassNames;
             u32 PassCount = 0;
             u64 FrameNumber = 0;
