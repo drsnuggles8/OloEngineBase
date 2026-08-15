@@ -28,6 +28,10 @@ namespace OloEngine
         }
 
       private:
+        // The ADR 0011 §2 backend dropdown: writes config/renderer.yaml,
+        // applies on the next editor launch (the runtime switch is
+        // startup-scoped — no live device swap).
+        void DrawBackendSection();
         void DrawQualityTieringSection() const;
         void DrawRenderingPathSection() const;
         void DrawCullingSection() const;
@@ -43,5 +47,10 @@ namespace OloEngine
         static void DrawPostProcessControls(QualityTieringSettings& qt, bool& changed);
 
         bool m_DebugSettingsChanged = false;
+
+        // Backend-dropdown state: the choice written to config/renderer.yaml
+        // this session (or read from it at first draw). -1 = not yet
+        // initialised; 0 = OpenGL, 1 = Vulkan (combo order).
+        int m_ConfiguredBackend = -1;
     };
 } // namespace OloEngine

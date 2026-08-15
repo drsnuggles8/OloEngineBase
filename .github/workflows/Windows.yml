@@ -73,8 +73,8 @@ jobs:
 
     - name: Install python dependencies
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install jinja2
+        # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
+        python -m pip install jinja2==3.1.6
         python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
     
     - name: Setup Vulkan SDK

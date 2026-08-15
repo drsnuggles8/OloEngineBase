@@ -66,9 +66,9 @@ layout(location = 0) in vec2 v_TexCoord;
 layout(binding = 0) uniform sampler2D u_Texture;
 #endif
 
-// std140, binding = ShaderBindingLayout::UBO_COLORBLIND. One vec4 so the block
+// std140, binding = ShaderBindingLayout::UBO_COLORBLIND (78). One vec4 so the block
 // is trivially 16-byte aligned; the C++ twin is ColorBlindUBOData.
-layout(std140, binding = 73) uniform ColorBlindParams
+layout(std140, binding = 78) uniform ColorBlindParams
 {
     // x = mode (0 none, 1 protan, 2 deutan, 3 tritan)
     // y = severity in [0,1]

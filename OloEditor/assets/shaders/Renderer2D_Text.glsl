@@ -6,12 +6,27 @@
 #type vertex
 #version 450 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// binding 57. Draw site is the Renderer2D text batch (Renderer2D.cpp
+// TextVertex, 72 B / 18 words): vec3 Position @0, vec4 Color @12, vec2
+// TexCoord @28, vec4 BandTransform @36, ivec4 GlyphData @52, int EntityID
+// @68. The stream carries INT attributes, so the pull buffer is declared
+// uint and floats are decoded with uintBitsToFloat. The GL attribute branch
+// below is untouched.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    uint v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec4 a_Color;
 layout(location = 2) in vec2 a_TexCoord;
 layout(location = 3) in vec4 a_BandTransform;
 layout(location = 4) in ivec4 a_GlyphData;
 layout(location = 5) in int a_EntityID;
+#endif
 
 layout(std140, binding = 0) uniform Camera
 {
@@ -26,6 +41,15 @@ layout(location = 4) out flat int v_EntityID;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+	int vertBase = gl_VertexIndex * 18;
+	vec3 a_Position = vec3(uintBitsToFloat(b_Vertices.v[vertBase + 0]), uintBitsToFloat(b_Vertices.v[vertBase + 1]), uintBitsToFloat(b_Vertices.v[vertBase + 2]));
+	vec4 a_Color = vec4(uintBitsToFloat(b_Vertices.v[vertBase + 3]), uintBitsToFloat(b_Vertices.v[vertBase + 4]), uintBitsToFloat(b_Vertices.v[vertBase + 5]), uintBitsToFloat(b_Vertices.v[vertBase + 6]));
+	vec2 a_TexCoord = vec2(uintBitsToFloat(b_Vertices.v[vertBase + 7]), uintBitsToFloat(b_Vertices.v[vertBase + 8]));
+	vec4 a_BandTransform = vec4(uintBitsToFloat(b_Vertices.v[vertBase + 9]), uintBitsToFloat(b_Vertices.v[vertBase + 10]), uintBitsToFloat(b_Vertices.v[vertBase + 11]), uintBitsToFloat(b_Vertices.v[vertBase + 12]));
+	ivec4 a_GlyphData = ivec4(int(b_Vertices.v[vertBase + 13]), int(b_Vertices.v[vertBase + 14]), int(b_Vertices.v[vertBase + 15]), int(b_Vertices.v[vertBase + 16]));
+	int a_EntityID = int(b_Vertices.v[vertBase + 17]);
+#endif
 	v_Color = a_Color;
 	v_TexCoord = a_TexCoord;
 	v_BandTransform = a_BandTransform;

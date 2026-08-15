@@ -380,7 +380,7 @@ TEST(ColorBlindMath, LMSRoundTripIsTheIdentity)
 
 TEST(ColorBlindMath, UBOBindingIsRegisteredAndWithinTheEngineLimit)
 {
-    EXPECT_EQ(ShaderBindingLayout::UBO_COLORBLIND, 73u);
+    EXPECT_EQ(ShaderBindingLayout::UBO_COLORBLIND, 78u);
     EXPECT_LT(ShaderBindingLayout::UBO_COLORBLIND, ShaderBindingLayout::UBO_BINDING_LIMIT);
     EXPECT_TRUE(ShaderBindingLayout::IsKnownUBOBinding(ShaderBindingLayout::UBO_COLORBLIND, "ColorBlindParams"));
 }

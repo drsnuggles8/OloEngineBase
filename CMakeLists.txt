@@ -87,6 +87,82 @@ option(OLO_WITH_USD "Import OpenUSD stages (.usd/.usda/.usdc/.usdz); builds USD 
 # dependency on an installed Vulkan SDK beyond what the shaderc toolchain already needs.
 option(OLO_WITH_VULKAN "Compile the Vulkan RHI backend (vendors Vulkan-Headers + volk + VMA; runtime selection stays --rhi=)" ON)
 
+# --------------------------------------------------------------------------
+# Steamworks platform integration (#644) — achievements, Steam Cloud, rich presence/overlay.
+#
+# AVAILABILITY axis only ("is the Steam code compiled in at all"), deliberately separate from
+# runtime availability: even an ON build degrades when the Steam client isn't running
+# (SteamAPI_Init() returns false → warn + disable, NEVER throw), so an ON binary still starts
+# fine on a machine with no Steam. Both variants are required; they cover different failures.
+#
+# The SDK is NOT vendored and NOT a vcpkg dependency, and can never become either: it downloads
+# from partner.steamgames.com behind a Valve login, its licence forbids redistribution, and THIS
+# REPO IS PUBLIC. It is therefore resolved from an environment variable the developer sets —
+# mirroring how the Vulkan SDK is found ($ENV{VULKAN_SDK}, OloEngine/CMakeLists.txt) rather than
+# how Mono is vendored in-tree, which is only legal there because Mono is redistributable.
+#
+# DEVELOPERS MUST OBTAIN THE SDK THEMSELVES. It is free — the Steamworks SDK Access Agreement
+# needs only an ordinary Steam account; the $100 Steam Direct fee is for publishing, not for
+# building. Setup instructions: docs/ops/build.md § "Steamworks SDK (optional)".
+#
+# The default is auto-detected rather than a flat OFF: a developer who went to the trouble of
+# installing the SDK and exporting the variable almost certainly wants it compiled. CI sets no
+# such variable, so every workflow gets OFF for free — which is precisely the problem that
+# OLO_WITH_STEAM_STUB_SDK below exists to solve. NOTE the usual CMake cache caveat: this default
+# is only consulted on the FIRST configure, so installing the SDK later needs an explicit
+# -DOLO_WITH_STEAM=ON (or a wiped cache) to take effect.
+set(OLO_STEAM_SDK_DEFAULT OFF)
+if(DEFINED ENV{STEAMWORKS_SDK_ROOT} AND NOT "$ENV{STEAMWORKS_SDK_ROOT}" STREQUAL "")
+    if(IS_DIRECTORY "$ENV{STEAMWORKS_SDK_ROOT}/public/steam")
+        set(OLO_STEAM_SDK_DEFAULT ON)
+    else()
+        # The variable is set but does not point at an SDK. Do NOT fall through to a silent OFF:
+        # a developer who exported the variable clearly wants Steam, and a quiet "Steam does
+        # nothing" build is the worst outcome — the FATAL_ERROR in OloEngine/CMakeLists.txt that
+        # explains the correct layout only fires when the option is explicitly forced ON, so it
+        # would never reach the person who made this mistake. Warn here instead.
+        #
+        # Pointing one level too high (at the zip's outer folder rather than the inner `sdk/`)
+        # is by far the most common way to get here, so detect it and name the exact fix.
+        if(IS_DIRECTORY "$ENV{STEAMWORKS_SDK_ROOT}/sdk/public/steam")
+            # Native separators: this line exists to be copy-pasted into a setx/export.
+            file(TO_NATIVE_PATH "$ENV{STEAMWORKS_SDK_ROOT}/sdk" OLO_STEAM_SUGGESTED_ROOT)
+            message(WARNING
+                "STEAMWORKS_SDK_ROOT is set one level too high, so Steam support is OFF.\n"
+                "  current: $ENV{STEAMWORKS_SDK_ROOT}\n"
+                "  correct: ${OLO_STEAM_SUGGESTED_ROOT}\n"
+                "It must point at the directory DIRECTLY containing public/ and "
+                "redistributable_bin/. See docs/ops/build.md.")
+        else()
+            message(WARNING
+                "STEAMWORKS_SDK_ROOT is set to '$ENV{STEAMWORKS_SDK_ROOT}' but no "
+                "public/steam/ directory was found there, so Steam support is OFF. It must point "
+                "at the directory DIRECTLY containing public/ and redistributable_bin/ (the inner "
+                "'sdk' folder of the Steamworks SDK zip). See docs/ops/build.md.")
+        endif()
+    endif()
+endif()
+option(OLO_WITH_STEAM "Compile Steamworks platform integration (requires STEAMWORKS_SDK_ROOT; see docs/ops/build.md)" ${OLO_STEAM_SDK_DEFAULT})
+
+# Build the Steam-enabled path against HAND-WRITTEN STUB headers instead of the real SDK.
+#
+# This exists because the real SDK can never reach CI (public repo + non-redistributable
+# headers), so without it the ON path would be compiled on developer machines only and would
+# bitrot silently — exactly Trap 3 in docs/agent-rules/vcpkg-dependency-management.md. A repo
+# secret smuggling the SDK onto the runner was considered and rejected: it is a licence question
+# we should not answer unilaterally, and secrets are unavailable to fork PRs anyway.
+#
+# The stubs declare ONLY the entry points this engine actually calls AND provide their symbols,
+# so CI compiles, LINKS and RUNS a genuine OLO_WITH_STEAM=ON binary against canned returns —
+# including the SteamAPI_Init()-returns-false branch, the one behaviour that must never regress.
+# A call the stubs do not declare turns CI red; that is the mechanism working, not a maintenance
+# tax, so do not "fix" it by deleting the job.
+option(OLO_WITH_STEAM_STUB_SDK "Build the Steam path against hand-written stub headers (CI anti-rot; implies OLO_WITH_STEAM)" OFF)
+if(OLO_WITH_STEAM_STUB_SDK AND NOT OLO_WITH_STEAM)
+    message(STATUS "OLO_WITH_STEAM_STUB_SDK=ON implies OLO_WITH_STEAM=ON — enabling it.")
+    set(OLO_WITH_STEAM ON CACHE BOOL "Compile Steamworks platform integration" FORCE)
+endif()
+
 # Includes
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)

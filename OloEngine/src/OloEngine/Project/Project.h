@@ -118,6 +118,18 @@ namespace OloEngine
         static Ref<Project> Load(const std::filesystem::path& path);
         static bool SaveActive(const std::filesystem::path& path);
 
+        // @brief Drop the active project AND its asset manager. Called by
+        // ~Application after the layers detach: these two statics otherwise
+        // keep every loaded asset — and its GPU buffers — alive until static
+        // destruction, which is AFTER the window destroys the graphics
+        // context (on Vulkan that is a VMA "allocations not freed" abort at
+        // vmaDestroyAllocator, #691 Phase 8).
+        static void Unload()
+        {
+            s_AssetManager = nullptr;
+            s_ActiveProject = nullptr;
+        }
+
         /// Make an in-memory project rooted at `directory` the active one, with
         /// no `.oloproj` on disk.
         ///

@@ -412,6 +412,11 @@ namespace OloEngine
             // The render origin itself, so pattern shaders can rebuild an
             // absolute world position (triplanar tiling, procedural noise, etc.).
             cameraData.RenderOrigin = renderOrigin;
+            // The reconstruction flavour (#691 Phase 8): for shaders doing
+            // their own z remap / near-far extraction / inverse — identical to
+            // Projection on GL, row-flip-only on Vulkan.
+            cameraData.ProjectionForReconstruction =
+                RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
 
             constexpr auto expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
@@ -2199,7 +2204,15 @@ namespace OloEngine
             // diagnostics and the capture endpoints read.
             const RHI::ResourceHandle csmTexture = data.Shadow.GetCSMHandle();
             const RHI::ResourceHandle atlasTexture = data.Shadow.GetAtlasHandle();
-            if (csmID != 0)
+            // Gate on the IDENTITY, not the native GL name (#691 Phase 8): the
+            // renderer id is the diagnostics currency and is 0 by contract on
+            // the Vulkan backend, so an `id != 0` gate silently kept the CSM
+            // and atlas OUT of the Vulkan graph — every shadow consumer then
+            // sampled the unfed compare-sampler fallback, which reads fully
+            // shadowed, and the whole directional-light term (diffuse AND the
+            // specular highlights) vanished from the frame. It presented as an
+            // exposure difference, not as missing shadows.
+            if (csmTexture.IsValid())
             {
                 board.Shadows.ShadowMapCSM = graph.DeclareTransientTexture(
                     ResourceNames::ShadowMapCSM,
@@ -2217,7 +2230,8 @@ namespace OloEngine
             // Local-light shadow atlas (issue #435): a single 1-layer depth
             // array — every prioritised spot / point-face tile is a viewport
             // sub-rect of it, so one graph resource covers all local shadows.
-            if (atlasID != 0)
+            // Identity gate, same rationale as the CSM above.
+            if (atlasTexture.IsValid())
             {
                 const u32 atlasResolution = std::max(data.Shadow.GetAtlasResolution(), 1u);
                 auto atlasDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray,

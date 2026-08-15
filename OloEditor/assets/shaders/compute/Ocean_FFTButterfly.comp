@@ -40,9 +40,26 @@ layout(rgba32f, binding = 0) readonly uniform image2DArray u_Input;
 layout(rgba32f, binding = 1) writeonly uniform image2DArray u_Output;
 #endif
 
-uniform int u_Resolution; // N (power of two)
-uniform int u_Stage;      // 0 .. log2(N)-1
-uniform int u_Vertical;   // 0 = transform rows, 1 = transform columns
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 8):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
+// hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
+// Declared VERBATIM-IDENTICAL in Ocean_SpectrumEvolve.comp,
+// Ocean_FFTButterfly.comp and Ocean_Assemble.comp (the SnowComputeParams
+// precedent): the three agree on u_Resolution and each reads its own slice of
+// the tail, with the host refilling the whole block before every dispatch.
+// C++ twin: UBOStructures::OceanFFTUBO (ShaderBindingLayout::UBO_OCEAN_FFT).
+layout(std140, binding = 73) uniform OceanFFTParams
+{
+    int   u_Resolution;  // 0  — N (power of two), read by all three passes
+    float u_PatchSize;   // 4  — L, world tile size (metres) — SpectrumEvolve only
+    float u_Gravity;     // 8  — g — SpectrumEvolve only
+    float u_Time;        // 12 — t (seconds) — SpectrumEvolve only
+    int   u_Stage;       // 16 — 0 .. log2(N)-1 — FFTButterfly only
+    int   u_Vertical;    // 20 — 0 = rows, 1 = columns — FFTButterfly only
+    float u_Choppiness;  // 24 — λ, horizontal-displacement scale — Assemble only
+    float _oceanFFTPad0; // 28
+};
 
 // Complex multiply.
 vec2 cmul(vec2 a, vec2 b)

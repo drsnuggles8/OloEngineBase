@@ -231,6 +231,12 @@ namespace OloEngine
             s_RendererAPI->BindTexture(slot, texture);
         }
 
+        // Explicit-sampler form (#691 Phase 8) — see RendererAPI::BindTexture.
+        static void BindTexture(u32 slot, RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler)
+        {
+            s_RendererAPI->BindTexture(slot, texture, sampler);
+        }
+
         static void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
                                      u32 layer, RHI::Access access, RHI::Format format)
         {

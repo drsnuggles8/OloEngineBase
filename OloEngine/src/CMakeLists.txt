@@ -405,6 +405,7 @@
 		"OloEngine/ImGui/Colors.h"
 		"OloEngine/ImGui/FontAwesome.h"
 		"OloEngine/ImGui/ImGuiBuild.cpp"
+		"OloEngine/ImGui/ImGuiBuildVulkan.cpp"
 		"OloEngine/ImGui/ImGuiFonts.cpp"
 		"OloEngine/ImGui/ImGuiFonts.h"
 		"OloEngine/ImGui/ImGuiLayer.cpp"
@@ -1492,6 +1493,29 @@
 		"Platform/OpenGL/OpenGLVertexBuffer.cpp"
 		"Platform/OpenGL/OpenGLVertexBuffer.h"
 
+		# Steamworks platform integration (#644). Always listed; SteamworksBackend.cpp
+		# self-guards on OLO_WITH_STEAM and falls back to a NullSteamBackend factory when
+		# the SDK is absent — the same convention as the Vulkan backend below.
+		#
+		# SteamworksBackend.cpp is the ONLY TU in the engine that includes a Valve header.
+		# Everything else here talks to ISteamBackend, which is what makes the logic
+		# fake-testable and confines what the CI stub SDK has to satisfy.
+		"Platform/Steam/SteamBackend.h"
+		"Platform/Steam/SteamManager.cpp"
+		"Platform/Steam/SteamManager.h"
+		"Platform/Steam/SteamTypes.h"
+		"Platform/Steam/SteamworksBackend.cpp"
+
+		# Hand-written stub SDK. NOT Valve's headers — our own minimal declarations of only
+		# the entry points SteamworksBackend.cpp calls, so CI can compile, LINK and RUN the
+		# OLO_WITH_STEAM=ON path that the real (non-redistributable) SDK can never reach in a
+		# public repo. Always listed: SteamStubSDK.cpp self-guards, and its SteamStub::
+		# control surface stays linkable as no-ops on every configuration so tests can
+		# include it unconditionally and skip cleanly.
+		"Platform/Steam/StubSDK/SteamStubControl.h"
+		"Platform/Steam/StubSDK/SteamStubSDK.cpp"
+		"Platform/Steam/StubSDK/public/steam/steam_api.h"
+
 		# Vulkan backend bring-up (#691 Phase 4) + render-graph execution layer
 		# (#691 Phase 5). Always listed; each .cpp self-guards on OLO_WITH_VULKAN
 		# and compiles to an empty TU when the backend is off — the same
@@ -1520,6 +1544,8 @@
 		"Platform/Vulkan/VulkanGpuFence.h"
 		"Platform/Vulkan/VulkanImageLayoutTracker.cpp"
 		"Platform/Vulkan/VulkanImageLayoutTracker.h"
+		"Platform/Vulkan/VulkanImGuiBackend.cpp"
+		"Platform/Vulkan/VulkanImGuiBackend.h"
 		"Platform/Vulkan/VulkanMemoryAllocator.cpp"
 		"Platform/Vulkan/VulkanOneShot.cpp"
 		"Platform/Vulkan/VulkanOneShot.h"
@@ -1530,6 +1556,8 @@
 		"Platform/Vulkan/VulkanRendererAPI.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.h"
+		"Platform/Vulkan/VulkanSamplerHeap.cpp"
+		"Platform/Vulkan/VulkanSamplerHeap.h"
 		"Platform/Vulkan/VulkanRendererAPI.h"
 		"Platform/Vulkan/VulkanShader.cpp"
 		"Platform/Vulkan/VulkanShader.h"
@@ -1611,6 +1639,7 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/Video/PlMpeg.cpp"               # pl_mpeg (PL_MPEG_IMPLEMENTATION)
 		"OloEngine/Video/FFmpegBackend.cpp"        # FFmpeg C headers (avcodec/avformat/...) — heavy macro surface
 		"OloEngine/ImGui/ImGuiBuild.cpp"           # Dear ImGui backend implementation TU
+		"OloEngine/ImGui/ImGuiBuildVulkan.cpp"     # Dear ImGui Vulkan backend TU (volk-first include order)
 		# GROUP 2 — duplicated file-local helper names that collide across a jumbo (de-dup TODO)
 		"OloEngine/Renderer/RenderPipeline.cpp"            # anon IsTruthyEnvironmentVariable / IsRenderGraphDiagnosticsEnabled
 		"OloEngine/Renderer/RenderGraph.cpp"              #   "
@@ -1632,6 +1661,7 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp" # static IsFiniteVec3 (+ macro-heavy Sol2 glue)
 		"OloEngine/Audio/DSP/HighPassFilter.cpp"   # namespace-scope consts FilterOrder/Min/MaxFrequencyHz
 		"OloEngine/Audio/DSP/LowPassFilter.cpp"    #   "
+
 		PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
 	)
 endif()

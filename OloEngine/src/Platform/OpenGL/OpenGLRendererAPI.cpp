@@ -326,6 +326,7 @@ namespace OloEngine
     }
     void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
     {
+
         OLO_PROFILE_FUNCTION();
 
         vertexArray->Bind();

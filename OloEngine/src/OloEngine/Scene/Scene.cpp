@@ -21,6 +21,7 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/UnderwaterCaustics.h"
@@ -8602,7 +8603,15 @@ namespace OloEngine
                 uwData.GodRaySun = glm::vec4(godRaySamples, sunScreenUV.x, sunScreenUV.y, sunInFront);
                 uwData.GodRayColor = glm::vec4(godRayColor, 0.0f);
                 uwData.GodRayShape = glm::vec4(godRayShape, 0.0f, 0.0f);
-                uwData.InverseViewProjection = glm::inverse(viewProjection);
+                // A8 shader-reconstruction seam (#691): the tone-map underwater
+                // stage reconstructs world position from uv + row-mirrored
+                // scene depth on Vulkan, so the inverse must come from the
+                // ADJUSTED forward matrix (identity on GL). This was the one
+                // uv->world consumer the Wave C sweep missed — the raw inverse
+                // misclassified the per-pixel waterline and flooded the whole
+                // VehiclesTest frame with underwater fog under Vulkan (Phase 8
+                // parity gate).
+                uwData.InverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(viewProjection);
                 Renderer3D::UploadUnderwaterFogUBO(uwData);
             }
 

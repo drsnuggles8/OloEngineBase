@@ -61,7 +61,9 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        const std::array<KnownBlock, 34> kKnownBlocks = { {
+        // 39 = the base 33, plus the five #691 Phase 8 compute blocks, plus
+        // ColorBlindParams (#458).
+        const std::array<KnownBlock, 39> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -102,6 +104,15 @@ namespace OloEngine::Tests
             { "VirtualClusterCullParams", sizeof(UBOStructures::VirtualClusterCullUBO) },
             { "VirtualRasterParams", sizeof(UBOStructures::VirtualRasterUBO) },
             { "InstanceCullParams", sizeof(UBOStructures::InstanceCullUBO) },
+            // Issue #691 Phase 8 — the sweep's completion: the six compute
+            // shaders whose passes never ran in the Phase 7 live log.
+            // OceanFFTParams is one block declared verbatim in all three
+            // Ocean_*.comp passes.
+            { "OceanFFTParams", sizeof(UBOStructures::OceanFFTUBO) },
+            { "CloudNoiseGenParams", sizeof(UBOStructures::CloudNoiseGenUBO) },
+            { "CloudShadowGenParams", sizeof(UBOStructures::CloudShadowGenUBO) },
+            { "PrecipitationFeedParams", sizeof(UBOStructures::PrecipitationFeedUBO) },
+            { "ReflectionProbeCullParams", sizeof(UBOStructures::ReflectionProbeCullUBO) },
             // Colour-vision adaptation (issue #458). Listed for the reason the
             // comment above gives: an unlisted block is SKIPPED, not failed, so
             // leaving it out would mean this block has no GLSL<->C++ guard at all.

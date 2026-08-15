@@ -41,10 +41,20 @@ layout(std140, binding = 58) uniform ReflectionProbeData
     ReflectionProbe u_Probes[32];
 };
 
-uniform mat4 u_ViewMatrix; // RELATIVE world -> view
-uniform mat4 u_InverseProjectionMatrix;
-uniform float u_NearPlane;
-uniform float u_FarPlane;
+// Former bare uniforms, migrated to a std140 block (issue #691 Phase 8):
+// GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
+// VulkanComputeShader::Set* is a deliberate no-op there — this shader was the
+// SEVENTH such file, invisible to the Phase 7 sweep because its pass never
+// ran in that session's live log. C++ twin:
+// UBOStructures::ReflectionProbeCullUBO (UBO_REFLECTION_PROBE_CULL).
+layout(std140, binding = 77) uniform ReflectionProbeCullParams
+{
+    mat4 u_ViewMatrix;                // 0   — RELATIVE world -> view
+    mat4 u_InverseProjectionMatrix;   // 64
+    float u_NearPlane;                // 128
+    float u_FarPlane;                 // 132
+    vec2 _probeCullPad0;              // 136
+};
 
 shared uint s_Mask;
 

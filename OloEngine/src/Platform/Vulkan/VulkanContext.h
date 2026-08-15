@@ -51,6 +51,57 @@ namespace OloEngine
             m_FrameRenderCallback = std::move(callback);
         }
 
+        // SwapBuffers owns acquire/record/submit/present here — one-off
+        // presenters (the shader-warmup progress screen) must record through
+        // an exchanged frame callback, not GL's immediate-then-swap shape.
+        [[nodiscard]] bool DrivesFrameRendering() const override
+        {
+            return true;
+        }
+
+        [[nodiscard]] FrameRenderCallback ExchangeFrameRenderCallback(FrameRenderCallback callback) override
+        {
+            std::swap(m_FrameRenderCallback, callback);
+            return callback;
+        }
+
+        // The live context, or null outside a --rhi=vulkan session — the
+        // VulkanDevice::Get() pattern. Consumers: the mid-frame flush below.
+        [[nodiscard]] static VulkanContext* Get()
+        {
+            return s_Instance;
+        }
+
+        // #691 Phase 8: submit everything the frame has recorded so far and
+        // WAIT for it, then re-enter the recording bracket on the reset
+        // command buffer so the frame continues. This is what makes a
+        // synchronous mid-frame readback (StorageBuffer::GetData between two
+        // dispatches — the fluid solver's body-impulse coupling) read THIS
+        // frame's data instead of last frame's: a one-shot submits before the
+        // still-recording frame command buffer, in queue-submit order.
+        //
+        // Returns false (and does nothing) when there is nothing to flush or
+        // flushing would be unsound: outside the SwapBuffers frame callback,
+        // no live recording, an open occlusion query (a query span cannot
+        // cross command buffers), or the backbuffer already written — the
+        // acquire semaphore is a binary wait the FINAL submit owns, so a
+        // flush containing swapchain-image work would need it first and rob
+        // the real submit of it. Callers fall back to the one-shot path
+        // (previous-frame data) on false; a full GPU stall on true is the
+        // price GL always paid for glGetBufferSubData.
+        [[nodiscard]] bool FlushFrameRecordingAndWait();
+
+        // Swapchain facts the ImGui renderer backend needs at Init (#691
+        // Phase 8): imgui_impl_vulkan bakes the swapchain color format into
+        // its pipeline (dynamic rendering) and sizes its per-frame buffers
+        // from the image counts. Plain u32s — this header deliberately leaks
+        // no Vk types (see the VulkanContextData note above); the format is
+        // the VkFormat value, cast back by the Platform-side consumer. All
+        // three return 0 while no swapchain exists (minimised).
+        [[nodiscard]] u32 GetSwapchainImageCount() const;
+        [[nodiscard]] u32 GetSwapchainMinImageCount() const;
+        [[nodiscard]] u32 GetSwapchainColorFormat() const;
+
         // The fixed bring-up clear colour (classic XNA cornflower blue — instantly
         // recognisable as "a cleared backbuffer", and nothing the GL editor draws).
         static constexpr f32 kClearColor[4] = { 0.392f, 0.584f, 0.929f, 1.0f };
@@ -65,6 +116,8 @@ namespace OloEngine
         FrameRenderCallback m_FrameRenderCallback;
         /// Re-entrancy latch — see the nested-present guard in SwapBuffers.
         bool m_InSwapBuffers = false;
+
+        inline static VulkanContext* s_Instance = nullptr;
     };
 } // namespace OloEngine
 

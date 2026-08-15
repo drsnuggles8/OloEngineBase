@@ -17,6 +17,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
 // at binding = 15. The shader body keeps reading `u_Model` etc. via the
 // macros declared in InstanceBlock.glsl, so only the resource declaration
 // differs from the legacy ModelMatrices UBO at binding = 3.
+// This shader's consuming stage never reads v_InstanceIndex — declare no
+// varying (a written-but-unconsumed output is a per-pipeline Vulkan
+// validation interface warning).
+#define OLO_INSTANCE_NO_FORWARD 1
 #include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec3 v_Color;

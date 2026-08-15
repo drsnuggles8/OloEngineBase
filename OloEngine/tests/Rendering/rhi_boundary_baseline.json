@@ -1378,9 +1378,11 @@
   "tools_gl_calls": 236,
   "debug_escape_hatch": 0,
   "sweep_renderer_id": 168,
+  "sweep_renderer_id_note_phase8b": "170 -> 168 on 2026-08-15 (#691 Phase 8): the Water_Depth variant retired the water depth-capture FB's renderer-id mentions in WaterRenderPass. Prior: ", "sweep_renderer_id_note_phase8": "168 -> 170 on 2026-08-14 (#691 Phase 8): ImGuiLayer's backend-neutral ImTextureID helpers gained a GL arm calling GetColorAttachmentRendererID/GetRendererID — exactly the GL-name-as-ImTextureID seam this counter tracks for eventual elimination; the Vulkan arm routes through VulkanImGuiBackend and adds no native-name traffic.",
   "facade_native_id_params": 0,
   "backend_resolve_hatch": 0,
   "phase3_counters_measured_on_date": "2026-08-04",
-  "sweep_bind_texture_sites": 21,
+  "sweep_bind_texture_sites": 26,
+  "sweep_bind_texture_sites_note_phase8": "21 -> 26 on 2026-08-14 (#691 Phase 8): the explicit-sampler BindTexture overload added five FACADE occurrences — the RendererAPI declaration, its out-of-line default body (signature + inner two-arg call), and the RenderCommand forwarder (signature + inner call). All five are the facade's own vocabulary, the same category as the floor's original facade declarations; no pass-level bind site was added.",
   "phase3_bucket1_closed_on_date": "2026-08-07"
 }
