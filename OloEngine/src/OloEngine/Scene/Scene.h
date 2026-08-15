@@ -51,6 +51,7 @@ namespace OloEngine
     struct AudioSoundGraphComponent;
     struct ClothComponent;
     class DialogueSystem;
+    class SubtitleSystem;
     class GameplayEventBus;
     class UINavigation;
     class SystemScheduler;
@@ -750,6 +751,14 @@ namespace OloEngine
             return m_VisualScriptSystem.get();
         }
 
+        // Caption overlay (issue #458). Created alongside the dialogue system;
+        // null outside the runtime lifecycle. Game code pushes non-dialogue
+        // captions through SubtitleSystem::ShowCaption.
+        SubtitleSystem* GetSubtitleSystem() const
+        {
+            return m_SubtitleSystem.get();
+        }
+
         // Navigation
         void SetNavMesh(const Ref<NavMesh>& navMesh);
 
@@ -1003,6 +1012,7 @@ namespace OloEngine
         void UpdatePlayerRig(Timestep ts);       // input -> character motion (pre-physics)
         void UpdateCameraRig(Timestep ts);       // spring-arm camera placement (post-everything)
         void UpdateDialogue(Timestep ts);        // dialogue runner
+        void UpdateSubtitles(Timestep ts);       // caption overlay (issue #458)
         void UpdateLocomotion(Timestep ts);      // velocity->animation-parameter controller (issue #631)
         void UpdateRetargeting(Timestep ts);     // live-retarget clip bake (issue #631)
         void UpdateAnimation(Timestep ts);       // skeletal + morph-only sampling
@@ -1187,6 +1197,11 @@ namespace OloEngine
 
         std::unique_ptr<SceneStreamer> m_SceneStreamer;
         std::unique_ptr<DialogueSystem> m_DialogueSystem;
+        // Declared AFTER m_DialogueSystem so it is destroyed first: both hold
+        // UUIDs into m_EntityMap and tear their UI entities down in reverse
+        // declaration order (same constraint the m_DialogueSystem.reset() in
+        // ~Scene documents).
+        std::unique_ptr<SubtitleSystem> m_SubtitleSystem;
         DialogueVariables m_DialogueVariables;
         std::unique_ptr<VisualScript::VisualScriptSystem> m_VisualScriptSystem;
 

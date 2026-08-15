@@ -38,6 +38,7 @@
 #include "ShaderHarness.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Accessibility/AccessibilitySettings.h"
 
 #include <array>
 #include <sstream>
@@ -60,7 +61,9 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        const std::array<KnownBlock, 38> kKnownBlocks = { {
+        // 39 = the base 33, plus the five #691 Phase 8 compute blocks, plus
+        // ColorBlindParams (#458).
+        const std::array<KnownBlock, 39> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -110,6 +113,10 @@ namespace OloEngine::Tests
             { "CloudShadowGenParams", sizeof(UBOStructures::CloudShadowGenUBO) },
             { "PrecipitationFeedParams", sizeof(UBOStructures::PrecipitationFeedUBO) },
             { "ReflectionProbeCullParams", sizeof(UBOStructures::ReflectionProbeCullUBO) },
+            // Colour-vision adaptation (issue #458). Listed for the reason the
+            // comment above gives: an unlisted block is SKIPPED, not failed, so
+            // leaving it out would mean this block has no GLSL<->C++ guard at all.
+            { "ColorBlindParams", sizeof(ColorBlindUBOData) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)

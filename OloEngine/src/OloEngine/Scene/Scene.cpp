@@ -72,6 +72,7 @@
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
 #include "OloEngine/UI/UINavigationSystem.h"
+#include "OloEngine/Accessibility/SubtitleSystem.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Localization/LocalizationSystem.h"
 #include "OloEngine/Localization/LocalizedTextComponent.h"
@@ -388,7 +389,12 @@ namespace OloEngine
         // (members destroyed in reverse declaration order) would otherwise
         // produce because m_EntityMap is declared after m_DialogueSystem.
         // Reset the system here while every member it might touch is still
-        // alive.
+        // alive. The subtitle system (issue #458) holds UUIDs the same way and
+        // needs the same treatment — its Shutdown is explicit rather than in a
+        // destructor, so call it before releasing the owner.
+        if (m_SubtitleSystem)
+            m_SubtitleSystem->Shutdown(*this);
+        m_SubtitleSystem.reset();
         m_DialogueSystem.reset();
         // Same ordering reason: graph instances are keyed by entity UUID and
         // teardown resolves them through m_EntityMap.
@@ -1132,6 +1138,12 @@ namespace OloEngine
         // branch on quest state. Lives here so both the runtime (OnRuntimeStart)
         // and headless test harnesses (EnableDialogue) wire the same handlers.
         RegisterQuestDialogueHandlers(*m_DialogueSystem, *this);
+
+        // Caption overlay (issue #458). Created alongside the dialogue system so
+        // the same headless harnesses that drive dialogue state machines get
+        // subtitles for free; it creates no entities until a caption is actually
+        // shown, and does nothing at all while SubtitlesEnabled is false.
+        m_SubtitleSystem = std::make_unique<SubtitleSystem>();
     }
 
     void Scene::InitVisualScriptRuntime()
@@ -1738,7 +1750,12 @@ namespace OloEngine
             m_VisualScriptSystem->OnRuntimeStop();
         }
 
-        // Shut down dialogue system
+        // Shut down dialogue system. Subtitles first: Shutdown destroys the
+        // caption UI entities, which must happen while the registry is still
+        // live so Play → Stop → Play doesn't leave orphaned overlays behind.
+        if (m_SubtitleSystem)
+            m_SubtitleSystem->Shutdown(*this);
+        m_SubtitleSystem.reset();
         m_DialogueSystem.reset();
         m_DialogueVariables.Clear();
 
@@ -3130,6 +3147,17 @@ namespace OloEngine
             // into kick/fence).
             sched.AddSystem("Dialogue", [](Scene& s, Timestep ts)
                             { s.UpdateDialogue(ts); });
+            // Captions (issue #458) read the DialogueStateComponent Dialogue
+            // just wrote, so the edge is real, not tie-break positioning — hence
+            // the explicit .After("Dialogue") rather than relying on
+            // registration order. Shadow-legal: it touches UI entities and the
+            // process-global accessibility settings only, no transforms, no
+            // physics, no Jolt queries. Its entity creation is a structural
+            // registry change, which the shadow explicitly permits. UNMARKED
+            // (game thread) and it must stay that way for exactly that reason.
+            sched.AddSystem("Subtitles", [](Scene& s, Timestep ts)
+                            { s.UpdateSubtitles(ts); })
+                .After("Dialogue");
             sched.AddSystem("Quest", [](Scene& s, Timestep ts)
                             { s.UpdateQuest(ts); });
             // Progression sits after Quest (registration-order tie-break) so
@@ -3490,6 +3518,17 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("DialogueSystem::Update");
             m_DialogueSystem->Update(ts);
+        }
+    }
+
+    void Scene::UpdateSubtitles(Timestep ts)
+    {
+        // Caption overlay (issue #458). Runs right after Dialogue so a line that
+        // started this tick is captioned this tick rather than one late.
+        if (m_SubtitleSystem)
+        {
+            OLO_PROFILE_SCOPE("SubtitleSystem::Update");
+            m_SubtitleSystem->Update(*this, ts);
         }
     }
 

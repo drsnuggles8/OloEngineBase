@@ -142,4 +142,10 @@ render path, and unit + visual-evidence tests.
   MPEG-1 (`.mpg`) plays.
 - Playback-speed control applies only in the video-only (no-audio) path; with audio the master
   clock keeps playback at 1×.
-- Subtitle tracks and hardware-accelerated decode (DXVA/NVDEC) are not wired.
+- Hardware-accelerated decode (DXVA/NVDEC) is not wired.
+- Subtitle tracks are not parsed from the container, but the **display** side exists
+  (issue #458): `SubtitleSystem::ShowCaption(text, speaker, durationSeconds)` renders a
+  timed caption through the accessibility overlay, honouring the player's subtitle
+  toggle and text-scale settings. Wiring a video's subtitle stream is therefore a
+  decode-and-dispatch job, not a UI one — pump each cue into ShowCaption with its
+  duration as the player clock reaches it.

@@ -956,6 +956,16 @@ add_executable(OloEngine-Tests
 		# both the parallel and the sequential gameplay executor.
 		Functional/Scripting/LuaSpawnsAndDestroysEntitiesTest.cpp
 		Functional/Scripting/VisualScriptDrivesGameplayTest.cpp
+
+		# Accessibility (issue #458): global settings + text-scale policy +
+		# prefs round-trip; the colour-vision math mirrored from
+		# PostProcess_ColorBlind.glsl; and the caption overlay driven through
+		# real Scene::OnUpdateRuntime ticks.
+		Accessibility/AccessibilitySettingsTest.cpp
+		Rendering/ColorBlindMathTest.cpp
+		Rendering/PropertyTests/ColorBlindVisualEvidenceTest.cpp
+		Rendering/PropertyTests/UITextScaleVisualEvidenceTest.cpp
+		Functional/Accessibility/SubtitlesFollowDialogueStateTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

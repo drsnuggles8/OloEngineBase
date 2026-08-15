@@ -4,6 +4,7 @@
 // Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
+#include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Font.h"
@@ -36,6 +37,15 @@ namespace OloEngine
     static std::stack<ClipRect> s_ClipStack;
     static f32 s_ViewportHeight = 0.0f;
     static glm::mat4 s_CurrentProjection{ 1.0f };
+
+    // Em size the input-field and dropdown text paths normalise by: their font
+    // size is a pixel height while Renderer2D::DrawString takes a transform
+    // scale. Named once because it appeared at three call sites — and the
+    // text-scale coverage test only proves each site wraps m_FontSize in
+    // ResolveFontSize, so it could not catch one site drifting to a different
+    // divisor. DrawUIText does NOT use this: it derives its own normalisation
+    // from the font metrics (fsScale).
+    static constexpr f32 kTextTransformEmSize = 48.0f;
 
     void UIRenderer::BeginScene(const glm::mat4& projection)
     {
@@ -276,7 +286,19 @@ namespace OloEngine
         // Font size scaling: after fsScale normalization, the full ascender-to-descender
         // range is 1.0 local unit. Multiplying by fontSize gives fontSize pixels in the
         // screen-space ortho projection (1 unit = 1 pixel).
-        const f32 scale = text.m_FontSize;
+        //
+        // The global accessibility text scale (issue #458) is applied HERE, at draw
+        // time, and never written back to the component: the authored m_FontSize
+        // stays author-intent, so changing the scale is lossless and scene data
+        // never records a player's preference.
+        //
+        // KNOWN LIMITATION: UILayoutSystem resolves rects without consulting font
+        // size, so a scaled-up label does NOT reflow its parent and can overflow
+        // the authored box. That is deliberate — the alternative is clipping, and
+        // truncating a caption is strictly worse for the reader this feature
+        // exists for than letting it spill. Authors who need a hard bound should
+        // size the rect for the maximum scale (kMaxUITextScale).
+        const f32 scale = Accessibility::ResolveFontSize(text.m_FontSize);
 
         // Line height in local space (pre-transform) and screen space.
         // m_LineSpacing is added in pixels (post-scale) so small values like 2.0
@@ -506,8 +528,9 @@ namespace OloEngine
         }
         DrawRect(position, size, bgColor, entityID);
 
-        // Text or placeholder
-        const f32 scale = inputField.m_FontSize / 48.0f;
+        // Text or placeholder. Global accessibility text scale applied at draw
+        // time (issue #458) — see DrawUIText for why it is not written back.
+        const f32 scale = Accessibility::ResolveFontSize(inputField.m_FontSize) / kTextTransformEmSize;
         const f32 padding = 4.0f;
         glm::vec2 textPos = { position.x + padding, position.y + size.y * 0.5f };
         glm::mat4 transform = glm::translate(glm::mat4(1.0f), { textPos.x, textPos.y, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
@@ -577,7 +600,8 @@ namespace OloEngine
         // Selected text
         if (dropdown.m_SelectedIndex >= 0 && dropdown.m_SelectedIndex < static_cast<i32>(dropdown.m_Options.size()))
         {
-            const f32 scale = dropdown.m_FontSize / 48.0f;
+            // Global accessibility text scale (issue #458).
+            const f32 scale = Accessibility::ResolveFontSize(dropdown.m_FontSize) / kTextTransformEmSize;
             const f32 padding = 4.0f;
             glm::mat4 transform = glm::translate(glm::mat4(1.0f), { position.x + padding, position.y + size.y * 0.5f, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
             Renderer2D::TextParams params;
@@ -596,6 +620,9 @@ namespace OloEngine
         // Popup list when open
         if (dropdown.m_IsOpen && !dropdown.m_Options.empty())
         {
+            // Hoisted: dropdown.m_FontSize does not change across options, so
+            // resolving the scale per option was redundant work in the loop.
+            const f32 optionScale = Accessibility::ResolveFontSize(dropdown.m_FontSize) / kTextTransformEmSize;
             const f32 listHeight = static_cast<f32>(dropdown.m_Options.size()) * dropdown.m_ItemHeight;
             const glm::vec2 listPos = { position.x, position.y + size.y };
 
@@ -610,9 +637,8 @@ namespace OloEngine
                     DrawRect({ listPos.x, itemY }, { size.x, dropdown.m_ItemHeight }, dropdown.m_HighlightColor, entityID);
                 }
 
-                const f32 scale = dropdown.m_FontSize / 48.0f;
                 const f32 padding = 4.0f;
-                glm::mat4 transform = glm::translate(glm::mat4(1.0f), { listPos.x + padding, itemY + dropdown.m_ItemHeight * 0.5f, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
+                glm::mat4 transform = glm::translate(glm::mat4(1.0f), { listPos.x + padding, itemY + dropdown.m_ItemHeight * 0.5f, 0.0f }) * glm::scale(glm::mat4(1.0f), { optionScale, optionScale, 1.0f });
                 Renderer2D::TextParams params;
                 params.Color = dropdown.m_TextColor;
                 if (dropdown.m_FontAsset)
