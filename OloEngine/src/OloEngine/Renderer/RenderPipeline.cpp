@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
@@ -932,6 +933,21 @@ namespace OloEngine
             PostProcessPasses.UIComposite->SetRenderCallback(std::move(data.PendingUICompositeRenderCallback));
         }
 
+        // Colour-vision deficiency adaptation (issue #458). Driven by the
+        // process-global accessibility settings, NOT by data.PostProcess: these
+        // are player preferences, so they must survive a scene load and must not
+        // be reachable by QualityTiering's downgrade path. Snapshotted into the
+        // pass here so the render thread never reads the live global mid-frame.
+        if (PostProcessPasses.ColorBlind)
+        {
+            const auto& accessibility = Accessibility::Get();
+            PostProcessPasses.ColorBlind->SetEnabled(accessibility.ColorBlind != ColorBlindMode::None);
+            // Display gamma comes from PostProcessSettings, NOT from the
+            // accessibility settings: this stage must decode exactly what
+            // ToneMapPass just encoded with, so there is only one source.
+            PostProcessPasses.ColorBlind->SetParams(MakeColorBlindUBOData(accessibility, data.PostProcess.Gamma));
+        }
+
         // Wire deferred lighting pass inputs each frame so it reflects the
         // current G-Buffer / debug-channel selection. The pass no-ops when
         // the path is Forward / Forward+ (GBuffer is never created).
@@ -1598,6 +1614,12 @@ namespace OloEngine
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.Upscale)));
         HashBool(h, data.PostProcess.VignetteEnabled);
         HashBool(h, data.PostProcess.FXAAEnabled);
+        // Colour-blind mode (issue #458) gates whether ColorBlindColor is
+        // declared at all, so a change must invalidate the cached blackboard —
+        // otherwise toggling a mode leaves the graph without the resource and
+        // the stage silently never runs. Severity/method do NOT change topology
+        // (they ride the UBO), so only the mode is hashed.
+        HashU32(h, static_cast<u32>(std::to_underlying(Accessibility::Get().ColorBlind)));
 
         // Other systems that gate blackboard branches
         HashBool(h, data.Fog.Enabled);
@@ -1741,6 +1763,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.SelectionOutline);
         HashPassState(h, PostProcessPasses.Overdraw);
         HashPassState(h, PostProcessPasses.UIComposite);
+        HashPassState(h, PostProcessPasses.ColorBlind);
         HashPassState(h, PostProcessPasses.Final);
 
         // Water needs a refraction texture only when it has draws this frame.
@@ -3008,6 +3031,24 @@ namespace OloEngine
             board.Post.UICompositeTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, board.Post.UIComposite, 0u);
         }
 
+        // Colour-vision adaptation target (issue #458). Declared only when a
+        // mode is active AND the shader is ready — same readiness gate as
+        // Overdraw above: without it, toggling a mode before the (possibly
+        // async) shader finishes compiling would declare ColorBlindColor while
+        // Execute() no-ops, leaving FinalPass to present an uninitialised
+        // target. Display-res LDR, matching the UIComposite RT0 it consumes.
+        if (pipeline.PostProcessPasses.ColorBlind &&
+            Accessibility::Get().ColorBlind != ColorBlindMode::None &&
+            pipeline.PostProcessPasses.ColorBlind->IsReadyForExecution())
+        {
+            const auto colorBlindOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::ColorBlindColor,
+                ResourceNames::ColorBlindColorTexture,
+                RGResourceFormat::RGBA8UNorm);
+            board.Post.ColorBlindColor = colorBlindOutput.Framebuffer;
+            board.Post.ColorBlindColorTexture = colorBlindOutput.Texture;
+        }
+
         // Default framebuffer / swapchain target represented as an imported
         // external output resource. Backing framebuffer is null by design;
         // FinalPass presents via RGCommandContext::BindDefaultFramebuffer().
@@ -3178,6 +3219,7 @@ namespace OloEngine
         inputs.Passes.SelectionOutline = PostProcessPasses.SelectionOutline.Raw();
         inputs.Passes.Overdraw = PostProcessPasses.Overdraw.Raw();
         inputs.Passes.UIComposite = PostProcessPasses.UIComposite.Raw();
+        inputs.Passes.ColorBlind = PostProcessPasses.ColorBlind.Raw();
         inputs.Passes.Final = PostProcessPasses.Final.Raw();
 
         return inputs;
@@ -3478,6 +3520,13 @@ namespace OloEngine
         PostProcessPasses.UIComposite = Ref<UICompositeRenderPass>::Create();
         PostProcessPasses.UIComposite->SetName("UICompositePass");
         PostProcessPasses.UIComposite->Init(finalPassSpec);
+
+        // Colour-vision deficiency adaptation (issue #458). Always created so
+        // the post/UI topology stays stable; the per-frame blackboard
+        // declaration and SetEnabled decide whether it does any work.
+        PostProcessPasses.ColorBlind = Ref<ColorBlindRenderPass>::Create();
+        PostProcessPasses.ColorBlind->SetName("ColorBlindPass");
+        PostProcessPasses.ColorBlind->Init(finalPassSpec);
 
         PostProcessPasses.Final = Ref<FinalRenderPass>::Create();
         PostProcessPasses.Final->SetName("FinalPass");

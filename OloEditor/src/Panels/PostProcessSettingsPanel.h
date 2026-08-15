@@ -27,6 +27,10 @@ namespace OloEngine
         void DrawToneMappingSection() const;
         void DrawBloomSection() const;
         void DrawVignetteSection() const;
+        // Player accessibility preferences (issue #458). Process-global, NOT
+        // part of PostProcessSettings and therefore deliberately outside this
+        // panel's scene-undo snapshot — see AccessibilitySettings.h.
+        static void DrawAccessibilitySection();
         void DrawChromaticAberrationSection() const;
         void DrawColorGradingSection() const;
         void DrawFXAASection() const;

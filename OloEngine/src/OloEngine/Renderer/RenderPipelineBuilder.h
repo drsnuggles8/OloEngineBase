@@ -59,6 +59,7 @@ namespace OloEngine
         RenderGraphNode* ToneMap = nullptr;
         RenderGraphNode* Upscaler = nullptr;
         RenderGraphNode* Vignette = nullptr;
+        RenderGraphNode* ColorBlind = nullptr;
         RenderGraphNode* FXAA = nullptr;
         RenderGraphNode* SelectionOutline = nullptr;
         RenderGraphNode* Overdraw = nullptr;

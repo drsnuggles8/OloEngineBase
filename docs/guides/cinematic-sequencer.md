@@ -202,7 +202,14 @@ extra floats per key; older v1 files (no tangent fields) load unchanged with fla
 The issue lists Audio, Dialogue, PostProcess, and Subtitle tracks. They are
 omitted from this slice because each couples to another subsystem's runtime
 (AudioEventsManager, DialogueSystem, PostProcessSettings, the UI layer) and
-is better added once that seam is needed. The track model is open for
+is better added once that seam is needed.
+
+**The Subtitle track's seam now exists** (issue #458): `SubtitleSystem::ShowCaption(text,
+speaker, durationSeconds)` publishes a timed caption to the accessibility overlay and
+outranks the dialogue-driven source while it is live, so a subtitle track only needs an
+apply branch that calls it — no new UI, no new component. `Scene::GetSubtitleSystem()`
+is the handle. The caption honours the player's subtitle toggle, so a cutscene must not
+assume its line is on screen. The track model is open for
 extension — add a struct in `CinematicTrack.h`, a `std::vector` on
 `CinematicSequence`, an apply branch in `CinematicSystem`, and serializer
 coverage. EventTracks already provide a generic escape hatch (fire a named
