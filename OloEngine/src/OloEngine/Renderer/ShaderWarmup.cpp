@@ -279,16 +279,27 @@ void main()
         // context's nested-present guard either way.
         if (auto* context = window->GetGraphicsContext(); context != nullptr && context->DrivesFrameRendering())
         {
-            auto previous = context->ExchangeFrameRenderCallback(
-                [&](const GraphicsContext::FrameRenderTarget& target) -> bool
+            // Restore via RAII, not a straight-line call: the exchanged-in
+            // callback captures this scope's locals by reference, so if the
+            // present throws, a leaked callback dangles into the next frame.
+            struct CallbackRestore
+            {
+                GraphicsContext* Context;
+                GraphicsContext::FrameRenderCallback Previous;
+                ~CallbackRestore()
                 {
-                    if (target.Width == 0 || target.Height == 0)
-                        return false;
-                    recordProgressDraws(target.Width, target.Height);
-                    return true;
-                });
+                    Context->SetFrameRenderCallback(std::move(Previous));
+                }
+            };
+            const CallbackRestore restore{ context, context->ExchangeFrameRenderCallback(
+                                                        [&](const GraphicsContext::FrameRenderTarget& target) -> bool
+                                                        {
+                                                            if (target.Width == 0 || target.Height == 0)
+                                                                return false;
+                                                            recordProgressDraws(target.Width, target.Height);
+                                                            return true;
+                                                        }) };
             window->SwapBuffers();
-            context->SetFrameRenderCallback(std::move(previous));
             return;
         }
 

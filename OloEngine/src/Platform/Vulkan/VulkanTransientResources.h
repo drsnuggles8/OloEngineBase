@@ -44,6 +44,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -761,9 +762,17 @@ namespace OloEngine
 
       private:
         void CreateAttachments();
-        // Adopt an external attachment's extent into the spec (see the
-        // AttachExternal* comment).
-        void AdoptExternalExtent(const VulkanTexture2D& texture);
+        // Adopt or validate an external attachment's extent (see the
+        // AttachExternal* comment): the first live attachment owns the spec
+        // extent; once any other attachment is live, a mismatched extent is
+        // refused (returns false) rather than silently renaming the
+        // framebuffer's size under the existing attachments.
+        [[nodiscard]] bool AcceptExternalExtent(const VulkanTexture2D& texture, i32 excludeColorIndex,
+                                                bool excludeDepth);
+        [[nodiscard]] bool HasLiveAttachmentOtherThan(i32 excludeColorIndex, bool excludeDepth) const;
+        // m_HasExternalAttachments = any tracked external slot still live —
+        // detaching the last one unblocks Resize again.
+        void RecomputeHasExternalAttachments();
 
         FramebufferSpecification m_Specification;
 
@@ -800,12 +809,20 @@ namespace OloEngine
         // the one moment that is correct: the reclaim pass, before the image
         // itself is destroyed.
         DepthArrayLayerAttachment m_DepthArrayAttachment;
-        // True once AttachExternal{Color,Depth}Texture installed an attachment
-        // this framebuffer does not own. Resize would silently REPLACE the
-        // external wiring with fresh internal attachments (CreateAttachments
-        // rebuilds every slot), so it refuses instead (review finding, #691
-        // Phase 8) — the owner re-attaches at its own new size.
+        // True while AttachExternal{Color,Depth}Texture has an attachment
+        // installed that this framebuffer does not own. Resize would silently
+        // REPLACE the external wiring with fresh internal attachments
+        // (CreateAttachments rebuilds every slot), so it refuses instead
+        // (review finding, #691 Phase 8) — the owner re-attaches at its own
+        // new size. Recomputed from the per-slot tracking below on every
+        // detach, so detaching the last external attachment unblocks Resize.
         bool m_HasExternalAttachments = false;
+        // Which color slots hold externally-owned attachments, plus the depth
+        // twin. Needed because m_ColorAttachments mixes internal (spec-
+        // created) and external slots: the flag recompute and the
+        // ClearAllAttachments format decision must not confuse the two.
+        std::unordered_set<u32> m_ExternalColorIndices;
+        bool m_ExternalDepth = false;
         struct CachedDepthArrayView
         {
             VkImageView View = VK_NULL_HANDLE;

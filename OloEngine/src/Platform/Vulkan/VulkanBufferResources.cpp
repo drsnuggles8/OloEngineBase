@@ -162,9 +162,15 @@ namespace OloEngine
                         const auto* cellBytes = reinterpret_cast<const u8*>(cell);
                         if (info.Type == MEM_IMAGE)
                         {
-                            OLO_CORE_TRACE("[Vulkan]   holder of '{}': STATIC at module+{:#x} "
-                                           "(resolve: cdb> ln OloEditor+{:#x})",
-                                           name, static_cast<std::uintptr_t>(cellBytes - moduleBase),
+                            // The RVA is computed against the MAIN module's
+                            // base; a hit inside another loaded image would
+                            // resolve nonsense there, so always print the
+                            // absolute address too (review finding).
+                            OLO_CORE_TRACE("[Vulkan]   holder of '{}': STATIC at {:p} (main-module RVA {:#x}; "
+                                           "resolve: cdb> ln OloEditor+{:#x}, or ln on the absolute address "
+                                           "if the cell is in another module)",
+                                           name, static_cast<const void*>(cellBytes),
+                                           static_cast<std::uintptr_t>(cellBytes - moduleBase),
                                            static_cast<std::uintptr_t>(cellBytes - moduleBase));
                         }
                         else

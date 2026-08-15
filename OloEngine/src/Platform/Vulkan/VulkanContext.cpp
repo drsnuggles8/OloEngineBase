@@ -137,6 +137,14 @@ namespace OloEngine
             // production drain), and entries surviving past Device.Shutdown()
             // are dropped with a leak warning instead of destroyed.
             VulkanPipelineBuilder::Get().ReleaseAll();
+            // The raw-facade registries (deliberately leaked singletons) hold
+            // the LAST Ref on adopted textures/framebuffers a caller never
+            // Destroy()ed — release them here so they retire through the
+            // reclaim drain below; left alone they outlive vmaDestroyAllocator
+            // and abort (review finding, #691 Phase 8). Framebuffers first:
+            // they hold Refs to the textures.
+            VulkanRawFramebufferRegistry::Get().ReleaseAll();
+            VulkanRawTextureRegistry::Get().ReleaseAll();
             // The engine heap's slots index the resource heap below — retire
             // them first (amendment (33): state must not outlive what gives
             // it meaning).

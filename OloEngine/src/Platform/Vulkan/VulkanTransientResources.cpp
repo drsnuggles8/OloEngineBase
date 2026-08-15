@@ -2690,6 +2690,14 @@ namespace OloEngine
         RenderCommand::ClearTextureFloat(m_ColorAttachments[attachmentIndex]->GetRHIHandle(), 0u, value);
     }
 
+    // Integer-sampled image formats take the UInt transfer clear; a float
+    // clear on a SINT/UINT image is a validation error.
+    static bool IsIntegerImageFormat(ImageFormat format)
+    {
+        return format == ImageFormat::R8UI || format == ImageFormat::R16UI || format == ImageFormat::RG16UI ||
+               format == ImageFormat::R32I;
+    }
+
     void VulkanFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)
     {
         // GL-parity semantics (OpenGLFramebuffer::ClearAllAttachments): every
@@ -2702,12 +2710,23 @@ namespace OloEngine
         // whatever samples or renders these attachments next (#691 Phase 7
         // Wave A — UICompositePass's mixed int/float clear is the first
         // caller on this backend).
-        for (sizet i = 0; i < m_ColorAttachmentSpecifications.size() && i < m_ColorAttachments.size(); ++i)
+        for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
         {
             if (!m_ColorAttachments[i])
                 continue;
             const RHI::ResourceHandle attachment = m_ColorAttachments[i]->GetRHIHandle();
-            if (m_ColorAttachmentSpecifications[i].TextureFormat == FramebufferTextureFormat::RED_INTEGER)
+            // Spec-created slots carry their format in the spec list, but an
+            // EXTERNAL slot may sit past it (raw framebuffers have an empty
+            // spec) or shadow a spec entry with a different format — decide
+            // int-vs-float from the attached texture itself there, because a
+            // float clear on an integer image is a validation error (review
+            // finding, #691 Phase 8).
+            const bool isExternal = m_ExternalColorIndices.contains(static_cast<u32>(i));
+            const bool isInteger =
+                (!isExternal && i < m_ColorAttachmentSpecifications.size())
+                    ? m_ColorAttachmentSpecifications[i].TextureFormat == FramebufferTextureFormat::RED_INTEGER
+                    : IsIntegerImageFormat(m_ColorAttachments[i]->GetSpecification().Format);
+            if (isInteger)
             {
                 // vkCmdClearColorImage on an SINT image reads the int32 union
                 // lanes; the uint clear writes the same bit pattern, so the
@@ -2847,12 +2866,48 @@ namespace OloEngine
         return m_ColorAttachments[index];
     }
 
-    void VulkanFramebuffer::AdoptExternalExtent(const VulkanTexture2D& texture)
+    bool VulkanFramebuffer::HasLiveAttachmentOtherThan(i32 excludeColorIndex, bool excludeDepth) const
     {
-        // Raw callers attach same-sized textures (the GL completeness rule),
-        // so the last non-null attach legitimately owns the spec extent.
-        m_Specification.Width = texture.GetWidth();
-        m_Specification.Height = texture.GetHeight();
+        for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
+        {
+            if (static_cast<i32>(i) != excludeColorIndex && m_ColorAttachments[i] != nullptr)
+            {
+                return true;
+            }
+        }
+        return !excludeDepth && m_DepthAttachment != nullptr;
+    }
+
+    void VulkanFramebuffer::RecomputeHasExternalAttachments()
+    {
+        m_HasExternalAttachments = m_ExternalDepth || !m_ExternalColorIndices.empty();
+    }
+
+    bool VulkanFramebuffer::AcceptExternalExtent(const VulkanTexture2D& texture, i32 excludeColorIndex,
+                                                 bool excludeDepth)
+    {
+        // Raw callers attach same-sized textures (the GL completeness rule).
+        // The first live attachment owns the spec extent — a raw framebuffer
+        // is born 0x0, and after a detach-all the owner may legitimately
+        // re-attach at a new size. Once any OTHER attachment is live, a
+        // mismatched extent is a caller bug: refuse it rather than silently
+        // renaming the framebuffer's size under the existing attachments,
+        // which would skew the scope's renderArea for all of them (review
+        // finding, #691 Phase 8).
+        const u32 width = texture.GetWidth();
+        const u32 height = texture.GetHeight();
+        if (m_Specification.Width != 0u && m_Specification.Height != 0u &&
+            (m_Specification.Width != width || m_Specification.Height != height) &&
+            HasLiveAttachmentOtherThan(excludeColorIndex, excludeDepth))
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] AttachExternal*: {}x{} texture does not match the framebuffer's "
+                          "{}x{} live attachments — attach refused",
+                          width, height, m_Specification.Width, m_Specification.Height);
+            return false;
+        }
+        m_Specification.Width = width;
+        m_Specification.Height = height;
+        return true;
     }
 
     void VulkanFramebuffer::AttachExternalColorTexture(u32 index, Ref<VulkanTexture2D> texture)
@@ -2865,6 +2920,12 @@ namespace OloEngine
             {
                 m_ColorAttachments[index] = nullptr;
             }
+            m_ExternalColorIndices.erase(index);
+            RecomputeHasExternalAttachments();
+            return;
+        }
+        if (!AcceptExternalExtent(*texture, static_cast<i32>(index), /*excludeDepth*/ false))
+        {
             return;
         }
         if (index >= m_ColorAttachments.size())
@@ -2874,8 +2935,8 @@ namespace OloEngine
             // requires the NON-null attachments to be live.
             m_ColorAttachments.resize(static_cast<sizet>(index) + 1u);
         }
-        AdoptExternalExtent(*texture);
         m_ColorAttachments[index] = std::move(texture);
+        m_ExternalColorIndices.insert(index);
         m_HasExternalAttachments = true;
     }
 
@@ -2884,6 +2945,8 @@ namespace OloEngine
         if (texture == nullptr)
         {
             m_DepthAttachment = nullptr;
+            m_ExternalDepth = false;
+            RecomputeHasExternalAttachments();
             return;
         }
         // The rendering scope opens this attachment DEPTH_STENCIL_OPTIMAL
@@ -2895,8 +2958,12 @@ namespace OloEngine
             OLO_CORE_WARN("[RHI/Vulkan] AttachExternalDepthTexture: texture has no depth aspect — attach refused");
             return;
         }
-        AdoptExternalExtent(*texture);
+        if (!AcceptExternalExtent(*texture, /*excludeColorIndex*/ -1, /*excludeDepth*/ true))
+        {
+            return;
+        }
         m_DepthAttachment = std::move(texture);
+        m_ExternalDepth = true;
         m_HasExternalAttachments = true;
     }
 

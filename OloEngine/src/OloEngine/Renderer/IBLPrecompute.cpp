@@ -25,11 +25,16 @@ namespace OloEngine
     // Static member definitions
     Ref<Mesh> IBLPrecompute::s_CubeMesh = nullptr;
 
+    // File-scope (not function-local) so IBLPrecompute::Shutdown can release
+    // it before the graphics context dies — a function-local static Ref is
+    // unreachable from Shutdown and its destructor runs at static-destruction
+    // time, after the binding-state/root-object singletons it unregisters
+    // from may already be gone (review finding, #691 Phase 8).
+    static Ref<UniformBuffer> s_IBLCameraUBO = nullptr;
+
     // Helper method to update camera matrices UBO for IBL rendering
     static void UpdateIBLCameraUBO(const glm::mat4& view, const glm::mat4& projection)
     {
-        // Create or get static UBO for IBL camera matrices
-        static Ref<UniformBuffer> s_IBLCameraUBO = nullptr;
         if (!s_IBLCameraUBO)
         {
             s_IBLCameraUBO = UniformBuffer::Create(
@@ -460,6 +465,7 @@ namespace OloEngine
     void IBLPrecompute::Shutdown()
     {
         s_CubeMesh.Reset();
+        s_IBLCameraUBO.Reset();
     }
 
     namespace

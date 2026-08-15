@@ -334,6 +334,11 @@ namespace OloEngine
         s_Data.TextShader.Reset();
         s_Data.SlugCurveTexture.Reset();
         s_Data.SlugBandTexture.Reset();
+        // The camera UBO too: no VMA allocation behind it on Vulkan (frame-
+        // arena backed), but its destructor unregisters from the binding-state
+        // and root-object singletons — at static-destruction time those may
+        // already be gone (review finding, #691 Phase 8).
+        s_Data.CameraUniformBuffer.Reset();
         for (auto& slot : s_Data.TextureSlots)
         {
             slot.Reset();
