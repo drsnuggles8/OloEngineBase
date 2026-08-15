@@ -144,10 +144,20 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.10'
+      # Version-pinned deliberately (SonarCloud githubactions:S8544, "dependencies without locking
+      # resolved versions"). Every other workflow here installs jinja2 unpinned and is grandfathered
+      # in as existing code; the gate only holds NEW code to it, so this job is the first that has
+      # to comply — and pinning a build-tool dependency is the right answer regardless, since an
+      # unpinned install lets a compromised or merely broken release change what CI runs.
+      #
+      # jinja2 is used only by the glad2 GL-loader generator. 3.1.6 is the current 3.1.x; bump it
+      # deliberately rather than floating.
+      #
+      # The separate `pip install --upgrade pip` the other workflows run is dropped rather than
+      # pinned: actions/setup-python already provides a current pip, so it bought nothing and was
+      # itself a second unpinned install.
       - name: Python deps (OloHeaderTool)
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install jinja2
+        run: python -m pip install jinja2==3.1.6
 
       - name: Setup Vulkan SDK
         uses: ./.github/actions/setup-vulkan
