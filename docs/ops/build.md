@@ -359,6 +359,32 @@ cd OloEditor && ../bin/Debug/OloEditor/OloEditor
 
 ---
 
+## Selecting the renderer backend (`--rhi=`)
+
+One binary carries both backends (ADR 0011 §2 — a runtime switch, deliberately
+not a CMake preset). Selection order, first hit wins:
+
+1. `--rhi=opengl` / `--rhi=vulkan` on the command line (case-insensitive).
+2. `config/renderer.yaml` (`Renderer: { RHI: <name> }`) — looked up under the
+   process working directory first, then next to the executable (#691
+   Phase 9; the exe-dir fallback is what rescues a packaged game launched
+   with a stale shortcut "Start in"). The editor's **Renderer Settings**
+   dropdown writes this file; a packaged game ships one from the Build Game
+   pipeline (`GameBuildSettings::DefaultRendererBackend`). Applies on
+   restart, never live.
+3. OpenGL.
+
+An unknown name, or `vulkan` in an `OLO_WITH_VULKAN=OFF` binary, degrades to
+OpenGL loudly. A **config-sourced** Vulkan selection that fails device init
+retries on OpenGL and rewrites the file (a persisted preference must not
+brick the install); an explicit `--rhi=vulkan` flag keeps ADR 0010's
+refuse-to-init behaviour so capability failures stay visible. The active
+backend is logged at startup and, when it isn't the GL default, shown in the
+window title. `OloServer` is headless and selects no backend at all (ADR
+0011 amendment (86)).
+
+---
+
 ## Build speed options
 
 The build is tuned for fast compiles out of the box. Four CMake options control the levers;

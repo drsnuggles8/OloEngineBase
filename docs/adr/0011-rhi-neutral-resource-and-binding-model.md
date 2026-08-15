@@ -329,9 +329,11 @@ been promoted to the neutral currency. It sits in `PlannedBarrier::Flags`, in
 **Decision: `(FromUsage, ToUsage, Range, lanes)` is the neutral truth.
 `MemoryBarrierFlags` is demoted to a GL lowering artefact.**
 `ResolveProducerBarrierFlags` / `ResolveConsumerBarrierFlags` move into
-`Platform/OpenGL/` as *that backend's* lowering; a Vulkan backend writes its own
-lowering to `(srcStageMask, srcAccessMask, oldLayout) → (dstStageMask,
-dstAccessMask, newLayout)`.
+`Platform/OpenGL/` as *that backend's* lowering — superseded by (44): the
+facade carries both currencies in one virtual, so they stayed put, relabelled
+as the GL lowering feeding only the flags field; no relocation — and a Vulkan
+backend writes its own lowering to `(srcStageMask, srcAccessMask, oldLayout) →
+(dstStageMask, dstAccessMask, newLayout)`.
 
 **The neutral model still does not carry an image layout — but "layout is a pure
 function of usage" is too strong, and an earlier draft of this ADR said exactly
@@ -436,8 +438,8 @@ is what made the counter meaningful at all, per the ordering constraint below);
 step 2 took `sweep_gl_calls` 313 → 0 and `sweep_glad_includes` 39 → 0. See
 "Amendments from Phase 2 step 2" for what the sweep cost — chiefly that the
 facade had to grow ~60 virtuals, because it was not merely GL-typed but
-incomplete. `tools_gl_calls` is unchanged at 236 and remains Phase 8's
-relocation, not an exemption (§1.6).
+incomplete. `tools_gl_calls` is unchanged at 236 and remains Phase 9's
+relocation (deferred by #794), not an exemption (§1.6).
 
 `sweep_glad_includes` is the counter that actually *proves* the property. A call
 count is a progress measure that a clever workaround can game (wrap the call in
@@ -488,10 +490,10 @@ an implementation choice.
 
 | Item | Decided in | Owner | What breaks if it is skipped |
 | --- | --- | --- | --- |
-| Unify `ResourceTransition`'s read/write enum pair into `RHI::Access` | §1.5 | Phase 5 | A storage-image write→write barrier lowers to `SHADER_READ_ONLY_OPTIMAL` with a read-only access mask. Silent on GL, wrong on Vulkan. |
-| Split `RGWriteUsage::Clear` into load-op vs transfer clear | §1.5 | Phase 5 | An explicit clear misses its `TRANSFER_DST` transition. |
-| `ProducerPass == "external"` should mean `Access::Undefined`, not `RenderTarget` | §1.5 | Phase 5 | Vulkan preserves contents it could have discarded — a silent perf loss, not a correctness bug. |
-| Relocate `Renderer/Debug/` GL code to `Platform/OpenGL/` behind a neutral interface | §1.6 | Phase 8 | Phase 7 cannot be verified under CLAUDE.md's rendering rule, because the capture/inspect tools are OpenGL-only. |
+| Unify `ResourceTransition`'s read/write enum pair into `RHI::Access` | §1.5 | Phase 5 — done, (43) | A storage-image write→write barrier lowers to `SHADER_READ_ONLY_OPTIMAL` with a read-only access mask. Silent on GL, wrong on Vulkan. |
+| Split `RGWriteUsage::Clear` into load-op vs transfer clear | §1.5 | Phase 5 — done, (43) | An explicit clear misses its `TRANSFER_DST` transition. |
+| `ProducerPass == "external"` should mean `Access::Undefined`, not `RenderTarget` | §1.5 | Phase 5 — done, (43) | Vulkan preserves contents it could have discarded — a silent perf loss, not a correctness bug. |
+| Relocate `Renderer/Debug/` GL code to `Platform/OpenGL/` behind a neutral interface | §1.6 | Phase 9 (deferred by #794) | Phase 7 cannot be verified under CLAUDE.md's rendering rule, because the capture/inspect tools are OpenGL-only. |
 | Strip `GLenum`/`GLuint` from `RendererAPI`'s virtuals **first**, before any per-file include removal | §1.7 | Phase 2 | The `sweep_glad_includes` ratchet measures nothing, because the symbols still arrive transitively. |
 
 **(c) Identified here, deliberately *not* decided.** Phase 1 established that
@@ -735,8 +737,10 @@ iterated on. The lazily-recreated pipeline hits the `VkPipelineCache` for
 everything that did not actually change, so the recreation is cheap.
 
 Deferred destruction is mandatory: a pipeline being replaced may be referenced
-by command buffers still in flight, so destruction goes through the existing
-in-flight-frame retirement machinery (`InflightFrameManager`), not an immediate
+by command buffers still in flight, so destruction goes through the
+deferred-reclaim machinery (`VulkanDeferredReclaim` — see amendment (52), which
+corrected the stale name this paragraph originally used and made the reverse
+index and the lookup map one data structure), not an immediate
 `vkDestroyPipeline`.
 
 **(e) Keep mtime + transitive-include staleness; do not switch to content
@@ -972,6 +976,24 @@ Phase 7** wherever profiling shows a real latency-hiding opportunity.
 
 ## Amendments from Phase 2 (2026-07-30)
 
+> **How to read the amendments (note added in Phase 9).** Every numbered entry
+> below is one of four genres: a **decision** (a new or changed contract,
+> binding on later phases), a **correction** (an earlier section said something
+> wrong; the amendment is the fix), a **postmortem kernel** (the rule that
+> survived an incident, stated in a few lines, with a `Narrative:` pointer to
+> [rhi-abstraction-boundary.md](../agent-rules/rhi-abstraction-boundary.md) —
+> or, for (80), to
+> [vulkan-command-ordered-buffer-writes.md](../agent-rules/vulkan-command-ordered-buffer-writes.md)
+> — where the full story lives; the story is not duplicated here), or **phase
+> status** (what a phase deliberately did or did not build, kept as a terse
+> list). Superseded amendments keep their body or kernel plus a pointer to
+> what superseded them.
+>
+> **Numbering is stable and load-bearing: amendment numbers are cited from
+> code comments (68 citations of 23 distinct numbers at last count) and from
+> other docs, and must NEVER be renumbered or deleted.** New amendments append
+> at the next free number under their own phase header.
+
 Phase 1 said explicitly that "nothing here is load-bearing until Phase 2
 begins," and that if the sweep discovered a decision was wrong the ADR should be
 amended rather than silently diverged from. Four things were discovered while
@@ -979,8 +1001,9 @@ stripping `RendererAPI`'s GL-typed virtuals (§1.7's first task). None of them
 changes the model in §1.1–§1.5; all four are corrections to the *vocabulary*
 §1.7 promised.
 
-**(1) `SetPolygonMode` loses its face parameter entirely.** §1.7 listed the
-neutral replacement for `SetPolygonMode(GLenum, GLenum)` as
+### (1) `SetPolygonMode` loses its face parameter entirely
+
+§1.7 listed the neutral replacement for `SetPolygonMode(GLenum, GLenum)` as
 `RHI::CullMode` (face) + `RHI::PolygonMode`. That is wrong, and preserving it
 would have re-exported a GL wart that GL itself deprecated: **core-profile
 `glPolygonMode` accepts only `GL_FRONT_AND_BACK`** — `GL_FRONT` or `GL_BACK`
@@ -994,7 +1017,8 @@ API still accepts more than one value for it. A parameter with exactly one legal
 value is not an abstraction to preserve — it is a fossil, and carrying it forward
 makes the neutral layer harder to implement on the backend that never had it.
 
-**(2) `SamplerDesc`'s two bools are not expressive enough; it gains real enums.**
+### (2) `SamplerDesc`'s two bools are not expressive enough; it gains real enums
+
 §1.2a modelled sampler state as `bool LinearFilter` / `bool ClampToEdge`. Those
 describe the typical texture but cannot describe the ones the sweep actually had
 to replace: `SSAORenderPass`'s noise texture is **Nearest + Repeat**, and
@@ -1006,8 +1030,10 @@ purely a modelling shortfall. `RHI::Filter` and `RHI::AddressMode` are added to
 `AddressU|V|W`. This does not affect §1.2a's actual decision (sampler
 *deduplication* is still Phase 3/4 and still has no GL counterpart to port).
 
-**(3) `SetTextureParameter` decomposes into intent-named setters.** §1.7 flagged
-this as the one virtual that "resists a mechanical translation" and warned
+### (3) `SetTextureParameter` decomposes into intent-named setters
+
+§1.7 flagged this as the one virtual that "resists a mechanical translation"
+and warned
 against mirroring GL's `pname` space with an `RHI::TextureParameterName`. The
 resolution: every call site in the engine sets exactly min filter, mag filter,
 and wrap S/T/R — and every one of them uses a single wrap value for all axes.
@@ -1018,9 +1044,10 @@ on a 2D target, so doing so is a faithful reproduction rather than a widening.
 **There was no Phase 2 design gap here** — the escape hatch §1.7 held open (a
 comment on #691) was not needed.
 
-**(4) `UploadTextureSubImage2D`'s `(format, type)` pair collapses into one
-`RHI::Format` describing the *source buffer*.** Worth recording because the
-naming invites a bug: this parameter is **not** the texture's storage format.
+### (4) `UploadTextureSubImage2D`'s `(format, type)` pair collapses into one `RHI::Format` describing the source buffer
+
+Worth recording because the naming invites a bug: this parameter is **not**
+the texture's storage format.
 The engine relies on GL converting on upload — SSAO's noise texture is `RG16Float`
 storage fed from `RG32Float` host data — so a future backend must treat this as a
 staging-buffer layout, not a format reinterpretation.
@@ -1372,22 +1399,15 @@ first and not the second, which is exactly how easy it is to miss.
 
 ### (14) `.data()` erases the type you just changed
 
-`CreateQueries(RHI::QueryType, std::span<u32> outQueryIDs)` passes
-`outQueryIDs.data()` straight to `glCreateQueries`. Re-typing the span to
-`std::span<RHI::ResourceHandle>` **keeps that compiling** — and a handle is 8
-bytes where a `GLuint` is 4, so GL writes names over the first half of the handle
-array and leaves the rest zeroed. No diagnostic, no test failure, a corrupted
-query pool. (The abandoned sweep hit this; the fix is to stage through a scratch
-`std::vector<GLuint>` and register each result.)
-
-Everywhere else in step 3 the compiler was an exhaustive checker: a type change
-to a facade virtual breaks every call site at once, which is the same
-"provable rather than measured" property §1.7 credits `sweep_glad_includes` with.
-**A `.data()` boundary is where that property stops holding**, because the
-pointer type is erased at exactly the place the payload layout matters. Any
-future re-typing of a container whose contents reach a C API by pointer needs
-that call site inspected by hand; grep for `.data()` on the changed container
-before trusting a green build.
+The hazard rule: a `.data()` call erases the type you just changed. Re-typing
+a container whose contents reach a C API by pointer keeps compiling while the
+payload layout is wrong — `CreateQueries`' out-span re-typed to
+`std::span<RHI::ResourceHandle>` let GL write 4-byte names over 8-byte
+handles, silently. After any currency change, grep for `.data()` on the
+changed containers and inspect each call site by hand; the fix is to stage
+through a scratch native-typed vector and register each result.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4 "Queries become
+identities, and the `.data()` trap was real".
 
 ### (15) The bind sites keep the call and change the currency
 
@@ -1406,41 +1426,18 @@ the same operand.
 
 ### (16) Why the sweep is not automatable by name, and what part 2 does instead
 
-The abandoned attempt is worth recording as a negative result, because the
-obvious way to do a 700-site currency change — script it — has a failure mode
-that this codebase makes concrete.
-
-**The compiler is an exhaustive checker for *types* and no checker at all for
-*intent*.** Re-typing a facade virtual breaks every caller at once, which is the
-property that makes the conversion tractable. But every diagnostic it produces
-has more than one valid repair, and the four defect classes below are all cases
-where the tooling picked a valid-looking wrong one. Three of the four were found
-by reading output, not by a failing test.
-
-| Class | Concrete instance | Blast radius | Found by |
-| --- | --- | --- | --- |
-| Unanchored identifier match | `Sort.h` matched `IntroSort.h`; `Components.h` matched seven `*Components.h` | 15 legitimate `#include`s deleted across 9 files unrelated to the task, incl. `Scene/Components.h` | reading the diff |
-| Rewrite that mangles the expression | `X.field == 0` → `X.!field.IsValid()` — negation inside the member access | 6 sites | syntax error (but the same rewrite on a form that *parses* silently inverts a guard) |
-| Wrong side of a type mismatch | `DrawKey::SetShaderID` (packs into a sort-key bit field) and `GPUResourceInspector` (calls `glBindBuffer` on the value) re-typed to take handles | 2 confirmed | one loud, one by reading the code |
-| **Cross-file name collision** | `m_NoiseTexture` is an RHI texture in `SSAORenderPass` and an **`AssetHandle`** in `WaterComponent` | 3 sites in `Scene.cpp` and the editor's property panel — the asset system, not the renderer | compiler, *by luck*: `UUID` has no `IsValid()` |
-
-The last row is the one that decided the split. A name-keyed transformation
-cannot distinguish two members that share a spelling and mean different things,
-and this codebase has at least one such pair on the exact axis being converted
-(GPU identity vs asset identity). Had the colliding type carried an `IsValid()`,
-the change would have compiled and altered a conditional in scene rendering.
-
-**Two consequences for how part 2 is done:**
-
-1. **Subsystem at a time, with a readable diff.** Not because it is faster — it
-   is not — but because the failure mode is a change that compiles and passes
-   tests. Review has to be able to see it.
-2. **Review the conditionals first.** Every defect above is either a boolean
-   guard or an include; none is a type. The type changes are the part the
-   compiler already checked.
-
-The one place the type system stops helping is recorded separately in (14); it
-is not a scripting artefact and applies however the sweep is done.
+The decision: conversion goes subsystem-per-commit with a readable diff, never
+scripted name-based edits — because the failure mode compiles. The compiler is
+an exhaustive checker for *types* and no checker at all for *intent*, and a
+name-keyed edit cannot distinguish two members that share a spelling and mean
+different things (`m_NoiseTexture` is a GPU handle in `SSAORenderPass` and an
+`AssetHandle` in `WaterComponent` — the exact axis being converted; only
+`UUID`'s lack of an `IsValid()` made the compiler catch it). Review the
+conditionals first: every defect found was a boolean guard or an include,
+never a type — the types are the part the compiler already checked. The one
+place the type system stops helping is (14).
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4 "Three
+scripted-edit defects, and what caught each".
 
 ### (17) Namespacing was necessary but not sufficient — the graph's type is renamed
 
@@ -1490,42 +1487,30 @@ what follows is only what amends a decision recorded above.
 
 ### (18) §1.3's bind-site count is wrong in both directions, and the definition is why
 
-§1.3 item 1 says **173** `BindTexture(...)` sites; the issue body says ~125. The
-measured figure at `2f0503b6`, counting `BindTexture(` **and** `BindImageTexture(`
-outside `Platform/` after blanking comments and string literals, is **232**.
-Both older numbers are corrected in place. An image binding is a heap slot too,
-so excluding it understated the phase; and as in §1's `glXxx(` story, the number
-moves with the definition, so the ratchet publishes the definition alongside the
-count.
+§1.3's 173 counted only `BindTexture(` in `.cpp` files; the issue's ~125 was
+an estimate. The measured figure is **232**: `BindTexture(` **and**
+`BindImageTexture(` outside `Platform/`, after blanking comments and string
+literals — an image binding is a heap slot too, and *which spellings count as
+a bind site* is what moves the number. Both older numbers are corrected in
+place, and the ratchet publishes the definition alongside the count.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4b "The measured
+surface, and the three published numbers (again)".
 
 ### (19) The rehearsal's SHADER work is throwaway, not a dry run — and this changes Phase 6
 
-§1.3 item 1 argues Phase 3 is worth doing because "it forces the GLSL-side and
-UBO-side change on the backend we can still debug easily". **The UBO-side half of
-that holds and is the valuable half. The GLSL-side half does not transfer at
-all**, for a reason that is a property of the toolchain rather than of the
-design:
-
-`GL_ARB_bindless_texture` is a GLSL-only extension predating SPIR-V, with no
-representation in the Vulkan target environment. Every production shader enters
-the pipeline through `shaderc(target = vulkan 1.2)` (§3), so bindless GLSL is
-rejected at the first hop and can only reach the driver through a
-`glShaderSource` route that bypasses SPIR-V and SPIRV-Cross entirely. Vulkan
-reaches the same shape through descriptor indexing, which *is* expressible in
-SPIR-V and needs no second route.
-
-Two consequences worth carrying forward:
-
-- **The expense is in the PASSES, not the shaders.** One `.glsl` behind
-  `#ifdef OLO_BINDLESS` serves both paths (measured — with the define absent the
-  `#extension` line is preprocessed away before glslang sees it), so the source
-  is not duplicated; only the compiled artefact is. What each REMAINING site
-  needs is a "write an offset or bind a texture" fork, for as long as the
-  slot-based fallback exists — which is indefinitely (see (21)).
-- `BindlessShaderPipelineTest` pins the constraint and fails **in either
-  direction**, because a toolchain that started accepting it would make a whole
-  compile route deletable, and a silently-dead route is the thing worth
-  catching.
+There is no bindless-GLSL route into SPIR-V: `GL_ARB_bindless_texture`
+predates SPIR-V, shaderc rejects it at the first hop, and it reaches the
+driver only through a raw `glShaderSource` route. The rehearsal's shader work
+is therefore throwaway, not a dry run — Vulkan reaches the same shape through
+descriptor indexing, expressible in SPIR-V with no second compile route, and
+Phase 6 compiles classic-binding GLSL via the mapping model instead (see
+(50)). The UBO-side half of the rehearsal is the half that transfers, and the
+expense is in the PASSES, not the shaders — each remaining site needs a
+"write an offset or bind a texture" fork for as long as the slot-based
+fallback exists, which is indefinitely (see (21)).
+`BindlessShaderPipelineTest` pins the constraint in both directions.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4b "DISPROVED: the
+shader side of the rehearsal does not transfer, and could not".
 
 ### (20) `ViewDesc` cannot describe a view well enough for EITHER backend to build one
 
@@ -1668,18 +1653,15 @@ real seam using slots that differ in both group and component.
 
 ### (26) Storage images are a SECOND heap-side feature, not more call sites
 
-The heap produces sampler descriptors only. Of the 208 remaining bind sites,
-**38 are `BindImageTexture`** — `imageLoad`/`imageStore` bindings, which need
-`glGetImageHandleARB` with its own residency and a format/layered/level key that
-`ViewDesc` does not carry.
-
-Both APIs support it (`ARB_bindless_texture` has image handles;
-`VK_EXT_descriptor_heap` treats a storage image as just another descriptor type),
-so this is a gap in *this model*, not in either backend. It is recorded as an
-amendment rather than a TODO because it changes how the remaining work should be
-estimated: ~18% of the surface does not fall out of the sampler path at any
-price, and "full bindless" costs a second descriptor kind before it costs another
-call-site sweep.
+The heap produces sampler descriptors only; the 38 `BindImageTexture` sites
+(`imageLoad`/`imageStore`) need image handles with their own residency and a
+format/layered/level key `ViewDesc` does not carry. Both APIs support it, so
+this is a gap in *this model*: storage images are a second heap-side
+descriptor KIND, not more call sites — ~18% of the surface does not fall out
+of the sampler path at any price, and "full bindless" costs that second kind
+before it costs another call-site sweep.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4b "How far "full
+bindless" actually reaches — measured, not estimated".
 
 ---
 
@@ -1770,150 +1752,70 @@ from "the desc cannot describe a view" to "the desc cannot describe a view's
 
 ### (32) A SHARED slot-indexed offset table is the wrong vehicle for PER-DRAW material textures
 
-Bucket 2 (`Renderer/Commands/`) routed its binds through the seam and then stopped
-short of converting the material shaders, and the reason is a property of the
-offset table rather than of the material path.
-
-`FlushOffsets()` publishes the staged offsets **and re-establishes the heap's SSBO
-binding**. Per pass that is free; the table is written once and read by every draw
-in the pass. The material path changes textures **per draw**, so a converted
-material shader needs a flush per draw — which gives back exactly the cost §1.2
-names as the performance argument for bindless ("bound once per frame, never per
-draw"). Converting it that way would be a measurable regression dressed as
-progress, and the ratchet would happily record it as a win.
-
-§1.2 already describes the right shape and it is a *different* mechanism, not a
-different call site: *"the offset is stable for the object's life, so it can be
-baked once into material data and never touched."* Per-material offsets belong in
-`PODMaterialData` / the material UBO, fetched once when the material is built,
-not restaged into a shared table per draw.
-
-So bucket 2 splits in two, and only the first half is done:
-
-- **Done:** every bind in `Renderer/Commands/` goes through the seam
-  (21 counted sites → 2, and both survivors are the `CommandDispatch::BindTexture`
-  *handler's own name* — a declaration and a definition, the same
-  name-collision-inflates-the-counter case §1.3's survey hit with
-  `ShaderResourceRegistry::BindTexture`). With no bindless material program in
-  flight the seam falls back, so this is inert until the second half lands and
-  costs nothing meanwhile.
-- **Deferred with a reason:** baking per-material offsets into material data. That
-  is the change that makes the material path actually bindless, and it is a
-  data-layout change to `PODMaterialData` rather than a binding change.
-
-Two smaller findings from the same bucket:
-
-- **A redundant-bind cache must not short-circuit an offset write.**
-  `BoundTextures[slot]` means "this slot's GL binding is already correct", which is
-  sound because a binding persists until something rebinds it. It does **not** mean
-  "this slot's offset is already correct": the offset table is shared with every
-  pass that binds through the seam, and those passes do not update that array.
-  Skipping saves nothing either — the write is a CPU array store, not a driver
-  call. `HeapBinding::WritesOffsetsForBoundProgram()` exists for exactly this
-  distinction and for nothing else.
-- **The fallback has to go through the CALLER'S `RendererAPI&`.** The dispatch
-  handlers receive one by reference and the suite executes packets against
-  `MockRendererAPI`, which records every `BindTexture`. Routing the fallback
-  through the static `RenderCommand` facade instead keeps compiling, keeps working
-  in the editor, and silently stops the mock ever seeing the call — the `.data()`
-  trap of amendment (14) in a new place: a redirection the type system cannot
-  object to.
+The decision, still standing for materials: per-material offsets belong in
+`PODMaterialData` / the material UBO, baked once when the material is built —
+§1.2's "stable for the object's life" shape — not restaged into the shared
+slot-indexed table per draw. Two contracts from the same bucket: **a
+redundant-bind cache must not short-circuit an offset write** ("this slot's
+GL binding is already correct" does not imply "this slot's offset is", and
+the write is a CPU array store — `HeapBinding::WritesOffsetsForBoundProgram()`
+exists for exactly that distinction); and the seam's fallback must go through
+the CALLER'S `RendererAPI&`, never the static facade, or the mock silently
+stops seeing the call — (14)'s trap in a new place. **(35) retracts the
+generalisation** of this amendment's per-draw cost argument beyond the
+material case.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4f "The cost argument
+that blocked everything was measured on a different case".
 
 ### (31) Compute shaders needed no second compile route — check the constraint's blast radius
 
-Amendment (19) established that bindless GLSL cannot enter the
-`shaderc(target = vulkan)` pipeline, and the graphics side needed
-`CreateProgramFromRawGLSL` to get around it. The natural inference is that
-compute needs the same.
-
-It does not. `OpenGLComputeShader::Compile` has always fed include-resolved GLSL
-straight to `glShaderSource` and never travelled that pipeline at all, so the
-whole conversion was the same `#extension` + `#define` prologue injection. **A
-constraint that forced a workaround in one subsystem may simply not apply to the
-next** — check before budgeting from the workaround's cost.
-
-The genuine finding there was elsewhere and was a latent bug:
-`Shader::SetBoundProgramBindless` was published by `OpenGLShader::Bind()` only,
-so a bindless graphics program followed by a compute program left the flag set —
-and the first converted compute pass would have written offsets for a program
-that declares no offset table while binding nothing. Both `Bind()`s now publish
-and both `Unbind()`s retract.
+The negative finding: `OpenGLComputeShader::Compile` has always fed
+include-resolved GLSL straight to `glShaderSource` and never travelled the
+SPIR-V pipeline, so (19)'s constraint simply does not apply to compute and the
+whole conversion was the same prologue injection. The rule: **before building
+a parallel mechanism, measure the constraint's actual blast radius** — a
+constraint that forced a workaround in one subsystem may not apply to the
+next. (The genuine finding nearby was a latent bug: `SetBoundProgramBindless`
+was published by graphics `Bind()` only; both `Bind()`s now publish and both
+`Unbind()`s retract.)
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4c "Compute needed no
+second compile route — check the constraint's blast radius".
 
 ### (33) An offset is meaningless without the heap that minted it — the table must be re-based, not just the buffer
 
-The offset table (`HeapBindingSeam.cpp`) is a process-lifetime static. It
-already knew that the *UBO* had to be recreated across a heap re-initialisation,
-because the GL name belonged to the previous context — amendment (27)'s epoch
-comparison. What it did not do was reset the **contents**.
-
-Offsets are indices into the heap that minted them. After an
-`Initialize`/`Shutdown` pair, every slot the next pass does not re-stage still
-holds a number addressing the *previous* heap's descriptor, and the bindless
-shader samples it without complaint. A pass re-stages the slots it binds, so
-this is invisible for those; the damage lands on slots a pass reads but does not
-write.
-
-**This is the same recurring family as (22) and (28) — state outliving the thing
-that gives it meaning — and it is the third time it has appeared in this phase.**
-The epoch check was in place, aimed at the buffer, and read as if it had covered
-the problem. It had covered the half that produces a *loud* failure (offsets that
-never arrive) and missed the half that produces a silent one.
-
-Two further defects fell out of the same read:
-
-- The dirty check ran **before** the epoch check, so a pass that staged nothing
-  returned early and never rebuilt the buffer at all.
-- A default-constructed `Scratch{}` is all zeros, and offset 0 is the **sampler**
-  null. The image region therefore started life pointing `image2D` at a sampler
-  descriptor — the exact UB `BindImageOrOffset`'s own fallback path takes care to
-  avoid. The reset is per-kind for that reason, not a `memset`.
-
+An offset is an index into the heap that minted it, so across a heap
+`Initialize`/`Shutdown` pair the offset table's CONTENTS must be re-based,
+not just its UBO recreated — a slot the next pass does not re-stage otherwise
+addresses the *previous* heap's descriptor, silently. Staleness is a
+heap-EPOCH comparison, never a pointer comparison; the buffer-recreate half
+was already guarded (the epoch check that (22)'s invalidation-hook clause
+motivated) and covered only the loud failure, missing the silent one. The
+reset is per descriptor KIND, not a `memset` — offset 0 is the *sampler*
+null, which is the wrong null for the image region (28). Same recurring
+family as (22) and (28): state outliving the thing that gives it meaning.
 Pinned by `HeapGpuFixture.OffsetTableIsRebasedWhenTheHeapIsReinitialised`.
-
-**This was real but it was NOT what the six failing suites were suffering from** —
-see (34), and read the two together. Fixing it changed the failure count by zero.
+Real, but NOT what the six failing suites were suffering from — see (34);
+fixing it changed the failure count by zero.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4e "Bucket 1
+resumed: the revert was aimed at the wrong layer".
 
 ### (34) A test fixture that displaces the heap singleton must put it back — and the damage never appears where the bug is
 
-The actual cause of the six failing visual-evidence suites under
-`OLO_RHI_BINDLESS=1` was four lines in a *non-GPU* unit test.
-`HeapFixture::TearDown` (`RHIDescriptorHeapTest.cpp`) stood a fake backend over
-`DescriptorHeap::Get()` and, when done, called `Shutdown()` — leaving the
-process-wide heap **off** for everything that ran afterwards.
-
-Every test in that file passes either way, because they all drive the heap
-directly. The victims were Fog, VolumetricFog, ContactShadow, EASU, SSAO and
-GTAO, all of which run later in the suite and all of which pass in isolation.
-
-The mechanism is amendment (33)'s sibling and the same asymmetry `SetEnabled`
-now warns about: a shader's bindless-or-not variant is decided at COMPILE time
-and cached, so switching the heap off afterwards does not rebuild those
-programs — it only stops the seam publishing the offsets they still read.
-
-**Three diagnostic traps, all of which cost time here:**
-
-1. **A moving failure set means one shared-state bug, not N independent ones.**
-   Excluding the heap fixtures changed *which* suites failed rather than how
-   many. That was read as evidence about the individual suites; it was evidence
-   about the ordering. Attributing per-test was measuring the wrong thing.
-2. **A two-test repro can hide an order bug a full suite exposes.** Running
-   `HeapFixture` immediately followed by the Fog test PASSES — with no earlier
-   tests, Fog's shaders compile *after* the heap is already down, so they compile
-   slot-based and stay self-consistent. The bug requires shaders compiled
-   bindless FIRST. A minimal repro that passes is not proof of innocence when the
-   thing being tested is order.
-3. **Correlate against execution order before theorising.** Every failing suite
-   sat after the fixture's line in the log and the one failure before it had an
-   unrelated known cause. That correlation was available from the first full run
-   and would have pointed straight at the culprit.
-
-Both fixtures now capture the engine's backend, desc and enabled flag on entry
-and restore them on exit, via the new `DescriptorHeap::GetDesc()` — restoring the
-*flag* rather than forcing bindless on, since a run that did not ask for it must
-stay on the slot path. `GLStateGuard::kUboSlots` was also raised from
-`UBO_FLUID_RENDER` (48) to `UBO_HEAP_OFFSETS` (56): the offset table — the one
-binding every converted pass depends on — sat outside the leak detector's
-tracked range, so the detector built for this class of bug could not see it.
+The rule: a fixture that stands a fake backend over the process-wide
+`DescriptorHeap` must capture the engine's backend, desc AND enabled flag on
+entry and restore all three on exit (via `DescriptorHeap::GetDesc()`) —
+restoring the *flag*, never forcing bindless on. A shader's bindless-or-not
+variant is decided at COMPILE time and cached, so a heap switched off
+afterwards leaves earlier-compiled shaders reading offsets the seam no longer
+publishes — the failures land on unrelated suites that run later, never on
+the fixture's own file. Diagnostic corollaries: a moving failure set means
+one shared-state bug, not N independent ones; a passing two-test repro is not
+proof of innocence when the subject is order; correlate against execution
+order before theorising. And the leak detector's tracked UBO range must cover
+`UBO_HEAP_OFFSETS` (`GLStateGuard::kUboSlots`), or the instrument built for
+this class of bug cannot see it.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4d "Converting a
+shader silently changes what its TESTS have to do".
 
 ---
 
@@ -1921,205 +1823,71 @@ tracked range, so the detector built for this class of bug could not see it.
 
 ### (35) Amendment (32) was half right, and the wrong half blocked every remaining conversion
 
-(32) declined to convert the per-draw paths because "a converted material shader
-needs a flush per draw, which gives back exactly the cost §1.2 names as the
-performance argument for bindless." That reasoning then generalised past
-materials: terrain patches, foliage layers, decals and water were all left
-slot-based on the same grounds, and with them roughly two thirds of the shader
-tree.
-
-**The cost it names is the TABLE UPLOAD, and that cost was avoidable in four
-lines.** `HeapBinding::StageOffset` marked the table dirty on every write,
-including a write of the value already there — and consecutive draws in a bucket
-overwhelmingly restage the *same* offsets, because they share textures. The
-redundant-bind cache cannot suppress those writes (amendment (32)'s own second
-finding is that it must not), so the only place the distinction can be made is
-the stage itself. Guarding the dirty flag there turns a per-draw flush into a
-bool test in the common case.
-
-What genuinely remains per draw is `DescriptorHeap::Flush`'s unconditional
-`BindHeap()` — one `glBindBufferBase` against the up-to-nine `glBindTextureUnit`
-calls the conversion removes. That is a win, not a give-back.
-
-**Two things generalise past the four lines:**
-
-- **A cost argument that blocks a design should be re-derived when it starts
-  blocking more than it was measured on.** (32) was written about the material
-  path, where per-material offsets in the material UBO were the right answer and
-  still are. It was then reused as a general reason, and nothing re-checked
-  whether the mechanism it described was actually load-bearing outside the case
-  it came from.
-- **Every draw in `CommandDispatch` now publishes, and the uniformity is the
-  point.** Which handler owes a flush is a property of the SHADER it dispatches,
-  and that changes as shaders convert — so pairing them per site is a rule that
-  has to be re-derived on every `.glsl` edit. That is §5c's failure mode one
-  level up, and it fails the quiet way: the pass keeps rendering and reads the
-  previous flush's offsets. Making the publish unconditional removes the pairing
-  rather than documenting it.
+The correction: (32)'s cost argument was measured on the material path and
+then reused as a general reason that blocked roughly two thirds of the shader
+tree — and the cost it names is the TABLE UPLOAD, avoidable in four lines by
+guarding the dirty flag in `HeapBinding::StageOffset` (consecutive draws
+overwhelmingly restage the same offsets, and the redundant-bind cache must
+not suppress the writes, per (32) itself). What remains per draw is one
+`BindHeap()` against up to nine removed `glBindTextureUnit` calls — a win.
+The decision: **every draw in `CommandDispatch` publishes offsets
+unconditionally** — which handler owes a flush is a property of the SHADER it
+dispatches, so pairing them per site must be re-derived on every `.glsl` edit
+and fails the quiet way. Re-derive a cost argument when it starts blocking
+more than it was measured on; per-material offsets in the material UBO remain
+right for materials.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4f "The cost argument
+that blocked everything was measured on a different case".
 
 ### (36) A texture bind has TWO spellings, and the ratchet counts one
 
-`sweep_bind_texture_sites` counts `BindTexture(` and `BindImageTexture(` — the
-`RendererAPI` facade's spelling. `Texture::Bind(slot)` is the same act through
-the resource object, and the counter is structurally blind to it: `Bind` is an
-overloaded name across `SoundGraph`, `Templates/Function.h` and every buffer
-type, so no text rule tight enough to exclude those is also loose enough to catch
-`m_CSMTextureArray->Bind(slot)`.
-
-Twenty-five such sites existed when this bucket started. Seventeen were the
-reason seven shaders looked "unconvertible": `IBLPrecompute`,
-`AssetPreviewRenderer`, `ImpostorBaker` and `FoliageRenderer` bound their inputs
-with `Texture::Bind` and the seam never saw them, so a converted shader would
-have read an offset nobody staged. All seventeen now route through the seam.
-
-The remaining eight are **deliberate** and three of them are load-bearing:
-`ShadowMap` (×2), `WindSystem` and `SnowAccumulationSystem` are exactly the
-"a direct `Texture::Bind()` that never consults the seam at all" mechanism the
-§5c allowlist depends on — a shared `include/` header's declaration cannot be
-converted per-includer, so its slot must be bound unconditionally instead.
-`ShaderResourceRegistry` (×2) is the generic shader-resource path,
-`Renderer2D` the excluded 2D batcher, `VideoTexture` a video frame.
-
-**No counter was added for this**, and the reason is the finding: a ratchet whose
-rule is "the identifiers I could think of" produces exactly the false confidence
-§1.3's survey was written to prevent. The honest artefact is this list plus the
-completeness test, which measures the thing that actually matters — whether every
-shader is converted or a recorded decision — rather than a proxy for it.
+`sweep_bind_texture_sites` counts the facade's spelling (`BindTexture(` /
+`BindImageTexture(`); `Texture::Bind(slot)` is the same act through the
+resource object, and the counter is structurally blind to it — `Bind` is an
+overloaded name engine-wide, so no text rule can catch one without the
+others. Seventeen such sites were why seven shaders looked unconvertible; the
+eight that remain are deliberate, three of them load-bearing for the
+shared-include allowlist. The decision: **no second counter was added** — a
+ratchet whose rule is "the identifiers I could think of" is exactly the false
+confidence §1.3's survey exists to prevent, so the sweep list was finished
+instead, and the honest artefact is the deliberate-remainder list plus (37)'s
+completeness test.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4f "The bind-site
+counter is blind to `Texture::Bind(slot)`".
 
 ### (37) "Done" for a sweep is every item converted OR a recorded decision, and it has to be machine-checked
 
-Phase 3's shader half had no end condition. A shader left slot-based renders
-correctly (the seam forks per program and an unconverted one gets a real bind),
-so it is indistinguishable from one nobody reached — and "39 remaining" stayed
-true across three rounds because nothing forced the number to mean anything.
-
-`BindlessShaderPipeline.EveryShaderIsOnTheRouteOrExplicitlyExcluded` supplies the
-end condition: every shader declaring a sampler or image is either on the route
-or carries a reason. Four reasons proved genuinely distinct, which is why a
-single "not yet" bucket would have been worse than none —
-
-1. **a shared `include/` header**, whose own `#ifdef OLO_BINDLESS` *is* the route
-   opt-in token, so converting a declaration there drags every includer onto the
-   raw-GLSL route and unbinds all of THEIR slot-based samplers;
-2. **a sampler target with no reserved null** (`sampler2DMS`), where converting
-   would hand-reintroduce the wrongly-typed-null defect that cost four wrong
-   diagnoses on the rebase pop;
-3. **a mechanism bindless replaces rather than wraps** — the 2D batcher's
-   32-element sampler array plus its 32-case switch, whose real conversion is a
-   per-quad heap offset in the vertex format;
-4. **a harness fixture**, driven outside the render graph inside
-   `ScopedSlotBasedShaders`, where the heap's frame-scoped lifetimes have no
-   frame to be scoped to.
-
-The table is checked in **both** directions — an entry naming a shader that is
-now converted, or that declares no samplers, fails too. An exception list that is
-only checked one way decays into a way to silence the test, which is the same
-trap the §5c allowlist records for itself.
+A shader left slot-based renders correctly, so it is indistinguishable from
+one nobody reached — which is why "39 remaining" stayed true across three
+rounds. The end condition:
+`BindlessShaderPipeline.EveryShaderIsOnTheRouteOrExplicitlyExcluded` — every
+sampler- or image-declaring shader is either on the route or carries a
+recorded reason, checked in **both** directions (an entry naming a shader now
+converted, or declaring no samplers, also fails — a one-way exception list
+decays into a silencer). The four exclusion reasons are genuinely distinct —
+a shared `include/` header, a sampler target with no reserved null, a
+mechanism bindless replaces rather than wraps, and a harness fixture — which
+is why a single "not yet" bucket would have been worse than none.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4f ""Done" needs an
+end condition, and it has to be a test".
 
 ### (38) `SamplerDesc{}` had to become an INHERIT, because no table of defaults is right for four targets
 
-A bindless descriptor bakes the sampler in; the slot path samples with the
-**texture object's** parameters. So `SamplerDesc{}` is not a style choice — it
-decides what a converted shader sees while an unconverted reader of the same
-texture keeps seeing the object's state, and the two have to agree.
-
-**The first attempt was to fix the defaults, and it was wrong in an instructive
-way.** `OpenGLTexture2D` and every framebuffer attachment are `GL_REPEAT` (GL's
-own default) while the struct said `ClampToEdge`, so converting `Water.glsl` —
-whose FFT displacement field is *tiled* — collapsed the wave field into a handful
-of enormous flat terraces. Changing the default to `Repeat` fixed that and
-**broke the terrain arrays**, because `OpenGLTexture2DArray` is `CLAMP_TO_EDGE`
-for colour and `CLAMP_TO_BORDER` for depth. A follow-up review found two more
-faces of the same defect:
-
-| target | what the object carries |
-|---|---|
-| `Texture2D`, framebuffer attachments | `REPEAT` |
-| `Texture2DArray` (colour) | `CLAMP_TO_EDGE` |
-| `Texture2DArray` (depth) | `CLAMP_TO_BORDER`, opaque-white border |
-| `TextureCubemap` | `CLAMP_TO_EDGE` |
-| `Texture3D` | whatever the caller passed |
-| **any integer format** | **`NEAREST`, mandatory** |
-
-That last row is not a preference. GL makes an integer texture with a `LINEAR`
-filter *incomplete*, and an incomplete texture samples as **zero** — `texelFetch`
-included. `Texture.h::IsIntegerFormat` already records what it cost the first
-time: every Slug glyph vanished, on AMD only, with the draw calls and the logs
-looking healthy. The heap had reintroduced it for three textures — the `RG16UI`
-font band texture, the `R16UI` GTAO Hilbert LUT and the `R32I` entity buffer.
-There is also a fifth face: `LinearMipFilter` defaults true, which resolves to
-`GL_LINEAR_MIPMAP_LINEAR` and makes a *single-level* texture incomplete — the
-hazard `HeapBinding::ShadowDepthSampler` works around **by hand**.
-
-**So the answer is not a better table, it is not having one.** A caller that
-expresses no sampling intent is asking for what the slot path would have used, so
-`AcquireSampledDescriptor` mints those views with `glGetTextureHandleARB`, which
-bakes the object's own state — parity *by construction*. A caller that states
-intent still gets `glGetTextureSamplerHandleARB`, which is what models a split
-heap and is what the sites that genuinely differ from their texture use
-(`ShadowDepthSampler`'s comparison-on/comparison-off pair over one depth array,
-SSAO's `Nearest`+`Repeat` noise). All five faces close at once, and
-`HeapBinding::CubeSampler()` — invented during the first attempt — was deleted
-rather than kept, because dead vocabulary is worse than none.
-
-**"No stated intent" needed a discriminator, and the discriminator needed a
-backstop.** Inferring it from *equality with the defaults* leaves one thing
-inexpressible: a caller wanting `Linear`+`Repeat` **explicitly** on a colour
-`Texture2DArray` — whose object is `ClampToEdge` — would silently get the object.
-`SamplerDesc::Source` says which it is, and since it is part of the defaulted
-`operator==` it flows into the view memo key and the sampler-slot dedup for free.
-
-But making `Source` the *sole* test recreates the same class of bug one level
-over: set `MinFilter`, forget `Source = Explicit`, and your whole sampler is
-replaced by the texture's state. That is not hypothetical — deleting the line
-from `HeapBinding::ShadowDepthSampler` and running the suite gave **136 passing
-tests with the shadow comparison sampler quietly inheriting**. So a desc whose
-FIELDS say something is treated as explicit whatever its `Source` says, and the
-disagreement is warned about. The fallback is the pre-discriminator behaviour, so
-a forgotten line costs a log line rather than a frame. Both halves are pinned by
-`HeapGpuFixture.SamplerSourceDistinguishesInheritFromExplicitAndSurvivesAForgottenDiscriminator`,
-verified to fail when the backstop is removed.
-
-**What it costs, stated plainly.** The plain form re-admits the GL-ism the neutral
-`SamplerDesc` exists to keep out. Vulkan has no "inherit" — a `VkSampler` must be
-described — so every site passing a default desc today is a site Phase 4 has to
-give real sampler state. That is **199 of 209** seam call sites, and
-`Stats::DefaultSamplerInherits` counts them at runtime so the work is *measured*
-rather than discovered. Recording the size of that debt is the point; hiding it
-behind a defaults table that is wrong for two targets out of five is not.
-
-**The measurement is the transferable part.** §4e of
-rhi-abstraction-boundary.md had already retired the *live* ON-vs-OFF A/B, because
-on an animated scene the same-config noise floor is as large as the signal. The
-suite's fixed-camera visual-evidence PNGs are bit-identical across consecutive
-same-config runs — a floor of exactly **0.000** — so the same comparison there
-resolves anything at all:
-
-| | RMSE | pixels >8 |
-|---|---|---|
-| noise floor (heap ON, two consecutive runs) | **0.000** | **0.000%** |
-| heap OFF vs ON, before | 22.670 | 39.93% |
-| heap OFF vs ON, after | 2.783 | 1.76% |
-
-And the residual is characterised rather than waved off: amplified 6x it is
-**hairline contours around the foam boundaries**, max 58 with nothing above 64 —
-a `smoothstep` threshold crossing differently because the two compile routes round
-the last bit differently. That is §7a-bis's phenomenon applied to a threshold
-instead of to depth, and it is a property of having two compilers.
-
-Four things generalise:
-
-- **When a neutral struct's default has to agree with a backend, the honest
-  design is often to ask the backend rather than to guess well.** The table above
-  has five rows and no majority answer; any default is wrong somewhere.
-- **A fix that turns one bug into another is a signal about the shape**, not about
-  the value. `ClampToEdge` -> `Repeat` moved the failure from 2D to arrays, which
-  is what said the mechanism was wrong rather than the constant.
-- **A green suite is not evidence about pixels.** Every image in the table came
-  from a passing test, in both configurations, before and after.
-- **A zero noise floor is what makes a small number readable.** 2.783 would be
-  invisible against the live scene's floor of 9.74; against 0.000 it is a
-  measurement, and it is what let the residual be identified rather than assumed.
+The decision: `SamplerDesc{}` means INHERIT. A caller expressing no sampling
+intent gets the texture object's own sampler state (`glGetTextureHandleARB`)
+— parity with the slot path *by construction* — while stated intent still
+gets the split-heap form (`glGetTextureSamplerHandleARB`). No table of
+defaults is right across the five target classes, and any integer format
+forces NEAREST regardless. `SamplerDesc::Source` is the discriminator, with a
+field backstop: a desc whose fields say something is treated as explicit
+whatever its `Source`, warned on disagreement — a forgotten
+`Source = Explicit` costs a log line, not a frame. The debt is counted, not
+hidden: Vulkan has no inherit, and `Stats::DefaultSamplerInherits` measures
+the 199-of-209 seam sites that state no intent. Superseded in Phase 8 by (70)
+for the heap path. The per-target defaults table and the RMSE evidence live
+in the boundary doc.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4f "`SamplerDesc{}`
+means INHERIT, and getting there took two goes".
 
 ---
 
@@ -2170,81 +1938,47 @@ there is what ADR 0010 forbids.
 
 ### (41) Vendored Vulkan headers must out-rank the installed SDK's, and TWO defaults do the opposite
 
-The engine already carries an SDK include dir on every TU's path — the shaderc
-toolchain's `find_package(Vulkan)` — so vendoring Vulkan-Headers 1.4.357 only
-pins the backend's compile if the vendored dir reliably *wins the include
-search*. Three traps, all hit:
-
-- **volk's `VOLK_PULL_IN_VULKAN` (default ON) prefers `find_package(Vulkan)` —
-  the installed SDK — over an existing vendored `Vulkan-Headers` target.** On a
-  machine with an older SDK installed, volk (and everything including `volk.h`)
-  would silently compile against that SDK's headers. It is OFF in
-  `vendor/CMakeLists.txt` and the vendored `Vulkan::Headers` is linked
-  explicitly instead.
-- **Link-propagated INTERFACE include dirs come AFTER the target's own.** The
-  vendored dir arriving "via the volk link" loses the /I order to
-  `${Vulkan_INCLUDE_DIRS}`, which sits in `OloEngine`'s own PUBLIC include list
-  — so the SDK's `vulkan_core.h` still won. The fix is explicit:
-  `${vulkan-headers_SOURCE_DIR}/include` is listed in that same include list
-  **before** `${Vulkan_INCLUDE_DIRS}` (and the vendor propagation loop exports
-  the variable). Both are plain `/I` paths; only order decides.
-- **`Vulkan::Headers` is an ALIAS resolved per directory scope.** The vendor
-  scope resolves it to the vendored target; `OloEngine/CMakeLists.txt`'s later
-  `find_package(Vulkan)` can mint its own, SDK-pointing `Vulkan::Headers` in
-  *its* scope. Engine code must therefore link `volk`/`vma` and never
-  `Vulkan::Headers` by name.
-
-The backstop for all three is a
-`static_assert(VK_HEADER_VERSION >= 357)` in `VulkanContext.cpp` — if the SDK's
-headers ever win the search on a below-floor SDK, the build fails naming the
-mechanism instead of failing to declare `VkPhysicalDeviceDescriptorHeapFeaturesEXT`.
+The decision: the vendored Vulkan-Headers must win the include search over
+the SDK dir that the shaderc toolchain's `find_package(Vulkan)` puts on every
+TU's path — and the defaults do the opposite. volk's `VOLK_PULL_IN_VULKAN`
+prefers the installed SDK (OFF in `vendor/CMakeLists.txt`, vendored headers
+linked explicitly), link-propagated INTERFACE include dirs lose the `/I`
+order to the target's own list (the vendored dir is listed explicitly before
+`${Vulkan_INCLUDE_DIRS}`), and `Vulkan::Headers` is an ALIAS resolved per
+directory scope, so engine code links `volk`/`vma` and never
+`Vulkan::Headers` by name. Backstop:
+`static_assert(VK_HEADER_VERSION >= 357)` in `VulkanContext.cpp` — a wrong
+winner fails the build naming the mechanism.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §10 "Vendored headers
+must out-rank the installed SDK's — three traps, all hit".
 
 ### (41a) `vulkan-1.lib` must not be linked at all — under `/FORCE:MULTIPLE` its thunks silently REPLACE volk's globals
 
-The engine had linked `Vulkan::Vulkan` (vulkan-1.lib) since the shaderc
-toolchain arrived, harmlessly: no engine code called a Vulkan function, so no
-import-library member was ever pulled. Phase 4's first run crashed with an AV
-one millisecond into instance creation, and the mechanism is worth recording
-because every ingredient was pre-existing and individually reasonable:
-
-- volk declares the core entry points as **data** (`PFN_vkCreateInstance
-  vkCreateInstance`) and populates them at `volkInitialize`; an import library
-  declares the same names as **function thunks** (`jmp [__imp_…]`).
-- The repo links with **`/FORCE:MULTIPLE`** (the assimp/MaterialX pugixml
-  collision workaround), so this duplicate did not fail the link — the linker
-  silently picked the import thunk for the backend's data references.
-- A load through that "pointer" reads the thunk's *instruction bytes* and calls
-  the result: instant `0xc0000005`, with a useless stack.
-
-Diagnosis that worked, in order: a standalone volk repro compiled clean and ran
-clean (→ not the loader/layers/headers); `dumpbin /imports:vulkan-1.dll` on the
-test exe showed **exactly the backend's own call list imported** (→ the
-references resolved to the import lib); `dumpbin /symbols` on
-`VulkanContext.obj` showed the references were correctly data-typed (→ the
-substitution happened at link, not compile). Fix: `Vulkan::Vulkan` is removed
-from the link entirely (volk's own contract — the loader is dlopen'd);
-`find_package(Vulkan)` stays for the SDK include dir + shaderc/glslang libs.
-Generalisable: **under `/FORCE:MULTIPLE`, a name collision between a data
-symbol and an import thunk is not a link error — it is a runtime AV** — so
-every new dependency that self-loads an API (volk-style) must audit the link
-line for that API's import library.
+The decision: `vulkan-1.lib` (`Vulkan::Vulkan`) must never be on the link
+line — volk owns the entry-point pointers and dlopens the loader itself;
+`find_package(Vulkan)` stays only for the SDK include dir and the
+shaderc/glslang libs. The mechanism: volk declares the core entry points as
+DATA, an import library declares the same names as function thunks, and under
+`/FORCE:MULTIPLE` (the pugixml collision workaround) the duplicate is not a
+link error — the linker silently picks the thunk, and a call through the
+"pointer" executes the thunk's instruction bytes (`0xc0000005`, useless
+stack). Every new dependency that self-loads an API must audit the link line
+for that API's import library.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §10 "`vulkan-1.lib`
+and the `/FORCE:MULTIPLE` thunk replacement — the diagnosis recipe".
 
 ### (42) What Phase 4 deliberately did NOT build, so Phase 5 doesn't go looking
 
-- **No `VulkanRendererAPI`.** ~100 no-op virtuals inviting silent fallthrough;
-  every factory switch instead carries a loud `case API::Vulkan:` assert naming
-  Phase 5/6. The `-Wswitch`-with-no-`default:` convention (amendment table in
-  `RHIEnumLoweringTest`) is what forced every switch to take an explicit
-  position — adding the enum member was self-enforcing.
-- **No ImGui under Vulkan.** `imgui_impl_opengl3` until Phase 8; `Application`
-  skips the ImGui layer + overlays and both apps skip their main layers, so
-  `--rhi=vulkan` shows exactly the cleared window the checkpoint asks for.
-- **No split graphics/present queue families** (refused at the gate, recorded
-  in ADR 0010's contract fill-in), **no swapchain-maintenance1 present fences**
-  (recreation uses `vkDeviceWaitIdle` — fine at bring-up frame rates), **no
-  `…PropertiesEXT` heap minima** (deferred to the phase that first allocates a
-  heap; pinning unallocated minima would be ADR 0010's "authoritative-looking
-  guess").
+- **No `VulkanRendererAPI`** — ~100 no-op virtuals invite silent fallthrough;
+  every factory switch carries a loud `case API::Vulkan:` assert naming
+  Phase 5/6 instead (the `-Wswitch`-no-`default:` convention made every switch
+  take a position).
+- **No ImGui under Vulkan** — `imgui_impl_opengl3` until Phase 8; both apps
+  skip their main layers, so `--rhi=vulkan` shows the cleared window only.
+- **No split graphics/present queue families** (refused at the gate, per ADR
+  0010's contract fill-in), **no swapchain-maintenance1 present fences**
+  (recreation uses `vkDeviceWaitIdle`), **no `…PropertiesEXT` heap minima**
+  (deferred to the phase that first allocates a heap).
 - **Present-sync shape that Phase 5 should keep:** per-frame acquire semaphore
   + fence, per-swapchain-IMAGE present semaphore (the
   `VUID-vkQueueSubmit-pSignalSemaphores-00067` reuse rule), FIFO-only.
@@ -2383,28 +2117,21 @@ bar includes it.
 
 ### (49) VMA resource notes a later phase will otherwise rediscover
 
-- `DEPTH24STENCIL8` resolves to `VK_FORMAT_D32_SFLOAT_S8_UINT`, not
-  `D24_UNORM_S8_UINT` — Vulkan mandates only one of the two and AMD ships
-  only the D32 variant. 3-channel formats widen to RGBA (no mandated
-  optimal-tiling support). STORAGE usage is dropped for sRGB-resolved and
-  multisampled images (guaranteed format-feature validation errors
-  otherwise).
+- `DEPTH24STENCIL8` resolves to `VK_FORMAT_D32_SFLOAT_S8_UINT` (AMD ships
+  only the D32 variant); 3-channel formats widen to RGBA; STORAGE usage is
+  dropped for sRGB-resolved and multisampled images.
 - Deferred reclaim is generation-counted (destroy at ≥ 2
-  `NotifyFrameCompleted`s, tied to `kFramesInFlight = 2`) because
-  `TransientPool::Clear()/Trim()` destroy pooled objects while prior frames
-  may still execute — on GL the driver refcounts; on Vulkan inline
-  destruction is UB. `FlushAll()` is the device-idle path.
-- A Vulkan resource's `GetRendererID()` is 0 — the diagnostics-only field has
-  no native GL name to report, and `olo_render_transient_plan`'s `glId` shows
-  0 until Phase 8's capture parity (the identity fields beside it answer the
-  alias question).
-- Full-frame graph execution through the `RenderCommand` facade inside a
-  real window loop is deliberately NOT wired this phase: pass `Execute()`
-  bodies need PSOs, so the editor's `--rhi=vulkan` path still ends at the
-  Phase 4 clear+present. The execution layer's on-device proof is the
-  device-gated test (headless `VulkanDevice`, real queue submits, zero
-  validation errors) — Phase 6 owns moving it into the frame loop with the
-  first rendered pass.
+  `NotifyFrameCompleted`s, tied to `kFramesInFlight = 2`) — inline
+  destruction of a pooled object prior frames may still execute is UB on
+  Vulkan. `FlushAll()` is the device-idle path.
+- A Vulkan resource's `GetRendererID()` is **0** — the diagnostics-only field
+  has no native GL name to report; the identity fields beside it answer the
+  alias question.
+- Full-frame graph execution in a real window loop is deliberately NOT wired
+  this phase — the `--rhi=vulkan` editor still ends at the Phase 4
+  clear+present, and **the frame loop is Phase 6's own** (moved there with
+  the first rendered pass); the execution layer's on-device proof is the
+  device-gated test.
 
 ---
 
@@ -2451,19 +2178,16 @@ attachment views.
 
 ### (51) Once `VkPhysicalDeviceVulkan12Features` exists, promoted-feature structs must fold into it
 
-Enabling `timelineSemaphore` (§6) and `bufferDeviceAddress` (§4) added the
-1.2 aggregate struct to the device chain — and validation immediately flagged
-Phase 5's standalone `VkPhysicalDeviceShaderAtomicInt64Features`
-(VUID-VkDeviceCreateInfo-pNext-02830: a feature promoted into an aggregate
-may not be chained alongside it). `shaderBufferInt64Atomics` moved into the
-aggregate. The rule for every later phase: the FIRST time a
-`VkPhysicalDeviceVulkanXYFeatures` struct joins the chain, sweep the chain
-for standalone structs of features that version promoted. Also enabled here,
-same defaults-OFF class as amendment (48)'s `synchronization2`:
-`dynamicRendering` (required-in-1.3, backs `VkPipelineRenderingCreateInfo` —
-no `VkRenderPass` objects exist in this backend), and VMA gained
-`VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT` (without it,
-`vkGetBufferDeviceAddress` on a VMA buffer is undefined).
+The rule: the FIRST time a `VkPhysicalDeviceVulkanXYFeatures` aggregate joins
+the device chain, sweep the chain for standalone structs of features that
+version promoted and fold them in — chaining both violates
+VUID-VkDeviceCreateInfo-pNext-02830. Also enabled here (same defaults-OFF
+class as (48)'s `synchronization2`): `dynamicRendering` (no `VkRenderPass`
+objects exist in this backend), and VMA gained
+`VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT` — without it,
+`vkGetBufferDeviceAddress` on a VMA buffer is undefined.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §10 "Fold promoted
+feature structs into the version aggregate".
 
 ### (52) Pipeline destruction has ONE owner — and §3(d)'s "InflightFrameManager" was a stale name
 
@@ -2482,37 +2206,31 @@ generalised beyond VMA pairs to `VkPipeline` and `VkSemaphore` entries.
 
 ### (53) Phase 5's reclaim queue had NO production drain — the fence wait is the only legal drain point
 
-`VulkanDeferredReclaim::NotifyFrameCompleted()` had exactly one caller: the
-test fixture. A live `--rhi=vulkan` session enqueued forever and leaked until
-exit. It is now called at the ONE point that proves the GPU finished a frame
-slot — immediately after `vkWaitForFences` in `VulkanContext::SwapBuffers` —
-alongside `VulkanFrameArena::BeginFrame(slot)` (the root-data arena's cursor
-rewind is gated on the same proof). `FlushAll()` is likewise now wired at
-context teardown (nothing called it either). *Generalisable:* a
-generation-counted queue is only as real as its production tick; a queue the
-tests tick and the frame loop doesn't is a leak with green tests.
+The rule: a generation-counted queue is only as real as its production tick —
+a queue the tests tick and the frame loop doesn't is a leak with green tests.
+The drain point is the ONE place that proves the GPU finished a frame slot:
+immediately after `vkWaitForFences` in `VulkanContext::SwapBuffers`
+(alongside `VulkanFrameArena::BeginFrame`, whose cursor rewind is gated on
+the same proof), with `FlushAll()` at context teardown.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §10 "A reclaim queue
+nobody drains leaks with green tests".
 
 ### (54) Measured on the first live run
 
-- **FXAA parity is exact** (RMSE = 0 vs the GL golden, 128×128): the same
-  GPU's compiler consuming shaderc SPIR-V from the same source produces
-  identical arithmetic on both routes. The #734 property invariants
-  (blend fraction, complementary pairing) pass on the Vulkan output too.
-- **The pipeline cache works across processes**: cold FXAA pipeline ~1.4 s
-  (driver compile), warm ~150 ms with `pipeline_cache.vkpc` loaded (37 KB
-  after two pipelines). §3(c)'s soft-fail load was exercised by design, not
-  yet by corruption.
-- The 4090/610.88 floor has **all 31 EDS3 feature bits**; the three blend
-  states are enabled and blend is fully dynamic (`BakedBlendHash` stays 0 —
-  §5's fallback column is compiled, branch-tested via
-  `IsDynamicBlendStateEnabled()`, and expected to stay cold on desktop).
-- NVIDIA's image descriptor stride is **32 bytes**; the resource heap's
-  reserved range is ~94 KiB (`minResourceHeapReservedRange`) — heap layout
-  cannot be assumed, always derive from
-  `VkPhysicalDeviceDescriptorHeapPropertiesEXT`.
-- The SPIR-V tier renames landed: the GL path's shared tier is
-  `.cached_vulkan12.<stage>` and the Vulkan backend's own tier is
-  `.cached_vulkan14.<stage>` (§3(b)); existing caches invalidate once.
+- **FXAA parity: RMSE = 0** vs the GL golden (128×128) — same GPU compiler,
+  same shaderc SPIR-V, both routes; the #734 property invariants pass on the
+  Vulkan output too.
+- **Pipeline cache works across processes:** cold FXAA pipeline ~1.4 s, warm
+  ~150 ms (`pipeline_cache.vkpc`, 37 KB after two pipelines).
+- **4090/610.88: all 31 EDS3 feature bits**; blend fully dynamic
+  (`BakedBlendHash` stays 0; §5's fallback column compiled and
+  branch-tested, expected cold on desktop).
+- **NVIDIA image descriptor stride: 32 bytes**; reserved heap range ~94 KiB —
+  always derive heap layout from
+  `VkPhysicalDeviceDescriptorHeapPropertiesEXT`, never assume it.
+- SPIR-V tier renames landed: shared GL tier `.cached_vulkan12.<stage>`,
+  Vulkan tier `.cached_vulkan14.<stage>` (§3(b)); existing caches invalidate
+  once.
 
 ### (55) The live frame loop renders through Phase 6 scaffolding, NOT through the dispatch table — deliberately
 
@@ -2531,29 +2249,21 @@ swapchain barrier's `srcStageMask` must match whichever ran.
 
 ### (56) What Phase 6 deliberately did NOT build, so Phase 7 doesn't go looking
 
-- **`RHI::DescriptorHeap` does not run on Vulkan yet.** The engine-side heap
-  singleton (slot lifetime, generations, poisoning, the offset-table seam)
-  initialises with the GL renderer, which `--rhi=vulkan` skips.
-  `VulkanResourceHeap` is the backend primitive (heap buffer, descriptor
-  writes, `vkCmdBindResourceHeapEXT`); a `VulkanDescriptorHeapBackend :
-  RHI::IDescriptorHeapBackend` composes over it when render-graph execution
-  arrives — the interface was audited for fit (`AcquireDescriptor` → write,
-  `UploadSlots` → slot-region memcpy, `BindHeap` → `CmdBind`).
-- **`RHI::GpuFence`'s render-graph attachment point** is
-  `SubmissionCommand`'s `BatchBegin`/`BatchEnd` (whose backend-mapping
-  comment has promised exactly this semaphore lowering since Phase 5) — the
-  primitive is live (staged ops drain into the frame submit; device-gated
-  test), the graph wiring is §6's stated Phase 7 profiling work.
-- **Compute shaders still have no SPIR-V route** (`OpenGLComputeShader` goes
-  straight to `glShaderSource`; §3(a)'s "tier 1 is shared" holds for graphics
-  stages only). The Vulkan compute path is Phase 7 work alongside the first
-  compute pass, on the `VulkanShader` pattern.
-- **The Y-flip decision** (negative viewport height vs. projection flip) is
-  still open — a fullscreen pass is orientation-symmetric end-to-end, so the
-  pilot could not force it. It must be decided with the first 3D pass.
-- The frame arena's capacity is a fixed 16 MiB per slot with counted
-  overflow; growth/chaining policy is deferred until Phase 7 has real
-  per-frame numbers.
+- **`RHI::DescriptorHeap` does not run on Vulkan yet** — the engine-side heap
+  singleton initialises with the GL renderer, which `--rhi=vulkan` skips.
+  `VulkanResourceHeap` is the backend primitive; a
+  `VulkanDescriptorHeapBackend : RHI::IDescriptorHeapBackend` composes over
+  it when render-graph execution arrives (interface audited for fit).
+- **`RHI::GpuFence`'s render-graph attachment point** is `SubmissionCommand`'s
+  `BatchBegin`/`BatchEnd` — the primitive is live, the graph wiring is §6's
+  stated Phase 7 profiling work.
+- **Compute shaders still have no SPIR-V route** (§3(a)'s "tier 1 is shared"
+  holds for graphics stages only) — Phase 7 work alongside the first compute
+  pass, on the `VulkanShader` pattern.
+- **The Y-flip decision** could not be forced by an orientation-symmetric
+  fullscreen pilot — decided by (59), with the first 3D pass.
+- The frame arena is a fixed 16 MiB per slot with counted overflow;
+  growth/chaining waits for real Phase 7 numbers.
 
 ---
 
@@ -2604,18 +2314,15 @@ it once separated two indistinguishable failures:
 
 ### (58) Port the facade's DEFAULT-ARGUMENT semantics, not just its signatures
 
-`RendererAPI::DrawIndexed(va, indexCount)` carries an unwritten contract: GL
-derives `indexCount ? indexCount : va->GetIndexBuffer()->GetCount()`, and
-**every pass body calls the no-count form**. The Vulkan arm passed 0 straight
-into `vkCmdDrawIndexed` — a perfectly legal draw of zero indices. No
-validation error, no warning, `PrepareDraw` succeeding, root data pushed,
-nothing rasterized. It was masked twice over: the facade unit test passed an
-explicit count, and Phase 6's pilot hand-recorded `vkCmdDraw`.
-
-This is the archetype for a facade sweep. A signature match proves nothing
-about a defaulted or sentinel argument whose meaning lives in the *other*
-backend's implementation. Enumerate the sentinels (`0` = all, `NoAttachment`,
-a null handle meaning "unbind") before declaring an entry point ported.
+The decision: port default-argument semantics — `DrawIndexed(va, 0)` means
+"the whole index buffer" on GL, and the Vulkan arm passed 0 into
+`vkCmdDrawIndexed`, a perfectly legal draw of nothing, masked by an
+explicit-count unit test and a hand-recorded pilot. Enumerate an entry
+point's sentinels (`0` = all, `NoAttachment`, a null handle meaning "unbind")
+before declaring it ported — a signature match proves nothing about a
+sentinel whose meaning lives in the other backend's implementation.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §9b "The facade's
+*semantics* are wider than its signatures".
 
 ### (59) The two-flavour projection seam: a Y-flip is not one matrix
 
@@ -2662,216 +2369,136 @@ the debug-draw VP). Enumerating by writer misses exactly those.
 
 ### (60) One Vulkan descriptor set collapses GL's separate binding namespaces
 
-GL gives uniform blocks, storage blocks, samplers and image units their own
-number spaces; this engine used that freedom. Binding **57** was
-simultaneously `UBO_DEBUG_DRAW`, `TEX_DDGI_VISIBILITY`, and — as of §5's
-vertex pulling — the engine-wide vertex-pull SSBO. Under one Vulkan
-descriptor set that is a genuine collision wherever two of them meet **inside
-one shader**, which is the precise test (per-shader reflection, not global
-uniqueness): a shader that pulls vertices *and* includes the DDGI sampler
-header is broken; a shader that pulls vertices while some *other* shader uses
-UBO 57 is fine.
-
-Two consequences worth carrying: renumber **before** branches multiply (the
-renumber forced a knock-on chain through the shader-graph slot base, the
-`MAX_ENGINE_TEXTURE_SLOTS` bound, the heap-image base, and the heap-offset
-table's uvec4 rounding — all guarded by existing static asserts, which is why
-it was a mechanical morning rather than a hunt); and reserve the pull bindings
-as a **documented pair** — 57 for vertex stream 0, 63 for stream 1 (the
-skinned bone-influence buffer is its first tenant, foliage/particle instance
-streams its second and third), because a VAO with two vertex buffers has no
-other way to reach the second stream when there is no vertex-input state.
+GL gives uniform blocks, storage blocks, samplers and image units independent
+number spaces and the engine used that freedom (binding 57 was a UBO, a
+sampler, and §5's vertex-pull SSBO at once). The decisions: renumber
+colliding bindings **before** backend branches multiply; reserve 57/63 as the
+documented vertex-pull pair (stream 0 / stream 1 — a two-buffer VAO has no
+other way to reach its second stream once vertex-input state is gone); and
+the collision test is **per-shader reflection, not global uniqueness** — a
+collision matters only where two meanings meet inside one compiled shader.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §9c "GL's separate
+binding namespaces are a boundary assumption".
 
 ### (61) Bare uniforms cannot enter SPIR-V, and the no-op setter makes the failure silent
 
-GL compute never travelled the SPIR-V route (`glShaderSource` takes raw GLSL),
-so compute shaders accumulated bare `uniform float x;` declarations fed by
-`ComputeShader::SetFloat`. On Vulkan those declarations are illegal and
-`VulkanComputeShader::Set*` is a deliberate no-op — the values read as zero,
-silently. The migration is mechanical (move them into a pass-owned `std140`
-block, legal on both routes since GL compute at 460 core takes UBO blocks) but
-the *diagnosis* is not, because nothing errors.
-
-Two findings sharpen it. First, the persistent-state amplifier: ToneMap's
-auto-exposure writes into an SSBO that **survives frames**, so a single NaN
-latches forever — the no-op setters would have produced exactly that. Second,
-**per-dispatch** values (HZB's per-mip-batch parameters, the denoiser's
-ping-pong axis) migrate the same way with no ring machinery: a `SetData` per
-dispatch is a `glBufferSubData` on GL and a fresh arena-versioned address on
-Vulkan (§4), so both backends see per-dispatch values without a race.
+The decision: bare `uniform float x;` declarations (legal only on GL's
+raw-GLSL compute route) migrate into pass-owned `std140` blocks — legal on
+both routes, since GL compute at 460 core takes UBO blocks. The trap is the
+setter's silence: `VulkanComputeShader::Set*` is a deliberate no-op, so the
+values read as zero with no error anywhere. Per-dispatch values migrate the
+same way with no ring machinery — a `SetData` per dispatch is a
+`glBufferSubData` on GL and a fresh arena-versioned address on Vulkan (§4).
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §11 "Bare uniforms
+cannot enter SPIR-V, and the no-op setter makes the failure silent".
 
 ### (62) The graph's own contracts bite first — three of them
 
-Three engine-side behaviours cost more debugging time than any Vulkan detail,
-and every future pass-suite fixture inherits them:
-
-- **Transient materialization is opt-in.** `SetTransientMaterializationEnabled`
-  defaults false and production enables it once, in the renderer's graph
-  setup. A standalone-graph fixture that forgets it gets empty physicals and
-  null in-pass resolves — which reads exactly like a backend bug.
-- **A pass node's `m_Enabled` defaults false** for passes the pipeline drives
-  from settings. A disabled pass declares no output in `Setup` (while still
-  running its input scan) and early-returns in `Execute`.
-- **Bind every binding the shader declares.** An unbound UBO is a zero root
-  address on Vulkan, i.e. a zero-filled block — `min(uv, bounds)` against a
-  zeroed DRS block collapses every sample to texel (0,0). Grep the shader for
-  `binding =` and feed all of them; the real pipeline always does.
+One line, because these are pure gotchas: a standalone-graph fixture must
+enable transient materialization, enable settings-driven pass nodes, and feed
+every binding the shader declares — each omission reads exactly like a
+backend bug.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §11 "The graph's own
+contracts bite first — three of them".
 
 ### (63) The layout tracker needs transitions the render graph never emits
 
-The graph's barrier planner does not lower a **framebuffer-kind write** to an
-image barrier — attachment layout transitions are the draw front-end's job.
-Without them every first use renders into an `UNDEFINED`-layout image and the
-next sample barrier lowers with an empty source scope. So the lazy
-dynamic-rendering scope, at open, transitions each attachment through the
-tracker (guessing the source access from the tracked layout: exact for
-`UNDEFINED` and attachment-to-attachment, conservative otherwise) and batches
-those transitions **before** `vkCmdBeginRendering` — a rendering scope cannot
-contain `vkCmdPipelineBarrier2`.
-
-Three more layout lessons from the same surface:
-
-- **An attachment WRITE access lowers to READ|WRITE.** `loadOp LOAD` reads the
-  attachment; a transition into the attachment scope that promises only WRITE
-  trips sync validation at begin-rendering. As a *source* scope the extra read
-  bit is ignored, so one spelling serves both directions.
-- **Attachment fan-out is aspect-blind unless you make it aspect-aware.** The
-  graph fans one framebuffer transition into per-attachment barriers reusing a
-  single access prototype — depth attachment included — with the documented
-  contract that the backend derives each attachment's aspect and layout from
-  its own image. A lowering that maps `ColorAttachmentWrite` blindly emits
-  `COLOR_ATTACHMENT_OPTIMAL` on the depth image (illegal for its usage) *and*
-  poisons the tracker so the next scope-open emits the inverse error. Remap
-  the access by aspect at the top of the lowering, where `LowerAccess` and
-  `LayoutFor` both inherit it.
-- **GL's implicit mid-pass visibility is real work here.** Sampling a
-  just-rendered attachment (or just-copied image) inside one `Execute` has no
-  barrier in the GL-shaped body. Bind time is the seam: transition
-  ATTACHMENT/TRANSFER layout runs to `SHADER_READ_ONLY` there. `GENERAL` is
-  deliberately left alone — compute store-then-sample chains keep it by
-  design.
+Three decisions: (1) attachment layout transitions are the draw front-end's
+job — the lazy dynamic-rendering scope transitions each attachment through
+the tracker and batches those barriers **before** `vkCmdBeginRendering`,
+since a rendering scope cannot contain `vkCmdPipelineBarrier2`; (2) an
+attachment WRITE access lowers to READ|WRITE — `loadOp LOAD` reads the
+attachment, and as a source scope the extra read bit is ignored, so one
+spelling serves both directions; (3) the backend derives each attachment's
+aspect and layout from its own image — remap the access by aspect at the top
+of the lowering, where `LowerAccess` and `LayoutFor` both inherit it. GL's
+implicit mid-pass visibility is handled at bind time (ATTACHMENT/TRANSFER
+runs transition to `SHADER_READ_ONLY` there); `GENERAL` is deliberately left
+alone — compute store-then-sample chains keep it by design.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §9d "Implicit
+synchronisation is part of the GL API surface".
 
 ### (64) Backend-blind singletons and factories are the port's quiet failures
 
-Three unrelated crashes shared one shape: engine-level code that had never
-needed to ask which backend was running.
-
-`Texture3D::Create` and `Texture2DArray::Create` lived in
-`Platform/OpenGL/*.cpp` and unconditionally built the GL class — fine with one
-backend, a **null glad function pointer** in a process with no GL context.
-`GLStateGuard`'s constructor called GL state queries unconditionally, so every
-guard-carrying pass body faulted the moment it executed on Vulkan. The rule
-that falls out: a factory or a process-wide guard must live in a neutral TU
-with an explicit backend switch, and `rhi-abstraction-boundary.md`'s include
-audit should treat "constructs a GL object" and "queries GL state" as the same
-leak.
-
-The fixture-side sibling: `RenderCommand::RecreateForSelectedBackend()` only
-**constructs** the API object — it does not `Init()` it. A fixture that swaps
-the process-global backend and restores it leaves a fresh GL object whose caps
-were never queried (`GL_MAX_DRAW_BUFFERS` reads 0), and every MRT-shaped test
-downstream fails in a way that looks nothing like the cause. Amendment (34)'s
-restore-what-you-displaced discipline has a second half: **re-initialise what
-you recreate.**
+The rule: a factory or a process-wide guard must live in a neutral TU with an
+explicit backend switch, and a process-wide guard must be inert off its
+backend — "constructs a GL object" and "queries GL state" are the same leak
+class as a stray include, and the include scan cannot see either. And
+amendment (34)'s restore-what-you-displaced discipline has a second half:
+**re-initialise what you recreate** —
+`RenderCommand::RecreateForSelectedBackend()` constructs but does not
+`Init()`, so a fixture that swaps and restores the process-global backend
+leaves a fresh GL object with caps unqueried, failing MRT-shaped tests far
+from the cause.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §9a "A factory in a
+`Platform/<Backend>/` TU is a leak the include scan cannot see".
 
 ### (65) Device features are discovered by validation, one shader at a time
 
-The capability contract (ADR 0010) covers the extension floor. The *core*
-feature bits are a different list, and each one surfaced only when a specific
-shader reached pipeline creation: `shaderDemoteToHelperInvocation` (glslang at
-`vulkan1.4` lowers `discard` to `OpDemote` — every discard shader fails module
-creation without it), `vertexPipelineStoresAndAtomics` (the debug-draw
-channels write SSBOs from the vertex stage), `fragmentStoresAndAtomics`
-(virtual geometry's fragment debug images), `multiDrawIndirect`,
-`drawIndirectCount`, `shaderDrawParameters`, `tessellationShader`.
-
-All are enabled **when supported** rather than demanded, keeping the
-device-selection floor where ADR 0010 put it. The generalisation: expect the
-feature list to grow with each shader family a port reaches, and enable from
-`vkGetPhysicalDeviceFeatures2`'s answer rather than from a hand-maintained
-constant.
+Core feature bits are a growing list separate from ADR 0010's extension
+floor, each surfacing only when a shader family reaches pipeline creation.
+The rule: enable from `vkGetPhysicalDeviceFeatures2`'s answer **when
+supported** — never demanded (the device-selection floor stays where ADR 0010
+put it), never from a hand-maintained constant. The canonical bit list lives
+in the boundary doc's §9e — note it includes independent blend, which this
+amendment's original list omitted.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §9e "Device
+capability is not one contract but a growing list".
 
 ### (66) A descriptor mapping must name its resource KIND
 
-`VkDescriptorSetAndBindingMappingEXT` entries carry a `resourceMask`.
-Emitting `ALL` for every mapping works right up until one shader declares a
-sampler and a storage image at the **same numeric binding** — two ALL-masked
-mappings at one (set, binding) violate VUID-11244, `vkCreateComputePipelines`
-*fails*, and the dispatch silently drops. Every earlier shader had disjoint
-numbers by luck; the froxel-fog pair was the first to collide.
-
-Per-kind masks (UBO → uniform buffer, SSBO → storage buffer, combined sampler
-→ sampled image, storage image → image) express amendment (29)'s
-disjoint-namespace model the way the extension intends, and defuse the same
-landmine for every later shader.
+The decision: `VkDescriptorSetAndBindingMappingEXT` entries carry per-kind
+`resourceMask`s (UBO → uniform buffer, SSBO → storage buffer, combined
+sampler → sampled image, storage image → image), never ALL — two ALL-masked
+mappings at one (set, binding) violate VUID-11244, pipeline creation FAILS,
+and the dispatch silently drops. Per-kind masks express amendment (29)'s
+disjoint-namespace model the way the extension intends.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §11 "A descriptor
+mapping must name its resource KIND".
 
 ### (67) Only a window can prove orientation and extent — the offscreen tenant is blind to both
 
-Forty-five device-gated tenants rendered the pass suite correctly and could
-not have caught either defect the first live frame showed, for one structural
-reason: **a tenant reads its output back in the same order it wrote it**, so a
-uniform vertical flip cancels exactly. The swapchain is the first asymmetric
-consumer in the entire system. Phase 6 recorded the same shape from the other
-side — a fullscreen pass is orientation-symmetric end-to-end, so the pilot
-could not force the Y-flip decision — and Phase 7 confirms the general rule:
-**orientation, extent and present-layout are window-only proofs.**
-
-The extent half is the subtler one. `FinalRenderPass` sizes its viewport from
-the *graph's* spec, which the editor shrinks to its viewport panel. On GL the
-rest of the default framebuffer keeps its previous content and the editor's UI
-covers it; a swapchain image is **undefined outside what the frame writes**, so
-the same code presented the frame in a corner surrounded by garbage. The
-acquired image's extent — not the graph's — is the authority for a backbuffer
-draw.
-
-Two more live-only findings worth carrying: the engine **presents during
-startup** (shader-warmup progress frames swap from inside renderer init), so a
-frame recorder driven off the layer stack runs `OnUpdate` on layers that are
-still attaching; and a nested present resets the command buffer the outer call
-is recording into. Both need explicit latches, and neither is reachable from a
-test.
+The rule: **orientation, extent and present-layout are window-only proofs** —
+a tenant reads its output back in the same order it wrote it, so a uniform
+vertical flip cancels exactly, and the swapchain is the first asymmetric
+consumer in the entire system. The extent half: a swapchain image is
+undefined outside what the frame writes, so **the acquired image's extent —
+not the graph's spec — is the authority for a backbuffer draw**. Two
+live-only latches: the engine presents during startup, and a nested present
+resets the command buffer the outer call is recording into.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §11 "Only a window
+can prove orientation and extent".
 
 ### (68) A diagnostic that cannot distinguish two states will misdiagnose one of them
 
-`CommandDispatch` warns "material texture has no heap descriptor — it will
-sample the reserved null and render BLACK". On Vulkan that message fires
-whenever the heap path merely **is not live** — which is the deliberate design
-there, since `VulkanShader::Bind` reports non-bindless and materials travel the
-slot path. The warning cannot tell "the heap is off" from "acquisition failed",
-so it confidently reports the wrong cause, and a reader (this one included)
-follows it to the wrong layer.
-
 The rule: a diagnostic that names a *cause* must be able to exclude the other
-causes that produce the same symptom. When it cannot, name the **symptom** and
-list the candidates. This one costs little to fix and was actively misleading
-during live bring-up.
+causes that produce the same symptom; when it cannot, name the **symptom**
+and list the candidates. (The concrete case: "no heap descriptor — will
+render BLACK" fires on Vulkan whenever the heap path merely is not live —
+the deliberate design there — and confidently sent the reader to the wrong
+layer during live bring-up.)
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §11 "A diagnostic
+that cannot distinguish two states will misdiagnose one of them".
 
 ### (69) What Phase 7 leaves for Phase 8, with the reasons
 
-The port is complete and the live frame renders; these are the named gaps
-between "renders" and "at parity", each with a tenant, a warn-once, or a
-ratchet that fails the moment it is addressed:
+Named gaps between "renders" and "at parity", each with a tenant, warn-once
+or ratchet that fails the moment it is addressed:
 
-- **Materials render untextured.** The heap path is deliberately not live on
-  Vulkan, so materials must travel the slot path — and
-  `CommandDispatch::DrawMesh`'s material half (`UploadMaterialForDirectDraw` +
-  the UBO references) never reaches the backend, so the bindings arrive with no
-  staged slot. The highest-value remaining item, and the one that turns lit
-  grey geometry into a textured scene.
-- **No skybox / IBL / reflection probes**: the cubemap CPU face upload is
-  unimplemented (six layers of the existing 2D staging shape).
-- **No editor UI under Vulkan**: `imgui_impl_vulkan` is Phase 8; ImGui runs
-  platform-only so the editor's ImGui-touching update code can execute.
-- **Entity picking is GL-only** (PBO readback).
-- **The raw texture/FBO facade family** is still stubbed, which blocks the
-  fluid splat/thickness body; SSAO's noise import and explicit per-binding
-  `SamplerDesc` state hang off the same gap.
-- **Six more `.comp` files** carry bare default-block uniforms (cloud noise,
-  cloud shadow, three ocean FFT stages, precipitation feed) — the ratchet test
-  names them explicitly so they cannot be mistaken for an exemption.
-- **Mid-pass `GENERAL` store-then-sample** relies on GL-shaped `MemoryBarrier`;
-  content-safe on desktop, spec-level debt.
-- **No `R32F` colour framebuffer format** exists engine-wide — a GL-path bug the
+- **Materials render untextured** — the heap path is deliberately not live on
+  Vulkan and `DrawMesh`'s material half never reaches the backend. The
+  highest-value item.
+- **No skybox / IBL / reflection probes** — cubemap CPU face upload
+  unimplemented (six layers of the 2D staging shape).
+- **No editor UI** (`imgui_impl_vulkan` is Phase 8) and **entity picking is
+  GL-only** (PBO readback).
+- **The raw texture/FBO facade family is stubbed** — blocks the fluid
+  splat/thickness body, SSAO's noise import, per-binding `SamplerDesc` state.
+- **Six more `.comp` files carry bare default-block uniforms** — the ratchet
+  names them explicitly so they cannot read as an exemption.
+- **Mid-pass `GENERAL` store-then-sample** rides GL-shaped `MemoryBarrier`;
+  desktop-safe, spec-level debt.
+- **No `R32F` colour framebuffer format engine-wide** — a GL-path bug the
   port surfaced.
 
 ---
@@ -2914,38 +2541,31 @@ mapping's `samplerHeapOffset`/`samplerAddressOffset` half with
 
 ### (71) A deferred clear must remember WHO asked
 
-Phase 7's lazy-scope pending clear was a target-blind flag pair, which
-diverged from GL three ways: `Bind(A); Clear(); Bind(B); Draw()` cleared B
-and left A untouched; an unconsumed clear (a shadow-atlas entry culled to
-zero draws) leaked into the next pass's loadOp — or onto the backbuffer
-through the present path's forced rebind; and clear values were read at
-consume time, not request time. The fix's shape is the finding: the pending
-record carries the SAME identity triple the scope-match predicate uses
-(framebuffer pointer / backbuffer view / depth-array view) plus captured
-values, folds into the loadOp only when the opening scope IS the requester,
-and otherwise MATERIALIZES as an eager transfer clear (per-layer for the
-depth-array case) — at supersession and at EndRecording. Deferral is an
-optimisation over GL's eager semantics, so every path where the deferral
-becomes observable must collapse back to eager.
+The decision: a deferred clear is bound to the target that requested it — the
+pending record carries the SAME identity triple the scope-match predicate
+uses (framebuffer pointer / backbuffer view / depth-array view) plus values
+captured at request time, folds into the loadOp only when the opening scope
+IS the requester, and otherwise MATERIALIZES as an eager transfer clear
+(per-layer for the depth-array case) at supersession and at EndRecording.
+Deferral is an optimisation over GL's eager semantics, so every path where
+the deferral becomes observable must collapse back to eager.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "A deferred clear
+must remember WHO asked".
 
 ### (72) One-shot submits are ordered BEFORE the still-recording frame
 
 Queue submissions execute in submit order, so a blocking one-shot issued
-mid-frame runs before everything the frame has recorded but not submitted —
-`StorageBuffer::GetData` returned the previous frame's contents, `SubImage`
-diverged from the layout tracker, and `ClearData`'s documented routing had
-never landed. The rules now implemented: mid-frame WRITES record into the
-frame command buffer (staging buffers go to deferred reclaim, never inline
-destroy); mid-frame READS flush-and-continue
-(`VulkanContext::FlushFrameRecordingAndWait` — submit without the acquire
-semaphore, fence-wait, resume the bracket with only per-command-buffer
-caches reset), refused only when the backbuffer was already written (the
-binary acquire semaphore belongs to the final submit) or a query is open (a
-query span cannot cross command buffers). And the guard for "is a Vulkan
-recording live" probes the LIVE object via dynamic_cast — never
-`RendererAPI::GetAPI()`, a static flag a fixture can set without recreating
-the API object (found as an access violation, the amendment (39)
-construction-order gap resurfacing in test clothing).
+mid-frame runs before everything the frame has recorded but not submitted.
+The rules: mid-frame WRITES record into the frame command buffer (staging
+buffers go to deferred reclaim, never inline destroy); mid-frame READS
+flush-and-continue (`VulkanContext::FlushFrameRecordingAndWait`), with two
+named refusals — the backbuffer already written (the binary acquire semaphore
+belongs to the final submit) and an open query (a query span cannot cross
+command buffers). And "is a Vulkan recording live" probes the LIVE object via
+`dynamic_cast`, never `RendererAPI::GetAPI()` — a static flag a fixture can
+set without recreating the API object.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "One-shot submits
+are ordered BEFORE the still-recording frame".
 
 ### (73) The projection seam's reader classes need SEPARATE UBO members
 
@@ -2964,29 +2584,26 @@ stage, not just the consuming one).
 
 ### (74) A sweep keyed on "ran in the live log" has a shadow, and an inclusion-list ratchet cannot see it
 
-The Phase 7 bare-uniform sweep converted what the live session exercised and
-NAMED six leftovers; the first Phase 8 live launch found a SEVENTH
-(`ReflectionProbeCull.comp`) whose pass simply never ran in that log. Both
-halves generalise: coverage claims derived from a live session inherit that
-session's pass coverage; and the ratchet being an INCLUSION list means an
-unlisted offender is invisible — fixing a shader does nothing until it is
-added to `kPhase7MigratedComputeShaders`, `kKnownBlocks`,
-`IsKnownUBOBinding`, and the binding-limit assert. The migration is
-mechanical; the REGISTRATION is the part that rots.
+Two rules: a coverage claim derived from a live session inherits that
+session's pass coverage — a pass that never ran in the log is invisible to
+the sweep; and an INCLUSION-list ratchet cannot see what never ran — fixing
+an unlisted shader does nothing until it is registered in every list. The
+migration is mechanical; the REGISTRATION is the part that rots.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "A sweep keyed on
+the live log has a shadow".
 
 ### (75) GL's cube-face z IS a Vulkan array layer — and a partially-uploaded cube must keep a uniform layout
 
 `CopyImageSubDataFull`'s `(level, z)` maps directly onto `(mip, arrayLayer)`
-on the CUBE_COMPATIBLE image, which is the whole IBL/sky bake write path.
-The face-upload family runs each transition over the WHOLE image, not the
-uploaded face: per-(mip,layer) tracking answers a whole-image layout query
-with UNDEFINED when subresources disagree — "discard is the safe total
-answer" — so face-at-a-time uploads that transitioned only their face would
-legally discard the faces already uploaded. Mid-frame face uploads (the IBL
-cache load runs INSIDE the frame on this backend) take the (72) write rule;
-face readbacks take the (72) read rule. The heap descriptor path now honours
-the image's recorded dimensionality for sampled views — deriving from layer
-count alone handed a cube a `2D_ARRAY` view against `samplerCube`.
+on the CUBE_COMPATIBLE image — the whole IBL/sky bake write path. The
+decision: the face-upload family transitions the WHOLE image, never the
+uploaded face — per-(mip,layer) tracking answers a mixed-layout whole-image
+query with UNDEFINED ("discard is the safe total answer"), so a face-scoped
+transition could legally discard the faces already uploaded. Mid-frame face
+uploads take (72)'s write rule and face readbacks its read rule; sampled heap
+views honour the image's recorded dimensionality, not its layer count.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "GL's cube-face z
+IS a Vulkan array layer".
 
 ### (76) A pull branch is a per-DRAW-SITE stride contract
 
@@ -3021,36 +2638,28 @@ layout verified individually.
 
 ### (78) The null root address is a device-loss, not a soft miss — and a UBO's lifetime must span its last draw
 
-Two halves of one live-editor incident (`vkQueueSubmit2` → `VK_ERROR_DEVICE_LOST`
-on every VehiclesTest launch; nvlddmkm event-153 storms in the system log).
-
-- **A root-data buffer address of 0 is not "deterministic zeros" — it is a GPU
-  page fault.** The root-assembly comment promised an unfed buffer binding
-  reads as a zero-filled block; with `PhysicalStorageBuffer` pointer loads
-  there is no such mechanism, and the null deref killed the whole device.
-  The promise is now real: `VulkanFrameArena::GetNullBlockAddress()` keeps a
-  persistent 64 KiB zero-filled block, and root assembly substitutes it for
-  every zero address (warn-once unchanged). In-bounds contract only — an SSBO
-  runtime array indexed past the block still faults, so shaders must keep
-  guarding their counts (the fluid splat's counters-gated early-out is the
-  model). Diagnosis notes for the next device loss: the fault storm predates
-  the reporting submit (loss is sticky and surfaces at the NEXT
-  `vkQueueSubmit2`); GPU-AV hid the race entirely (serialized submission);
-  the discriminator that localized it was flipping `StartScene` — the fault
-  followed the scene that re-runs the IBL bake, not the build.
-- **On Vulkan, a `UniformBuffer`'s destructor un-publishes its binding-state
-  occupancy** (`ClearBuffer(this)` — the mirror of the ctor's
-  GL-twin-parity publish). A block-scoped
-  `auto paramsUBO = UniformBuffer::Create(...)` whose scope closes before
-  the draw executes therefore reverts the binding to "unfed" — under GL the
-  same dangling bind read stale-but-valid data by accident of GL object
-  lifetime. Both IBL bake sites (irradiance, BRDF LUT) had exactly this
-  shape; the fix is function-scoping the `Ref` past the last draw. The rule:
-  **a UBO created for a draw must outlive the call that records/executes
-  that draw**, and any facade-level "create, fill, bind, drop" helper is a
-  latent Vulkan device loss.
+Two decisions from one live incident. (1) A root-data buffer address of 0 is
+not "deterministic zeros" — with `PhysicalStorageBuffer` pointer loads it is
+a GPU page fault that kills the device.
+`VulkanFrameArena::GetNullBlockAddress()` keeps a persistent 64 KiB
+zero-filled block and root assembly substitutes it for every zero address
+(warn-once unchanged) — an in-bounds contract only, so shaders must keep
+guarding their counts (the fluid splat's counters-gated early-out is the
+model). (2) On Vulkan a `UniformBuffer`'s destructor un-publishes its
+binding-state occupancy, so **a UBO created for a draw must outlive the call
+that records/executes that draw** — any facade-level "create, fill, bind,
+drop" helper is a latent Vulkan device loss (under GL the same shape read
+stale-but-valid data by accident of object lifetime).
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "The null root
+address: a device-loss diagnosis recipe".
 
 ### (79) Row order is per-TARGET under Vulkan, and readback consumers cannot assume either convention
+
+> **Superseded by (85)** — the Phase 9 live inventory measured every
+> off-screen target uniformly top-down under Vulkan (this amendment's
+> per-target evidence was taken against a broken-geometry frame, (80)'s bug
+> live); the `flipY` knob and the per-consumer predicates are retired there.
+> Kept for the record of how the seam was first observed.
 
 Evidence from the first MCP captures against a live Vulkan editor
 (#691 Phase 8b): the UIComposite attachment read back GL-oriented
@@ -3095,175 +2704,190 @@ upside-down PNG). Both fed a FINAL frame that presents correctly.
 
 ### (80) A CPU-writable buffer whose address is life-stable replays GL's command-ordered writes as last-write-wins
 
-Found by the Phase 8 Step 3 screenshot parity gate: MaterialSpheres and
-LightingTest rendered skybox-only under Vulkan (SceneDepth read back
-all-far-plane except debug-line meshes) while VehiclesTest was fine.
-Root cause: `CommandDispatch::DrawMeshInstanced` re-uploads the ONE shared
-`ModelInstanceBuffer` (SSBO 15) before every auto-batched draw and records
-the draw between the writes. GL executes upload/draw in command order; on
-Vulkan the writes are immediate (mapped write-through / pre-frame one-shot)
-while the draws execute at submit — so **every** recorded draw read the
-frame's LAST upload. Scenes whose repeated meshes auto-batch (sphere/cube
-grids) collapsed to the final tiny upload; scenes of unique meshes never
-batch and survived, which is what made the failure scene-specific.
-
-- The fix is the storage twin of `VulkanUniformBuffer`'s arena versioning:
-  `VulkanStorageBuffer::SetData` inside a recording bracket snapshots the
-  written range into the frame arena, and the DRAW root-data writer embeds
-  the snapshot's address (`GetRootDataAddress`) — a later SetData mints a
-  new range while earlier draws keep the one they recorded. Outside a
-  recording bracket the write-through IS the ordered value and no snapshot
-  is taken (scene loads would burn arena space).
-- COMPUTE keeps the persistent `GetDeviceAddress`: its SSBOs are GPU-write
-  participants (cull survivors, atomically-updated indirect seeds) whose
-  writes must land where the indirect resolve and copies look, and the
-  culler's slot pool already hands each dispatch fresh buffers. The split
-  is the `commandOrderedBufferReads` flag on `AssembleAndPushRootData`.
-- Tenant: `InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDraws`
-  (upload LEFT, draw, upload RIGHT, draw — both quads must land).
-- The same archetype exists in principle for `VulkanVertexBuffer` (vertex
-  pull) if a pull stream is ever rewritten mid-frame between draws;
-  today's Renderer2D flush pattern uploads each stream once per frame, so
-  it is recorded here as a known seam, not fixed.
+A CPU buffer write between two recorded draws is command-ordered on GL; a
+life-stable Vulkan address makes every recorded draw read the frame's LAST
+upload. The decision: inside a recording bracket, a graphics-visible
+`VulkanStorageBuffer::SetData` snapshots the written range into the frame
+arena and the draw's root-data writer embeds the snapshot's address
+(`GetRootDataAddress`); COMPUTE keeps the persistent `GetDeviceAddress` (its
+SSBOs are GPU-write participants whose writes must land where the indirect
+resolve looks) — the split is the `commandOrderedBufferReads` flag on
+`AssembleAndPushRootData`; outside a recording bracket the write-through IS
+the ordered value and no snapshot is taken. Tenant:
+`InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDraws`. The same
+archetype is a recorded, unfixed seam for a vertex-pull stream rewritten
+mid-frame between draws.
+Narrative: docs/agent-rules/vulkan-command-ordered-buffer-writes.md — the
+whole-file twin of this amendment.
 
 ### (81) Unfed sampler bindings must resolve to a typed null texture, not heap slot 0
 
-Slot 0 is whatever texture registered first — in the editor, the loft-HDRI
-equirect — so every unfed optional sampler (`PostProcess_ToneMap`'s
-water-depth, `PBR_MultiLight`'s material maps behind `u_Use*Map` flags)
-silently sampled a real image. The GL twin reads deterministic black from
-an unbound unit; Vulkan now matches: reflection carries the sampled-image
-dimensionality (`VulkanShaderBinding::ImageDim`, from spirv-cross
-`image.dim`/`arrayed`), and the root-data fallback resolves to a 1x1
-zero-filled null image of the MATCHING view type (2D / 2D-array / cube /
-cube-array / 3D — a 2D descriptor under a `samplerCube` is undefined).
-The null images are owned by `VulkanDescriptorHeapBackend` beside its
-existing token nulls and reclaimed with the heap — a process-leaked VMA
-image trips VMA's "allocations not freed" assert at device teardown (the
-sampler-heap lesson, relearned). Storage-image units keep the slot-0
-fallback: there is no safe neutral WRITE target, and no production shader
-dispatches with an unfed image unit.
+The decision: an unfed sampler binding resolves to a 1x1 zero-filled null
+image of the MATCHING view dimensionality (2D / 2D-array / cube / cube-array
+/ 3D — reflection carries `VulkanShaderBinding::ImageDim`; a 2D descriptor
+under a `samplerCube` is undefined), never heap slot 0, which is whatever
+texture registered first. GL's twin reads deterministic black from an unbound
+unit; Vulkan now matches. The null images are owned by
+`VulkanDescriptorHeapBackend` and reclaimed with the heap. Storage-image
+units keep the slot-0 fallback: there is no safe neutral WRITE target, and no
+production shader dispatches with an unfed image unit.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "Unfed sampler
+bindings sampled the loft HDRI".
 
 ### (82) The tessellation domain origin is part of the GL-parity contract, and its failure mode is a shading bug, not a geometry bug
 
-The Phase 8 water-murk hunt: VehiclesTest's sea rendered as a flat grey
-gradient under Vulkan while every input checked out one by one — the six
-"unfed" texture warnings were benign (unassigned assets, GL skips them
-too), the water UBO and its per-draw time arrived (live MCP A/B:
-WaveAmplitude 5 erupted identically on both backends), tessellation levels
-matched (the GL control faceted the same), the underwater fog contributed
-nothing (fog-off was pixel-identical), and the planar-reflection mirror
-pass ran and produced real content (in-pass centre-texel readback through
-the Phase 8b spine). The killer was one absent pipeline field:
-`VkPipelineTessellationDomainOriginStateCreateInfo`.
-
-- Vulkan's default tessellation domain origin is UPPER_LEFT; GL's
-  convention is LOWER_LEFT. For a GLSL TES authored against GL semantics
-  (`layout(triangles, …, ccw)`), the default mirrors the tessellator's v
-  coordinate — the barycentric weights become a corner permutation, so
-  **generated positions stay on the patch and the surface lands exactly
-  where GL puts it**, while every emitted triangle's **winding flips**.
-- With two-sided/uncull water that meant: right geometry, BACK face
-  visible. `gl_FrontFacing` inverted, the two-sided normal flip pointed
-  the shading normal down, NdotV collapsed the fresnel term (killing SSR,
-  environment AND planar reflection in one multiply) and pinned the
-  view-depth blend to the deep colour — a murky sea with zero validation
-  errors, zero warnings, and every binding fed. A back-culled tessellated
-  surface would instead disappear outright.
-- Fix: every patch pipeline chains
-  `VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT` (maintenance2, core 1.1) —
-  GL parity by construction for water and terrain alike. Pinned by the
-  water tenant's phase 2: the same ccw patch draw with back-cull ON must
-  keep its coverage; under the default origin it culls to nothing.
-- The diagnostic lesson: a winding-level bug on a two-sided surface
-  presents as a *lighting/material* bug (dark, flat, "missing
-  reflections"), and every per-binding audit will come back clean. When a
-  tessellated surface shades wrong under one backend with all inputs
-  verified, check the domain origin before re-auditing the inputs.
+The decision: every patch pipeline chains
+`VkPipelineTessellationDomainOriginStateCreateInfo` with
+`VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT` (maintenance2, core 1.1) — GL
+parity by construction for water and terrain alike. Vulkan's UPPER_LEFT
+default mirrors the tessellator's v for a GL-authored TES: generated
+positions stay ON the patch while every emitted triangle's WINDING flips — so
+the failure mode is a shading bug (inverted `gl_FrontFacing`, collapsed
+fresnel on a two-sided surface; a back-culled surface would vanish outright),
+not a geometry bug, with zero validation errors and every binding fed. Pinned
+by the water tenant's back-cull phase. When a tessellated surface shades
+wrong under one backend with all inputs verified, check the domain origin
+before re-auditing the inputs.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "The water-murk
+hunt ended at the tessellation domain origin".
 
 ### (83) A GL framebuffer has no intrinsic size; a Vulkan one does — and a native-id gate is always a Vulkan no-op
 
-The MaterialSpheres "exposure delta" (GL bright with specular hotspots,
-Vulkan uniformly dim) was the directional light dying to TWO stacked
-shadow bugs, split by a live MCP A/B (intensity ×10 changed nothing;
-CastShadows=false restored the full light — so the light data was fine
-and the CSM *sampling* returned fully-shadowed):
-
-- **The identity gate.** `PopulateBlackboard` declared the CSM/atlas into
-  the graph only when `GetCSMRendererID() != 0` — the native-GL-name
-  currency, 0 by contract on Vulkan. No Vulkan graph ever contained a
-  shadow target (six on GL, zero on Vulkan in
-  `olo_render_list_targets`), so the shadow pass declared no writes.
-  Rule: **a gate must key on the currency that exists on every backend —
-  the RHI identity — never the native id**, which is diagnostics-only.
-- **The stale framebuffer spec.** The scene bumps the CSM from the 1024
-  startup default to 4096 (`ShadowMap::SetSettings` recreates the
-  textures), but nothing resized the shadow pass's framebuffer. GL
-  forgave it forever: a GL FBO has no intrinsic size — its size IS its
-  attachments', and `glClear` covers the whole attached 4096 layer. On
-  Vulkan the framebuffer spec drives the rendering scope's render area,
-  so every cascade cleared and rendered only its top-left 1024² quarter
-  while sampling spanned the full layer — depth 0 outside it, every
-  fragment fully shadowed. Found by capturing `ShadowMapCSMCascade0` on
-  both backends: GL all-white, Vulkan black with one white quarter. The
-  pass now resizes its framebuffer whenever it disagrees with the
-  shadow-map resolution.
-- The genre note: both bugs are **GL-tolerated latency** — states that
-  were always wrong (or wrong-shaped) under GL but harmless there, made
-  load-bearing by a backend where framebuffer size and resource identity
-  are real contracts. The parity gate, not any unit test, is what forces
-  them out.
+Two rules from one incident. (1) **A gate must key on the currency that
+exists on every backend — the RHI identity — never the native id**, which is
+diagnostics-only and 0 by contract on Vulkan: a native-id gate
+(`GetCSMRendererID() != 0`) is always a Vulkan no-op. (2) A GL framebuffer
+has no intrinsic size — its size IS its attachments' — while a Vulkan
+framebuffer spec drives the rendering scope's render area, so **a pass must
+resize its framebuffer whenever it disagrees with its attachments'
+resolution**. Both are GL-tolerated latency: always-wrong states made
+load-bearing by a backend where framebuffer size and resource identity are
+real contracts, forced out by the parity gate rather than any unit test.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "Two stacked
+shadow bugs, split by a live MCP A/B".
 
 ### (84) BDA turns a GL-tolerated out-of-bounds read into device loss — and VK_EXT_device_fault names the address
 
-The FoliageGenerationTest `VK_ERROR_DEVICE_LOST` (count-scaled: 254k
-grass instances died ~2 s after the first foliage frame, 12k survived)
-was a **pre-existing cross-backend OOB read** that GL had been silently
-absorbing: `InstanceBlock_Vertex.glsl` resolves `u_Model` to
-`instances[gl_InstanceIndex]` — the auto-batching contract, where the
-CPU uploads N entries for N instances — but `FoliageRenderer::Render`
-uploads exactly ONE shared render-origin matrix and draws 254k
-instances whose real per-instance data rides their own 48-byte vertex
-stream. Every instance > 0 read up to 224·N bytes past a 224-byte
-upload:
+A bounded GL SSBO bind returns zeros out of range; a buffer-device-address
+read has no bounds (`robustBufferAccess` does not apply) and page-faults the
+device once the read crosses into an unmapped page — amendment (83)'s
+GL-tolerated latency applied to memory safety. The fixes:
+`OLO_INSTANCE_SINGLE` (define before including `InstanceBlock_Vertex.glsl`)
+is the shape for any shader whose instancing rides its own vertex stream —
+it resolves the `u_Model` family to `instances[0]` with the varying
+interface unchanged, and is backend-neutral because the bug was; and
+**`VK_EXT_device_fault` is enabled whenever the driver offers it**
+(`VulkanDevice::LogDeviceFaultInfo` on every DEVICE_LOST translation) —
+Windows gives no dmesg/Xid currency, so without the fault report a Vulkan
+device loss here is unattributable. Audit "the CPU uploads as many entries as
+the shader indexes" contracts per DRAW SITE, not per shader family, when a
+backend moves them onto raw pointers.
+Narrative: docs/agent-rules/rhi-abstraction-boundary.md §12 "254k instances,
+one uploaded matrix, and `VK_EXT_device_fault`".
 
-- **Under GL** the SSBO bind carries a size, and NVIDIA's out-of-range
-  read returned zeros — so `u_Model` was a zero matrix and every blade
-  collapsed invisibly to the render origin. The scene "worked" for as
-  long as nobody expected to see grass: the parity gate's GL control
-  frame showed bare terrain and *looked plausible*.
-- **Under Vulkan** the same block is a buffer-device-address pointer in
-  the root struct. A BDA read has no bounds — `robustBufferAccess`
-  does not apply — so once N was large enough that the read crossed
-  into an unmapped page (~32 MB past a 12 MB buffer at 254k), the GPU
-  page-faulted and the device was lost. Small N read garbage from
-  neighbouring allocations and *survived*, which is why the crash
-  scaled with instance count while every suite tenant (which exercises
-  the SSBO-15 path with correctly-sized uploads) stayed green.
+---
 
-Fixes, both sides of the seam:
+## Amendments from Phase 9 (2026-08-15) — rollout
 
-- `OLO_INSTANCE_SINGLE` (define before including
-  `InstanceBlock_Vertex.glsl`): resolves the `u_Model` family to
-  `instances[0]` and forwards `v_InstanceIndex = 0`, for any shader
-  whose instancing rides its own stream. The four foliage shaders opt
-  in; the varying interface is unchanged so fragment-stage
-  `InstanceBlock.glsl` consumers keep working. This *restored* grass
-  under GL as well — the fix is backend-neutral because the bug was.
-- **`VK_EXT_device_fault` is now enabled whenever the driver offers
-  it** (`VulkanDevice::LogDeviceFaultInfo`, called on every
-  DEVICE_LOST translation). It is the instrument that closed this:
-  the driver reported `READ of invalid address` at base+32 MB, and a
-  trace log of every vertex buffer's BDA range turned that address
-  into "224-byte-stride indexing of the one-entry instance block".
-  Windows gives no dmesg/Xid currency, so without the fault report a
-  Vulkan device loss here is unattributable.
-- The genre marker: this is amendment (83)'s **GL-tolerated latency**
-  applied to memory safety — GL's bounded bind made an OOB read a
-  rendering bug (invisible grass); BDA made it a process-killing
-  fault. Any draw-site contract of the form "the CPU uploads as many
-  entries as the shader indexes" must be audited per draw site, not
-  per shader family, when a backend moves it onto raw pointers.
+### (85) One row order per backend — every off-screen target is backend-natural, and the per-target knob retires
+
+Supersedes (79)'s per-target regime, whose evidence went stale: the Phase 9
+live inventory (ten target archetypes — geometry products, NDC-passthrough
+post hops, compute `imageStore` outputs, depth, shadow — captured raw from a
+live editor on both backends) measured **every** off-screen target already
+uniform: bottom-up under GL, **top-down under Vulkan**. (79)'s "per-target"
+observations were taken against a broken-geometry frame ((80)'s bug was live)
+and did not survive #794's fixes. The decision:
+
+- **Every off-screen target is backend-natural: bottom-up on GL, top-down on
+  Vulkan.** No per-target exceptions, no flips inside the offscreen chain.
+  Why top-down is the only reachable uniform convention: (59)'s clip-y
+  negation lands a view's top row at memory row 0 (the same fact the capture
+  flavour exists to avoid), and un-mirroring rasterization would need the
+  per-pass viewport negation (59) already rejected.
+- **The present blit PRESERVES row order.** The Phase 7 negative-height
+  viewport mirror at the backbuffer is deleted: it was derived from a chain
+  believed to be GL-ordered, and nothing displayed the graph through that
+  path since (the editor composites via ImGui; the runtime was Vulkan-gated
+  until this phase) — (67)'s "orientation is a window-only proof", twice
+  over. Pinned by the FinalPassBlits... tenant, now asserting presented row r
+  == chain row r.
+- **CPU readbacks carry ONE backend predicate, in the shared helpers**: flip
+  to top-down PNG order iff GL. `olo_render_capture_target`'s `flipY`
+  argument is retired (schema and meta echo removed); `CaptureFramebufferPng`
+  and the save-game thumbnail capture share the rule.
+- **ImGui uv pairs collapse to one predicate** —
+  `ImGuiLayer::RenderTargetRowsAreBottomUp()` — for every panel drawing a
+  RENDER TARGET. File-loaded textures (stbi pre-flipped) keep the fixed
+  GL-convention pair; the content browser threads provenance
+  (rendered-thumbnail vs loaded-icon) to choose. Entity picking keys its
+  mouse-origin conversion on the same predicate (GL arms convert to
+  bottom-up; `VulkanFramebuffer::ReadPixel` takes the top-down coordinate
+  verbatim).
+- **Direction-addressed captures are NOT screen targets** and keep (59)'s
+  capture flavour unchanged — bake rows stay byte-identical to GL, so the
+  on-disk IBL cache needs no version bump.
+- Named seams, deliberately not unified here: `SetScissorBox` still takes
+  each backend's native scissor space (GL bottom-left, Vulkan top-left) —
+  `UIRenderer::PushClipRect` now converts iff GL, and the DDGI tile scissors
+  remain self-consistent per backend; a facade-level top-left contract would
+  need the GL arm to learn the bound target's height and is left as a
+  recorded seam. `GPUResourceInspector`'s preview panel deliberately shows
+  raw memory order (a debug view of mixed-provenance textures).
+
+### (86) OloServer stays renderer-free — the backend decision for the headless target is "neither"
+
+§2 decided backend selection for windowed apps and deliberately left
+`OloServer` open; issue #691 framed the choice as "Vulkan compute, or stays
+OpenGL-only". Both arms were wrong, because the server initializes **no**
+backend today: `IsHeadless` skips selection entirely, and `Renderer::Init`
+has exactly one call site, inside the `!IsHeadless` branch. Nothing
+gameplay-affecting requires a GPU — the fluid solver's CPU reference path is
+documented as the server path, navmesh/physics/terrain are CPU by design, and
+the deployment contract (docs/ops/deployment.md) is an ubuntu+libstdc++6
+container with no libGL and no libvulkan. The decision:
+
+- **OloServer remains backend-less.** `IsHeadless` continues to skip backend
+  selection; no Vulkan headless-compute path is added. There is no customer,
+  and adding one would put a device dependency on the one target whose
+  deployment image and WSL2 host guarantee none.
+- **Authored content cannot override it.** The two per-entity flags that
+  could drive GL resource creation on a context-less server —
+  `ParticleSystem::UseGPU` and `FluidSolverMode::GPU` — fall back to their
+  CPU paths (warn-once) when no device is available, and
+  `MeshSource::Build` defers GPU buffer creation the same way. This makes the
+  decision enforceable rather than an accident of the server currently
+  having no asset manager.
+- **The Consequences bullet on `OLO_WITH_VULKAN=OFF` is corrected in place:**
+  OFF removes the volk/VMA/vulkan-headers ports and the backend object code,
+  but `find_package(Vulkan REQUIRED)` at configure time is deliberately
+  ungated — the *shader* toolchain (shaderc/glslang/SPIRV-Cross) needs the
+  SDK on every build. "Build without a Vulkan SDK present" was never true and
+  is not a goal; the valve is about link weight and port count, not the SDK.
+- WSL2 consequence: unchanged — the server remains the only WSL2 target and
+  needs no GPU stack there.
+
+### (87) Dual-backend CI cadence: (77) confirmed wired — and the lane that carries it is now guarded
+
+(77) decided the cadence (headless CI runs GL + the device-free ratchets;
+device-gated Vulkan tenants ride the GPU runner's nightly visual/golden run;
+no per-PR Vulkan gate without a dedicated runner). Phase 9 audited the
+workflows against that decision. The wiring matches — with one real gap: the
+nightly `gpu-conformance-amd` lane had been red for days on a provisioning
+disconnect (the #773/#781 vcpkg migration's `setup-vcpkg` action ran an
+unconditional `sudo apt-get`; the Rocky runner has neither apt nor
+passwordless sudo), which meant the device-gated Vulkan tenants were running
+**nowhere**. The action now verifies-first and only installs on hosted
+images; the runner provisioning list (docs/ops/self-hosted-gpu-runner.md)
+gained the autotools row. Standing consequences:
+
+- The AMD runner's SDK (1.4.350.1) is below ADR 0010's 1.4.357 tooling
+  floor: tenants run (the capability gate reads driver extensions, not the
+  SDK), but GPU-assisted validation for descriptor-heap traffic is
+  unavailable until the host SDK is upgraded.
+- Promoting Vulkan tenants to a per-PR blocking gate remains rejected — it
+  needs a dedicated GPU runner. The nightly cadence *is* the decision, and a
+  red nightly is a paged failure, not background noise.
 
 ---
 
@@ -3281,13 +2905,13 @@ Fixes, both sides of the seam:
 - **Phase 2 must strip `RendererAPI`'s `GLenum`/`GLuint` virtuals before
   anything else**, or the include ratchet measures nothing. This is an ordering
   constraint the roadmap did not previously state.
-- `Renderer/Debug/` (236 calls, 43% of the total) is Phase 8 work that
-  Phase 2 explicitly does not have to carry — but it is *relocation*, not
-  exemption, and Phase 7 cannot be verified per `CLAUDE.md`'s rendering rule
-  until it is done.
-- `ResourceTransition`'s read/write enum pair is a known, recorded defect for
-  Vulkan (§1.5). It is currently harmless and must not be "cleaned up" into
-  something that merely looks neutral.
+- `Renderer/Debug/` (236 calls, 43% of the total) is Phase 9 work (deferred by
+  #794) that Phase 2 explicitly does not have to carry — but it is
+  *relocation*, not exemption, and Phase 7 cannot be verified per `CLAUDE.md`'s
+  rendering rule until it is done.
+- `ResourceTransition`'s read/write enum pair was a known, recorded defect for
+  Vulkan (§1.5) — fixed in Phase 5 by (43): the transition record is unified
+  onto `RHI::Access`, with the WAW fix applied at barrier emission.
 - One binary ships both backends. Binary size and link time grow; `OLO_WITH_VULKAN=OFF`
   is the escape valve for `OloServer` and lean CI.
 - Vulkan adds exactly one new on-disk cache artefact (`pipeline_cache.vkpc`) and
