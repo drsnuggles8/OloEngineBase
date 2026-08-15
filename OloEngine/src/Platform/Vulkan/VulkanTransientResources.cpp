@@ -249,6 +249,8 @@ namespace OloEngine
                     return ImageFormat::RG16F;
                 case FramebufferTextureFormat::RG32F:
                     return ImageFormat::RG32F;
+                case FramebufferTextureFormat::R32F:
+                    return ImageFormat::R32F;
                 case FramebufferTextureFormat::RED_INTEGER:
                     return ImageFormat::R32I;
                 case FramebufferTextureFormat::DEPTH24STENCIL8:

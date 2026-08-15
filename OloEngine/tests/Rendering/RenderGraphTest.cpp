@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
@@ -7545,6 +7546,83 @@ TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
     ASSERT_NE(it, plan.end());
     EXPECT_EQ(it->EstimatedBytes, (8ull + 4ull + 4ull) * 1280ull * 720ull)
         << "RGBA16F+RG16F+Depth MRT estimated bytes must sum to 16 bytes/px";
+}
+
+// Regression guard for issue #772. DepthVelocityUpscalePass declares
+// UpscaledDepthVelocity as {R32Float depth, RG16Float velocity} and writes both,
+// but FramebufferTextureFormat had no single-channel float colour member, so
+// ToFramebufferFormat answered None for R32Float. The materializer SKIPS an
+// unrepresentable attachment rather than failing, which re-indexes the
+// survivors: the pooled framebuffer came back with ONE attachment (the RG16F
+// velocity, now sitting at index 0), the pass's RT0 depth write landed nowhere,
+// and CreateFramebufferAttachmentView(..., 0) — published as
+// Post.UpscaledSceneDepthTexture — handed every post-EASU depth consumer (DOF,
+// Fog, MotionBlur, TAA, ToneMap) the VELOCITY texture instead. Silent on both
+// backends.
+TEST(RenderGraphTransientPool, R32FloatColorAttachmentIsRepresentable)
+{
+    EXPECT_NE(RenderGraph::ToFramebufferFormat(RGResourceFormat::R32Float), FramebufferTextureFormat::None)
+        << "RGResourceFormat::R32Float must map to a real colour attachment format (#772)";
+
+    // Exactly the production declaration in RenderPipeline::PopulateBlackboard.
+    RGResourceDesc dvDesc;
+    dvDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    dvDesc.Width = 1280;
+    dvDesc.Height = 720;
+    dvDesc.Attachments = { RGResourceFormat::R32Float, RGResourceFormat::RG16Float };
+
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    const auto handle = graph.DeclareTransientFramebuffer("UpscaledDepthVelocityTest", dvDesc);
+    const auto depthView = graph.CreateFramebufferAttachmentView("UpscaledDepthTest", handle, 0u);
+    const auto velocityView = graph.CreateFramebufferAttachmentView("UpscaledVelocityTest", handle, 1u);
+    ASSERT_TRUE(depthView.IsValid());
+    ASSERT_TRUE(velocityView.IsValid());
+
+    AddSetupNode(graph, "Upscale", [handle](RGBuilder& builder)
+                 { builder.Write(handle, RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "Consumer", [depthView](RGBuilder& builder)
+                 { [[maybe_unused]] const auto r = builder.Read(depthView, RGReadUsage::ShaderSample); });
+    graph.AddExecutionDependency("Upscale", "Consumer");
+    graph.SetFinalPass("Consumer");
+    graph.BuildFrameGraph();
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "UpscaledDepthVelocityTest"; });
+    ASSERT_NE(it, plan.end());
+    EXPECT_TRUE(it->WillAllocate) << "unexpected skip reason: " << it->SkipReason;
+    // 4 (R32F) + 4 (RG16F) bytes/px — the byte total is the cheapest proof that
+    // BOTH attachments survived planning rather than one being dropped.
+    EXPECT_EQ(it->EstimatedBytes, (4ull + 4ull) * 1280ull * 720ull)
+        << "both declared attachments must be planned, not just the representable ones";
+}
+
+// The other half of the #772 contract: a partially-representable MRT must be
+// refused outright, not allocated with the survivors re-indexed. `any_of` was
+// the old gate and it is what made the dropped attachment survivable enough to
+// stay hidden for a whole release; `all_of` turns the next such gap into a
+// visible resolve failure instead of a wrong-texture read.
+TEST(RenderGraphTransientPool, PartiallyRepresentableMRTIsNotAllocatable)
+{
+    ASSERT_EQ(RenderGraph::ToFramebufferFormat(RGResourceFormat::R8UNorm), FramebufferTextureFormat::None)
+        << "test premise: R8UNorm has no framebuffer attachment format";
+
+    RGResourceDesc mixedDesc;
+    mixedDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    mixedDesc.Width = 320;
+    mixedDesc.Height = 240;
+    mixedDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::R8UNorm };
+
+    EXPECT_FALSE(RenderGraphTransientPlanner::IsAllocatable(mixedDesc))
+        << "an MRT with an unrepresentable attachment must not be allocated (#772)";
+    EXPECT_EQ(RenderGraphTransientPlanner::GetSkipReason(mixedDesc), "unsupported-framebuffer-format");
+
+    RGResourceDesc allValid = mixedDesc;
+    allValid.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::R32Float };
+    EXPECT_TRUE(RenderGraphTransientPlanner::IsAllocatable(allValid));
 }
 
 // Regression test for issue #547: a pass that seeds an MRT purely through

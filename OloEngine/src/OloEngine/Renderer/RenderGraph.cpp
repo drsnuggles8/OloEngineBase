@@ -342,6 +342,7 @@ namespace OloEngine
                     case FramebufferTextureFormat::RGB32F:
                     case FramebufferTextureFormat::RG16F:
                     case FramebufferTextureFormat::RG32F:
+                    case FramebufferTextureFormat::R32F:
                         RenderCommand::ClearTextureFloat(
                             framebuffer->GetColorAttachmentHandle(colorIndex), 0,
                             glm::vec4(color.RGBA[0], color.RGBA[1], color.RGBA[2], color.RGBA[3]));
@@ -3405,6 +3406,7 @@ namespace OloEngine
             case RGResourceFormat::R32Int:
                 return FramebufferTextureFormat::RED_INTEGER;
             case RGResourceFormat::R32Float:
+                return FramebufferTextureFormat::R32F;
             case RGResourceFormat::R8UNorm:
             case RGResourceFormat::Unknown:
             default:
@@ -3585,11 +3587,27 @@ namespace OloEngine
                             // MRT path: build one attachment spec per entry in Attachments.
                             std::vector<FramebufferTextureSpecification> attachSpecs;
                             attachSpecs.reserve(desc.Attachments.size());
-                            for (const auto fmt : desc.Attachments)
+                            for (u32 attachmentIndex = 0u; const auto fmt : desc.Attachments)
                             {
                                 const auto af = ToFramebufferFormat(fmt);
                                 if (af != FramebufferTextureFormat::None)
+                                {
                                     attachSpecs.push_back(FramebufferTextureSpecification{ af });
+                                }
+                                else
+                                {
+                                    // Unreachable while the planner's all_of gate
+                                    // holds (IsAllocatable rejects the whole
+                                    // descriptor), but the skip below RE-INDEXES
+                                    // every later attachment, so say so loudly if
+                                    // the two ever drift apart again (issue #772).
+                                    OLO_CORE_ERROR("RenderGraph: transient framebuffer '{}' declares attachment {} with "
+                                                   "RGResourceFormat {} which has no FramebufferTextureFormat — later "
+                                                   "attachments would re-index. Add the format to ToFramebufferFormat.",
+                                                   entry.Resource, attachmentIndex,
+                                                   static_cast<u32>(std::to_underlying(fmt)));
+                                }
+                                ++attachmentIndex;
                             }
                             if (!attachSpecs.empty())
                             {
