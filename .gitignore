@@ -172,3 +172,9 @@ steam_api64.dll
 
 # Per-user renderer backend selection written by the Renderer Settings panel (ADR 0011 s2)
 OloEditor/config/renderer.yaml
+
+# repowise local index (see issue #815) — ~390MB per checkout, never committed
+.repowise/
+
+# C++ coverage artefacts (OpenCppCoverage / Cobertura)
+coverage/
