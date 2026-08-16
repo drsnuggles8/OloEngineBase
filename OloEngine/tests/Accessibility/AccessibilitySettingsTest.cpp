@@ -297,9 +297,21 @@ TEST_F(AccessibilitySettingsTest, LoadOfACorruptFileFailsWithoutCorruptingSettin
     // frames crashes the clang-cl ASan build inside the exception-dispatch
     // machinery — a toolchain bug, not a defect here (issue #661; full evidence
     // trail in WinAsanYamlThrow.h). LoadFromFile already catches
-    // YAML::Exception and returns false, which this asserts in every other
-    // configuration; the settings-preservation assertion below runs everywhere.
-#if !OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN
+    // YAML::Exception and returns false, which this asserts everywhere else.
+    //
+    // Under the guard, substitute a WELL-FORMED file with the wrong root key:
+    // that takes LoadFromFile's `!node.IsMap()` rejection path, which returns
+    // false without any throw. Skipping the load outright would leave the
+    // preservation assertion below merely re-reading the value Set() wrote two
+    // lines earlier — vacuously true, and it is the whole point of the test.
+#if OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN
+    const auto wrongRootPath = OloEngine::Tests::TempDir() / "wrong-root.yaml";
+    {
+        std::ofstream f(wrongRootPath);
+        f << "WrongRoot: 1\n";
+    }
+    EXPECT_FALSE(Accessibility::LoadFromFile(wrongRootPath));
+#else
     EXPECT_FALSE(Accessibility::LoadFromFile(path));
 #endif
     EXPECT_FLOAT_EQ(Accessibility::Get().UITextScale, 1.25f);
