@@ -205,3 +205,37 @@ subset: the targeted 18,000-case hammer was green while both of these were live.
    other with a ctest `RESOURCE_LOCK` — see [testing-architecture.md §6.2](testing-architecture.md).
 4. If a case needs a path that must **not** exist, `TempFile("x")` is it: the parent is created, the
    leaf is not.
+
+## 7. The sibling hazard: reading a repo file relative to the *working directory*
+
+Everything above is about a shared **temp** path. There is a second piece of
+per-process mutable state a test can accidentally depend on, and it fails the
+other way round — green alone, red in the suite:
+
+```cpp
+// WRONG — resolves against whatever the CWD happens to be right now
+std::ifstream f("OloEngine/src/OloEngine/UI/UIRenderer.cpp");
+
+// RIGHT — compile-time anchor, immune to any chdir
+const auto root = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+std::ifstream f(root / "OloEngine" / "src" / "OloEngine" / "UI" / "UIRenderer.cpp");
+```
+
+The test binary starts at the repo root, so a CWD-relative open works in
+isolation and under `--gtest_filter=<just this suite>`. But several suites
+**chdir during their run** — the asset-manager-backed Functional fixtures point
+`EditorAssetManager` at a per-case temp project — so once one of those has run in
+the same process, every later CWD-relative open resolves somewhere else.
+
+`OLO_TEST_EDITOR_ROOT` is defined target-wide in `OloEngine/tests/CMakeLists.txt`
+for exactly this reason (its comment: *"tests don't depend on the binary's
+working directory"*), and `ComponentSerializerCoverageTest` / `ComponentTupleCoverageTest`
+/ `OloHeaderToolOutputsTest` all wrap it in a local `RepoRoot()`.
+
+**Why this is worth its own entry rather than "just use the define":** the failure
+mode inverts the usual debugging instinct. A test that passes alone and fails in
+the suite reads as *"the suite broke my test"*, so the hunt starts in whatever
+ran before it. The actual bug is entirely inside the failing test, and it was
+there the moment it was written. Any test that opens a **source or asset file
+that ships with the repo** — a text-scanning coverage test, a shader-source
+contract check — has this hazard; a test that only writes to `TempDir()` does not.

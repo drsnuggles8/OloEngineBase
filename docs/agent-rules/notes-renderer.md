@@ -358,3 +358,44 @@ NVIDIA threaded driver during reload churn. Fix: upload faces through a persiste
 > **Don't trust the stack's implied cause for a probabilistic GPU-driver crash.** The stack showed
 > the upload; *why* it faulted needed env-gated A/B experiments run across **multiple relaunch
 > rounds** — a single 20-reload run is too noisy to distinguish signal.
+
+## 17. A post stage after `UICompositePass` has four consumers, and three of them are not the graph
+
+Adding a stage *between* two existing post passes is a well-trodden path:
+declare the resource, register the node, and add the name to the downstream
+`ReadFirstValidVersionedInputForPass` candidate lists (glsl-shaders.md §9). A
+stage added at the **end** of the chain — after `UICompositePass`, which is where
+an accessibility remap has to go so the HUD is adapted too (issue #458) — has a
+different footprint, and the graph edits are the easy part.
+
+The trap: **the editor viewport is not the backbuffer.** `FinalPass` presents to
+the swapchain, but `EditorLayer::UI_Viewport` draws an `ImGui::Image` of a graph
+resource it resolves by name, and that name was `UIComposite`. So a stage placed
+after UIComposite is correct on the swapchain the editor never shows and
+**invisible in the only surface anyone looks at**. Nothing fails; the frame just
+never changes, which reads as "my pass isn't running" and sends you into the
+render graph.
+
+Four places resolve "the presented image", and all four need the new name at the
+top of their fallback chain:
+
+| consumer | site | what breaks if missed |
+|---|---|---|
+| the graph | `FinalRenderPass::Setup` candidate list | the stage's output is dropped; the frame presents unadapted |
+| the editor viewport | `EditorLayer.cpp` `UI_Viewport` | the effect is invisible in the editor |
+| MCP screenshots | `EditorLayer.cpp` `mcpContext.CaptureViewportPng` | `olo_screenshot` answers with the pre-stage frame — so your *verification* silently lies |
+| frame capture | `RenderGraphFrameCapture.cpp`, the `FinalPass` branch that fills `Source::Backbuffer` | "the image the player saw" is the image from one stage earlier |
+
+The third row is the one that costs a debugging session: the MCP capture and the
+visual-evidence fixtures are the instruments you reach for to answer "did it
+work?", and until they learn the new name they answer *no* for a reason that has
+nothing to do with the pass.
+
+The same applies to the `*VisualEvidenceTest` fixtures, which resolve
+`UIComposite` → `ToneMapColor` → `SceneColor` in that order. A new last-stage
+test must put its own resource first, or it measures the frame from before its
+own stage and every differential assertion passes vacuously against itself.
+
+> **Rule of thumb:** grep `ResolveFrameGraphFramebuffer(ResourceNames::` before
+> adding anything to the tail of the post chain. Every hit is a consumer that
+> has hard-coded "the last stage" by name.

@@ -71,6 +71,7 @@ namespace OloEngine
             FXAAColor,             // FXAA output
             SelectionOutlineColor, // Selection-outline pass output
             UIComposite,           // UI composite pass output
+            ColorBlindColor,       // Colour-vision adaptation output (issue #458), the last stage before present
             Backbuffer,            // Default framebuffer after FinalPass
             COUNT
         };
