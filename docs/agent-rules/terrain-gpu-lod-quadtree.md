@@ -158,6 +158,51 @@ path, it clears the other two.
 
 ---
 
+## 6a. A `.comp` never goes through shaderc on the GL backend — so `glslc` does not validate it
+
+`OpenGLComputeShader::Compile` hands include-resolved GLSL **straight to
+`glShaderSource`**. There is no shaderc → SPIR-V → SPIRV-Cross hop for compute on
+this backend (its own comment says so: a compute shader "needs NO second compile
+route"). The graphics shaders do take that hop; compute does not.
+
+The consequence is easy to get wrong and cost a full test cycle here: **compiling
+a `.comp` with `glslc` proves nothing about whether the engine can build it.**
+`glslc` and `glslangValidator -G` both accepted all four terrain kernels; NVIDIA's
+own front-end rejected them:
+
+```
+error C1012: abstract parameters not allowed in function definition "oloTerrainNodeLevel"
+error C0000: syntax error, unexpected ">>", expecting "::" at token ">>"
+```
+
+The cause was a parameter named **`packed`** — a GLSL *reserved keyword*. glslang
+lets it through as an identifier; the driver parses `uint f(uint packed)` as an
+abstract parameter and everything after collapses. Renaming to `packedNode`
+fixed all four.
+
+Two rules:
+
+- **Validate a `.comp` against the driver, not against `glslc`.** The cheap
+  version is to run whatever test drives the pass and read the log line
+  `Compute shader compilation failed (<name>)` — the driver's infolog is in it.
+  `glslc` is still worth running first (it catches ordinary syntax errors in
+  seconds), but a clean `glslc` is not a green light.
+- **Avoid GLSL reserved words as identifiers even when a validator accepts them.**
+  `packed` is the one that bit; the reserved list is long and the two front-ends
+  disagree about it. Shadowing a built-in *function* (`step`, `distance`) is fine
+  — existing shaders do it — so the hazard is specifically the reserved-keyword
+  list, not the built-in namespace.
+
+**And when it fails, it does not fail fast.** `OLO_CORE_ASSERT` calls
+`ShowAssertMessageBox` → `MessageBoxA`, unconditionally, with no headless
+suppression. In a test binary that is an infinite hang, not an error: the process
+sits in `NtUserWaitMessage` burning no CPU, which reads as "slow shader
+compilation" for as long as you are willing to believe it. The tell is CPU time
+flat while wall-clock climbs. Confirm with `cdb -p <pid> -c "~0 kn 24; qd"` —
+`USER32!MessageBoxA` will be four frames below your code.
+
+---
+
 ## 7. Indirect compute dispatch did not exist in the RHI before this
 
 `RendererAPI::DispatchComputeIndirect` is new (GL `glDispatchComputeIndirect`,

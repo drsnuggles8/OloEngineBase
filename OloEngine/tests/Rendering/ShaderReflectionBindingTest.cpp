@@ -56,7 +56,20 @@ namespace OloEngine::Tests
         /// still has to be re-pointed by hand: deriving "the maximum" would
         /// need the constants enumerated somewhere, and the reason this test
         /// exists is that they are not.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_REFLECTION_PROBE_GRID;
+        ///
+        /// It points at the highest slot reachable on THIS compile route, not
+        /// at the numerically highest SSBO_* constant. `SSBO_VERTEX_PULL` (57)
+        /// and `SSBO_BONE_PULL` (63) are both higher and both predate this
+        /// value, because they are declared only inside an `OLO_VULKAN` branch
+        /// and this test compiles without that define — so they never reach
+        /// reflection here. Keeping the bound at what the default route can
+        /// actually produce is what makes an undeclared slot still fail.
+        ///
+        /// #714 moved it from `SSBO_REFLECTION_PROBE_GRID` (53) to the top of
+        /// the terrain GPU-LOD block: those eight slots (54-56, 58-62) are
+        /// declared unconditionally, in the four Terrain*.comp kernels and in
+        /// the terrain vertex stages' visible-node buffer.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_TERRAIN_DRAW_ARGS;
 
         struct BindingFailure
         {

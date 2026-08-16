@@ -57,10 +57,10 @@ void main()
     if (index >= b_TerrainState.VisibleCount)
         return;
 
-    uint packed = b_VisibleNodes[index].x;
-    uint level = oloTerrainNodeLevel(packed);
-    uint nx = oloTerrainNodeX(packed);
-    uint ny = oloTerrainNodeY(packed);
+    uint packedNode = b_VisibleNodes[index].x;
+    uint level = oloTerrainNodeLevel(packedNode);
+    uint nx = oloTerrainNodeX(packedNode);
+    uint ny = oloTerrainNodeY(packedNode);
 
     uint maxDepth = u_TerrainLevelParams.x;
     uint resolution = u_TerrainBufferParams.y;

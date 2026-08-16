@@ -60,11 +60,11 @@ void oloTerrainApplyGpuDrivenNode(inout vec3 position, inout vec2 texCoord, inou
         return;
 
     uvec2 node = b_TerrainVisibleNodes[gl_InstanceIndex];
-    uint packed = node.x;
+    uint packedNode = node.x;
     uint seams = node.y;
-    uint level = oloTerrainNodeLevel(packed);
-    uint nodeX = oloTerrainNodeX(packed);
-    uint nodeY = oloTerrainNodeY(packed);
+    uint level = oloTerrainNodeLevel(packedNode);
+    uint nodeX = oloTerrainNodeX(packedNode);
+    uint nodeY = oloTerrainNodeY(packedNode);
 
     int gridRes = u_TerrainGpuGridRes;
     // The patch VBO stores its unit grid coordinate in Position.xz, so rounding

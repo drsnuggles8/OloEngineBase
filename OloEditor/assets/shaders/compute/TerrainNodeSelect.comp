@@ -65,10 +65,10 @@ void main()
     if (idx >= b_TerrainState.PendingCount)
         return;
 
-    uint packed = b_NodesIn[idx];
-    uint level = oloTerrainNodeLevel(packed);
-    uint nx = oloTerrainNodeX(packed);
-    uint ny = oloTerrainNodeY(packed);
+    uint packedNode = b_NodesIn[idx];
+    uint level = oloTerrainNodeLevel(packedNode);
+    uint nx = oloTerrainNodeX(packedNode);
+    uint ny = oloTerrainNodeY(packedNode);
 
     // Terrain-local AABB. XZ from the node's share of the terrain footprint,
     // Y from the precomputed pyramid — the same two extremes the CPU builder
@@ -109,8 +109,8 @@ void main()
         // to the node centre.
         float geometricError = max(maxX - minX, maxZ - minZ);
         vec3 nodeCenter = (boundsMin + boundsMax) * 0.5;
-        float distance = max(length(u_TerrainCameraAndProjScale.xyz - nodeCenter), 0.001);
-        float screenError = (geometricError * u_TerrainCameraAndProjScale.w) / distance;
+        float distanceToNode = max(length(u_TerrainCameraAndProjScale.xyz - nodeCenter), 0.001);
+        float screenError = (geometricError * u_TerrainCameraAndProjScale.w) / distanceToNode;
 
         if (screenError >= u_TerrainSizeAndTarget.z)
         {
@@ -140,7 +140,7 @@ void main()
     // Selected for rendering at this level.
     uint outIdx = atomicAdd(b_TerrainState.VisibleCount, 1u);
     if (outIdx < u_TerrainLevelParams.y)
-        b_VisibleNodes[outIdx] = uvec2(packed, 0u);
+        b_VisibleNodes[outIdx] = uvec2(packedNode, 0u);
     else
         atomicOr(b_TerrainState.OverflowFlags, OLO_TERRAIN_OVERFLOW_VISIBLE);
 }

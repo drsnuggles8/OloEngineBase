@@ -26,19 +26,19 @@ uint oloTerrainPackNode(uint level, uint nx, uint ny)
     return (level << 28u) | ((ny & OLO_TERRAIN_COORD_MASK) << 14u) | (nx & OLO_TERRAIN_COORD_MASK);
 }
 
-uint oloTerrainNodeLevel(uint packed)
+uint oloTerrainNodeLevel(uint packedNode)
 {
-    return packed >> 28u;
+    return packedNode >> 28u;
 }
 
-uint oloTerrainNodeX(uint packed)
+uint oloTerrainNodeX(uint packedNode)
 {
-    return packed & OLO_TERRAIN_COORD_MASK;
+    return packedNode & OLO_TERRAIN_COORD_MASK;
 }
 
-uint oloTerrainNodeY(uint packed)
+uint oloTerrainNodeY(uint packedNode)
 {
-    return (packed >> 14u) & OLO_TERRAIN_COORD_MASK;
+    return (packedNode >> 14u) & OLO_TERRAIN_COORD_MASK;
 }
 
 // ---- Level-major node index --------------------------------------------------

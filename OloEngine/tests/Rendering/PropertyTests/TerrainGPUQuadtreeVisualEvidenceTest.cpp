@@ -57,10 +57,27 @@ namespace OloEngine::Tests
         constexpr u32 kWidth = 960;
         constexpr u32 kHeight = 540;
 
-        // The evidence fixtures clear to mid-grey (~86/255), not black, so
-        // "background" is a band around that value rather than a darkness test.
-        constexpr f32 kBackgroundLuma = 86.0f;
-        constexpr f32 kBackgroundTolerance = 6.0f;
+        // What "no terrain here" looks like in THIS fixture, measured rather
+        // than assumed: the editor's infinite grid, an untextured unlit grey
+        // spanning luma ~123-165 (the darker values are its lines).
+        //
+        // The discriminator that matters is not the luma band but **exact
+        // neutrality**: the grid is untextured, so its channels come out bit
+        // identical, while terrain is lit through a coloured splat material and
+        // essentially never lands on r == g == b. Measured over the centre crop
+        // of the two top-down captures:
+        //
+        //   r==g==b  AND luma in [118,170] -> CPU path 80.1%, GPU path 0.000%
+        //   |r-g|<=1 AND luma in [118,170] -> CPU path 81.5%, GPU path 10.5%
+        //
+        // The tolerant form counts grey rock as background and is useless; the
+        // exact form separates them completely. An earlier version of this file
+        // used a +-6 band around luma 86 taken from a different evidence test's
+        // clear colour — it matched almost nothing here, so the coverage check
+        // passed while measuring nothing at all. The anti-vacuous assertion in
+        // the A/B test below exists to catch exactly that.
+        constexpr f32 kBackgroundLumaMin = 118.0f;
+        constexpr f32 kBackgroundLumaMax = 170.0f;
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
@@ -92,12 +109,9 @@ namespace OloEngine::Tests
                 {
                     const sizet i = (static_cast<sizet>(y) * kWidth + x) * 4;
                     const f32 luma = Luma(px[i], px[i + 1], px[i + 2]);
-                    // Grey means all three channels agree; a shaded rock face
-                    // can hit the same luma but is never neutral to within a
-                    // code value.
-                    const bool neutral = std::abs(static_cast<f32>(px[i]) - static_cast<f32>(px[i + 1])) < 2.0f &&
-                                         std::abs(static_cast<f32>(px[i + 1]) - static_cast<f32>(px[i + 2])) < 2.0f;
-                    if (neutral && std::abs(luma - kBackgroundLuma) < kBackgroundTolerance)
+                    // EXACT equality, not a tolerance — see the constants above.
+                    const bool neutral = px[i] == px[i + 1] && px[i + 1] == px[i + 2];
+                    if (neutral && luma >= kBackgroundLumaMin && luma <= kBackgroundLumaMax)
                         ++background;
                     ++total;
                 }
@@ -112,7 +126,9 @@ namespace OloEngine::Tests
             sizet lit = 0, total = 0;
             for (sizet i = 0; i + 3 < px.size(); i += 4)
             {
-                if (Luma(px[i], px[i + 1], px[i + 2]) > kBackgroundLuma + kBackgroundTolerance)
+                const bool neutral = px[i] == px[i + 1] && px[i + 1] == px[i + 2];
+                const f32 luma = Luma(px[i], px[i + 1], px[i + 2]);
+                if (!(neutral && luma >= kBackgroundLumaMin && luma <= kBackgroundLumaMax))
                     ++lit;
                 ++total;
             }
