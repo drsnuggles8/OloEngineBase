@@ -133,12 +133,21 @@ namespace OloEngine::RenderGraphTransientPlanner
                        desc.Format != RGResourceFormat::Unknown &&
                        RenderGraph::ToImageFormat(desc.Format) != ImageFormat::None;
             case RGResourceHandle::Kind::Framebuffer:
-                // MRT: at least one valid attachment required; dims must be set.
+                // MRT: EVERY declared attachment must be representable, and the
+                // dims must be set. `any_of` was the old rule and it is what let
+                // issue #772 hide: the materializer skips an unrepresentable
+                // attachment instead of failing, so the survivors RE-INDEX and
+                // every CreateFramebufferAttachmentView past the hole silently
+                // binds the wrong render target (UpscaledDepthVelocity's RT1
+                // velocity view resolved to RT0's storage, and RT0 — the depth
+                // channel the whole pass exists for — had no attachment at all).
+                // Refusing to allocate makes the pass fail to resolve loudly
+                // instead.
                 if (!desc.Attachments.empty())
                 {
                     return desc.Width > 0 &&
                            desc.Height > 0 &&
-                           std::ranges::any_of(desc.Attachments,
+                           std::ranges::all_of(desc.Attachments,
                                                [](const RGResourceFormat fmt)
                                                {
                                                    return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
@@ -184,12 +193,16 @@ namespace OloEngine::RenderGraphTransientPlanner
                 // MRT path: a non-empty Attachments list replaces Format.
                 if (!desc.Attachments.empty())
                 {
-                    const bool anyValid = std::ranges::any_of(desc.Attachments,
+                    // Mirrors IsAllocatable: ALL attachments must be
+                    // representable, so one unsupported entry names the reason
+                    // (issue #772 — a partially-representable MRT used to be
+                    // allocated with the survivors silently re-indexed).
+                    const bool allValid = std::ranges::all_of(desc.Attachments,
                                                               [](const RGResourceFormat fmt)
                                                               {
                                                                   return RenderGraph::ToFramebufferFormat(fmt) != FramebufferTextureFormat::None;
                                                               });
-                    if (!anyValid)
+                    if (!allValid)
                         return "unsupported-framebuffer-format";
                     return "descriptor-incomplete";
                 }

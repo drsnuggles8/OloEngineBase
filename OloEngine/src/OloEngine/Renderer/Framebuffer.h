@@ -21,6 +21,11 @@ namespace OloEngine
         RGB32F,
         RG16F,
         RG32F,
+        // Single-channel 32-bit float. The FSR1 depth/velocity upscale target
+        // (UpscaledDepthVelocity RT0) is declared R32Float by the render graph;
+        // without this member ToFramebufferFormat answered None and the pooled
+        // framebuffer silently came back one attachment short (issue #772).
+        R32F,
         RED_INTEGER,
 
         // Depth/stencil formats

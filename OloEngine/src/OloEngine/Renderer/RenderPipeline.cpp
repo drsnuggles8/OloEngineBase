@@ -509,9 +509,20 @@ namespace OloEngine
             data.PendingFluidDraws.clear();
         }
 
+        // The AO PRODUCERS must be handed the same technique the consumers are
+        // gated on (issue #771). SSAORenderPass / GTAORenderPass both bail out of
+        // Setup and Execute when `m_Settings.ActiveAOTechnique` is not theirs, so
+        // feeding them the REQUESTED technique while the AOBuffer declaration and
+        // AOApplyPass key off the GRAPH's technique re-opens the same hole in the
+        // mirror direction: graph wired for GTAO, request flipped to SSAO without
+        // ApplyRendererSettings(), AOBuffer declared and AOApply enabled, and the
+        // registered GTAOPass declining to run. One source of truth for both ends.
+        PostProcessSettings aoProducerSettings = data.PostProcess;
+        aoProducerSettings.ActiveAOTechnique = data.ActiveGraphAOTechnique;
+
         if (SceneCompositePasses.SSAO)
         {
-            SceneCompositePasses.SSAO->SetSettings(data.PostProcess);
+            SceneCompositePasses.SSAO->SetSettings(aoProducerSettings);
             // SSAOPass resolves its setup-selected depth/normal handles at
             // execution time; only technique settings and UBO contents vary here.
 
@@ -527,7 +538,7 @@ namespace OloEngine
         }
         if (SceneCompositePasses.GTAO)
         {
-            SceneCompositePasses.GTAO->SetSettings(data.PostProcess);
+            SceneCompositePasses.GTAO->SetSettings(aoProducerSettings);
             SceneCompositePasses.GTAO->SetProjectionMatrix(data.ProjectionMatrix);
             SceneCompositePasses.GTAO->SetViewMatrix(data.ViewMatrix);
             // GTAOPass likewise keeps its canonical graph handles in setup-owned
@@ -536,7 +547,9 @@ namespace OloEngine
             // When GTAO is active, override the SSAO UBO debug/intensity fields
             // so the PostProcess_SSAOApply shader reads correct values for GTAO,
             // and upload the UBO since SSAORenderPass::Execute() is skipped.
-            if (data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled)
+            //
+            // Keyed on the GRAPH's technique, like the enable gate below (#771).
+            if (data.ActiveGraphAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled)
             {
                 data.PostProcessGPU.SSAOData.DebugView = data.PostProcess.GTAODebugView ? 1 : 0;
                 // GTAO power is baked in compute; intensity=1 for the apply pass
@@ -552,8 +565,22 @@ namespace OloEngine
         // Wire AOApplyPass before the dynamic post chain.
         if (PostProcessPasses.AOApply)
         {
-            const bool ssaoEnabled = data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO && data.PostProcess.SSAOEnabled;
-            const bool gtaoEnabled = data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled;
+            // GRAPH technique, not the pending setting (issue #771). Which AO
+            // pass is REGISTERED is decided once, at topology-build time, by
+            // RegisterSceneAndLightingNodes' switch on ActiveAOTechnique — so
+            // `PostProcess.ActiveAOTechnique` describes what the caller WANTS
+            // and `ActiveGraphAOTechnique` describes what the graph can
+            // actually produce. Keying the consumer off the former let the two
+            // disagree for as long as nobody called ApplyRendererSettings():
+            // AOApplyPass ran, sampled an AOBuffer with no producer in the
+            // graph, and multiplied the whole frame by it. On a freshly
+            // allocated (zeroed) transient that is `sceneColor * 0` — an
+            // EXACTLY black frame; on a recycled one it is merely very dark,
+            // which is why it presented as an order-dependent flake. Keying
+            // both the consumer and the AOBuffer declaration off the graph
+            // makes an unapplied technique change degrade to "no AO" instead.
+            const bool ssaoEnabled = data.ActiveGraphAOTechnique == AOTechnique::SSAO && data.PostProcess.SSAOEnabled;
+            const bool gtaoEnabled = data.ActiveGraphAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled;
             const bool aoApplyEnabled = (ssaoEnabled || gtaoEnabled) && PostProcessPasses.AOApply->IsReadyForExecution();
             PostProcessPasses.AOApply->SetEnabled(aoApplyEnabled);
             // AO texture selection is setup-owned too; the per-frame hook only
@@ -2087,13 +2114,19 @@ namespace OloEngine
         // AO buffer
         // ------------------------------------------------------------------
         {
+            // ActiveGraphAOTechnique, not PostProcess.ActiveAOTechnique: only
+            // the technique the graph was BUILT for has its pass registered and
+            // therefore able to write AOBuffer (issue #771 — see the AOApply
+            // enable gate in the per-frame hook for the full reasoning).
+            // Declaring the buffer for a producer that is not in the graph is
+            // what let AOApplyPass sample never-written storage.
             const bool ssaoReady = pipeline.SceneCompositePasses.SSAO &&
                                    data.PostProcess.SSAOEnabled &&
-                                   data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO &&
+                                   data.ActiveGraphAOTechnique == AOTechnique::SSAO &&
                                    pipeline.SceneCompositePasses.SSAO->IsReadyForExecution();
             const bool gtaoReady = pipeline.SceneCompositePasses.GTAO &&
                                    data.PostProcess.GTAOEnabled &&
-                                   data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO &&
+                                   data.ActiveGraphAOTechnique == AOTechnique::GTAO &&
                                    pipeline.SceneCompositePasses.GTAO->IsReadyForExecution();
 
             if (ssaoReady)
@@ -2145,9 +2178,16 @@ namespace OloEngine
             static bool s_PrevSSAOReady = false;
             static bool s_PrevGTAOReady = false;
             static bool s_PrevAOHandleValid = false;
-            const i32 activeTechnique = std::to_underlying(data.PostProcess.ActiveAOTechnique);
+            static i32 s_PrevRequestedTechnique = -1;
+            // The GRAPH's technique is the one that decides whether an AO
+            // pass exists to write AOBuffer; the requested one is logged beside
+            // it because a disagreement between the two is exactly the state
+            // issue #771 turned into a black frame.
+            const i32 activeTechnique = std::to_underlying(data.ActiveGraphAOTechnique);
+            const i32 requestedTechnique = std::to_underlying(data.PostProcess.ActiveAOTechnique);
             const bool aoHandleValid = board.AO.AOBuffer.IsValid();
             if (activeTechnique != s_PrevAOTechnique ||
+                requestedTechnique != s_PrevRequestedTechnique ||
                 data.PostProcess.SSAOEnabled != s_PrevSSAOEnabled ||
                 data.PostProcess.GTAOEnabled != s_PrevGTAOEnabled ||
                 ssaoReady != s_PrevSSAOReady ||
@@ -2156,8 +2196,9 @@ namespace OloEngine
             {
                 if (IsRenderGraphDiagnosticsEnabled())
                 {
-                    OLO_CORE_TRACE("Renderer3D: AO output state: technique={}, ssaoEnabled={}, gtaoEnabled={}, ssaoReady={}, gtaoReady={}, aoHandleValid={}",
+                    OLO_CORE_TRACE("Renderer3D: AO output state: graphTechnique={}, requestedTechnique={}, ssaoEnabled={}, gtaoEnabled={}, ssaoReady={}, gtaoReady={}, aoHandleValid={}",
                                    activeTechnique,
+                                   requestedTechnique,
                                    data.PostProcess.SSAOEnabled,
                                    data.PostProcess.GTAOEnabled,
                                    ssaoReady,
@@ -2165,6 +2206,7 @@ namespace OloEngine
                                    aoHandleValid);
                 }
                 s_PrevAOTechnique = activeTechnique;
+                s_PrevRequestedTechnique = requestedTechnique;
                 s_PrevSSAOEnabled = data.PostProcess.SSAOEnabled;
                 s_PrevGTAOEnabled = data.PostProcess.GTAOEnabled;
                 s_PrevSSAOReady = ssaoReady;
@@ -2386,7 +2428,7 @@ namespace OloEngine
         // Graph-owned scratch resources
         // ------------------------------------------------------------------
         if (pipeline.SceneCompositePasses.SSAO &&
-            data.PostProcess.ActiveAOTechnique == AOTechnique::SSAO &&
+            data.ActiveGraphAOTechnique == AOTechnique::SSAO &&
             data.PostProcess.SSAOEnabled &&
             board.AO.AOBuffer.IsValid())
         {
@@ -2414,7 +2456,7 @@ namespace OloEngine
         }
 
         if (pipeline.SceneCompositePasses.GTAO &&
-            data.PostProcess.ActiveAOTechnique == AOTechnique::GTAO &&
+            data.ActiveGraphAOTechnique == AOTechnique::GTAO &&
             data.PostProcess.GTAOEnabled &&
             board.AO.AOBuffer.IsValid() &&
             board.Scene.SceneDepth.IsValid() &&

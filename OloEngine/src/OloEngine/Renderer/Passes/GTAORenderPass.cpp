@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/Passes/AOTargetIdentity.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -252,23 +253,13 @@ namespace OloEngine
             return;
         }
 
-        // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
-        // up directly from the render graph blackboard so no per-frame
-        // side-channel setter calls are needed from EndScene().
-        RHI::ResourceHandle depthID{};
-        RHI::ResourceHandle normalsID{};
-        if (m_SelectedSceneDepthTexture.IsValid())
-            depthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
-        if (m_SelectedSceneNormalsTexture.IsValid())
-            normalsID = context.ResolveTextureHandle(m_SelectedSceneNormalsTexture);
-        if (!depthID.IsValid() || !normalsID.IsValid())
-        {
-            return;
-        }
-
         // Phase D / H follow-up: resolve the GTAO edge scratch texture from
         // the transient pool only. The execute path no longer falls back to
         // an owned edge texture.
+        //
+        // Resolved BEFORE the depth/normals guard below, deliberately: that
+        // guard is one of the early returns that has to leave the AO target in
+        // the "no occlusion" state, so it needs the handle in hand (#771).
         RHI::ResourceHandle edgeTexID{};
         RHI::ResourceHandle aoOutputTexID{};
         RHI::ResourceHandle denoisePingTexID{};
@@ -284,10 +275,36 @@ namespace OloEngine
         if (willDispatchDenoise && m_SelectedDenoisePongTexture.IsValid())
             denoisePongTexID = context.ResolveTextureHandle(m_SelectedDenoisePongTexture);
 
+        // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
+        // up directly from the render graph blackboard so no per-frame
+        // side-channel setter calls are needed from EndScene().
+        RHI::ResourceHandle depthID{};
+        RHI::ResourceHandle normalsID{};
+        if (m_SelectedSceneDepthTexture.IsValid())
+            depthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
+        if (m_SelectedSceneNormalsTexture.IsValid())
+            normalsID = context.ResolveTextureHandle(m_SelectedSceneNormalsTexture);
+        if (!depthID.IsValid() || !normalsID.IsValid())
+        {
+            PublishNoOcclusion(aoOutputTexID, "scene depth/normals did not resolve");
+            return;
+        }
+
+        // From here on the AO target is RESOLVED, which means AOApplyPass will
+        // sample it this frame whether or not we manage to produce anything.
+        // Every remaining early return therefore has to leave it holding the
+        // "no occlusion" identity (1.0) instead of whatever the transient pool
+        // handed us — see PublishNoOcclusion (issue #771).
         if (!edgeTexID.IsValid() || !aoOutputTexID.IsValid() || !denoisePingTexID.IsValid())
+        {
+            PublishNoOcclusion(aoOutputTexID, "edge/AO/denoise-ping scratch did not resolve");
             return;
+        }
         if (willDispatchDenoise && !denoisePongTexID.IsValid())
+        {
+            PublishNoOcclusion(aoOutputTexID, "denoise-pong scratch did not resolve");
             return;
+        }
 
         // Phase D / H follow-up: resolve transient HZB scratch from the render
         // graph and require it to exist for execution.
@@ -297,9 +314,34 @@ namespace OloEngine
         if (!transientHZBID.IsValid())
         {
             m_HZBGenerator.ClearExternalHZBTexture();
+            PublishNoOcclusion(aoOutputTexID, "HZB scratch did not resolve");
             return;
         }
         m_HZBGenerator.SetExternalHZBTexture(transientHZBID, m_HZBGenerator.GetMipCount());
+
+        // The structural event (issue #771). A render-band change — the FSR1
+        // `Upscale` toggle is the one that bites — resizes every GTAO scratch
+        // target, and RenderPipeline::PopulateBlackboard evicts the transient
+        // pool on the same edge (#563), so this frame's AO chain lands on
+        // FRESHLY ALLOCATED storage. Fresh VRAM is not specified, and when the
+        // driver hands back zeroes the AO target reads as AO = 0 — *maximum*
+        // occlusion — which PostProcess_SSAOApply multiplies straight through
+        // to an exactly-black frame. Recycled (dirty, non-zero) pages hid it,
+        // which is why the failure tracked allocation history rather than any
+        // code path. Seed the identity before the dispatch so the band-change
+        // frame can never present uninitialised storage as full occlusion.
+        // Only the AO TARGET is seeded here, not the ping/pong/edge scratch:
+        // GTAO.comp and GTAO_Denoise.comp both bounds-check against
+        // u_ScreenWidth/Height and write every texel inside it, and the denoise
+        // reads nothing outside that region — so the scratch chain has no
+        // read-before-write to protect. The AO target does: the final
+        // CopyImageSubData covers only m_Width x m_Height of it.
+        if (m_Width != m_LastExecutedWidth || m_Height != m_LastExecutedHeight)
+        {
+            PublishNoOcclusion(aoOutputTexID, nullptr);
+            m_LastExecutedWidth = m_Width;
+            m_LastExecutedHeight = m_Height;
+        }
 
         // (The previous "log on input change" diagnostic was dropped: the AO
         // output is double-buffered, so the texture ID flips every frame and
@@ -334,6 +376,34 @@ namespace OloEngine
             RenderCommand::CopyImageSubData(finalAOTextureID, RendererAPI::TextureTargetType::Texture2D,
                                             aoOutputTexID, RendererAPI::TextureTargetType::Texture2D,
                                             m_Width, m_Height);
+        }
+    }
+
+    void GTAORenderPass::PublishNoOcclusion(RHI::ResourceHandle aoOutputTexture, const char* skipReason)
+    {
+        if (!aoOutputTexture.IsValid())
+            return;
+
+        // 1.0 == fully visible. AOApplyPass computes `sceneColor * mix(1, ao,
+        // intensity)`, so this is the only value that makes "GTAO produced
+        // nothing this frame" a no-op rather than a black frame. GTAO.comp
+        // itself never emits below 0.03 (its visibility clamp), so an AO texel
+        // of exactly 0 reaching the apply pass always means unwritten storage.
+        PublishAOTargetAsFullyVisible(aoOutputTexture);
+
+        // Every skip that reaches here used to be a bare `return;`, which is
+        // what let issue #771 read as an order-dependent flake for weeks.
+        // Rate-limited: a persistent resolve failure would otherwise log once
+        // per frame.
+        if (skipReason != nullptr)
+        {
+            if (static u32 s_SkipWarnings = 0; s_SkipWarnings++ < 10)
+            {
+                OLO_CORE_WARN("GTAORenderPass: skipped this frame ({}); AO target published as "
+                              "fully visible so the apply pass does not multiply the scene by "
+                              "uninitialised storage.",
+                              skipReason);
+            }
         }
     }
 

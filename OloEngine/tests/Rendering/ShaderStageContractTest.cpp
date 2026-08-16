@@ -36,6 +36,8 @@
 
 #include "ShaderHarness.h"
 
+#include <algorithm>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -52,6 +54,38 @@ namespace OloEngine::Tests
             std::string ShaderPath;
             std::string Detail;
         };
+
+        // The working directory at PROCESS START — some other test in this
+        // binary chdir()s, so a relative path resolved inside a test body can
+        // miss the file (see RendererShutdownTest for the same note).
+        const fs::path s_StartCwd = fs::current_path();
+
+        /// Walk up from the start cwd until `relative` resolves, so the test
+        /// works from the repo root or from inside a build directory.
+        [[nodiscard]] fs::path ResolveRepoFile(const char* relative)
+        {
+            std::error_code ec;
+            for (fs::path dir = s_StartCwd; !dir.empty(); dir = dir.parent_path())
+            {
+                if (fs::path candidate = dir / relative; fs::exists(candidate, ec))
+                    return candidate;
+                if (!dir.has_relative_path())
+                    break;
+            }
+            return s_StartCwd / relative; // report the path we looked for
+        }
+
+        [[nodiscard]] std::string StripWhitespace(std::string_view text)
+        {
+            std::string out;
+            out.reserve(text.size());
+            for (const char c : text)
+            {
+                if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+                    out += c;
+            }
+            return out;
+        }
     } // namespace
 
     TEST(ShaderStageContract, EveryFragmentShaderDeclaresAtLeastOneOutput)
@@ -195,6 +229,93 @@ namespace OloEngine::Tests
                 oss << "----\n"
                     << f.ShaderPath << "\n    " << f.Detail << "\n";
             FAIL() << oss.str();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // DecalGBufferOutputLocationsMatchTheirDrawAttachmentMaps (issue #770)
+    //
+    // DecalRenderPass::ExecuteOnGBuffer switches a per-mode draw-attachment map
+    // before dispatching each decal packet, and that map routes fragment output
+    // LOCATION n to the G-Buffer attachment named at slot n. So the rule across
+    // all four G-Buffer decal shaders is: **a fragment output's location must
+    // equal the G-Buffer RT index the mode writes**.
+    //
+    // Decal_GBuffer_Normal.glsl broke it — it declared `layout(location = 0)`
+    // against the map {NoAttachment, 1, NoAttachment, NoAttachment,
+    // NoAttachment}, so location 0 landed on GL_NONE / VK_ATTACHMENT_UNUSED and
+    // attachment 1 was fed from a location the shader never wrote. The decal
+    // drew, passed depth, and wrote nothing — on BOTH backends, with no error
+    // (GL discards the write silently; Vulkan's validation layer only warns).
+    //
+    // Both mirrors are checked here so a one-sided edit can't pass: the shader
+    // locations come from SPIR-V reflection, and the C++ maps are matched as
+    // whitespace-stripped source text (clang-format-proof; a rename fails
+    // loudly, which is the intent).
+    // -------------------------------------------------------------------------
+    TEST(ShaderStageContract, DecalGBufferOutputLocationsMatchTheirDrawAttachmentMaps)
+    {
+        struct DecalMode
+        {
+            const char* Shader;
+            std::set<u32> ExpectedLocations;
+            // The map literal in DecalRenderPass.cpp, whitespace-stripped.
+            const char* MapSource;
+            const char* Why;
+        };
+
+        // kNone is RHI::NoAttachment — "this draw slot writes nowhere".
+        const DecalMode kModes[] = {
+            { "Decal_GBuffer.glsl", { 0u }, "drawAlbedoOnly={0,kNone,kNone,kNone,kNone}", "Albedo writes RT0 only" },
+            { "Decal_GBuffer_Normal.glsl", { 1u }, "drawNormalOnly={kNone,1,kNone,kNone,kNone}", "Normal writes RT1 only" },
+            { "Decal_GBuffer_RMA.glsl", { 0u, 1u }, "drawAlbedoAndNormal={0,1,kNone,kNone,kNone}", "RMA writes RT0.a and RT1.zw" },
+            { "Decal_GBuffer_Emissive.glsl", { 2u }, "drawEmissiveOnly={kNone,kNone,2,kNone,kNone}", "Emissive writes RT2 only" },
+        };
+
+        const fs::path passSource = ResolveRepoFile("OloEngine/src/OloEngine/Renderer/Passes/DecalRenderPass.cpp");
+        ASSERT_TRUE(fs::exists(passSource)) << "could not locate DecalRenderPass.cpp from cwd " << s_StartCwd.string();
+        const std::string passText = StripWhitespace(SH::ReadWholeFile(passSource));
+        ASSERT_FALSE(passText.empty());
+
+        const fs::path root = SH::ResolveShaderRoot();
+        ASSERT_FALSE(root.empty());
+
+        shaderc::Compiler compiler;
+        ASSERT_TRUE(compiler.IsValid());
+
+        for (const auto& mode : kModes)
+        {
+            SCOPED_TRACE(mode.Shader);
+
+            EXPECT_NE(passText.find(mode.MapSource), std::string::npos)
+                << "DecalRenderPass.cpp no longer contains the draw-attachment map '" << mode.MapSource
+                << "' this contract is written against (" << mode.Why
+                << "). If the map genuinely changed, update BOTH it and the shader's output location.";
+
+            const fs::path path = root / mode.Shader;
+            ASSERT_TRUE(fs::exists(path)) << path.generic_string();
+
+            std::set<u32> locations;
+            bool sawFragmentStage = false;
+            for (const auto& [kind, stageSource] : SH::SplitByType(SH::ReadWholeFile(path)))
+            {
+                if (kind != shaderc_glsl_fragment_shader)
+                    continue;
+                sawFragmentStage = true;
+
+                auto result = SH::CompileStageToSpv(path, stageSource, kind, root, compiler);
+                ASSERT_EQ(result.GetCompilationStatus(), shaderc_compilation_status_success)
+                    << result.GetErrorMessage();
+
+                spirv_cross::Compiler refl(std::vector<u32>(result.cbegin(), result.cend()));
+                for (const auto& out : refl.get_shader_resources().stage_outputs)
+                    locations.insert(refl.get_decoration(out.id, spv::DecorationLocation));
+            }
+            EXPECT_TRUE(sawFragmentStage);
+
+            EXPECT_EQ(locations, mode.ExpectedLocations)
+                << mode.Why << " — every fragment output location must equal the G-Buffer RT index the "
+                << "mode's draw-attachment map assigns it, or the write lands on no attachment (#770).";
         }
     }
 } // namespace OloEngine::Tests

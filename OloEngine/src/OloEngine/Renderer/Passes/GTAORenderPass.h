@@ -89,6 +89,12 @@ namespace OloEngine
 
       private:
         void GenerateHilbertLUT();
+        // Clear the AO target to "fully visible" (1.0). The identity for a
+        // frame GTAO could not produce; a zero-initialised transient reads as
+        // FULL occlusion and multiplies the scene to black (issue #771).
+        // `skipReason` non-null also emits a rate-limited warning naming the
+        // early return that fired; pass nullptr for the routine seeding case.
+        static void PublishNoOcclusion(RHI::ResourceHandle aoOutputTexture, const char* skipReason);
         void UploadGTAOUniforms();
         void DispatchGTAO(RHI::ResourceHandle aoOutputTexture, RHI::ResourceHandle normalsTexture,
                           RHI::ResourceHandle edgeTexture);
@@ -126,5 +132,14 @@ namespace OloEngine
 
         u32 m_Width = 0;
         u32 m_Height = 0;
+        // Band size the last completed Execute ran at. A mismatch against
+        // m_Width/m_Height is the structural event (issue #771): the scratch
+        // targets were resized and the transient pool evicted, so this frame's
+        // AO chain is on freshly allocated — and therefore unspecified —
+        // storage. Deliberately NOT reset by OnReset(): that hook has no call
+        // sites (see docs/agent-rules/render-pipeline-caches.md), and a stale
+        // value here only costs one extra clear.
+        u32 m_LastExecutedWidth = 0;
+        u32 m_LastExecutedHeight = 0;
     };
 } // namespace OloEngine
