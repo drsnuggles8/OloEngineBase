@@ -74,12 +74,23 @@ runs:
           echo "autotools + vcpkg bootstrap prerequisites already provisioned; nothing to install"
           exit 0
         fi
-        if command -v apt-get >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        # Gate the install on runner.environment, not merely on "apt-get exists
+        # and sudo works". Those two are a PROXY for github-hosted, and the proxy
+        # is wrong for a self-hosted Debian/Ubuntu host with passwordless sudo --
+        # a common setup -- which would silently take the install path and mutate
+        # a machine that is provisioned system-wide, ahead of time. It only held
+        # here because the one self-hosted runner is Rocky (no apt-get). Assert
+        # the actual condition; keep the apt-get/sudo checks as a fallback so a
+        # hosted image that ever lacks them lands on the message, not on a
+        # sudo error.
+        if [ "${{ runner.environment }}" = "github-hosted" ] \
+           && command -v apt-get >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             autoconf autoconf-archive automake libtool pkg-config curl zip unzip tar
         else
-          echo "::error::build prerequisites missing (${missing[*]}) and this runner has no apt-get with passwordless sudo."
+          echo "::error::build prerequisites missing (${missing[*]}) on a ${{ runner.environment }} runner."
+          echo "::error::Self-hosted runners are provisioned system-wide, ahead of time -- this step verifies, never installs."
           echo "::error::Provision the runner system-wide: sudo dnf install -y autoconf autoconf-archive automake libtool pkgconf-pkg-config curl zip unzip tar"
           echo "::error::See docs/ops/self-hosted-gpu-runner.md (Host provisioning)."
           exit 1
