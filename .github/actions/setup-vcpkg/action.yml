@@ -39,13 +39,28 @@ runs:
     # — a workflow step must verify, not install. GitHub-hosted Ubuntu images keep
     # the install path: passwordless sudo + apt-get are guaranteed there, and
     # autoconf-archive genuinely is missing from the stock image.
-    - name: Install autotools (Linux)
+    #
+    # curl/zip/unzip/tar are vcpkg's OWN bootstrap prerequisites (scripts/
+    # bootstrap.sh checks for them before it will build vcpkg-tool), not port
+    # dependencies -- but they belong in the same check for the same reason:
+    # every GitHub-hosted image ships them, so a self-hosted host is the only
+    # place their absence shows up. Rocky 10 turned out to have neither `zip`
+    # nor `unzip`, and because bootstrap.sh reports only the FIRST missing one,
+    # installing just the name it printed would have failed again on the next.
+    # Hence: check them as a SET here, so one provisioning message names
+    # everything at once instead of costing a round trip per package.
+    #
+    # Checking them here also stops the bootstrap retry loop below from burning
+    # three attempts (45s) on a deterministic failure -- that retry exists for
+    # transient network drops during the tool download, and it printed vcpkg's
+    # 20-line "Could not find zip" help text three times before failing.
+    - name: Verify build prerequisites (Linux)
       if: runner.os == 'Linux'
       shell: bash
       run: |
         set -euo pipefail
         missing=()
-        for tool in autoconf autoreconf automake libtoolize pkg-config; do
+        for tool in autoconf autoreconf automake libtoolize pkg-config curl zip unzip tar; do
           command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
         done
         # autoconf-archive ships m4 macros, not a binary; probe a canonical
@@ -56,16 +71,16 @@ runs:
         done
         [ "$have_archive" = true ] || missing+=("autoconf-archive")
         if [ ${#missing[@]} -eq 0 ]; then
-          echo "autotools already provisioned; nothing to install"
+          echo "autotools + vcpkg bootstrap prerequisites already provisioned; nothing to install"
           exit 0
         fi
         if command -v apt-get >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            autoconf autoconf-archive automake libtool pkg-config
+            autoconf autoconf-archive automake libtool pkg-config curl zip unzip tar
         else
-          echo "::error::autotools missing (${missing[*]}) and this runner has no apt-get with passwordless sudo."
-          echo "::error::Provision the runner system-wide: sudo dnf install -y autoconf autoconf-archive automake libtool pkgconf-pkg-config"
+          echo "::error::build prerequisites missing (${missing[*]}) and this runner has no apt-get with passwordless sudo."
+          echo "::error::Provision the runner system-wide: sudo dnf install -y autoconf autoconf-archive automake libtool pkgconf-pkg-config curl zip unzip tar"
           echo "::error::See docs/ops/self-hosted-gpu-runner.md (Host provisioning)."
           exit 1
         fi
