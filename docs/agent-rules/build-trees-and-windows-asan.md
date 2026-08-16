@@ -320,26 +320,69 @@ yaml-cpp throwing `ParserException` on malformed input, but the input
 shape and the catch type are both irrelevant (experimentally eliminated),
 and which call paths crash is frame-layout and clang-version dependent.
 
-Mitigation pattern (see
-`OloEngine/tests/Gameplay/ExperienceCurveTest.cpp::SerializerRejectsMalformedYAML`):
-guard ONLY the throwing sub-assertion with
-`#if !(OLO_ASAN_ENABLED && defined(_WIN32))` (`OLO_ASAN_ENABLED` lives in
-`OloEngine/Memory/Platform.h`), keep every non-throwing assertion active,
-and note which still-passing test carries the Windows-ASan coverage of
-the same throw/catch plumbing. Do NOT "fix" this by changing the
-malformed input or widening the catch — both were tried and both still
-crash; input-shuffling is version roulette. Track state and the list of
-known-vulnerable tests in issue #661.
+### The guard: `OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN`
+
+**Do not hand-roll `#if !(OLO_ASAN_ENABLED && defined(_WIN32))` any more.** The
+fourth occurrence (#458, guarded in PR #802) was the point at which #661's own
+follow-up list said to centralise, so the guard now lives in
+`OloEngine/tests/WinAsanYamlThrow.h`, which owns the macro *and* the single
+evidence trail — the "what does SEH 0xc0000005 with no ASan report and no stack
+mean" explanation is written down once, in the header, rather than re-derived
+each time. Include it and guard **only** the sub-assertion that makes the
+third-party library throw:
+
+```cpp
+#include "WinAsanYamlThrow.h"
+...
+#if !OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN
+    EXPECT_FALSE(Parse("key: [unclosed"));      // the throwing case
+#endif
+    EXPECT_FALSE(Parse("WrongRootKey: 1\n"));   // ours, always runs
+```
+
+Keep every non-throwing assertion active, and note which still-passing test
+carries the Windows-ASan coverage of the same throw/catch plumbing. Do NOT
+"fix" this by changing the malformed input or widening the catch — both were
+tried and both still crash; input-shuffling is version roulette. Track state and
+the list of known-vulnerable tests in issue #661; the header carries the
+retirement criteria (delete it and every use once the upstream LLVM fix lands).
+
+**Both polarities are in the tree, deliberately — read the sign before copying.**
+`#if !OLO_SKIP_…` wraps a branch that is simply *dropped* under the guard;
+`#if OLO_SKIP_…` selects a **substitute** non-throwing branch. Which one you want
+depends on the next trap:
+
+> **A skipped throw can leave the rest of the test vacuously true.** In
+> `AccessibilitySettingsTest` the assertion after the load is "the previous
+> settings survived" — but the test *set* those settings two lines earlier, so
+> skipping the load outright reduces it to re-reading the value it just wrote:
+> green, and proving nothing. The fix is to substitute a **well-formed file with
+> the wrong root key**, which takes the same `LoadFromFile` rejection path
+> *without* throwing, so the preservation assertion still means something under
+> ASan. Before you guard, check what the surviving assertions are still resting
+> on.
 
 **Expect this to bite whenever you add the FIRST test that throws through a
 given entry point**, not only when you touch known-vulnerable code. The
 guarded set so far:
 
-| Test | Throwing entry point |
-| --- | --- |
-| `ExperienceCurveTest.SerializerRejectsMalformedYAML` | `ExperienceCurveSerializer::TestDeserializeFromYAML` |
-| `CharacterClassDatabaseTest` (malformed-YAML branch) | `CharacterClassDatabaseSerializer` |
-| `SceneTransitionTest.AMissingOrMalformedTargetFailsWithoutASceneAndWithAReason` | `SceneSerializer::Deserialize` → `YAML::LoadFile` (issue #642) |
+| Test | Throwing entry point | Guard |
+| --- | --- | --- |
+| `ExperienceCurveTest.SerializerRejectsMalformedYAML` | `ExperienceCurveSerializer::TestDeserializeFromYAML` | helper |
+| `CharacterClassDatabaseTest` (malformed-YAML branch) | `CharacterClassDatabaseSerializer` | helper |
+| `AccessibilitySettingsTest.LoadOfACorruptFileFailsWithoutCorruptingSettings` | `Accessibility::LoadFromFile` → `YAML::LoadFile` (issue #458) | helper (substitute branch) |
+| `SceneTransitionTest.AMissingOrMalformedTargetFailsWithoutASceneAndWithAReason` | `SceneSerializer::Deserialize` → `YAML::LoadFile` (issue #642) | **still hand-rolled** |
+
+The `SceneTransitionTest` row is the one straggler: PR #802 migrated the two
+`Gameplay/` sites onto the helper but left this one on the raw
+`#if !(OLO_ASAN_ENABLED && defined(_WIN32))`. It is not broken — the condition is
+identical — but it is the copy a future author is most likely to find and clone.
+Migrate it the next time that file is touched.
+
+Note that not every `OLO_ASAN_ENABLED` in the test tree belongs to this bug:
+`ServerAuthoritativeLoopTest` guards on it for the unrelated
+GameNetworkingSockets stack-buffer-overflow (issue #317). Grepping the macro
+over-reports the guarded set; grep `OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN` instead.
 
 The #642 case is instructive about how the bug hides: the suite already had
 `SceneSerializerFuzzRegressionTest` firing a dozen malformed payloads at
