@@ -36,6 +36,7 @@ run is **not** evidence.
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | a position check passes on the scheduler tie-break alone, with the dependency edge missing |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | adding `server/discover` alone keeps every test green — and converts a *working* legacy fallback into a broken modern conversation, because answering it is a client's proof the server is modern |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
+| [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -129,7 +130,8 @@ boundary) · [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md
 when you clear) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) (a CPU write
 between two recorded draws is GL command order; a life-stable Vulkan address makes it
-last-write-wins)
+last-write-wins) · [gpu-scan-compaction.md](gpu-scan-compaction.md) (a `barrier()` only some
+invocations reach — the early-return habit in front of a work-group scan)
 
 ## 6. It was never actually called
 
@@ -189,6 +191,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) ·
 [gpu-debug-draws.md](gpu-debug-draws.md) ·
+[gpu-scan-compaction.md](gpu-scan-compaction.md) ·
 [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) ·
 [render-pass-published-state.md](render-pass-published-state.md) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) ·

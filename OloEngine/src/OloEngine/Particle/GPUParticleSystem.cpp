@@ -5,10 +5,19 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <numeric>
 
 namespace OloEngine
 {
+    // Compact() hands m_CounterSSBO to GPUPrefixSum as the scan's `totalOut`,
+    // and the scan writes the grand total to that buffer's first u32. That is
+    // only the alive count if AliveCount is the first member — so reordering
+    // GPUParticleCounters must be a compile error here rather than a particle
+    // system that silently draws DeadCount instances (issue #713).
+    static_assert(offsetof(GPUParticleCounters, AliveCount) == 0,
+                  "GPUParticleCounters::AliveCount must be first — the prefix-sum total is written to offset 0");
+
     GPUParticleSystem::GPUParticleSystem(u32 maxParticles)
     {
         Init(maxParticles);
@@ -29,10 +38,13 @@ namespace OloEngine
           m_IndirectDrawSSBO(std::move(other.m_IndirectDrawSSBO)),
           m_EmitStagingSSBO(std::move(other.m_EmitStagingSSBO)),
           m_PrevPositionSSBO(std::move(other.m_PrevPositionSSBO)),
+          m_AliveScanSSBO(std::move(other.m_AliveScanSSBO)),
           m_EmitShader(std::move(other.m_EmitShader)),
           m_SimulateShader(std::move(other.m_SimulateShader)),
           m_CompactShader(std::move(other.m_CompactShader)),
+          m_CompactScatterShader(std::move(other.m_CompactScatterShader)),
           m_BuildIndirectShader(std::move(other.m_BuildIndirectShader)),
+          m_PrefixSum(std::move(other.m_PrefixSum)),
           m_ParamsUBO(std::move(other.m_ParamsUBO)),
           m_Params(other.m_Params)
     {
@@ -54,10 +66,13 @@ namespace OloEngine
             m_IndirectDrawSSBO = std::move(other.m_IndirectDrawSSBO);
             m_EmitStagingSSBO = std::move(other.m_EmitStagingSSBO);
             m_PrevPositionSSBO = std::move(other.m_PrevPositionSSBO);
+            m_AliveScanSSBO = std::move(other.m_AliveScanSSBO);
             m_EmitShader = std::move(other.m_EmitShader);
             m_SimulateShader = std::move(other.m_SimulateShader);
             m_CompactShader = std::move(other.m_CompactShader);
+            m_CompactScatterShader = std::move(other.m_CompactScatterShader);
             m_BuildIndirectShader = std::move(other.m_BuildIndirectShader);
+            m_PrefixSum = std::move(other.m_PrefixSum);
             m_ParamsUBO = std::move(other.m_ParamsUBO);
             m_Params = other.m_Params;
             other.m_Initialized = false;
@@ -124,6 +139,15 @@ namespace OloEngine
             StorageBufferUsage::DynamicCopy);
         m_PrevPositionSSBO->ClearData();
 
+        // Compaction scratch (issue #713): alive flags in, exclusive prefix sum
+        // of those flags out, scanned in place by GPUPrefixSum between the two
+        // compaction dispatches.
+        m_AliveScanSSBO = StorageBuffer::Create(
+            maxParticles * sizeof(u32),
+            ShaderBindingLayout::SSBO_PREFIX_SUM_VALUES,
+            StorageBufferUsage::DynamicCopy);
+        m_AliveScanSSBO->ClearData();
+
         // Initialize free list: all slots are free [0, 1, 2, ..., maxParticles-1]
         std::vector<u32> freeListInit(maxParticles);
         std::iota(freeListInit.begin(), freeListInit.end(), 0u);
@@ -150,7 +174,10 @@ namespace OloEngine
         m_EmitShader = ComputeShader::Create("assets/shaders/compute/Particle_Emit.comp");
         m_SimulateShader = ComputeShader::Create("assets/shaders/compute/Particle_Simulate.comp");
         m_CompactShader = ComputeShader::Create("assets/shaders/compute/Particle_Compact.comp");
+        m_CompactScatterShader = ComputeShader::Create("assets/shaders/compute/Particle_CompactScatter.comp");
         m_BuildIndirectShader = ComputeShader::Create("assets/shaders/compute/Particle_BuildIndirect.comp");
+        m_PrefixSum = Ref<GPUPrefixSum>::Create();
+        m_PrefixSum->EnsureInitialised();
 
         // Validate all shaders loaded successfully
         if (!m_EmitShader || !m_EmitShader->IsValid())
@@ -168,6 +195,21 @@ namespace OloEngine
         if (!m_CompactShader || !m_CompactShader->IsValid())
         {
             OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_CompactShader");
+            Shutdown();
+            return;
+        }
+        if (!m_CompactScatterShader || !m_CompactScatterShader->IsValid())
+        {
+            OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_CompactScatterShader");
+            Shutdown();
+            return;
+        }
+        if (!m_PrefixSum || !m_PrefixSum->IsAvailable())
+        {
+            // Same shape as the shader checks above, and for the same reason:
+            // without the scan there is no compaction at all (issue #713
+            // replaced the atomicAdd path outright rather than keeping two).
+            OLO_CORE_ERROR("GPUParticleSystem: GPU prefix-sum unavailable — compaction cannot run");
             Shutdown();
             return;
         }
@@ -192,10 +234,13 @@ namespace OloEngine
         m_IndirectDrawSSBO = nullptr;
         m_EmitStagingSSBO = nullptr;
         m_PrevPositionSSBO = nullptr;
+        m_AliveScanSSBO = nullptr;
         m_EmitShader = nullptr;
         m_SimulateShader = nullptr;
         m_CompactShader = nullptr;
+        m_CompactScatterShader = nullptr;
         m_BuildIndirectShader = nullptr;
+        m_PrefixSum = nullptr;
         m_ParamsUBO = nullptr;
         m_Initialized = false;
     }
@@ -290,12 +335,24 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Initialized || !m_CompactShader || !m_CompactShader->IsValid())
+        if (!m_Initialized || !m_CompactShader || !m_CompactShader->IsValid() ||
+            !m_CompactScatterShader || !m_CompactScatterShader->IsValid() || !m_PrefixSum)
         {
             return;
         }
 
-        // Reset counters before compaction
+        // ── Scan-based compaction (issue #713) ──
+        // Three dispatches plus the scan's own, replacing one dispatch that
+        // allocated every slot with `atomicAdd`. What that buys: `aliveIndices`
+        // and `freeList` now come out in ascending particle index instead of in
+        // whatever order invocations reached the counter, so an identical
+        // particle buffer produces an identical draw order — which for blended
+        // particles is a visible property, and for tests is the difference
+        // between "same set" and "same result".
+
+        // Reset counters. AliveCount is overwritten by the scan's total and
+        // DeadCount by the scatter pass, but EmitCount must start at zero and a
+        // defined struct beats three assignments that must stay in sync.
         GPUParticleCounters counters{};
         counters.AliveCount = 0;
         counters.DeadCount = 0;
@@ -303,18 +360,44 @@ namespace OloEngine
         counters.Pad = 0;
         m_CounterSSBO->SetData(&counters, sizeof(GPUParticleCounters));
 
-        // Bind SSBOs
+        m_Params = UBOStructures::GPUParticleParamsUBO{};
+        m_Params.MaxParticles = m_MaxParticles;
+
+        const u32 groups = (m_MaxParticles + COMPACT_WORKGROUP_SIZE - 1) / COMPACT_WORKGROUP_SIZE;
+
+        // Pass 1 — alive flags into the scan scratch.
+        m_ParticleSSBO->Bind();
+        m_AliveScanSSBO->Bind();
+        m_CompactShader->Bind();
+        UploadParams();
+        RenderCommand::DispatchCompute(groups, 1, 1);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+        // Pass 2 — exclusive-scan the flags in place. The grand total (the
+        // alive count) is written straight into the counter buffer's FIRST
+        // u32, which the static_assert above pins to be AliveCount; that is why
+        // the scatter pass only has to derive DeadCount.
+        //
+        // Bail rather than scatter if the scan did not run: pass 3 would read
+        // the raw 0/1 flags as if they were prefixes and write every alive
+        // particle to slot 0 or 1. A frame with no compaction is a visible
+        // stall; a frame with a scattered-onto-itself alive list is corruption.
+        if (!m_PrefixSum->ExclusiveScanInPlace(m_AliveScanSSBO, m_MaxParticles, m_CounterSSBO))
+        {
+            OLO_CORE_ERROR("GPUParticleSystem::Compact: prefix sum failed — skipping the scatter pass");
+            return;
+        }
+
+        // Pass 3 — prefixes into slots. Re-binds everything the scan displaced:
+        // GPUPrefixSum binds its own three SSBOs and its params UBO, so nothing
+        // bound before pass 2 can be assumed to have survived it.
         m_ParticleSSBO->Bind();
         m_AliveIndexSSBO->Bind();
         m_CounterSSBO->Bind();
         m_FreeListSSBO->Bind();
-
-        m_CompactShader->Bind();
-        m_Params = UBOStructures::GPUParticleParamsUBO{};
-        m_Params.MaxParticles = m_MaxParticles;
+        m_AliveScanSSBO->Bind();
+        m_CompactScatterShader->Bind();
         UploadParams();
-
-        u32 groups = (m_MaxParticles + COMPACT_WORKGROUP_SIZE - 1) / COMPACT_WORKGROUP_SIZE;
         RenderCommand::DispatchCompute(groups, 1, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
     }

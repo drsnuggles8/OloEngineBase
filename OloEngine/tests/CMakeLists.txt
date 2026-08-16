@@ -127,6 +127,8 @@ add_executable(OloEngine-Tests
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
+		Rendering/GPUPrefixSumTest.cpp
+		Rendering/GPUParticleCompactionTest.cpp
 		Rendering/ShaderDebugDrawContractTest.cpp
 		Rendering/ShaderDebugDrawExpansionTest.cpp
 		Rendering/GPUOcclusionCullParityTest.cpp
