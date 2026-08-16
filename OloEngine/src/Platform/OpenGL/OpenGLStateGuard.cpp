@@ -69,7 +69,11 @@ namespace OloEngine::Detail
         // convention matches on every target, not just x64 where it's moot.
         u32 ValidOrZero(u32 name, PFNGLISFRAMEBUFFERPROC isAlive)
         {
-            return (name != 0u && isAlive(name)) ? name : 0u;
+            // Compare explicitly against GL_TRUE: GLboolean is an unsigned
+            // char, and using it directly as a logical operand is both a
+            // reliability finding (cpp:S867) and a real portability trap —
+            // the GL spec only guarantees GL_TRUE/GL_FALSE, not 1/0.
+            return (name != 0u && isAlive(name) == GL_TRUE) ? name : 0u;
         }
     } // namespace
 

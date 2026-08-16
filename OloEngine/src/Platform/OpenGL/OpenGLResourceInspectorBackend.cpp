@@ -1118,22 +1118,24 @@ namespace OloEngine
             for (u32 level = 0; level < mipLevels; ++level)
             {
                 // Get actual dimensions for this mip level and face
-                GLint levelWidth, levelHeight, compressedSize;
+                // Initialized: a failed query leaves its out-param untouched,
+                // and an uninitialized extent would be added to the total.
+                GLint levelWidth = 0;
+                GLint levelHeight = 0;
+                GLint compressedSize = 0;
 
-                if (target == GL_TEXTURE_CUBE_MAP)
-                {
-                    // Query each face of the cubemap (GL_TEXTURE_CUBE_MAP_POSITIVE_X + face)
-                    // (faceTarget variable removed as it was unused)
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_WIDTH, &levelWidth);
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_HEIGHT, &levelHeight);
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
-                }
-                else
-                {
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_WIDTH, &levelWidth);
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_HEIGHT, &levelHeight);
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
-                }
+                // One query path for both targets. It used to be an
+                // if/else whose two arms were textually identical (a
+                // cubemap arm that intended per-face queries and never
+                // implemented them, then lost its faceTarget) — flagged by
+                // both the PR review and cpp:S3923. DSA queries address the
+                // texture OBJECT, so a cube's faces all report the same
+                // level extents anyway; the face LOOP above is what
+                // multiplies the total by six.
+                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(level), GL_TEXTURE_WIDTH, &levelWidth);
+                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(level), GL_TEXTURE_HEIGHT, &levelHeight);
+                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(level), GL_TEXTURE_COMPRESSED_IMAGE_SIZE,
+                                             &compressedSize);
 
                 if (levelWidth > 0 && levelHeight > 0)
                 {
