@@ -108,27 +108,6 @@ count different things: an entry point can expand into more than one virtual
 is the size of the *gap*; 60 is the size of the *fix*. Quoting 60 against 84 as a
 ratio would silently compare an operation count to an API count.
 
-### (5) The facade grows 60 virtuals, and that number is the real measurement
-
-Measurement. §1.7 framed Phase 2 as "strip the `GLenum`s, then sweep", which
-undersells it: stripping the enums (step 1) touched 74 existing virtuals, while
-the sweep needed **60 new ones**, because whole categories of GPU work had never
-been abstracted at all and every pass reached past the facade to do them —
-buffer binding points 2 (the single biggest gap, 26 `glBindBufferBase` sites),
-buffer lifecycle 9, named-framebuffer state 10 (`SetDrawBuffers` existed, but
-only for the *bound* FBO, while every call site names one via DSA), queries 7,
-fences 4, draws from bound geometry 4, program/VAO/framebuffer binding 5,
-texture clear/upload/readback/barrier 8, vertex-array lifecycle 3, and 8 more
-(debug groups, device idle, sample-count caps, separate blend func, front face,
-clear depth, patch count).
-
-*Generalisable, and the thing carried into Phase 5:* **an abstraction's
-completeness is not measured by how many call sites it already serves, but by
-how many distinct operations the layer above performs.** 74 virtuals looked like
-a thorough facade while 60 operations went around it, because each of those was
-rare enough (1–3 sites) to feel like a special case — and the 26-site
-`glBindBufferBase` gap shows frequency was never the signal either.
-
 ### (6) Named framebuffers need a "writes nowhere" sentinel
 
 `glNamedFramebufferDrawBuffers` is 24 of the 313, and the interesting half of
@@ -457,17 +436,6 @@ Phase 3 builds `ViewHandle` and `HeapOffset` — the pair amendment (11) deferre
 The full working notes are in
 [docs/agent-rules/rhi-abstraction-boundary.md §4b](../agent-rules/rhi-abstraction-boundary.md);
 what follows is only what amends a decision recorded above.
-
-### (18) §1.3's bind-site count is wrong in both directions, and the definition is why
-
-§1.3's 173 counted only `BindTexture(` in `.cpp` files; the issue's ~125 was
-an estimate. The measured figure is **232**: `BindTexture(` **and**
-`BindImageTexture(` outside `Platform/`, after blanking comments and string
-literals — an image binding is a heap slot too, and *which spellings count as
-a bind site* is what moves the number. Both older numbers are corrected in
-place, and the ratchet publishes the definition alongside the count.
-Narrative: docs/agent-rules/rhi-abstraction-boundary.md §4b "The measured
-surface, and the three published numbers (again)".
 
 ### (19) The rehearsal's SHADER work is throwaway, not a dry run — and this changes Phase 6
 
@@ -1180,36 +1148,6 @@ the same proof), with `FlushAll()` at context teardown.
 Narrative: docs/agent-rules/rhi-abstraction-boundary.md §10 "A reclaim queue
 nobody drains leaks with green tests".
 
-### (54) Measured on the first live run
-
-- **FXAA parity: RMSE = 0** vs the GL golden (128×128) — same GPU compiler,
-  same shaderc SPIR-V, both routes; the #734 property invariants pass on the
-  Vulkan output too.
-- **Pipeline cache works across processes:** cold FXAA pipeline ~1.4 s, warm
-  ~150 ms (`pipeline_cache.vkpc`, 37 KB after two pipelines).
-- **4090/610.88: all 31 EDS3 feature bits**; blend fully dynamic
-  (`BakedBlendHash` stays 0; §5's fallback column compiled and
-  branch-tested, expected cold on desktop).
-- **NVIDIA image descriptor stride: 32 bytes**; reserved heap range ~94 KiB —
-  always derive heap layout from
-  `VkPhysicalDeviceDescriptorHeapPropertiesEXT`, never assume it.
-- SPIR-V tier renames landed: shared GL tier `.cached_vulkan12.<stage>`,
-  Vulkan tier `.cached_vulkan14.<stage>` (§3(b)); existing caches invalidate
-  once.
-
-### (55) The live frame loop renders through Phase 6 scaffolding, NOT through the dispatch table — deliberately
-
-Phase status, narrowing (49): where (49) said full-frame graph execution moves
-into the window loop with the first rendered pass, Phase 6 wired a **pilot
-block** in `VulkanContext::SwapBuffers` rendering only the FXAA checkpoint,
-falling back to the Phase 4 clear when assets were unavailable;
-`CommandDispatch`'s draw packets still hit Phase 6 stubs, and converting the
-POD dispatch path was Phase 7's pass-by-pass port (which the pilot and its
-device-gated test gave a line-for-line template). The one rule that outlived
-the pilot: (48)'s acquire-semaphore wait stage recurred here — the render path
-waits at `COLOR_ATTACHMENT_OUTPUT`, the clear path at `CLEAR`, and the first
-swapchain barrier's `srcStageMask` must match whichever ran.
-
 ### (56) What Phase 6 deliberately did NOT build, so Phase 7 doesn't go looking
 
 Phase status, kept as a list because three of these deferrals are cited by name
@@ -1441,26 +1379,6 @@ the deliberate design there — and confidently sent the reader to the wrong
 layer during live bring-up.)
 Narrative: docs/agent-rules/rhi-abstraction-boundary.md §11 "A diagnostic
 that cannot distinguish two states will misdiagnose one of them".
-
-### (69) What Phase 7 leaves for Phase 8, with the reasons
-
-Phase status: the named gaps between "renders" and "at parity", each carrying a
-tenant, warn-once or ratchet that fails the moment it is addressed.
-
-- **Materials render untextured** (the heap path not live on Vulkan,
-  `DrawMesh`'s material half never reaching the backend) — the highest-value
-  item; **no skybox / IBL / reflection probes** (cubemap CPU face upload
-  unimplemented); **no editor UI** and **entity picking GL-only** (PBO
-  readback).
-- **The raw texture/FBO facade family is stubbed** — blocks the fluid
-  splat/thickness body, SSAO's noise import, per-binding `SamplerDesc` state.
-- **Six more `.comp` files carry bare default-block uniforms** — the ratchet
-  names them explicitly so they cannot read as an exemption ((61), (74)).
-- **Mid-pass `GENERAL` store-then-sample** rides GL-shaped `MemoryBarrier`;
-  desktop-safe, spec-level debt. **No `R32F` colour framebuffer format
-  engine-wide** — a GL-path bug the port surfaced.
-
----
 
 ## Amendments from Phase 8 (2026-08-14) — completeness & verification parity
 

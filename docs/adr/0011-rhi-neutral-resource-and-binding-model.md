@@ -37,7 +37,7 @@ Phase 1 measured the boundary before designing against it: **549 raw
 `glXxx()` calls in 42 files outside `Platform/OpenGL/`** (the issue's ~620
 and the handover's 724 were both wrong — the larger number matched `glfw*`
 window calls, which are not GL). The bind-site count in §1.3 is corrected by
-amendment (18); the method, the three published numbers and why a call count
+the boundary doc; the method, the three published numbers and why a call count
 is the wrong measure at all are in
 [rhi-abstraction-boundary.md](../agent-rules/rhi-abstraction-boundary.md) §1–§2.
 The counters this survey motivated all reached 0 (§1.7).
@@ -80,8 +80,8 @@ Under heap-bindless the shader instead does
 `texture(g_ResourceHeap[material.albedoOffset], uv)`, and that offset is
 allocated at runtime and must be *transported* into a UBO. What dies is the
 **act of binding** — the 232 `BindTexture` / `BindImageTexture` calls (measured
-in Phase 3; this said ~173, which counted only the first family — see amendment
-(18)) and the `TEX_*` constants. What survives, promoted from constant to data,
+in Phase 3; an earlier count of ~173 here was wrong because it counted only the
+first family) and the `TEX_*` constants. What survives, promoted from constant to data,
 is the number itself.
 
 It cannot simply *be* the resource identity, for four reasons that are all
@@ -233,8 +233,8 @@ this far in the first place.
 1. **Passes binding a texture for sampling** — **232** `BindTexture(...)` /
    `BindImageTexture(...)` sites outside `Platform/` (the issue's "~125 across
    ~35 passes" undercounts; so did this line's original **173**, which counted
-   only `BindTexture(` in `.cpp` files — an image binding is a heap slot too.
-   See amendment (18). A handful are the facade's own declarations rather than
+   only `BindTexture(` in `.cpp` files — an image binding is a heap slot too;
+   the measured figure is **232**. A handful are the facade's own declarations rather than
    pass calls, and they are counted deliberately: the conversion has to delete
    those too.)
    Under heap-bindless there is no slot to bind to: the pass writes
@@ -651,7 +651,7 @@ follow-up, not a Phase 6 dependency.
 
 §1.2 said a persistent view's heap offset "goes into a UBO/SSBO field," which
 quietly assumed conventional buffer *binding* survives for everything that
-isn't a texture. It shouldn't: amendment (5)'s sweep found "buffer binding
+isn't a texture. It shouldn't: the Phase 2 sweep found "buffer binding
 points (`glBindBufferBase`)" was **the single biggest gap category** — 26 call
 sites, UBO and SSBO — and a Vulkan backend that lowers each of those to its own
 `vkCmdBindDescriptorSets`-shaped call per draw reopens, for buffers, exactly
@@ -718,8 +718,8 @@ discussion), not harder: root data has no tiling or compression to preserve.
 
 ### 4.1 What this replaces, and what stays
 
-The two new virtuals amendment (5) added for `glBindBufferBase` (the "buffer
-binding points" row, 2 virtuals) stay in the facade **for GL**, unchanged —
+The two virtuals the Phase 2 sweep added for `glBindBufferBase` (the "buffer
+binding points" row) stay in the facade **for GL**, unchanged —
 this is a Vulkan-side simplification, not a neutral-layer one, following the
 same pattern §1.6 used for `Renderer/Debug/`: a backend-specific improvement
 does not have to be expressed as a shared abstraction change. The Vulkan
@@ -882,7 +882,15 @@ Phase 7** wherever profiling shows a real latency-hiding opportunity.
 > list). Superseded amendments keep their body or kernel plus a pointer to
 > what superseded them.
 >
-> **Numbering is stable and load-bearing: amendment numbers are cited from
+> **Numbers are never REUSED or renumbered.** They are cited from code
+> comments and other docs, so a citation must always resolve. An entry may
+> be *removed* only when nothing outside this file references it — pure
+> phase-status records, and corrections already folded into the section
+> they corrected — and removal leaves a permanent gap. (#691 Phase 9
+> removed (5), (18), (54), (55) and (69) on those grounds.) Anything still
+> cited stays, even when dead, as a tombstone.
+>
+> **Amendment numbers are cited from
 > code comments (68 citations of 23 distinct numbers at last count) and from
 > other docs, and must NEVER be renumbered or deleted.** New amendments append
 > at the next free number under their own phase header.
@@ -906,7 +914,6 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (2) | `SamplerDesc` gains `Filter`/`AddressMode` enums instead of two bools | live |
 | (3) | `SetTextureParameter` splits into `SetTextureFilter` + `SetTextureWrap` | live |
 | (4) | Upload's `(format, type)` becomes one `RHI::Format` for the SOURCE buffer | live |
-| (5) | Measurement: 60 new virtuals closed 54 missing entry points | history |
 | (6) | `RHI::NoAttachment` sentinel — "this draw slot writes nowhere" | live |
 | (7) | `glGetError` is not abstracted; readbacks return `bool` instead | live |
 | (8) | Draws from previously-bound geometry are the portable shape | live |
@@ -919,7 +926,6 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (15) | Bind sites keep the call, change the currency; scope by dataflow | live |
 | (16) | Convert subsystem-per-commit; scripted name-based edits compile while wrong | live |
 | (17) | The graph's `ResourceHandle` is renamed `RGResourceHandle` | live |
-| (18) | Measured bind-site surface is 232; the definition moves the number | history |
 | (19) | Bindless GLSL cannot enter SPIR-V; the rehearsal's shader work is throwaway | live |
 | (20) | `ViewDesc` cannot describe a view well enough to create one | live |
 | (21) | The bind-site ratchet targets a floor, not zero | live |
@@ -956,14 +962,12 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (51) | Fold promoted feature structs into the `VulkanXYFeatures` aggregate | live |
 | (52) | The pipeline reverse index and the lookup map must be one structure | live |
 | (53) | The fence wait is the only legal reclaim-queue drain point | live |
-| (54) | First live Vulkan run: FXAA RMSE 0, cache timings, EDS3 bits | history |
-| (55) | Phase 6's frame loop is a pilot block, not the dispatch table | history |
 | (56) | What Phase 6 did not build, and where each item landed later | history |
 | (57) | A ported pass needs its defining property pinned analytically | live |
 | (58) | Port an entry point's DEFAULT-ARGUMENT sentinels, not just its signature | live |
 | (59) | The projection seam has three flavours; enumerate matrix READERS | live |
 | (60) | One Vulkan descriptor set collapses GL's separate binding namespaces | live |
-| (61) | Bare uniforms migrate into `std140` blocks; the no-op setter hides failure | corrected by (74) |
+| (61) | Bare uniforms migrate into `std140` blocks; the no-op setter hides failure | live |
 | (62) | Three standalone-graph fixture contracts that read like backend bugs | live |
 | (63) | Attachment transitions are the draw front-end's job, batched before rendering | live |
 | (64) | Factories and process-wide guards belong in neutral TUs with backend switches | live |
@@ -971,7 +975,6 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (66) | Descriptor mappings carry per-kind `resourceMask`s, never ALL | live |
 | (67) | Orientation, extent and present layout are window-only proofs | live |
 | (68) | A diagnostic naming a cause must exclude the look-alike causes | live |
-| (69) | What Phase 7 left for Phase 8, each with a guard that fails | history |
 | (70) | The Vulkan sampler heap retires the embedded sampler; sampler state is not PSO state | live |
 | (71) | A deferred clear binds to the identity that requested it | live |
 | (72) | One-shot submits execute BEFORE the still-recording frame's work | live |
