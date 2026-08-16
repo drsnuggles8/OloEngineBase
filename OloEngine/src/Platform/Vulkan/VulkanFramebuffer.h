@@ -25,6 +25,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/Vulkan/VulkanTexture.h"
 
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -226,19 +227,33 @@ namespace OloEngine
         // ClearAllAttachments format decision must not confuse the two.
         std::unordered_set<u32> m_ExternalColorIndices;
         bool m_ExternalDepth = false;
-        struct CachedDepthArrayView
+        // The (image, layer) pair, kept WHOLE. It used to be packed into one
+        // u64 by XORing the handle with a shifted layer, which is lossless only
+        // while a VkImage's top bits are zero — true for a user-space pointer
+        // handle, not guaranteed by Vulkan (a driver may hand back an index or
+        // a tagged value). A collision there handed this framebuffer another
+        // image's view: the wrong cascade rendered, or a view of an image that
+        // was already gone. A composite key cannot collide, so no lookup needs
+        // to second-guess its own hit (review finding).
+        struct DepthArrayViewKey
         {
-            VkImageView View = VK_NULL_HANDLE;
-            VkImage SourceImage = VK_NULL_HANDLE;
-            // The layer this view selects. Stored so a lookup can VERIFY the
-            // (image, layer) pair rather than trust the packed key: the key
-            // XORs the handle with the layer, which is only lossless while the
-            // top bits of a VkImage are zero — true for a user-space pointer
-            // handle, not guaranteed by Vulkan (review finding). A mismatch is
-            // treated as a miss and the view rebuilt.
-            u32 SourceLayer = 0;
+            VkImage Image = VK_NULL_HANDLE;
+            u32 Layer = 0;
+
+            [[nodiscard]] auto operator==(const DepthArrayViewKey& other) const -> bool = default;
         };
-        std::unordered_map<u64, CachedDepthArrayView> m_DepthArrayViews;
+        struct DepthArrayViewKeyHash
+        {
+            [[nodiscard]] sizet operator()(const DepthArrayViewKey& key) const noexcept
+            {
+                // std::hash covers VkImage in both shapes: a pointer on 64-bit
+                // builds, a u64 on 32-bit ones.
+                sizet hash = std::hash<VkImage>{}(key.Image);
+                hash ^= std::hash<u32>{}(key.Layer) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+                return hash;
+            }
+        };
+        std::unordered_map<DepthArrayViewKey, VkImageView, DepthArrayViewKeyHash> m_DepthArrayViews;
     };
 } // namespace OloEngine
 

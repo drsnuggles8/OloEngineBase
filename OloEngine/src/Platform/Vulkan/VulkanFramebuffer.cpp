@@ -98,7 +98,7 @@ namespace OloEngine
             auto& cache = framebuffer->m_DepthArrayViews;
             for (auto it = cache.begin(); it != cache.end();)
             {
-                if (it->second.SourceImage != image)
+                if (it->first.Image != image)
                 {
                     ++it;
                     continue;
@@ -110,11 +110,11 @@ namespace OloEngine
                 // also simply correct: the queue has already waited
                 // kFramesInFlight generations past this image's last use, so no
                 // in-flight frame can still reference a view of it.
-                if (it->second.View != VK_NULL_HANDLE && device != nullptr)
-                    vkDestroyImageView(device->GetDevice(), it->second.View, nullptr);
+                if (it->second != VK_NULL_HANDLE && device != nullptr)
+                    vkDestroyImageView(device->GetDevice(), it->second, nullptr);
                 // The current selection may name the view being retired; drop
                 // it so a later scope cannot attach a destroyed view.
-                if (framebuffer->m_DepthArrayAttachment.View == it->second.View)
+                if (framebuffer->m_DepthArrayAttachment.View == it->second)
                     framebuffer->m_DepthArrayAttachment = DepthArrayLayerAttachment{};
                 it = cache.erase(it);
             }
@@ -168,10 +168,10 @@ namespace OloEngine
         // The per-cascade depth views (AttachDepthTextureArrayLayer) are owned
         // here, not by the array texture — they outlive no frame of their own,
         // so they retire on the deferred queue like every other view.
-        for (const auto& [key, cached] : m_DepthArrayViews)
+        for (const auto& [key, cachedView] : m_DepthArrayViews)
         {
-            if (cached.View != VK_NULL_HANDLE)
-                VulkanDeferredReclaim::Get().Enqueue(cached.View);
+            if (cachedView != VK_NULL_HANDLE)
+                VulkanDeferredReclaim::Get().Enqueue(cachedView);
         }
         m_DepthArrayViews.clear();
         LiveFramebuffers().erase(this);
@@ -476,31 +476,20 @@ namespace OloEngine
             return;
         }
 
-        const u64 cacheKey = VulkanUpload::VkHandleToU64(image) ^ (static_cast<u64>(layer + 1u) << 48u);
+        // The key carries the whole (image, layer) pair, so a hit IS this
+        // image's view for this layer — no packing to be lossy about and
+        // nothing to re-verify. See DepthArrayViewKey in the header for what
+        // the packed-u64 key got wrong; the stale-view-after-handle-recycling
+        // half of that hazard stays covered by ReleaseCachedDepthViewsForImage,
+        // which purges by image before the image itself is destroyed.
+        const DepthArrayViewKey cacheKey{ .Image = image, .Layer = layer };
         VkImageView view = VK_NULL_HANDLE;
-        // The key packs handle and layer by XOR, which is lossless only while a
-        // VkImage's top 16 bits are zero — true for a user-space pointer handle,
-        // NOT guaranteed by Vulkan (a driver may hand back an index or a tagged
-        // value). Verify the pair on a hit instead of trusting it: a collision
-        // would hand this framebuffer another image's view — the wrong cascade
-        // rendered, or a view of an image that is already gone (review finding).
-        const auto it = m_DepthArrayViews.find(cacheKey);
-        if (it != m_DepthArrayViews.end() && it->second.SourceImage == image && it->second.SourceLayer == layer)
+        if (const auto it = m_DepthArrayViews.find(cacheKey); it != m_DepthArrayViews.end())
         {
-            view = it->second.View;
+            view = it->second;
         }
         else
         {
-            if (it != m_DepthArrayViews.end())
-            {
-                // Same key, different (image, layer): the cached view is not
-                // ours. Drop it — ReleaseCachedDepthViewsForImage still reaches
-                // any survivor by image, so this cannot strand a view.
-                OLO_CORE_WARN("VulkanFramebuffer: depth-array view cache key collision — rebuilding");
-                if (it->second.View != VK_NULL_HANDLE)
-                    vkDestroyImageView(device->GetDevice(), it->second.View, nullptr);
-                m_DepthArrayViews.erase(it);
-            }
             VkImageViewCreateInfo viewInfo{};
             viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             viewInfo.image = image;
@@ -523,8 +512,7 @@ namespace OloEngine
                 m_DepthArrayAttachment = DepthArrayLayerAttachment{};
                 return;
             }
-            m_DepthArrayViews.emplace(
-                cacheKey, CachedDepthArrayView{ .View = view, .SourceImage = image, .SourceLayer = layer });
+            m_DepthArrayViews.emplace(cacheKey, view);
         }
 
         m_DepthArrayAttachment.Image = image;

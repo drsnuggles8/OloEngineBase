@@ -206,11 +206,50 @@ namespace OloEngine
 
         // bytesPerPixel and switch-case removed (now unused)
 
-        // Check for mip levels using DSA
-        GLint maxLevel;
-        glGetTextureParameteriv(nativeTextureId, GL_TEXTURE_MAX_LEVEL, &maxLevel);
-        outInfo.MipLevels = static_cast<u32>(maxLevel + 1);
-        outInfo.HasMips = maxLevel > 0;
+        // How many mip levels are ALLOCATED, not how many may be sampled.
+        // GL_TEXTURE_MAX_LEVEL is the sampling ceiling and defaults to 1000, so
+        // reading the level count out of it reported 1001 levels and
+        // HasMips == true for every texture in the engine — including the
+        // single-level render targets — and then fed that 1001 to
+        // CalculateAccurateTextureMemoryUsage, which sums one level per count
+        // (review finding).
+        GLint allocatedLevels = 0;
+        GLint immutableFormat = GL_FALSE;
+        glGetTextureParameteriv(nativeTextureId, GL_TEXTURE_IMMUTABLE_FORMAT, &immutableFormat);
+        if (immutableFormat != GL_FALSE)
+        {
+            // Immutable storage (glTextureStorage*) reports its level count exactly.
+            glGetTextureParameteriv(nativeTextureId, GL_TEXTURE_IMMUTABLE_LEVELS, &allocatedLevels);
+        }
+        else
+        {
+            // Mutable storage has no such query — probe until a level has no
+            // image. The walk is bounded by the full chain the base extent
+            // could hold as well as by MAX_LEVEL, so the default ceiling of
+            // 1000 cannot turn this into a thousand driver round-trips.
+            GLint maxLevel = 0;
+            glGetTextureParameteriv(nativeTextureId, GL_TEXTURE_MAX_LEVEL, &maxLevel);
+            GLint levelLimit = 0;
+            for (GLint extent = std::max(width, height); extent > 1; extent /= 2)
+            {
+                ++levelLimit;
+            }
+            levelLimit = std::min(maxLevel, levelLimit);
+            for (GLint level = 0; level <= levelLimit; ++level)
+            {
+                GLint levelWidth = 0;
+                glGetTextureLevelParameteriv(nativeTextureId, level, GL_TEXTURE_WIDTH, &levelWidth);
+                if (levelWidth <= 0)
+                {
+                    break;
+                }
+                ++allocatedLevels;
+            }
+        }
+        // A texture whose level 0 query failed (deleted name, wrong target)
+        // still owns one nominal level; zero would make the memory estimate 0.
+        outInfo.MipLevels = static_cast<u32>(std::max(allocatedLevels, 1));
+        outInfo.HasMips = allocatedLevels > 1;
 
         // Calculate accurate memory usage including compression and mip levels
         // (cubemaps: 6 faces)
