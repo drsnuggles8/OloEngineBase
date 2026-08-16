@@ -1145,6 +1145,10 @@ registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "MeshSource", m_MeshSourc
 registry.push_back(OLO_GFW_FIELD_RANGE(VirtualMeshComponent, "ErrorThresholdPixels", m_ErrorThresholdPixels, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(64.0f)));
 registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "CastShadows", m_CastShadows));
 
+// VisualScriptComponent
+registry.push_back(OLO_GFW_FIELD(VisualScriptComponent, "Graph", m_Graph));
+registry.push_back(OLO_GFW_FIELD(VisualScriptComponent, "Enabled", m_Enabled));
+
 // WaterComponent
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "WorldSizeX", m_WorldSizeX));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "WorldSizeZ", m_WorldSizeZ));

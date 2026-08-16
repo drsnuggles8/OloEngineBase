@@ -110,7 +110,8 @@ fail on before trusting a case it passes.
 The logic is right; when it runs, or how long it lives, is wrong.
 
 [script-structural-command-safe-point.md](script-structural-command-safe-point.md) (mutating a
-registry mid-iteration) · [runtime-scene-switching.md](runtime-scene-switching.md) (five ordering
+registry mid-iteration) · [visual-script-vm.md](visual-script-vm.md) (a loop node that forgets to
+charge its own iteration hangs the frame; four things a graph must never do inline) · [runtime-scene-switching.md](runtime-scene-switching.md) (five ordering
 rules for a swap that destroys the thing being iterated) ·
 [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) (input
 before the physics kick, camera last) ·
@@ -220,6 +221,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Scripting, networking & tooling** —
 [script-structural-command-safe-point.md](script-structural-command-safe-point.md) ·
+[visual-script-vm.md](visual-script-vm.md) ·
 [runtime-scene-switching.md](runtime-scene-switching.md) ·
 [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md) ·
 [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md) ·

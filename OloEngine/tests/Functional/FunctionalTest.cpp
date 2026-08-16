@@ -297,6 +297,11 @@ namespace OloEngine::Functional
         m_Scene->InitDialogueSystem();
     }
 
+    void FunctionalTest::EnableVisualScripting()
+    {
+        m_Scene->InitVisualScriptRuntime();
+    }
+
     void FunctionalTest::EnableAssetManager(const std::vector<std::filesystem::path>& assetsToStage)
     {
         // A scratch project owned by this process and this case. It becomes

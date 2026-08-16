@@ -410,6 +410,9 @@ namespace OloEngine
 
         // Contact events
         void OnContactEvent(ContactType type, UUID entityA, UUID entityB) const;
+        // Fan a fresh contact out to both entities' visual-script graphs
+        // (issue #634). Queues; never dispatches inline — see the definition.
+        void NotifyVisualScriptContact(UUID entityA, UUID entityB) const;
 
         // Jolt system access
         // NOTE: These methods require Initialize() to have been called successfully

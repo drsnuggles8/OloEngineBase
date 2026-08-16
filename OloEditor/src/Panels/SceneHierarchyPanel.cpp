@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scripting/VisualScript/VisualScriptGraph.h"
 #include "OloEngine/Animation/Retargeting/HumanoidBone.h"
 #include "OloEngine/Animation/Retargeting/HumanoidBoneMap.h"
 #include "OloEngine/Scene/ModelImporter.h"
@@ -1231,6 +1232,138 @@ namespace OloEngine
     {
     };
 
+    // VisualScriptComponent is not trivially copyable at all (it owns a
+    // std::map), so DrawComponent's memcmp tier is unavailable and its
+    // operator== tier is what runs. The specialization is here for the same
+    // reason as the ones above — to state the intent explicitly rather than
+    // leave it to a trait check that a later refactor could flip: the component
+    // must NEVER be compared byte-wise. The live VM state (current node, latent
+    // timers, blackboard values) lives on the per-scene VisualScriptSystem, not
+    // in the component, so operator== compares exactly the authored fields and
+    // an undo snapshot cannot latch on per-tick churn.
+    template<>
+    struct PreferValueComparison<VisualScriptComponent> : std::true_type
+    {
+    };
+
+    // One editable widget per PinType, for a VisualScriptComponent's per-entity
+    // variable overrides. Kept out of the lambda purely for readability — the
+    // switch is nine cases and the inspector body is long enough already.
+    //
+    // The value is COERCED to the variable's declared type on every edit rather
+    // than trusted: the graph asset may have been re-typed since this scene was
+    // saved, and the runtime would otherwise coerce silently at spawn time.
+    // Lists overrides whose variable the graph no longer declares, with a Remove
+    // button. Runs whenever a graph is assigned — INCLUDING when it declares no
+    // variables at all, which is precisely the case where every override present
+    // is stale. Scoping this to the has-variables branch made those unreachable.
+    /// `graphAsset` is null when the component's handle resolves to nothing (no
+    /// graph assigned, or the asset was deleted/renamed). That case is treated as
+    /// "declares no variables", so every override shows up as stale and can be
+    /// removed — otherwise those keys are invisible in the inspector yet still
+    /// serialize into the scene, and the only way to get rid of them is to hand-edit
+    /// the .olo file.
+    static void DrawVisualScriptStaleOverrides(VisualScriptComponent& component,
+                                               const OloEngine::VisualScript::VisualScriptAsset* graphAsset)
+    {
+        for (auto it = component.m_VariableOverrides.begin(); it != component.m_VariableOverrides.end();)
+        {
+            if (graphAsset != nullptr && graphAsset->FindVariable(it->first) != nullptr)
+            {
+                ++it;
+                continue;
+            }
+            ImGui::PushID(it->first.c_str());
+            ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f), "%s — not in this graph", it->first.c_str());
+            ImGui::SameLine();
+            const bool remove = ImGui::SmallButton("Remove");
+            ImGui::PopID();
+            it = remove ? component.m_VariableOverrides.erase(it) : std::next(it);
+        }
+    }
+
+    static void DrawVisualScriptOverride(OloEngine::VisualScript::PinValue& value, OloEngine::VisualScript::PinType type)
+    {
+        using OloEngine::VisualScript::PinType;
+        using OloEngine::VisualScript::PinValue;
+
+        if (value.GetType() != type)
+        {
+            value = value.ConvertTo(type);
+        }
+
+        switch (type)
+        {
+            case PinType::Bool:
+            {
+                bool v = value.AsBool();
+                if (ImGui::Checkbox("##vsov", &v))
+                    value = PinValue::MakeBool(v);
+                break;
+            }
+            case PinType::Int:
+            {
+                i32 v = static_cast<i32>(value.AsInt());
+                if (ImGui::DragInt("##vsov", &v))
+                    value = PinValue::MakeInt(v);
+                break;
+            }
+            case PinType::Float:
+            {
+                f32 v = value.AsFloat();
+                if (ImGui::DragFloat("##vsov", &v, 0.05f))
+                    value = PinValue::MakeFloat(v);
+                break;
+            }
+            case PinType::Vec2:
+            {
+                glm::vec2 v = value.AsVec2();
+                if (ImGui::DragFloat2("##vsov", &v.x, 0.05f))
+                    value = PinValue::MakeVec2(v);
+                break;
+            }
+            case PinType::Vec3:
+            {
+                glm::vec3 v = value.AsVec3();
+                if (ImGui::DragFloat3("##vsov", &v.x, 0.05f))
+                    value = PinValue::MakeVec3(v);
+                break;
+            }
+            case PinType::Vec4:
+            {
+                glm::vec4 v = value.AsVec4();
+                if (ImGui::DragFloat4("##vsov", &v.x, 0.05f))
+                    value = PinValue::MakeVec4(v);
+                break;
+            }
+            case PinType::String:
+            {
+                char buffer[256] = {};
+                const std::string text = value.AsString();
+                std::strncpy(buffer, text.c_str(), sizeof(buffer) - 1);
+                if (ImGui::InputText("##vsov", buffer, sizeof(buffer)))
+                    value = PinValue::MakeString(buffer);
+                break;
+            }
+            case PinType::Entity:
+            case PinType::Asset:
+            {
+                // A UUID is a full-range u64 and ImGui has no 64-bit integer
+                // widget; text round-trips it exactly.
+                char buffer[32] = {};
+                const std::string text = value.ToStorageString();
+                std::strncpy(buffer, text.c_str(), sizeof(buffer) - 1);
+                if (ImGui::InputText("##vsov", buffer, sizeof(buffer), ImGuiInputTextFlags_CharsDecimal))
+                    value = PinValue::FromStorageString(type, buffer);
+                break;
+            }
+            case PinType::Exec:
+            case PinType::Any:
+                ImGui::TextDisabled("(not overridable)");
+                break;
+        }
+    }
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -1987,6 +2120,7 @@ namespace OloEngine
 
             // Dialogue
             DisplayAddComponentEntry<DialogueComponent>("Dialogue");
+            DisplayAddComponentEntry<VisualScriptComponent>("Visual Script");
 
             ImGui::Separator();
 
@@ -6939,6 +7073,120 @@ namespace OloEngine
             }
 
             ImGui::Checkbox("Is Replicated", &component.IsReplicated); });
+
+        DrawComponent<VisualScriptComponent>("Visual Script", entity, [](auto& component)
+                                             {
+            // Graph asset picker.
+            if (component.m_Graph != 0)
+            {
+                auto metadata = AssetManager::GetAssetMetadata(component.m_Graph);
+                if (metadata.IsValid())
+                    ImGui::Text("Graph: %s", metadata.FilePath.filename().string().c_str());
+                else
+                    ImGui::TextColored(ImVec4(0.95f, 0.4f, 0.4f, 1.0f), "Graph: <invalid handle>");
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No graph assigned");
+            }
+
+            if (ImGui::Button("Browse...##VisualScriptAsset"))
+            {
+                std::string filepath = FileDialogs::OpenFile(
+                    "Visual Script (*.olovs)\0*.olovs\0"
+                    "All Files (*.*)\0*.*\0");
+                if (!filepath.empty())
+                {
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>(); assetManager)
+                    {
+                        if (AssetHandle importedHandle = assetManager->ImportAsset(filepath); importedHandle != 0)
+                        {
+                            auto metadata = AssetManager::GetAssetMetadata(importedHandle);
+                            if (metadata.Type == AssetType::VisualScript)
+                                component.m_Graph = importedHandle;
+                            else
+                                OLO_CORE_WARN("Imported asset is not a VisualScript");
+                        }
+                    }
+                }
+            }
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (assetPath.extension() == ".olovs")
+                    {
+                        if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>(); assetManager)
+                        {
+                            if (AssetHandle importedHandle = assetManager->ImportAsset(assetPath); importedHandle != 0)
+                                component.m_Graph = importedHandle;
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (component.m_Graph != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##VisualScriptAsset"))
+                    component.m_Graph = 0;
+            }
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+            // ── Per-entity variable overrides ─────────────────────────────────
+            // Driven by the ASSET's declared variables, not by whatever keys the
+            // override map happens to hold: a free-form key/value editor would
+            // let anyone type a name no graph reads, and the runtime only warns
+            // about that once.
+            ImGui::SeparatorText("Variable overrides");
+            auto graphAsset = component.m_Graph != 0
+                                  ? AssetManager::GetAsset<OloEngine::VisualScript::VisualScriptAsset>(component.m_Graph)
+                                  : nullptr;
+            if (!graphAsset)
+            {
+                ImGui::TextDisabled("Assign a graph to override its variables.");
+                // Overrides already on the component outlive the graph reference —
+                // clearing the handle, or deleting the asset, must not hide them.
+                DrawVisualScriptStaleOverrides(component, nullptr);
+            }
+            else if (graphAsset->m_Variables.empty())
+            {
+                ImGui::TextDisabled("This graph declares no variables.");
+                DrawVisualScriptStaleOverrides(component, graphAsset.Raw());
+            }
+            else
+            {
+                for (const auto& variable : graphAsset->m_Variables)
+                {
+                    ImGui::PushID(variable.m_Name.c_str());
+                    auto it = component.m_VariableOverrides.find(variable.m_Name);
+                    bool overridden = it != component.m_VariableOverrides.end();
+
+                    if (ImGui::Checkbox("##override", &overridden))
+                    {
+                        if (overridden)
+                            component.m_VariableOverrides.insert_or_assign(variable.m_Name, variable.m_DefaultValue);
+                        else
+                            component.m_VariableOverrides.erase(variable.m_Name);
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("%s (%s)", variable.m_Name.c_str(),
+                                OloEngine::VisualScript::PinTypeToString(variable.m_Type));
+
+                    if (auto entry = component.m_VariableOverrides.find(variable.m_Name);
+                        entry != component.m_VariableOverrides.end())
+                    {
+                        ImGui::Indent();
+                        DrawVisualScriptOverride(entry->second, variable.m_Type);
+                        ImGui::Unindent();
+                    }
+                    ImGui::PopID();
+                }
+
+                DrawVisualScriptStaleOverrides(component, graphAsset.Raw());
+            } });
 
         DrawComponent<DialogueComponent>("Dialogue", entity, [](auto& component)
                                          {

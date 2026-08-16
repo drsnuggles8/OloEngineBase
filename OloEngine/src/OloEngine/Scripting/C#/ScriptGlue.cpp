@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ScriptGlue.h"
+#include "OloEngine/Scripting/VisualScript/VisualScriptSystem.h"
 #include "ScriptEngine.h"
 
 #if OLO_ENABLE_CSHARP_SCRIPTING
@@ -163,6 +164,70 @@ namespace OloEngine
         // entity materialises at the next drain, and a handle a script has
         // already asked to destroy is already invalid (issue #643).
         return scene->IsEntityLiveForScripts(entityID);
+    }
+
+    // ── Visual scripting bridge (issue #634) ────────────────────────────────
+    // The script -> graph half of AC#6. Values cross the boundary as strings so
+    // one pair of internal calls covers every PinType; VisualScript::PinValue
+    // coerces on the way in, exactly as it does for a YAML-authored default.
+    static void VisualScript_SendEvent(u64 targetEntityID, MonoString* name, MonoString* payload)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        auto* system = scene ? scene->GetVisualScripts() : nullptr;
+        if (system == nullptr || name == nullptr)
+        {
+            return;
+        }
+
+        char* nameCStr = mono_string_to_utf8(name);
+        char* payloadCStr = payload != nullptr ? mono_string_to_utf8(payload) : nullptr;
+        // Queued, never dispatched inline: a C# OnUpdate runs inside
+        // Scene::UpdateScripts' entity-view walk (issue #643's hazard).
+        system->QueueCustomEvent(nameCStr,
+                                 VisualScript::PinValue::MakeString(payloadCStr != nullptr ? payloadCStr : ""),
+                                 UUID(targetEntityID), UUID(0));
+        mono_free(nameCStr);
+        if (payloadCStr != nullptr)
+        {
+            mono_free(payloadCStr);
+        }
+    }
+
+    static MonoString* VisualScript_GetVariable(u64 entityID, MonoString* name)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        auto* system = scene ? scene->GetVisualScripts() : nullptr;
+        if (system == nullptr || name == nullptr)
+        {
+            return nullptr;
+        }
+
+        char* nameCStr = mono_string_to_utf8(name);
+        VisualScript::PinValue value;
+        const bool found = system->TryGetVariable(UUID(entityID), nameCStr, value);
+        mono_free(nameCStr);
+        // null (not "") distinguishes "no such variable" from an empty string
+        // variable — the C# wrapper turns it into a bool-returning TryGet.
+        return found ? ScriptEngine::CreateString(value.ToStorageString().c_str()) : nullptr;
+    }
+
+    static bool VisualScript_SetVariable(u64 entityID, MonoString* name, MonoString* value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        auto* system = scene ? scene->GetVisualScripts() : nullptr;
+        if (system == nullptr || name == nullptr || value == nullptr)
+        {
+            return false;
+        }
+
+        char* nameCStr = mono_string_to_utf8(name);
+        char* valueCStr = mono_string_to_utf8(value);
+        // Written as a String; VisualScriptInstance::SetVariable converts to the
+        // variable's declared type and rejects a non-finite result.
+        const bool ok = system->SetVariable(UUID(entityID), nameCStr, VisualScript::PinValue::MakeString(valueCStr));
+        mono_free(nameCStr);
+        mono_free(valueCStr);
+        return ok;
     }
 
     static u64 Entity_FindEntityByName(MonoString* name)
@@ -3941,6 +4006,11 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Scene_InstantiatePrefab);
         OLO_ADD_INTERNAL_CALL(Prefab_FindByPath);
         OLO_ADD_INTERNAL_CALL(Entity_Destroy);
+
+        // Visual scripting bridge (issue #634)
+        OLO_ADD_INTERNAL_CALL(VisualScript_SendEvent);
+        OLO_ADD_INTERNAL_CALL(VisualScript_GetVariable);
+        OLO_ADD_INTERNAL_CALL(VisualScript_SetVariable);
 
         // Auto-generated property binding registrations from OLO_PROPERTY() annotations
 #include "Generated/ScriptGlueRegistrations.inl"

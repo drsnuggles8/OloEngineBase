@@ -117,6 +117,7 @@ you are in.
 **Scripting, networking & tooling**
 
 - [script-structural-command-safe-point.md](docs/agent-rules/script-structural-command-safe-point.md) — a script binding that changes the registry structurally must queue a command, never act inline.
+- [visual-script-vm.md](docs/agent-rules/visual-script-vm.md) — the node-graph VM: a loop node must charge its own iteration, memoization is per exec step, and `PinType`'s numbering is on disk.
 - [runtime-scene-switching.md](docs/agent-rules/runtime-scene-switching.md) — the host applies a scene swap after the tick; five ordering rules, plus the `Project` mount shipped games were missing.
 - [server-authoritative-networking-loop.md](docs/agent-rules/server-authoritative-networking-loop.md) — ~20 well-tested networking classes produced nothing, because the entry point had zero call sites.
 - [mcp-setter-based-field-registry.md](docs/agent-rules/mcp-setter-based-field-registry.md) — the copy-then-swap MCP write path is unsound when `operator=` can't reproduce a field write's side effects.
@@ -180,6 +181,17 @@ cmake --build build --target OloServer       --config Debug --parallel 6
 cmake --preset clangcl
 cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6
 ```
+
+### Every build goes through the mutex
+
+Not the bare commands above — wrap them:
+
+```powershell
+pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
+  'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
+```
+
+[build-lock.ps1](.claude/skills/run-oloengine/build-lock.ps1) runs one build at a time across every worktree of this repo, and kills its own build if the session that launched it dies. A `PreToolUse` hook (`scripts/claude-build-lock-guard.py`) **blocks** a `cmake --build` / `ninja` / `msbuild` tool call that skips it and replies with the wrapped command to use; a command that merely *mentions* a build tool opts out with the literal marker `OLO_BUILD_LOCK_BYPASS`. Why it exists, and what it does and does not protect you from: [.claude/skills/run-oloengine/SKILL.md](.claude/skills/run-oloengine/SKILL.md).
 
 ### Cap build parallelism — a full-width build can OOM this machine
 

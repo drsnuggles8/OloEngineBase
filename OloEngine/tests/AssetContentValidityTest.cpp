@@ -2253,6 +2253,12 @@ namespace OloEngine::Tests
             const char* Subdir;
             const char* Extension;
         };
+        // NOTE: `.olovs` is deliberately NOT in this list. This walker flags a
+        // backslash in ANY scalar, which is right for asset types whose strings
+        // are all paths — but a visual script's string pin defaults and variable
+        // values are arbitrary authored data. A graph that legitimately stores
+        // "C:\temp" or a Windows-style message would fail a check that has
+        // nothing to say about it.
         const std::array<AssetTypeRoot, 7> roots = { {
             { "Items", ".oloitem" },
             { "Quests", ".oloquest" },

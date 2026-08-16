@@ -73,6 +73,8 @@ namespace OloEngine
         { ".olosg", ContentFileType::ShaderGraph },
         // Sound Graphs
         { ".olosoundgraph", ContentFileType::SoundGraph },
+        // Visual Scripts (issue #634)
+        { ".olovs", ContentFileType::VisualScript },
         // Cinematic Sequences
         { ".olocine", ContentFileType::Cinematic },
         // Fluid Settings
@@ -123,6 +125,13 @@ namespace OloEngine
                 return "CONTENT_BROWSER_SHADERGRAPH";
             case ContentFileType::SoundGraph:
                 return "CONTENT_BROWSER_SOUNDGRAPH";
+            // Deliberately the GENERIC payload: SceneHierarchyPanel's
+            // VisualScriptComponent drop target accepts CONTENT_BROWSER_ITEM (as
+            // every other asset-assign target in that panel does), so a bespoke
+            // payload name would make .olovs the one asset type that cannot be
+            // dragged onto its own component.
+            case ContentFileType::VisualScript:
+                return "CONTENT_BROWSER_ITEM";
             default:
                 return "CONTENT_BROWSER_ITEM";
         }
@@ -167,6 +176,9 @@ namespace OloEngine
                 break;
             case ContentFileType::ShaderGraph:
                 ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "Shader Graph");
+                break;
+            case ContentFileType::VisualScript:
+                ImGui::TextColored(ImVec4(0.8f, 0.6f, 1.0f, 1.0f), "Visual Script");
                 break;
             case ContentFileType::SaveGame:
                 ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.4f, 1.0f), "Save Game");

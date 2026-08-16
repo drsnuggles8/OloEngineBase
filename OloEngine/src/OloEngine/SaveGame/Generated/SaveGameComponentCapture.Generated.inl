@@ -129,5 +129,6 @@ SAVE_COMPONENT(VehicleComponent, entity, writer);
 SAVE_COMPONENT(VideoOverlayComponent, entity, writer);
 SAVE_COMPONENT(VideoSurfaceComponent, entity, writer);
 SAVE_COMPONENT(VirtualMeshComponent, entity, writer);
+SAVE_COMPONENT(VisualScriptComponent, entity, writer);
 SAVE_COMPONENT(WaterComponent, entity, writer);
 SAVE_COMPONENT(WeatherStateComponent, entity, writer);

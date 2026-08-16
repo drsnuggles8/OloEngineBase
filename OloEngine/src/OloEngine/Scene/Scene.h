@@ -57,6 +57,11 @@ namespace OloEngine
     class SystemScheduler;
     struct FlockingWorkspace;
 
+    namespace VisualScript
+    {
+        class VisualScriptSystem;
+    } // namespace VisualScript
+
     namespace Animation
     {
         struct SpringBoneState;
@@ -469,6 +474,12 @@ namespace OloEngine
         // lifecycle (which would also wire up scripting, networking, etc.).
         void InitDialogueSystem();
 
+        // VisualScriptSystem instantiation (issue #634). Same rationale as
+        // InitDialogueSystem: production code reaches it via OnRuntimeStart, and
+        // headless harnesses need it without the rest of the runtime lifecycle
+        // (which requires Application::Get()). Idempotent.
+        void InitVisualScriptRuntime();
+
         // 3D rendering mode
         void SetIs3DModeEnabled(bool enabled)
         {
@@ -732,6 +743,14 @@ namespace OloEngine
             return m_DialogueSystem.get();
         }
 
+        // Node-graph gameplay logic (issue #634). Runtime-only: created at
+        // OnRuntimeStart, destroyed at OnRuntimeStop, never serialized or copied
+        // with the scene. Null outside a runtime session.
+        [[nodiscard("Store this!")]] VisualScript::VisualScriptSystem* GetVisualScripts() const
+        {
+            return m_VisualScriptSystem.get();
+        }
+
         // Caption overlay (issue #458). Created alongside the dialogue system;
         // null outside the runtime lifecycle. Game code pushes non-dialogue
         // captions through SubtitleSystem::ShowCaption.
@@ -982,8 +1001,9 @@ namespace OloEngine
         // are called here. Bodies are the historical hard-coded blocks, moved out
         // of SimulateRuntimeStep verbatim so the derived sequential run is a
         // bit-for-bit no-op. See SystemScheduler.h.
-        void UpdateScripts(Timestep ts);    // C# + Lua entity OnUpdate
-        void UpdateCinematics(Timestep ts); // authored sequence playback
+        void UpdateScripts(Timestep ts);       // C# + Lua entity OnUpdate
+        void UpdateVisualScripts(Timestep ts); // node-graph gameplay logic (issue #634)
+        void UpdateCinematics(Timestep ts);    // authored sequence playback
         // Reusable player + camera rig (issue #645). Split across two nodes for
         // ORDERING, not for parallelism: the input/movement half must land
         // before the physics kick so the same tick's step integrates it, while
@@ -1183,6 +1203,7 @@ namespace OloEngine
         // ~Scene documents).
         std::unique_ptr<SubtitleSystem> m_SubtitleSystem;
         DialogueVariables m_DialogueVariables;
+        std::unique_ptr<VisualScript::VisualScriptSystem> m_VisualScriptSystem;
 
         // Navigation
         Ref<NavMesh> m_NavMesh;

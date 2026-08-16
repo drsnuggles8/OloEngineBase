@@ -31,7 +31,8 @@ namespace OloEngine
         FluidSettings,
         SkillTree,
         CharacterClass,
-        ExperienceCurve
+        ExperienceCurve,
+        VisualScript
     };
 
     // Bitflag actions returned by ContentBrowserItem::Render()

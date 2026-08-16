@@ -58,11 +58,25 @@ sessions. A second build **queues**; it does not fail.
 Behaviour worth knowing:
 
 - It returns the **build's** exit code, never the release's.
-- A lock whose holder PID is dead is stolen immediately; one held longer than `-StaleMinutes`
-  (default 180) is stolen with a warning. Both matter on this box — orphaned state has wedged
-  things before (`mspdbsrv`, stray `fsmonitor` daemons).
-- It is **advisory**: a human running `cmake --build` directly bypasses it. That's intended; the
-  problem it solves is unattended sessions colliding.
+- Ownership is an **exclusive OS file handle**, not the lock file's existence. Acquiring is one
+  atomic operation, and a holder that crashes or is killed releases automatically because Windows
+  closes handles on process exit. There is no dead-PID special case and no stale-steal heuristic
+  to get wrong. A holder that is *hung but alive* keeps the lock until `-TimeoutMinutes` (default
+  180) expires and the waiter reports rather than stealing — silently starting a second build
+  next to a live one is the exact failure this exists to prevent.
+- It **kills its own build if the session that launched it dies**. The build runs as a child
+  process; the launching process is pinned by (pid, StartTime) and polled, and after
+  `-ParentGracePolls` consecutive absences the whole build tree is killed and the lock released.
+  That closes the case a held handle cannot: a build that outlives its window keeps running,
+  keeps the lock, and keeps eating ~47 GiB. Every ambiguous reading fails open, so a healthy
+  build is never killed by a momentary hiccup. `-NoParentWatch` opts out.
+- Bypassing it is **blocked, not just discouraged**: a `PreToolUse` hook in
+  `.claude/settings.json` (`scripts/claude-build-lock-guard.py`) denies any agent tool call that
+  runs `cmake --build`, `ninja` or `msbuild` without going through this script, and tells you the
+  wrapped command to use instead. A permission rule could not do this — `deny` degrades to a
+  prompt, which an unattended session in auto mode approves. A command that only *mentions* a
+  build tool opts out with the literal marker `OLO_BUILD_LOCK_BYPASS`. A human typing
+  `cmake --build` in their own terminal still bypasses everything, which is fine.
 - Serialising builds also reduces the per-user `mspdbsrv` contention that stalls `/Zi` compilation
   across every worktree.
 

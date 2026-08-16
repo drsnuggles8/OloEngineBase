@@ -37,6 +37,7 @@
 #include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
+#include "OloEngine/Scripting/VisualScript/VisualScriptSystem.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
@@ -395,6 +396,9 @@ namespace OloEngine
             m_SubtitleSystem->Shutdown(*this);
         m_SubtitleSystem.reset();
         m_DialogueSystem.reset();
+        // Same ordering reason: graph instances are keyed by entity UUID and
+        // teardown resolves them through m_EntityMap.
+        m_VisualScriptSystem.reset();
 
         if (b2World_IsValid(m_PhysicsWorld))
         {
@@ -1142,6 +1146,20 @@ namespace OloEngine
         m_SubtitleSystem = std::make_unique<SubtitleSystem>();
     }
 
+    void Scene::InitVisualScriptRuntime()
+    {
+        // Created here rather than in the Scene constructor for the same reason
+        // as DialogueSystem: it subscribes to the GameplayEventBus, which is
+        // Clear()ed on OnRuntimeStop, so its lifetime must match the session
+        // exactly. Idempotent — a headless harness may have called it already.
+        if (m_VisualScriptSystem)
+        {
+            return;
+        }
+        m_VisualScriptSystem = std::make_unique<VisualScript::VisualScriptSystem>(this);
+        m_VisualScriptSystem->OnRuntimeStart();
+    }
+
     void Scene::InitAudioRuntime()
     {
         // Initialize audio events system. Extracted from OnRuntimeStart so
@@ -1453,6 +1471,8 @@ namespace OloEngine
         // Dialogue system initialization
         InitDialogueSystem();
 
+        InitVisualScriptRuntime();
+
         // Subscribe the destructible system to combat-kill / joint-break events so
         // those seams can shatter a breakable object (issue #459). Handlers only
         // flip a component flag; the shatter itself runs on the Destructible node.
@@ -1716,6 +1736,20 @@ namespace OloEngine
         // per-entity Lua cleanup in DestroyEntity still fires during callbacks.
         m_IsRunning = false;
 
+        // Fire OnEndPlay on every graph and drop their instances. Runs BEFORE the
+        // bus is Clear()ed so an end-of-session graph event still reaches
+        // subscribers.
+        //
+        // The SYSTEM itself is deliberately NOT destroyed here — its bus handlers
+        // capture `this`, and the bus is not Clear()ed until further down. Freeing
+        // it now would leave every handler dangling for the rest of this function,
+        // so anything that published in between would be a use-after-free. The
+        // reset happens immediately after the Clear().
+        if (m_VisualScriptSystem)
+        {
+            m_VisualScriptSystem->OnRuntimeStop();
+        }
+
         // Shut down dialogue system. Subtitles first: Shutdown destroys the
         // caption UI entities, which must happen while the registry is still
         // live so Play → Stop → Play doesn't leave orphaned overlays behind.
@@ -1775,6 +1809,11 @@ namespace OloEngine
         {
             m_GameplayEventBus->Clear();
         }
+
+        // Only now is it safe to free the visual-script system: its bus handlers
+        // captured `this`, and the Clear() above is what unregisters them.
+        // OnRuntimeStop already ran further up, so its graphs have had OnEndPlay.
+        m_VisualScriptSystem.reset();
 
         // Drop UI focus + widget-event delegates so a stop/play cycle starts with
         // a clean focus state and no stale callbacks (scripts/UI re-register on start).
@@ -2924,6 +2963,28 @@ namespace OloEngine
                             { s.UpdateScripts(ts); })
                 .Writes(kLocalTransforms);
 
+            // Node-graph gameplay logic (issue #634). Registered directly after
+            // Scripts and declared After("Scripts") so a graph sees this tick's
+            // text-script writes rather than last tick's.
+            //
+            // ReadsWrites(kLocalTransforms): the ECS nodes both read and write
+            // TransformComponent, which is what orders this node before the
+            // physics kick — a graph that moves an entity must be integrated by
+            // THIS tick's step, not the next one. Losing that edge is invisible
+            // in the sequential order (the registration-index tie-break masks
+            // it) and shows up only as one-tick input lag.
+            //
+            // UNMARKED (join-all barrier), and it must stay that way for exactly
+            // the reasons the Scripts node is: VisualScriptSystem::Update drains
+            // the deferred entity-command queue (EnTT structural changes) and
+            // publishes to the synchronous GameplayEventBus. Marking it
+            // .Parallelizable() requires moving both out to a barrier node
+            // first. See docs/agent-rules/script-structural-command-safe-point.md.
+            sched.AddSystem("VisualScript", [](Scene& s, Timestep ts)
+                            { s.UpdateVisualScripts(ts); })
+                .After("Scripts")
+                .ReadsWrites(kLocalTransforms);
+
             // Cinematics overwrite authored transforms AFTER scripts so a playing
             // cutscene wins for the frame (write-after-write on LocalTransforms).
             sched.AddSystem("Cinematics", [](Scene& s, Timestep ts)
@@ -3427,6 +3488,18 @@ namespace OloEngine
         }
 
         FlushPendingEntityCommands();
+    }
+
+    void Scene::UpdateVisualScripts(Timestep ts)
+    {
+        // The whole body lives in VisualScriptSystem::Update, which brackets
+        // itself with FlushPendingEntityCommands exactly as UpdateScripts does —
+        // see the safe-point comment there.
+        if (m_VisualScriptSystem)
+        {
+            OLO_PROFILE_SCOPE("VisualScriptSystem::Update");
+            m_VisualScriptSystem->Update(ts);
+        }
     }
 
     void Scene::UpdateCinematics(Timestep ts)
@@ -10084,6 +10157,20 @@ namespace OloEngine
     }
     // Explicitly unload the player so its decode thread is joined synchronously before the
     // registry erases the component (rather than waiting on the Ref destructor).
+    // The live VM instance lives on the per-scene VisualScriptSystem, keyed by
+    // entity UUID — not inside the component — so removing the component must
+    // explicitly drop it. Without this the graph would keep ticking (and keep
+    // any latent Delay alive) until OnRuntimeStop, which reads as "removing the
+    // component did nothing".
+    template<>
+    void Scene::OnComponentRemoved<VisualScriptComponent>(Entity entity, VisualScriptComponent&)
+    {
+        if (m_VisualScriptSystem)
+        {
+            m_VisualScriptSystem->DestroyInstance(entity.GetUUID());
+        }
+    }
+
     template<>
     void Scene::OnComponentRemoved<VideoOverlayComponent>(Entity, VideoOverlayComponent& component)
     {

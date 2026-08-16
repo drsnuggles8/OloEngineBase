@@ -3152,6 +3152,39 @@ namespace OloEngine
             TrySet(dc.m_TriggerOnce, dialogueComponent["TriggerOnce"]);
         }
 
+        if (auto visualScriptComponent = entity["VisualScriptComponent"]; visualScriptComponent)
+        {
+            auto& vsc = deserializedEntity.AddComponent<VisualScriptComponent>();
+            TrySet(vsc.m_Graph, visualScriptComponent["Graph"]);
+            TrySet(vsc.m_Enabled, visualScriptComponent["Enabled"]);
+
+            if (auto overrides = visualScriptComponent["VariableOverrides"]; overrides && overrides.IsSequence())
+            {
+                for (auto const& overrideNode : overrides)
+                {
+                    if (!overrideNode.IsMap())
+                    {
+                        continue;
+                    }
+                    auto name = overrideNode["Name"].as<std::string>("");
+                    if (name.empty())
+                    {
+                        continue;
+                    }
+                    const auto type = VisualScript::PinTypeFromString(overrideNode["Type"].as<std::string>("Float"));
+                    auto value = VisualScript::PinValue::FromStorageString(type, overrideNode["Value"].as<std::string>(""));
+                    // Every float read from YAML is finiteness-checked; a NaN
+                    // override would otherwise reach a transform through the
+                    // first Get Variable that read it.
+                    if (value.SanitizeNonFinite())
+                    {
+                        OLO_CORE_WARN("[SceneSerializer] Non-finite visual-script override '{}' clamped to 0", name);
+                    }
+                    vsc.m_VariableOverrides.insert_or_assign(std::move(name), std::move(value));
+                }
+            }
+        }
+
         if (auto navMeshBoundsComponent = entity["NavMeshBoundsComponent"]; navMeshBoundsComponent)
         {
             auto& nmb = deserializedEntity.AddComponent<NavMeshBoundsComponent>();
@@ -5290,6 +5323,38 @@ namespace OloEngine
             out << YAML::Key << "TriggerOnce" << YAML::Value << dc.m_TriggerOnce;
 
             out << YAML::EndMap; // DialogueComponent
+        }
+
+        // Hand-written (issue #634): m_VariableOverrides is a std::map of PinValue,
+        // a member type OloHeaderTool's serializer classifier does not recognise,
+        // so the component is skipped by the generated block and this is the ONLY
+        // persistence path. Verified by diffing SceneSerializeComponents.Generated.inl
+        // after a GenerateBindings build — it must contain no VisualScriptComponent.
+        if (entity.HasComponent<VisualScriptComponent>())
+        {
+            out << YAML::Key << "VisualScriptComponent";
+            out << YAML::BeginMap;
+
+            auto const& vsc = entity.GetComponent<VisualScriptComponent>();
+            out << YAML::Key << "Graph" << YAML::Value << vsc.m_Graph;
+            out << YAML::Key << "Enabled" << YAML::Value << vsc.m_Enabled;
+
+            // Each override carries its own PinType: the graph asset may have
+            // been re-typed since this scene was saved, and without the stored
+            // type the reader could not coerce (it would have to guess, and a
+            // wrong guess is a silently wrong starting value).
+            out << YAML::Key << "VariableOverrides" << YAML::Value << YAML::BeginSeq;
+            for (auto const& [name, value] : vsc.m_VariableOverrides)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Name" << YAML::Value << name;
+                out << YAML::Key << "Type" << YAML::Value << VisualScript::PinTypeToString(value.GetType());
+                out << YAML::Key << "Value" << YAML::Value << value.ToStorageString();
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // VisualScriptComponent
         }
 
         if (entity.HasComponent<NavMeshBoundsComponent>())
