@@ -16,6 +16,7 @@
 		"OloEngine/Vector2.cs"
 		"OloEngine/Vector3.cs"
 		"OloEngine/Vector4.cs"
+		"OloEngine/VisualScript.cs"
 		
 		"OloEngine/Scene/Components.cs"
 		"OloEngine/Scene/Components.Generated.cs"

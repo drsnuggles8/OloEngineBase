@@ -55,6 +55,11 @@ namespace OloEngine
                 case S::ColorGradingColor:
                 case S::ToneMapColor:
                 case S::VignetteColor:
+                // The colour-vision adaptation output (issue #458) is the LAST
+                // stage before present when a mode is active, so it is the most
+                // presentation-like source there is — a transparent capture here
+                // must raise the same diagnostic as its neighbours.
+                case S::ColorBlindColor:
                 case S::FXAAColor:
                 case S::SelectionOutlineColor:
                 case S::UIComposite:
@@ -152,6 +157,8 @@ namespace OloEngine
                 return "SelectionOutline";
             case Source::UIComposite:
                 return "UIComposite";
+            case Source::ColorBlindColor:
+                return "ColorBlindColor";
             case Source::Backbuffer:
                 return "Backbuffer";
             case Source::COUNT:
@@ -626,6 +633,8 @@ namespace OloEngine
             captureFB(Source::SelectionOutlineColor, ResourceNames::SelectionOutlineColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SelectionOutlineColor));
         if (passName == "UICompositePass")
             captureFB(Source::UIComposite, ResourceNames::UIComposite, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite));
+        if (passName == "ColorBlindPass")
+            captureFB(Source::ColorBlindColor, ResourceNames::ColorBlindColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ColorBlindColor));
 
         if (passName == "SSAOPass")
             captureGraphTexture(Source::AOTexture, ResourceNames::AOBuffer);
@@ -639,7 +648,17 @@ namespace OloEngine
         if (passName == "FinalPass")
         {
             bool capturedPresentedImage = false;
-            if (const auto uiFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); uiFramebuffer)
+            // ColorBlindColor first (issue #458): the accessibility stage runs after
+            // UICompositePass, so it — not UIComposite — is what FinalPass presents
+            // whenever a mode is active. Source::Backbuffer means "the image the
+            // player saw", and reading UIComposite here would quietly answer with the
+            // frame from one stage earlier.
+            if (const auto colorBlindFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ColorBlindColor); colorBlindFramebuffer)
+            {
+                captureFB(Source::Backbuffer, ResourceNames::Backbuffer, colorBlindFramebuffer);
+                capturedPresentedImage = true;
+            }
+            else if (const auto uiFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite); uiFramebuffer)
             {
                 captureFB(Source::Backbuffer, ResourceNames::Backbuffer, uiFramebuffer);
                 capturedPresentedImage = true;

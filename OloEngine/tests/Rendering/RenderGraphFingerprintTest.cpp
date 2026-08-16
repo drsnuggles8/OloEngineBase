@@ -4,6 +4,7 @@
 #include "RenderingTestUtils.h"
 
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 
@@ -186,6 +187,46 @@ namespace OloEngine::Tests
         EXPECT_NE(RenderPipelineFingerprintAccess::Fingerprint(base, rs),
                   RenderPipelineFingerprintAccess::Fingerprint(base, forward))
             << "RenderingPath must change the fingerprint (deferred vs forward declares different resources).";
+    }
+
+    // Colour-vision adaptation (issue #458) is the one topology gate that does
+    // NOT live in PostProcessSettings — it is a process-global player preference
+    // (see AccessibilitySettings.h for why), so EveryTopologyToggleChangesFingerprint
+    // above structurally cannot cover it: that test only varies the settings it is
+    // handed. Without its own test the mode would be exactly the SSREnabled bug
+    // this file exists for — toggle it at runtime, the blackboard never
+    // repopulates, ColorBlindColor is never declared, and the stage silently
+    // no-ops.
+    TEST(RenderGraphFingerprint, ColorBlindModeTogglesFingerprint)
+    {
+        const RendererSettings rs = DeferredSettings();
+        const PostProcessSettings pp;
+
+        Accessibility::Reset();
+        const u64 offFp = RenderPipelineFingerprintAccess::Fingerprint(pp, rs);
+
+        AccessibilitySettings on;
+        on.ColorBlind = ColorBlindMode::Deuteranopia;
+        Accessibility::Set(on);
+        const u64 onFp = RenderPipelineFingerprintAccess::Fingerprint(pp, rs);
+
+        // Value-only knobs ride the UBO and must NOT perturb the fingerprint —
+        // otherwise dragging the severity slider forces a full graph repopulate
+        // every frame.
+        AccessibilitySettings tweaked = on;
+        tweaked.ColorBlindSeverity = 0.35f;
+        tweaked.ColorBlindMethod = ColorBlindAdaptation::Simulate;
+        Accessibility::Set(tweaked);
+        const u64 tweakedFp = RenderPipelineFingerprintAccess::Fingerprint(pp, rs);
+
+        Accessibility::Reset();
+
+        EXPECT_NE(onFp, offFp)
+            << "Enabling a colour-blind mode must change the blackboard fingerprint; "
+               "otherwise PopulateBlackboard short-circuits and ColorBlindColor is never declared.";
+        EXPECT_EQ(tweakedFp, onFp)
+            << "Severity / method / gamma are per-frame UBO uploads, not graph topology — "
+               "they must NOT change the fingerprint.";
     }
 
     // Design-boundary guard: a pure VALUE knob that is uploaded via UBO each

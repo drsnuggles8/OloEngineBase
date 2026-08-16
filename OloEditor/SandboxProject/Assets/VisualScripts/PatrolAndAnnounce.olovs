@@ -1,0 +1,167 @@
+VisualScript: 1
+NodeBudgetPerTick: 10000
+Variables:
+  - Name: Speed
+    Type: Float
+    Default: 1.5
+  - Name: Elapsed
+    Type: Float
+    Default: 0
+  - Name: Announced
+    Type: Bool
+    Default: false
+EventGraph:
+  Name: EventGraph
+  NextNodeId: 14
+  NextLinkId: 15
+  Inputs: []
+  Outputs: []
+  Nodes:
+    - Id: 1
+      Type: Event.OnBeginPlay
+      Position: -320 -160
+    - Id: 2
+      Type: Utility.Print
+      Position: -80 -160
+      PinDefaults:
+        - Pin: Message
+          Type: String
+          Value: PatrolAndAnnounce started
+    - Id: 3
+      Type: Event.OnUpdate
+      Position: -320 40
+    - Id: 4
+      Type: Variable.Get
+      Position: -320 200
+      Properties:
+        Variable: Elapsed
+    - Id: 5
+      Type: Math.Add
+      Position: -140 200
+    - Id: 6
+      Type: Variable.Set
+      Position: 40 40
+      Properties:
+        Variable: Elapsed
+    - Id: 7
+      Type: Variable.Get
+      Position: 40 220
+      Properties:
+        Variable: Elapsed
+    - Id: 8
+      Type: Math.Sin
+      Position: 220 220
+    - Id: 9
+      Type: Variable.Get
+      Position: 220 320
+      Properties:
+        Variable: Speed
+    - Id: 10
+      Type: Math.Multiply
+      Position: 400 260
+    - Id: 11
+      Type: Vector.Make
+      Position: 580 260
+    - Id: 12
+      Type: Entity.SetTranslation
+      Position: 760 40
+    - Id: 13
+      Type: Function.Call
+      Position: 220 -160
+      Properties:
+        Function: AnnounceOnce
+  Links:
+    - Id: 1
+      SourceNode: 1
+      SourcePin: Then
+      TargetNode: 2
+      TargetPin: Enter
+    - Id: 2
+      SourceNode: 2
+      SourcePin: Then
+      TargetNode: 13
+      TargetPin: Enter
+    - Id: 3
+      SourceNode: 3
+      SourcePin: Then
+      TargetNode: 6
+      TargetPin: Enter
+    - Id: 4
+      SourceNode: 4
+      SourcePin: Value
+      TargetNode: 5
+      TargetPin: A
+    - Id: 5
+      SourceNode: 3
+      SourcePin: Delta Seconds
+      TargetNode: 5
+      TargetPin: B
+    - Id: 6
+      SourceNode: 5
+      SourcePin: Result
+      TargetNode: 6
+      TargetPin: Value
+    - Id: 7
+      SourceNode: 7
+      SourcePin: Value
+      TargetNode: 8
+      TargetPin: A
+    - Id: 8
+      SourceNode: 8
+      SourcePin: Result
+      TargetNode: 10
+      TargetPin: A
+    - Id: 9
+      SourceNode: 9
+      SourcePin: Value
+      TargetNode: 10
+      TargetPin: B
+    - Id: 10
+      SourceNode: 10
+      SourcePin: Result
+      TargetNode: 11
+      TargetPin: X
+    - Id: 11
+      SourceNode: 6
+      SourcePin: Then
+      TargetNode: 12
+      TargetPin: Enter
+    - Id: 12
+      SourceNode: 11
+      SourcePin: Vector
+      TargetNode: 12
+      TargetPin: Value
+Functions:
+  - Name: AnnounceOnce
+    NextNodeId: 4
+    NextLinkId: 4
+    Inputs: []
+    Outputs: []
+    Nodes:
+      - Id: 1
+        Type: Function.Entry
+        Position: 0 0
+      - Id: 2
+        Type: Flow.DoOnce
+        Position: 200 0
+      - Id: 3
+        Type: Utility.PublishEvent
+        Position: 400 0
+        PinDefaults:
+          - Pin: Event Name
+            Type: String
+            Value: PatrolStarted
+          - Pin: To Gameplay Bus
+            Type: Bool
+            Value: true
+    Links:
+      - Id: 1
+        SourceNode: 1
+        SourcePin: Then
+        TargetNode: 2
+        TargetPin: Enter
+      - Id: 2
+        SourceNode: 2
+        SourcePin: Then
+        TargetNode: 3
+        TargetPin: Enter

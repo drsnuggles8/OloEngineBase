@@ -129,5 +129,6 @@ TRY_LOAD_COMPONENT(VehicleComponent);
 TRY_LOAD_COMPONENT(VideoOverlayComponent);
 TRY_LOAD_COMPONENT(VideoSurfaceComponent);
 TRY_LOAD_COMPONENT(VirtualMeshComponent);
+TRY_LOAD_COMPONENT(VisualScriptComponent);
 TRY_LOAD_COMPONENT(WaterComponent);
 TRY_LOAD_COMPONENT(WeatherStateComponent);

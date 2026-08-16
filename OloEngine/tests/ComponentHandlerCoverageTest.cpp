@@ -166,6 +166,10 @@ namespace OloEngine::Tests
             "LocomotionComponent",
             "TerrainComponent",
             "NavAgentComponent",
+            // Issue #634: the live VM instance lives on the per-scene
+            // VisualScriptSystem, keyed by entity UUID, so removing the
+            // component has to drop it explicitly.
+            "VisualScriptComponent",
         };
 
         // The full universe of declared `struct *Component`, reconstructed as

@@ -51,6 +51,12 @@ namespace OloEngine
                     return ImageFormat::RG16F;
                 case FramebufferTextureFormat::RG32F:
                     return ImageFormat::RG32F;
+                // Carried across the Phase 9 file split from the monolith this
+                // switch used to live in: #802 (#772) added the R32F colour
+                // attachment, and the merge's modify/delete conflict would
+                // otherwise have dropped it silently.
+                case FramebufferTextureFormat::R32F:
+                    return ImageFormat::R32F;
                 case FramebufferTextureFormat::RED_INTEGER:
                     return ImageFormat::R32I;
                 case FramebufferTextureFormat::DEPTH24STENCIL8:

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "PostProcessSettingsPanel.h"
 #include "SettingsChangeLog.h"
+#include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
@@ -203,6 +204,7 @@ namespace OloEngine
         DrawCASSection();
         DrawDOFSection();
         DrawMotionBlurSection();
+        DrawAccessibilitySection();
 
         // Forward+ controls moved to RendererSettingsPanel
 
@@ -396,6 +398,102 @@ namespace OloEngine
 
             ImGui::Unindent();
         }
+    }
+
+    void PostProcessSettingsPanel::DrawAccessibilitySection()
+    {
+        if (!ImGui::CollapsingHeader("Accessibility (issue #458)"))
+            return;
+
+        ImGui::Indent();
+
+        // Edit a copy and publish through Accessibility::Set, which sanitizes.
+        // Writing to the live global field-by-field would let an intermediate
+        // ImGui state (a half-typed value in a DragFloat) reach the shader.
+        AccessibilitySettings settings = Accessibility::Get();
+        bool changed = false;
+
+        ImGui::TextUnformatted("Player preferences — global, not per-scene, and not saved into the scene file.");
+        ImGui::Separator();
+
+        if (ImGui::TreeNodeEx("Subtitles", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            changed |= ImGui::Checkbox("Enable##Subtitles", &settings.SubtitlesEnabled);
+            if (settings.SubtitlesEnabled)
+            {
+                changed |= ImGui::Checkbox("Show speaker name", &settings.SubtitleShowSpeaker);
+                changed |= ImGui::DragFloat("Font size##Subtitles", &settings.SubtitleFontSize, 0.5f, 8.0f, 200.0f, "%.0f px");
+                changed |= ImGui::SliderFloat("Backing opacity", &settings.SubtitleBackgroundOpacity, 0.0f, 1.0f, "%.2f");
+            }
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNodeEx("UI text scale", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            changed |= ImGui::SliderFloat("Scale##UIText", &settings.UITextScale, kMinUITextScale, kMaxUITextScale, "%.2fx");
+            changed |= ImGui::DragFloat("Minimum size", &settings.MinimumFontSize, 0.5f, 0.0f, kMaxMinimumFontSize, "%.0f px");
+            if (settings.MinimumFontSize <= 0.0f)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Use 12 px"))
+                {
+                    settings.MinimumFontSize = kRecommendedMinimumFontSize;
+                    changed = true;
+                }
+            }
+            ImGui::TextDisabled("0 = off. A floor enlarges labels authored below it, and layout rects do");
+            ImGui::TextDisabled("not reflow on font size, so both it and large scales can overflow a box.");
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNodeEx("Colour vision", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            static constexpr const char* kModeNames[] = { "None", "Protanopia (red)", "Deuteranopia (green)", "Tritanopia (blue)" };
+            static constexpr const char* kMethodNames[] = { "Correct (daltonize)", "Simulate (authoring preview)" };
+
+            if (i32 mode = static_cast<i32>(settings.ColorBlind);
+                ImGui::Combo("Mode##ColorBlind", &mode, kModeNames, IM_ARRAYSIZE(kModeNames)))
+            {
+                settings.ColorBlind = static_cast<ColorBlindMode>(mode);
+                changed = true;
+            }
+
+            if (settings.ColorBlind != ColorBlindMode::None)
+            {
+                if (i32 method = static_cast<i32>(settings.ColorBlindMethod);
+                    ImGui::Combo("Method##ColorBlind", &method, kMethodNames, IM_ARRAYSIZE(kMethodNames)))
+                {
+                    settings.ColorBlindMethod = static_cast<ColorBlindAdaptation>(method);
+                    changed = true;
+                }
+                changed |= ImGui::SliderFloat("Severity##ColorBlind", &settings.ColorBlindSeverity, 0.0f, 1.0f, "%.2f");
+                ImGui::TextDisabled("Runs after the UI composite, so the HUD is adapted too. Never quality-tiered.");
+                ImGui::TextDisabled("Display gamma is taken from Tone Mapping above — there is no second copy.");
+            }
+            ImGui::TreePop();
+        }
+
+        if (changed)
+            Accessibility::Set(settings);
+
+        ImGui::Separator();
+        if (ImGui::Button("Save preferences"))
+        {
+            if (!Accessibility::SaveToFile(Accessibility::DefaultSettingsPath()))
+                OLO_CORE_ERROR("Accessibility: failed to save '{}'", Accessibility::DefaultSettingsPath().string());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reload preferences"))
+        {
+            (void)Accessibility::LoadFromFile(Accessibility::DefaultSettingsPath());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset to defaults"))
+        {
+            Accessibility::Reset();
+        }
+
+        ImGui::Unindent();
     }
 
     void PostProcessSettingsPanel::DrawChromaticAberrationSection() const

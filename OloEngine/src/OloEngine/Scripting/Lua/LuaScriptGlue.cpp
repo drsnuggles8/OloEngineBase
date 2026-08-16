@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "LuaScriptGlue.h"
+#include "OloEngine/Scripting/VisualScript/VisualScriptSystem.h"
 
 #define SOL_ALL_SAFETIES_ON 1
 #include <sol/sol.hpp>
@@ -350,6 +351,7 @@ namespace OloEngine
             REGISTER_COMPONENT(CameraRigComponent),
             REGISTER_COMPONENT(AbilityComponent),
             REGISTER_COMPONENT(DialogueComponent),
+            REGISTER_COMPONENT(VisualScriptComponent),
             REGISTER_COMPONENT(NetworkIdentityComponent),
             REGISTER_COMPONENT(IKTargetComponent),
             REGISTER_COMPONENT(SpringBoneComponent),
@@ -3390,6 +3392,16 @@ namespace OloEngine
                                             "hasTriggered", &DialogueComponent::m_HasTriggered,
                                             "triggerOnce", &DialogueComponent::m_TriggerOnce);
 
+        // --- VisualScriptComponent (issue #634) ---
+        // Only the authoring fields are exposed. The live blackboard is reached
+        // through the `visual_script` table below, not through the component:
+        // the values live on the per-scene VisualScriptSystem, and handing Lua a
+        // reference into the component's override map would let a script mutate
+        // the AUTHORED defaults at runtime (which then persist into a save).
+        lua.new_usertype<VisualScriptComponent>("VisualScriptComponent",
+                                                "graph", &VisualScriptComponent::m_Graph,
+                                                "enabled", &VisualScriptComponent::m_Enabled);
+
         // --- AnimationGraphComponent ---
         lua.new_usertype<AnimationGraphComponent>("AnimationGraphComponent", "SetFloat", [](AnimationGraphComponent& comp, const std::string& name, f32 value)
                                                   { comp.Parameters.SetFloat(name, value); }, "SetBool", [](AnimationGraphComponent& comp, const std::string& name, bool value)
@@ -3934,6 +3946,125 @@ namespace OloEngine
                                                  "max", sol::property([](const NavMeshBoundsComponent& c)
                                                                       { return c.m_Max; }, [](NavMeshBoundsComponent& c, const glm::vec3& v)
                                                                       { if (IsFiniteVec3(v)) c.m_Max = v; }));
+
+        // --- Visual scripting bridge (issue #634) ---
+        // The script -> graph half of AC#6: text scripts trigger graph flow and
+        // read/write graph blackboard variables. The graph -> script half is the
+        // Script.CallLuaFunction node.
+        //
+        // Every entry point resolves the system through the live scene and
+        // no-ops when there is none — a script running in the editor's edit mode
+        // has no VisualScriptSystem, and asserting there would break the panel.
+        auto visualScriptTable = lua.create_named_table("visual_script");
+
+        // Queued, never dispatched inline: a Lua OnUpdate runs inside
+        // Scene::UpdateScripts' entity-view walk, and a graph reacting to this
+        // event may spawn or destroy entities.
+        visualScriptTable["send_event"] = [](u64 targetEntityID, const std::string& name, sol::object payload)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            auto* system = scene ? scene->GetVisualScripts() : nullptr;
+            if (!system || name.empty())
+                return false;
+
+            // A default-constructed PinValue is type Exec, which every data pin
+            // coerces to its own zero — indistinguishable from an authored 0 or
+            // "". Nil becomes an explicit empty string instead, and an
+            // unsupported type is refused rather than silently becoming one.
+            VisualScript::PinValue value = VisualScript::PinValue::MakeString("");
+            if (payload.valid() && payload.get_type() != sol::type::lua_nil)
+            {
+                if (payload.is<bool>())
+                    value = VisualScript::PinValue::MakeBool(payload.as<bool>());
+                else if (payload.is<f64>())
+                {
+                    const f64 raw = payload.as<f64>();
+                    // Range-checked BEFORE the narrowing cast, not after: converting
+                    // a double whose magnitude exceeds FLT_MAX is undefined
+                    // behaviour, so inspecting the result is already too late. An
+                    // infinity in a graph variable poisons every downstream node
+                    // silently, which is why this refuses rather than clamps.
+                    if (!VisualScript::IsRepresentableAsFloat(raw))
+                        return false;
+                    value = VisualScript::PinValue::MakeFloat(static_cast<f32>(raw));
+                }
+                else if (payload.is<std::string>())
+                    value = VisualScript::PinValue::MakeString(payload.as<std::string>());
+                else
+                    return false;
+            }
+
+            // 0 broadcasts, matching Utility.PublishEvent's unwired Target.
+            system->QueueCustomEvent(name, std::move(value), UUID(targetEntityID), UUID(0));
+            return true;
+        };
+
+        visualScriptTable["get_variable"] = [&lua](u64 entityID, const std::string& name) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            auto* system = scene ? scene->GetVisualScripts() : nullptr;
+            if (!system)
+                return sol::lua_nil;
+
+            VisualScript::PinValue value;
+            if (!system->TryGetVariable(UUID(entityID), name, value))
+                return sol::lua_nil;
+
+            sol::state_view view(lua.lua_state());
+            switch (value.GetType())
+            {
+                case VisualScript::PinType::Bool:
+                    return sol::make_object(view, value.AsBool());
+                case VisualScript::PinType::Int:
+                    return sol::make_object(view, value.AsInt());
+                case VisualScript::PinType::Float:
+                    return sol::make_object(view, static_cast<f64>(value.AsFloat()));
+                case VisualScript::PinType::Entity:
+                case VisualScript::PinType::Asset:
+                    // Signed: entity/asset ids are full-range u64 and Lua's
+                    // integer is signed 64-bit. Same bits, and the round trip
+                    // back through set_variable is lossless.
+                    return sol::make_object(view, static_cast<i64>(static_cast<u64>(value.AsEntity())));
+                default:
+                    return sol::make_object(view, value.AsString());
+            }
+        };
+
+        visualScriptTable["set_variable"] = [](u64 entityID, const std::string& name, sol::object newValue) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            auto* system = scene ? scene->GetVisualScripts() : nullptr;
+            if (!system)
+                return false;
+
+            VisualScript::PinValue value;
+            if (newValue.is<bool>())
+                value = VisualScript::PinValue::MakeBool(newValue.as<bool>());
+            else if (newValue.is<f64>())
+            {
+                const f64 raw = newValue.as<f64>();
+                // Same pre-cast range check as send_event above: a finite Lua number
+                // past FLT_MAX is undefined behaviour to narrow, not an infinity.
+                if (!VisualScript::IsRepresentableAsFloat(raw))
+                    return false;
+                value = VisualScript::PinValue::MakeFloat(static_cast<f32>(raw));
+            }
+            else if (newValue.is<std::string>())
+                value = VisualScript::PinValue::MakeString(newValue.as<std::string>());
+            else
+                return false;
+
+            // The system coerces to the variable's declared type, so a Lua
+            // number written into a Bool variable does the obvious thing.
+            return system->SetVariable(UUID(entityID), name, value);
+        };
+
+        visualScriptTable["is_running"] = [](u64 entityID) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            auto* system = scene ? scene->GetVisualScripts() : nullptr;
+            return system != nullptr && system->FindInstance(UUID(entityID)) != nullptr;
+        };
 
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");

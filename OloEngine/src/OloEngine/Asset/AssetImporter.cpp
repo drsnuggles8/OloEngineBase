@@ -70,6 +70,7 @@ namespace OloEngine
         serializers[AssetType::ExperienceCurve] = CreateScope<ExperienceCurveSerializer>();
         serializers[AssetType::SkillTreeDatabase] = CreateScope<SkillTreeDatabaseSerializer>();
         serializers[AssetType::CharacterClassDatabase] = CreateScope<CharacterClassDatabaseSerializer>();
+        serializers[AssetType::VisualScript] = CreateScope<VisualScriptAssetSerializer>();
     }
 
     void AssetImporter::Shutdown()

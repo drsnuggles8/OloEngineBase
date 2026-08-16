@@ -1,5 +1,6 @@
 #pragma once
 #include "OloEngine/Scene/SceneCamera.h"
+#include "OloEngine/Scripting/VisualScript/VisualScriptTypes.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Math/Math.h"
@@ -62,6 +63,7 @@
 #include <glm/gtx/norm.hpp>
 
 #include <memory>
+#include <map>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -4968,6 +4970,52 @@ namespace OloEngine
         auto operator==(const DialogueComponent& other) const -> bool
         {
             return static_cast<u64>(m_DialogueTree) == static_cast<u64>(other.m_DialogueTree) && m_AutoTrigger == other.m_AutoTrigger && Math::BitwiseEqual(m_TriggerRadius, other.m_TriggerRadius) && m_TriggerOnce == other.m_TriggerOnce;
+        }
+    };
+
+    // Node-graph gameplay logic (issue #634). The graph itself is the asset; this
+    // component says WHICH graph runs on this entity and lets the author override
+    // individual blackboard defaults per placement.
+    //
+    // The live VM instance is deliberately NOT stored here — it lives in the
+    // per-scene VisualScriptSystem, keyed by entity UUID. Keeping it out means
+    // this component stays cheaply copyable (Scene::Copy, prefab instancing and
+    // the editor's undo snapshot all copy components) and that a copy can never
+    // duplicate per-tick VM state.
+    struct VisualScriptComponent
+    {
+        OLO_PROPERTY()
+        AssetHandle m_Graph = 0;
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        // Per-entity overrides of the graph asset's variable defaults, keyed by
+        // variable name. std::map (ordered) so the serialized order is stable and
+        // a save -> load -> save round trip is byte-identical.
+        //
+        // This member is what makes the component INELIGIBLE for the generated
+        // SceneSerializer block: OloHeaderTool's classifier does not recognise
+        // std::map, so it skips the whole component and the hand-written blocks
+        // in SceneSerializer.cpp are the only path. See CLAUDE.md's Definition of
+        // done and docs/agent-rules/component-serializer-codegen.md.
+        std::map<std::string, VisualScript::PinValue> m_VariableOverrides;
+
+        // All four explicitly defaulted. Declaring only the COPY operations would
+        // suppress implicit move generation, so every "move" of this component
+        // would deep-copy m_VariableOverrides instead — and Scene::Copy, prefab
+        // instancing and the editor's undo snapshot all move components around.
+        VisualScriptComponent() = default;
+        VisualScriptComponent(const VisualScriptComponent&) = default;
+        VisualScriptComponent& operator=(const VisualScriptComponent&) = default;
+        VisualScriptComponent(VisualScriptComponent&&) noexcept = default;
+        VisualScriptComponent& operator=(VisualScriptComponent&&) noexcept = default;
+
+        // Hand-written, not defaulted: AssetHandle is UUID, and a defaulted
+        // operator== hits the UUID C2666 ambiguity under MSVC (see
+        // docs/agent-rules/cpp-coding-quality.md section 7).
+        auto operator==(const VisualScriptComponent& other) const -> bool
+        {
+            return static_cast<u64>(m_Graph) == static_cast<u64>(other.m_Graph) && m_Enabled == other.m_Enabled && m_VariableOverrides == other.m_VariableOverrides;
         }
     };
 

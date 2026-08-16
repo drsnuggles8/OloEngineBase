@@ -285,15 +285,29 @@ full-size spec and ignore the override; graph-owned FB passes are never reached 
 > candidate list must **not** include `PostProcessColor` — that alias points at `EASUColor` once
 > EASU runs, so EASU would read its own output.
 >
-> Known limitation: depth and velocity stay reduced, so full-res post passes reading them (DOF, Fog,
-> TAA) get bilinear-upscaled reduced depth.
+> Depth and velocity used to stay reduced, so full-res post passes reading them (DOF, Fog, TAA) got
+> bilinear-upscaled reduced depth. `DepthVelocityUpscalePass` (#480) fixed that with a NEAREST
+> upscale into `UpscaledDepthVelocity` — see the attachment-drop trap below before trusting it.
 
-**Open bug:** switching `PostProcessSettings::Upscale` to a non-`Off` mode **at runtime** produces a
-fully black frame plus a per-frame flood of `GL_INVALID_VALUE … y values exceeds the boundaries`
-(id 1281) — a read/blit-bounds bug in the reduced-scale → EASU path. Shaders compile fine; a
-viewport resize does not fix it; restoring `Off` recovers instantly. Filed as **#504**; the fix is
-likely clamping the EASU sample/blit region to the DRS render rect. It is a pre-existing FSR1 bug,
-not an MCP-tool bug — don't "fix" it in the settings tool.
+**The MRT that came back one attachment short (#772).** `UpscaledDepthVelocity` is declared
+`{R32Float depth, RG16Float velocity}` and the pass writes both, but `FramebufferTextureFormat` had
+no single-channel float colour member, so `RenderGraph::ToFramebufferFormat` answered `None` for
+`R32Float`. The materializer's MRT loop *skips* an unrepresentable attachment rather than failing —
+which **re-indexes** every survivor. The pooled framebuffer came back with ONE attachment (the
+RG16F velocity, now at index 0), the depth write landed on no attachment at all, and
+`CreateFramebufferAttachmentView(…, 0)` — published as `Post.UpscaledSceneDepthTexture` — handed
+DOF / Fog / MotionBlur / TAA / ToneMap the **velocity** texture as their depth. Silent on both
+backends; only the Vulkan port noticed, and only because its validation layer names unused fragment
+outputs. Generalise: **an attachment list is not a set — a dropped entry moves every later index**,
+so partial representability is never a safe degradation. The planner now refuses the whole
+descriptor (`IsAllocatable` uses `all_of`, not `any_of`) so the pass fails to resolve loudly.
+
+**Fixed, was open:** switching `PostProcessSettings::Upscale` to a non-`Off` mode at runtime used to
+produce a fully black frame plus a flood of `GL_INVALID_VALUE … y values exceeds the boundaries`
+(id 1281) — GTAO's scratch targets were declared at display res while `AOBuffer` shrank with the
+scene band. Fixed in **#504** (every GTAO scratch resource now tracks `sceneBandWidth/Height`). The
+*second*, quieter half of the same transition is **#771** — see
+[render-pipeline-caches.md](render-pipeline-caches.md).
 
 ## 14. GPU timer queries
 
@@ -344,3 +358,44 @@ NVIDIA threaded driver during reload churn. Fix: upload faces through a persiste
 > **Don't trust the stack's implied cause for a probabilistic GPU-driver crash.** The stack showed
 > the upload; *why* it faulted needed env-gated A/B experiments run across **multiple relaunch
 > rounds** — a single 20-reload run is too noisy to distinguish signal.
+
+## 17. A post stage after `UICompositePass` has four consumers, and three of them are not the graph
+
+Adding a stage *between* two existing post passes is a well-trodden path:
+declare the resource, register the node, and add the name to the downstream
+`ReadFirstValidVersionedInputForPass` candidate lists (glsl-shaders.md §9). A
+stage added at the **end** of the chain — after `UICompositePass`, which is where
+an accessibility remap has to go so the HUD is adapted too (issue #458) — has a
+different footprint, and the graph edits are the easy part.
+
+The trap: **the editor viewport is not the backbuffer.** `FinalPass` presents to
+the swapchain, but `EditorLayer::UI_Viewport` draws an `ImGui::Image` of a graph
+resource it resolves by name, and that name was `UIComposite`. So a stage placed
+after UIComposite is correct on the swapchain the editor never shows and
+**invisible in the only surface anyone looks at**. Nothing fails; the frame just
+never changes, which reads as "my pass isn't running" and sends you into the
+render graph.
+
+Four places resolve "the presented image", and all four need the new name at the
+top of their fallback chain:
+
+| consumer | site | what breaks if missed |
+|---|---|---|
+| the graph | `FinalRenderPass::Setup` candidate list | the stage's output is dropped; the frame presents unadapted |
+| the editor viewport | `EditorLayer.cpp` `UI_Viewport` | the effect is invisible in the editor |
+| MCP screenshots | `EditorLayer.cpp` `mcpContext.CaptureViewportPng` | `olo_screenshot` answers with the pre-stage frame — so your *verification* silently lies |
+| frame capture | `RenderGraphFrameCapture.cpp`, the `FinalPass` branch that fills `Source::Backbuffer` | "the image the player saw" is the image from one stage earlier |
+
+The third row is the one that costs a debugging session: the MCP capture and the
+visual-evidence fixtures are the instruments you reach for to answer "did it
+work?", and until they learn the new name they answer *no* for a reason that has
+nothing to do with the pass.
+
+The same applies to the `*VisualEvidenceTest` fixtures, which resolve
+`UIComposite` → `ToneMapColor` → `SceneColor` in that order. A new last-stage
+test must put its own resource first, or it measures the frame from before its
+own stage and every differential assertion passes vacuously against itself.
+
+> **Rule of thumb:** grep `ResolveFrameGraphFramebuffer(ResourceNames::` before
+> adding anything to the tail of the post chain. Every hit is a consumer that
+> has hard-coded "the last stage" by name.

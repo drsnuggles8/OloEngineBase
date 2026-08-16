@@ -14,6 +14,9 @@
 
 #include <mono/jit/jit.h>
 #include <mono/metadata/assembly.h>
+#include <mono/metadata/blob.h>
+#include <mono/metadata/loader.h>
+#include <mono/metadata/metadata.h>
 #include <mono/metadata/object.h>
 #include "mono/metadata/tabledefs.h"
 #include "mono/metadata/mono-debug.h"
@@ -598,10 +601,39 @@ namespace OloEngine
         return ::mono_class_get_method_from_name(m_MonoClass, name.c_str(), parameterCount);
     }
 
-    MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params)
+    bool ScriptClass::IsMethodStatic(MonoMethod* method)
+    {
+        // METHOD_ATTRIBUTE_STATIC, from mono/metadata/tabledefs.h — the ECMA-335
+        // method attribute name, not a MONO_-prefixed one.
+        return method != nullptr && (::mono_method_get_flags(method, nullptr) & METHOD_ATTRIBUTE_STATIC) != 0;
+    }
+
+    bool ScriptClass::IsMethodSingleFloatParameter(MonoMethod* method)
+    {
+        if (method == nullptr)
+        {
+            return false;
+        }
+        MonoMethodSignature* signature = ::mono_method_signature(method);
+        if (signature == nullptr || ::mono_signature_get_param_count(signature) != 1)
+        {
+            return false;
+        }
+        void* iterator = nullptr;
+        const MonoType* parameter = ::mono_signature_get_params(signature, &iterator);
+        // MONO_TYPE_R4 is `float`; MONO_TYPE_R8 (`double`) is deliberately refused
+        // too, because the caller passes the address of an f32.
+        return parameter != nullptr && ::mono_type_get_type(const_cast<MonoType*>(parameter)) == MONO_TYPE_R4;
+    }
+
+    MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params, bool* outThrew)
     {
         MonoObject* exception = nullptr;
         MonoObject* result = ::mono_runtime_invoke(method, instance, params, &exception);
+        if (outThrew != nullptr)
+        {
+            *outThrew = exception != nullptr;
+        }
 
         // Previously the exception out-param was ignored, so C# script errors were
         // silently swallowed. Capture them: log + record in the script-error ring
@@ -794,8 +826,27 @@ namespace OloEngine
     {
         return nullptr;
     }
-    MonoObject* ScriptClass::InvokeMethod(MonoObject*, MonoMethod*, void**)
+    bool ScriptClass::IsMethodStatic(MonoMethod*)
     {
+        // Scripting-disabled build: no method is ever invoked, so refuse rather
+        // than claim a property we cannot check.
+        return false;
+    }
+
+    bool ScriptClass::IsMethodSingleFloatParameter(MonoMethod*)
+    {
+        // Same reasoning as IsMethodStatic: refuse rather than claim a signature
+        // property that cannot be inspected without Mono.
+        return false;
+    }
+
+    MonoObject* ScriptClass::InvokeMethod(MonoObject*, MonoMethod*, void**, bool* outThrew)
+    {
+        // Scripting-disabled build: nothing ran, so nothing threw.
+        if (outThrew != nullptr)
+        {
+            *outThrew = false;
+        }
         return nullptr;
     }
 

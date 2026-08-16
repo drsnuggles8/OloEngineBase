@@ -11212,6 +11212,50 @@ static void VideoSurfaceComponent_SetVideoPath(UUID entityID, MonoString* value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// VisualScriptComponent                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static u64 VisualScriptComponent_GetGraph(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VisualScriptComponent>();
+    return comp.m_Graph;
+}
+
+static void VisualScriptComponent_SetGraph(UUID entityID, u64 value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VisualScriptComponent>();
+    comp.m_Graph = value;
+}
+
+static bool VisualScriptComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VisualScriptComponent>();
+    return comp.m_Enabled;
+}
+
+static void VisualScriptComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VisualScriptComponent>();
+    comp.m_Enabled = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // WeatherStateComponent                                                          //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

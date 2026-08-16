@@ -420,6 +420,22 @@ namespace OloEngine::Tests
         // unconditionally via RAII so a fatal ASSERT/EXPECT failure inside
         // Capture() below (which returns early) can't leave global renderer
         // state mutated for later tests in the suite.
+        //
+        // ApplyRendererSettings() on BOTH edges is load-bearing, not tidiness.
+        // ActiveAOTechnique decides which AO pass RegisterSceneAndLightingNodes
+        // registers, and that switch runs at TOPOLOGY-BUILD time — so setting
+        // the field alone leaves the graph wired for whatever technique was
+        // active when it was last built. This test did exactly that for its
+        // whole life: GTAOPass was never in the submission plan (the graph's
+        // own "AO/Post order" trace read `GTAO=n/a`), AOBuffer was declared but
+        // had no producer, and AOApplyPass multiplied the frame by an
+        // unwritten transient — black when that storage happened to be freshly
+        // zeroed, merely dark when it was recycled. That is issue #771, and it
+        // is why the test looked like an order-dependent flake. The engine now
+        // refuses to enable AOApply for a technique the graph is not wired for
+        // (RenderPipeline's AO gates key off ActiveGraphAOTechnique), so
+        // forgetting this call degrades to "no AO" instead of a black frame —
+        // but the test still has to apply it, or it would not be testing GTAO.
         struct ScopedAOTechnique
         {
             PostProcessSettings& Settings;
@@ -431,11 +447,13 @@ namespace OloEngine::Tests
             {
                 Settings.ActiveAOTechnique = AOTechnique::GTAO;
                 Settings.GTAOEnabled = true;
+                Renderer3D::ApplyRendererSettings();
             }
             ~ScopedAOTechnique()
             {
                 Settings.ActiveAOTechnique = SavedTechnique;
                 Settings.GTAOEnabled = SavedGtaoEnabled;
+                Renderer3D::ApplyRendererSettings();
             }
         } scopedAOTechnique(Renderer3D::GetPostProcessSettings());
 
@@ -476,20 +494,38 @@ namespace OloEngine::Tests
         EXPECT_EQ(GetGLErrorCount(), 0u)
             << "GL error(s) after switching Upscale to Performance with GTAO active — see OloEngine.log for detail";
 
-        // Deliberately NOT asserting on absolute brightness here (unlike
-        // RunUpscaleContract's native-vs-upscaled checks above): GTAO's
-        // AOApplyPass reuses PostProcess_SSAOApply.glsl, which is written for
-        // SSAO's HALF-resolution AOBuffer (see its "This texture is at HALF
-        // resolution" comment) even though GTAO's AOBuffer is FULL scene-band
-        // resolution — a separate, pre-existing issue (reproduces even at
-        // Upscale == Off, so it predates and is unrelated to this fix) that
-        // makes GTAO-lit scenes render too dark to use as a brightness oracle.
-        // Tracked as #533; out of scope here. The switch-safety contract
-        // this test exists for is the GL-error-counter check above and the
-        // "upscaled isn't darker than native" check below, which both hold
-        // regardless.
+        // Still not asserting an ABSOLUTE brightness here, only the
+        // native-vs-upscaled relationship below — the AO strength itself is
+        // GTAO's business, not this test's.
+        //
+        // This comment used to say something stronger and wrong: that GTAO-lit
+        // scenes render "too dark to use as a brightness oracle" because
+        // PostProcess_SSAOApply is written for SSAO's HALF-resolution AOBuffer,
+        // attributed to #533. The darkness was not that. Both captures here
+        // were near-black (native mean 1.46, upscaled exactly 0) because
+        // GTAOPass was never in the render graph at all and AOApplyPass was
+        // multiplying the frame by an unwritten AO buffer (#771). With the
+        // technique actually applied, the same two captures come back at mean
+        // ~103 and ~107 — properly lit. Believe the evidence PNGs over any
+        // inherited claim about how dark GTAO "has to" look.
         const f64 nativeMean = MeanLuma(nativePixels);
         const f64 upMean = MeanLuma(upscaledPixels);
+
+        // Issue #771, stated sharply. The post-switch frame used to come back
+        // EXACTLY black (upMean == 0), and exactly-black is diagnostic rather
+        // than merely dark: GTAO.comp clamps visibility to [0.03, 1.0], so an
+        // AO buffer the pass actually produced can never drive the scene to
+        // zero. Zero therefore means AOApplyPass multiplied by AO storage
+        // nobody wrote — the freshly allocated (pool-evicted) AO target left
+        // uninitialised by a skipped GTAO frame. This assertion fires only in
+        // FULL-SUITE order, because whether that fresh storage reads as zeroes
+        // depends on the allocation history the preceding tests left behind.
+        EXPECT_GT(upMean, 0.0)
+            << "the GTAO-lit frame after the runtime Upscale switch is EXACTLY black — AOApplyPass "
+               "multiplied the scene by an AO target the GTAO chain never wrote (#771). GTAO cannot "
+               "emit AO below 0.03, so this is uninitialised transient storage, not a dark render. "
+               "See EASU_GTAOPerformance.png and any 'GTAORenderPass: skipped this frame' warning in "
+               "OloEngine.log.";
         EXPECT_GE(upMean, nativeMean * 0.5)
             << "runtime Upscale switch made the GTAO-lit frame substantially darker than native (native="
             << nativeMean << " up=" << upMean << ") — see EASU_GTAONative.png / EASU_GTAOPerformance.png";

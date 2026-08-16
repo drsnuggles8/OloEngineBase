@@ -109,6 +109,9 @@ namespace OloEngine
             { ContentFileType::Dialogue, &m_DialogueIcon },
             { ContentFileType::SaveGame, &m_SaveGameIcon },
             { ContentFileType::ShaderGraph, &m_ShaderIcon },
+            // No bespoke icon yet — the script icon reads correctly for a
+            // graph that IS a script (issue #634).
+            { ContentFileType::VisualScript, &m_ScriptIcon },
         };
 
         RebuildItemList();

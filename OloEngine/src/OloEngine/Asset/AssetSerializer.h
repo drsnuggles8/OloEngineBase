@@ -43,6 +43,11 @@ namespace OloEngine
     class SkillTreeDatabase;
     class CharacterClassDatabase;
 
+    namespace VisualScript
+    {
+        class VisualScriptAsset;
+    } // namespace VisualScript
+
     struct AssetSerializationInfo
     {
         u64 Offset = 0;
@@ -623,6 +628,23 @@ namespace OloEngine
       private:
         std::string SerializeToYAML(const Ref<SkillTreeDatabase>& tree) const;
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<SkillTreeDatabase>& tree) const;
+    };
+
+    // `.olovs` graphs (issue #634). Plain YAML text like the other gameplay
+    // databases — the compiled plan is built at load time by the VisualScript
+    // system, never stored.
+    class VisualScriptAssetSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true; // CPU-only: YAML -> VisualScriptAsset, no GPU resources
+        }
     };
 
     class CharacterClassDatabaseSerializer : public AssetSerializer

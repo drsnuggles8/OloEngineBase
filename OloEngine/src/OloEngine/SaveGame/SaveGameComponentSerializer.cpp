@@ -2722,6 +2722,65 @@ namespace OloEngine
         // m_HasTriggered is runtime-only — not persisted (resets on load).
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, VisualScriptComponent& c)
+    {
+        ar << c.m_Graph;
+        ar << c.m_Enabled;
+
+        // Per-entity variable overrides: a length-prefixed list, same
+        // save/load-symmetric idiom as the off-mesh links below. Each entry
+        // carries its PinType so a save written before the author re-typed a
+        // graph variable still coerces correctly on load.
+        //
+        // What is NOT saved is the live VM state — current node, latent timers,
+        // blackboard values mutated during play. A save-game restores the graph
+        // to its authored starting point and replays OnBeginPlay, which is the
+        // same contract DialogueComponent's m_HasTriggered has. Persisting a
+        // suspended exec position would need the plan's node indices to be
+        // stable across a graph edit, which they are not.
+        u32 overrideCount = static_cast<u32>(c.m_VariableOverrides.size());
+        ar << overrideCount;
+
+        if (ar.IsLoading())
+        {
+            constexpr u32 kMaxOverrides = 4096u;
+            const u32 clamped = std::min(overrideCount, kMaxOverrides);
+            c.m_VariableOverrides.clear();
+            for (u32 i = 0; i < overrideCount; ++i)
+            {
+                std::string name;
+                u8 type = 0;
+                std::string value;
+                ar << name;
+                ar << type;
+                ar << value;
+                if (ar.IsError())
+                    return;
+                // Entries past the cap are still READ (so the stream stays
+                // aligned for whatever follows) but discarded.
+                if (i >= clamped || name.empty())
+                    continue;
+                auto pinValue = VisualScript::PinValue::FromStorageString(static_cast<VisualScript::PinType>(type), value);
+                (void)pinValue.SanitizeNonFinite();
+                c.m_VariableOverrides.insert_or_assign(std::move(name), std::move(pinValue));
+            }
+        }
+        else
+        {
+            for (auto& [key, value] : c.m_VariableOverrides)
+            {
+                std::string name = key;
+                u8 type = static_cast<u8>(value.GetType());
+                std::string text = value.ToStorageString();
+                ar << name;
+                ar << type;
+                ar << text;
+                if (ar.IsError())
+                    return;
+            }
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, NavMeshBoundsComponent& c)
     {
         ar << c.m_Min.x << c.m_Min.y << c.m_Min.z;
@@ -4289,6 +4348,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(LuaScriptComponent);
         REGISTER_SAVE_COMPONENT(TileRendererComponent);
         REGISTER_SAVE_COMPONENT(DialogueComponent);
+        REGISTER_SAVE_COMPONENT(VisualScriptComponent);
         REGISTER_SAVE_COMPONENT(NavMeshBoundsComponent);
         REGISTER_SAVE_COMPONENT(NavAgentComponent);
         REGISTER_SAVE_COMPONENT(BoidComponent);

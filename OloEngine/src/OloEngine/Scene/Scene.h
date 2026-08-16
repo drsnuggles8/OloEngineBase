@@ -51,10 +51,16 @@ namespace OloEngine
     struct AudioSoundGraphComponent;
     struct ClothComponent;
     class DialogueSystem;
+    class SubtitleSystem;
     class GameplayEventBus;
     class UINavigation;
     class SystemScheduler;
     struct FlockingWorkspace;
+
+    namespace VisualScript
+    {
+        class VisualScriptSystem;
+    } // namespace VisualScript
 
     namespace Animation
     {
@@ -468,6 +474,12 @@ namespace OloEngine
         // lifecycle (which would also wire up scripting, networking, etc.).
         void InitDialogueSystem();
 
+        // VisualScriptSystem instantiation (issue #634). Same rationale as
+        // InitDialogueSystem: production code reaches it via OnRuntimeStart, and
+        // headless harnesses need it without the rest of the runtime lifecycle
+        // (which requires Application::Get()). Idempotent.
+        void InitVisualScriptRuntime();
+
         // 3D rendering mode
         void SetIs3DModeEnabled(bool enabled)
         {
@@ -731,6 +743,22 @@ namespace OloEngine
             return m_DialogueSystem.get();
         }
 
+        // Node-graph gameplay logic (issue #634). Runtime-only: created at
+        // OnRuntimeStart, destroyed at OnRuntimeStop, never serialized or copied
+        // with the scene. Null outside a runtime session.
+        [[nodiscard("Store this!")]] VisualScript::VisualScriptSystem* GetVisualScripts() const
+        {
+            return m_VisualScriptSystem.get();
+        }
+
+        // Caption overlay (issue #458). Created alongside the dialogue system;
+        // null outside the runtime lifecycle. Game code pushes non-dialogue
+        // captions through SubtitleSystem::ShowCaption.
+        SubtitleSystem* GetSubtitleSystem() const
+        {
+            return m_SubtitleSystem.get();
+        }
+
         // Navigation
         void SetNavMesh(const Ref<NavMesh>& navMesh);
 
@@ -973,8 +1001,9 @@ namespace OloEngine
         // are called here. Bodies are the historical hard-coded blocks, moved out
         // of SimulateRuntimeStep verbatim so the derived sequential run is a
         // bit-for-bit no-op. See SystemScheduler.h.
-        void UpdateScripts(Timestep ts);    // C# + Lua entity OnUpdate
-        void UpdateCinematics(Timestep ts); // authored sequence playback
+        void UpdateScripts(Timestep ts);       // C# + Lua entity OnUpdate
+        void UpdateVisualScripts(Timestep ts); // node-graph gameplay logic (issue #634)
+        void UpdateCinematics(Timestep ts);    // authored sequence playback
         // Reusable player + camera rig (issue #645). Split across two nodes for
         // ORDERING, not for parallelism: the input/movement half must land
         // before the physics kick so the same tick's step integrates it, while
@@ -983,6 +1012,7 @@ namespace OloEngine
         void UpdatePlayerRig(Timestep ts);       // input -> character motion (pre-physics)
         void UpdateCameraRig(Timestep ts);       // spring-arm camera placement (post-everything)
         void UpdateDialogue(Timestep ts);        // dialogue runner
+        void UpdateSubtitles(Timestep ts);       // caption overlay (issue #458)
         void UpdateLocomotion(Timestep ts);      // velocity->animation-parameter controller (issue #631)
         void UpdateRetargeting(Timestep ts);     // live-retarget clip bake (issue #631)
         void UpdateAnimation(Timestep ts);       // skeletal + morph-only sampling
@@ -1167,7 +1197,13 @@ namespace OloEngine
 
         std::unique_ptr<SceneStreamer> m_SceneStreamer;
         std::unique_ptr<DialogueSystem> m_DialogueSystem;
+        // Declared AFTER m_DialogueSystem so it is destroyed first: both hold
+        // UUIDs into m_EntityMap and tear their UI entities down in reverse
+        // declaration order (same constraint the m_DialogueSystem.reset() in
+        // ~Scene documents).
+        std::unique_ptr<SubtitleSystem> m_SubtitleSystem;
         DialogueVariables m_DialogueVariables;
+        std::unique_ptr<VisualScript::VisualScriptSystem> m_VisualScriptSystem;
 
         // Navigation
         Ref<NavMesh> m_NavMesh;

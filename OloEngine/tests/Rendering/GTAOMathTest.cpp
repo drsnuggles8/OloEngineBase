@@ -454,6 +454,139 @@ TEST(GTAOMath, GtaoShaderSkyEarlyOutIsUlpTolerant)
            "depth (1.0 - 1 D24 ULP) will classify as geometry and blacken the sky";
 }
 
+// Issue #771, layer 1 — the AO CONSUMER must follow the graph, not the setting.
+//
+// `ActiveAOTechnique` selects which AO pass RegisterSceneAndLightingNodes adds
+// to the graph, and that switch runs at TOPOLOGY-BUILD time. So the field has
+// two readers on different clocks: the topology (recorded in
+// `ActiveGraphAOTechnique`, updated only by ConfigureRenderGraph) and the
+// per-frame pipeline hook. While they disagreed, PopulateBlackboard declared
+// AOBuffer and enabled AOApplyPass for a producer that was NOT in the graph —
+// so AOApplyPass multiplied the whole frame by a transient nobody wrote. The
+// graph said so outright: its "AO/Post order" trace read `GTAO=n/a` and the
+// submission plan contained no GTAOPass at all.
+//
+// Keying the consumer off the graph makes an unapplied technique change
+// degrade to "no AO" instead of a black frame.
+TEST(GTAOMath, AoConsumersKeyOffTheGraphsTechniqueNotTheRequestedOne)
+{
+    const std::string src = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" /
+                                         "Renderer" / "RenderPipeline.cpp");
+    ASSERT_FALSE(src.empty());
+
+    // The AOApply enable gate.
+    EXPECT_NE(src.find("data.ActiveGraphAOTechnique == AOTechnique::SSAO && data.PostProcess.SSAOEnabled"),
+              std::string::npos)
+        << "the AOApply enable gate no longer keys off the technique the GRAPH was built with — a "
+           "requested-but-unapplied AO technique will enable the apply pass with no producer "
+           "registered, and the frame gets multiplied by an unwritten AO buffer (#771)";
+    EXPECT_NE(src.find("data.ActiveGraphAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled"),
+              std::string::npos)
+        << "the AOApply enable gate no longer keys off the graph's technique for GTAO (#771)";
+
+    // ...and the AOBuffer declaration + the two scratch-declaration gates,
+    // which are the other half: declaring the buffer is what gives the consumer
+    // something to sample in the first place. Counted rather than matched
+    // line-by-line so reformatting cannot silently retire the check.
+    u32 graphKeyedGates = 0;
+    for (std::size_t at = src.find("data.ActiveGraphAOTechnique"); at != std::string::npos;
+         at = src.find("data.ActiveGraphAOTechnique", at + 1))
+    {
+        ++graphKeyedGates;
+    }
+    EXPECT_GE(graphKeyedGates, 5u)
+        << "expected the AOApply enable gate (x2), the AOBuffer declaration (x2) and the SSAO/GTAO "
+           "scratch declarations to key off ActiveGraphAOTechnique; found "
+        << graphKeyedGates
+        << " site(s). A gate that fell back to PostProcess.ActiveAOTechnique re-opens #771.";
+
+    // The precise regression: an AO gate comparing the REQUESTED technique.
+    EXPECT_EQ(src.find("data.PostProcess.ActiveAOTechnique == AOTechnique::"), std::string::npos)
+        << "an AO gate compares PostProcess.ActiveAOTechnique again — that is the setting the caller "
+           "asked for, not the one the graph has a pass registered for (#771)";
+
+    // BOTH ends of the seam. The producers bail out of Setup/Execute on their own
+    // m_Settings.ActiveAOTechnique, so they must be handed the graph's technique
+    // too — otherwise the identical black frame reappears with the roles swapped
+    // (graph wired for GTAO, request flipped to SSAO, nobody writes AOBuffer).
+    EXPECT_NE(src.find("aoProducerSettings.ActiveAOTechnique = data.ActiveGraphAOTechnique"), std::string::npos)
+        << "the AO producers are no longer handed the graph's technique — SSAORenderPass / "
+           "GTAORenderPass will decline to run while the consumer side still enables AOApply (#771)";
+    EXPECT_EQ(src.find("SSAO->SetSettings(data.PostProcess)"), std::string::npos)
+        << "SSAORenderPass is fed the requested technique again (#771)";
+    EXPECT_EQ(src.find("GTAO->SetSettings(data.PostProcess)"), std::string::npos)
+        << "GTAORenderPass is fed the requested technique again (#771)";
+}
+
+// Issue #771, layer 2 — the AO target must never reach AOApplyPass unwritten.
+//
+// PostProcess_SSAOApply computes `sceneColor * mix(1.0, ao, intensity)`, so an
+// AO texel of 0 multiplies the scene to EXACTLY black. GTAO.comp cannot produce
+// 0: every path either stores full visibility (sky / no-normal / degenerate
+// early-outs) or falls through the `clamp(visibility, 0.03, 1.0)` floor below.
+// So an AO texel of 0 arriving at the apply pass ALWAYS means storage nobody
+// wrote. Layer 1 above stops the graph from ever asking for that; this is the
+// belt-and-braces half — GTAORenderPass itself must not leave its own output
+// unwritten when it skips a frame for any other reason.
+//
+// This pins BOTH halves, since either alone is silently useless: the
+// shader-side floor (0 is not producible) and the pass-side guarantee (every
+// early return past the AO resolve publishes the no-occlusion identity).
+TEST(GTAOMath, GtaoAoTargetIsNeverLeftUnwrittenForTheApplyPass)
+{
+    const std::string shaderSrc = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "GTAO.comp");
+    ASSERT_FALSE(shaderSrc.empty());
+    EXPECT_NE(shaderSrc.find("clamp(visibility, 0.03, 1.0)"), std::string::npos)
+        << "GTAO.comp lost its positive visibility floor — AO == 0 becomes a value the pass can "
+           "legitimately produce, and 'the AO target was never written' stops being diagnosable";
+
+    // The identity itself lives in the shared helper both AO producers call, so
+    // the two cannot drift apart.
+    const std::string identitySrc = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" /
+                                                 "Renderer" / "Passes" / "AOTargetIdentity.h");
+    ASSERT_FALSE(identitySrc.empty());
+    EXPECT_NE(identitySrc.find("ClearTextureFloat(aoTarget, 0, glm::vec4(1.0f))"), std::string::npos)
+        << "PublishAOTargetAsFullyVisible no longer clears the AO target to 1.0 (fully visible)";
+
+    // SSAO is the other producer of the same resource and has the same duty: its
+    // clear-to-white covers only its own SSAORaw/SSAOBlur scratch and sits after
+    // its early returns, so AOBuffer needs the explicit publish too.
+    const std::string ssaoSrc = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" /
+                                             "Renderer" / "Passes" / "SSAORenderPass.cpp");
+    ASSERT_FALSE(ssaoSrc.empty());
+    EXPECT_NE(ssaoSrc.find("PublishAOTargetAsFullyVisible("), std::string::npos)
+        << "SSAORenderPass no longer publishes the no-occlusion identity on its early returns — the "
+           "same unwritten-AOBuffer black frame as #771, on the SSAO technique";
+
+    const std::string passSrc = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" /
+                                             "Renderer" / "Passes" / "GTAORenderPass.cpp");
+    ASSERT_FALSE(passSrc.empty());
+
+    // Every `return;` in Execute() from the moment the AO target is RESOLVED
+    // (i.e. from the moment AOApplyPass is guaranteed to sample it this frame)
+    // must publish the identity first.
+    const auto resolvePos = passSrc.find("aoOutputTexID = context.ResolveTextureHandle(");
+    ASSERT_NE(resolvePos, std::string::npos) << "AO target resolve not found in GTAORenderPass::Execute";
+    const auto executeEnd = passSrc.find("void GTAORenderPass::PublishNoOcclusion");
+    ASSERT_NE(executeEnd, std::string::npos) << "PublishNoOcclusion definition not found";
+    ASSERT_GT(executeEnd, resolvePos);
+
+    const std::string tail = passSrc.substr(resolvePos, executeEnd - resolvePos);
+    u32 guardedReturns = 0;
+    for (std::size_t at = tail.find("return;"); at != std::string::npos; at = tail.find("return;", at + 1))
+    {
+        const std::size_t windowStart = at > 400u ? at - 400u : 0u;
+        const std::string window = tail.substr(windowStart, at - windowStart);
+        EXPECT_NE(window.find("PublishNoOcclusion("), std::string::npos)
+            << "GTAORenderPass::Execute has an early return after the AO target is resolved that does "
+               "NOT publish the no-occlusion identity first — AOApplyPass will multiply the scene by "
+               "whatever the transient pool handed us, and on fresh (zeroed) storage that is an "
+               "exactly black frame (#771)";
+        ++guardedReturns;
+    }
+    EXPECT_GT(guardedReturns, 0u) << "no early returns found to check — the scan anchor probably moved";
+}
+
 TEST(GTAOMath, HzbShaderFirstPassCopiesDepthWithTexelFetch)
 {
     const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "HZB.comp");

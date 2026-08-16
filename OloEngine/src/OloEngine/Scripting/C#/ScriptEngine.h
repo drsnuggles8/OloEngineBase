@@ -103,7 +103,24 @@ namespace OloEngine
 
         MonoObject* Instantiate() const;
         MonoMethod* GetMethod(const std::string& name, int parameterCount) const;
-        MonoObject* InvokeMethod(MonoObject* instance, MonoMethod* method, void** params = nullptr);
+        /// `outThrew` (optional) reports whether the managed call raised an
+        /// unhandled exception. The return value cannot answer that — a void
+        /// method returns nullptr on success too — so a caller that needs to
+        /// report success/failure must pass this.
+        MonoObject* InvokeMethod(MonoObject* instance, MonoMethod* method, void** params = nullptr, bool* outThrew = nullptr);
+
+        /// Whether `method` is static. Callers that invoke with a null instance
+        /// MUST check this first: mono_runtime_invoke with a null `this` on an
+        /// instance method is undefined behaviour, not a catchable error. Lives
+        /// here so callers do not have to include the Mono headers themselves.
+        [[nodiscard("Store this!")]] static bool IsMethodStatic(MonoMethod* method);
+
+        /// True only for a method taking exactly one `float`. GetMethod matches on
+        /// ARITY alone, so a one-argument overload taking anything else — int,
+        /// string, a struct — comes back happily and then reinterprets the caller's
+        /// `f32*` as that type inside mono_runtime_invoke. That is memory
+        /// corruption, not a managed exception, so it has to be refused up front.
+        [[nodiscard("Store this!")]] static bool IsMethodSingleFloatParameter(MonoMethod* method);
 
         [[nodiscard("Store this!")]] const std::map<std::string, ScriptField>& GetFields() const
         {
