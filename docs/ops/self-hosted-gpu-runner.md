@@ -123,18 +123,35 @@ sudo dnf install -y \
   wayland-devel wayland-protocols-devel libxkbcommon-devel \
   glslang-devel spirv-tools \
   python3-jinja2 \
-  autoconf autoconf-archive automake libtool pkgconf-pkg-config
+  autoconf autoconf-archive automake libtool pkgconf-pkg-config \
+  curl zip unzip tar
 ```
 
-**The autotools row is required since the vcpkg manifest migration (#773/#781).**
-Ports with an autotools Linux build (libsodium is the one in this manifest) need
-`autoconf`/`automake`/`libtoolize`/`autoconf-archive`/`pkg-config` from the
-system. The `setup-vcpkg` composite action *verifies* these on a self-hosted
-runner and fails with a provisioning message naming this section — it only
-auto-installs on GitHub-hosted images, where passwordless sudo + apt-get exist.
-(An earlier version ran `sudo apt-get` unconditionally, which died on this
-Rocky host with "sudo: a terminal is required to read the password" and kept
-the nightly red for days before the suite ever built.)
+**The last two rows are required since the vcpkg manifest migration (#773/#781)**,
+and they are separate requirements that fail at different stages:
+
+- **autotools** — ports with an autotools Linux build (libsodium is the one in
+  this manifest) need `autoconf`/`automake`/`libtoolize`/`autoconf-archive`/
+  `pkg-config` from the system. Fails during the port build.
+- **`curl zip unzip tar`** — vcpkg's *own* `scripts/bootstrap.sh` requires these
+  before it will build `vcpkg-tool`, so a miss here fails earlier than any port,
+  with vcpkg's own "Could not find zip" help text rather than our message. This
+  host had neither `zip` nor `unzip` on a fresh Rocky 10 install. **Install all
+  four together**: bootstrap.sh reports only the *first* missing one, so fixing
+  the name it prints just surfaces the next on the following run.
+
+The `setup-vcpkg` composite action *verifies* both sets on a self-hosted runner
+and fails with a provisioning message naming this section — it only auto-installs
+on GitHub-hosted images, where passwordless sudo + apt-get exist. (An earlier
+version ran `sudo apt-get` unconditionally, which died on this Rocky host with
+"sudo: a terminal is required to read the password" and kept the nightly red for
+days before the suite ever built.)
+
+Both gaps share one root cause worth remembering when adding any new build
+dependency: **GitHub-hosted images ship a large implicit toolchain**, so a
+requirement that is invisible on `ubuntu-latest` is a hard provisioning step
+here. This box is the only place such a gap can surface, and it surfaces as a
+red nightly nobody reads.
 
 **`python3-jinja2` from dnf, not `pip install --user`.** glad2's code generation
 imports jinja2, and `--user` installs it into the *installing* user's home —
