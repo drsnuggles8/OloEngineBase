@@ -1,0 +1,62 @@
+#version 450 core
+
+// =============================================================================
+// The 1-thread kernel that runs between two levels of the GPU terrain descent
+// (issue #714).
+//
+// It swaps the persistent worklist's counters and writes both sets of indirect
+// arguments, so the CPU never learns how many nodes survived a level:
+//
+//   - PendingCount <- NextCount (clamped), NextCount <- 0
+//   - SelectDispatch  = groups for the next TerrainNodeSelect.comp dispatch
+//   - SeamDispatch    = groups for TerrainSeamMap.comp over the visible list
+//   - the terrain draw's DrawElementsIndirectCommand.instanceCount = visible count
+//
+// Clamping happens HERE rather than in the producer: the select kernel bumps its
+// counter before it knows whether the slot fits, so the raw counter can exceed
+// capacity. Every consumer reads the clamped value, and the overflow bit that
+// the producer set survives for the CPU-side warning.
+// =============================================================================
+
+#include "../include/TerrainQuadtreeCommon.glsl"
+#include "../include/TerrainCullParams.glsl"
+
+layout(local_size_x = 1) in;
+
+// DrawElementsIndirectCommand for the terrain patch draw. Its own buffer rather
+// than a tail of TerrainCullState, because glDrawElementsIndirect reads at
+// offset 0 of the bound GL_DRAW_INDIRECT_BUFFER.
+layout(std430, binding = 62) writeonly buffer TerrainDrawArgs
+{
+    uint Count;
+    uint InstanceCount;
+    uint FirstIndex;
+    uint BaseVertex;
+    uint BaseInstance;
+    uint _drawPad0;
+    uint _drawPad1;
+    uint _drawPad2;
+} b_TerrainDraw;
+
+void main()
+{
+    uint nextCount = min(b_TerrainState.NextCount, u_TerrainBufferParams.x);
+    b_TerrainState.PendingCount = nextCount;
+    b_TerrainState.NextCount = 0u;
+    // A zero-group dispatch is legal and does nothing, which is exactly what a
+    // level with no survivors should cost.
+    b_TerrainState.SelectDispatch = uvec3((nextCount + 63u) / 64u, 1u, 1u);
+
+    uint visible = min(b_TerrainState.VisibleCount, u_TerrainLevelParams.y);
+    b_TerrainState.VisibleCount = visible;
+    b_TerrainState.SeamDispatch = uvec3((visible + 63u) / 64u, 1u, 1u);
+
+    b_TerrainDraw.Count = u_TerrainBufferParams.w;
+    b_TerrainDraw.InstanceCount = visible;
+    b_TerrainDraw.FirstIndex = 0u;
+    b_TerrainDraw.BaseVertex = 0u;
+    b_TerrainDraw.BaseInstance = 0u;
+    b_TerrainDraw._drawPad0 = 0u;
+    b_TerrainDraw._drawPad1 = 0u;
+    b_TerrainDraw._drawPad2 = 0u;
+}

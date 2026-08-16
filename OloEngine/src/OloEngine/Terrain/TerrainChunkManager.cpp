@@ -4,8 +4,36 @@
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include <atomic>
+#include <cstdlib>
+
 namespace OloEngine
 {
+    namespace
+    {
+        // Enabled unless the process opts out — the bisection lever for "is the
+        // terrain wrong because of the GPU descent, or because of everything
+        // else?". Only the exact value "1" disables, matching the scheduler's
+        // OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL.
+        bool GpuDrivenLODDefault()
+        {
+            const char* env = std::getenv("OLO_TERRAIN_CPU_LOD");
+            return !(env && env[0] == '1' && env[1] == '\0');
+        }
+
+        std::atomic<bool> s_GpuDrivenLODEnabled{ GpuDrivenLODDefault() };
+    } // namespace
+
+    void TerrainChunkManager::SetGpuDrivenLODEnabled(bool enabled)
+    {
+        s_GpuDrivenLODEnabled.store(enabled, std::memory_order_relaxed);
+    }
+
+    bool TerrainChunkManager::IsGpuDrivenLODEnabled()
+    {
+        return s_GpuDrivenLODEnabled.load(std::memory_order_relaxed);
+    }
+
     void TerrainChunkManager::GenerateAllChunks(const TerrainData& terrainData,
                                                 f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
@@ -59,8 +87,22 @@ namespace OloEngine
         quadtreeDepth = std::max(quadtreeDepth, 2u); // At least 2 levels
         m_Quadtree.Build(terrainData, worldSizeX, worldSizeZ, heightScale, quadtreeDepth);
 
-        OLO_CORE_INFO("TerrainChunkManager: Built {}x{} chunks ({} total), quadtree depth {}",
-                      m_NumChunksX, m_NumChunksZ, totalChunks, quadtreeDepth);
+        // The GPU tree is NOT clamped to TerrainLODConfig::MAX_LOD_LEVELS
+        // (issue #714). That cap exists because the CPU descent's cost is a
+        // per-frame single-threaded walk; the GPU descent is one dispatch per
+        // level over a worklist the GPU sizes itself, so the useful depth is set
+        // by the heightmap, not by a frame budget. Its ceiling is the node
+        // pyramid's own limit.
+        const u32 gpuDepth = std::clamp(quadtreeDepth, 2u, TerrainGPUQuadtree::kMaxDepth);
+        if (!m_GPUQuadtree)
+        {
+            m_GPUQuadtree = Ref<TerrainGPUQuadtree>::Create();
+        }
+        m_GPUQuadtree->Build(TerrainQuadtree::BuildHeightPyramid(terrainData, heightScale, gpuDepth),
+                             gpuDepth, worldSizeX, worldSizeZ);
+
+        OLO_CORE_INFO("TerrainChunkManager: Built {}x{} chunks ({} total), quadtree depth {} (GPU depth {})",
+                      m_NumChunksX, m_NumChunksZ, totalChunks, quadtreeDepth, gpuDepth);
     }
 
     void TerrainChunkManager::RebuildChunk(const TerrainData& terrainData, u32 chunkX, u32 chunkZ,
@@ -87,6 +129,14 @@ namespace OloEngine
 
         m_SelectedChunks.clear();
 
+        // Whichever path runs LAST owns this frame's selection. Without this the
+        // submission side would keep taking the GPU branch off a stale node list
+        // the moment the GPU descent had ever succeeded once.
+        if (m_GPUQuadtree)
+        {
+            m_GPUQuadtree->ClearDispatched();
+        }
+
         // Run quadtree LOD selection
         m_Quadtree.SelectLOD(frustum, cameraPos, viewProjection, viewportHeight);
 
@@ -104,6 +154,39 @@ namespace OloEngine
                 m_SelectedChunks.push_back(rc);
             }
         }
+    }
+
+    bool TerrainChunkManager::DispatchGPULOD(const Frustum& frustum,
+                                             const glm::vec3& cameraPos,
+                                             const glm::mat4& viewProjection,
+                                             f32 viewportHeight,
+                                             f32 targetTriangleSize)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!IsGpuDrivenLODEnabled() || !m_GPUQuadtree || !m_GPUQuadtree->IsBuilt())
+        {
+            return false;
+        }
+
+        TerrainGPUQuadtree::CullInputs inputs;
+        inputs.ViewFrustum = frustum;
+        inputs.CameraPos = cameraPos;
+        inputs.ViewProjection = viewProjection;
+        inputs.ViewportHeight = viewportHeight;
+        inputs.TargetTriangleSize = targetTriangleSize;
+
+        if (!m_GPUQuadtree->Dispatch(inputs))
+        {
+            return false;
+        }
+
+        // Nothing per-chunk is produced on this path. Clearing makes that
+        // explicit: a consumer that still reads GetSelectedChunks() gets an
+        // empty list and draws nothing, rather than silently re-drawing the
+        // stale selection from whichever frame last ran the CPU descent.
+        m_SelectedChunks.clear();
+        return true;
     }
 
     void TerrainChunkManager::GetVisibleChunks(const Frustum& frustum,

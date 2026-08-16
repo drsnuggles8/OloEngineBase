@@ -1,0 +1,146 @@
+#version 450 core
+
+// =============================================================================
+// GPU terrain LOD quadtree — one dispatch per tree level (issue #714).
+//
+// This is the kernel that replaces TerrainQuadtree::SelectNode()'s recursive
+// CPU descent. Each thread takes one node off the pending worklist and does
+// exactly what the CPU did for that node:
+//
+//   1. frustum-cull it against the terrain-local planes  -> drop
+//   2. leaf, or screen-space error below the target      -> append to visible
+//   3. otherwise                                         -> append its 4 children
+//
+// The two appends are `atomicAdd` compactions into a pre-sized buffer. Issue
+// #713 is separately building a reusable exclusive-scan primitive; this list is
+// deliberately NOT built on it (see the note on #714's handover) — an unordered
+// atomic append is all a worklist needs, and the ordering a scan would buy is
+// not something any consumer here reads.
+//
+// The descent is bounded by the CPU's dispatch loop (maxDepth + 1 levels), so
+// there is no recursion and no persistent-thread spin: each level's group count
+// comes from the previous level's TerrainCullArgs.comp write, read back through
+// glDispatchComputeIndirect without a CPU round trip.
+// =============================================================================
+
+#include "../include/TerrainQuadtreeCommon.glsl"
+#include "../include/TerrainCullParams.glsl"
+
+layout(local_size_x = 64) in;
+
+// Per-node world-space height extremes, level-major (oloTerrainNodeIndex).
+// Built once per terrain rebuild by TerrainQuadtree's min/max pyramid, so the
+// GPU AABB is bit-identical to the CPU node's Bounds.
+layout(std430, binding = 54) readonly buffer TerrainNodeBounds
+{
+    vec2 b_NodeMinMaxY[];
+};
+
+layout(std430, binding = 55) readonly buffer TerrainNodeListIn
+{
+    uint b_NodesIn[];
+};
+
+layout(std430, binding = 56) writeonly buffer TerrainNodeListOut
+{
+    uint b_NodesOut[];
+};
+
+// x = packed node coord, y = packed seam deltas (filled by TerrainSeamMap.comp).
+layout(std430, binding = 59) writeonly buffer TerrainVisibleNodes
+{
+    uvec2 b_VisibleNodes[];
+};
+
+// One flag per node: 1 = this node split, so the LOD map must descend past it.
+// Cleared to zero every frame before the first dispatch.
+layout(std430, binding = 60) writeonly buffer TerrainSplitMap
+{
+    uint b_SplitMap[];
+};
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= b_TerrainState.PendingCount)
+        return;
+
+    uint packed = b_NodesIn[idx];
+    uint level = oloTerrainNodeLevel(packed);
+    uint nx = oloTerrainNodeX(packed);
+    uint ny = oloTerrainNodeY(packed);
+
+    // Terrain-local AABB. XZ from the node's share of the terrain footprint,
+    // Y from the precomputed pyramid — the same two extremes the CPU builder
+    // stored in TerrainQuadNode::Bounds.
+    float span = 1.0 / float(1u << level);
+    float minX = float(nx) * span * u_TerrainSizeAndTarget.x;
+    float maxX = float(nx + 1u) * span * u_TerrainSizeAndTarget.x;
+    float minZ = float(ny) * span * u_TerrainSizeAndTarget.y;
+    float maxZ = float(ny + 1u) * span * u_TerrainSizeAndTarget.y;
+
+    vec2 heightRange = b_NodeMinMaxY[oloTerrainNodeIndex(level, nx, ny)];
+    vec3 boundsMin = vec3(minX, heightRange.x, minZ);
+    vec3 boundsMax = vec3(maxX, heightRange.y, maxZ);
+
+    // Positive-vertex AABB test — Frustum::IsBoxVisible, transcribed.
+    for (int i = 0; i < 6; ++i)
+    {
+        vec4 plane = u_TerrainFrustumPlanes[i];
+        vec3 p = boundsMin;
+        if (plane.x >= 0.0)
+            p.x = boundsMax.x;
+        if (plane.y >= 0.0)
+            p.y = boundsMax.y;
+        if (plane.z >= 0.0)
+            p.z = boundsMax.z;
+        if (dot(plane.xyz, p) + plane.w < 0.0)
+            return; // culled — and deliberately NOT marked as split, so the LOD
+                    // map reports this subtree at `level`. A culled node draws
+                    // nothing, so an over-decimated edge on the visible side of
+                    // that boundary has no neighbour to crack against.
+    }
+
+    uint maxDepth = u_TerrainLevelParams.x;
+    if (level < maxDepth)
+    {
+        // CalculateScreenSpaceError(), transcribed: the geometric error is the
+        // node's larger world-space extent, projected by projScale / distance
+        // to the node centre.
+        float geometricError = max(maxX - minX, maxZ - minZ);
+        vec3 nodeCenter = (boundsMin + boundsMax) * 0.5;
+        float distance = max(length(u_TerrainCameraAndProjScale.xyz - nodeCenter), 0.001);
+        float screenError = (geometricError * u_TerrainCameraAndProjScale.w) / distance;
+
+        if (screenError >= u_TerrainSizeAndTarget.z)
+        {
+            b_SplitMap[oloTerrainNodeIndex(level, nx, ny)] = 1u;
+
+            uint capacity = u_TerrainBufferParams.x;
+            uint base = atomicAdd(b_TerrainState.NextCount, 4u);
+            uint childLevel = level + 1u;
+            // Bound every child slot individually rather than the whole group:
+            // a partially-fitting group must still fill the slots below the cap
+            // so the clamped PendingCount never addresses a stale entry from an
+            // earlier level or frame.
+            if (base + 0u < capacity)
+                b_NodesOut[base + 0u] = oloTerrainPackNode(childLevel, nx * 2u, ny * 2u);
+            if (base + 1u < capacity)
+                b_NodesOut[base + 1u] = oloTerrainPackNode(childLevel, nx * 2u + 1u, ny * 2u);
+            if (base + 2u < capacity)
+                b_NodesOut[base + 2u] = oloTerrainPackNode(childLevel, nx * 2u, ny * 2u + 1u);
+            if (base + 3u < capacity)
+                b_NodesOut[base + 3u] = oloTerrainPackNode(childLevel, nx * 2u + 1u, ny * 2u + 1u);
+            if (base + 4u > capacity)
+                atomicOr(b_TerrainState.OverflowFlags, OLO_TERRAIN_OVERFLOW_NODES);
+            return;
+        }
+    }
+
+    // Selected for rendering at this level.
+    uint outIdx = atomicAdd(b_TerrainState.VisibleCount, 1u);
+    if (outIdx < u_TerrainLevelParams.y)
+        b_VisibleNodes[outIdx] = uvec2(packed, 0u);
+    else
+        atomicOr(b_TerrainState.OverflowFlags, OLO_TERRAIN_OVERFLOW_VISIBLE);
+}

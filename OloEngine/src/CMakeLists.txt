@@ -1072,6 +1072,8 @@
 		"OloEngine/Terrain/TerrainChunk.cpp"
 		"OloEngine/Terrain/TerrainChunkManager.h"
 		"OloEngine/Terrain/TerrainChunkManager.cpp"
+		"OloEngine/Terrain/TerrainGPUQuadtree.h"
+		"OloEngine/Terrain/TerrainGPUQuadtree.cpp"
 		"OloEngine/Terrain/TerrainQuadtree.h"
 		"OloEngine/Terrain/TerrainQuadtree.cpp"
 		"OloEngine/Terrain/TerrainLayer.h"

@@ -7643,11 +7643,24 @@ namespace OloEngine
                         const auto& terrainTransform = terrainView.get<TransformComponent>(entity);
                         const TerrainLocalCullInputs local = MakeTerrainLocalCullInputs(
                             terrainTransform.GetTransform(), cameraPosition, viewProjection);
-                        terrain.m_ChunkManager->SelectVisibleChunks(
-                            local.ViewFrustum,
-                            local.CameraPos,
-                            local.ViewProjection,
-                            static_cast<f32>(m_ViewportHeight));
+
+                        // GPU descent first (issue #714): it does the whole
+                        // selection + seam resolution on the GPU and leaves an
+                        // indirect draw behind, so neither SelectLOD nor
+                        // ResolveNeighborLODs runs at all. It returns false when
+                        // the GPU tree is unusable (compute shaders unavailable,
+                        // or OLO_TERRAIN_CPU_LOD=1), and only then does the CPU
+                        // descent run.
+                        if (!terrain.m_ChunkManager->DispatchGPULOD(
+                                local.ViewFrustum, local.CameraPos, local.ViewProjection,
+                                static_cast<f32>(m_ViewportHeight), terrain.m_TargetTriangleSize))
+                        {
+                            terrain.m_ChunkManager->SelectVisibleChunks(
+                                local.ViewFrustum,
+                                local.CameraPos,
+                                local.ViewProjection,
+                                static_cast<f32>(m_ViewportHeight));
+                        }
                     }
                 }
 
@@ -7862,7 +7875,69 @@ namespace OloEngine
                                 }
                             }
 
-                            if (useTess)
+                            // GPU-driven LOD (issue #714). One instanced indirect
+                            // draw over the shared unit patch grid replaces the
+                            // per-selected-chunk loop below; the vertex stage
+                            // derives each instance's terrain rect and seam
+                            // deltas from the list the compute pass built.
+                            const auto& gpuQuadtree = chunkMgr.GetGPUQuadtree();
+                            const bool gpuDriven = useTess && gpuQuadtree && gpuQuadtree->HasDispatched();
+                            if (gpuDriven)
+                            {
+                                const auto& patchMesh = TerrainGPUQuadtree::GetSharedPatchMesh();
+                                if (patchMesh)
+                                {
+                                    ShaderBindingLayout::TerrainUBO gpuUBO = terrainUBOData;
+                                    // Tess level 1 on every edge: the quadtree now
+                                    // provides the LOD as real per-node geometry, and
+                                    // the seam snapping is what keeps neighbours
+                                    // welded. Subdividing on top would reintroduce
+                                    // the edge-density matching problem the snapping
+                                    // just solved.
+                                    gpuUBO.TessFactors = glm::vec4(1.0f);
+                                    gpuUBO.TessFactors2 = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+                                    gpuUBO.GpuDrivenMode = 1;
+                                    gpuUBO.GpuPatchGridRes = static_cast<i32>(TerrainGPUQuadtree::kPatchGridResolution);
+
+                                    auto* packet = Renderer3D::DrawTerrainPatch(
+                                        patchMesh->GetRHIHandle(),
+                                        TerrainGPUQuadtree::GetSharedPatchIndexCount(), 3,
+                                        terrainShader,
+                                        heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                        tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                        tileModel, gpuUBO, entityID,
+                                        gpuQuadtree->GetDrawArgsHandle(),
+                                        gpuQuadtree->GetVisibleNodesHandle());
+                                    if (packet)
+                                        Renderer3D::SubmitPacket(packet);
+                                }
+
+                                // Shadow casters stay on the chunk meshes. The
+                                // GPU visible list is culled against the CAMERA
+                                // frustum, so replaying it per cascade would drop
+                                // every caster that is off-screen but still
+                                // shadowing — and building a second GPU descent
+                                // per cascade is its own change. This matches what
+                                // the non-tessellated path has always done.
+                                if (hasActiveShadows)
+                                {
+                                    ShaderBindingLayout::TerrainUBO shadowUBO = terrainUBOData;
+                                    shadowUBO.TessFactors = glm::vec4(1.0f);
+                                    shadowUBO.TessFactors2.w = 1.0f;
+                                    std::vector<const TerrainChunk*> shadowChunks;
+                                    chunkMgr.GetVisibleChunks(tileCull.ViewFrustum, shadowChunks);
+                                    for (const auto* chunk : shadowChunks)
+                                    {
+                                        auto va = chunk->GetVertexArray();
+                                        if (!va)
+                                            continue;
+                                        Renderer3D::AddTerrainShadowCaster(
+                                            va->GetRHIHandle(), chunk->GetIndexCount(), 3,
+                                            tileModel, heightmapID, shadowUBO);
+                                    }
+                                }
+                            }
+                            else if (useTess)
                             {
                                 const auto& selectedChunks = chunkMgr.GetSelectedChunks();
                                 for (const auto& rc : selectedChunks)

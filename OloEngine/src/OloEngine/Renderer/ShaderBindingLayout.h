@@ -303,8 +303,12 @@ namespace OloEngine
             glm::vec4 WorldSizeAndHeightScale; // xy = world size X/Z, z = height scale, w = chunk size
             glm::vec4 TerrainParams;           // x = texel size, y = inv heightmap res, z = layerCount, w = triplanarSharpness
             i32 HeightmapResolution;
-            i32 _terrainPad0 = 0;
-            i32 _terrainPad1 = 0;
+            // 0 = the patch VBO carries baked chunk geometry (the pre-#714 path,
+            // and still what the shadow-caster draws use); 1 = the VBO is the
+            // shared unit grid and the vertex stage derives its terrain rect
+            // from the GPU-built visible-node list at SSBO 59.
+            i32 GpuDrivenMode = 0;
+            i32 GpuPatchGridRes = 0; // vertices per patch edge (K) in GPU-driven mode
             i32 _terrainPad2 = 0;
             glm::vec4 TessFactors;          // x = inner, y = +X edge, z = -X edge, w = +Z edge
             glm::vec4 TessFactors2;         // x = -Z edge, y = morphFactor, z = LODLevel, w = tessEnabled flag
@@ -316,6 +320,30 @@ namespace OloEngine
             static constexpr u32 GetSize()
             {
                 return sizeof(TerrainUBO);
+            }
+        };
+
+        // @brief GPU terrain LOD quadtree descent params (binding 79, issue #714).
+        //
+        // Everything the GPU descent needs, precomputed so the shader is a
+        // transcription of TerrainQuadtree::SelectNode rather than a second
+        // implementation of it: the planes come from Frustum::Update() and
+        // ProjScale from CalculateScreenSpaceError's
+        // `viewProjection[1][1] * viewportHeight * 0.5`. GLSL twin:
+        // TerrainCullParams in include/TerrainCullParams.glsl.
+        struct TerrainCullUBO
+        {
+            // Terrain-LOCAL planes (xyz = normal, w = distance), normalized and
+            // ordered Near, Far, Left, Right, Top, Bottom — Frustum::Planes order.
+            glm::vec4 FrustumPlanes[6];
+            glm::vec4 CameraAndProjScale{ 0.0f }; // xyz = terrain-local camera, w = projection scale
+            glm::vec4 SizeAndTarget{ 0.0f };      // x/y = world size X/Z, z = split threshold, w = unused
+            glm::uvec4 LevelParams{ 0u };         // x = max depth, y = visible capacity, z = patch grid K, w = max seam delta
+            glm::uvec4 BufferParams{ 0u };        // x = node list capacity, y = LOD map resolution, z = total nodes, w = patch index count
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(TerrainCullUBO);
             }
         };
 
@@ -1326,6 +1354,8 @@ namespace OloEngine
 
     // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
     static_assert(sizeof(UBOStructures::TerrainUBO) % 16 == 0, "TerrainUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::TerrainCullUBO) % 16 == 0, "TerrainCullUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::TerrainCullUBO) == 160, "TerrainCullUBO unexpected size — update include/TerrainCullParams.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) % 16 == 0, "BrushPreviewUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::FoliageUBO) % 16 == 0, "FoliageUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::TerrainUBO) == 144, "TerrainUBO unexpected size — update GLSL layout");
@@ -1498,6 +1528,16 @@ namespace OloEngine
         // assertion move with it.
         static constexpr u32 UBO_COLORBLIND = 78;
 
+        // GPU terrain LOD quadtree descent params (TerrainCullUBO — issue #714):
+        // the six terrain-LOCAL frustum planes, the camera position, the
+        // precomputed projection scale and the tree/buffer dimensions. Shared
+        // verbatim by all four Terrain*.comp kernels through
+        // include/TerrainCullParams.glsl. NOT folded into UBO_TERRAIN (10) —
+        // that block is the RENDER side, declared by five terrain .glsl files
+        // across three stages each, and growing it would relayout every one of
+        // them for data no drawing stage reads.
+        static constexpr u32 UBO_TERRAIN_CULL = 79;
+
         // ONE past the highest engine UBO binding above. Every consumer that
         // needs to size an array over "all UBO bindings" derives it from here
         // instead of naming a hand-picked constant — GLStateGuard's UBO-leak
@@ -1507,12 +1547,12 @@ namespace OloEngine
         // that). A hand-picked name has to be MOVED on every addition; this
         // one only has to be RAISED when a binding exceeds it, which the
         // static_assert below makes a compile error rather than a black frame.
-        static constexpr u32 UBO_BINDING_LIMIT = 79;
+        static constexpr u32 UBO_BINDING_LIMIT = 80;
         static_assert(UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBES < UBO_BINDING_LIMIT && UBO_HEAP_OFFSETS < UBO_BINDING_LIMIT &&
                           UBO_DEBUG_DRAW < UBO_BINDING_LIMIT && UBO_PRECIPITATION_FEED < UBO_BINDING_LIMIT &&
-                          UBO_COLORBLIND < UBO_BINDING_LIMIT,
+                          UBO_COLORBLIND < UBO_BINDING_LIMIT && UBO_TERRAIN_CULL < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         static_assert(UBO_BINDING_LIMIT <= 84,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
@@ -1798,6 +1838,23 @@ namespace OloEngine
         // and slice mapping as the Forward+ light grid.
         static constexpr u32 SSBO_REFLECTION_PROBE_GRID = 53;
 
+        // GPU terrain LOD quadtree (issue #714). The descent is a persistent
+        // worklist: two ping-pong node lists whose roles swap every level, a
+        // state block holding the counters AND both indirect-argument triples,
+        // and three products (visible nodes, split map, LOD level map). All
+        // eight are bound only while a Terrain*.comp kernel or a terrain draw is
+        // in flight, but they get their own numbers rather than reusing an
+        // unrelated system's the way the two-phase instance cull does — terrain
+        // draws are ordinary scene geometry and share the frame with everything.
+        static constexpr u32 SSBO_TERRAIN_NODE_BOUNDS = 54;   // vec2[node]: world-space min/max Y, level-major
+        static constexpr u32 SSBO_TERRAIN_NODE_LIST_IN = 55;  // uint[]: this level's pending packed node coords
+        static constexpr u32 SSBO_TERRAIN_NODE_LIST_OUT = 56; // uint[]: children appended for the next level
+        static constexpr u32 SSBO_TERRAIN_CULL_STATE = 58;    // TerrainGpuCullState: counters + dispatch args (also bound as GL_DISPATCH_INDIRECT_BUFFER)
+        static constexpr u32 SSBO_TERRAIN_VISIBLE_NODES = 59; // uvec2[]: (packed coord, packed seam deltas), read by the terrain vertex stage via gl_InstanceIndex
+        static constexpr u32 SSBO_TERRAIN_SPLIT_MAP = 60;     // uint[node]: 1 = this node split this frame
+        static constexpr u32 SSBO_TERRAIN_LOD_MAP = 61;       // uint[(1<<depth)^2]: selected level per finest-node texel
+        static constexpr u32 SSBO_TERRAIN_DRAW_ARGS = 62;     // DrawElementsIndirectCommand (also bound as GL_DRAW_INDIRECT_BUFFER, so it must be its own buffer at offset 0)
+
         // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691
         // Phase 7 Wave C, ADR items A2/A3). On the Vulkan backend pipelines
         // carry no vertex-input state — a shader's OLO_VULKAN branch reads its
@@ -1840,6 +1897,7 @@ namespace OloEngine
         using IBLAdvancedParamsUBO = UBOStructures::IBLAdvancedParamsUBO;
         using ShadowUBO = UBOStructures::ShadowUBO;
         using TerrainUBO = UBOStructures::TerrainUBO;
+        using TerrainCullUBO = UBOStructures::TerrainCullUBO;
         using LightProbeVolumeUBO = UBOStructures::LightProbeVolumeUBO;
         using BrushPreviewUBO = UBOStructures::BrushPreviewUBO;
         using FoliageUBO = UBOStructures::FoliageUBO;
@@ -2016,6 +2074,8 @@ namespace OloEngine
                     return name.contains("ReflectionProbeCull") || name.contains("reflectionProbeCull");
                 case UBO_COLORBLIND:
                     return name.contains("ColorBlind") || name.contains("colorBlind");
+                case UBO_TERRAIN_CULL:
+                    return name.contains("TerrainCull") || name.contains("terrainCull");
                 default:
                     return false;
             }

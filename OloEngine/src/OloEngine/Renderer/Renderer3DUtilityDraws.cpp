@@ -644,7 +644,9 @@ namespace OloEngine
         RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
         const glm::mat4& transform,
         const ShaderBindingLayout::TerrainUBO& terrainUBO,
-        i32 entityID)
+        i32 entityID,
+        RHI::ResourceHandle terrainIndirectArgsID,
+        RHI::ResourceHandle terrainVisibleNodesID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -698,6 +700,8 @@ namespace OloEngine
         cmd->armArrayTextureID = armArrayID;
         cmd->transform = transform;
         cmd->entityID = entityID;
+        cmd->terrainIndirectArgsID = terrainIndirectArgsID;
+        cmd->terrainVisibleNodesID = terrainVisibleNodesID;
         cmd->terrainUBOData = terrainUBO;
 
         // Terrain is opaque — depth test on, no blending, culling on

@@ -31,6 +31,10 @@ layout(location = 2) in vec3 a_Normal;
 #endif
 
 // Pass through to tessellation control shader
+// GPU-driven LOD (issue #714). Inert when u_TerrainGpuDriven == 0, which is
+// every chunk-geometry draw including the shadow casters.
+#include "include/TerrainGpuDrivenVertex.glsl"
+
 layout(location = 0) out vec3 v_Position;
 layout(location = 1) out vec2 v_TexCoord;
 layout(location = 2) out vec3 v_Normal;
@@ -43,9 +47,15 @@ void main()
     vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4]);
     vec3 a_Normal = vec3(b_Vertices.v[vertBase + 5], b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
 #endif
-    v_Position = a_Position;
-    v_TexCoord = a_TexCoord;
-    v_Normal = a_Normal;
+    // Copies, because the GL branch's a_* are `in` variables.
+    vec3 position = a_Position;
+    vec2 texCoord = a_TexCoord;
+    vec3 normal = a_Normal;
+    oloTerrainApplyGpuDrivenNode(position, texCoord, normal);
+
+    v_Position = position;
+    v_TexCoord = texCoord;
+    v_Normal = normal;
 }
 
 #type tess_control
@@ -82,8 +92,8 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
     vec4 u_TerrainParams;
     int u_HeightmapResolution;
-    int _terrainPad0;
-    int _terrainPad1;
+    int u_TerrainGpuDriven;
+    int u_TerrainGpuGridRes;
     int _terrainPad2;
     vec4 u_TessFactors;
     vec4 u_TessFactors2;
@@ -174,8 +184,8 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
     vec4 u_TerrainParams;
     int u_HeightmapResolution;
-    int _terrainPad0;
-    int _terrainPad1;
+    int u_TerrainGpuDriven;
+    int u_TerrainGpuGridRes;
     int _terrainPad2;
     vec4 u_TessFactors;
     vec4 u_TessFactors2;
@@ -336,8 +346,8 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
     vec4 u_TerrainParams;
     int u_HeightmapResolution;
-    int _terrainPad0;
-    int _terrainPad1;
+    int u_TerrainGpuDriven;
+    int u_TerrainGpuGridRes;
     int _terrainPad2;
     vec4 u_TessFactors;
     vec4 u_TessFactors2;

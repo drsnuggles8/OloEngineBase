@@ -756,6 +756,22 @@ namespace OloEngine
         glDispatchCompute(groupsX, groupsY, groupsZ);
     }
 
+    void OpenGLRendererAPI::DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const GLuint argsBufferID = Utils::ResolveNativeAs(argsBuffer, RHI::ResourceKind::Buffer);
+        if (argsBufferID == 0)
+            return;
+
+        // The caller is responsible for a GL_COMMAND_BARRIER_BIT between the
+        // kernel that wrote these arguments and this dispatch — without it the
+        // group count read here is whatever was in the buffer before.
+        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, argsBufferID);
+        glDispatchComputeIndirect(static_cast<GLintptr>(offsetBytes));
+        glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, 0);
+    }
+
     void OpenGLRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
         OLO_PROFILE_FUNCTION();
@@ -769,7 +785,8 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 
-    void OpenGLRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer)
+    void OpenGLRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
+                                                      RHI::PrimitiveTopology topology)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -780,7 +797,7 @@ namespace OloEngine
         // No glBindVertexArray: the caller's BindVAOIfNeeded already bound it,
         // and binding here would defeat that cache (see the DrawBound* family).
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
-        glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
+        glDrawElementsIndirect(Utils::ToGL(topology), GL_UNSIGNED_INT, nullptr);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 
         // The actual instance/triangle counts live on the GPU (the cull

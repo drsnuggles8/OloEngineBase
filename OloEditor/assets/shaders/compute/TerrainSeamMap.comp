@@ -1,0 +1,80 @@
+#version 450 core
+
+// =============================================================================
+// Terrain LOD seam map (issue #714) — the replacement for
+// TerrainQuadtree::ResolveNeighborLODs().
+//
+// One thread per visible node. It samples the LOD level map one texel outside
+// each of the node's four edges and packs the four `max(0, myLevel -
+// neighbourLevel)` deltas into the node's list entry. The vertex stage unpacks
+// them and snaps that edge's vertices down to the neighbour's spacing.
+//
+// Sampling ONE point per edge is exact, not an approximation. Along a node's
+// +X edge the neighbourhood is either a single node at level <= mine (a coarser
+// node is at least twice as wide, so it spans the whole edge and every texel
+// there reports the same level), or several nodes at a FINER level — for which
+// the delta is 0 anyway, because the finer side is the one that decimates. A
+// coarse/fine mix along one edge is geometrically impossible.
+//
+// Dispatched indirectly from TerrainCullState::SeamDispatch, so the visible-node
+// count never round-trips through the CPU.
+// =============================================================================
+
+#include "../include/TerrainQuadtreeCommon.glsl"
+#include "../include/TerrainCullParams.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 59) buffer TerrainVisibleNodes
+{
+    uvec2 b_VisibleNodes[];
+};
+
+layout(std430, binding = 61) readonly buffer TerrainLODMap
+{
+    uint b_LODMap[];
+};
+
+// Level covering `texel`, or `myLevel` (delta 0) outside the terrain — the edge
+// of the world has no neighbour to stitch to, matching the CPU path's
+// "FindLeafAt returned null -> use my own LOD".
+uint seamDeltaAt(uint myLevel, ivec2 texel, uint resolution)
+{
+    if (texel.x < 0 || texel.y < 0 || texel.x >= int(resolution) || texel.y >= int(resolution))
+        return 0u;
+
+    uint neighbourLevel = b_LODMap[uint(texel.y) * resolution + uint(texel.x)];
+    uint delta = (myLevel > neighbourLevel) ? (myLevel - neighbourLevel) : 0u;
+    // A patch has only K vertices per edge, so it cannot decimate by more than
+    // log2(K) steps. Clamping degrades an extreme level jump to the coarsest
+    // edge the patch can express instead of collapsing it to a single vertex.
+    return min(delta, u_TerrainLevelParams.w);
+}
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= b_TerrainState.VisibleCount)
+        return;
+
+    uint packed = b_VisibleNodes[index].x;
+    uint level = oloTerrainNodeLevel(packed);
+    uint nx = oloTerrainNodeX(packed);
+    uint ny = oloTerrainNodeY(packed);
+
+    uint maxDepth = u_TerrainLevelParams.x;
+    uint resolution = u_TerrainBufferParams.y;
+
+    // The node's footprint in finest-level texels.
+    uint step = 1u << (maxDepth - level);
+    ivec2 origin = ivec2(int(nx * step), int(ny * step));
+    int mid = int(step >> 1u); // 0 when step == 1, which is the correct
+                               // single-texel case rather than a degenerate one.
+
+    uint dPX = seamDeltaAt(level, origin + ivec2(int(step), mid), resolution);
+    uint dNX = seamDeltaAt(level, origin + ivec2(-1, mid), resolution);
+    uint dPZ = seamDeltaAt(level, origin + ivec2(mid, int(step)), resolution);
+    uint dNZ = seamDeltaAt(level, origin + ivec2(mid, -1), resolution);
+
+    b_VisibleNodes[index].y = oloTerrainPackSeams(dPX, dNX, dPZ, dNZ);
+}

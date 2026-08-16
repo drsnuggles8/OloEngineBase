@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Terrain/TerrainGPUQuadtree.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 
 // Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
@@ -528,6 +529,11 @@ namespace OloEngine
         // Release the debug-draw channels + their readback staging (#725) while
         // GL is alive.
         ShaderDebugDraw::Shutdown();
+
+        // Release the terrain GPU-LOD patch mesh (#714) while GL is alive — it
+        // is a process-wide static, so its Ref would otherwise run
+        // glDeleteVertexArrays at process exit against a dead context.
+        TerrainGPUQuadtree::ReleaseSharedPatchMesh();
 
         // Release the virtualized-geometry GPU pools (#629) while GL is alive.
         VirtualMeshRegistry::Get().Shutdown();

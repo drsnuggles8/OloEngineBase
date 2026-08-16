@@ -102,6 +102,7 @@ add_executable(OloEngine-Tests
 		Rendering/CameraRelativeTest.cpp
 		Rendering/Renderer2DCameraRelativeTest.cpp
 		Rendering/TerrainCameraRelativeLODTest.cpp
+		Rendering/TerrainGPUQuadtreeTest.cpp
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/SubmeshMaterialResolveTest.cpp
@@ -311,6 +312,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
 		Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainCameraRelativeVisualEvidenceTest.cpp
+		Rendering/PropertyTests/TerrainGPUQuadtreeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp

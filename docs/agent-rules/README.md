@@ -195,6 +195,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [render-pipeline-caches.md](render-pipeline-caches.md) ·
 [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) ·
 [cluster-lod-simplification.md](cluster-lod-simplification.md) ·
+[terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md) ·
 [camera-relative-rendering.md](camera-relative-rendering.md) ·
 [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) ·
 [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) ·
