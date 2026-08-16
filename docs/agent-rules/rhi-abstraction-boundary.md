@@ -4,8 +4,11 @@ Working notes for issue [#691](https://github.com/drsnuggles8/OloEngineBase/issu
 (add a Vulkan backend alongside OpenGL 4.6). The *decisions* live in
 [ADR 0010](../adr/0010-vulkan-rhi-heap-bindless-only.md) (scope) and
 [ADR 0011](../adr/0011-rhi-neutral-resource-and-binding-model.md) (the neutral
-model, backend selection, PSO cache). This file is the part a future session
-would otherwise have to rediscover by reading the whole renderer.
+model, backend selection, PSO cache; its amendment *bodies* are split into
+[0011-amendments.md](../adr/0011-amendments.md) and indexed from the parent,
+so a citation like "amendment (63)" resolves there). This file is the part a
+future session would otherwise have to rediscover by reading the whole
+renderer.
 
 ---
 
