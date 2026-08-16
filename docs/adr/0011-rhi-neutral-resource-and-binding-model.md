@@ -33,53 +33,14 @@ Nothing is converted; no `Ref<T>` changes; no `VkXxx` anywhere.
 
 ## 0. The survey the design is built on
 
-The issue's body estimated "~620 raw `glXxx()` calls outside `Platform/OpenGL/`";
-the task handover measured 724. Neither reproduces. The 724 came from a pattern
-loose enough to match `glfw*` window calls, which are not GL — that accounts for
-almost the entire gap. (Stripping comments and string literals matters too, but
-much less: with the same pattern it removes only 16 of 565 hits. It is still
-worth doing for a number a test asserts on.)
-
-Measured on `ca260e44` with comments and string/char/raw-string literals
-stripped first (the exact rule the ratchet test implements — see
-`OloEngine/tests/Rendering/RHIBoundaryRatchetTest.cpp`), counting identifiers
-matching `gl[A-Z]\w*` immediately followed by `(`:
-
-| Bucket | GL calls | Files with calls | Files including `<glad/gl.h>` |
-| --- | ---: | ---: | ---: |
-| **Sweep** — `OloEngine/` minus `Renderer/Debug/` | **313** | 35 | 70 |
-| **Tools** — `OloEngine/Renderer/Debug/` | **236** | 7 | 9 |
-| Backend — `Platform/OpenGL/` (not a violation) | 497 | 16 | 22 |
-| **Total outside `Platform/OpenGL/`** | **549** | **42** | **79** |
-
-108 distinct GL entry points are used outside the backend. Four corrections to
-the picture the issue paints:
-
-- **Window/context creation contributes zero raw GL.** The handover attributed
-  33 calls to `Platform/Linux/LinuxWindow.cpp` and 32 to
-  `Platform/Windows/WindowsWindow.cpp`; both are in fact `glfw*` calls. There is
-  no window/context exemption bucket to argue about — `Platform/*Window.cpp` is
-  already GL-free.
-- **`Renderer/Debug/` is 43% of the problem** (236 of 549) in 7 files, and it is
-  *not* legitimately exempt (§1.6).
-- **The include graph is the real boundary, and it is far worse than the call
-  count.** 79 files outside `Platform/OpenGL/` include `<glad/gl.h>`; 42 call
-  GL. Those two sets are not nested — 39 files both include and call, 3 call
-  while relying on the transitive include through `RendererAPI.h` (next bullet),
-  and the remaining **40 include the entire API while calling none of it**,
-  purely to name the `GLenum` / `GL_*` constants they pass into `RendererAPI`'s
-  own virtuals — `SetBlendFunc(GLenum, GLenum)`,
-  `SetDepthFunc(GLenum)`, `SetStencilOp(GLenum, GLenum, GLenum)`,
-  `CreateTexture2D(u32, u32, GLenum internalFormat)`, and a dozen more. The
-  facade is not leaky at the edges; GL is part of its declared vocabulary.
-- **`RendererAPI.h` itself includes `<glad/gl.h>`,** so it hands the entire GL
-  API to every translation unit that includes it. That is why only 3 of the 42
-  GL callers need a direct `glad` include — the rest get it transitively. **This
-  dictates Phase 2's ordering** (§1.7): until `RendererAPI.h` is clean, deleting
-  a `#include <glad/gl.h>` from a pass proves nothing, because the symbols are
-  still visible.
-
----
+Phase 1 measured the boundary before designing against it: **549 raw
+`glXxx()` calls in 42 files outside `Platform/OpenGL/`** (the issue's ~620
+and the handover's 724 were both wrong — the larger number matched `glfw*`
+window calls, which are not GL). The bind-site count in §1.3 is corrected by
+amendment (18); the method, the three published numbers and why a call count
+is the wrong measure at all are in
+[rhi-abstraction-boundary.md](../agent-rules/rhi-abstraction-boundary.md) §1–§2.
+The counters this survey motivated all reached 0 (§1.7).
 
 ## 1. Decision — the neutral resource/binding model
 
@@ -470,94 +431,26 @@ one file at a time.
 
 ### 1.8 What Phase 1 does not do, and who picks each item up
 
-**Nothing here is abandoned.** Every item below lands inside issue #691's
-roadmap; this section says *which phase owns it* and, more importantly,
-distinguishes three states that are easy to confuse:
-
-**(a) Never in Phase 1's scope.** Ordinary later phases of the roadmap. Phase 1
-is "no code motion" by the issue's own definition, so these are listed only so a
-reader does not go looking for them here.
-
-| Item | Owner |
-| --- | --- |
-| The ~313-call-site sweep itself | Phase 2 |
-| `ARB_bindless_texture` rehearsal on OpenGL | Phase 3 |
-| Vulkan SDK / volk / VMA vendoring; any `VkXxx` code | Phase 4 |
-
-**(b) Decided *here*, implemented later.** The decision is made in this ADR — a
-later phase carries it out. Re-litigating these needs an ADR amendment, not just
-an implementation choice.
-
-| Item | Decided in | Owner | What breaks if it is skipped |
-| --- | --- | --- | --- |
-| Unify `ResourceTransition`'s read/write enum pair into `RHI::Access` | §1.5 | Phase 5 — done, (43) | A storage-image write→write barrier lowers to `SHADER_READ_ONLY_OPTIMAL` with a read-only access mask. Silent on GL, wrong on Vulkan. |
-| Split `RGWriteUsage::Clear` into load-op vs transfer clear | §1.5 | Phase 5 — done, (43) | An explicit clear misses its `TRANSFER_DST` transition. |
-| `ProducerPass == "external"` should mean `Access::Undefined`, not `RenderTarget` | §1.5 | Phase 5 — done, (43) | Vulkan preserves contents it could have discarded — a silent perf loss, not a correctness bug. |
-| Relocate `Renderer/Debug/` GL code to `Platform/OpenGL/` behind a neutral interface | §1.6 | Phase 9 (deferred by #794) | Phase 7 cannot be verified under CLAUDE.md's rendering rule, because the capture/inspect tools are OpenGL-only. |
-| Strip `GLenum`/`GLuint` from `RendererAPI`'s virtuals **first**, before any per-file include removal | §1.7 | Phase 2 | The `sweep_glad_includes` ratchet measures nothing, because the symbols still arrive transitively. |
-
-**(c) Identified here, deliberately *not* decided.** Phase 1 established that
-these are needed and left the mechanism open, because choosing it without an
-implementation to test against would be guessing.
-
-| Item | Raised in | Owner | Why it is open |
-| --- | --- | --- | --- |
-| Sampler deduplication + the sampler-heap allocator | §1.2a | Phase 3/4 | The engine has no shareable-sampler concept to port — on GL, filter/wrap state lives on the texture object. There is nothing to convert, so the design should follow the first real Vulkan sampler-heap usage rather than precede it. |
-| Whether `GPUResourceInspector` surfaces `RHI::ResourceHandle` + a native handle, or a backend-tagged opaque blob | §1.6 | Phase 8 | Depends on what the Vulkan capture path can actually produce. |
-
-The one genuinely open *risk* — not a deferral — is re-verifying RDNA2 driver
-support before Phase 4 commits (ADR 0010's "Correction" section).
+**All closed.** This section tabled eight named follow-ups — five decided
+here and implemented later, two identified but left open, one
+re-verification — so that no part of the design could be quietly dropped
+between phases. Every row landed: the `RHI::Access` unification, the
+`RGWriteUsage::Clear` split and `ProducerPass == "external"` in Phase 5
+(amendment (43)); the `Renderer/Debug/` relocation in Phase 9;
+`GLenum`/`GLuint` stripped from the facade first, in Phase 2; sampler
+deduplication in Phases 3–4 (amendments (23), (70)); the
+`GPUResourceInspector` currency question in Phase 8 (amendment (77)); and
+the RDNA2 driver re-verification before Phase 4.
 
 ### 1.9 Outside corroboration, and the one thing it changed
 
-The model above was designed against this codebase rather than against other
-engines' write-ups, so it is worth recording where an experienced outside
-account agrees and where it did not. Philip Rebohle (DXVK maintainer) has
-shipped legacy bindful, descriptor-indexing, descriptor-buffer *and*
-descriptor-heap in production; his comparison (written ~January 2026 — see the
-dating caveat at the end of this section) lines up with the choices here on
-every point that touches this ADR:
-
-- **Heap+offset is the right shape.** *"Full bindless is trivial and barely
-  requires any setup code. Use the size of the largest descriptor type that you
-  need as an array stride, index into the heap in your shader, allocate memory,
-  bind heap, done."* — §1.2a adopts exactly that layout.
-- **Descriptor buffer would have been the wrong intermediate step.**
-  *"Fundamentally, descriptor buffers are just VkDescriptorSet with extra
-  steps"*, carrying the descriptor-indexing restrictions forward. ADR 0010 ruled
-  it out as a fallback; this is independent support for that, not just for the
-  destination.
-- **View API objects mostly disappear; view *identity* does not.** DXVK replaced
-  `VkImageView` with a descriptor blob and *"manage[s] things in more or less the
-  same way as before"*. That is precisely why `ViewHandle` is engine-owned
-  (§1.1) — the API stops owning the concept, so we must.
-- **The failure mode is worse than "renders wrong".** *"You pretty much need
-  GPU-assisted validation to figure out what you're screwing up, and if you screw
-  up, you will likely hang your GPU."* This is why §1.2's fetch-don't-store rule
-  and poison-on-free are load-bearing rather than nice-to-have. Note this is a
-  property of the *model*, not of tooling maturity — it does not expire.
-
-**Dating caveat, and why it matters here.** That write-up is from ~January 2026,
-and it was re-checked on 2026-07-30 before being leaned on. Its two "con" items
-have aged in opposite directions, so treat them differently:
-
-- **Tooling — expired.** *"Lack of (mature) validation, RenderDoc support etc.
-  Of course this will improve over time."* It did, within six months: SDK
-  1.4.341.0 brought CPU-side validation for the extension and 1.4.357.0
-  (2026-07-28) brought GPU-AV plus a GPU Dump layer. Do not carry this objection
-  forward — ADR 0010's tooling-floor note supersedes it.
-- **Driver support — held, and independently corroborated.** RDNA1/RDNA2 still
-  did not get the extension in the Adrenalin branch that shipped it, there is an
-  open AMD tracker for it, and DXVK 3.0 now advises that hardware class off
-  Windows entirely. See ADR 0010's "Correction" section.
-
-**The one correction it forced** is therefore in ADR 0010, not here: the driver
-floor is narrower than that ADR's per-vendor list implied. It strengthens §2's
-runtime-selection decision rather than weakening it — with a floor that narrow,
-the OpenGL fallback has to be present on the player's machine, which is only
-possible if both backends live in one binary.
-
----
+The model was designed against this codebase rather than against other
+engines' write-ups, so Phase 1 cross-checked it against an experienced
+outside account (Philip Rebohle, DXVK — legacy bindful, descriptor
+indexing, descriptor buffer and heap paths all shipped). It agreed with the
+identity/binding-address split and with heap-from-day-one. **It changed
+exactly one thing**, and that change lives in ADR 0010: the driver floor,
+where `VK_EXT_descriptor_heap`'s youth — not its design — is the risk.
 
 ## 2. Decision — backend selection is a **runtime switch**, not a CMake preset
 

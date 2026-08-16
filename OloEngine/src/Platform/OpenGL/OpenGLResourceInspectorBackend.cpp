@@ -863,11 +863,16 @@ namespace OloEngine
         // ~4 billion and casts to a garbage GLint (review finding). Refuse
         // instead: a caller asking for rows outside the image has a bug, and
         // silently reading some other part of the texture hides it.
-        if (regionY + regionHeight > source.FullHeight)
+        // Widened to u64 BEFORE the comparison, and both axes checked (review
+        // finding — the first cut of this guard compared in u32, so a large
+        // regionY could wrap the sum and pass the very check meant to stop it).
+        const u64 endY = static_cast<u64>(regionY) + static_cast<u64>(regionHeight);
+        const u64 endX = static_cast<u64>(regionX) + static_cast<u64>(regionWidth);
+        if (endY > static_cast<u64>(source.FullHeight) || endX > static_cast<u64>(source.FullWidth))
         {
-            outError = "capture region [" + std::to_string(regionY) + ", " +
-                       std::to_string(regionY + regionHeight) + ") exceeds height " +
-                       std::to_string(source.FullHeight);
+            outError = "capture region x[" + std::to_string(regionX) + ", " + std::to_string(endX) + ") y[" +
+                       std::to_string(regionY) + ", " + std::to_string(endY) + ") exceeds " +
+                       std::to_string(source.FullWidth) + "x" + std::to_string(source.FullHeight);
             return false;
         }
         const auto glRegionY = static_cast<GLint>(source.FullHeight - regionY - regionHeight);
@@ -1149,7 +1154,9 @@ namespace OloEngine
                         // Calculate based on block compression
                         u32 blocksX = (static_cast<u32>(levelWidth) + 3) / 4;
                         u32 blocksY = (static_cast<u32>(levelHeight) + 3) / 4;
-                        totalMemory += static_cast<sizet>(blocksX * blocksY * blockSize);
+                        // Same widening rule as the uncompressed path below.
+                        totalMemory += static_cast<sizet>(blocksX) * static_cast<sizet>(blocksY) *
+                                       static_cast<sizet>(blockSize);
                     }
                 }
             }
@@ -1167,7 +1174,12 @@ namespace OloEngine
 
         for (u32 level = 0; level < mipLevels; ++level)
         {
-            totalMemory += static_cast<sizet>(currentWidth * currentHeight * bytesPerPixel);
+            // Widened before multiplying, not after (review finding): the
+            // operands are u32, so an 8K RGBA32F mip 0 (7680*4320*16) already
+            // needs 40 bits and the cast would faithfully store the wrapped
+            // product.
+            totalMemory += static_cast<sizet>(currentWidth) * static_cast<sizet>(currentHeight) *
+                           static_cast<sizet>(bytesPerPixel);
 
             // Calculate next mip level dimensions
             currentWidth = std::max(1u, currentWidth / 2);

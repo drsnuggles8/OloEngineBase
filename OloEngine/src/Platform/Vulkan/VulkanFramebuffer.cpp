@@ -464,15 +464,43 @@ namespace OloEngine
             m_DepthArrayAttachment = DepthArrayLayerAttachment{};
             return;
         }
+        if (!info->HasDepth)
+        {
+            // A colour array reaching the DEPTH attachment slot: the view below
+            // would be built with the colour aspect and then handed to the
+            // rendering info as pDepthAttachment — invalid usage that the aspect
+            // choice quietly hides (review finding). Refuse loudly; the
+            // alternative is a validation error at submit, far from here.
+            OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: image has no depth aspect");
+            m_DepthArrayAttachment = DepthArrayLayerAttachment{};
+            return;
+        }
 
         const u64 cacheKey = VulkanUpload::VkHandleToU64(image) ^ (static_cast<u64>(layer + 1u) << 48u);
         VkImageView view = VK_NULL_HANDLE;
-        if (const auto it = m_DepthArrayViews.find(cacheKey); it != m_DepthArrayViews.end())
+        // The key packs handle and layer by XOR, which is lossless only while a
+        // VkImage's top 16 bits are zero — true for a user-space pointer handle,
+        // NOT guaranteed by Vulkan (a driver may hand back an index or a tagged
+        // value). Verify the pair on a hit instead of trusting it: a collision
+        // would hand this framebuffer another image's view — the wrong cascade
+        // rendered, or a view of an image that is already gone (review finding).
+        const auto it = m_DepthArrayViews.find(cacheKey);
+        if (it != m_DepthArrayViews.end() && it->second.SourceImage == image && it->second.SourceLayer == layer)
         {
             view = it->second.View;
         }
         else
         {
+            if (it != m_DepthArrayViews.end())
+            {
+                // Same key, different (image, layer): the cached view is not
+                // ours. Drop it — ReleaseCachedDepthViewsForImage still reaches
+                // any survivor by image, so this cannot strand a view.
+                OLO_CORE_WARN("VulkanFramebuffer: depth-array view cache key collision — rebuilding");
+                if (it->second.View != VK_NULL_HANDLE)
+                    vkDestroyImageView(device->GetDevice(), it->second.View, nullptr);
+                m_DepthArrayViews.erase(it);
+            }
             VkImageViewCreateInfo viewInfo{};
             viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             viewInfo.image = image;
@@ -495,7 +523,8 @@ namespace OloEngine
                 m_DepthArrayAttachment = DepthArrayLayerAttachment{};
                 return;
             }
-            m_DepthArrayViews.emplace(cacheKey, CachedDepthArrayView{ .View = view, .SourceImage = image });
+            m_DepthArrayViews.emplace(
+                cacheKey, CachedDepthArrayView{ .View = view, .SourceImage = image, .SourceLayer = layer });
         }
 
         m_DepthArrayAttachment.Image = image;

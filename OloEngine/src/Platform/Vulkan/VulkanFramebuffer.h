@@ -230,6 +230,13 @@ namespace OloEngine
         {
             VkImageView View = VK_NULL_HANDLE;
             VkImage SourceImage = VK_NULL_HANDLE;
+            // The layer this view selects. Stored so a lookup can VERIFY the
+            // (image, layer) pair rather than trust the packed key: the key
+            // XORs the handle with the layer, which is only lossless while the
+            // top bits of a VkImage are zero — true for a user-space pointer
+            // handle, not guaranteed by Vulkan (review finding). A mismatch is
+            // treated as a miss and the view rebuilt.
+            u32 SourceLayer = 0;
         };
         std::unordered_map<u64, CachedDepthArrayView> m_DepthArrayViews;
     };
