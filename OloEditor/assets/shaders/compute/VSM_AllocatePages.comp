@@ -1,0 +1,84 @@
+#version 460 core
+
+// =============================================================================
+// VSM_AllocatePages.comp — step 4 of the VSM frame (issue #702)
+//
+// One invocation per pending request. Pops a physical page from the free list —
+// falling through to the not-visited (evictable) list only once the free list is
+// exhausted — writes the two-way binding (virtual -> physical in the page table,
+// physical -> virtual in the meta table) and marks the new page DIRTY so the
+// raster fills it this frame.
+//
+// A single `b_FreeConsumed` bump allocator spans both lists, so every invocation
+// gets a distinct page with one atomic and no CAS retry loop. Because the index
+// is unique, so is the physical page and therefore so is its previous owner —
+// which is what makes the eviction write to the old owner's entry race-free
+// without any locking.
+//
+// The re-check against the page table matters: VSM_FreeWrappedPages ran between
+// the mark and here, so a request recorded last frame may name a slot whose
+// world page has since scrolled out of the clip frustum. Allocating it would
+// back a page nobody will ever sample and starve one that will.
+// =============================================================================
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+void main()
+{
+    uint request = gl_GlobalInvocationID.x;
+    uint requestCount = min(b_RequestCount, uint(VSM_MAX_REQUESTS));
+    if (request >= requestCount)
+        return;
+
+    uvec4 record = b_Requests[request];
+    int clipLevel = int(record.x);
+    ivec2 wrappedPage = ivec2(int(record.y), int(record.z));
+    int pageIdx = vsmPageIndex(clipLevel, wrappedPage);
+
+    uint entry = b_PageTable[pageIdx];
+    if (!vsmPageRequestsAlloc(entry) || vsmPageIsAllocated(entry))
+        return; // freed by wraparound, or already backed
+
+    uint pageCount = uint(vsmPhysicalPageCount());
+    uint freeCount = min(b_FreeCount, pageCount);
+    uint evictableCount = min(b_NotVisitedCount, pageCount);
+
+    uint take = atomicAdd(b_FreeConsumed, 1u);
+    uint physicalIdx;
+    if (take < freeCount)
+    {
+        physicalIdx = b_FreeList[take];
+    }
+    else if ((take - freeCount) < evictableCount)
+    {
+        physicalIdx = b_FreeList[pageCount + (take - freeCount)];
+
+        uint oldMeta = b_MetaTable[physicalIdx];
+        if (vsmMetaIsAllocated(oldMeta))
+        {
+            int oldIdx = vsmPageIndex(vsmUnpackMetaOwnerLevel(oldMeta), vsmUnpackMetaOwnerPage(oldMeta));
+            b_PageTable[oldIdx] = 0u;
+            atomicAdd(b_PagesFreed, 1u);
+        }
+    }
+    else
+    {
+        // The pool is genuinely full. Record it rather than silently rendering a
+        // page-shaped hole: the sampler falls back to a coarser clip level, and
+        // Statistics::PagesFailed is what tells you the pool is undersized.
+        atomicOr(b_PageTable[pageIdx], VSM_PAGE_ALLOC_FAILED_BIT);
+        atomicAdd(b_PagesFailed, 1u);
+        return;
+    }
+
+    int tableRes = VSM_PHYSICAL_PAGE_TABLE_RES;
+    ivec2 physicalPage = ivec2(int(physicalIdx % uint(tableRes)), int(physicalIdx / uint(tableRes)));
+
+    b_PageTable[pageIdx] = VSM_PAGE_ALLOCATED_BIT | VSM_PAGE_VISITED_BIT | VSM_PAGE_DIRTY_BIT |
+                           vsmPackPhysicalPage(physicalPage);
+    b_MetaTable[physicalIdx] = VSM_META_ALLOCATED_BIT | VSM_META_VISITED_BIT |
+                               vsmPackMetaOwner(wrappedPage, clipLevel);
+    atomicAdd(b_PagesAllocated, 1u);
+}

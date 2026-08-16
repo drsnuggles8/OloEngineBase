@@ -86,6 +86,7 @@ you are in.
 - [render-graph-transient-aliasing.md](docs/agent-rules/render-graph-transient-aliasing.md) — `WriteNewVersion` renames a physical resource; the stale-pool-read archetype, and the poison/disable levers that find it.
 - [render-pipeline-caches.md](docs/agent-rules/render-pipeline-caches.md) — process-wide render caches must invalidate on every topology reset, not just on a fingerprint change.
 - [two-phase-occlusion-culling.md](docs/agent-rules/two-phase-occlusion-culling.md) — phase 1 must test the previous frame's FINAL pyramid; pass order decides who still sees previous-frame depth.
+- [virtual-shadow-map-page-cache.md](docs/agent-rules/virtual-shadow-map-page-cache.md) — four page-cache invariants; break one and the frame still renders, wrong, as a different bug.
 - [cluster-lod-simplification.md](docs/agent-rules/cluster-lod-simplification.md) — a terminal group's boundary lock must outlive the level that created it; plus how to A/B a builder change the editor never runs.
 - [camera-relative-rendering.md](docs/agent-rules/camera-relative-rendering.md) — every world-space GPU upload is a site; large-coordinate f32 cancellation shows up as vertex jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](docs/agent-rules/distance-impostor-reflection-probes.md) — one encoding contract mirrored in three places, and the miss-sentinel that shades from stale sky.

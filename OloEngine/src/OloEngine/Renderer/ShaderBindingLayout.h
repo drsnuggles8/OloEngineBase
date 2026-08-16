@@ -1498,6 +1498,20 @@ namespace OloEngine
         // assertion move with it.
         static constexpr u32 UBO_COLORBLIND = 78;
 
+        // Virtual Shadow Maps (issue #702). GLSL twins:
+        // include/VirtualShadowResources.glsl's VirtualShadowGlobals and
+        // VirtualShadowPass blocks.
+        //
+        // The globals block is read by the nine VSM compute kernels, by the depth
+        // raster AND by every lit shader that samples the map — one upload, one
+        // set of clip projections, so a producer and a consumer cannot disagree
+        // about which clip level covers a world position (the archetypal VSM bug:
+        // mark level L, sample level L+1, read an unallocated page, render
+        // unshadowed). The pass block is per-dispatch/per-draw scratch, refilled
+        // immediately before each use per the #691 Phase 7 pattern.
+        static constexpr u32 UBO_VIRTUAL_SHADOW = 79;
+        static constexpr u32 UBO_VIRTUAL_SHADOW_DRAW = 80;
+
         // ONE past the highest engine UBO binding above. Every consumer that
         // needs to size an array over "all UBO bindings" derives it from here
         // instead of naming a hand-picked constant — GLStateGuard's UBO-leak
@@ -1507,12 +1521,13 @@ namespace OloEngine
         // that). A hand-picked name has to be MOVED on every addition; this
         // one only has to be RAISED when a binding exceeds it, which the
         // static_assert below makes a compile error rather than a black frame.
-        static constexpr u32 UBO_BINDING_LIMIT = 79;
+        static constexpr u32 UBO_BINDING_LIMIT = 81;
         static_assert(UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBES < UBO_BINDING_LIMIT && UBO_HEAP_OFFSETS < UBO_BINDING_LIMIT &&
                           UBO_DEBUG_DRAW < UBO_BINDING_LIMIT && UBO_PRECIPITATION_FEED < UBO_BINDING_LIMIT &&
-                          UBO_COLORBLIND < UBO_BINDING_LIMIT,
+                          UBO_COLORBLIND < UBO_BINDING_LIMIT && UBO_VIRTUAL_SHADOW < UBO_BINDING_LIMIT &&
+                          UBO_VIRTUAL_SHADOW_DRAW < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         static_assert(UBO_BINDING_LIMIT <= 84,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
@@ -1651,7 +1666,16 @@ namespace OloEngine
         // number sampler-free means no shader can ever recreate the A2
         // collision on Vulkan's single-set model. The shader-graph base sits
         // past TEX_DDGI_VISIBILITY (64), per the established shift procedure.
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 65; // First shader graph user texture slot (must be after all engine-reserved slots)
+        //
+        // The Virtual Shadow Map physical page pool (issue #702). 65, NOT 57 — 57
+        // is free in the sampler namespace today, but it is also SSBO_VERTEX_PULL,
+        // and include/VirtualShadowSampling.glsl is included by shaders that DO
+        // pull their vertices (the deferred-lighting fullscreen pass among them),
+        // which is exactly the within-shader collision the A2 renumber above
+        // exists to prevent.
+        static constexpr u32 TEX_VSM_PHYSICAL = 65; // usampler2D R32UI — raw float depth bits, point-sampled
+        // Moved 65 -> 66 for TEX_VSM_PHYSICAL, per the established shift procedure.
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 66; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -1797,6 +1821,33 @@ namespace OloEngine
         // lit passes via include/ReflectionProbes.glsl. Same 32x18x24 grid
         // and slice mapping as the Forward+ light grid.
         static constexpr u32 SSBO_REFLECTION_PROBE_GRID = 53;
+
+        // Virtual Shadow Maps (issue #702) — the GPU-driven page allocator's whole
+        // working set. GLSL twin: include/VirtualShadowBuffers.glsl (plus
+        // VirtualShadowResources.glsl for the page table and
+        // VirtualShadowDrawList.glsl for the cull output, which the depth raster
+        // reads from a vertex stage).
+        //
+        // SSBOs rather than R32UI images throughout, and that is forced rather
+        // than preferred: the reference implementation's meta table is R64_UINT
+        // and needs int64 IMAGE atomics, which are an extension in GL 4.6.
+        // Directional-only page ownership fits in 32 bits, and SSBO atomics are
+        // core — so the allocator runs on guaranteed functionality. Only the
+        // physical pool stays a texture, because the raster writes it with
+        // imageAtomicMin and the lit pass samples it.
+        //
+        // 57 and 63 are skipped: both are reserved engine-wide for the Vulkan
+        // vertex-pull streams (see below).
+        static constexpr u32 SSBO_VSM_PAGE_TABLE = 54;     // virtual page -> flags + physical page
+        static constexpr u32 SSBO_VSM_META_TABLE = 55;     // physical page -> owning virtual page
+        static constexpr u32 SSBO_VSM_HPB = 56;            // dirty-flag pyramid, 7 mips x 16 clip levels
+        static constexpr u32 SSBO_VSM_REQUESTS = 58;       // allocation requests appended by the marker
+        static constexpr u32 SSBO_VSM_FREE_PAGES = 59;     // free list + evictable (not-visited) list
+        static constexpr u32 SSBO_VSM_INVALIDATIONS = 60;  // dynamic-caster bounds to re-dirty
+        static constexpr u32 SSBO_VSM_CULL_INSTANCES = 61; // cull input, one per submitted caster
+        static constexpr u32 SSBO_VSM_DRAW_INSTANCES = 62; // cull output, one per (caster x clip level)
+        static constexpr u32 SSBO_VSM_DRAW_COMMANDS = 64;  // DrawElementsIndirectCommand per caster batch
+        static constexpr u32 SSBO_VSM_STATS = 65;          // page counters, read back one frame late
 
         // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691
         // Phase 7 Wave C, ADR items A2/A3). On the Vulkan backend pipelines
@@ -2016,6 +2067,9 @@ namespace OloEngine
                     return name.contains("ReflectionProbeCull") || name.contains("reflectionProbeCull");
                 case UBO_COLORBLIND:
                     return name.contains("ColorBlind") || name.contains("colorBlind");
+                case UBO_VIRTUAL_SHADOW:
+                case UBO_VIRTUAL_SHADOW_DRAW:
+                    return name.contains("VirtualShadow") || name.contains("virtualShadow");
                 default:
                     return false;
             }
@@ -2203,6 +2257,9 @@ namespace OloEngine
                     return name == "u_CloudWeatherMap";
                 case TEX_CLOUD_SHADOW:
                     return name == "u_CloudShadowMap";
+                case TEX_VSM_PHYSICAL:
+                    // Virtual Shadow Map physical page pool (issue #702).
+                    return name == "u_VSMPhysicalPool";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

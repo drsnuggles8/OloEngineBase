@@ -69,12 +69,13 @@ namespace OloEngine::MCP::RendererSettings
     // only — the structs are plain POD).
     enum class Setting
     {
-        Upscale,      // PostProcessSettings::Upscale  (FSR1 spatial-upscale quality preset)
-        Tonemap,      // PostProcessSettings::Tonemap  (tone-map operator)
-        RenderPath,   // RendererSettings::Path        (forward / forward+ / deferred)
-        DepthPrepass, // LeverState::DepthPrepassEnabled (Renderer3D live toggle; 'auto' = settings-derived)
-        SoftShadows,  // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
-        HZBOcclusion, // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
+        Upscale,           // PostProcessSettings::Upscale  (FSR1 spatial-upscale quality preset)
+        Tonemap,           // PostProcessSettings::Tonemap  (tone-map operator)
+        RenderPath,        // RendererSettings::Path        (forward / forward+ / deferred)
+        DepthPrepass,      // LeverState::DepthPrepassEnabled (Renderer3D live toggle; 'auto' = settings-derived)
+        SoftShadows,       // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
+        HZBOcclusion,      // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
+        VirtualShadowMaps, // LeverState::VirtualShadowMaps (ShadowSettings::VSM.Enabled, issue #702)
     };
 
     // Live renderer state the perf-lever settings (#316) read/write. These are NOT
@@ -90,6 +91,11 @@ namespace OloEngine::MCP::RendererSettings
         bool DepthPrepassAuto = false;    // what 'auto' resolves to (Renderer3D::ComputeSettingsDerivedDepthPrepass)
         bool SoftShadows = false;         // live ShadowSettings::SoftShadows
         bool HZBOcclusion = false;        // live Renderer3D::IsHZBOcclusionCullingEnabled
+        // live ShadowSettings::VSM.Enabled (issue #702). Reads back what the
+        // system ACTUALLY runs, not what was requested: VirtualShadowMap::Init
+        // clears the flag when it cannot come up, so a request that silently
+        // fell back to CSM shows as 'off' here rather than as 'on'.
+        bool VirtualShadowMaps = false;
     };
 
     // Engine integers of the depthprepass tri-token. 'off'/'on' mirror the live
@@ -104,6 +110,9 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kHZBOcclusionOff = 0;
     inline constexpr i32 kHZBOcclusionOn = 1;
+
+    inline constexpr i32 kVirtualShadowMapsOff = 0;
+    inline constexpr i32 kVirtualShadowMapsOn = 1;
 
     // One allowed value of an enum-valued setting: the stable, user-facing token the
     // agent passes, the underlying engine enum integer, and a human description.
@@ -144,6 +153,14 @@ namespace OloEngine::MCP::RendererSettings
         { "auto", kDepthPrepassAuto, "Restore the settings-derived value (on when the user toggle or the Forward+/Deferred path requires it)" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kVirtualShadowMapValues = { {
+        { "off", kVirtualShadowMapsOff, "Fixed 4-cascade CSM for the directional light" },
+        { "on", kVirtualShadowMapsOn,
+          "Sparse page-table Virtual Shadow Maps (issue #702). Covers static + skinned MESH casters only; terrain, "
+          "foliage, voxel and virtualized-geometry casters still need CSM, so a scene relying on those renders them "
+          "unshadowed" },
+    } };
+
     inline constexpr std::array<EnumValue, 2> kSoftShadowValues = { {
         { "pcf", kSoftShadowsPcf, "Fixed 3x3 hardware PCF (cheap, hard-edged shadows)" },
         { "pcss", kSoftShadowsPcss, "Percentage-Closer Soft Shadows (contact-hardening variable penumbra; expensive blocker search)" },
@@ -162,7 +179,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 6> kSettings = { {
+    inline constexpr std::array<SettingInfo, 7> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -179,6 +196,12 @@ namespace OloEngine::MCP::RendererSettings
           "Directional-shadow filtering (ShadowSettings.SoftShadows): 'pcss' = contact-hardening soft shadows, 'pcf' = "
           "fixed 3x3 hardware PCF. THE dominant ScenePass perf lever in shadowed scenes (#316: PCSS was ~93% of "
           "ScenePass at 1080p Sponza)." },
+        { "virtualshadowmaps", Setting::VirtualShadowMaps,
+          "Directional shadow technique (ShadowSettings.VSM.Enabled, issue #702): 'on' = sparse page-table Virtual "
+          "Shadow Maps, 'off' = the fixed 4-cascade CSM. VSM covers static + skinned MESH casters; terrain, foliage, "
+          "voxel and virtualized-geometry casters still render through CSM, so enabling it in a scene that relies on "
+          "those leaves them unshadowed. Reads back the EFFECTIVE value — a request that failed to initialise reports "
+          "'off'." },
         { "hzbocclusion", Setting::HZBOcclusion,
           "GPU Hi-Z occlusion culling (Renderer3D::EnableHZBOcclusionCulling), off by default. Drives BOTH two-phase "
           "culls: instanced static batches (#431/#486) and virtualized-geometry clusters (#682, where phase 1 tests "
@@ -221,6 +244,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kSoftShadowValues;
             case Setting::HZBOcclusion:
                 return kHZBOcclusionValues;
+            case Setting::VirtualShadowMaps:
+                return kVirtualShadowMapValues;
         }
         return {};
     }
@@ -316,9 +341,32 @@ namespace OloEngine::MCP::RendererSettings
     // server's schema check only guarantees `setting` is one of the known tokens.
     [[nodiscard]] inline Json InputSchema()
     {
+        // DERIVED from kSettings / Values(), not restated. The literal list this
+        // replaces silently went stale when issue #702 added a seventh setting:
+        // the token parsed, applied and described correctly everywhere, and the
+        // tool still rejected it at the schema gate — which reads as "the feature
+        // is missing" rather than as "one list was not updated".
+        std::vector<std::string> settingTokens;
+        std::string valueHelp;
+        for (const auto& info : kSettings)
+        {
+            settingTokens.emplace_back(info.Token);
+            if (!valueHelp.empty())
+                valueHelp += "; ";
+            valueHelp += std::string(info.Token) + ": ";
+            bool first = true;
+            for (const auto& allowed : SettingValues(info.Id))
+            {
+                if (!first)
+                    valueHelp += "|";
+                valueHelp += std::string(allowed.Token);
+                first = false;
+            }
+        }
+
         return Schema::Object()
-            .Prop("setting", Schema::String().Enum({ "upscale", "tonemap", "renderpath", "depthprepass", "softshadows", "hzbocclusion" }).Desc("Which renderer / post-process setting to set. Omit both arguments to list every setting with its current value and allowed values."))
-            .Prop("value", Schema::String().Desc("The new value token for the chosen setting — upscale: off|quality|balanced|performance|ultraperformance; tonemap: none|reinhard|aces|uncharted2; renderpath: forward|forwardplus|deferred; depthprepass: off|on|auto; softshadows: pcf|pcss; hzbocclusion: off|on. Call with no arguments to discover the valid tokens for each setting."))
+            .Prop("setting", Schema::String().EnumFrom(settingTokens).Desc("Which renderer / post-process setting to set. Omit both arguments to list every setting with its current value and allowed values."))
+            .Prop("value", Schema::String().Desc("The new value token for the chosen setting — " + valueHelp + ". Call with no arguments to discover the valid tokens for each setting."))
             .NoAdditional();
     }
 
@@ -393,6 +441,8 @@ namespace OloEngine::MCP::RendererSettings
                 return lever.SoftShadows ? kSoftShadowsPcss : kSoftShadowsPcf;
             case Setting::HZBOcclusion:
                 return lever.HZBOcclusion ? kHZBOcclusionOn : kHZBOcclusionOff;
+            case Setting::VirtualShadowMaps:
+                return lever.VirtualShadowMaps ? kVirtualShadowMapsOn : kVirtualShadowMapsOff;
         }
         return 0;
     }
@@ -450,6 +500,9 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::HZBOcclusion:
                 lever.HZBOcclusion = value == kHZBOcclusionOn;
+                break;
+            case Setting::VirtualShadowMaps:
+                lever.VirtualShadowMaps = value == kVirtualShadowMapsOn;
                 break;
         }
 

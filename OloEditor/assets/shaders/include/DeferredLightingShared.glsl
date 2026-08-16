@@ -31,6 +31,13 @@
 // contained (UBO 53 + sampler 59), safe to pull in from an include.
 #include "AtmosphereShading.glsl"
 
+// Virtual Shadow Maps (issue #702) — self-contained too (UBO 79/80, page-table
+// SSBO 54, sampler 65), so the directional-shadow branch below can choose
+// between VSM and CSM at runtime instead of needing a second shader variant.
+// VirtualShadowMap::BindForSampling publishes a DISABLED globals block when the
+// system is off, which is what makes the always-compiled branch free.
+#include "VirtualShadowSampling.glsl"
+
 vec3 OctDecodeGB(vec2 e)
 {
     vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
@@ -130,18 +137,32 @@ vec3 ComputeDeferredLit(
         }
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
-            vec4 viewSpacePos = u_View * vec4(worldPos, 1.0);
-            float viewDepth = viewSpacePos.z;
-            float shadow = calculateCascadedShadowFactorCSM(
-                u_ShadowMapCSM,
-                u_ShadowMapCSMRaw,
-                worldPos,
-                viewDepth,
-                u_DirectionalLightSpaceMatrices,
-                u_CascadePlaneDistances,
-                u_ShadowParams,
-                u_ShadowMapResolution,
-                u_SoftShadowMode);
+            // Virtual Shadow Maps own the directional light when active (issue
+            // #702); the CSM cascades are not even rendered in that case, so this
+            // is an either/or, never a blend. VSM_ENABLED is uploaded by
+            // VirtualShadowMap::BindForSampling, which publishes a DISABLED block
+            // when the system is off — so this branch is safe to compile in
+            // unconditionally and needs no second shader variant.
+            float shadow;
+            if (VSM_ENABLED != 0)
+            {
+                shadow = vsmShadowFactor(worldPos, N);
+            }
+            else
+            {
+                vec4 viewSpacePos = u_View * vec4(worldPos, 1.0);
+                float viewDepth = viewSpacePos.z;
+                shadow = calculateCascadedShadowFactorCSM(
+                    u_ShadowMapCSM,
+                    u_ShadowMapCSMRaw,
+                    worldPos,
+                    viewDepth,
+                    u_DirectionalLightSpaceMatrices,
+                    u_CascadePlaneDistances,
+                    u_ShadowParams,
+                    u_ShadowMapResolution,
+                    u_SoftShadowMode);
+            }
             lightContrib *= shadow;
         }
         else if (lightType == SPOT_LIGHT)

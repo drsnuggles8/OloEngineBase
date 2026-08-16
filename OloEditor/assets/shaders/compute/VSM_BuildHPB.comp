@@ -1,0 +1,54 @@
+#version 460 core
+
+// =============================================================================
+// VSM_BuildHPB.comp — step 6 of the VSM frame (issue #702)
+//
+// The Hierarchical Page Buffer: a HiZ-shaped pyramid built by 2x2 MAX reduction
+// of the DIRTY FLAG — not of depth. That distinction is the whole idea. A HiZ
+// answers "could anything here be visible?"; this answers "is any page under this
+// footprint being redrawn?", which is what lets VSM_CullCasters reject a caster
+// against sixteen clip levels without touching the geometry.
+//
+// Without it the many-clip-level draw is unaffordable: every caster would be
+// submitted to all VSM_CLIP_LEVELS levels every frame, and the caching that makes
+// the pool small would buy nothing back on the raster side.
+//
+// One dispatch per mip (u_VSMPassParams.x), because a cross-workgroup reduction
+// needs a real barrier between levels and the pyramid is only seven deep. Mip 0
+// is a straight copy of the page table's dirty bit.
+// =============================================================================
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+void main()
+{
+    int mip = int(u_VSMPassParams.x);
+    int mipRes = VSM_PAGE_TABLE_RESOLUTION >> mip;
+    uint perLevel = uint(mipRes * mipRes);
+
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= perLevel * uint(VSM_CLIP_LEVELS))
+        return;
+
+    int clipLevel = int(idx / perLevel);
+    uint inLevel = idx % perLevel;
+    ivec2 coord = ivec2(int(inLevel % uint(mipRes)), int(inLevel / uint(mipRes)));
+
+    uint value;
+    if (mip == 0)
+    {
+        value = vsmPageIsDirty(b_PageTable[vsmPageIndex(clipLevel, coord)]) ? 1u : 0u;
+    }
+    else
+    {
+        ivec2 parent = coord * 2;
+        value = max(max(b_HPB[vsmHPBIndex(clipLevel, mip - 1, parent)],
+                        b_HPB[vsmHPBIndex(clipLevel, mip - 1, parent + ivec2(1, 0))]),
+                    max(b_HPB[vsmHPBIndex(clipLevel, mip - 1, parent + ivec2(0, 1))],
+                        b_HPB[vsmHPBIndex(clipLevel, mip - 1, parent + ivec2(1, 1))]));
+    }
+
+    b_HPB[vsmHPBIndex(clipLevel, mip, coord)] = value;
+}

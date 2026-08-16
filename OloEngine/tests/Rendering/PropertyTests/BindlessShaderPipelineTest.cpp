@@ -257,7 +257,12 @@ void main()
                 binding == ShaderBindingLayout::TEX_REFLECTION_PROBE_DISTANCE ||
                 // include/WindSampling.glsl; WindSystem::BindWindTexture binds it
                 // directly every frame, bypassing the seam entirely.
-                binding == ShaderBindingLayout::TEX_WIND_FIELD;
+                binding == ShaderBindingLayout::TEX_WIND_FIELD ||
+                // include/VirtualShadowSampling.glsl (issue #702) — the VSM
+                // physical page pool, published+bound every frame by
+                // VirtualShadowMap::BindForSampling for the bindless-route lit
+                // shaders and the slot-based MSAA variant alike.
+                binding == ShaderBindingLayout::TEX_VSM_PHYSICAL;
         }
 
         [[nodiscard]] std::string ReadWholeFile(const std::filesystem::path& path)
@@ -710,6 +715,19 @@ void main()
               "shared header; the three DDGI atlases are published+bound in DDGIProbeUpdatePass" },
             { "include/WindSampling.glsl",
               "shared header; TEX_WIND_FIELD is bound directly by WindSystem::BindWindTexture" },
+            { "include/VirtualShadowSampling.glsl",
+              "shared header (issue #702); TEX_VSM_PHYSICAL is published+bound every frame in "
+              "VirtualShadowMap::BindForSampling" },
+            { "include/VirtualShadowRasterStage.glsl",
+              "shared header, STORAGE IMAGE (issue #702): the VSM physical pool is bound directly by "
+              "RenderCommand::BindImageTexture in VirtualShadowMap::RenderCasters, which never consults "
+              "the seam" },
+            { "compute/VSM_ClearDirtyPages.comp",
+              "STORAGE IMAGE (issue #702): the VSM physical pool is bound directly by "
+              "RenderCommand::BindImageTexture in VirtualShadowMap::UpdatePages" },
+            { "compute/VSM_MarkRequiredPages.comp",
+              "issue #702: the scene depth is bound directly by RenderCommand::BindTexture in "
+              "VirtualShadowMap::MarkRequiredPages, which never consults the seam" },
             { "include/VirtualDebugViz.glsl",
               "shared header, STORAGE IMAGES: bound directly by RenderCommand::BindImageTexture in "
               "VirtualGeometryPass, which never consults the seam" },

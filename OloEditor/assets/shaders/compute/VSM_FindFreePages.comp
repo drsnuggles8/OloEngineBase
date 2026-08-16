@@ -1,0 +1,47 @@
+#version 460 core
+
+// =============================================================================
+// VSM_FindFreePages.comp — step 3 of the VSM frame (issue #702)
+//
+// Builds the allocator's two candidate lists in one sweep over the physical pool:
+// genuinely free pages first, then resident pages whose owner was NOT referenced
+// by last frame's marking pass. Keeping them apart is the whole point — the
+// allocator drains the free list before it touches the second one, so eviction
+// only ever happens under real memory pressure and a page that is still on screen
+// is never taken from under a page that has just left it.
+//
+// VISITED is cleared at the end of every shadow pass and re-set by the marker, so
+// "not visited" means exactly "no on-screen texel referenced this page last
+// frame" — the LRU signal, computed without a timestamp or a sort.
+// =============================================================================
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    uint pageCount = uint(vsmPhysicalPageCount());
+    if (idx >= pageCount)
+        return;
+
+    uint meta = b_MetaTable[idx];
+
+    if (!vsmMetaIsAllocated(meta))
+    {
+        uint slot = atomicAdd(b_FreeCount, 1u);
+        if (slot < pageCount)
+            b_FreeList[slot] = idx;
+        return;
+    }
+
+    atomicAdd(b_PagesResident, 1u);
+
+    if (!vsmMetaIsVisited(meta))
+    {
+        uint slot = atomicAdd(b_NotVisitedCount, 1u);
+        if (slot < pageCount)
+            b_FreeList[pageCount + slot] = idx;
+    }
+}

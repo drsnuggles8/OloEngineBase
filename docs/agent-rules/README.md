@@ -116,7 +116,9 @@ rules for a swap that destroys the thing being iterated) ·
 [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) (input
 before the physics kick, camera last) ·
 [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) (pass order decides who still sees
-previous-frame depth) · [render-pass-published-state.md](render-pass-published-state.md) (publish
+previous-frame depth) ·
+[virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) (clearing the LRU bit one step
+early evicts the whole cache every frame) · [render-pass-published-state.md](render-pass-published-state.md) (publish
 last, restore deliberately) · [cluster-lod-simplification.md](cluster-lod-simplification.md) (a lock
 that must outlive the level that created it) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) (a read from a pooled
@@ -194,6 +196,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) ·
 [render-pipeline-caches.md](render-pipeline-caches.md) ·
 [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) ·
+[virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) ·
 [cluster-lod-simplification.md](cluster-lod-simplification.md) ·
 [camera-relative-rendering.md](camera-relative-rendering.md) ·
 [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) ·

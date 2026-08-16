@@ -2213,6 +2213,10 @@ namespace OloEngine::MCP
                 lever.DepthPrepassAuto = Renderer3D::ComputeSettingsDerivedDepthPrepass();
                 lever.SoftShadows = Renderer3D::GetShadowMap().GetSettings().SoftShadows;
                 lever.HZBOcclusion = Renderer3D::IsHZBOcclusionCullingEnabled();
+                // The EFFECTIVE value, not the requested one: VirtualShadowMap::Init
+                // clears its own Enabled flag when it cannot come up, so a request
+                // that fell back to CSM must not read back as 'on' (issue #702).
+                lever.VirtualShadowMaps = Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
                 return lever;
             };
 
@@ -2250,6 +2254,15 @@ namespace OloEngine::MCP
                 {
                     ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
                     shadow.SoftShadows = lever.SoftShadows;
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+                }
+                else if (setting == Setting::VirtualShadowMaps)
+                {
+                    // SetSettings recreates the whole VSM resource set on a change
+                    // and mirrors the effective flag back, so a failed enable leaves
+                    // the CSM path running rather than an unshadowed frame.
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.VSM.Enabled = lever.VirtualShadowMaps;
                     Renderer3D::GetShadowMap().SetSettings(shadow);
                 }
                 else if (setting == Setting::HZBOcclusion)

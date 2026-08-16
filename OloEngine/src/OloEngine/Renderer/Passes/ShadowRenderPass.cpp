@@ -169,8 +169,80 @@ namespace OloEngine
         RenderCommand::EnableCulling();
         RenderCommand::FrontCull();
 
-        // Render CSM cascades
-        if (const auto& csmArray = m_ShadowMap->GetCSMTextureArray(); csmArray)
+        // ── Directional light: Virtual Shadow Maps (issue #702) ──
+        //
+        // Replaces the four fixed cascades below when enabled. Everything after
+        // this block — the local-light atlas — is unaffected, so a scene can use
+        // VSM for the sun and the priority-ranked atlas for its spots and points.
+        //
+        // The page management runs HERE, at the start of the frame, on the pages
+        // VirtualShadowMapMarkPass marked at the end of the last one; only the
+        // marking needs the scene depth buffer, which does not exist yet. See the
+        // frame-ordering comment in VirtualShadowMap.h.
+        const bool useVirtualShadowMap = m_ShadowMap->IsVirtualShadowMapActive();
+        if (useVirtualShadowMap)
+        {
+            // Clear the CSM cascades anyway, before doing any VSM work.
+            //
+            // Not defensive tidying: VSM covers static and skinned MESH casters,
+            // so terrain and voxel surfaces still sample the CSM path — and with
+            // VSM on, nothing renders into those cascades. Left uncleared they
+            // hold whatever the texture last contained, and terrain then reads a
+            // garbage occluder depth that crawls as the camera moves. Clearing to
+            // far makes those surfaces read FULLY LIT instead, which is the
+            // documented limitation rather than a new artefact.
+            //
+            // Done here, while m_ShadowFramebuffer is still the bound target: the
+            // VSM raster binds a framebuffer of its own.
+            if (const auto& csmArray = m_ShadowMap->GetCSMTextureArray(); csmArray)
+            {
+                RenderCommand::DisableScissorTest();
+                for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
+                {
+                    m_ShadowFramebuffer->AttachDepthTextureArrayLayer(csmArray->GetRHIHandle(), cascade);
+                    RenderCommand::ClearDepthOnly();
+                }
+            }
+
+            auto& vsm = m_ShadowMap->GetVirtualShadowMap();
+            // BEFORE UpdatePages, which consumes the invalidations: running it
+            // after would allocate and clear this frame's pages first, leaving a
+            // mover's old silhouette baked into a page now marked clean.
+            vsm.SubmitDynamicInvalidations(m_MeshCasters, m_SkinnedCasters, Renderer3D::GetRenderOrigin());
+            vsm.UpdatePages();
+
+            auto& animUBO = m_ShadowMap->GetShadowAnimationUBO();
+            const auto uploadBones = [&animUBO](const ShadowSkinnedCaster& caster)
+            {
+                animUBO->Bind();
+                if (caster.boneCount == 0)
+                    return;
+                const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(caster.boneBufferOffset);
+                if (!boneMatrices)
+                    return;
+                const auto count = std::min(caster.boneCount,
+                                            static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
+                animUBO->SetData(boneMatrices, count * sizeof(glm::mat4));
+            };
+
+            vsm.RenderCasters(m_MeshCasters, m_SkinnedCasters, Renderer3D::GetRenderOrigin(), uploadBones);
+            vsm.EndFrame();
+
+            // RenderCasters binds a framebuffer of its own (the virtual-resolution
+            // raster scope) and leaves the DEFAULT one bound. Restore this pass's
+            // target and viewport, or the local-light atlas block below clears and
+            // renders into the back buffer instead of the atlas.
+            m_ShadowFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, resolution, resolution);
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthMask(true);
+            RenderCommand::SetColorMask(false, false, false, false);
+            RenderCommand::EnableCulling();
+            RenderCommand::FrontCull();
+        }
+
+        // Render CSM cascades (skipped entirely when VSM owns the directional light)
+        if (const auto& csmArray = m_ShadowMap->GetCSMTextureArray(); csmArray && !useVirtualShadowMap)
         {
             if (!m_LoggedOnce)
             {

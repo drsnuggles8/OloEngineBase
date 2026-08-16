@@ -1,0 +1,60 @@
+#version 460 core
+
+// =============================================================================
+// VSM_EndFrame.comp — step 8 of the VSM frame (issue #702)
+//
+// Strips every per-frame bit from the page table (DIRTY, VISITED,
+// REQUESTS_ALLOCATION, ALLOCATION_FAILED) and from the meta table (VISITED),
+// leaving only ALLOCATED plus the physical-page binding. That residue IS the
+// cache: whatever survives here is what the next frame gets for free.
+//
+// It must run AFTER the raster and BEFORE the marking pass, and the ordering is
+// not cosmetic. VISITED is the LRU signal VSM_FindFreePages reads; clear it after
+// the marker instead of before and every resident page looks unreferenced, so the
+// pool evicts itself completely every frame and nothing is ever cached.
+//
+// Dispatched over VSM_TOTAL_VIRTUAL_PAGES, which is always >= the physical page
+// count, so the meta sweep rides along in the same dispatch.
+// =============================================================================
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+
+    if (idx < uint(vsmPhysicalPageCount()))
+    {
+        uint meta = b_MetaTable[idx];
+        if (meta != 0u)
+            b_MetaTable[idx] = meta & ~VSM_META_VISITED_BIT;
+    }
+
+    if (idx == 0u)
+    {
+        // Reset the allocator's per-frame counters. The stats buffer is zeroed
+        // CPU-side at the top of the next frame's page update (it is the buffer
+        // being read back this frame, so it must survive until then).
+        b_RequestCount = 0u;
+        b_RequestConsumed = 0u;
+        b_FreeCount = 0u;
+        b_NotVisitedCount = 0u;
+        b_FreeConsumed = 0u;
+    }
+
+    if (idx >= uint(VSM_TOTAL_VIRTUAL_PAGES))
+        return;
+
+    uint entry = b_PageTable[idx];
+    if (entry == 0u)
+        return;
+
+    const uint perFrameBits = VSM_PAGE_DIRTY_BIT | VSM_PAGE_VISITED_BIT |
+                              VSM_PAGE_REQUESTS_ALLOC_BIT | VSM_PAGE_ALLOC_FAILED_BIT;
+    uint kept = entry & ~perFrameBits;
+    // A page that never got backed carries no information worth keeping — drop it
+    // so the table returns to a clean zero rather than accumulating dead slots.
+    b_PageTable[idx] = vsmPageIsAllocated(kept) ? kept : 0u;
+}

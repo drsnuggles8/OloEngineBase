@@ -125,6 +125,21 @@ namespace OloEngine::RenderPipelineBuilderInternal
                 break;
         }
 
+        // Virtual Shadow Map page marking (#702). Registered here, after the last
+        // depth writer, because it projects the FINISHED scene depth into the clip
+        // levels — and ShadowPass, which consumes what it marks, is the first node
+        // in the graph. The one-frame lag that creates is the system's design (see
+        // VirtualShadowMap.h), not an ordering accident: registering it earlier
+        // would mark against a depth buffer the frame has not finished writing.
+        //
+        // Deliberately BEFORE the deferred-only early-out below, so the forward and
+        // Forward+ paths mark their pages too. It owns no render target, so it
+        // never joins the SceneColor chain on any path.
+        if (inputs.Passes->VirtualShadowMapMark)
+        {
+            graph.AddNode(PrepareGraphNode("VirtualShadowMapMarkPass", inputs.Passes->VirtualShadowMapMark));
+        }
+
         if (!inputs.Deferred)
             return;
 

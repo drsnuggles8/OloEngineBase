@@ -1,0 +1,88 @@
+#version 460 core
+
+// =============================================================================
+// VSM_MarkRequiredPages.comp — step 9 of the VSM frame (issue #702)
+//
+// Runs LATE, from VirtualShadowMapMarkPass, because it needs the scene depth
+// buffer and ShadowPass is the first node in the graph. The pages it marks are
+// consumed by the NEXT frame's shadow pass — see the frame ordering comment in
+// VirtualShadowMap.h.
+//
+// Each sampled depth texel is unprojected to a render-relative world position,
+// assigned a clip level by the shared heuristic, and its page marked. Two things
+// here are not obvious:
+//
+//   * It marks the selected level AND the next coarser one. Sampling falls back
+//     to coarser levels when a fine page is missing (the one-frame lag means a
+//     disoccluded surface has no fine page yet), and a fallback level that is
+//     itself unmarked would be evicted — turning graceful blur into a hole. The
+//     coarser level's pages are 4x larger, so this costs ~25% more pages, not 2x.
+//
+//   * VISITED is set on every referenced page, allocated or not. That flag is the
+//     only thing keeping a resident page off VSM_FindFreePages' eviction list, so
+//     a page that stops being referenced ages out naturally.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+// TEX_POSTPROCESS_DEPTH — this frame's scene depth, bound by the mark pass.
+layout(binding = 19) uniform sampler2D u_VSMSceneDepth;
+
+void vsmMarkPage(int clipLevel, ivec2 wrappedPage)
+{
+    int idx = vsmPageIndex(clipLevel, wrappedPage);
+
+    uint prev = atomicOr(b_PageTable[idx], VSM_PAGE_VISITED_BIT);
+    if (vsmPageIsAllocated(prev))
+    {
+        // Resident already — just keep its physical page off the LRU list.
+        atomicOr(b_MetaTable[vsmPhysicalPageIndex(vsmUnpackPhysicalPage(prev))], VSM_META_VISITED_BIT);
+        return;
+    }
+
+    // Only the invocation that flips REQUESTS_ALLOCATION from 0 appends a record,
+    // so the thousands of depth texels landing on one page produce one request.
+    uint prevRequest = atomicOr(b_PageTable[idx], VSM_PAGE_REQUESTS_ALLOC_BIT);
+    if (vsmPageRequestsAlloc(prevRequest))
+        return;
+
+    atomicAdd(b_PagesRequested, 1u);
+    uint slot = atomicAdd(b_RequestCount, 1u);
+    if (slot < uint(VSM_MAX_REQUESTS))
+        b_Requests[slot] = uvec4(uint(clipLevel), uint(wrappedPage.x), uint(wrappedPage.y), 0u);
+}
+
+void main()
+{
+    int stride = max(u_VSMParams3.z, 1);
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy) * stride;
+    if (pix.x >= u_VSMParams3.x || pix.y >= u_VSMParams3.y)
+        return;
+
+    float depth = texelFetch(u_VSMSceneDepth, pix, 0).r;
+    if (depth >= 1.0)
+        return; // sky — nothing to receive a shadow
+
+    vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(u_VSMParams3.xy);
+    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 unprojected = u_VSMInverseViewProjection * ndc;
+    vec3 worldPos = unprojected.xyz / unprojected.w;
+
+    if (length(worldPos - u_VSMCameraPosition.xyz) > VSM_MAX_SHADOW_DISTANCE)
+        return;
+
+    int selected = vsmSelectClipLevel(worldPos);
+    for (int i = 0; i < 2; ++i)
+    {
+        int level = min(selected + i, VSM_CLIP_LEVELS - 1);
+        vec2 clipUV;
+        float clipDepth;
+        if (!vsmProjectIntoClip(worldPos, level, clipUV, clipDepth))
+            continue;
+        vsmMarkPage(level, vsmUVToWrappedPage(clipUV, level));
+        if (level == VSM_CLIP_LEVELS - 1)
+            break; // clamped — the second iteration would mark the same page
+    }
+}

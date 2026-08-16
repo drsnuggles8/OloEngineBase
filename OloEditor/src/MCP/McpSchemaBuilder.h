@@ -103,6 +103,22 @@ namespace OloEngine::MCP::Schema
             return *this;
         }
 
+        // Same, from a RUNTIME range — for a schema whose value set is derived
+        // from a table rather than written out. The literal form above cannot
+        // express that, and a hand-restated copy of such a table goes stale
+        // silently: issue #702 added a renderer setting that parsed, applied and
+        // described correctly while the schema gate still rejected it, which
+        // reads as a missing feature rather than as an un-updated list.
+        template<typename Range>
+        Node& EnumFrom(const Range& values)
+        {
+            Json arr = Json::array();
+            for (const auto& value : values)
+                arr.push_back(std::string(value));
+            m_Json["enum"] = std::move(arr);
+            return *this;
+        }
+
         // ---- object modifiers --------------------------------------------------
 
         // Add one named property, lazily creating the `properties` map. An object

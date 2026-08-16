@@ -56,7 +56,12 @@ namespace OloEngine::Tests
         /// still has to be re-pointed by hand: deriving "the maximum" would
         /// need the constants enumerated somewhere, and the reason this test
         /// exists is that they are not.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_REFLECTION_PROBE_GRID;
+        /// Re-pointed from SSBO_REFLECTION_PROBE_GRID (53) to SSBO_VSM_STATS (65)
+        /// by issue #702: the Virtual Shadow Map allocator declares ten storage
+        /// buffers in 54..65, and its kernels are production shaders that this
+        /// test reflects. The new top also covers SSBO_BONE_PULL (63), which sits
+        /// above the old value but only ever appears inside an OLO_VULKAN branch.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_VSM_STATS;
 
         struct BindingFailure
         {

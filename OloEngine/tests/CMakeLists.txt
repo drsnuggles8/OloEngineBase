@@ -235,6 +235,7 @@ add_executable(OloEngine-Tests
 		Fluid/FluidKernelContractTest.cpp
 		Fluid/CPUFluidSolverContractTest.cpp
 		Rendering/PCSSShadowTest.cpp
+		Rendering/VirtualShadowMapTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
 		Rendering/DeccerCubesLoadingTest.cpp
