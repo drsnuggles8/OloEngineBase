@@ -74,4 +74,37 @@ namespace OloEngine
         return timeA > timeB;
     }
 
+    std::filesystem::path FileSystem::GetExecutableDirectory()
+    {
+#if defined(OLO_PLATFORM_WINDOWS)
+        std::wstring buffer(MAX_PATH, L'\0');
+        for (;;)
+        {
+            const DWORD written = ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+            if (written == 0)
+            {
+                return {};
+            }
+            if (written < buffer.size())
+            {
+                buffer.resize(written);
+                break;
+            }
+            // Truncated (returned == capacity): grow and retry.
+            buffer.resize(buffer.size() * 2);
+        }
+        return std::filesystem::path(buffer).parent_path();
+#elif defined(OLO_PLATFORM_LINUX)
+        std::error_code ec;
+        const auto exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (ec)
+        {
+            return {};
+        }
+        return exe.parent_path();
+#else
+        return {};
+#endif
+    }
+
 } // namespace OloEngine

@@ -2,14 +2,16 @@
 #include "OloEngine/Renderer/Debug/RenderGraphFrameCapture.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureBackend.h"
+#include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include <algorithm>
 #include <array>
-#include <glad/gl.h>
 #include <limits>
 #include <string_view>
 
@@ -19,17 +21,17 @@ namespace OloEngine
     {
         // Single shared blit destination FBO — re-used across all
         // captures by re-attaching the per-capture texture as
-        // COLOR_ATTACHMENT0 before each blit.
-        u32 s_BlitDstFBO = 0;
+        // attachment 0 before each blit.
+        RHI::ResourceHandle s_BlitDstFBO;
         // Single shared blit source FBO — used to wrap the source FB's
-        // color attachment when only the renderer ID is available.
-        u32 s_BlitSrcFBO = 0;
+        // color attachment when only the texture identity is available.
+        RHI::ResourceHandle s_BlitSrcFBO;
 
-        u32 EnsureBlitFBO(u32& fbo)
+        RHI::ResourceHandle EnsureBlitFBO(RHI::ResourceHandle& fbo)
         {
-            if (fbo == 0)
+            if (!fbo.IsValid())
             {
-                glCreateFramebuffers(1, &fbo);
+                fbo = RenderCommand::CreateFramebufferHandle();
             }
             return fbo;
         }
@@ -91,15 +93,15 @@ namespace OloEngine
     RenderGraphFrameCapture::~RenderGraphFrameCapture()
     {
         ClearCaptures();
-        if (s_BlitDstFBO != 0)
+        if (s_BlitDstFBO.IsValid())
         {
-            glDeleteFramebuffers(1, &s_BlitDstFBO);
-            s_BlitDstFBO = 0;
+            RenderCommand::DeleteFramebuffer(s_BlitDstFBO);
+            s_BlitDstFBO = RHI::NullResource;
         }
-        if (s_BlitSrcFBO != 0)
+        if (s_BlitSrcFBO.IsValid())
         {
-            glDeleteFramebuffers(1, &s_BlitSrcFBO);
-            s_BlitSrcFBO = 0;
+            RenderCommand::DeleteFramebuffer(s_BlitSrcFBO);
+            s_BlitSrcFBO = RHI::NullResource;
         }
     }
 
@@ -194,57 +196,60 @@ namespace OloEngine
     {
         for (auto& [key, entry] : m_TextureCache)
         {
-            if (entry.TextureID != 0)
+            if (entry.Texture.IsValid())
             {
-                glDeleteTextures(1, &entry.TextureID);
-                entry.TextureID = 0;
+                RenderCommand::DeleteTexture(entry.Texture);
+                entry.Texture = RHI::NullResource;
             }
         }
         m_TextureCache.clear();
         m_Captures.clear();
     }
 
-    u32 RenderGraphFrameCapture::AcquireTexture(const std::string& passName, Source source, u32 width, u32 height)
+    RHI::ResourceHandle RenderGraphFrameCapture::AcquireTexture(const std::string& passName, Source source, u32 width, u32 height)
     {
         const CacheKey key{ passName, source };
         if (auto it = m_TextureCache.find(key); it != m_TextureCache.end())
         {
             // Reuse if dimensions match, otherwise reallocate.
-            if (it->second.Width == width && it->second.Height == height && it->second.TextureID != 0)
+            if (it->second.Width == width && it->second.Height == height && it->second.Texture.IsValid())
             {
-                return it->second.TextureID;
+                return it->second.Texture;
             }
-            glDeleteTextures(1, &it->second.TextureID);
-            it->second.TextureID = 0;
+            RenderCommand::DeleteTexture(it->second.Texture);
+            it->second.Texture = RHI::NullResource;
         }
 
-        u32 tex = 0;
-        glCreateTextures(GL_TEXTURE_2D, 1, &tex);
-        glTextureStorage2D(tex, 1, GL_RGBA8, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
-        glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        const RHI::ResourceHandle tex = RenderCommand::CreateTexture2DHandle(width, height, RHI::Format::RGBA8UNorm);
+        if (!tex.IsValid())
+        {
+            return RHI::NullResource;
+        }
+        RenderCommand::SetTextureFilter(tex, RHI::Filter::Linear, RHI::Filter::Linear);
+        RenderCommand::SetTextureWrap(tex, RHI::AddressMode::ClampToEdge);
         // Force alpha = 1 on sample. Most scene framebuffers store alpha = 0
         // (cleared to vec4(0,0,0,0); only opaque shaders may set it). ImGui
         // renders our debug thumbnails with blending, so a 0 alpha makes the
         // entire image appear transparent (i.e. grey panel background).
-        glTextureParameteri(tex, GL_TEXTURE_SWIZZLE_A, GL_ONE);
+        // Behind the seam (#691 Phase 9): texture swizzle has no RendererAPI
+        // equivalent — see FrameCaptureBackend.h.
+        Detail::SetTextureAlphaSwizzleOne(tex);
 
         m_TextureCache[key] = CachedTexture{ tex, width, height };
         return tex;
     }
 
-    void RenderGraphFrameCapture::CaptureFramebuffer(const std::string& passName, Source source, u32 sourceTextureID, u32 width, u32 height,
+    void RenderGraphFrameCapture::CaptureFramebuffer(const std::string& passName, Source source, RHI::ResourceHandle sourceTexture,
+                                                     u32 width, u32 height,
                                                      std::string_view resourceName, u32 sourceFramebufferID, const GraphMetadata& metadata)
     {
-        if (sourceTextureID == 0 || width == 0 || height == 0)
+        if (!sourceTexture.IsValid() || width == 0 || height == 0)
         {
             return;
         }
 
-        const u32 dstTexture = AcquireTexture(passName, source, width, height);
-        if (dstTexture == 0)
+        const RHI::ResourceHandle dstTexture = AcquireTexture(passName, source, width, height);
+        if (!dstTexture.IsValid())
         {
             return;
         }
@@ -253,85 +258,58 @@ namespace OloEngine
         // our shared dst FBO, then blit. This handles arbitrary format
         // conversion (the source may be RGBA16F HDR while we capture to
         // RGBA8 for cheap display).
-        const u32 srcFBO = EnsureBlitFBO(s_BlitSrcFBO);
-        const u32 dstFBO = EnsureBlitFBO(s_BlitDstFBO);
+        const RHI::ResourceHandle srcFBO = EnsureBlitFBO(s_BlitSrcFBO);
+        const RHI::ResourceHandle dstFBO = EnsureBlitFBO(s_BlitDstFBO);
 
-        glNamedFramebufferTexture(srcFBO, GL_COLOR_ATTACHMENT0, sourceTextureID, 0);
-        glNamedFramebufferTexture(dstFBO, GL_COLOR_ATTACHMENT0, dstTexture, 0);
-        glNamedFramebufferReadBuffer(srcFBO, GL_COLOR_ATTACHMENT0);
-        glNamedFramebufferDrawBuffer(dstFBO, GL_COLOR_ATTACHMENT0);
+        RenderCommand::AttachFramebufferColorTexture(srcFBO, 0, sourceTexture, 0);
+        RenderCommand::AttachFramebufferColorTexture(dstFBO, 0, dstTexture, 0);
+        RenderCommand::SetFramebufferReadAttachment(srcFBO, 0);
+        constexpr std::array<u32, 1> kAttachment0 = { 0u };
+        RenderCommand::SetFramebufferDrawAttachments(dstFBO, kAttachment0);
 
         // Sanity-check completeness — attaching a depth-only or zero
         // texture would otherwise produce GL_INVALID_FRAMEBUFFER_OPERATION
         // from the blit.
-        const GLenum srcStatus = glCheckNamedFramebufferStatus(srcFBO, GL_READ_FRAMEBUFFER);
-        const GLenum dstStatus = glCheckNamedFramebufferStatus(dstFBO, GL_DRAW_FRAMEBUFFER);
-        if (srcStatus != GL_FRAMEBUFFER_COMPLETE || dstStatus != GL_FRAMEBUFFER_COMPLETE)
+        const bool srcComplete = RenderCommand::IsFramebufferComplete(srcFBO);
+        const bool dstComplete = RenderCommand::IsFramebufferComplete(dstFBO);
+        if (!srcComplete || !dstComplete)
         {
-            OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: FBO incomplete (src=0x{:x} dst=0x{:x})",
-                          passName, SourceName(source), resourceName, srcStatus, dstStatus);
+            OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: FBO incomplete (srcComplete={} dstComplete={})",
+                          passName, SourceName(source), resourceName, srcComplete, dstComplete);
+            // Detach on THIS path too (review finding): both FBOs are
+            // process-wide shared objects, so bailing with the textures still
+            // attached leaves a live reference on a framebuffer nobody owns
+            // AND leaks this capture's attachments into the next caller's
+            // completeness check — which is exactly the state that produced
+            // the incompleteness being reported.
+            RenderCommand::AttachFramebufferColorTexture(srcFBO, 0, RHI::NullResource, 0);
+            RenderCommand::AttachFramebufferColorTexture(dstFBO, 0, RHI::NullResource, 0);
             return;
         }
 
-        // glBlitFramebuffer honors GL_COLOR_WRITEMASK, GL_SCISSOR_TEST, and
+        // The blit honors GL_COLOR_WRITEMASK, GL_SCISSOR_TEST, and
         // GL_FRAMEBUFFER_SRGB. Various passes leave color writes disabled
         // (depth prepass), scissor enabled to a sub-region (shadow tiles),
         // or sRGB-encode on, all of which would silently produce a black /
-        // partial capture. Save current state, neutralize, blit, restore.
-        GLboolean prevColorMask[4]{};
-        glGetBooleanv(GL_COLOR_WRITEMASK, prevColorMask);
-        const GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
-        const GLboolean prevSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
-        const GLboolean prevRasterizerDiscard = glIsEnabled(GL_RASTERIZER_DISCARD);
-
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        if (prevScissor)
+        // partial capture. The seam saves that state, neutralizes it, blits,
+        // and restores it — the required state QUERIES and the SRGB /
+        // RASTERIZER_DISCARD toggles have no facade equivalent, and neither
+        // does the folded error attribution (ADR 0011 amendment (7)); see
+        // FrameCaptureBackend.h.
+        if (const u32 blitErr = Detail::BlitWithGLTransferSemantics(srcFBO, dstFBO, width, height); blitErr != 0)
         {
-            glDisable(GL_SCISSOR_TEST);
-        }
-        if (prevSrgb)
-        {
-            glDisable(GL_FRAMEBUFFER_SRGB);
-        }
-        if (prevRasterizerDiscard)
-        {
-            glDisable(GL_RASTERIZER_DISCARD);
-        }
-
-        glBlitNamedFramebuffer(srcFBO, dstFBO,
-                               0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
-                               0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
-                               GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-        if (const GLenum blitErr = glGetError(); blitErr != GL_NO_ERROR)
-        {
-            OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: glBlitNamedFramebuffer GL error 0x{:x} (src tex {}, {}x{})",
-                          passName, SourceName(source), resourceName, blitErr, sourceTextureID, width, height);
+            OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: blit GL error 0x{:x} (src tex {}, {}x{})",
+                          passName, SourceName(source), resourceName, blitErr, sourceTexture, width, height);
         }
         else
         {
-            RecordCapture(passName, source, resourceName, sourceTextureID, sourceFramebufferID,
+            RecordCapture(passName, source, resourceName, sourceTexture, sourceFramebufferID,
                           dstTexture, width, height, metadata);
         }
 
-        // Restore prior global state so we don't perturb the next pass.
-        glColorMask(prevColorMask[0], prevColorMask[1], prevColorMask[2], prevColorMask[3]);
-        if (prevScissor)
-        {
-            glEnable(GL_SCISSOR_TEST);
-        }
-        if (prevSrgb)
-        {
-            glEnable(GL_FRAMEBUFFER_SRGB);
-        }
-        if (prevRasterizerDiscard)
-        {
-            glEnable(GL_RASTERIZER_DISCARD);
-        }
-
         // Detach so we don't keep stale references.
-        glNamedFramebufferTexture(srcFBO, GL_COLOR_ATTACHMENT0, 0, 0);
-        glNamedFramebufferTexture(dstFBO, GL_COLOR_ATTACHMENT0, 0, 0);
+        RenderCommand::AttachFramebufferColorTexture(srcFBO, 0, RHI::NullResource, 0);
+        RenderCommand::AttachFramebufferColorTexture(dstFBO, 0, RHI::NullResource, 0);
 
         // CaptureEntry is appended above on successful blit so probe stats are retained.
     }
@@ -344,115 +322,82 @@ namespace OloEngine
             return;
         }
 
-        const u32 dstTexture = AcquireTexture(passName, source, width, height);
-        if (dstTexture == 0)
+        const RHI::ResourceHandle dstTexture = AcquireTexture(passName, source, width, height);
+        if (!dstTexture.IsValid())
         {
             return;
         }
 
-        const u32 dstFBO = EnsureBlitFBO(s_BlitDstFBO);
-        glNamedFramebufferTexture(dstFBO, GL_COLOR_ATTACHMENT0, dstTexture, 0);
-        glNamedFramebufferDrawBuffer(dstFBO, GL_COLOR_ATTACHMENT0);
+        const RHI::ResourceHandle dstFBO = EnsureBlitFBO(s_BlitDstFBO);
+        RenderCommand::AttachFramebufferColorTexture(dstFBO, 0, dstTexture, 0);
+        constexpr std::array<u32, 1> kAttachment0 = { 0u };
+        RenderCommand::SetFramebufferDrawAttachments(dstFBO, kAttachment0);
 
-        if (const GLenum dstStatus = glCheckNamedFramebufferStatus(dstFBO, GL_DRAW_FRAMEBUFFER); dstStatus != GL_FRAMEBUFFER_COMPLETE)
+        if (!RenderCommand::IsFramebufferComplete(dstFBO))
         {
-            OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: default-FB capture destination incomplete (dst=0x{:x})",
-                          passName, SourceName(source), resourceName, dstStatus);
-            glNamedFramebufferTexture(dstFBO, GL_COLOR_ATTACHMENT0, 0, 0);
+            OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: default-FB capture destination incomplete",
+                          passName, SourceName(source), resourceName);
+            RenderCommand::AttachFramebufferColorTexture(dstFBO, 0, RHI::NullResource, 0);
             return;
         }
 
-        GLint prevReadFramebuffer = 0;
-        GLint prevDrawFramebuffer = 0;
-        GLint prevReadBuffer = GL_BACK;
-        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFramebuffer);
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDrawFramebuffer);
-        glGetIntegerv(GL_READ_BUFFER, &prevReadBuffer);
+        // Behind the seam (#691 Phase 9): saving the read/draw framebuffer
+        // bindings and the read-buffer selection, and pointing the DEFAULT
+        // framebuffer's read buffer at the backbuffer, have no RendererAPI
+        // equivalent — the facade has no state-query family, no split
+        // read/draw framebuffer bind, and SetFramebufferReadAttachment only
+        // names color attachments. See FrameCaptureBackend.h.
+        const Detail::DefaultFramebufferReadState readSource = Detail::SelectDefaultFramebufferReadSource();
 
-        GLboolean prevColorMask[4]{};
-        glGetBooleanv(GL_COLOR_WRITEMASK, prevColorMask);
-        const GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
-        const GLboolean prevSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
-        const GLboolean prevRasterizerDiscard = glIsEnabled(GL_RASTERIZER_DISCARD);
-
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-        glReadBuffer(GL_BACK);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        if (prevScissor)
-        {
-            glDisable(GL_SCISSOR_TEST);
-        }
-        if (prevSrgb)
-        {
-            glDisable(GL_FRAMEBUFFER_SRGB);
-        }
-        if (prevRasterizerDiscard)
-        {
-            glDisable(GL_RASTERIZER_DISCARD);
-        }
-
-        glBlitNamedFramebuffer(0, dstFBO,
-                               0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
-                               0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
-                               GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-        if (const GLenum blitErr = glGetError(); blitErr != GL_NO_ERROR)
+        // RHI::NullResource as the blit source names the DEFAULT framebuffer;
+        // the seam neutralizes/restores the blit-affecting state and folds the
+        // error attribution (same contract as CaptureFramebuffer above).
+        if (const u32 blitErr = Detail::BlitWithGLTransferSemantics(RHI::NullResource, dstFBO, width, height); blitErr != 0)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: default-FB blit GL error 0x{:x} ({}x{})",
                           passName, SourceName(source), resourceName, blitErr, width, height);
         }
         else
         {
-            RecordCapture(passName, source, resourceName, 0, 0, dstTexture, width, height, metadata);
+            RecordCapture(passName, source, resourceName, RHI::NullResource, 0, dstTexture, width, height, metadata);
         }
 
-        glColorMask(prevColorMask[0], prevColorMask[1], prevColorMask[2], prevColorMask[3]);
-        if (prevScissor)
-        {
-            glEnable(GL_SCISSOR_TEST);
-        }
-        if (prevSrgb)
-        {
-            glEnable(GL_FRAMEBUFFER_SRGB);
-        }
-        if (prevRasterizerDiscard)
-        {
-            glEnable(GL_RASTERIZER_DISCARD);
-        }
-
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevReadFramebuffer));
-        glReadBuffer(static_cast<GLenum>(prevReadBuffer));
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(prevDrawFramebuffer));
-        glNamedFramebufferTexture(dstFBO, GL_COLOR_ATTACHMENT0, 0, 0);
+        Detail::RestoreDefaultFramebufferReadSource(readSource);
+        RenderCommand::AttachFramebufferColorTexture(dstFBO, 0, RHI::NullResource, 0);
     }
 
     void RenderGraphFrameCapture::RecordCapture(const std::string& passName, Source source, std::string_view resourceName,
-                                                u32 sourceTextureID, u32 sourceFramebufferID, u32 dstTexture,
+                                                RHI::ResourceHandle sourceTexture, u32 sourceFramebufferID, RHI::ResourceHandle dstTexture,
                                                 u32 width, u32 height, const GraphMetadata& metadata)
     {
         std::array<std::array<u8, 4>, 9> probes{};
-        const GLint probeX[3] = {
+        const i32 probeX[3] = {
             0,
-            std::max<GLint>(0, static_cast<GLint>(width) / 2),
-            std::max<GLint>(0, static_cast<GLint>(width) - 1)
+            std::max<i32>(0, static_cast<i32>(width) / 2),
+            std::max<i32>(0, static_cast<i32>(width) - 1)
         };
-        const GLint probeY[3] = {
+        const i32 probeY[3] = {
             0,
-            std::max<GLint>(0, static_cast<GLint>(height) / 2),
-            std::max<GLint>(0, static_cast<GLint>(height) - 1)
+            std::max<i32>(0, static_cast<i32>(height) / 2),
+            std::max<i32>(0, static_cast<i32>(height) - 1)
         };
 
         u32 nonBlackSamples = 0;
         u32 nonTransparentSamples = 0;
         sizet probeIndex = 0;
-        for (const GLint y : probeY)
+        for (const i32 y : probeY)
         {
-            for (const GLint x : probeX)
+            for (const i32 x : probeX)
             {
                 std::array<u8, 4> rgba{ 0, 0, 0, 0 };
-                glGetTextureSubImage(dstTexture, 0, x, y, 0, 1, 1, 1,
-                                     GL_RGBA, GL_UNSIGNED_BYTE,
-                                     static_cast<GLsizei>(rgba.size()), rgba.data());
+                if (!RenderCommand::ReadTextureSubImage(dstTexture, 0, x, y, 0, 1, 1, 1,
+                                                        RHI::Format::RGBA8UNorm,
+                                                        rgba.size(), rgba.data()))
+                {
+                    // Keep the zero-initialised sample — the same value the
+                    // raw readback produced on error.
+                    rgba = { 0, 0, 0, 0 };
+                }
                 probes[probeIndex] = rgba;
 
                 if (rgba[0] != 0 || rgba[1] != 0 || rgba[2] != 0)
@@ -464,25 +409,30 @@ namespace OloEngine
             }
         }
 
+        // Native names for the diagnostics below and for CaptureEntry (the
+        // debugger feeds TextureID straight to ImGui as an ImTextureID).
+        const u32 sourceTextureID = Debug::NativeTextureIdForDiagnostics(sourceTexture);
+        const u32 dstTextureID = Debug::NativeTextureIdForDiagnostics(dstTexture);
+
         const auto& center = probes[4];
         if (nonBlackSamples == 0)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: BLACK capture (src tex {} fb {} -> dst tex {}, {}x{}, nonBlack={}/9, nonTransparent={}/9, center=({},{},{},{}))",
-                          passName, SourceName(source), resourceName, sourceTextureID, sourceFramebufferID, dstTexture, width, height,
+                          passName, SourceName(source), resourceName, sourceTextureID, sourceFramebufferID, dstTextureID, width, height,
                           nonBlackSamples, nonTransparentSamples,
                           center[0], center[1], center[2], center[3]);
         }
         else if (IsPresentationLikeSource(source) && nonTransparentSamples == 0)
         {
             OLO_CORE_WARN("RenderGraphFrameCapture[{}|{}:{}]: TRANSPARENT capture (src tex {} fb {} -> dst tex {}, {}x{}, nonBlack={}/9, nonTransparent={}/9, center=({},{},{},{}))",
-                          passName, SourceName(source), resourceName, sourceTextureID, sourceFramebufferID, dstTexture, width, height,
+                          passName, SourceName(source), resourceName, sourceTextureID, sourceFramebufferID, dstTextureID, width, height,
                           nonBlackSamples, nonTransparentSamples,
                           center[0], center[1], center[2], center[3]);
         }
         else
         {
             OLO_CORE_TRACE("RenderGraphFrameCapture[{}|{}:{}]: blit OK src tex {} fb {} -> dst tex {} ({}x{}, nonBlack={}/9, nonTransparent={}/9, center=({},{},{},{}))",
-                           passName, SourceName(source), resourceName, sourceTextureID, sourceFramebufferID, dstTexture, width, height,
+                           passName, SourceName(source), resourceName, sourceTextureID, sourceFramebufferID, dstTextureID, width, height,
                            nonBlackSamples, nonTransparentSamples,
                            center[0], center[1], center[2], center[3]);
         }
@@ -491,7 +441,7 @@ namespace OloEngine
             .PassName = passName,
             .ResourceName = std::string(resourceName),
             .SourceKind = source,
-            .TextureID = dstTexture,
+            .TextureID = dstTextureID,
             .SourceTextureID = sourceTextureID,
             .SourceFramebufferID = sourceFramebufferID,
             .Width = width,
@@ -569,8 +519,8 @@ namespace OloEngine
             if (CountColorAttachments(spec) == 0)
                 return;
 
-            const u32 colorID = fb->GetColorAttachmentRendererID(0);
-            if (colorID == 0)
+            const RHI::ResourceHandle colorAttachment = fb->GetColorAttachmentHandle(0);
+            if (!colorAttachment.IsValid())
             {
                 return;
             }
@@ -581,45 +531,57 @@ namespace OloEngine
             {
                 const sizet attachmentCount = spec.Attachments.Attachments.size();
                 OLO_CORE_INFO("RenderGraphFrameCapture[live {}:{}]: fbGL={} attachments={} colorTex0={} ({}x{})",
-                              SourceName(kind), resourceName, fb->GetRendererID(), attachmentCount, colorID, spec.Width, spec.Height);
+                              SourceName(kind), resourceName, fb->GetRendererID(), attachmentCount,
+                              Debug::NativeTextureIdForDiagnostics(colorAttachment), spec.Width, spec.Height);
                 emittedDiag = true;
             }
 
-            CaptureFramebuffer(passName, kind, colorID, spec.Width, spec.Height,
+            CaptureFramebuffer(passName, kind, colorAttachment, spec.Width, spec.Height,
                                resourceName, fb->GetRendererID(), metadata);
         };
 
-        const auto captureTexture = [this, &emittedDiag, &passName, &metadata](Source kind, std::string_view resourceName, u32 textureID, u32 width, u32 height, u32 sourceFramebufferID = 0)
+        const auto captureTexture = [this, &emittedDiag, &passName, &metadata](Source kind, std::string_view resourceName, RHI::ResourceHandle texture, u32 width, u32 height, u32 sourceFramebufferID = 0)
         {
-            if (textureID == 0 || width == 0 || height == 0)
+            if (!texture.IsValid() || width == 0 || height == 0)
                 return;
             if (!m_DiagLogged)
             {
                 OLO_CORE_INFO("RenderGraphFrameCapture[live {}:{}]: tex={} fb={} ({}x{})",
-                              SourceName(kind), resourceName, textureID, sourceFramebufferID, width, height);
+                              SourceName(kind), resourceName, texture, sourceFramebufferID, width, height);
                 emittedDiag = true;
             }
-            CaptureFramebuffer(passName, kind, textureID, width, height, resourceName, sourceFramebufferID, metadata);
+            CaptureFramebuffer(passName, kind, texture, width, height, resourceName, sourceFramebufferID, metadata);
         };
 
         const auto captureGraphTexture = [&graph, &captureTexture](Source kind, std::string_view resourceName)
         {
-            const u32 textureID = graph.ResolveTexture(graph.GetTextureHandle(resourceName));
-            if (textureID == 0)
+            const RGTextureHandle rgHandle = graph.GetTextureHandle(resourceName);
+            const RHI::ResourceHandle texture = graph.ResolveTextureHandle(rgHandle);
+            if (!texture.IsValid())
+            {
+                // Dual-currency guard (see RenderGraphResourceIdentity.h): a
+                // resource still imported as a raw native id has no identity
+                // to give, and the facade capture path cannot reach it. Warn
+                // instead of silently dropping it from the capture set — the
+                // #732 SSAO-noise regression was exactly this shape.
+                if (Debug::NativeTextureIdForDiagnostics(graph, rgHandle) != 0)
+                {
+                    OLO_CORE_WARN("RenderGraphFrameCapture[{}]: resource carries only a native id and "
+                                  "cannot be captured through the facade path",
+                                  resourceName);
+                }
+                return;
+            }
+
+            u32 width = 0;
+            u32 height = 0;
+            RenderCommand::GetTextureDimensions(texture, 0, width, height);
+            if (width == 0 || height == 0)
             {
                 return;
             }
 
-            GLint width = 0;
-            GLint height = 0;
-            glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_WIDTH, &width);
-            glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_HEIGHT, &height);
-            if (width <= 0 || height <= 0)
-            {
-                return;
-            }
-
-            captureTexture(kind, resourceName, textureID, static_cast<u32>(width), static_cast<u32>(height));
+            captureTexture(kind, resourceName, texture, width, height);
         };
 
         // SceneColor is the primary timeline surface. Capture it after every

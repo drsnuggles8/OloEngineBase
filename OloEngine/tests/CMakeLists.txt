@@ -216,6 +216,12 @@ add_executable(OloEngine-Tests
 		# against a live animated scene the mirrored position scored BETTER than
 		# the correct one, so a live pixel-compare cannot pin this.
 		Rendering/CaptureRegionReadbackTest.cpp
+		# The mip-level count the GL inspector backend reports, and the memory
+		# estimate derived from it. GL_TEXTURE_MAX_LEVEL is a sampling ceiling
+		# defaulting to 1000, not a level count — reading it as one made every
+		# texture report 1001 levels. Needs a GL context (skips cleanly without);
+		# covers immutable (exact), partial-chain and mutable (probed) storage.
+		Rendering/ResourceInspectorTextureQueryTest.cpp
 		Rendering/ResourceHazardValidationTests.cpp
 		Rendering/RenderGraphPathSwitchTests.cpp
 		Rendering/FramePipelineTest.cpp

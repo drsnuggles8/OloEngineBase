@@ -3,13 +3,14 @@
 #include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/Debug/ResourceInspectorBackend.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <stb_image/stb_image_write.h>
 
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -49,28 +50,18 @@ namespace OloEngine
             return TextureSaveEncoder::Unsupported;
         }
 
-        // Map a GL format token to the number of channels stb_image_write should receive.
-        // Returns 0 for unsupported formats (depth/stencil packed types, etc.). Callers should
-        // log and bail when 0 is returned. The RG case is widened to RGB for PNG output because
-        // libpng-style 2-channel encoding isn't universally readable by external image tools.
-        i32 ChannelsFromGLFormat(GLenum glFormat)
+        const char* RendererApiName(RendererAPI::API api)
         {
-            switch (glFormat)
+            switch (api)
             {
-                case GL_RED:
-                case GL_DEPTH_COMPONENT:
-                    return 1;
-                case GL_RG:
-                    return 2;
-                case GL_RGB:
-                case GL_BGR:
-                    return 3;
-                case GL_RGBA:
-                case GL_BGRA:
-                    return 4;
-                default:
-                    return 0;
+                case RendererAPI::API::None:
+                    return "None";
+                case RendererAPI::API::OpenGL:
+                    return "OpenGL";
+                case RendererAPI::API::Vulkan:
+                    return "Vulkan";
             }
+            return "Unknown";
         }
 
     } // namespace
@@ -95,10 +86,33 @@ namespace OloEngine
         return instance;
     }
 
+    IResourceInspectorBackend* GPUResourceInspector::GetBackend() const
+    {
+        // Lazy, once: the static capture entry points (CaptureTexturePng) and
+        // SaveTextureToFile are exercised by tests without Initialize() ever
+        // running, and the factory must not run before the process has settled
+        // on its renderer API (the Vulkan-to-GL window-creation fallback can
+        // switch it inside Application's constructor).
+        std::call_once(m_BackendOnce, [this]
+                       { m_Backend = CreateResourceInspectorBackend(); });
+        return m_Backend.get();
+    }
+
     void GPUResourceInspector::Initialize()
     {
         if (m_IsInitialized)
             return;
+
+        if (GetBackend() == nullptr)
+        {
+            // Mirrors the glOnlyTooling gating in Application.cpp: under a
+            // backend with no inspector arm the singleton simply stays
+            // un-initialized and every entry point no-ops.
+            OLO_CORE_INFO("GPUResourceInspector: no backend for {} — resource registration is a "
+                          "GL-side instrument; Vulkan visibility comes from the VMA/root-object registries",
+                          RendererApiName(RendererAPI::GetAPI()));
+            return;
+        }
 
         OLO_CORE_INFO("Initializing GPU Resource Inspector");
         m_IsInitialized = true;
@@ -111,15 +125,11 @@ namespace OloEngine
 
         OLO_CORE_INFO("Shutting down GPU Resource Inspector");
         // Clean up any pending texture downloads
-        for (auto& download : m_TextureDownloads)
+        if (IResourceInspectorBackend* backend = GetBackend())
         {
-            if (download.m_PBO != 0)
+            for (auto& download : m_TextureDownloads)
             {
-                glDeleteBuffers(1, &download.m_PBO);
-            }
-            if (download.m_Fence != nullptr)
-            {
-                glDeleteSync(download.m_Fence);
+                backend->ReleaseDownload({ download.m_PBO, download.m_Fence });
             }
         }
         m_TextureDownloads.clear();
@@ -216,7 +226,7 @@ namespace OloEngine
             ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))];
     }
 
-    void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
+    void GPUResourceInspector::RegisterBuffer(u32 rendererID, u32 target, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -230,21 +240,23 @@ namespace OloEngine
         bufferInfo->m_DebugName = debugName.empty() ? name : debugName;
         bufferInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
 
-        // Determine resource type based on target
-        switch (target)
+        // Determine resource type based on target (native-enum decoding is
+        // backend work; without a backend the old default fallback applies)
+        bufferInfo->m_Type = ResourceType::VertexBuffer; // Default fallback
+        if (IResourceInspectorBackend* backend = GetBackend())
         {
-            case GL_ARRAY_BUFFER:
-                bufferInfo->m_Type = ResourceType::VertexBuffer;
-                break;
-            case GL_ELEMENT_ARRAY_BUFFER:
-                bufferInfo->m_Type = ResourceType::IndexBuffer;
-                break;
-            case GL_UNIFORM_BUFFER:
-                bufferInfo->m_Type = ResourceType::UniformBuffer;
-                break;
-            default:
-                bufferInfo->m_Type = ResourceType::VertexBuffer; // Default fallback
-                break;
+            switch (backend->ClassifyBufferTarget(target))
+            {
+                case IResourceInspectorBackend::BufferKind::Vertex:
+                    bufferInfo->m_Type = ResourceType::VertexBuffer;
+                    break;
+                case IResourceInspectorBackend::BufferKind::Index:
+                    bufferInfo->m_Type = ResourceType::IndexBuffer;
+                    break;
+                case IResourceInspectorBackend::BufferKind::Uniform:
+                    bufferInfo->m_Type = ResourceType::UniformBuffer;
+                    break;
+            }
         }
 
         // Query buffer properties immediately
@@ -331,6 +343,10 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+            return;
+
         // This would be called by the renderer to update binding states
         // For now, we'll implement basic texture binding detection
         TUniqueLock<FMutex> lock(m_ResourceMutex);
@@ -343,9 +359,7 @@ namespace OloEngine
             {
                 // Check if this texture is bound to any texture unit
                 // This is a simplified check - in practice, we'd need to track all texture units
-                GLint currentTexture;
-                glGetIntegerv(GL_TEXTURE_BINDING_2D, &currentTexture);
-                if (static_cast<u32>(currentTexture) == resource->m_RendererID)
+                if (backend->GetBoundTexture2D() == resource->m_RendererID)
                 {
                     resource->m_IsBound = true;
                     resource->m_BindingSlot = 0; // Assume texture unit 0 for simplicity
@@ -385,196 +399,53 @@ namespace OloEngine
 
     void GPUResourceInspector::QueryTextureInfo(TextureInfo& info) const
     {
-        // Modern OpenGL 4.5+ DSA approach - no texture binding required
-        GLint width, height, internalFormat;
-        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_WIDTH, &width);
-        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_HEIGHT, &height);
-        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+            return;
 
-        info.m_Width = static_cast<u32>(width);
-        info.m_Height = static_cast<u32>(height);
-        info.m_InternalFormat = static_cast<GLenum>(internalFormat);
-        // Determine format and type based on internal format
-        switch (internalFormat)
-        {
-            case GL_RGBA8:
-            case GL_SRGB8_ALPHA8:
-                info.m_Format = GL_RGBA;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RGB8:
-            case GL_SRGB8:
-                info.m_Format = GL_RGB;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RG8:
-                info.m_Format = GL_RG;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_R8:
-                info.m_Format = GL_RED;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RGBA16F:
-                info.m_Format = GL_RGBA;
-                info.m_DataType = GL_HALF_FLOAT;
-                break;
-            case GL_RGB16F:
-                info.m_Format = GL_RGB;
-                info.m_DataType = GL_HALF_FLOAT;
-                break;
-            case GL_RG16F:
-                info.m_Format = GL_RG;
-                info.m_DataType = GL_HALF_FLOAT;
-                break;
-            case GL_R16F:
-                info.m_Format = GL_RED;
-                info.m_DataType = GL_HALF_FLOAT;
-                break;
-            case GL_RGBA32F:
-                info.m_Format = GL_RGBA;
-                info.m_DataType = GL_FLOAT;
-                break;
-            case GL_RGB32F:
-                info.m_Format = GL_RGB;
-                info.m_DataType = GL_FLOAT;
-                break;
-            case GL_RG32F:
-                info.m_Format = GL_RG;
-                info.m_DataType = GL_FLOAT;
-                break;
-            case GL_R32F:
-                info.m_Format = GL_RED;
-                info.m_DataType = GL_FLOAT;
-                break;
-            case GL_DEPTH_COMPONENT16:
-            case GL_DEPTH_COMPONENT24:
-            case GL_DEPTH_COMPONENT32:
-                info.m_Format = GL_DEPTH_COMPONENT;
-                info.m_DataType = GL_UNSIGNED_INT;
-                break;
-            case GL_DEPTH_COMPONENT32F:
-                info.m_Format = GL_DEPTH_COMPONENT;
-                info.m_DataType = GL_FLOAT;
-                break;
-            case GL_DEPTH24_STENCIL8:
-                info.m_Format = GL_DEPTH_STENCIL;
-                info.m_DataType = GL_UNSIGNED_INT_24_8;
-                break;
-            case GL_DEPTH32F_STENCIL8:
-                info.m_Format = GL_DEPTH_STENCIL;
-                info.m_DataType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
-                break;
-            default:
-                info.m_Format = GL_RGBA;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-        }
+        IResourceInspectorBackend::TextureQuery query;
+        backend->QueryTexture(info.m_RendererID, /*isCubemap*/ false, query);
 
-        // bytesPerPixel and switch-case removed (now unused)
-
-        // Check for mip levels using DSA
-        GLint maxLevel;
-        glGetTextureParameteriv(info.m_RendererID, GL_TEXTURE_MAX_LEVEL, &maxLevel);
-        info.m_MipLevels = static_cast<u32>(maxLevel + 1);
-        info.m_HasMips = maxLevel > 0;
-
-        // Calculate accurate memory usage including compression and mip levels
-        info.m_MemoryUsage = CalculateAccurateTextureMemoryUsage(info.m_RendererID, GL_TEXTURE_2D,
-                                                                 info.m_InternalFormat,
-                                                                 info.m_Width, info.m_Height,
-                                                                 info.m_MipLevels);
+        info.m_Width = query.Width;
+        info.m_Height = query.Height;
+        info.m_InternalFormat = query.InternalFormat;
+        info.m_Format = query.PixelFormat;
+        info.m_DataType = query.DataType;
+        info.m_MipLevels = query.MipLevels;
+        info.m_HasMips = query.HasMips;
+        info.m_MemoryUsage = query.MemoryUsage;
     }
 
     void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info) const
     {
-        // Modern OpenGL 4.5+ DSA approach - no texture binding required
-        GLint width, height, internalFormat;
-        // For cubemaps, query the positive X face (they're all the same size)
-        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_WIDTH, &width);
-        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_HEIGHT, &height);
-        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+            return;
 
-        info.m_Width = static_cast<u32>(width);
-        info.m_Height = static_cast<u32>(height);
-        info.m_InternalFormat = static_cast<GLenum>(internalFormat);
-        // Determine format and type based on internal format (same as texture 2D)
-        switch (internalFormat)
-        {
-            case GL_RGBA8:
-            case GL_SRGB8_ALPHA8:
-                info.m_Format = GL_RGBA;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RGB8:
-            case GL_SRGB8:
-                info.m_Format = GL_RGB;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RG8:
-                info.m_Format = GL_RG;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_R8:
-                info.m_Format = GL_RED;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RGBA16F:
-                info.m_Format = GL_RGBA;
-                info.m_DataType = GL_HALF_FLOAT;
-                break;
-            case GL_RGB16F:
-                info.m_Format = GL_RGB;
-                info.m_DataType = GL_HALF_FLOAT;
-                break;
-            case GL_RG16F:
-                info.m_Format = GL_RG;
-                info.m_DataType = GL_HALF_FLOAT;
-                break;
-            case GL_R16F:
-                info.m_Format = GL_RED;
-                info.m_DataType = GL_HALF_FLOAT;
-                break;
-            case GL_RGBA32F:
-                info.m_Format = GL_RGBA;
-                info.m_DataType = GL_FLOAT;
-                break;
-            case GL_RGB32F:
-                info.m_Format = GL_RGB;
-                info.m_DataType = GL_FLOAT;
-                break;
-            case GL_RG32F:
-                info.m_Format = GL_RG;
-                info.m_DataType = GL_FLOAT;
-                break;
-            case GL_R32F:
-                info.m_Format = GL_RED;
-                info.m_DataType = GL_FLOAT;
-                break;
-            default:
-                info.m_Format = GL_RGBA;
-                info.m_DataType = GL_UNSIGNED_BYTE;
-                break;
-        }
+        IResourceInspectorBackend::TextureQuery query;
+        backend->QueryTexture(info.m_RendererID, /*isCubemap*/ true, query);
 
-        // bytesPerPixel and switch-case removed (now unused)
-
-        // Check for mip levels using DSA
-        GLint maxLevel;
-        glGetTextureParameteriv(info.m_RendererID, GL_TEXTURE_MAX_LEVEL, &maxLevel);
-        info.m_MipLevels = static_cast<u32>(maxLevel + 1);
-        info.m_HasMips = maxLevel > 0;
-        // Calculate accurate memory usage for cubemap (6 faces) including compression and mip levels
-        info.m_MemoryUsage = CalculateAccurateTextureMemoryUsage(info.m_RendererID, GL_TEXTURE_CUBE_MAP,
-                                                                 info.m_InternalFormat,
-                                                                 info.m_Width, info.m_Height,
-                                                                 info.m_MipLevels);
+        info.m_Width = query.Width;
+        info.m_Height = query.Height;
+        info.m_InternalFormat = query.InternalFormat;
+        info.m_Format = query.PixelFormat;
+        info.m_DataType = query.DataType;
+        info.m_MipLevels = query.MipLevels;
+        info.m_HasMips = query.HasMips;
+        info.m_MemoryUsage = query.MemoryUsage;
     }
 
     bool GPUResourceInspector::SaveTextureToFile(const TextureInfo& info, const std::string& filePath,
                                                  u32 mipLevel, u32 faceIndex) const
     {
         OLO_PROFILE_FUNCTION();
+
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+        {
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: no resource-inspector backend for the active renderer API");
+            return false;
+        }
 
         if (info.m_RendererID == 0)
         {
@@ -594,7 +465,7 @@ namespace OloEngine
             return false;
         }
 
-        const i32 channels = ChannelsFromGLFormat(info.m_Format);
+        const i32 channels = backend->ChannelCountForPixelFormat(info.m_Format);
         if (channels == 0)
         {
             OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: unsupported pixel format 0x{:X} "
@@ -618,84 +489,30 @@ namespace OloEngine
         }
         const bool wantFloatOutput = (encoder == TextureSaveEncoder::Hdr);
 
-        // Pick the readback precision from the source's native data type rather
-        // than hardcoding GL_UNSIGNED_BYTE for everything non-float — that
-        // would silently quantise depth (GL_UNSIGNED_INT) to 8 bits and is
-        // outright invalid against true integer internal formats.
-        //
-        // Strategy: 8-bit normalised → read as u8; everything else float-ish
-        // or wider-than-byte → read as GL_FLOAT (drivers promote depth/half/
-        // 24-bit-depth to normalised float). `sourceIsFloat` then triggers the
-        // existing float→u8 clamp path below for PNG output.
-        GLenum readType;
-        sizet readBytesPerChannel;
-        bool sourceIsFloat;
-        switch (info.m_DataType)
+        // The readback precision comes from the source's native data type —
+        // the classification itself (with its depth-quantisation rationale)
+        // lives in the backend. `sourceIsFloat` triggers the float→u8 clamp
+        // path below for PNG output.
+        const IResourceInspectorBackend::PixelPrecision precision = backend->ClassifyPixelDataType(info.m_DataType);
+        if (precision == IResourceInspectorBackend::PixelPrecision::Unsupported)
         {
-            case GL_UNSIGNED_BYTE:
-                readType = GL_UNSIGNED_BYTE;
-                readBytesPerChannel = sizeof(u8);
-                sourceIsFloat = false;
-                break;
-            case GL_HALF_FLOAT:
-            case GL_FLOAT:
-            case GL_UNSIGNED_INT: // depth-as-uint → promote to normalised float
-                readType = GL_FLOAT;
-                readBytesPerChannel = sizeof(f32);
-                sourceIsFloat = true;
-                break;
-            default:
-                // Packed depth-stencil (GL_UNSIGNED_INT_24_8 /
-                // GL_FLOAT_32_UNSIGNED_INT_24_8_REV) is already rejected by
-                // ChannelsFromGLFormat. Anything else here is an integer
-                // texture format (R8I, RGBA16UI, …) which QueryTextureInfo
-                // doesn't currently classify — bail rather than guess.
-                OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: unsupported pixel data type 0x{:X}",
-                               info.m_DataType);
-                return false;
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: unsupported pixel data type 0x{:X}",
+                           info.m_DataType);
+            return false;
         }
+        const bool sourceIsFloat = (precision == IResourceInspectorBackend::PixelPrecision::Float);
+        const sizet readBytesPerChannel = sourceIsFloat ? sizeof(f32) : sizeof(u8);
         const sizet readRowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * readBytesPerChannel;
         const sizet readBufferBytes = readRowStride * static_cast<sizet>(height);
 
         std::vector<u8> readBuffer(readBufferBytes);
 
-        // DSA glGetTextureSubImage: for cubemaps the layer (z) selects the face in the
-        // order +X, -X, +Y, -Y, +Z, -Z — same as TEXTURE_CUBE_MAP_POSITIVE_X..NEGATIVE_Z.
-        const GLint zOffset = isCubemap ? static_cast<GLint>(faceIndex) : 0;
-        // Tight packing — glPixelStore alignment defaults to 4 which would pad odd-width
-        // 3-channel rows; force 1 so the buffer matches our row stride calculation.
-        GLint prevPackAlignment = 4;
-        glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
-        glPixelStorei(GL_PACK_ALIGNMENT, 1);
-
-        // Unbind any GL_PIXEL_PACK_BUFFER while reading into a CPU pointer.
-        // If a PBO is bound (e.g. mid-RequestTextureDownload), the readBuffer
-        // pointer would be reinterpreted as a byte offset into the PBO instead
-        // of an address, producing garbage or a crash. Save/restore mirrors the
-        // pattern used for PACK_ALIGNMENT above.
-        GLint prevPackPBO = 0;
-        glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
-        if (prevPackPBO != 0)
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-
-        glGetTextureSubImage(info.m_RendererID,
-                             static_cast<GLint>(mipLevel),
-                             0, 0, zOffset,
-                             static_cast<GLsizei>(width),
-                             static_cast<GLsizei>(height),
-                             1,
-                             info.m_Format,
-                             readType,
-                             static_cast<GLsizei>(readBufferBytes),
-                             readBuffer.data());
-
-        if (prevPackPBO != 0)
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
-        glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
-
-        if (GLenum err = glGetError(); err != GL_NO_ERROR)
+        std::string readError;
+        if (!backend->ReadTextureLevel(info.m_RendererID, isCubemap, mipLevel, faceIndex,
+                                       width, height, info.m_Format, sourceIsFloat,
+                                       readBuffer.data(), readBufferBytes, readError))
         {
-            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: glGetTextureSubImage failed (GL 0x{:X})", err);
+            OLO_CORE_ERROR("[GPUResourceInspector] SaveTextureToFile: {}", readError);
             return false;
         }
 
@@ -806,36 +623,17 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         TextureCaptureResult result;
-        if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
+        IResourceInspectorBackend* backend = GetInstance().GetBackend();
+        if (backend == nullptr)
         {
-            result.Error = "invalid texture id";
+            result.Error = "no resource-inspector backend for the active renderer API";
             return result;
         }
 
-        // GL 4.5 DSA: a texture object knows its own target.
-        GLint target = 0;
-        glGetTextureParameteriv(textureId, GL_TEXTURE_TARGET, &target);
-        // Cube-map arrays encode the glGetTextureSubImage z offset as
-        // layer * 6 + face — a single faceOrLayer parameter can't express that
-        // contract unambiguously, so reject rather than guess. No engine render
-        // target uses cube-map arrays today; split the parameter if one appears.
-        if (target == GL_TEXTURE_CUBE_MAP_ARRAY)
+        IResourceInspectorBackend::CaptureSource source;
+        if (!backend->QueryCaptureSource(textureId, mipLevel, source))
         {
-            result.Error = "cube-map-array textures are not supported (faceOrLayer cannot express layer+face)";
-            return result;
-        }
-        const bool isLayered = target == GL_TEXTURE_CUBE_MAP ||
-                               target == GL_TEXTURE_2D_ARRAY || target == GL_TEXTURE_3D;
-
-        GLint width = 0;
-        GLint height = 0;
-        GLint internalFormat = 0;
-        glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mipLevel), GL_TEXTURE_WIDTH, &width);
-        glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mipLevel), GL_TEXTURE_HEIGHT, &height);
-        glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mipLevel), GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
-        if (width <= 0 || height <= 0)
-        {
-            result.Error = "texture has no storage at the requested mip level";
+            result.Error = source.Error;
             return result;
         }
 
@@ -843,13 +641,13 @@ namespace OloEngine
         // out-of-bounds one is an error rather than a silent clamp, because a
         // silently shrunk rect would make a 1:1 measurement report the wrong
         // spatial period without ever saying so.
-        const auto fullWidth = static_cast<u32>(width);
-        const auto fullHeight = static_cast<u32>(height);
+        const u32 fullWidth = source.FullWidth;
+        const u32 fullHeight = source.FullHeight;
         if (region.IsWholeTexture())
             region = CaptureRegion{ 0, 0, fullWidth, fullHeight };
         // Bounds are tested as `extent > remaining` rather than `offset + extent >
         // size` so a huge offset/extent pair cannot wrap the u32 addition and slip
-        // past the check into an out-of-range glGetTextureSubImage.
+        // past the check into an out-of-range readback.
         else if (region.X >= fullWidth || region.Y >= fullHeight ||
                  region.Width > fullWidth - region.X || region.Height > fullHeight - region.Y)
         {
@@ -859,106 +657,21 @@ namespace OloEngine
                            std::to_string(fullHeight) + ")";
             return result;
         }
-        const auto regionW = static_cast<GLsizei>(region.Width);
-        const auto regionH = static_cast<GLsizei>(region.Height);
-        // The rect arrives in top-left-origin coords; GL rows run bottom-up, so
-        // rows [Y, Y+H) from the top are GL rows [fullHeight - Y - H, ...).
-        const auto glRegionY = static_cast<GLint>(fullHeight - region.Y - region.Height);
 
-        // Map the internal format to a readback (format, type). Same table as
-        // QueryTextureInfo, except packed depth-stencil reads as depth-only
-        // float — glGetTextureSubImage(GL_DEPTH_COMPONENT) legally extracts the
-        // depth plane, which is exactly what an inspection capture wants.
-        GLenum format = GL_NONE;
-        GLenum dataType = GL_NONE;
-        bool isDepth = false;
-        switch (internalFormat)
-        {
-            case GL_RGBA8:
-            case GL_SRGB8_ALPHA8:
-                format = GL_RGBA;
-                dataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RGB8:
-            case GL_SRGB8:
-                format = GL_RGB;
-                dataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RG8:
-                format = GL_RG;
-                dataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_R8:
-                format = GL_RED;
-                dataType = GL_UNSIGNED_BYTE;
-                break;
-            case GL_RGBA16F:
-            case GL_RGBA32F:
-                format = GL_RGBA;
-                dataType = GL_FLOAT;
-                break;
-            case GL_RGB16F:
-            case GL_RGB32F:
-            case GL_R11F_G11F_B10F:
-                format = GL_RGB;
-                dataType = GL_FLOAT;
-                break;
-            case GL_RG16F:
-            case GL_RG32F:
-                format = GL_RG;
-                dataType = GL_FLOAT;
-                break;
-            case GL_R16F:
-            case GL_R32F:
-                format = GL_RED;
-                dataType = GL_FLOAT;
-                break;
-            case GL_DEPTH_COMPONENT16:
-            case GL_DEPTH_COMPONENT24:
-            case GL_DEPTH_COMPONENT32:
-            case GL_DEPTH_COMPONENT32F:
-            case GL_DEPTH24_STENCIL8:
-            case GL_DEPTH32F_STENCIL8:
-                format = GL_DEPTH_COMPONENT;
-                dataType = GL_FLOAT;
-                isDepth = true;
-                break;
-            default:
-                result.Error = "unsupported internal format 0x" + std::format("{:X}", static_cast<u32>(internalFormat));
-                return result;
-        }
-
-        const i32 channels = ChannelsFromGLFormat(format);
-        const bool sourceIsFloat = (dataType == GL_FLOAT);
+        const i32 channels = source.Channels;
+        const bool sourceIsFloat = source.IsFloat;
+        const bool isDepth = source.IsDepth;
         const sizet bytesPerChannel = sourceIsFloat ? sizeof(f32) : sizeof(u8);
-        const sizet rowStride = static_cast<sizet>(regionW) * static_cast<sizet>(channels) * bytesPerChannel;
-        const sizet bufferBytes = rowStride * static_cast<sizet>(regionH);
+        const sizet rowStride = static_cast<sizet>(region.Width) * static_cast<sizet>(channels) * bytesPerChannel;
+        const sizet bufferBytes = rowStride * static_cast<sizet>(region.Height);
         std::vector<u8> readBuffer(bufferBytes);
 
-        // Tight packing + PBO unbind guard — same rationale as SaveTextureToFile.
-        GLint prevPackAlignment = 4;
-        glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
-        glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        GLint prevPackPBO = 0;
-        glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
-        if (prevPackPBO != 0)
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-
-        glGetTextureSubImage(textureId,
-                             static_cast<GLint>(mipLevel),
-                             static_cast<GLint>(region.X), glRegionY,
-                             isLayered ? static_cast<GLint>(faceOrLayer) : 0,
-                             regionW, regionH, 1,
-                             format, sourceIsFloat ? GL_FLOAT : GL_UNSIGNED_BYTE,
-                             static_cast<GLsizei>(bufferBytes), readBuffer.data());
-
-        if (prevPackPBO != 0)
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
-        glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
-
-        if (GLenum err = glGetError(); err != GL_NO_ERROR)
+        std::string readError;
+        if (!backend->ReadCaptureRegion(textureId, mipLevel, faceOrLayer, source,
+                                        region.X, region.Y, region.Width, region.Height,
+                                        readBuffer.data(), bufferBytes, readError))
         {
-            result.Error = "glGetTextureSubImage failed (GL 0x" + std::format("{:X}", err) + ")";
+            result.Error = readError;
             return result;
         }
 
@@ -966,8 +679,8 @@ namespace OloEngine
         // region requested the two are the same. Note the min/max normalisation
         // range is therefore region-local, which is what a zoomed inspection
         // wants (a 64x64 crop of a flat-looking HDR target gets its own contrast).
-        const auto capturedWidth = static_cast<sizet>(regionW);
-        const auto capturedHeight = static_cast<sizet>(regionH);
+        const auto capturedWidth = static_cast<sizet>(region.Width);
+        const auto capturedHeight = static_cast<sizet>(region.Height);
 
         // Convert to 8-bit. Float sources optionally min-max normalise first
         // (Auto = depth only) so a depth buffer / HDR target isn't a flat
@@ -1030,11 +743,20 @@ namespace OloEngine
         // Flip to PNG top-down orientation so the capture is upright when an
         // agent views it (matches CaptureViewportPng / olo_screenshot, and
         // intentionally differs from SaveTextureToFile's raw-memory dump).
+        // The backend reports its row order; a top-down backend needs no flip.
         const sizet outRowBytes = capturedWidth * static_cast<sizet>(outChannels);
-        std::vector<u8> flipped(pixels8.size());
-        for (sizet y = 0; y < capturedHeight; ++y)
-            std::memcpy(flipped.data() + y * outRowBytes,
-                        pixels8.data() + (capturedHeight - 1 - y) * outRowBytes, outRowBytes);
+        std::vector<u8> flipped;
+        if (backend->CaptureRowsAreBottomUp())
+        {
+            flipped.resize(pixels8.size());
+            for (sizet y = 0; y < capturedHeight; ++y)
+                std::memcpy(flipped.data() + y * outRowBytes,
+                            pixels8.data() + (capturedHeight - 1 - y) * outRowBytes, outRowBytes);
+        }
+        else
+        {
+            flipped = std::move(pixels8);
+        }
 
         // Optional nearest-neighbour downscale so width <= maxWidth. A region
         // narrower than maxWidth skips this entirely and stays 1:1 — that is the
@@ -1087,162 +809,49 @@ namespace OloEngine
         result.RegionY = region.Y;
         result.RegionWidth = region.Width;
         result.RegionHeight = region.Height;
-        result.FormatName = GetInstance().FormatTextureFormat(static_cast<GLenum>(internalFormat));
+        result.FormatName = source.FormatName;
         result.IsDepth = isDepth;
         return result;
     }
 
-    GLenum GPUResourceInspector::GetBufferBindingQuery(GLenum target)
-    {
-        switch (target)
-        {
-            case GL_ARRAY_BUFFER:
-                return GL_ARRAY_BUFFER_BINDING;
-            case GL_ELEMENT_ARRAY_BUFFER:
-                return GL_ELEMENT_ARRAY_BUFFER_BINDING;
-            case GL_UNIFORM_BUFFER:
-                return GL_UNIFORM_BUFFER_BINDING;
-            case GL_SHADER_STORAGE_BUFFER:
-                return GL_SHADER_STORAGE_BUFFER_BINDING;
-            case GL_TRANSFORM_FEEDBACK_BUFFER:
-                return GL_TRANSFORM_FEEDBACK_BUFFER_BINDING;
-            case GL_ATOMIC_COUNTER_BUFFER:
-                return GL_ATOMIC_COUNTER_BUFFER_BINDING;
-            case GL_COPY_READ_BUFFER:
-                return GL_COPY_READ_BUFFER_BINDING;
-            case GL_COPY_WRITE_BUFFER:
-                return GL_COPY_WRITE_BUFFER_BINDING;
-            case GL_DISPATCH_INDIRECT_BUFFER:
-                return GL_DISPATCH_INDIRECT_BUFFER_BINDING;
-            case GL_DRAW_INDIRECT_BUFFER:
-                return GL_DRAW_INDIRECT_BUFFER_BINDING;
-            case GL_PIXEL_PACK_BUFFER:
-                return GL_PIXEL_PACK_BUFFER_BINDING;
-            case GL_PIXEL_UNPACK_BUFFER:
-                return GL_PIXEL_UNPACK_BUFFER_BINDING;
-            case GL_QUERY_BUFFER:
-                return GL_QUERY_BUFFER_BINDING;
-            case GL_TEXTURE_BUFFER:
-                return GL_TEXTURE_BUFFER_BINDING;
-            default:
-                OLO_CORE_WARN("Unknown buffer target 0x{0:X}, falling back to GL_ARRAY_BUFFER_BINDING", target);
-                return GL_ARRAY_BUFFER_BINDING;
-        }
-    }
-
     void GPUResourceInspector::QueryBufferInfo(BufferInfo& info) const
     {
-        // Save current buffer binding for this target
-        GLint previousBinding = 0;
-        GLenum bindingQuery = GPUResourceInspector::GetBufferBindingQuery(info.m_Target);
-        glGetIntegerv(bindingQuery, &previousBinding);
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+            return;
 
-        // Bind the buffer temporarily to query its properties
-        glBindBuffer(info.m_Target, info.m_RendererID);
+        IResourceInspectorBackend::BufferQuery query;
+        backend->QueryBuffer(info.m_RendererID, info.m_Target, query);
 
-        GLint size, usage;
-        glGetBufferParameteriv(info.m_Target, GL_BUFFER_SIZE, &size);
-        glGetBufferParameteriv(info.m_Target, GL_BUFFER_USAGE, &usage);
-
-        info.m_Size = static_cast<u32>(size);
-        info.m_Usage = static_cast<GLenum>(usage);
-        info.m_MemoryUsage = static_cast<sizet>(size);
-
-        // Restore previous buffer binding
-        glBindBuffer(info.m_Target, previousBinding);
+        info.m_Size = query.Size;
+        info.m_Usage = query.Usage;
+        info.m_MemoryUsage = query.MemoryUsage;
     }
 
     void GPUResourceInspector::QueryFramebufferInfo(FramebufferInfo& info) const
     {
-        // Save current framebuffer binding
-        GLint previousBinding;
-        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousBinding);
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+            return;
 
-        // Bind the framebuffer temporarily to query its properties
-        glBindFramebuffer(GL_FRAMEBUFFER, info.m_RendererID);
+        IResourceInspectorBackend::FramebufferQuery query;
+        backend->QueryFramebuffer(info.m_RendererID, query);
 
-        // Check framebuffer status
-        info.m_Status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-
-        // Query color attachments
-        info.m_ColorAttachmentCount = 0;
-        info.m_ColorAttachmentFormats.clear();
-
-        for (u32 i = 0; i < 8; ++i)
-        {
-            GLint attachmentType;
-            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
-                                                  GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &attachmentType);
-
-            if (attachmentType != GL_NONE)
-            {
-                ++info.m_ColorAttachmentCount;
-
-                GLint internalFormat;
-                glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
-                                                      GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &internalFormat);
-                info.m_ColorAttachmentFormats.push_back(static_cast<GLenum>(internalFormat));
-            }
-        }
-
-        // Check depth attachment
-        GLint depthAttachmentType;
-        glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                              GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &depthAttachmentType);
-        info.m_HasDepthAttachment = (depthAttachmentType != GL_NONE);
-
-        if (info.m_HasDepthAttachment)
-        {
-            GLint depthFormat;
-            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                                  GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &depthFormat);
-            info.m_DepthAttachmentFormat = static_cast<GLenum>(depthFormat);
-        }
-
-        // Check stencil attachment
-        GLint stencilAttachmentType;
-        glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
-                                              GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &stencilAttachmentType);
-        info.m_HasStencilAttachment = (stencilAttachmentType != GL_NONE);
-
-        if (info.m_HasStencilAttachment)
-        {
-            GLint stencilFormat;
-            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
-                                                  GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &stencilFormat);
-            info.m_StencilAttachmentFormat = static_cast<GLenum>(stencilFormat);
-        }
-
-        // Estimate memory usage (simplified)
-        if (info.m_ColorAttachmentCount > 0)
-        {
-            // Get dimensions from first color attachment if available
-            GLint textureID;
-            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                  GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &textureID);
-            if (textureID != 0)
-            {
-                GLint width, height;
-                glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_WIDTH, &width);
-                glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_HEIGHT, &height);
-
-                info.m_Width = static_cast<u32>(width);
-                info.m_Height = static_cast<u32>(height);
-
-                // Estimate memory usage (simplified calculation)
-                info.m_MemoryUsage = static_cast<sizet>(width * height * 4 * info.m_ColorAttachmentCount);
-                if (info.m_HasDepthAttachment)
-                    info.m_MemoryUsage += static_cast<sizet>(width * height * 4);
-                if (info.m_HasStencilAttachment)
-                    info.m_MemoryUsage += static_cast<sizet>(width * height);
-            }
-        }
-
-        // Restore previous framebuffer binding
-        glBindFramebuffer(GL_FRAMEBUFFER, previousBinding);
+        info.m_Status = query.Status;
+        info.m_ColorAttachmentCount = query.ColorAttachmentCount;
+        info.m_ColorAttachmentFormats = query.ColorAttachmentFormats;
+        info.m_HasDepthAttachment = query.HasDepthAttachment;
+        info.m_DepthAttachmentFormat = query.DepthAttachmentFormat;
+        info.m_HasStencilAttachment = query.HasStencilAttachment;
+        info.m_StencilAttachmentFormat = query.StencilAttachmentFormat;
+        info.m_Width = query.Width;
+        info.m_Height = query.Height;
+        info.m_MemoryUsage = query.MemoryUsage;
     }
     void GPUResourceInspector::ProcessTextureDownloads()
     {
+        IResourceInspectorBackend* backend = GetBackend();
+
         // Process async texture downloads and check for completion using modern sync objects
         auto it = m_TextureDownloads.begin();
         while (it != m_TextureDownloads.end())
@@ -1251,18 +860,19 @@ namespace OloEngine
             {
                 bool downloadComplete = false;
                 // Modern OpenGL 4.5+ approach: Use sync objects for non-blocking completion detection
-                if (it->m_Fence != nullptr)
+                if (it->m_Fence != nullptr && backend != nullptr)
                 {
-                    // Check fence status without blocking
-                    GLenum result = glClientWaitSync(it->m_Fence, 0, 0); // 0 timeout = non-blocking
+                    // Check fence status without blocking (0 timeout = non-blocking)
+                    const IResourceInspectorBackend::DownloadStatus status =
+                        backend->PollDownload({ it->m_PBO, it->m_Fence });
 
-                    if (result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED)
+                    if (status == IResourceInspectorBackend::DownloadStatus::Complete)
                     {
                         // Download is complete!
                         downloadComplete = true;
                         OLO_CORE_TRACE("Texture download completed for texture {} (sync object signaled)", it->m_TextureID);
                     }
-                    else if (result == GL_WAIT_FAILED)
+                    else if (status == IResourceInspectorBackend::DownloadStatus::Failed)
                     {
                         // Sync object failed - this shouldn't happen but handle gracefully
                         OLO_CORE_WARN("Sync object wait failed for texture {}", it->m_TextureID);
@@ -1272,7 +882,7 @@ namespace OloEngine
                     {
                         // No additional handling required.
                     }
-                    // GL_TIMEOUT_EXPIRED means not ready yet - continue to next frame
+                    // Pending means not ready yet - continue to next frame
                 }
                 else
                 {
@@ -1302,11 +912,8 @@ namespace OloEngine
                     }
 
                     // Clean up resources
-                    if (it->m_Fence != nullptr)
-                    {
-                        glDeleteSync(it->m_Fence);
-                    }
-                    glDeleteBuffers(1, &it->m_PBO);
+                    if (backend != nullptr)
+                        backend->ReleaseDownload({ it->m_PBO, it->m_Fence });
 
                     // Remove completed download from queue
                     it = m_TextureDownloads.erase(it);
@@ -1320,11 +927,8 @@ namespace OloEngine
                         OLO_CORE_WARN("Texture download timeout for texture {}, mip level {}", it->m_TextureID, it->m_MipLevel);
 
                         // Clean up resources
-                        if (it->m_Fence != nullptr)
-                        {
-                            glDeleteSync(it->m_Fence);
-                        }
-                        glDeleteBuffers(1, &it->m_PBO);
+                        if (backend != nullptr)
+                            backend->ReleaseDownload({ it->m_PBO, it->m_Fence });
                         it = m_TextureDownloads.erase(it);
                     }
                     else
@@ -1350,56 +954,34 @@ namespace OloEngine
                 return;
         }
 
-        GLuint pbo;
-        glGenBuffers(1, &pbo);
-
-        if (pbo == 0)
-        {
-            OLO_CORE_WARN("Failed to create PBO for texture download");
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
             return;
-        }
+
         // Calculate data size for this mip level - use RGBA format for consistency
         u32 width = std::max(1u, info.m_Width >> mipLevel);
         u32 height = std::max(1u, info.m_Height >> mipLevel);
         u32 bytesPerPixel = 4; // Always use RGBA format for downloads
         sizet dataSize = width * height * bytesPerPixel;
-        // Modern OpenGL 4.5+ approach: Use immutable buffer storage + DSA
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
 
-        // Use modern immutable buffer storage (OpenGL 4.4+)
-        glBufferStorage(GL_PIXEL_PACK_BUFFER, dataSize, nullptr, GL_MAP_READ_BIT | GL_DYNAMIC_STORAGE_BIT);
-
-        // Modern OpenGL 4.5+ DSA: Direct texture access without state changes.
-        // For cubemaps the z-offset selects the face (0..5 = +X,-X,+Y,-Y,+Z,-Z);
-        // for 2D textures it must be 0. SaveTextureToFile uses the same convention.
+        // The staging buffer + fence machinery (PBO on GL) lives in the
+        // backend; for cubemaps the face index selects the layer, matching
+        // SaveTextureToFile's convention.
         const bool isCubemap = (info.m_Type == ResourceType::TextureCubemap);
-        const GLint zOffset = isCubemap ? static_cast<GLint>(faceIndex) : 0;
-        glGetTextureSubImage(info.m_RendererID, mipLevel, 0, 0, zOffset, width, height, 1,
-                             GL_RGBA, GL_UNSIGNED_BYTE, static_cast<GLsizei>(dataSize), nullptr);
-
-        // Unbind PBO
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-
-        // Create modern sync object for better async completion detection (OpenGL 3.2+)
-        GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-        if (fence == nullptr)
+        IResourceInspectorBackend::DownloadTicket ticket;
+        if (!backend->BeginTextureDownload(info.m_RendererID, isCubemap, mipLevel, faceIndex,
+                                           width, height, dataSize, ticket))
         {
-            OLO_CORE_WARN("Failed to create sync fence for texture download");
-            glDeleteBuffers(1, &pbo);
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
             return;
         }
-
-        // Restore PBO binding
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
         // Add to download queue
         TextureDownloadRequest request;
         request.m_TextureID = info.m_RendererID;
         request.m_MipLevel = mipLevel;
         request.m_FaceIndex = faceIndex;
-        request.m_PBO = pbo;
-        request.m_Fence = fence;
+        request.m_PBO = ticket.NativeBuffer;
+        request.m_Fence = ticket.Fence;
         request.m_InProgress = true;
         request.m_RequestTime = DebugUtils::GetCurrentTimeSeconds();
 
@@ -1423,12 +1005,18 @@ namespace OloEngine
                 // Download already in progress, just wait
                 return;
             }
-        } // Check if texture is valid using modern OpenGL 4.5+ DSA
-        GLint width, height;
-        glGetTextureLevelParameteriv(info.m_RendererID, info.m_SelectedMipLevel, GL_TEXTURE_WIDTH, &width);
-        glGetTextureLevelParameteriv(info.m_RendererID, info.m_SelectedMipLevel, GL_TEXTURE_HEIGHT, &height);
+        }
 
-        if (width <= 0 || height <= 0)
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+            return;
+
+        // Check if texture is valid (mip-level storage query)
+        u32 width = 0;
+        u32 height = 0;
+        backend->GetTextureLevelSize(info.m_RendererID, info.m_SelectedMipLevel, width, height);
+
+        if (width == 0 || height == 0)
         {
             // Invalid mip level or texture
             return;
@@ -1443,13 +1031,9 @@ namespace OloEngine
         if (info.m_ContentPreviewValid)
             return;
 
-        // Save current buffer binding for this target
-        GLint previousBinding = 0;
-        GLenum bindingQuery = GPUResourceInspector::GetBufferBindingQuery(info.m_Target);
-        glGetIntegerv(bindingQuery, &previousBinding);
-
-        // Bind buffer and map data
-        glBindBuffer(info.m_Target, info.m_RendererID);
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+            return;
 
         // Clamp the copy to what actually remains past the offset so we never
         // read past the end of the mapped buffer when m_PreviewOffset > 0.
@@ -1457,12 +1041,9 @@ namespace OloEngine
         const u32 previewSize = std::min(info.m_PreviewSize, remaining);
         info.m_ContentPreview.resize(previewSize);
 
-        // Map buffer and copy data
-        if (const void* data = glMapBuffer(info.m_Target, GL_READ_ONLY); data)
+        if (backend->ReadBufferRange(info.m_RendererID, info.m_Target, info.m_PreviewOffset, previewSize,
+                                     info.m_ContentPreview.data()))
         {
-            if (previewSize > 0)
-                memcpy(info.m_ContentPreview.data(), static_cast<const u8*>(data) + info.m_PreviewOffset, previewSize);
-            glUnmapBuffer(info.m_Target);
             info.m_ContentPreviewValid = true;
         }
         else
@@ -1470,9 +1051,6 @@ namespace OloEngine
             OLO_CORE_WARN("Failed to map buffer for preview: ID {}", info.m_RendererID);
             info.m_ContentPreviewValid = false;
         }
-
-        // Restore previous buffer binding
-        glBindBuffer(info.m_Target, previousBinding);
     }
 
     sizet GPUResourceInspector::GetMemoryUsage(ResourceType type) const
@@ -1601,7 +1179,8 @@ namespace OloEngine
         // The Windows backend pulls the default extension from the first pattern (the byte
         // after the first NUL of the wildcard), so order the float-format option first when
         // the texture is float so the user gets a sensible default.
-        const bool isFloat = (snapshot.m_DataType == GL_FLOAT || snapshot.m_DataType == GL_HALF_FLOAT);
+        IResourceInspectorBackend* backend = GetBackend();
+        const bool isFloat = backend != nullptr && backend->IsFloatPixelDataType(snapshot.m_DataType);
         const char* filter = isFloat
                                  ? "Radiance HDR (*.hdr)\0*.hdr\0PNG (*.png)\0*.png\0"
                                  : "PNG (*.png)\0*.png\0Radiance HDR (*.hdr)\0*.hdr\0";
@@ -1867,8 +1446,12 @@ namespace OloEngine
             // Create ImGui texture if not already created
             if (info.m_ImGuiTextureID == 0)
             {
-                // This is simplified - in practice, we'd create a proper ImGui texture
-                info.m_ImGuiTextureID = static_cast<ImTextureID>(static_cast<uintptr_t>(info.m_RendererID));
+                // Route through the backend rather than assuming the native id
+                // is a valid ImTextureID — that is a GL-only truth, and the
+                // backend is the party that knows it (same contract as
+                // ImGuiLayer::GetTextureID; 0 means "no binding, skip draw").
+                if (IResourceInspectorBackend* backend = GetBackend())
+                    info.m_ImGuiTextureID = static_cast<ImTextureID>(backend->GetImGuiTextureID(info.m_RendererID));
             }
 
             static float zoom = 1.0f;
@@ -1890,12 +1473,15 @@ namespace OloEngine
                 imageSize.y *= scale;
             }
 
-            ImGui::Image(info.m_ImGuiTextureID, imageSize);
-
-            if (ImGui::IsItemHovered())
+            if (info.m_ImGuiTextureID != 0)
             {
-                ImGui::SetTooltip("Texture Preview\nSize: %u x %u\nFormat: %s\nClick to view full size",
-                                  info.m_Width, info.m_Height, FormatTextureFormat(info.m_InternalFormat).c_str());
+                ImGui::Image(info.m_ImGuiTextureID, imageSize);
+
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Texture Preview\nSize: %u x %u\nFormat: %s\nClick to view full size",
+                                      info.m_Width, info.m_Height, FormatTextureFormat(info.m_InternalFormat).c_str());
+                }
             }
 
             // Show texture statistics
@@ -2077,28 +1663,28 @@ namespace OloEngine
         ImGui::Text("Framebuffer Properties");
         ImGui::Text("Dimensions: %u x %u", info.m_Width, info.m_Height);
 
-        // Framebuffer status
+        // Framebuffer status (native-enum decoding is backend work)
         const char* statusText = "Unknown";
         ImVec4 statusColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-
-        switch (info.m_Status)
+        if (IResourceInspectorBackend* backend = GetBackend())
         {
-            case GL_FRAMEBUFFER_COMPLETE:
-                statusText = "Complete";
-                statusColor = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // Green
-                break;
-            case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
-                statusText = "Incomplete Attachment";
-                statusColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Red
-                break;
-            case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
-                statusText = "Missing Attachment";
-                statusColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Red
-                break;
-            case GL_FRAMEBUFFER_UNSUPPORTED:
-                statusText = "Unsupported";
-                statusColor = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); // Orange
-                break;
+            IResourceInspectorBackend::FramebufferStatusClass statusClass =
+                IResourceInspectorBackend::FramebufferStatusClass::Unknown;
+            statusText = backend->FramebufferStatusName(info.m_Status, statusClass);
+            switch (statusClass)
+            {
+                case IResourceInspectorBackend::FramebufferStatusClass::Complete:
+                    statusColor = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // Green
+                    break;
+                case IResourceInspectorBackend::FramebufferStatusClass::Incomplete:
+                    statusColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Red
+                    break;
+                case IResourceInspectorBackend::FramebufferStatusClass::Unsupported:
+                    statusColor = ImVec4(1.0f, 0.5f, 0.0f, 1.0f); // Orange
+                    break;
+                case IResourceInspectorBackend::FramebufferStatusClass::Unknown:
+                    break;
+            }
         }
 
         ImGui::Text("Status: ");
@@ -2217,188 +1803,24 @@ namespace OloEngine
         OLO_CORE_INFO("Exported GPU resource information to: {}", filename);
     }
 
-    std::string GPUResourceInspector::FormatTextureFormat(GLenum format) const
+    std::string GPUResourceInspector::FormatTextureFormat(u32 format) const
     {
-        switch (format)
-        {
-            // 8-bit formats
-            case GL_RGBA8:
-                return "RGBA8";
-            case GL_RGB8:
-                return "RGB8";
-            case GL_RG8:
-                return "RG8";
-            case GL_R8:
-                return "R8";
-            case GL_RGBA8_SNORM:
-                return "RGBA8_SNORM";
-            case GL_RGB8_SNORM:
-                return "RGB8_SNORM";
-            case GL_RG8_SNORM:
-                return "RG8_SNORM";
-            case GL_R8_SNORM:
-                return "R8_SNORM";
+        if (IResourceInspectorBackend* backend = GetBackend())
+            return backend->FormatTextureFormatName(format);
 
-            // 16-bit formats
-            case GL_RGBA16:
-                return "RGBA16";
-            case GL_RGB16:
-                return "RGB16";
-            case GL_RG16:
-                return "RG16";
-            case GL_R16:
-                return "R16";
-            case GL_RGBA16_SNORM:
-                return "RGBA16_SNORM";
-            case GL_RGB16_SNORM:
-                return "RGB16_SNORM";
-            case GL_RG16_SNORM:
-                return "RG16_SNORM";
-            case GL_R16_SNORM:
-                return "R16_SNORM";
-
-            // 32-bit float formats
-            case GL_RGBA32F:
-                return "RGBA32F";
-            case GL_RGB32F:
-                return "RGB32F";
-            case GL_RG32F:
-                return "RG32F";
-            case GL_R32F:
-                return "R32F";
-
-            // 16-bit float formats
-            case GL_RGBA16F:
-                return "RGBA16F";
-            case GL_RGB16F:
-                return "RGB16F";
-            case GL_RG16F:
-                return "RG16F";
-            case GL_R16F:
-                return "R16F";
-
-            // Integer formats
-            case GL_RGBA32I:
-                return "RGBA32I";
-            case GL_RGB32I:
-                return "RGB32I";
-            case GL_RG32I:
-                return "RG32I";
-            case GL_R32I:
-                return "R32I";
-            case GL_RGBA16I:
-                return "RGBA16I";
-            case GL_RGB16I:
-                return "RGB16I";
-            case GL_RG16I:
-                return "RG16I";
-            case GL_R16I:
-                return "R16I";
-            case GL_RGBA8I:
-                return "RGBA8I";
-            case GL_RGB8I:
-                return "RGB8I";
-            case GL_RG8I:
-                return "RG8I";
-            case GL_R8I:
-                return "R8I";
-
-            // Unsigned integer formats
-            case GL_RGBA32UI:
-                return "RGBA32UI";
-            case GL_RGB32UI:
-                return "RGB32UI";
-            case GL_RG32UI:
-                return "RG32UI";
-            case GL_R32UI:
-                return "R32UI";
-            case GL_RGBA16UI:
-                return "RGBA16UI";
-            case GL_RGB16UI:
-                return "RGB16UI";
-            case GL_RG16UI:
-                return "RG16UI";
-            case GL_R16UI:
-                return "R16UI";
-            case GL_RGBA8UI:
-                return "RGBA8UI";
-            case GL_RGB8UI:
-                return "RGB8UI";
-            case GL_RG8UI:
-                return "RG8UI";
-            case GL_R8UI:
-                return "R8UI";
-
-            // Depth/stencil formats
-            case GL_DEPTH_COMPONENT16:
-                return "DEPTH16";
-            case GL_DEPTH_COMPONENT24:
-                return "DEPTH24";
-            case GL_DEPTH_COMPONENT32:
-                return "DEPTH32";
-            case GL_DEPTH_COMPONENT32F:
-                return "DEPTH32F";
-            case GL_DEPTH24_STENCIL8:
-                return "DEPTH24_STENCIL8";
-            case GL_DEPTH32F_STENCIL8:
-                return "DEPTH32F_STENCIL8";
-            case GL_STENCIL_INDEX8:
-                return "STENCIL8";
-
-            // Compressed formats
-            case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
-                return "DXT1_RGB";
-            case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-                return "DXT1_RGBA";
-            case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
-                return "DXT3";
-            case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-                return "DXT5";
-
-            // sRGB formats
-            case GL_SRGB8:
-                return "sRGB8";
-            case GL_SRGB8_ALPHA8:
-                return "sRGBA8";
-
-            default:
-            {
-                std::stringstream ss;
-                ss << "Unknown (0x" << std::uppercase << std::hex << format << ")";
-                return ss.str();
-            }
-        }
+        std::stringstream ss;
+        ss << "Unknown (0x" << std::uppercase << std::hex << format << ")";
+        return ss.str();
     }
 
-    std::string GPUResourceInspector::FormatBufferUsage(GLenum usage) const
+    std::string GPUResourceInspector::FormatBufferUsage(u32 usage) const
     {
-        switch (usage)
-        {
-            case GL_STATIC_DRAW:
-                return "STATIC_DRAW";
-            case GL_DYNAMIC_DRAW:
-                return "DYNAMIC_DRAW";
-            case GL_STREAM_DRAW:
-                return "STREAM_DRAW";
-            case GL_STATIC_READ:
-                return "STATIC_READ";
-            case GL_DYNAMIC_READ:
-                return "DYNAMIC_READ";
-            case GL_STREAM_READ:
-                return "STREAM_READ";
-            case GL_STATIC_COPY:
-                return "STATIC_COPY";
-            case GL_DYNAMIC_COPY:
-                return "DYNAMIC_COPY";
-            case GL_STREAM_COPY:
-                return "STREAM_COPY";
-            default:
-            {
-                std::stringstream ss;
-                ss << "Unknown (0x" << std::hex << usage << ")";
-                return ss.str();
-            }
-        }
+        if (IResourceInspectorBackend* backend = GetBackend())
+            return backend->FormatBufferUsageName(usage);
+
+        std::stringstream ss;
+        ss << "Unknown (0x" << std::hex << usage << ")";
+        return ss.str();
     }
 
     std::string GPUResourceInspector::FormatMemorySize(sizet bytes) const
@@ -2439,52 +1861,28 @@ namespace OloEngine
         }
     }
 
-    const char* GPUResourceInspector::GetBufferTargetName(GLenum target) const
+    const char* GPUResourceInspector::GetBufferTargetName(u32 target) const
     {
-        switch (target)
-        {
-            case GL_ARRAY_BUFFER:
-                return "Array Buffer";
-            case GL_ELEMENT_ARRAY_BUFFER:
-                return "Element Array Buffer";
-            case GL_UNIFORM_BUFFER:
-                return "Uniform Buffer";
-            case GL_SHADER_STORAGE_BUFFER:
-                return "Shader Storage Buffer";
-            case GL_TRANSFORM_FEEDBACK_BUFFER:
-                return "Transform Feedback Buffer";
-            case GL_COPY_READ_BUFFER:
-                return "Copy Read Buffer";
-            case GL_COPY_WRITE_BUFFER:
-                return "Copy Write Buffer";
-            case GL_PIXEL_PACK_BUFFER:
-                return "Pixel Pack Buffer";
-            case GL_PIXEL_UNPACK_BUFFER:
-                return "Pixel Unpack Buffer";
-            case GL_TEXTURE_BUFFER:
-                return "Texture Buffer";
-            case GL_DRAW_INDIRECT_BUFFER:
-                return "Draw Indirect Buffer";
-            case GL_DISPATCH_INDIRECT_BUFFER:
-                return "Dispatch Indirect Buffer";
-            default:
-                return "Unknown";
-        }
+        if (IResourceInspectorBackend* backend = GetBackend())
+            return backend->GetBufferTargetName(target);
+        return "Unknown";
     }
     void GPUResourceInspector::CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request) const
     {
         OLO_CORE_TRACE("Completing texture download for texture {} mip level {}", info.m_RendererID, request.m_MipLevel);
 
-        // Map the PBO to get the downloaded data
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, request.m_PBO);
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr)
+            return;
+
         // Calculate data size for this mip level - using RGBA format consistently
         u32 width = std::max(1u, info.m_Width >> request.m_MipLevel);
         u32 height = std::max(1u, info.m_Height >> request.m_MipLevel);
         u32 bytesPerPixel = 4; // RGBA format
         sizet dataSize = width * height * bytesPerPixel;
 
-        // Map the buffer to read the data
-        if (const void* data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, dataSize, GL_MAP_READ_BIT); data != nullptr)
+        // Map the staging buffer to read the downloaded data
+        if (const void* data = backend->MapDownloadData({ request.m_PBO, request.m_Fence }, dataSize); data != nullptr)
         {
             // Calculate preview size (limit to reasonable size for UI)
             u32 previewWidth = std::min(width, 256u);
@@ -2525,275 +1923,13 @@ namespace OloEngine
 
             OLO_CORE_TRACE("Completed async texture download for texture {} mip level {}", request.m_TextureID, request.m_MipLevel);
 
-            // Unmap only when the buffer was successfully mapped; calling
-            // glUnmapBuffer on an unmapped buffer raises GL_INVALID_OPERATION.
-            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+            // Unmap only when the buffer was successfully mapped; unmapping an
+            // unmapped buffer is an error on the backend (GL_INVALID_OPERATION).
+            backend->UnmapDownloadData({ request.m_PBO, request.m_Fence });
         }
         else
         {
             OLO_CORE_ERROR("Failed to map PBO data for texture {}", request.m_TextureID);
-        }
-        // Clean up
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    }
-    sizet GPUResourceInspector::CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target,
-                                                                    GLenum internalFormat, u32 width,
-                                                                    u32 height, u32 mipLevels) const
-    {
-        sizet totalMemory = 0;
-
-        // Check if format is compressed
-        GLint isCompressed = GL_FALSE;
-        glGetInternalformativ(target, internalFormat, GL_TEXTURE_COMPRESSED, 1, &isCompressed);
-
-        if (isCompressed == GL_TRUE)
-        {
-            // Handle compressed textures - calculate based on block sizes
-            totalMemory = CalculateCompressedTextureMemory(textureId, target, internalFormat, width, height, mipLevels);
-        }
-        else
-        {
-            // Handle uncompressed textures - calculate based on bytes per pixel
-            u32 bytesPerPixel = GetUncompressedBytesPerPixel(internalFormat);
-            totalMemory = CalculateUncompressedTextureMemory(width, height, bytesPerPixel, mipLevels);
-
-            // For cubemaps, multiply by 6 faces
-            if (target == GL_TEXTURE_CUBE_MAP)
-            {
-                totalMemory *= 6;
-            }
-        }
-
-        return totalMemory;
-    }
-
-    sizet GPUResourceInspector::CalculateCompressedTextureMemory(u32 textureId, GLenum target,
-                                                                 GLenum internalFormat, u32 /*width*/,
-                                                                 u32 /*height*/, u32 mipLevels) const
-    {
-        sizet totalMemory = 0;
-        u32 blockSize = GetCompressedBlockSize(internalFormat);
-
-        // Determine number of faces
-        u32 faceCount = (target == GL_TEXTURE_CUBE_MAP) ? 6 : 1;
-
-        for (u32 face = 0; face < faceCount; ++face)
-        {
-            for (u32 level = 0; level < mipLevels; ++level)
-            {
-                // Get actual dimensions for this mip level and face
-                GLint levelWidth, levelHeight, compressedSize;
-
-                if (target == GL_TEXTURE_CUBE_MAP)
-                {
-                    // Query each face of the cubemap (GL_TEXTURE_CUBE_MAP_POSITIVE_X + face)
-                    // (faceTarget variable removed as it was unused)
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_WIDTH, &levelWidth);
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_HEIGHT, &levelHeight);
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
-                }
-                else
-                {
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_WIDTH, &levelWidth);
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_HEIGHT, &levelHeight);
-                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
-                }
-
-                if (levelWidth > 0 && levelHeight > 0)
-                {
-                    // Use actual compressed size if available, otherwise calculate
-                    if (compressedSize > 0)
-                    {
-                        totalMemory += static_cast<sizet>(compressedSize);
-                    }
-                    else
-                    {
-                        // Calculate based on block compression
-                        u32 blocksX = (static_cast<u32>(levelWidth) + 3) / 4;
-                        u32 blocksY = (static_cast<u32>(levelHeight) + 3) / 4;
-                        totalMemory += static_cast<sizet>(blocksX * blocksY * blockSize);
-                    }
-                }
-            }
-        }
-
-        return totalMemory;
-    }
-
-    sizet GPUResourceInspector::CalculateUncompressedTextureMemory(u32 width, u32 height,
-                                                                   u32 bytesPerPixel, u32 mipLevels) const
-    {
-        sizet totalMemory = 0;
-        u32 currentWidth = width;
-        u32 currentHeight = height;
-
-        for (u32 level = 0; level < mipLevels; ++level)
-        {
-            totalMemory += static_cast<sizet>(currentWidth * currentHeight * bytesPerPixel);
-
-            // Calculate next mip level dimensions
-            currentWidth = std::max(1u, currentWidth / 2);
-            currentHeight = std::max(1u, currentHeight / 2);
-        }
-
-        return totalMemory;
-    }
-
-    u32 GPUResourceInspector::GetUncompressedBytesPerPixel(GLenum internalFormat) const
-    {
-        switch (internalFormat)
-        {
-            // 8-bit single channel
-            case GL_R8:
-            case GL_R8_SNORM:
-            case GL_R8I:
-            case GL_R8UI:
-                return 1;
-
-            // 16-bit single channel or 8-bit dual channel
-            case GL_RG8:
-            case GL_RG8_SNORM:
-            case GL_RG8I:
-            case GL_RG8UI:
-            case GL_R16:
-            case GL_R16F:
-            case GL_R16I:
-            case GL_R16UI:
-            case GL_DEPTH_COMPONENT16:
-                return 2;
-
-            // 24-bit RGB
-            case GL_RGB8:
-            case GL_RGB8_SNORM:
-            case GL_RGB8I:
-            case GL_RGB8UI:
-            case GL_SRGB8:
-            case GL_DEPTH_COMPONENT24:
-                return 3;
-
-            // 32-bit formats (RGBA8, RG16, R32, depth32)
-            case GL_RGBA8:
-            case GL_RGBA8_SNORM:
-            case GL_RGBA8I:
-            case GL_RGBA8UI:
-            case GL_SRGB8_ALPHA8:
-            case GL_RG16:
-            case GL_RG16F:
-            case GL_RG16I:
-            case GL_RG16UI:
-            case GL_R32F:
-            case GL_R32I:
-            case GL_R32UI:
-            case GL_DEPTH_COMPONENT32:
-            case GL_DEPTH_COMPONENT32F:
-            case GL_DEPTH24_STENCIL8:
-                return 4;
-
-            // 48-bit RGB16
-            case GL_RGB16:
-            case GL_RGB16F:
-            case GL_RGB16I:
-            case GL_RGB16UI:
-                return 6;
-
-            // 64-bit formats (RGBA16, RG32, depth32f+stencil8)
-            case GL_RGBA16:
-            case GL_RGBA16F:
-            case GL_RGBA16I:
-            case GL_RGBA16UI:
-            case GL_RG32F:
-            case GL_RG32I:
-            case GL_RG32UI:
-            case GL_DEPTH32F_STENCIL8:
-                return 8;
-
-            // 96-bit RGB32
-            case GL_RGB32F:
-            case GL_RGB32I:
-            case GL_RGB32UI:
-                return 12;
-
-            // 128-bit RGBA32
-            case GL_RGBA32F:
-            case GL_RGBA32I:
-            case GL_RGBA32UI:
-                return 16;
-
-            default:
-                OLO_CORE_WARN("GPUResourceInspector: Unknown texture format 0x{:X}, assuming 4 bytes per pixel", internalFormat);
-                return 4;
-        }
-    }
-
-    u32 GPUResourceInspector::GetCompressedBlockSize(GLenum internalFormat) const
-    {
-        switch (internalFormat)
-        {
-            // DXT1/BC1 - 4x4 blocks, 8 bytes per block (RGB or RGBA with 1-bit alpha)
-            case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
-            case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-            case GL_COMPRESSED_SRGB_S3TC_DXT1_EXT:
-            case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
-                return 8;
-
-            // DXT3/BC2 - 4x4 blocks, 16 bytes per block (RGBA with explicit alpha)
-            case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
-            case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
-                return 16;
-
-            // DXT5/BC3 - 4x4 blocks, 16 bytes per block (RGBA with interpolated alpha)
-            case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-            case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:
-                return 16;
-
-            // BC4/ATI1 - 4x4 blocks, 8 bytes per block (single channel)
-            case GL_COMPRESSED_RED_RGTC1:
-            case GL_COMPRESSED_SIGNED_RED_RGTC1:
-                return 8;
-
-            // BC5/ATI2 - 4x4 blocks, 16 bytes per block (dual channel)
-            case GL_COMPRESSED_RG_RGTC2:
-            case GL_COMPRESSED_SIGNED_RG_RGTC2:
-                return 16;
-
-            // BC6H - 4x4 blocks, 16 bytes per block (HDR RGB)
-            case GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT:
-            case GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT:
-                return 16;
-
-            // BC7 - 4x4 blocks, 16 bytes per block (high quality RGBA)
-            case GL_COMPRESSED_RGBA_BPTC_UNORM:
-            case GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM:
-                return 16;
-
-            // ETC2 formats - 4x4 blocks
-            case GL_COMPRESSED_RGB8_ETC2:
-            case GL_COMPRESSED_SRGB8_ETC2:
-            case GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2:
-            case GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2:
-                return 8;
-
-            case GL_COMPRESSED_RGBA8_ETC2_EAC:
-            case GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC:
-                return 16;
-
-            // EAC formats - 4x4 blocks
-            case GL_COMPRESSED_R11_EAC:
-            case GL_COMPRESSED_SIGNED_R11_EAC:
-                return 8;
-
-            case GL_COMPRESSED_RG11_EAC:
-            case GL_COMPRESSED_SIGNED_RG11_EAC:
-                return 16;
-
-            // ASTC formats - variable block sizes (using 4x4 as most common)
-            case GL_COMPRESSED_RGBA_ASTC_4x4_KHR:
-            case GL_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR:
-                return 16;
-
-            default:
-                OLO_CORE_WARN("GPUResourceInspector: Unknown compressed format 0x{:X}, assuming 16 bytes per block", internalFormat);
-                return 16;
         }
     }
 } // namespace OloEngine

@@ -1,14 +1,17 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <vector>
 
 namespace OloEngine
 {
-    /// @brief Pool of OpenGL timer query objects for per-command GPU timing.
+    /// @brief Pool of elapsed-time GPU query objects for per-command timing.
     ///
-    /// Uses GL_TIME_ELAPSED queries with double-buffered readback:
+    /// Backend-neutral since #691 Phase 9: RHI::QueryType::TimeElapsed queries
+    /// through the RenderCommand facade (GL_TIME_ELAPSED on GL, a timestamp
+    /// pair on Vulkan), with double-buffered readback:
     /// Frame N issues queries, Frame N+1 reads results (avoids GPU stalls).
     /// Only active during capture — zero overhead when idle.
     class GPUTimerQueryPool
@@ -77,8 +80,8 @@ namespace OloEngine
         GPUTimerQueryPool& operator=(const GPUTimerQueryPool&) = delete;
 
         // Double-buffered: index 0 and 1
-        std::vector<u32> m_QueryObjects[2]; // GL query IDs
-        std::vector<f64> m_Results;         // Readback results in ms
+        std::vector<RHI::ResourceHandle> m_QueryObjects[2]; // facade query identities
+        std::vector<f64> m_Results;                         // Readback results in ms
 
         u32 m_MaxQueries = 0;
         u32 m_WriteBuffer = 0;        // Buffer currently being written to

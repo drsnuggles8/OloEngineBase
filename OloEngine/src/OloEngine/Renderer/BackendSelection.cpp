@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/BackendSelection.h"
 
+#include "OloEngine/Core/FileSystem.h"
+
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
@@ -61,9 +63,65 @@ namespace OloEngine
         }
     } // namespace
 
+    std::filesystem::path ResolveRendererConfigPath(const std::filesystem::path& base,
+                                                    const std::filesystem::path& exeDir)
+    {
+        const auto relative = std::filesystem::path("config") / "renderer.yaml";
+
+        // base (cwd) first: the editor runs with cwd = OloEditor/ and keeps its
+        // config there (gitignored), and a packaged game double-clicked from its
+        // own folder resolves identically either way.
+        std::error_code ec;
+        if (auto atBase = base / relative; std::filesystem::exists(atBase, ec))
+        {
+            return atBase;
+        }
+
+        // Fall back to the file shipped next to the executable — this is what
+        // rescues a packaged game launched with an unexpected working directory
+        // (#691 Phase 9). Only when that file actually exists: the creation
+        // default below stays base-anchored so a fresh editor write lands in
+        // OloEditor/config/, not in the build output tree.
+        if (!exeDir.empty())
+        {
+            if (auto anchored = exeDir / relative; std::filesystem::exists(anchored, ec))
+            {
+                return anchored;
+            }
+        }
+
+        return base / relative;
+    }
+
     std::filesystem::path DefaultRendererConfigPath()
     {
-        return std::filesystem::path("config") / "renderer.yaml";
+        std::error_code ec;
+        auto cwd = std::filesystem::current_path(ec);
+        if (ec)
+        {
+            cwd.clear();
+        }
+        return ResolveRendererConfigPath(cwd, FileSystem::GetExecutableDirectory());
+    }
+
+    bool WriteRendererConfig(const std::filesystem::path& configFile, RendererAPI::API api)
+    {
+        std::error_code ec;
+        if (const auto dir = configFile.parent_path(); !dir.empty())
+        {
+            std::filesystem::create_directories(dir, ec);
+        }
+        std::ofstream config(configFile, std::ios::trunc);
+        if (!config)
+        {
+            return false;
+        }
+        // Exactly the schema SelectRendererBackend parses; see the header note.
+        config << "# Written by the engine's renderer-backend selection UI (ADR 0011 s2).\n"
+               << "# `--rhi=opengl|vulkan` on the command line overrides this file.\n"
+               << "Renderer:\n"
+               << "  RHI: " << (api == RendererAPI::API::Vulkan ? "vulkan" : "opengl") << "\n";
+        return static_cast<bool>(config);
     }
 
     BackendSelection SelectRendererBackend(int argc, char** argv, const std::filesystem::path& configFile)

@@ -12,6 +12,7 @@
 #include "OloEngine/Physics3D/Physics3DSystem.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -467,9 +468,27 @@ namespace OloEngine
             const FluidSolverParams params =
                 settings.ToSolverParams(center, fluid.m_DomainHalfExtents, gravity);
 
-            const bool wantGpu = !IsSequentialForced() &&
+            // An explicit FluidSolverMode::GPU used to short-circuit the
+            // Renderer3D::IsInitialized() term, so an authored scene could
+            // force GPU-solver construction (13 compute dispatches) on a
+            // process with no graphics device — a crash on OloServer. ADR
+            // 0011 amendment (86): authored content cannot override the
+            // renderer-free server; a device is a hard prerequisite for the
+            // GPU arm regardless of mode.
+            const bool deviceAvailable = RenderCommand::IsDeviceAvailable();
+            const bool wantGpu = !IsSequentialForced() && deviceAvailable &&
                                  fluid.m_SolverMode != FluidSolverMode::CPU &&
                                  (fluid.m_SolverMode == FluidSolverMode::GPU || Renderer3D::IsInitialized());
+            if (fluid.m_SolverMode == FluidSolverMode::GPU && !deviceAvailable)
+            {
+                static bool s_WarnedNoDevice = false;
+                if (!s_WarnedNoDevice)
+                {
+                    s_WarnedNoDevice = true;
+                    OLO_CORE_WARN("FluidSystem: FluidSolverMode::GPU authored but no graphics device is "
+                                  "available (headless / OloServer) — using the CPU reference solver");
+                }
+            }
 
             FluidInstance& instance = world.GetOrCreate(id);
             instance.LastTouchedTick = tick;

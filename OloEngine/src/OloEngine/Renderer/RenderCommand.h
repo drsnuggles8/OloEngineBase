@@ -722,6 +722,11 @@ namespace OloEngine
             s_RendererAPI->EndQuery(type);
         }
 
+        static void WriteTimestamp(RHI::ResourceHandle query)
+        {
+            s_RendererAPI->WriteTimestamp(query);
+        }
+
         [[nodiscard("Store this!")]] static bool IsQueryResultAvailable(RHI::ResourceHandle query)
         {
             return s_RendererAPI->IsQueryResultAvailable(query);

@@ -5,7 +5,7 @@
 #include "OloEngine/Renderer/Buffer.h"
 
 #include <imgui.h>
-#include <glad/gl.h>
+#include <mutex>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -63,6 +63,11 @@
 
 namespace OloEngine
 {
+    // Backend data plane (#691 Phase 9, ADR 0011 §1.6) — see
+    // Renderer/Debug/ResourceInspectorBackend.h. The inspector shell here is
+    // graphics-API-neutral: every GL-touching step goes through this interface.
+    class IResourceInspectorBackend;
+
     // Sub-rectangle of a mip to read back, in TOP-LEFT-origin texel coordinates —
     // the orientation of the returned PNG and of every other rect coordinate in
     // the MCP surface (olo_render_target_stats' `rect`, olo_render_probe_pixel's
@@ -103,6 +108,12 @@ namespace OloEngine
     //
     // Provides detailed inspection of GPU resources including textures, buffers,
     // and their properties. Supports real-time preview and content visualization.
+    //
+    // Identity currency (ADR 0011 amendment (77)): tracked resources surface
+    // their NATIVE id/enum values as plain u32 — the backend is implied
+    // (OpenGL today; registration only happens from Platform/OpenGL TUs) and
+    // the raw values stay useful for RenderDoc correlation. Nothing here is an
+    // opaque blob; nothing here is a GL type.
     class GPUResourceInspector
     {
       public:
@@ -119,7 +130,7 @@ namespace OloEngine
 
         struct ResourceInfo
         {
-            u32 m_RendererID = 0;
+            u32 m_RendererID = 0; // native (backend) object id
             ResourceType m_Type = ResourceType::Texture2D;
             std::string m_Name;
             std::string m_DebugName;
@@ -135,9 +146,12 @@ namespace OloEngine
             u32 m_Width = 0;
             u32 m_Height = 0;
             u32 m_MipLevels = 1;
-            GLenum m_InternalFormat = GL_RGBA8;
-            GLenum m_Format = GL_RGBA;
-            GLenum m_DataType = GL_UNSIGNED_BYTE;
+            // Native (backend) enum values, for RenderDoc correlation. The
+            // defaults are the GL values they always held (GL_RGBA8 / GL_RGBA /
+            // GL_UNSIGNED_BYTE); the backend query overwrites them.
+            u32 m_InternalFormat = 0x8058; // GL_RGBA8
+            u32 m_Format = 0x1908;         // GL_RGBA
+            u32 m_DataType = 0x1401;       // GL_UNSIGNED_BYTE
             bool m_HasMips = false;
             std::vector<u8> m_PreviewData;
             bool m_PreviewDataValid = false;
@@ -148,8 +162,9 @@ namespace OloEngine
 
         struct BufferInfo : ResourceInfo
         {
-            GLenum m_Target = GL_ARRAY_BUFFER;
-            GLenum m_Usage = GL_STATIC_DRAW;
+            // Native (backend) enum values, for RenderDoc correlation.
+            u32 m_Target = 0x8892; // GL_ARRAY_BUFFER
+            u32 m_Usage = 0x88E4;  // GL_STATIC_DRAW
             u32 m_Size = 0;
             std::vector<u8> m_ContentPreview;
             bool m_ContentPreviewValid = false;
@@ -165,10 +180,11 @@ namespace OloEngine
             u32 m_ColorAttachmentCount = 0;
             bool m_HasDepthAttachment = false;
             bool m_HasStencilAttachment = false;
-            GLenum m_Status = GL_FRAMEBUFFER_COMPLETE;
-            std::vector<GLenum> m_ColorAttachmentFormats;
-            GLenum m_DepthAttachmentFormat = GL_NONE;
-            GLenum m_StencilAttachmentFormat = GL_NONE;
+            // Native (backend) enum values, for RenderDoc correlation.
+            u32 m_Status = 0x8CD5; // GL_FRAMEBUFFER_COMPLETE
+            std::vector<u32> m_ColorAttachmentFormats;
+            u32 m_DepthAttachmentFormat = 0;   // GL_NONE
+            u32 m_StencilAttachmentFormat = 0; // GL_NONE
         };
 
         // Async texture download data
@@ -176,9 +192,9 @@ namespace OloEngine
         {
             u32 m_TextureID = 0;
             u32 m_MipLevel = 0;
-            u32 m_FaceIndex = 0; // Cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z); ignored for Texture2D
-            u32 m_PBO = 0;
-            GLsync m_Fence = nullptr; // Modern OpenGL 3.2+ sync object for completion detection
+            u32 m_FaceIndex = 0;     // Cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z); ignored for Texture2D
+            u32 m_PBO = 0;           // native staging buffer id (backend-owned semantics)
+            void* m_Fence = nullptr; // opaque native fence for completion detection (GLsync on GL)
             bool m_InProgress = false;
             f64 m_RequestTime = 0.0;
         };
@@ -196,43 +212,43 @@ namespace OloEngine
         void Shutdown();
 
         // @brief Register a texture resource for tracking
-        // @param rendererID OpenGL texture ID
+        // @param rendererID Native (backend) texture id
         // @param name Resource name/path
         // @param debugName Optional debug name
         void RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName = "");
 
         // @brief Register a texture cubemap resource for tracking
-        // @param rendererID OpenGL texture ID
+        // @param rendererID Native (backend) texture id
         // @param name Resource name/path
         // @param debugName Optional debug name
         void RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName = "");
 
         // @brief Register a framebuffer resource for tracking
-        // @param rendererID OpenGL framebuffer ID
+        // @param rendererID Native (backend) framebuffer id
         // @param name Resource name
         // @param debugName Optional debug name
         void RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName = "");
 
         // @brief Register a buffer resource for tracking
-        // @param rendererID OpenGL buffer ID
-        // @param target Buffer target (GL_ARRAY_BUFFER, etc.)
+        // @param rendererID Native (backend) buffer id
+        // @param target Native (backend) buffer-target enum value (GL_ARRAY_BUFFER's value, etc.)
         // @param name Resource name
         // @param debugName Optional debug name
-        void RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName = "");
+        void RegisterBuffer(u32 rendererID, u32 target, const std::string& name, const std::string& debugName = "");
 
         // @brief Update a resource's active state
-        // @param rendererID OpenGL resource ID
+        // @param rendererID Native (backend) resource id
         // @param isActive Whether the resource is currently active
         void UpdateResourceActiveState(u32 rendererID, bool isActive);
 
         // @brief Update resource binding information
-        // @param rendererID OpenGL resource ID
+        // @param rendererID Native (backend) resource id
         // @param isBound Whether the resource is currently bound
         // @param bindingSlot The binding slot/unit (for textures, uniform buffers, etc.)
         void UpdateResourceBinding(u32 rendererID, bool isBound, u32 bindingSlot = 0);
 
         // @brief Unregister a resource (called when resource is destroyed)
-        // @param rendererID OpenGL resource ID
+        // @param rendererID Native (backend) resource id
         void UnregisterResource(u32 rendererID);
 
         // @brief Update resource binding states
@@ -304,7 +320,7 @@ namespace OloEngine
             std::string Error;
         };
 
-        // @brief Encode one mip/face of an arbitrary GL texture to PNG bytes in memory.
+        // @brief Encode one mip/face of an arbitrary native-id texture to PNG bytes in memory.
         //        The in-memory sibling of SaveTextureToFile, built for the MCP
         //        render-target capture tools (issue #316): same DSA readback and
         //        float->u8 conversion, but returns the encoded PNG instead of
@@ -354,23 +370,19 @@ namespace OloEngine
         void RenderFramebufferDetails(FramebufferInfo& info);
         void RenderResourceStatistics();
 
-        std::string FormatTextureFormat(GLenum format) const;
-        std::string FormatBufferUsage(GLenum usage) const;
+        std::string FormatTextureFormat(u32 format) const;
+        std::string FormatBufferUsage(u32 usage) const;
         std::string FormatMemorySize(sizet bytes) const;
         const char* GetResourceTypeName(ResourceType type) const;
-        const char* GetBufferTargetName(GLenum target) const;
+        const char* GetBufferTargetName(u32 target) const;
 
-        // Texture memory calculation utilities
-        sizet CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target, GLenum internalFormat,
-                                                  u32 width, u32 height, u32 mipLevels) const;
-        sizet CalculateCompressedTextureMemory(u32 textureId, GLenum target, GLenum internalFormat,
-                                               u32 /*width*/, u32 /*height*/, u32 mipLevels) const;
-        sizet CalculateUncompressedTextureMemory(u32 width, u32 height, u32 bytesPerPixel, u32 mipLevels) const;
-        u32 GetUncompressedBytesPerPixel(GLenum internalFormat) const;
-        u32 GetCompressedBlockSize(GLenum internalFormat) const;
-
-        // Buffer binding utility
-        static GLenum GetBufferBindingQuery(GLenum target);
+        // The backend data plane (#691 Phase 9). Created lazily (thread-safe,
+        // once) so the static capture entry points and SaveTextureToFile work
+        // without Initialize() having run — the tests call them directly.
+        // Null when the active renderer API has no inspector backend (the
+        // deliberate Vulkan stub — see ResourceInspectorBackend.h); every
+        // caller degrades to today's observable no-op behaviour then.
+        IResourceInspectorBackend* GetBackend() const;
 
       private:
         // Deferred Save-to-File request. The Save button populates this snapshot
@@ -401,6 +413,10 @@ namespace OloEngine
         std::array<sizet, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> m_MemoryUsageByType{};
         // Threading
         mutable FMutex m_ResourceMutex;
+
+        // Backend data plane (lazy — see GetBackend()).
+        mutable std::unique_ptr<IResourceInspectorBackend> m_Backend;
+        mutable std::once_flag m_BackendOnce;
 
         bool m_IsInitialized = false;
     };

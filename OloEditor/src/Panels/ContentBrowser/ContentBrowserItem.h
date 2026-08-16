@@ -81,7 +81,12 @@ namespace OloEngine
     class ContentBrowserItem
     {
       public:
-        ContentBrowserItem(const std::filesystem::path& absolutePath, ContentFileType type, const Ref<Texture2D>& icon);
+        // `iconIsRenderTarget`: the icon is a RENDERED preview (per-backend row
+        // order — drawn with ImGuiLayer::RenderTargetRowsAreBottomUp's uv pair)
+        // rather than a file-loaded texture (fixed GL-convention uv). ADR 0011
+        // amendment (85).
+        ContentBrowserItem(const std::filesystem::path& absolutePath, ContentFileType type, const Ref<Texture2D>& icon,
+                           bool iconIsRenderTarget = false);
 
         // Renders the item and returns action flags for the panel to process.
         CBActionResult Render(f32 thumbnailSize, bool isSelected, bool isRenaming);
@@ -122,6 +127,7 @@ namespace OloEngine
         std::string m_DisplayName;
         ContentFileType m_Type;
         Ref<Texture2D> m_Icon;
+        bool m_IconIsRenderTarget = false;
         char m_RenameBuffer[256] = {};
         bool m_WantRenameFocus = false;
     };

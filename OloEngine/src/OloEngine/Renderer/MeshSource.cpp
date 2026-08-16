@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
@@ -80,6 +81,23 @@ namespace OloEngine
 
         if (m_Built)
             return;
+
+        // ADR 0011 amendment (86): with no graphics device (OloServer, headless
+        // asset use) every Create/Bind below calls through null loader pointers.
+        // The CPU-side data (vertices, indices, bounds) is already complete and
+        // stays usable; skip only the GPU build, without latching m_Built, so a
+        // later call on a device-carrying process still uploads.
+        if (!RenderCommand::IsDeviceAvailable())
+        {
+            static bool s_WarnedNoDevice = false;
+            if (!s_WarnedNoDevice)
+            {
+                s_WarnedNoDevice = true;
+                OLO_CORE_WARN("MeshSource::Build: no graphics device available — keeping CPU data, "
+                              "deferring GPU buffer creation");
+            }
+            return;
+        }
 
         // Optimize mesh data before GPU upload (vertex cache, overdraw, fetch)
         // Skip if data was already optimized (e.g., loaded from binary cache)

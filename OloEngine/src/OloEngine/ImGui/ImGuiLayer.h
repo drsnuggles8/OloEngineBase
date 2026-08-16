@@ -35,6 +35,16 @@ namespace OloEngine
         [[nodiscard]] static u64 GetFramebufferTextureID(const Framebuffer& framebuffer, u32 attachmentIndex);
         [[nodiscard]] static u64 GetTextureID(const Texture2D& texture);
 
+        // The uv pair for an ImGui::Image of a RENDER TARGET (#691 Phase 9,
+        // ADR 0011 amendment (85)): every off-screen target has ONE row order
+        // per backend — bottom-up on GL (flip V), top-down on Vulkan
+        // (identity) — so this is the single predicate every panel drawing a
+        // rendered image shares; hand-rolled uv flips are how four consumers
+        // drifted wrong under Vulkan. NOT for file-loaded textures (icons):
+        // those are uploaded pre-flipped by the stbi loader and take the
+        // fixed GL-convention pair {0,1}/{1,0} on both backends.
+        [[nodiscard]] static bool RenderTargetRowsAreBottomUp();
+
         void BlockEvents(bool const block)
         {
             m_BlockEvents = block;

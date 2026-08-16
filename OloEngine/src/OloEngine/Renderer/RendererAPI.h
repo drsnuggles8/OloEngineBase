@@ -479,6 +479,14 @@ namespace OloEngine
         virtual void DeleteQueries(std::span<const RHI::ResourceHandle> queries) = 0;
         virtual void BeginQuery(RHI::QueryType type, RHI::ResourceHandle query) = 0;
         virtual void EndQuery(RHI::QueryType type) = 0;
+        // Stamps the GPU clock into a QueryType::Timestamp query at this point
+        // in the command stream — the write-shaped member of the query family
+        // (GL glQueryCounter; Vulkan vkCmdWriteTimestamp into the query's pool
+        // slot), never bracketed by Begin/EndQuery. GetQueryResultU64 on a
+        // timestamp query returns NANOSECONDS on both backends: the Vulkan arm
+        // owes the timestampPeriod scaling so GPUPassTimerPool's subtraction
+        // math is backend-blind (#691 Phase 9).
+        virtual void WriteTimestamp(RHI::ResourceHandle query) = 0;
         [[nodiscard("Store this!")]] virtual bool IsQueryResultAvailable(RHI::ResourceHandle query) = 0;
         [[nodiscard("Store this!")]] virtual u32 GetQueryResultU32(RHI::ResourceHandle query) = 0;
         [[nodiscard("Store this!")]] virtual u64 GetQueryResultU64(RHI::ResourceHandle query) = 0;

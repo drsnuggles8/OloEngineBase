@@ -769,8 +769,10 @@
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
 		"OloEngine/Renderer/Debug/RenderGraphFrameCapture.h"
 		"OloEngine/Renderer/Debug/RenderGraphFrameCapture.cpp"
+		"OloEngine/Renderer/Debug/FrameCaptureBackend.h"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.h"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.cpp"
+		"OloEngine/Renderer/Debug/PassSnapshotBackend.h"
 		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.cpp"
 		"OloEngine/Renderer/Debug/CapturedFrameData.h"
@@ -794,12 +796,17 @@
 		"OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 		"OloEngine/Renderer/Debug/GPUResourceInspector.h"
 		"OloEngine/Renderer/Debug/GPUResourceInspector.cpp"
+		# Neutral inspector-backend interface + the sanctioned factory TU
+		# (ADR 0011 s1.6); the GL implementation lives in Platform/OpenGL.
+		"OloEngine/Renderer/Debug/ResourceInspectorBackend.h"
+		"OloEngine/Renderer/Debug/ResourceInspectorBackend.cpp"
 		"OloEngine/Renderer/Debug/ShaderDebugger.h"
 		"OloEngine/Renderer/Debug/ShaderDebugger.cpp"
 		"OloEngine/Renderer/Debug/DebugUtils.h"
 		"OloEngine/Renderer/Debug/DebugUtils.cpp"
 		"OloEngine/Renderer/Debug/GLStateGuard.h"
 		"OloEngine/Renderer/Debug/GLStateGuard.cpp"
+		"OloEngine/Renderer/Debug/StateGuardBackend.h"
 		"OloEngine/Renderer/Debug/RendererValidate.h"
 		"OloEngine/Renderer/Debug/RendererValidate.cpp"
 
@@ -1486,14 +1493,27 @@
 		"Platform/OpenGL/OpenGLDescriptorHeap.h"
 		"Platform/OpenGL/OpenGLFramebuffer.cpp"
 		"Platform/OpenGL/OpenGLFramebuffer.h"
+		# GL half of the RenderGraphFrameCapture seam (#691 Phase 9): definitions for
+		# the Detail:: functions declared in Renderer/Debug/FrameCaptureBackend.h.
+		"Platform/OpenGL/OpenGLFrameCapture.cpp"
 		"Platform/OpenGL/OpenGLIndexBuffer.cpp"
 		"Platform/OpenGL/OpenGLIndexBuffer.h"
 		"Platform/OpenGL/OpenGLRendererAPI.cpp"
 		"Platform/OpenGL/OpenGLRendererAPI.h"
 		"Platform/OpenGL/OpenGLProgramBinaryCache.cpp"
 		"Platform/OpenGL/OpenGLProgramBinaryCache.h"
+		# GL half of the RenderGraphPassSnapshot clone engine (#691 Phase 9): definitions
+		# for the Detail:: functions declared in Renderer/Debug/PassSnapshotBackend.h.
+		"Platform/OpenGL/OpenGLPassSnapshot.cpp"
 		"Platform/OpenGL/OpenGLShader.cpp"
 		"Platform/OpenGL/OpenGLShader.h"
+		# GL half of the GLStateGuard seam (#691 Phase 9): definitions for the
+		# Detail:: capture/apply functions declared in Renderer/Debug/StateGuardBackend.h.
+		"Platform/OpenGL/OpenGLStateGuard.cpp"
+		"Platform/OpenGL/OpenGLStateGuard.h"
+		# GPUResourceInspector's GL machinery (ADR 0011 s1.6 relocation).
+		"Platform/OpenGL/OpenGLResourceInspectorBackend.cpp"
+		"Platform/OpenGL/OpenGLResourceInspectorBackend.h"
 		"Platform/OpenGL/OpenGLTexture.cpp"
 		"Platform/OpenGL/OpenGLTexture.h"
 		"Platform/OpenGL/OpenGLTextureCubemap.cpp"
@@ -1556,6 +1576,8 @@
 		"Platform/Vulkan/VulkanComputeShader.h"
 		"Platform/Vulkan/VulkanContext.cpp"
 		"Platform/Vulkan/VulkanContext.h"
+		"Platform/Vulkan/VulkanDeferredReclaim.cpp"
+		"Platform/Vulkan/VulkanDeferredReclaim.h"
 		"Platform/Vulkan/VulkanDescriptorHeapBackend.cpp"
 		"Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 		"Platform/Vulkan/VulkanDescriptorSlotCache.cpp"
@@ -1564,8 +1586,12 @@
 		"Platform/Vulkan/VulkanDevice.h"
 		"Platform/Vulkan/VulkanFrameArena.cpp"
 		"Platform/Vulkan/VulkanFrameArena.h"
+		"Platform/Vulkan/VulkanFramebuffer.cpp"
+		"Platform/Vulkan/VulkanFramebuffer.h"
 		"Platform/Vulkan/VulkanGpuFence.cpp"
 		"Platform/Vulkan/VulkanGpuFence.h"
+		"Platform/Vulkan/VulkanImageInfoRegistry.cpp"
+		"Platform/Vulkan/VulkanImageInfoRegistry.h"
 		"Platform/Vulkan/VulkanImageLayoutTracker.cpp"
 		"Platform/Vulkan/VulkanImageLayoutTracker.h"
 		"Platform/Vulkan/VulkanImGuiBackend.cpp"
@@ -1577,6 +1603,8 @@
 		"Platform/Vulkan/VulkanPipelineBuilder.h"
 		"Platform/Vulkan/VulkanPipelineCache.cpp"
 		"Platform/Vulkan/VulkanPipelineCache.h"
+		"Platform/Vulkan/VulkanRawResourceRegistries.cpp"
+		"Platform/Vulkan/VulkanRawResourceRegistries.h"
 		"Platform/Vulkan/VulkanRendererAPI.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.h"
@@ -1585,8 +1613,24 @@
 		"Platform/Vulkan/VulkanRendererAPI.h"
 		"Platform/Vulkan/VulkanShader.cpp"
 		"Platform/Vulkan/VulkanShader.h"
-		"Platform/Vulkan/VulkanTransientResources.cpp"
+		"Platform/Vulkan/VulkanStorageBuffer.cpp"
+		"Platform/Vulkan/VulkanStorageBuffer.h"
+		"Platform/Vulkan/VulkanTexture.cpp"
+		"Platform/Vulkan/VulkanTexture.h"
+		"Platform/Vulkan/VulkanTexture2DArray.cpp"
+		"Platform/Vulkan/VulkanTexture2DArray.h"
+		"Platform/Vulkan/VulkanTexture3D.cpp"
+		"Platform/Vulkan/VulkanTexture3D.h"
+		"Platform/Vulkan/VulkanTextureCubemap.cpp"
+		"Platform/Vulkan/VulkanTextureCubemap.h"
+		"Platform/Vulkan/VulkanTextureCubemapArray.cpp"
+		"Platform/Vulkan/VulkanTextureCubemapArray.h"
+		# VulkanTransientResources.h is a transitional umbrella (#691 Phase 9):
+		# it #includes the per-class headers above so existing consumers keep
+		# compiling; its old .cpp was split into the per-class TUs.
 		"Platform/Vulkan/VulkanTransientResources.h"
+		"Platform/Vulkan/VulkanTransientUpload.cpp"
+		"Platform/Vulkan/VulkanTransientUpload.h"
 )
 
 # Platform-specific sources
@@ -1685,6 +1729,26 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp" # static IsFiniteVec3 (+ macro-heavy Sol2 glue)
 		"OloEngine/Audio/DSP/HighPassFilter.cpp"   # namespace-scope consts FilterOrder/Min/MaxFrequencyHz
 		"OloEngine/Audio/DSP/LowPassFilter.cpp"    #   "
+		# Vulkan transient-resource TUs (#691 Phase 9 split): each includes the
+		# TU-internal VulkanTransientUpload.h. Its helpers (VkCheck /
+		# VkHandleToU64 / ImageFormatToVkFormat / ExpandRgbToRgba / ...) share
+		# NAMES with anonymous-namespace copies kept by sibling Vulkan TUs
+		# (VulkanDevice/VulkanContext/VulkanBufferResources/VulkanImGuiBackend/
+		# VulkanRendererAPI). They now live in the nested OloEngine::VulkanUpload
+		# namespace and are called qualified, so a jumbo can no longer make
+		# those siblings' unqualified calls ambiguous — i.e. this list is NO
+		# LONGER load-bearing for correctness (review finding: build validity
+		# must not rest on a hand-maintained exclusion list). Kept as unity
+		# hygiene for a set of TUs that carry heavy Vulkan headers; removing
+		# an entry is safe, and a compile error here would be an ordinary
+		# jumbo clash, not a silent ambiguity.
+		"Platform/Vulkan/VulkanFramebuffer.cpp"
+		"Platform/Vulkan/VulkanStorageBuffer.cpp"
+		"Platform/Vulkan/VulkanTexture.cpp"
+		"Platform/Vulkan/VulkanTexture2DArray.cpp"
+		"Platform/Vulkan/VulkanTextureCubemap.cpp"
+		"Platform/Vulkan/VulkanTextureCubemapArray.cpp"
+		"Platform/Vulkan/VulkanTransientUpload.cpp"
 
 		PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
 	)

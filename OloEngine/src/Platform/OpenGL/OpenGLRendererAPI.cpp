@@ -1939,6 +1939,20 @@ namespace OloEngine
         glEndQuery(Utils::ToGL(type));
     }
 
+    void OpenGLRendererAPI::WriteTimestamp(RHI::ResourceHandle query)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // glQueryCounter on a retired handle resolves to name 0, which GL
+        // rejects with GL_INVALID_OPERATION rather than stamping someone
+        // else's query — acceptable for a debug-instrument path, and the
+        // resolve guard keeps the failure local.
+        if (const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query); name != 0u)
+        {
+            glQueryCounter(name, GL_TIMESTAMP);
+        }
+    }
+
     bool OpenGLRendererAPI::IsQueryResultAvailable(RHI::ResourceHandle query)
     {
         OLO_PROFILE_FUNCTION();

@@ -80,7 +80,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [adr/0008-no-mcp-endpoint-in-cooked-builds.md](adr/0008-no-mcp-endpoint-in-cooked-builds.md) — no MCP endpoint in cooked builds; deferred behind seven preconditions.
 - [adr/0009-scripting-bindings-from-reflection-emitted-schema.md](adr/0009-scripting-bindings-from-reflection-emitted-schema.md) — scripting bindings come from a reflection-emitted, language-neutral schema.
 - [adr/0010-vulkan-rhi-heap-bindless-only.md](adr/0010-vulkan-rhi-heap-bindless-only.md) — add a Vulkan backend alongside GL 4.6: heap-bindless only, no legacy descriptor-set path.
-- [adr/0011-rhi-neutral-resource-and-binding-model.md](adr/0011-rhi-neutral-resource-and-binding-model.md) — API-neutral RHI resource/binding model: identity vs binding address vs native handle.
+- [adr/0011-rhi-neutral-resource-and-binding-model.md](adr/0011-rhi-neutral-resource-and-binding-model.md) — API-neutral RHI resource/binding model: identity vs binding address vs native handle. The decisions plus an index of all 88 amendments (what each decided, whether it still binds); the amendment bodies are in [adr/0011-amendments.md](adr/0011-amendments.md).
 - [adr/0012-adopt-the-ue-container-library-for-engine-owned-data.md](adr/0012-adopt-the-ue-container-library-for-engine-owned-data.md) — adopt the UE container library for engine-owned data; close the half-adopted state by growing usage.
 - [adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md](adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md) — destructible objects swap in pre-authored debris assets; no runtime mesh fracture.
 

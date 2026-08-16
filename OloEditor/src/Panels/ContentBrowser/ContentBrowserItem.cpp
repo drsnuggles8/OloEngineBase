@@ -205,8 +205,8 @@ namespace OloEngine
     }
 
     ContentBrowserItem::ContentBrowserItem(const std::filesystem::path& absolutePath, ContentFileType type,
-                                           const Ref<Texture2D>& icon)
-        : m_Path(absolutePath), m_Type(type), m_Icon(icon)
+                                           const Ref<Texture2D>& icon, bool iconIsRenderTarget)
+        : m_Path(absolutePath), m_Type(type), m_Icon(icon), m_IconIsRenderTarget(iconIsRenderTarget)
     {
         // Store display name as UTF-8
         auto u8name = absolutePath.filename().u8string();
@@ -243,8 +243,16 @@ namespace OloEngine
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         if (const u64 thumbId = ImGuiLayer::GetTextureID(*m_Icon); thumbId != 0)
         {
+            // Loaded icons are uploaded pre-flipped (fixed GL-convention uv);
+            // a RENDERED material/mesh preview follows the backend's render-
+            // target row order (ADR 0011 amendment (85)) — under Vulkan it is
+            // top-down and the V flip must not apply, which is exactly the
+            // case the old hard-coded pair got wrong.
+            const bool flipV = !m_IconIsRenderTarget || ImGuiLayer::RenderTargetRowsAreBottomUp();
+            const ImVec2 uv0 = flipV ? ImVec2{ 0, 1 } : ImVec2{ 0, 0 };
+            const ImVec2 uv1 = flipV ? ImVec2{ 1, 0 } : ImVec2{ 1, 1 };
             ImGui::ImageButton(m_DisplayName.c_str(), static_cast<ImTextureID>(thumbId),
-                               { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+                               { thumbnailSize, thumbnailSize }, uv0, uv1);
         }
         else
         {

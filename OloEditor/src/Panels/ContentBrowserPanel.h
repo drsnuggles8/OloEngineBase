@@ -96,7 +96,11 @@ namespace OloEngine
         // long-lived reference into `m_ImageIcons` or the thumbnail
         // cache; that lets `AssetThumbnailCache` evict its LRU entries
         // without leaving a dangling reference inside the panel.
-        Ref<Texture2D> GetFileIcon(const std::filesystem::path& filepath);
+        // `outIsRenderTarget` reports whether the returned icon is a RENDERED
+        // thumbnail (material/mesh preview — per-backend row order, ADR 0011
+        // amendment (85)) rather than a file-loaded texture (fixed GL-convention
+        // rows). The item needs the distinction to pick its ImGui uv pair.
+        Ref<Texture2D> GetFileIcon(const std::filesystem::path& filepath, bool& outIsRenderTarget);
         // Decode a video file's first frame into a preview texture (null on failure).
         Ref<Texture2D> DecodeVideoThumbnail(const std::filesystem::path& filepath);
         void DrawCreateMenu();

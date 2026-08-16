@@ -9210,9 +9210,10 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
     ASSERT_TRUE(backbufferHandle.IsValid());
 
     // A VERTICALLY ASYMMETRIC pattern, because the thing most likely to be
-    // wrong about "the frame reached the screen" is which way up it is: the
-    // A8 projection seam leaves every graph-owned image in GL's row order,
-    // and the swapchain is the one target that displays row 0 at the TOP.
+    // wrong about "the frame reached the screen" is which way up it is:
+    // every off-screen target is TOP-DOWN under Vulkan (ADR 0011 amendment
+    // (85)), the same order the swapchain displays, so the present blit must
+    // preserve rows — and only an asymmetric pattern can catch a stray flip.
     // A solid colour cannot see that; two stacked bands can.
     // Neither band is a colour any clear path here produces, so "the blit
     // landed" and "something cleared" can never be confused either.
@@ -9359,22 +9360,25 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
                                   << ", neither authored colour";
     }
 
-    // ORIENTATION: the presented image is the vertical MIRROR of the chain's
-    // own row order. That is not a quirk to be tolerated — it is the contract.
-    // The A8 seam authors every graph image in GL's row order (row 0 = bottom
-    // of the picture) so that screen-space shaders stay source-identical
-    // across backends; the swapchain displays row 0 at the TOP, so the final
-    // blit MUST flip. Without the flip the whole live frame is upside down on
-    // screen while every in-chain readback still looks perfect — which is
-    // exactly how it shipped past 45 green tenants until someone looked at
-    // the window.
+    // ORIENTATION: the presented image PRESERVES the chain's row order — the
+    // contract since #691 Phase 9 (ADR 0011 amendment (85)), inverting the
+    // Phase 7 mirror that used to live here. The (59) seam's clip-y negation
+    // lands every rasterized target TOP-DOWN under Vulkan and passthrough
+    // hops preserve that (the Phase 9 live inventory measured every archetype
+    // agreeing), so the chain's row 0 IS the top of the picture, exactly what
+    // the swapchain displays at the top: the final blit must not flip. The
+    // Phase 7 mirror was derived from a chain believed to be GL-ordered and
+    // nothing displayed the graph through this path since (the editor
+    // composites via ImGui; the runtime was Vulkan-gated) — (67)'s rule that
+    // orientation is a window-only proof, twice over. Note the CHAIN here was
+    // seeded from a CPU upload, whose memory rows pass through the passthrough
+    // hops unchanged; the assertion is a pure memory-order relation either way.
     for (const u32 row : { 2u, 30u, 64u, 100u, kSize - 3u })
     {
-        const u32 mirrored = kSize - 1u - row;
         for (const u32 channel : { 0u, 1u, 2u })
         {
-            EXPECT_NEAR(texel(presented, 64, row, channel), texel(chain, 64, mirrored, channel), 2)
-                << "presented row " << row << " must mirror chain row " << mirrored << " (channel " << channel << ")";
+            EXPECT_NEAR(texel(presented, 64, row, channel), texel(chain, 64, row, channel), 2)
+                << "presented row " << row << " must equal chain row " << row << " (channel " << channel << ")";
         }
     }
 

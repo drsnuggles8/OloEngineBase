@@ -144,6 +144,9 @@ namespace OloEngine
         VkPhysicalDeviceProperties props{};
         vkGetPhysicalDeviceProperties(device->GetPhysicalDevice(), &props);
         m_MaxUniformBlockSize = props.limits.maxUniformBufferRange;
+        // Nanoseconds per timestamp tick — the query readback's tick→ns
+        // scaling factor (facade contract: timestamps read back in ns).
+        m_TimestampPeriodNs = static_cast<f64>(props.limits.timestampPeriod);
 
         // Three DISTINCT caps, mirroring the GL getters they implement:
         // framebuffer = the color∩depth attachment intersection (a framebuffer
@@ -220,9 +223,27 @@ namespace OloEngine
         {
             // An unbalanced vkCmdBeginQuery makes the whole command buffer
             // invalid at vkEndCommandBuffer — close it loudly instead.
-            OLO_CORE_WARN("[RHI/Vulkan] recording ended with an occlusion query still active — auto-ending it");
             EndRenderingScope();
-            vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
+            if (m_ActiveQuery.IsElapsed)
+            {
+                // An elapsed bracket is a TIMESTAMP pair, not a query span:
+                // vkCmdEndQuery on a timestamp pool is invalid usage
+                // (VUID-vkCmdEndQuery-queryPool-01041), so close it the way
+                // EndQuery does — stamp the end slot and mark the entry
+                // readable, or the pair would block forever under WAIT.
+                OLO_CORE_WARN("[RHI/Vulkan] recording ended with an elapsed-time bracket still open — closing it");
+                vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, m_ActiveQuery.Pool,
+                                     m_ActiveQuery.Index + 1u);
+                if (auto* entry = VulkanQueryRegistry::Get().Lookup(m_ActiveQuery.Handle); entry != nullptr)
+                {
+                    entry->Recorded = true;
+                }
+            }
+            else
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] recording ended with an occlusion query still active — auto-ending it");
+                vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
+            }
             m_ActiveQuery = {};
         }
         EndRenderingScope();
@@ -246,8 +267,11 @@ namespace OloEngine
         }
         if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
         {
-            // A vkCmdBeginQuery span cannot cross command buffers — refuse
-            // rather than corrupt the recording.
+            // A query span cannot cross command buffers — refuse rather than
+            // corrupt the recording. (An elapsed-time TIMESTAMP pair could in
+            // principle be split across buffers, but its two stamps would then
+            // measure across a submit boundary, which is not what the caller
+            // asked for; refusing keeps one meaning for both kinds.)
             static bool s_Warned = false;
             if (!s_Warned)
             {
@@ -1693,28 +1717,21 @@ namespace OloEngine
             viewport.width = static_cast<f32>(targetExtent.width);
             viewport.height = static_cast<f32>(targetExtent.height);
 
-            // THE Y FLIP CANCELS EVERYWHERE EXCEPT HERE (#691 Phase 7 Final).
-            // Every graph-owned image is authored in a row order the whole
-            // chain agrees on — source and destination share it, so it
-            // cancels pass to pass. The swapchain is the one target that does
-            // NOT share it: the presentation engine displays row 0 at the
-            // TOP. Without this the entire live frame reached the screen
-            // upside down while every offscreen readback still looked
-            // perfect — which is exactly why no tenant could see it (each one
-            // reads its output back in the same order it wrote it), and why
-            // it took looking at the window.
-            //
-            // A negative-height viewport flips rasterisation for exactly the
-            // draws that target the backbuffer and nothing else. It is safe
-            // HERE and nowhere else in the chain: the only thing ever drawn
-            // to the default framebuffer is a fullscreen blit
-            // (FinalRenderPass, and the shader-warmup progress screen), which
-            // samples a texture rather than reconstructing world space from
-            // uv — so no screen-space shader has to know. Both run with
-            // culling off, so the winding reversal a negative viewport
-            // implies has nothing to act on.
-            viewport.y += viewport.height;
-            viewport.height = -viewport.height;
+            // NO Y FLIP — DELIBERATELY (#691 Phase 9, ADR 0011 amendment (85);
+            // supersedes the Phase 7 negative-height mirror that lived here).
+            // Every off-screen target is authored TOP-DOWN under Vulkan: the
+            // (59) projection seam's clip-y negation lands a view's top row at
+            // memory row 0, NDC-passthrough fullscreen hops preserve memory
+            // order, and the Phase 9 live inventory measured every archetype
+            // (geometry, post hop, compute imageStore, depth, shadow) agreeing.
+            // The swapchain also displays row 0 at the top, so the present
+            // blit must PRESERVE row order; the Phase 7 mirror was written
+            // against a chain believed to be GL-ordered, and nothing displayed
+            // the graph chain through this path since (the editor composites
+            // via ImGui; the runtime was Vulkan-gated until Phase 9) — the
+            // (67) rule that orientation is a window-only proof, in action.
+            // Pinned by the FinalPassBlits... tenant, which asserts the
+            // presented rows EQUAL the chain rows.
         }
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
@@ -2470,12 +2487,7 @@ namespace OloEngine
         // MemoryBarrier those paths issue. It is safe to move now because
         // BindImageTexture transitions BACK to GENERAL when the image is next
         // bound for storage — the write half is no longer stranded.
-        if (m_Cmd != VK_NULL_HANDLE)
         {
-            const u32 mipCount = std::max(info->MipLevels, 1u);
-            const u32 layerCount = std::max(info->ArrayLayers, 1u);
-            m_LayoutTracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId, info->InitialLayout);
-
             VkImageSubresourceRange whole{};
             // A BARRIER on a combined depth-stencil image must name BOTH
             // aspects while separateDepthStencilLayouts is off
@@ -2492,61 +2504,7 @@ namespace OloEngine
             whole.levelCount = VK_REMAINING_MIP_LEVELS;
             whole.baseArrayLayer = 0;
             whole.layerCount = VK_REMAINING_ARRAY_LAYERS;
-
-            std::vector<VkImageMemoryBarrier2> toSampled;
-            m_LayoutTracker.ForEachLayoutRun(
-                image, whole,
-                [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
-                {
-                    const bool producedByPriorCommand =
-                        trackedLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ||
-                        trackedLayout == VK_IMAGE_LAYOUT_GENERAL ||
-                        // UNDEFINED too: a never-written subresource (a shadow
-                        // cascade with no casters, an imported stand-in) would
-                        // otherwise stay UNDEFINED while this descriptor claims
-                        // SHADER_READ_ONLY. Transitioning it is free — it
-                        // discards contents that are undefined anyway.
-                        trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED;
-                    if (!producedByPriorCommand)
-                        return;
-
-                    VkImageMemoryBarrier2 b{};
-                    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    // Conservative all-stage scopes: the producer may be
-                    // raster, a transfer, or the harness — over-sync beats a
-                    // silent race on a correctness seam.
-                    b.srcStageMask = kAllStages;
-                    b.srcAccessMask = kAllAccess;
-                    b.dstStageMask = kAllStages;
-                    b.dstAccessMask = kAllAccess;
-                    b.oldLayout = trackedLayout;
-                    b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    b.image = image;
-                    b.subresourceRange = run;
-                    toSampled.push_back(b);
-                });
-            if (!toSampled.empty())
-            {
-                // vkCmdPipelineBarrier2 is illegal inside a rendering scope;
-                // ending here also closes the scope that RENDERED the runs
-                // being transitioned (the JFA/bloom shape: the source's scope
-                // is still open when the next iteration binds it).
-                EndRenderingScope();
-                VkDependencyInfo dep{};
-                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-                dep.imageMemoryBarrierCount = static_cast<u32>(toSampled.size());
-                dep.pImageMemoryBarriers = toSampled.data();
-                vkCmdPipelineBarrier2(m_Cmd, &dep);
-                for (const auto& b : toSampled)
-                {
-                    m_LayoutTracker.SetLayout(image, b.subresourceRange, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                }
-            }
+            EnsureImageLayoutForDescriptor(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, whole);
         }
 
         // Default whole-image sampled view. Depth-stencil formats sample the
@@ -2772,58 +2730,122 @@ namespace OloEngine
         // this bind exposes (one mip, one layer or all): transition every run
         // that is not already GENERAL, including UNDEFINED runs, which cost
         // nothing because they discard contents that are undefined anyway.
-        if (m_Cmd != VK_NULL_HANDLE)
         {
-            m_LayoutTracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
-                                          info->RegistrationId, info->InitialLayout);
-
             VkImageSubresourceRange bound{};
             bound.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // storage images are colour-aspect
             bound.baseMipLevel = view.subresourceRange.baseMipLevel;
             bound.levelCount = 1u;
             bound.baseArrayLayer = view.subresourceRange.baseArrayLayer;
             bound.layerCount = view.subresourceRange.layerCount;
-
-            std::vector<VkImageMemoryBarrier2> toGeneral;
-            m_LayoutTracker.ForEachLayoutRun(image, bound,
-                                             [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
-                                             {
-                                                 if (trackedLayout == VK_IMAGE_LAYOUT_GENERAL)
-                                                     return; // already where a storage access needs it
-
-                                                 VkImageMemoryBarrier2 b{};
-                                                 b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                                                 // Conservative scopes, same reasoning as the sampled seam:
-                                                 // the producer may be raster, transfer, or a prior dispatch.
-                                                 b.srcStageMask = kAllStages;
-                                                 b.srcAccessMask = kAllAccess;
-                                                 b.dstStageMask = kAllStages;
-                                                 b.dstAccessMask = kAllAccess;
-                                                 b.oldLayout = trackedLayout;
-                                                 b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-                                                 b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                                                 b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                                                 b.image = image;
-                                                 b.subresourceRange = run;
-                                                 toGeneral.push_back(b);
-                                             });
-            if (!toGeneral.empty())
-            {
-                EndRenderingScope(); // vkCmdPipelineBarrier2 is illegal inside a rendering scope
-                VkDependencyInfo dep{};
-                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-                dep.imageMemoryBarrierCount = static_cast<u32>(toGeneral.size());
-                dep.pImageMemoryBarriers = toGeneral.data();
-                vkCmdPipelineBarrier2(m_Cmd, &dep);
-                for (const auto& b : toGeneral)
-                    m_LayoutTracker.SetLayout(image, b.subresourceRange, VK_IMAGE_LAYOUT_GENERAL);
-            }
+            EnsureImageLayoutForDescriptor(image, VK_IMAGE_LAYOUT_GENERAL, bound);
         }
 
         const u32 heapSlot = VulkanDescriptorSlotCache::Get().AcquireSlot(
             image, view, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_LAYOUT_GENERAL);
         bindingState.SetImageHeapSlot(
             unit, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
+    }
+
+    void VulkanRendererAPI::EnsureImageLayoutForDescriptor(VkImage image, VkImageLayout target,
+                                                           const VkImageSubresourceRange& range)
+    {
+        // The bind-time layout seam behind BOTH descriptor routes — see the
+        // header note. GL-parity mid-pass visibility (#691 Phase 7 Wave A): GL
+        // makes a just-rendered (or just-copied) image visible to a later
+        // texture() with NO application barrier, so pass bodies sample an
+        // attachment they drew two draws ago without saying anything — the
+        // bloom mip ladder, the JFA ping-pong, fog's and cloudscape's half-res
+        // write-then-sample all do exactly this inside ONE Execute, where the
+        // graph's per-pass planner barriers cannot reach. Without this seam
+        // the sample raced the raster and read the PRE-draw content (the
+        // clear), while the baked descriptor lied about the image's actual
+        // layout. Transition exactly the layout runs a previous command
+        // produced, at bind/publish time, scope-ended first (the
+        // ClearTextureFloat shape).
+        //
+        // For a SAMPLED target, GENERAL is included. It used to be skipped, on
+        // the reasoning that a compute store-then-sample chain keeps its image
+        // in GENERAL and moving it here "would break the write half" — but
+        // that left the baked SHADER_READ_ONLY descriptor disagreeing with the
+        // image's real layout on exactly those chains (HZB mip ladder, fog
+        // scatter -> integrate, snow, cloud shadows, the ocean FFT), which is
+        // invalid usage even though the RAW hazard is covered by the explicit
+        // MemoryBarrier those paths issue. Safe because a storage publish
+        // transitions BACK to GENERAL — the write half is never stranded.
+        // UNDEFINED is included for both targets: a never-written subresource
+        // (a shadow cascade with no casters, a mid-frame-recreated resize
+        // target) would otherwise stay UNDEFINED while the descriptor claims
+        // otherwise; transitioning it is free — it discards contents that are
+        // undefined anyway.
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        if (info == nullptr)
+        {
+            return;
+        }
+        m_LayoutTracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
+                                      info->RegistrationId, info->InitialLayout);
+
+        std::vector<VkImageMemoryBarrier2> barriers;
+        m_LayoutTracker.ForEachLayoutRun(
+            image, range,
+            [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
+            {
+                if (trackedLayout == target)
+                    return; // already where this descriptor kind needs it
+                if (target == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                {
+                    // The sampled filter: only runs a prior command produced
+                    // (or UNDEFINED, per above) move; anything else is a
+                    // layout some OTHER machinery owns right now.
+                    const bool producedByPriorCommand =
+                        trackedLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_GENERAL ||
+                        trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED;
+                    if (!producedByPriorCommand)
+                        return;
+                }
+
+                VkImageMemoryBarrier2 b{};
+                b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                // Conservative all-stage scopes: the producer may be raster, a
+                // transfer, a prior dispatch, or the harness — over-sync beats
+                // a silent race on a correctness seam.
+                b.srcStageMask = kAllStages;
+                b.srcAccessMask = kAllAccess;
+                b.dstStageMask = kAllStages;
+                b.dstAccessMask = kAllAccess;
+                b.oldLayout = trackedLayout;
+                b.newLayout = target;
+                b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.image = image;
+                b.subresourceRange = run;
+                barriers.push_back(b);
+            });
+        if (!barriers.empty())
+        {
+            // vkCmdPipelineBarrier2 is illegal inside a rendering scope;
+            // ending here also closes the scope that RENDERED the runs being
+            // transitioned (the JFA/bloom shape: the source's scope is still
+            // open when the next iteration binds it).
+            EndRenderingScope();
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount = static_cast<u32>(barriers.size());
+            dep.pImageMemoryBarriers = barriers.data();
+            vkCmdPipelineBarrier2(m_Cmd, &dep);
+            for (const auto& b : barriers)
+            {
+                m_LayoutTracker.SetLayout(image, b.subresourceRange, target);
+            }
+        }
     }
 
     void VulkanRendererAPI::StageTransferTransition(VkImage image, const VkImageSubresourceRange& range,
@@ -4929,8 +4951,16 @@ namespace OloEngine
 
         VkQueryPoolCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
-        info.queryType = type == RHI::QueryType::TimeElapsed ? VK_QUERY_TYPE_TIMESTAMP : VK_QUERY_TYPE_OCCLUSION;
-        info.queryCount = static_cast<u32>(outQueries.size());
+        // Slot layout per query KIND (#691 Phase 9): occlusion and plain
+        // timestamps are one slot per handle; a TimeElapsed handle owns a PAIR
+        // of timestamp slots (begin at 2i, end at 2i+1) because Vulkan has no
+        // native elapsed query — Begin/EndQuery bracket it with two
+        // vkCmdWriteTimestamp2 stamps and readback subtracts.
+        const bool elapsedPair = type == RHI::QueryType::TimeElapsed;
+        info.queryType = type == RHI::QueryType::OcclusionAnySamples ? VK_QUERY_TYPE_OCCLUSION
+                                                                     : VK_QUERY_TYPE_TIMESTAMP;
+        const u32 slotsPerQuery = elapsedPair ? 2u : 1u;
+        info.queryCount = static_cast<u32>(outQueries.size()) * slotsPerQuery;
         VkQueryPool pool = VK_NULL_HANDLE;
         if (vkCreateQueryPool(device->GetDevice(), &info, nullptr, &pool) != VK_SUCCESS || pool == VK_NULL_HANDLE)
         {
@@ -4952,7 +4982,10 @@ namespace OloEngine
                 continue;
             }
             outQueries[i] = handle;
-            m_Entries.emplace(Key(handle), Entry{ .Pool = pool, .Index = static_cast<u32>(i), .Recorded = false });
+            m_Entries.emplace(Key(handle), Entry{ .Pool = pool,
+                                                  .Index = static_cast<u32>(i) * slotsPerQuery,
+                                                  .Recorded = false,
+                                                  .Type = type });
             ++live;
         }
         if (live == 0)
@@ -5054,15 +5087,32 @@ namespace OloEngine
         {
             // GL keeps one active query per target and errors on nesting; do
             // the same loudly rather than record an illegal command buffer.
-            OLO_CORE_WARN("[RHI/Vulkan] BeginQuery while another occlusion query is active — ignored");
+            OLO_CORE_WARN("[RHI/Vulkan] BeginQuery while another query is active — ignored");
+            return;
+        }
+        if (entry->Type == RHI::QueryType::Timestamp)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] BeginQuery on a Timestamp query — timestamps are stamped via "
+                          "WriteTimestamp, never bracketed; ignored");
             return;
         }
         // Discipline 1 + 2 (see the block comment above): both the reset and
-        // the begin must sit outside a render pass instance.
+        // the begin/stamp must sit outside a render pass instance.
         EndRenderingScope();
+        if (entry->Type == RHI::QueryType::TimeElapsed)
+        {
+            // The elapsed pair: reset both slots, stamp the begin timestamp
+            // now; EndQuery stamps Index+1 and only then marks Recorded —
+            // reading a pair whose end was never stamped would block forever
+            // under WAIT.
+            vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 2u);
+            vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
+            m_ActiveQuery = { .Pool = entry->Pool, .Index = entry->Index, .IsElapsed = true, .Handle = query };
+            return;
+        }
         vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 1u);
         vkCmdBeginQuery(m_Cmd, entry->Pool, entry->Index, 0u);
-        m_ActiveQuery = { entry->Pool, entry->Index };
+        m_ActiveQuery = { .Pool = entry->Pool, .Index = entry->Index, .IsElapsed = false, .Handle = query };
         entry->Recorded = true;
     }
 
@@ -5079,8 +5129,49 @@ namespace OloEngine
             return;
         }
         EndRenderingScope();
+        if (m_ActiveQuery.IsElapsed)
+        {
+            vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, m_ActiveQuery.Pool,
+                                 m_ActiveQuery.Index + 1u);
+            // Re-look-up rather than caching the Entry* across the bracket —
+            // the registry map can rehash between Begin and End.
+            if (auto* entry = VulkanQueryRegistry::Get().Lookup(m_ActiveQuery.Handle); entry != nullptr)
+            {
+                entry->Recorded = true;
+            }
+            m_ActiveQuery = {};
+            return;
+        }
         vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
         m_ActiveQuery = {};
+    }
+
+    void VulkanRendererAPI::WriteTimestamp(RHI::ResourceHandle query)
+    {
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("WriteTimestamp(outside recording bracket)", StubKind::OutsideRecording);
+            return;
+        }
+        auto* entry = VulkanQueryRegistry::Get().Lookup(query);
+        if (entry == nullptr)
+        {
+            Phase6Stub("WriteTimestamp(unresolved query)", StubKind::PreconditionFailure);
+            return;
+        }
+        if (entry->Type != RHI::QueryType::Timestamp)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] WriteTimestamp on a non-Timestamp query — ignored");
+            return;
+        }
+        // Reset + stamp, both outside a render pass instance. The slot is
+        // rewritten every ring cycle by its pool owner (GPUPassTimerPool's
+        // 4-slot ring); an unread result that old was already dropped by the
+        // owner's own staleness handling, same overwrite semantics as GL.
+        EndRenderingScope();
+        vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 1u);
+        vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
+        entry->Recorded = true;
     }
 
     bool VulkanRendererAPI::ReadQueryResult(RHI::ResourceHandle query, bool wait, u64& outValue) const
@@ -5097,40 +5188,82 @@ namespace OloEngine
             return false;
         }
 
+        // Per-kind readback (#691 Phase 9): occlusion reads its single slot
+        // raw; Timestamp reads one timestamp slot and scales ticks →
+        // nanoseconds; TimeElapsed reads its PAIR (availability keyed on the
+        // END slot — the last one stamped, so its availability implies the
+        // begin's) and returns the scaled difference. The nanosecond contract
+        // is the facade's (RendererAPI::WriteTimestamp): GL timestamps are
+        // nanoseconds natively, so the pools' subtraction math stays
+        // backend-blind.
+        const bool isElapsed = entry->Type == RHI::QueryType::TimeElapsed;
+        const u32 slotCount = isElapsed ? 2u : 1u;
+
+        const auto finish = [&](const u64* slots) -> bool
+        {
+            switch (entry->Type)
+            {
+                case RHI::QueryType::OcclusionAnySamples:
+                    outValue = slots[0];
+                    return true;
+                case RHI::QueryType::Timestamp:
+                    outValue = static_cast<u64>(static_cast<f64>(slots[0]) * m_TimestampPeriodNs);
+                    return true;
+                case RHI::QueryType::TimeElapsed:
+                {
+                    const u64 ticks = slots[1] > slots[0] ? slots[1] - slots[0] : 0u;
+                    outValue = static_cast<u64>(static_cast<f64>(ticks) * m_TimestampPeriodNs);
+                    return true;
+                }
+            }
+            return false;
+        };
+
         // Availability first, never blocking: this is both the answer for
         // IsQueryResultAvailable and the guard that keeps the WAIT read below
-        // off a slot whose submission has not been made yet.
-        std::array<u64, 2> probe{ 0u, 0u };
-        const VkResult status =
-            vkGetQueryPoolResults(device->GetDevice(), entry->Pool, entry->Index, 1u, sizeof(probe), probe.data(),
-                                  sizeof(probe), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
-        if (status == VK_SUCCESS && probe[1] != 0u)
+        // off a slot whose submission has not been made yet. Layout: pairs of
+        // (value, availability) per slot.
+        std::array<u64, 4> probe{ 0u, 0u, 0u, 0u };
+        const VkResult status = vkGetQueryPoolResults(
+            device->GetDevice(), entry->Pool, entry->Index, slotCount, sizeof(u64) * 2u * slotCount, probe.data(),
+            sizeof(u64) * 2u, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+        if (status == VK_SUCCESS && probe[(slotCount - 1u) * 2u + 1u] != 0u)
         {
-            outValue = probe[0];
-            return true;
+            const std::array<u64, 2> values{ probe[0], probe[2] };
+            return finish(values.data());
         }
         if (!wait)
         {
             return false;
         }
-        u64 value = 0;
-        if (vkGetQueryPoolResults(device->GetDevice(), entry->Pool, entry->Index, 1u, sizeof(value), &value,
-                                  sizeof(value), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) != VK_SUCCESS)
+        std::array<u64, 2> values{ 0u, 0u };
+        if (vkGetQueryPoolResults(device->GetDevice(), entry->Pool, entry->Index, slotCount, sizeof(u64) * slotCount,
+                                  values.data(), sizeof(u64),
+                                  VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) != VK_SUCCESS)
         {
             return false;
         }
-        outValue = value;
-        return true;
+        return finish(values.data());
     }
 
     bool VulkanRendererAPI::IsQueryResultAvailable(RHI::ResourceHandle query)
     {
+        // Timestamp scaling reads m_TimestampPeriodNs, which Init() caches —
+        // and a query can be read on an instance whose Init was skipped (the
+        // headless/test shapes, and the pre-window RecreateForSelectedBackend
+        // instance). CacheDeviceLimits early-outs once cached, so this is the
+        // same no-op-on-the-steady-path guard IssueBarrierBatch uses. Without
+        // it the period stays at its 1.0 default and every timestamp reads as
+        // ticks — invisible on NVIDIA (period IS 1.0 ns there) and wrong
+        // everywhere else, which is the worst possible way to be wrong.
+        CacheDeviceLimits();
         u64 ignored = 0;
         return ReadQueryResult(query, false, ignored);
     }
 
     u32 VulkanRendererAPI::GetQueryResultU32(RHI::ResourceHandle query)
     {
+        CacheDeviceLimits(); // the timestamp period — see IsQueryResultAvailable
         u64 value = 0;
         // GL's glGetQueryObjectuiv(GL_QUERY_RESULT) blocks until the result is
         // there; the WAIT read is the parity (Recorded gates the deadlock).
@@ -5140,6 +5273,7 @@ namespace OloEngine
 
     u64 VulkanRendererAPI::GetQueryResultU64(RHI::ResourceHandle query)
     {
+        CacheDeviceLimits(); // the timestamp period — see IsQueryResultAvailable
         u64 value = 0;
         (void)ReadQueryResult(query, true, value);
         return value;

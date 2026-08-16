@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "ParticleSystem.h"
 #include "OloEngine/Particle/GPUParticleData.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Task/Task.h"
 
 #include <algorithm>
@@ -270,11 +271,28 @@ namespace OloEngine
         // the GPU branch respects the same Playing/Looping/Duration gate
         // as the CPU branch — without it, a non-looping system would keep
         // spawning particles past its Duration.
+        //
+        // UseGPU is an AUTHORED flag, so it can arrive on a process with no
+        // graphics device at all (OloServer, functional tests) — where the
+        // lazy GPUParticleSystem init below would call through null loader
+        // pointers and crash. ADR 0011 amendment (86): the server is
+        // renderer-free and authored content cannot override that; demote to
+        // the CPU simulation instead, once, loudly.
         if (UseGPU)
         {
-            UpdateGPU(scaledDt, emitterPosition, emitterRotation, emissionAllowed);
-            m_PendingTriggers.clear();
-            return;
+            if (RenderCommand::IsDeviceAvailable())
+            {
+                UpdateGPU(scaledDt, emitterPosition, emitterRotation, emissionAllowed);
+                m_PendingTriggers.clear();
+                return;
+            }
+            static bool s_WarnedNoDevice = false;
+            if (!s_WarnedNoDevice)
+            {
+                s_WarnedNoDevice = true;
+                OLO_CORE_WARN("ParticleSystem: UseGPU authored but no graphics device is available "
+                              "(headless / OloServer) — simulating on the CPU instead");
+            }
         }
 
         // CPU path — continued below

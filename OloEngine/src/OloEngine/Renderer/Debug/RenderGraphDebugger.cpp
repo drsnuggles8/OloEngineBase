@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
+#include "OloEngine/ImGui/ImGuiLayer.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -1045,7 +1046,11 @@ namespace OloEngine
                             ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.55f, 1.0f), "VISIBLE (nonBlack: %u/9)", entry.NonBlackSamples);
                         }
 
-                        if (const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID)); ImGui::ImageButton("##thumb", texID, ImVec2(thumbWidth, thumbHeight), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
+                        // Captured render targets follow the backend's row order
+                        // (ADR 0011 amendment (85)) — flip V only on GL.
+                        const ImVec2 thumbUv0 = ImGuiLayer::RenderTargetRowsAreBottomUp() ? ImVec2(0.0f, 1.0f) : ImVec2(0.0f, 0.0f);
+                        const ImVec2 thumbUv1 = ImGuiLayer::RenderTargetRowsAreBottomUp() ? ImVec2(1.0f, 0.0f) : ImVec2(1.0f, 1.0f);
+                        if (const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID)); ImGui::ImageButton("##thumb", texID, ImVec2(thumbWidth, thumbHeight), thumbUv0, thumbUv1))
                         {
                             m_SelectedCaptureIndex = i;
                         }
@@ -1099,7 +1104,10 @@ namespace OloEngine
                             displayW = displayH * aspect;
                         }
                         const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID));
-                        ImGui::Image(texID, ImVec2(displayW, displayH), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+                        // Per-backend row order (ADR 0011 amendment (85)).
+                        ImGui::Image(texID, ImVec2(displayW, displayH),
+                                     ImGuiLayer::RenderTargetRowsAreBottomUp() ? ImVec2(0.0f, 1.0f) : ImVec2(0.0f, 0.0f),
+                                     ImGuiLayer::RenderTargetRowsAreBottomUp() ? ImVec2(1.0f, 0.0f) : ImVec2(1.0f, 1.0f));
                     }
                 }
                 ImGui::EndChild();
@@ -1262,7 +1270,8 @@ namespace OloEngine
                 ImGui::BeginGroup();
 
                 if (const ImTextureID texID = static_cast<ImTextureID>(static_cast<uintptr_t>(entry.TextureID)); ImGui::ImageButton("##strip_thumb", texID, ImVec2(thumbWidth, thumbHeight),
-                                                                                                                                    ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f)))
+                                                                                                                                    ImGuiLayer::RenderTargetRowsAreBottomUp() ? ImVec2(0.0f, 1.0f) : ImVec2(0.0f, 0.0f),
+                                                                                                                                    ImGuiLayer::RenderTargetRowsAreBottomUp() ? ImVec2(1.0f, 0.0f) : ImVec2(1.0f, 1.0f)))
                 {
                     m_SelectedCaptureIndex = i;
                     m_CaptureWindowOpen = true;

@@ -40,6 +40,31 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Helper function to convert OpenGL shader stage to our enum.
+        // Moved here from ShaderDebugger.h (#691 Phase 9): that header is
+        // graphics-API-neutral now and cannot name GLenum, and this file is
+        // the helper's one caller. [[maybe_unused]] because the only use is
+        // inside OLO_SHADER_SET_SOURCE, which compiles away outside OLO_DEBUG.
+        [[maybe_unused]] ShaderDebugger::ShaderStage GLStageToShaderStage(GLenum stage)
+        {
+            switch (stage)
+            {
+                case GL_VERTEX_SHADER:
+                    return ShaderDebugger::ShaderStage::Vertex;
+                case GL_FRAGMENT_SHADER:
+                    return ShaderDebugger::ShaderStage::Fragment;
+                case GL_GEOMETRY_SHADER:
+                    return ShaderDebugger::ShaderStage::Geometry;
+                case GL_COMPUTE_SHADER:
+                    return ShaderDebugger::ShaderStage::Compute;
+                default:
+                    return ShaderDebugger::ShaderStage::Vertex;
+            }
+        }
+    } // namespace
+
     namespace Utils
     {
         // Does this fragment source declare a G-BUFFER OUTPUT?

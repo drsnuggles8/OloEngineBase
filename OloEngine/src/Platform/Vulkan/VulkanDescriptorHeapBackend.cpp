@@ -9,8 +9,10 @@
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
 
@@ -193,6 +195,24 @@ namespace OloEngine
             }
 
             const Staged& staged = it->second;
+            // The heap route's half of the bind-time layout seam (#691
+            // Phase 9; the slot route's BindTexture/BindImageTexture always
+            // had it — the debt the Phase 8 issue text recorded as "the heap
+            // path's own mid-pass visibility seam, amendment (63) covers the
+            // slot path only"). A descriptor written here BAKES its layout,
+            // so an image that is not in that layout when the draw samples it
+            // fails VUID-vkCmdDraw-None-09600. No-op outside a recording,
+            // where load-time writes get their layout from first use.
+            //
+            // NOT a fix for the per-resize validation error (#800): that one
+            // survives this seam, so its failing sample comes from another
+            // path — most likely the ImGui viewport binding. Closing this gap
+            // is worth doing on its own terms; do not read it as that fix.
+            if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
+            {
+                vk->EnsureImageLayoutForDescriptor(staged.Image, staged.Layout,
+                                                   staged.ViewInfo.subresourceRange);
+            }
             const bool ok = staged.Type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
                                 ? heap.WriteStorageImage(slot, staged.ViewInfo, staged.Layout)
                                 : heap.WriteSampledImage(slot, staged.ViewInfo, staged.Layout);

@@ -104,4 +104,21 @@ namespace OloEngine::RHI
     // face bakes all rasterize with culling disabled, so the question is moot
     // today and is called out here rather than guessed at.
     [[nodiscard]] glm::mat4 AdjustCaptureProjectionForBackend(const glm::mat4& projection);
+
+    // The ROW-ORDER half of the same seam (#691 Phase 9, ADR 0011 amendment
+    // (85)): every off-screen target is bottom-up on GL and top-down on
+    // Vulkan, so this one predicate answers "does a top-left-origin consumer
+    // have to flip?" for every reader — ImGui uv pairs, PNG row emission,
+    // readback rect origins, entity-picking coordinates.
+    //
+    // It lives HERE, with the orientation convention it belongs to, rather
+    // than in any one consumer: it was briefly duplicated as an inline
+    // `GetAPI() == OpenGL` in three places, which is the same
+    // enumerate-by-consumer drift amendment (59) is about (review finding).
+    // ImGuiLayer::RenderTargetRowsAreBottomUp() is the uv-facing spelling and
+    // forwards here; it is not a second source of truth.
+    //
+    // NOT for file-loaded textures: the stbi loader uploads those pre-flipped,
+    // so they take the fixed GL-convention uv pair on both backends.
+    [[nodiscard]] bool RenderTargetRowsAreBottomUp();
 } // namespace OloEngine::RHI

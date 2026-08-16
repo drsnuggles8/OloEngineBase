@@ -7,7 +7,10 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/BackendSelection.h"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <yaml-cpp/yaml.h>
@@ -80,6 +83,29 @@ namespace OloEngine
         std::filesystem::create_directories(outputDir / "Resources" / "Scripts", ec);
 
         result.OutputPath = outputDir;
+
+        // Ship the renderer-backend config next to the exe (#691 Phase 9): the
+        // engine's backend selection reads `config/renderer.yaml` (cwd first,
+        // then the executable's directory), so this is what makes a packaged
+        // game start on the developer's chosen default without a command-line
+        // flag. Written through the same helper the editor dropdown uses — one
+        // schema owner, no drift.
+        {
+            const bool wantVulkan = [&settings]
+            {
+                std::string lowered = settings.DefaultRendererBackend;
+                std::ranges::transform(lowered, lowered.begin(), [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+                return lowered == "vulkan";
+            }();
+            const auto rendererConfig = outputDir / "config" / "renderer.yaml";
+            if (!WriteRendererConfig(rendererConfig,
+                                     wantVulkan ? RendererAPI::API::Vulkan : RendererAPI::API::OpenGL))
+            {
+                result.ErrorMessage = "Failed to write " + rendererConfig.string();
+                return result;
+            }
+        }
 
         // Step 2: Build asset pack (5% -> 55%)
         OLO_CORE_INFO("[GameBuild] Step 2/9: Building asset pack...");

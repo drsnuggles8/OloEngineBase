@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Texture.h"
 // OLO_WITH_VULKAN-guarded factory-TU convention (see Renderer/Framebuffer.cpp):
 // the header self-guards, and the Vulkan renderer backend lives in
@@ -291,6 +292,14 @@ namespace OloEngine
             return VulkanImGuiBackend::GetTextureID(texture.GetRHIHandle());
 #endif
         return texture.GetRendererID();
+    }
+
+    bool ImGuiLayer::RenderTargetRowsAreBottomUp()
+    {
+        // The uv-facing spelling of RHI::RenderTargetRowsAreBottomUp — one
+        // owner for the row-order convention (ADR 0011 amendment (85)), not a
+        // second copy of the test.
+        return RHI::RenderTargetRowsAreBottomUp();
     }
 
     void ImGuiLayer::SetDarkThemeColors()
