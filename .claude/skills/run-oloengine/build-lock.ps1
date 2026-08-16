@@ -120,10 +120,17 @@ function Test-ParentAlive([object] $Identity) {
 # minutes when a build is running.
 function Stop-ProcessTree([int] $RootPid) {
     if ($RootPid -le 0) { return }
+    # Both failures below are EXPECTED during a teardown race — a compiler that
+    # exits on its own between the enumeration and the kill is the normal case, not
+    # an error. They are reported rather than swallowed so a kill that fails for a
+    # real reason (access denied on an elevated child) leaves a trace instead of a
+    # silently surviving process.
     $children = @()
-    try { $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$RootPid" -ErrorAction Stop) } catch { }
+    try { $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$RootPid" -ErrorAction Stop) }
+    catch { Write-Verbose "[build-lock] could not enumerate children of ${RootPid}: $($_.Exception.Message)" }
     foreach ($child in $children) { Stop-ProcessTree ([int] $child.ProcessId) }
-    try { Stop-Process -Id $RootPid -Force -ErrorAction Stop } catch { }
+    try { Stop-Process -Id $RootPid -Force -ErrorAction Stop }
+    catch { Write-Verbose "[build-lock] could not stop ${RootPid} (already gone?): $($_.Exception.Message)" }
 }
 
 $parentIdentity = if ($NoParentWatch) { $null } else { Get-ParentIdentity }

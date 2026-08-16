@@ -138,6 +138,36 @@ namespace OloEngine::VisualScript
             }
             return result;
         }
+
+        // Both helpers above take a pointer + a count, and every caller used to
+        // supply `glm::value_ptr(v)` with a hand-written arity. That works, but it
+        // is UB by the letter of the standard — `value_ptr` yields `&v.x`, and `v.x`
+        // is not an array element, so indexing past it is out of bounds even though
+        // glm's storage is contiguous — and the arity is a separate thing to get
+        // wrong at each of six sites. Going through a real f32[4] and deriving the
+        // count from the vector TYPE makes the size impossible to mismatch and the
+        // indexing well-defined; glm's own operator[] does the component access.
+        template<glm::length_t N>
+        void ParseVec(std::string_view text, glm::vec<N, f32>& out)
+        {
+            f32 scratch[4] = {};
+            ParseFloatList(text, scratch, static_cast<sizet>(N));
+            for (glm::length_t i = 0; i < N; ++i)
+            {
+                out[i] = scratch[i];
+            }
+        }
+
+        template<glm::length_t N>
+        std::string JoinVec(const glm::vec<N, f32>& v)
+        {
+            f32 scratch[4] = {};
+            for (glm::length_t i = 0; i < N; ++i)
+            {
+                scratch[i] = v[i];
+            }
+            return JoinFloats(scratch, static_cast<sizet>(N));
+        }
     } // namespace
 
     bool IsRepresentableAsFloat(f64 value) noexcept
@@ -418,7 +448,7 @@ namespace OloEngine::VisualScript
             case PinType::String:
             {
                 glm::vec2 out(0.0f);
-                ParseFloatList(std::get<std::string>(m_Storage), glm::value_ptr(out), 2);
+                ParseVec(std::get<std::string>(m_Storage), out);
                 return out;
             }
             default:
@@ -446,7 +476,7 @@ namespace OloEngine::VisualScript
             case PinType::String:
             {
                 glm::vec3 out(0.0f);
-                ParseFloatList(std::get<std::string>(m_Storage), glm::value_ptr(out), 3);
+                ParseVec(std::get<std::string>(m_Storage), out);
                 return out;
             }
             default:
@@ -477,7 +507,7 @@ namespace OloEngine::VisualScript
             case PinType::String:
             {
                 glm::vec4 out(0.0f);
-                ParseFloatList(std::get<std::string>(m_Storage), glm::value_ptr(out), 4);
+                ParseVec(std::get<std::string>(m_Storage), out);
                 return out;
             }
             default:
@@ -565,17 +595,17 @@ namespace OloEngine::VisualScript
             case PinType::Vec2:
             {
                 const glm::vec2 v = std::get<glm::vec2>(m_Storage);
-                return JoinFloats(glm::value_ptr(v), 2);
+                return JoinVec(v);
             }
             case PinType::Vec3:
             {
                 const glm::vec3 v = std::get<glm::vec3>(m_Storage);
-                return JoinFloats(glm::value_ptr(v), 3);
+                return JoinVec(v);
             }
             case PinType::Vec4:
             {
                 const glm::vec4 v = std::get<glm::vec4>(m_Storage);
-                return JoinFloats(glm::value_ptr(v), 4);
+                return JoinVec(v);
             }
             case PinType::String:
                 return std::get<std::string>(m_Storage);
@@ -602,19 +632,19 @@ namespace OloEngine::VisualScript
             case PinType::Vec2:
             {
                 glm::vec2 out(0.0f);
-                ParseFloatList(text, glm::value_ptr(out), 2);
+                ParseVec(text, out);
                 return MakeVec2(out);
             }
             case PinType::Vec3:
             {
                 glm::vec3 out(0.0f);
-                ParseFloatList(text, glm::value_ptr(out), 3);
+                ParseVec(text, out);
                 return MakeVec3(out);
             }
             case PinType::Vec4:
             {
                 glm::vec4 out(0.0f);
-                ParseFloatList(text, glm::value_ptr(out), 4);
+                ParseVec(text, out);
                 return MakeVec4(out);
             }
             case PinType::String:

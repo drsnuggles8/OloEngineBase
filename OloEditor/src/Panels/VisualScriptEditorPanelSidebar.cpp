@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <system_error>
 
 #include <glm/gtc/type_ptr.hpp>
 
@@ -400,7 +402,16 @@ namespace OloEngine
         }
         else if (node->m_TypeName == NodeTypes::kSequence)
         {
-            i32 count = std::atoi(node->GetProperty(NodeProps::kOutputCount, s_Empty).c_str());
+            // from_chars, not atoi: the property is authored text, and atoi's
+            // behaviour on a value too large for int is undefined rather than
+            // clamped. On any parse failure count stays 0 and falls to the
+            // default below, which is what an unparseable property should mean.
+            const std::string& outputCountText = node->GetProperty(NodeProps::kOutputCount, s_Empty);
+            i32 count = 0;
+            if (std::from_chars(outputCountText.data(), outputCountText.data() + outputCountText.size(), count).ec != std::errc{})
+            {
+                count = 0;
+            }
             count = count <= 0 ? 2 : count;
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::SliderInt("Outputs", &count, 2, 16))

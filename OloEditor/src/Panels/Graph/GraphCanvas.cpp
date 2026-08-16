@@ -177,13 +177,24 @@ namespace OloEngine::EditorUI
             return static_cast<i64>(std::llround(graphCoord / m_Style.m_GridSize));
         };
 
-        for (f32 x = m_Origin.x + offsetX; x < end.x; x += step)
+        // Integer step counters rather than `for (f32 x = ...; x += step)`: an
+        // accumulated float counter drifts, so the last gridlines on a wide canvas
+        // creep off the graph-space lattice the major-line index is computed from.
+        // `step` is >= 4.0f by the early return above, so neither count can run away.
+        const f32 startX = m_Origin.x + offsetX;
+        const f32 startY = m_Origin.y + offsetY;
+        const i32 columns = static_cast<i32>(std::ceil((end.x - startX) / step));
+        const i32 rows = static_cast<i32>(std::ceil((end.y - startY) / step));
+
+        for (i32 i = 0; i < columns; ++i)
         {
+            const f32 x = startX + static_cast<f32>(i) * step;
             const bool major = m_Style.m_MajorEvery > 0 && (majorIndex(x, m_Origin.x, m_Pan.x) % static_cast<i64>(m_Style.m_MajorEvery)) == 0;
             m_DrawList->AddLine(ImVec2(x, m_Origin.y), ImVec2(x, end.y), major ? m_Style.m_GridLineMajor : m_Style.m_GridLine);
         }
-        for (f32 y = m_Origin.y + offsetY; y < end.y; y += step)
+        for (i32 i = 0; i < rows; ++i)
         {
+            const f32 y = startY + static_cast<f32>(i) * step;
             const bool major = m_Style.m_MajorEvery > 0 && (majorIndex(y, m_Origin.y, m_Pan.y) % static_cast<i64>(m_Style.m_MajorEvery)) == 0;
             m_DrawList->AddLine(ImVec2(m_Origin.x, y), ImVec2(end.x, y), major ? m_Style.m_GridLineMajor : m_Style.m_GridLine);
         }
