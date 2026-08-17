@@ -64,6 +64,7 @@ you are in.
 - [testing-architecture.md](docs/agent-rules/testing-architecture.md) — which of the renderer's 11 layers or the Functional axis a new test belongs to, and the registration contract.
 - [docs/testing.md](docs/testing.md) — *why* we test what we test: value heuristic, named anti-patterns, retirement criteria.
 - [reference-path-tracer.md](docs/agent-rules/reference-path-tracer.md) — the ground-truth oracle: how to ask "is it *correct*?" when a golden can only answer "did it change?".
+- [vendor-golden-baseline-crosscheck.md](docs/agent-rules/vendor-golden-baseline-crosscheck.md) — a per-vendor baseline set validates itself; measure the noise floor, split vendor from drift, and audit the recording's properties.
 - [single-mesh-visual-test-lighting.md](docs/agent-rules/single-mesh-visual-test-lighting.md) — a sparse visual-test scene renders the subject near-black; add a ground plane, then look at the PNG.
 - [live-verification-noise-floor.md](docs/agent-rules/live-verification-noise-floor.md) — measure the frame-to-frame noise floor before attributing any pixel difference to your change, and confirm the editor is drawing frames at all.
 - [procedural-generator-golden-coupling.md](docs/agent-rules/procedural-generator-golden-coupling.md) — a determinism/quality fix to a generator invalidates every golden that captured it; fix and rebake must ship in the same PR.
