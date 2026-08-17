@@ -59,6 +59,7 @@
 #include <glad/gl.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <random>
 #include <vector>
@@ -101,8 +102,20 @@ namespace OloEngine::Tests
 
         std::vector<GPUParticle> MakeParticles(u32 count, f64 aliveFraction, u32 seed)
         {
+            // `std::bernoulli_distribution` is undefined outside [0, 1], and the
+            // failure mode fits this file badly: it would not crash, it would
+            // quietly generate a different alive fraction than the one printed
+            // in the results table. A measurement tool that misreports its own
+            // independent variable is worse than one that stops.
+            //
+            // Guarded with gtest rather than OLO_CORE_ASSERT deliberately — the
+            // engine assert is a modal dialog in Debug, which hangs an
+            // unattended run outright (gpu-scan-compaction.md §6).
+            EXPECT_TRUE(std::isfinite(aliveFraction) && aliveFraction >= 0.0 && aliveFraction <= 1.0)
+                << "aliveFraction " << aliveFraction << " is outside [0, 1]; clamped for this row";
+
             std::mt19937 rng(seed);
-            std::bernoulli_distribution alive(aliveFraction);
+            std::bernoulli_distribution alive(std::clamp(aliveFraction, 0.0, 1.0));
             std::vector<GPUParticle> particles(count);
             for (auto& p : particles)
                 p.Misc.z = alive(rng) ? 1.0f : 0.0f;
