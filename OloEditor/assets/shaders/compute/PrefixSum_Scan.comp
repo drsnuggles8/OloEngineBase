@@ -1,0 +1,80 @@
+#version 460 core
+
+// =============================================================================
+// PrefixSum_Scan.comp — level 0 of the device-level exclusive scan (issue #713).
+//
+// Exclusive-scans `values[0 .. u_Count)` IN PLACE, one work group per block of
+// OLO_PREFIX_SUM_GROUP_SIZE elements, and optionally emits each block's total
+// to `blockSums[]`. The block totals are then themselves scanned (by a
+// recursive dispatch of THIS shader) and folded back in by
+// PrefixSum_AddBlockOffsets.comp — see GPUPrefixSum.cpp for the driver.
+//
+// IN-PLACE IS SAFE HERE, and it is worth being explicit about why, because
+// "compute shader writes the buffer it reads" is normally a hazard: every
+// invocation reads exactly index `idx` and writes exactly index `idx`. No
+// invocation ever observes another's element, so there is nothing to order and
+// no need for a second buffer per recursion level.
+//
+// NO EARLY RETURN. `OloPrefixSumExclusive` contains barriers, so every
+// invocation of the work group has to reach it — the tail work group of a
+// non-multiple-of-256 count included. Out-of-range invocations contribute 0 and
+// simply skip the store. This is the single easiest way to break this shader;
+// see the CONTRACT block in include/PrefixSum.glsl.
+// =============================================================================
+
+// The layout qualifier comes BEFORE the include — see contract 2 in
+// PrefixSum.glsl. NVIDIA's GLSL compiler rejects a use of gl_WorkGroupSize
+// (which gl_NumSubgroups derives from) that precedes this declaration, and
+// glslc accepts either order, so the wrong one fails only on real hardware.
+layout(local_size_x = 256) in;
+
+#define OLO_PREFIX_SUM_GROUP_SIZE 256
+#include "../include/PrefixSum.glsl"
+
+// Must match ShaderBindingLayout::SSBO_PREFIX_SUM_*.
+layout(std430, binding = 54) buffer PrefixSumValues { uint values[]; };
+layout(std430, binding = 55) writeonly buffer PrefixSumBlockSums { uint blockSums[]; };
+layout(std430, binding = 56) writeonly buffer PrefixSumTotal { uint total[]; };
+
+// ---------------------------------------------------------------------------
+// Scan dispatch parameters. Declared VERBATIM in PrefixSum_Scan.comp and
+// PrefixSum_AddBlockOffsets.comp — one binding, one layout, each shader reading
+// only the members it needs, the same convention ParticleSimParams and
+// InstanceCullParams use. Refilled per dispatch (the recursion has one Count
+// per level). C++ twin: UBOStructures::PrefixSumUBO
+// (ShaderBindingLayout::UBO_PREFIX_SUM).
+// ---------------------------------------------------------------------------
+layout(std140, binding = 79) uniform PrefixSumParams
+{
+    uint u_Count;          // 0  — elements in this level's buffer
+    uint u_WriteBlockSums; // 4  — emit per-work-group totals to blockSums[]
+    uint u_WriteTotal;     // 8  — emit the grand total to total[0]
+    uint _prefixSumPad0;   // 12
+};
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+
+    // Out-of-range lanes contribute the additive identity, which is exactly
+    // what makes a non-power-of-two count work with no special tail handling.
+    uint value = (idx < u_Count) ? values[idx] : 0u;
+
+    uint groupTotal;
+    uint exclusive = OloPrefixSumExclusive(value, groupTotal);
+
+    if (idx < u_Count)
+        values[idx] = exclusive;
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        if (u_WriteBlockSums != 0u)
+            blockSums[gl_WorkGroupID.x] = groupTotal;
+
+        // Set only at the bottom of the recursion, where the dispatch is a
+        // SINGLE work group and this group's total is therefore the sum of
+        // everything. Writing it anywhere else would record a block total.
+        if (u_WriteTotal != 0u)
+            total[0] = groupTotal;
+    }
+}

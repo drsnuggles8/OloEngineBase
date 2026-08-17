@@ -56,7 +56,13 @@ namespace OloEngine::Tests
         /// still has to be re-pointed by hand: deriving "the maximum" would
         /// need the constants enumerated somewhere, and the reason this test
         /// exists is that they are not.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_REFLECTION_PROBE_GRID;
+        ///
+        /// NOTE it is NOT the numerically largest SSBO_* constant: SSBO_VERTEX_PULL
+        /// (57) and SSBO_BONE_PULL (63) sit above it but are declared only inside
+        /// `#ifdef OLO_VULKAN` branches this harness does not compile, so they
+        /// never reach reflection. This constant tracks the highest slot a
+        /// production shader actually declares.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_PREFIX_SUM_TOTAL;
 
         struct BindingFailure
         {

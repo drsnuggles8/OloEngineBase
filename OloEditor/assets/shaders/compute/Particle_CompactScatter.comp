@@ -1,0 +1,114 @@
+#version 450 core
+
+// =============================================================================
+// Particle_CompactScatter.comp — pass 3 of 3 of the GPU particle compaction
+// (issue #713). Reads the exclusive prefix sum of the alive flags that
+// Particle_Compact.comp wrote and GPUPrefixSum scanned, and turns each prefix
+// into an output slot.
+//
+// THE ARITHMETIC, because it is the whole pass and it is not obvious:
+//   `aliveBefore = scan[idx]` is how many particles below `idx` are alive.
+//   For an ALIVE particle that is exactly its slot in the compacted list.
+//   For a DEAD one, the number of DEAD particles below it is `idx - aliveBefore`
+//   — every index below `idx` is either alive or dead, so the two prefixes sum
+//   to `idx`. That identity is why the free list needs no second scan.
+//
+// Both lists therefore come out in ascending particle index, every frame, for
+// an identical particle buffer. That is the property the `atomicAdd` version
+// could not offer at any price, and the one ParticleDeterminismTest pins.
+//
+// No barrier here, so the early return is fine.
+// =============================================================================
+
+layout(local_size_x = 256) in;
+
+struct GPUParticle
+{
+    vec4 PositionLifetime;
+    vec4 VelocityMaxLifetime;
+    vec4 Color;
+    vec4 InitialColor;
+    vec4 InitialVelocitySize;
+    vec4 Misc;                 // z = alive (1/0)
+};
+
+layout(std430, binding = 0) readonly buffer ParticleBuffer
+{
+    GPUParticle particles[];
+};
+
+layout(std430, binding = 1) writeonly buffer AliveIndexBuffer
+{
+    uint aliveIndices[];
+};
+
+layout(std430, binding = 2) buffer CounterBuffer
+{
+    uint aliveCount;
+    uint deadCount;
+    uint emitCount;
+    uint pad;
+} counters;
+
+layout(std430, binding = 3) writeonly buffer FreeListBuffer
+{
+    uint freeList[];
+};
+
+// The scan output (ShaderBindingLayout::SSBO_PREFIX_SUM_VALUES) — the same
+// buffer Particle_Compact.comp filled with flags, exclusive-scanned in place.
+layout(std430, binding = 54) readonly buffer ParticleAlivePrefix
+{
+    uint alivePrefix[];
+};
+
+// Declared VERBATIM in Particle_Simulate/_Emit/_Compact/_CompactScatter.comp —
+// see Particle_Compact.comp for the block's documentation. This shader reads
+// only u_MaxParticles.
+layout(std140, binding = 61) uniform ParticleSimParams
+{
+    vec3  u_Gravity;               // 0
+    float u_DeltaTime;             // 12
+    float u_DragCoefficient;       // 16
+    uint  u_MaxParticles;          // 20
+    int   u_EmitCount;             // 24
+    int   u_EnableGravity;         // 28
+    int   u_EnableDrag;            // 32
+    int   u_EnableWind;            // 36
+    float u_WindInfluence;         // 40
+    int   u_EnableNoise;           // 44
+    float u_NoiseStrength;         // 48
+    float u_NoiseFrequency;        // 52
+    int   u_EnableGroundCollision; // 56
+    float u_GroundY;               // 60
+    float u_CollisionBounce;       // 64
+    float u_CollisionFriction;     // 68
+    vec2  _particlePad0;           // 72
+};
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= u_MaxParticles)
+        return;
+
+    uint aliveBefore = alivePrefix[idx];
+
+    // Re-derived rather than carried: the flag this particle wrote in pass 1
+    // was consumed by the in-place scan. Reading `Misc.z` again is one extra
+    // load and keeps the compaction to a single scratch buffer.
+    if (particles[idx].Misc.z > 0.5)
+        aliveIndices[aliveBefore] = idx;
+    else
+        freeList[idx - aliveBefore] = idx;
+
+    // `counters.aliveCount` was written by the scan itself — GPUPrefixSum's
+    // `totalOut` is bound to the counter buffer, whose first u32 IS AliveCount
+    // (pinned by a static_assert on the offset in GPUParticleSystem.cpp). So
+    // only the derived field is left, and one invocation writes it.
+    if (idx == 0u)
+    {
+        counters.deadCount = u_MaxParticles - counters.aliveCount;
+        counters.emitCount = 0u;
+    }
+}

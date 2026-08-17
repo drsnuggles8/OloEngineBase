@@ -1,5 +1,33 @@
 #version 450 core
 
+// =============================================================================
+// Particle_Compact.comp — pass 1 of 3 of the GPU particle compaction.
+//
+// RETROFITTED ONTO THE PREFIX-SUM PRIMITIVE (issue #713). This shader used to
+// BE the whole compaction:
+//
+//     if (alive) { aliveIndices[atomicAdd(counters.aliveCount, 1)] = idx; }
+//     else       { freeList    [atomicAdd(counters.deadCount,  1)] = idx; }
+//
+// which had two problems. Every one of up to `u_MaxParticles` invocations hit
+// ONE of two counters — the most contended atomic in the engine — and, worse,
+// the slot a particle received depended on which invocation reached the atomic
+// first. So `aliveIndices` came out in a different order every frame from an
+// identical particle buffer, and since `ParticleBatchRenderer` draws instance
+// `i` as `aliveIndices[i]`, that is the BLEND ORDER of every transparent
+// particle in the scene re-rolled per frame. It also made the free list, which
+// `Particle_Emit.comp` pops as a stack, recycle slots in an arbitrary order.
+//
+// The compaction is now: this pass writes a 0/1 alive flag per particle,
+// `GPUPrefixSum` exclusive-scans those flags, and `Particle_CompactScatter.comp`
+// turns each prefix into a slot. Same set, ascending-particle-index order, and
+// no contended counter anywhere.
+//
+// Deliberately still a plain flag write with an early return: it contains no
+// barrier (the scan does, in its own dispatch), so the usual
+// `if (idx >= count) return;` opening is fine here.
+// =============================================================================
+
 layout(local_size_x = 256) in;
 
 // Per-particle data (std430, 96 bytes)
@@ -13,27 +41,20 @@ struct GPUParticle
     vec4 Misc;                 // x = initial size, y = rotation, z = alive (1/0), w = entityID
 };
 
-layout(std430, binding = 0) buffer ParticleBuffer
+layout(std430, binding = 0) readonly buffer ParticleBuffer
 {
     GPUParticle particles[];
 };
 
-layout(std430, binding = 1) buffer AliveIndexBuffer
+// The scan's working buffer (ShaderBindingLayout::SSBO_PREFIX_SUM_VALUES). This
+// pass fills it with alive flags; GPUPrefixSum then scans it IN PLACE, so by the
+// time Particle_CompactScatter.comp reads it the flags have become prefixes.
+// One buffer, two meanings, one dispatch apart — that is the whole trick, and
+// the reason the scatter pass re-reads `Misc.z` instead of the flag it can no
+// longer see.
+layout(std430, binding = 54) writeonly buffer ParticleAliveFlags
 {
-    uint aliveIndices[];
-};
-
-layout(std430, binding = 2) buffer CounterBuffer
-{
-    uint aliveCount;
-    uint deadCount;
-    uint emitCount;
-    uint pad;
-} counters;
-
-layout(std430, binding = 3) buffer FreeListBuffer
-{
-    uint freeList[];
+    uint aliveFlags[];
 };
 
 // ---------------------------------------------------------------------------
@@ -44,9 +65,9 @@ layout(std430, binding = 3) buffer FreeListBuffer
 // hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
 // Legal on BOTH routes (GL compute at 460 core takes UBO blocks), so the
 // declaration does not fork per backend.
-// Declared VERBATIM in Particle_Simulate/_Emit/_Compact.comp — one binding, one
-// layout, each shader reading only the members it needs. C++ twin:
-// UBOStructures::GPUParticleParamsUBO (ShaderBindingLayout::UBO_PARTICLE_SIM).
+// Declared VERBATIM in Particle_Simulate/_Emit/_Compact/_CompactScatter.comp —
+// one binding, one layout, each shader reading only the members it needs. C++
+// twin: UBOStructures::GPUParticleParamsUBO (ShaderBindingLayout::UBO_PARTICLE_SIM).
 // ---------------------------------------------------------------------------
 layout(std140, binding = 61) uniform ParticleSimParams
 {
@@ -75,16 +96,5 @@ void main()
     if (idx >= u_MaxParticles)
         return;
 
-    if (particles[idx].Misc.z > 0.5)
-    {
-        // Alive — append to alive index list
-        uint aliveIdx = atomicAdd(counters.aliveCount, 1);
-        aliveIndices[aliveIdx] = idx;
-    }
-    else
-    {
-        // Dead — append to free list
-        uint freeIdx = atomicAdd(counters.deadCount, 1);
-        freeList[freeIdx] = idx;
-    }
+    aliveFlags[idx] = (particles[idx].Misc.z > 0.5) ? 1u : 0u;
 }

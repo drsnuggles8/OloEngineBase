@@ -992,6 +992,35 @@ namespace OloEngine
         static_assert(sizeof(ReflectionProbeCullUBO) == 144,
                       "ReflectionProbeCullUBO std140 size drifted from GLSL expectation (144 B)");
 
+        // @brief GPU prefix-sum (parallel scan) dispatch params (issue #713),
+        // uploaded at UBO_PREFIX_SUM (79). GLSL twin: the PrefixSumParams block
+        // declared VERBATIM in compute/PrefixSum_Scan.comp and
+        // compute/PrefixSum_AddBlockOffsets.comp — one block, one layout, each
+        // shader reading only the members it needs (the same convention the
+        // instance-cull and particle blocks use).
+        //
+        // Refilled PER DISPATCH: `GPUPrefixSum::ExclusiveScanInPlace` recurses
+        // over levels of block totals, and every level has its own Count.
+        struct PrefixSumUBO
+        {
+            u32 Count = 0;          // 0  — elements in THIS level's buffer
+            u32 WriteBlockSums = 0; // 4  — scan pass: emit per-work-group totals
+            u32 WriteTotal = 0;     // 8  — scan pass: emit the grand total (set only at
+                                    //      the single-work-group bottom of the recursion,
+                                    //      where the group total IS the grand total)
+            u32 _pad0 = 0;          // 12
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(PrefixSumUBO));
+            }
+        };
+
+        static_assert(sizeof(PrefixSumUBO) % 16 == 0,
+                      "PrefixSumUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(PrefixSumUBO) == 16,
+                      "PrefixSumUBO std140 size drifted from GLSL expectation (16 B)");
+
         // @brief Volumetric cloudscape raymarch parameters (issue #633),
         // uploaded at UBO_CLOUDSCAPE (53). GLSL twin: the CloudscapeData block
         // in include/CloudscapeCommon.glsl — shared by the raymarch pass, the
@@ -1498,6 +1527,11 @@ namespace OloEngine
         // assertion move with it.
         static constexpr u32 UBO_COLORBLIND = 78;
 
+        // GPU prefix-sum / parallel-scan dispatch params (issue #713).
+        // PrefixSumUBO — Count + the two "what does this level emit" flags,
+        // refilled per dispatch by GPUPrefixSum's recursion over block totals.
+        static constexpr u32 UBO_PREFIX_SUM = 79;
+
         // ONE past the highest engine UBO binding above. Every consumer that
         // needs to size an array over "all UBO bindings" derives it from here
         // instead of naming a hand-picked constant — GLStateGuard's UBO-leak
@@ -1507,12 +1541,12 @@ namespace OloEngine
         // that). A hand-picked name has to be MOVED on every addition; this
         // one only has to be RAISED when a binding exceeds it, which the
         // static_assert below makes a compile error rather than a black frame.
-        static constexpr u32 UBO_BINDING_LIMIT = 79;
+        static constexpr u32 UBO_BINDING_LIMIT = 80;
         static_assert(UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBES < UBO_BINDING_LIMIT && UBO_HEAP_OFFSETS < UBO_BINDING_LIMIT &&
                           UBO_DEBUG_DRAW < UBO_BINDING_LIMIT && UBO_PRECIPITATION_FEED < UBO_BINDING_LIMIT &&
-                          UBO_COLORBLIND < UBO_BINDING_LIMIT,
+                          UBO_COLORBLIND < UBO_BINDING_LIMIT && UBO_PREFIX_SUM < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         static_assert(UBO_BINDING_LIMIT <= 84,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
@@ -1798,6 +1832,20 @@ namespace OloEngine
         // and slice mapping as the Forward+ light grid.
         static constexpr u32 SSBO_REFLECTION_PROBE_GRID = 53;
 
+        // GPU prefix-sum / parallel scan (issue #713). Bound by
+        // `GPUPrefixSum::ExclusiveScanInPlace` immediately before each of its
+        // dispatches and never left bound — the scan is a leaf utility with no
+        // engine-global published state, so these three numbers are private to
+        // it and to `compute/PrefixSum_*.comp`.
+        //
+        // VALUES is scanned IN PLACE, which is safe precisely because each
+        // invocation reads and writes exactly one index (its own): there is no
+        // cross-invocation aliasing to order. That is what lets the recursion
+        // over block totals run without a second ping-pong buffer per level.
+        static constexpr u32 SSBO_PREFIX_SUM_VALUES = 54;     // u32[count]: scanned in place
+        static constexpr u32 SSBO_PREFIX_SUM_BLOCK_SUMS = 55; // u32[workGroupCount]: this level's per-group totals
+        static constexpr u32 SSBO_PREFIX_SUM_TOTAL = 56;      // u32[1]: grand total, written at the bottom level only
+
         // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691
         // Phase 7 Wave C, ADR items A2/A3). On the Vulkan backend pipelines
         // carry no vertex-input state — a shader's OLO_VULKAN branch reads its
@@ -2016,6 +2064,9 @@ namespace OloEngine
                     return name.contains("ReflectionProbeCull") || name.contains("reflectionProbeCull");
                 case UBO_COLORBLIND:
                     return name.contains("ColorBlind") || name.contains("colorBlind");
+                // Issue #713 — GPU prefix-sum / parallel scan.
+                case UBO_PREFIX_SUM:
+                    return name.contains("PrefixSum") || name.contains("prefixSum");
                 default:
                     return false;
             }
