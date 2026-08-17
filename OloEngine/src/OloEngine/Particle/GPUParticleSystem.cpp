@@ -347,10 +347,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const auto shaderReady = [](const Ref<ComputeShader>& shader)
-        { return shader && shader->IsValid(); };
-
-        if (!m_Initialized || !shaderReady(m_CompactShader) || !shaderReady(m_CompactScatterShader) || !m_PrefixSum)
+        if (const auto shaderReady = [](const Ref<ComputeShader>& shader)
+            { return shader && shader->IsValid(); };
+            !m_Initialized || !shaderReady(m_CompactShader) || !shaderReady(m_CompactScatterShader) || !m_PrefixSum)
         {
             return;
         }
