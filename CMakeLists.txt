@@ -296,10 +296,11 @@ endif()
 # Opt-in, default OFF: the API wraps every compile/link/custom command in a
 # launcher, and profiling every developer build by default is not wanted.
 # Enable with -DOLO_BUILD_INSTRUMENTATION=ON on a Ninja tree (build-clang/, or
-# a Linux preset). The Visual Studio generator (build/, the primary msvc
-# preset) is unsupported by the API itself — rather than silently doing
-# nothing there (the exact failure shape this file's comments keep warning
-# about), that case gets a loud message(WARNING).
+# a Linux preset). The API itself only supports Makefile / Ninja / FASTBuild
+# generators (cmake-instrumentation(7)) — checked as an ALLOW-list below, not a
+# deny-list on just "Visual Studio", so Xcode (and any other generator this
+# repo doesn't currently use) also gets the loud message(WARNING) instead of
+# silently attempting instrumentation and doing nothing.
 #
 # stdout/stderr capture (the `captureOutput` option, 4.4+) is deliberately
 # left off: it inflates snippet volume considerably for data this project
@@ -307,22 +308,22 @@ endif()
 # questions #759 asked) don't need it.
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.3)
     option(OLO_BUILD_INSTRUMENTATION
-        "Emit CMake Instrumentation API trace data (compile/link/custom timing + host memory before/after) for this build tree. Ninja/Makefile/FASTBuild only; no effect under the Visual Studio generator."
+        "Emit CMake Instrumentation API trace data (compile/link/custom timing + host memory before/after) for this build tree. Ninja/Makefile/FASTBuild only; no effect under other generators (Visual Studio, Xcode, ...)."
         OFF)
     if(OLO_BUILD_INSTRUMENTATION)
-        if(CMAKE_GENERATOR MATCHES "Visual Studio")
-            message(WARNING
-                "OLO_BUILD_INSTRUMENTATION has no effect under the Visual Studio "
-                "generator - the CMake Instrumentation API is Makefile/Ninja/"
-                "FASTBuild only (cmake-instrumentation(7)). Configure the clangcl "
-                "preset (or a Linux preset) instead.")
-        else()
+        if(CMAKE_GENERATOR MATCHES "Makefiles|Ninja|FASTBuild")
             cmake_instrumentation(
                 API_VERSION 1
                 DATA_VERSION 1
                 HOOKS postGenerate postCMakeBuild
                 OPTIONS staticSystemInformation dynamicSystemInformation trace
             )
+        else()
+            message(WARNING
+                "OLO_BUILD_INSTRUMENTATION has no effect under the '${CMAKE_GENERATOR}' "
+                "generator - the CMake Instrumentation API is Makefile/Ninja/"
+                "FASTBuild only (cmake-instrumentation(7)). Configure the clangcl "
+                "preset (or a Linux preset) instead.")
         endif()
     endif()
 endif()

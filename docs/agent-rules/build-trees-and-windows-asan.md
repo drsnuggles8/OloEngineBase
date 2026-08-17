@@ -419,10 +419,13 @@ pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
 ```
 
 `OLO_BUILD_INSTRUMENTATION` defaults `OFF` (the launcher wraps every compile/link/custom
-command, and profiling every developer build by default is not wanted). It has no effect
-under the Visual Studio generator (`build/`, the primary `msvc` preset) — that case prints
-a `message(WARNING)` rather than silently doing nothing, since the API itself doesn't
-support that generator (§5b point 1 still applies).
+command, and profiling every developer build by default is not wanted). It has no effect under
+any generator the API itself doesn't support — Makefile/Ninja/FASTBuild only (§5b point 1 still
+applies), checked as an **allow-list** in the root `CMakeLists.txt`, not a deny-list on just
+"Visual Studio". That matters for the primary `msvc` preset (`build/`, Visual Studio 18 2026,
+this repo's actual unsupported case) **and** for Xcode or any other generator this repo doesn't
+currently use — every one of them prints a `message(WARNING)` naming the actual generator in use,
+rather than silently attempting instrumentation and doing nothing.
 
 **Verify it wired** the same way as before trusting a build: `build-clang/CMakeFiles/rules.ninja`
 compile/link rules must carry the `"…/ctest.exe" --instrument --command-type compile …`
