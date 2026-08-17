@@ -1,4 +1,15 @@
 ﻿enable_testing()
+
+# Heavy-TU compile pool (issue #822): McpFieldRegistry.cpp is pulled OUT of the source list below
+# and re-added via a FILE_SET after add_executable, but only when the pool is available — see the
+# matching block in OloEngine/src/CMakeLists.txt for why the exclusion must stay conditional. This
+# variable holds the one line so the huge inline source list below needs a single line touched,
+# not restructured into a separate variable (a collision point for parallel branches on its own).
+set(_olo_mcp_field_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRegistry.cpp)
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	set(_olo_mcp_field_registry_src "")
+endif()
+
 add_executable(OloEngine-Tests
 		OloEngineTest.cpp
 		# The suite's own `--olo-*` flags. Parsed in main() before gtest sees
@@ -581,7 +592,9 @@ add_executable(OloEngine-Tests
 		# Registry() definition). Compiled once here instead of inline in every
 		# includer — the inline form OOM'd clang-cl Release+ASan on this very
 		# target's McpToolsScene.cpp.obj once the registry crossed ~100 components.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRegistry.cpp
+		# Conditionally blanked above (issue #822) so it can join the heavy-compile
+		# file set instead when the pool is available.
+		${_olo_mcp_field_registry_src}
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScripting.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsShader.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptApi.cpp
@@ -984,6 +997,13 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/UITextScaleVisualEvidenceTest.cpp
 		Functional/Accessibility/SubtitlesFollowDialogueStateTest.cpp
 )
+
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_SOURCE_DIR}/OloEditor/src"
+		"MCP/McpFieldRegistry.cpp"
+	)
+endif()
+
 target_link_libraries(OloEngine-Tests
 	OloEngine
 	GTest::gtest
