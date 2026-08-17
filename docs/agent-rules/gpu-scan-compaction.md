@@ -89,19 +89,40 @@ silently rounds its count up.
 
 ---
 
-## 3. Converting a pass is a trade, not an upgrade
+## 3. Converting a pass is a trade, and the contention half of the trade is a myth
 
-A scan costs 2–5 dispatches with barriers between them where the atomic cost one. It buys
-determinism unconditionally, and contention relief only where the counter was actually contended.
-So the conversion is worth it per pass, not wholesale — the issue asked for "at least one" for this
-reason. What was converted, and what was left alone:
+**Measure before you justify a conversion with "contention".** The intuitive argument — one
+`atomicAdd` per survivor on a single address must serialize, so a scan should win at scale — is
+what the issue text says and what this PR originally claimed. It does not survive measurement.
+
+`GPUPrefixSumPerfProbe` (DISABLED_, run it with `--gtest_also_run_disabled_tests`) times the
+preserved pre-#713 atomic compaction against the scan over identical input, RTX 4090 / GL 4.6,
+median of 31 GPU-timed samples:
+
+| particles | alive % | atomic (ms) | scan (ms) | ratio |
+|---|---|---|---|---|
+| 1 000 | any | 0.0051 | 0.0225 | 4.4× |
+| 10 000 | any | 0.0051 | 0.0215–0.0225 | 4.2–4.4× |
+| 100 000 | 10 / 50 / 95 | 0.0082 / 0.0092 / 0.0082 | 0.0348 / 0.0338 / 0.0338 | 3.7–4.3× |
+| 1 000 000 | 10 / 50 / 95 | 0.0584 / 0.0604 / 0.0543 | 0.1219 / 0.1219 / 0.1229 | 2.0–2.3× |
+
+Two things to take from it. **The scan never wins** — the ratio narrows from 4.4× to 2.0× as fixed
+dispatch overhead stops dominating, but it does not invert anywhere in the range. And **the alive
+fraction barely moves the atomic path** (1M particles: 0.0584 / 0.0604 / 0.0543 ms at 10 / 50 / 95 %
+survivors) — a modern GPU's atomic unit absorbs a million same-address increments with no measurable
+contention penalty, so the "relieves contention" half of the argument buys nothing here.
+
+What is left is the half that is real: **determinism**, plus an absolute cost small enough to pay for
+it (+0.026 ms at the engine's default 100 k particles; +0.065 ms at 1 M — under 1 % of a 60 fps
+frame either way). Convert on the ordering guarantee, priced against that absolute number. Do not
+convert on a contention argument you have not measured.
 
 | Pass | Verdict |
 |---|---|
-| `Particle_Compact.comp` | **Converted.** One counter hit by up to `maxParticles` invocations — the most contended atomic in the engine — and the alive-index list *is* the draw order of every transparent particle (`ParticleBatchRenderer` draws instance `i` as `aliveIndices[i]`), so the order was a visible, per-frame-varying property. |
+| `Particle_Compact.comp` | **Converted — on ordering alone.** The alive-index list *is* the draw order of every transparent particle (`ParticleBatchRenderer` draws instance `i` as `aliveIndices[i]`), so it was re-rolling the blend order every frame from an identical particle buffer. Costs 2–4× on a pass measured at 0.03–0.12 ms; the contention argument originally given for it did not survive the probe above. |
 | `LightCulling.comp` | Left. The work-group scan would replace the shared-memory allocation for free (no extra dispatch, no extra buffer), but the **global** allocation is already only one atomic per work group, and making the per-cluster offsets deterministic needs a second full cull pass over a hot Forward+ path. A partial conversion buys a deterministic list *within* a cluster while the cluster's base offset stays scheduler-dependent — worth doing, not worth doing alone. |
-| `InstanceFrustumCull.comp` | Left. Genuinely contended at 10k+ instances, but the conversion turns one dispatch into flag + scan + scatter on a live rendering path with a two-phase occlusion variant to keep in step. Wants its own change with its own visual verification. |
-| `VirtualClusterCull.comp` | Left. Multi-phase, indirect-dispatched, and its `atomicAdd` targets are per-instance segments rather than one global counter, so the contention argument is weakest here. |
+| `InstanceFrustumCull.comp` | Left — and the probe above weakens the case further. It was the strongest *contention* candidate (one atomic per surviving instance at 10k+), but same-address atomic contention turned out not to be measurable, so a conversion here would be paying 2–4× for an ordering guarantee nothing currently depends on. |
+| `VirtualClusterCull.comp` | Left. Multi-phase, indirect-dispatched, and its `atomicAdd` targets are per-instance segments rather than one global counter — so it was the weakest contention case even before the probe showed contention is not the cost. |
 | `Fluid_Compact.comp` | Left. Nothing downstream depends on the order. |
 
 The generalisable rule: **convert where the ordering guarantee or the contention relief is worth the
