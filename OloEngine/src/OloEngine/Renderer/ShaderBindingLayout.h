@@ -1576,6 +1576,26 @@ namespace OloEngine
         // one binding is silent data corruption, not a build error.
         static constexpr u32 UBO_TERRAIN_CULL = 80;
 
+        // Virtual Shadow Maps (issue #702). GLSL twins:
+        // include/VirtualShadowResources.glsl's VirtualShadowGlobals and
+        // VirtualShadowPass blocks.
+        //
+        // The globals block is read by the nine VSM compute kernels, by the depth
+        // raster AND by every lit shader that samples the map — one upload, one
+        // set of clip projections, so a producer and a consumer cannot disagree
+        // about which clip level covers a world position (the archetypal VSM bug:
+        // mark level L, sample level L+1, read an unallocated page, render
+        // unshadowed). The pass block is per-dispatch/per-draw scratch, refilled
+        // immediately before each use per the #691 Phase 7 pattern.
+        //
+        // 81/82, third numbering in one PR: #713 took 79 and #714 took 80 while
+        // this branch was in flight, and the LATER arrival is the one that moves
+        // — a shipped binding cannot be renumbered without touching every shader
+        // that already names it. One UBO slot now remains below the GL 4.6
+        // minimum guarantee of 84; the static_assert below is the tripwire.
+        static constexpr u32 UBO_VIRTUAL_SHADOW = 81;
+        static constexpr u32 UBO_VIRTUAL_SHADOW_DRAW = 82;
+
         // ONE past the highest engine UBO binding above. Every consumer that
         // needs to size an array over "all UBO bindings" derives it from here
         // instead of naming a hand-picked constant — GLStateGuard's UBO-leak
@@ -1585,13 +1605,15 @@ namespace OloEngine
         // that). A hand-picked name has to be MOVED on every addition; this
         // one only has to be RAISED when a binding exceeds it, which the
         // static_assert below makes a compile error rather than a black frame.
-        static constexpr u32 UBO_BINDING_LIMIT = 81;
+        static constexpr u32 UBO_BINDING_LIMIT = 83;
         static_assert(UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBES < UBO_BINDING_LIMIT && UBO_HEAP_OFFSETS < UBO_BINDING_LIMIT &&
                           UBO_DEBUG_DRAW < UBO_BINDING_LIMIT && UBO_PRECIPITATION_FEED < UBO_BINDING_LIMIT &&
                           UBO_COLORBLIND < UBO_BINDING_LIMIT && UBO_PREFIX_SUM < UBO_BINDING_LIMIT &&
-                          UBO_TERRAIN_CULL < UBO_BINDING_LIMIT,
+                          UBO_TERRAIN_CULL < UBO_BINDING_LIMIT &&
+                          UBO_VIRTUAL_SHADOW < UBO_BINDING_LIMIT &&
+                          UBO_VIRTUAL_SHADOW_DRAW < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         static_assert(UBO_BINDING_LIMIT <= 84,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
@@ -1730,7 +1752,16 @@ namespace OloEngine
         // number sampler-free means no shader can ever recreate the A2
         // collision on Vulkan's single-set model. The shader-graph base sits
         // past TEX_DDGI_VISIBILITY (64), per the established shift procedure.
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 65; // First shader graph user texture slot (must be after all engine-reserved slots)
+        //
+        // The Virtual Shadow Map physical page pool (issue #702). 65, NOT 57 — 57
+        // is free in the sampler namespace today, but it is also SSBO_VERTEX_PULL,
+        // and include/VirtualShadowSampling.glsl is included by shaders that DO
+        // pull their vertices (the deferred-lighting fullscreen pass among them),
+        // which is exactly the within-shader collision the A2 renumber above
+        // exists to prevent.
+        static constexpr u32 TEX_VSM_PHYSICAL = 65; // usampler2D R32UI — raw float depth bits, point-sampled
+        // Moved 65 -> 66 for TEX_VSM_PHYSICAL, per the established shift procedure.
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 66; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -1751,12 +1782,29 @@ namespace OloEngine
         // would collide and each would silently overwrite the other's offset.
         //
         // Image unit `u` therefore occupies table index HEAP_IMAGE_SLOT_BASE + u.
-        // The base is applied identically on both sides — by
-        // RGCommandContext::BindImageOrHeapOffset on the CPU and by
-        // include/BindlessHeap.glsl's OLO_HEAP_IMAGE_* macros in the shader — from
-        // this one constant, so the shader still names the SAME image unit the
-        // bind names and the two cannot disagree. That is ADR 0011 amendment (25)'s
-        // property preserved across the second descriptor kind.
+        // The base is applied on both sides — by RGCommandContext::BindImageOrHeapOffset
+        // on the CPU and by include/BindlessHeap.glsl's OLO_HEAP_IMAGE_* macros in
+        // the shader — so the shader names the SAME image unit the bind names.
+        // That is ADR 0011 amendment (25)'s property preserved across the second
+        // descriptor kind.
+        //
+        // ⚠ THE TWO SIDES CAN DISAGREE, AND HAVE. This comment used to claim they
+        // could not "because both derive from this one constant". Only the C++
+        // side does: `OLO_HEAP_IMAGE_BASE` in BindlessHeap.glsl is a hand-written
+        // literal. And this base is DERIVED — it is MAX_ENGINE_TEXTURE_SLOTS — so
+        // it MOVES the moment anyone adds a TEX_* slot above.
+        //
+        // Issue #702 did exactly that (TEX_VSM_PHYSICAL at 65), shifting the base
+        // 66 → 67 while the GLSL literal stayed at 66. Every bindless storage image
+        // then resolved one index low and read a SAMPLER descriptor through an
+        // image declaration — undefined behaviour, not a blank read.
+        //
+        // SO: ADDING A TEXTURE SLOT IS ALSO A SHADER EDIT. Update
+        // `OLO_HEAP_IMAGE_BASE` in OloEditor/assets/shaders/include/BindlessHeap.glsl
+        // (and the copy in BindlessHeapGpuTest.cpp's inline prologue) in the same
+        // commit. Both are pinned headlessly by
+        // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout, so the drift
+        // now fails a test on any machine instead of only a bindless-capable GPU.
         static constexpr u32 HEAP_IMAGE_SLOT_BASE = MAX_ENGINE_TEXTURE_SLOTS;
 
         // GL 4.6 guarantees GL_MAX_IMAGE_UNITS >= 8. The engine's deepest user is
@@ -1764,9 +1812,12 @@ namespace OloEngine
         static constexpr u32 MAX_ENGINE_IMAGE_SLOTS = 8;
 
         // Total entries in the shared heap-offset table: every texture slot, then
-        // every image slot, rounded UP to a whole uvec4 group (66 + 8 = 74 used
+        // every image slot, rounded UP to a whole uvec4 group (67 + 8 = 75 used
         // entries → 76 declared; the A2 renumber moved the base off a multiple
-        // of four). The trailing pad entries are never indexed — image units
+        // of four). The round-up is why #702's extra texture slot did NOT change
+        // this number — 74 and 75 both round to 76 — which is exactly why the
+        // image-base drift it caused went unnoticed: the shader's array size, the
+        // more obvious of the two mirrors, still matched. The trailing pad entries are never indexed — image units
         // stay < MAX_ENGINE_IMAGE_SLOTS — they only keep the std140 block a
         // whole number of uvec4s. include/BindlessHeap.glsl declares
         // `uvec4 g_OloHeapOffsets[HEAP_OFFSET_TABLE_VEC4S]` and must match.
@@ -1876,6 +1927,44 @@ namespace OloEngine
         // lit passes via include/ReflectionProbes.glsl. Same 32x18x24 grid
         // and slice mapping as the Forward+ light grid.
         static constexpr u32 SSBO_REFLECTION_PROBE_GRID = 53;
+
+        // Virtual Shadow Maps (issue #702) — the GPU-driven page allocator's whole
+        // working set. GLSL twin: include/VirtualShadowBuffers.glsl (plus
+        // VirtualShadowResources.glsl for the page table and
+        // VirtualShadowDrawList.glsl for the cull output, which the depth raster
+        // reads from a vertex stage).
+        //
+        // SSBOs rather than R32UI images throughout, and that is forced rather
+        // than preferred: the reference implementation's meta table is R64_UINT
+        // and needs int64 IMAGE atomics, which are an extension in GL 4.6.
+        // Directional-only page ownership fits in 32 bits, and SSBO atomics are
+        // core — so the allocator runs on guaranteed functionality. Only the
+        // physical pool stays a texture, because the raster writes it with
+        // imageAtomicMin and the lit pass samples it.
+        //
+        // 57 and 63 are skipped: both are reserved engine-wide for the Vulkan
+        // vertex-pull streams (see below).
+        //
+        // 68..77, the THIRD numbering in one PR: #713's prefix sum owns 54..56
+        // and #714's terrain cull owns 58..62 and 65..67 — both landed on master
+        // while this branch was in flight, and both collisions would have been
+        // quietly wrong rather than loud: those systems rebind per dispatch,
+        // whereas VSM binds its ten ONCE in BindWorkingSet() and then runs nine
+        // kernels off them, so any foreign dispatch in between would swap the
+        // page table out from under a live frame. Now contiguous — the range
+        // sits entirely above the reserved vertex-pull (57) / bone-pull (63)
+        // slots, so no skip is needed — and bounded by kMaxBufferBindings (84)
+        // via the reflection test's kHighestKnownSSBOBinding.
+        static constexpr u32 SSBO_VSM_PAGE_TABLE = 68;     // virtual page -> flags + physical page
+        static constexpr u32 SSBO_VSM_META_TABLE = 69;     // physical page -> owning virtual page
+        static constexpr u32 SSBO_VSM_HPB = 70;            // dirty-flag pyramid, 7 mips x 16 clip levels
+        static constexpr u32 SSBO_VSM_REQUESTS = 71;       // allocation requests appended by the marker
+        static constexpr u32 SSBO_VSM_FREE_PAGES = 72;     // free list + evictable (not-visited) list
+        static constexpr u32 SSBO_VSM_INVALIDATIONS = 73;  // dynamic-caster bounds to re-dirty
+        static constexpr u32 SSBO_VSM_CULL_INSTANCES = 74; // cull input, one per submitted caster
+        static constexpr u32 SSBO_VSM_DRAW_INSTANCES = 75; // cull output, one per (caster x clip level)
+        static constexpr u32 SSBO_VSM_DRAW_COMMANDS = 76;  // DrawElementsIndirectCommand per caster batch
+        static constexpr u32 SSBO_VSM_STATS = 77;          // page counters, read back one frame late
 
         // GPU prefix-sum / parallel scan (issue #713). Bound by
         // `GPUPrefixSum::ExclusiveScanInPlace` immediately before each of its
@@ -2135,6 +2224,9 @@ namespace OloEngine
                     return name.contains("ReflectionProbeCull") || name.contains("reflectionProbeCull");
                 case UBO_COLORBLIND:
                     return name.contains("ColorBlind") || name.contains("colorBlind");
+                case UBO_VIRTUAL_SHADOW:
+                case UBO_VIRTUAL_SHADOW_DRAW:
+                    return name.contains("VirtualShadow") || name.contains("virtualShadow");
                 // Issue #713 — GPU prefix-sum / parallel scan.
                 case UBO_PREFIX_SUM:
                     return name.contains("PrefixSum") || name.contains("prefixSum");
@@ -2328,6 +2420,9 @@ namespace OloEngine
                     return name == "u_CloudWeatherMap";
                 case TEX_CLOUD_SHADOW:
                     return name == "u_CloudShadowMap";
+                case TEX_VSM_PHYSICAL:
+                    // Virtual Shadow Map physical page pool (issue #702).
+                    return name == "u_VSMPhysicalPool";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

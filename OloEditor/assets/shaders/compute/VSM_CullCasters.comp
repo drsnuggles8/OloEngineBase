@@ -1,0 +1,165 @@
+#version 460 core
+
+// =============================================================================
+// VSM_CullCasters.comp — step 7a of the VSM frame (issue #702)
+//
+// One invocation per (caster, clip level) pair. Survivors are compacted into the
+// caster's BATCH run, and the run length becomes that batch's indirect draw
+// InstanceCount — so one glDrawElementsIndirect per batch covers all sixteen clip
+// levels, with the level travelling in the instance record rather than in a
+// per-draw uniform. (Sixteen draws per batch would otherwise dominate the CPU
+// cost of the whole pass.)
+//
+// Two rejections, in order of cheapness:
+//   1. Frustum — the clip levels are orthographic, so projecting the AABB's eight
+//      corners and comparing the NDC extent against the unit cube is exact.
+//   2. HPB — the caster's page footprint is looked up in the dirty-flag pyramid
+//      at the coarsest mip where it spans at most 2x2 texels. Zero means no page
+//      under this caster is being redrawn, so the caster has nothing to
+//      contribute. This is where a static scene's cost collapses.
+//
+// The footprint is translated into WRAPPED page space before the lookup, because
+// that is the space the pyramid was reduced in. A footprint that straddles the
+// wrap seam widens to the full axis — conservative, and rare enough (it needs a
+// caster spanning most of a clip level) not to be worth splitting into two rects.
+//
+// Overflow cannot happen by construction: the dispatch emits at most one record
+// per (caster, level) and the CPU sizes each batch run at exactly
+// instanceCount * VSM_CLIP_LEVELS. The guard is kept as a tripwire, and what it
+// would catch is a CPU-side sizing bug, not GPU pressure.
+// =============================================================================
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+// x = caster count. Rides the pass block so the kernel needs no second UBO.
+#define VSM_CULL_INSTANCE_COUNT (u_VSMPassParams.x)
+
+bool vsmFootprintHasDirtyPage(int clipLevel, ivec2 pageMin, ivec2 pageMax)
+{
+    ivec2 offset = u_VSMClips[clipLevel].PageOffset;
+    ivec2 wrappedMin = pageMin + offset;
+    ivec2 wrappedMax = pageMax + offset;
+
+    // Straddling the seam: widen to the whole axis rather than test two rects.
+    if ((wrappedMin.x >> VSM_PAGE_TABLE_RES_LOG2) != (wrappedMax.x >> VSM_PAGE_TABLE_RES_LOG2))
+    {
+        wrappedMin.x = 0;
+        wrappedMax.x = VSM_PAGE_TABLE_MASK;
+    }
+    else
+    {
+        wrappedMin.x &= VSM_PAGE_TABLE_MASK;
+        wrappedMax.x &= VSM_PAGE_TABLE_MASK;
+    }
+    if ((wrappedMin.y >> VSM_PAGE_TABLE_RES_LOG2) != (wrappedMax.y >> VSM_PAGE_TABLE_RES_LOG2))
+    {
+        wrappedMin.y = 0;
+        wrappedMax.y = VSM_PAGE_TABLE_MASK;
+    }
+    else
+    {
+        wrappedMin.y &= VSM_PAGE_TABLE_MASK;
+        wrappedMax.y &= VSM_PAGE_TABLE_MASK;
+    }
+
+    int mip = 0;
+    while (mip < VSM_HPB_MIP_COUNT - 1 &&
+           (((wrappedMax.x >> mip) - (wrappedMin.x >> mip) > 1) ||
+            ((wrappedMax.y >> mip) - (wrappedMin.y >> mip) > 1)))
+    {
+        ++mip;
+    }
+
+    ivec2 lo = wrappedMin >> mip;
+    ivec2 hi = wrappedMax >> mip;
+    for (int y = lo.y; y <= hi.y; ++y)
+    {
+        for (int x = lo.x; x <= hi.x; ++x)
+        {
+            if (b_HPB[vsmHPBIndex(clipLevel, mip, ivec2(x, y))] != 0u)
+                return true;
+        }
+    }
+    return false;
+}
+
+void main()
+{
+    uint pair = gl_GlobalInvocationID.x;
+    uint casterCount = VSM_CULL_INSTANCE_COUNT;
+    if (pair >= casterCount * uint(VSM_CLIP_LEVELS))
+        return;
+
+    uint casterIdx = pair / uint(VSM_CLIP_LEVELS);
+    int clipLevel = int(pair % uint(VSM_CLIP_LEVELS));
+
+    VSMCullInstance caster = b_CullInstances[casterIdx];
+    bool unbounded = caster.Batch.w != 0u;
+
+    if (!unbounded)
+    {
+        mat4 viewProj = u_VSMClips[clipLevel].ViewProjection;
+        vec3 boundsMin = caster.BoundsMin.xyz;
+        vec3 boundsMax = caster.BoundsMax.xyz;
+
+        vec3 ndcMin = vec3(1e30);
+        vec3 ndcMax = vec3(-1e30);
+        for (int corner = 0; corner < 8; ++corner)
+        {
+            vec3 p = vec3((corner & 1) != 0 ? boundsMax.x : boundsMin.x,
+                          (corner & 2) != 0 ? boundsMax.y : boundsMin.y,
+                          (corner & 4) != 0 ? boundsMax.z : boundsMin.z);
+            vec4 clipPos = viewProj * vec4(p, 1.0);
+            vec3 ndc = clipPos.xyz / clipPos.w;
+            ndcMin = min(ndcMin, ndc);
+            ndcMax = max(ndcMax, ndc);
+        }
+
+        if (any(greaterThan(ndcMin, vec3(1.0))) || any(lessThan(ndcMax, vec3(-1.0))))
+            return;
+
+        vec2 uvMin = clamp(ndcMin.xy * 0.5 + 0.5, vec2(0.0), vec2(0.99999));
+        vec2 uvMax = clamp(ndcMax.xy * 0.5 + 0.5, vec2(0.0), vec2(0.99999));
+        ivec2 pageMin = ivec2(floor(uvMin * float(VSM_PAGE_TABLE_RESOLUTION)));
+        ivec2 pageMax = ivec2(floor(uvMax * float(VSM_PAGE_TABLE_RESOLUTION)));
+
+        if (!vsmFootprintHasDirtyPage(clipLevel, pageMin, pageMax))
+            return;
+    }
+
+    uint batch = caster.Batch.x;
+    uint runBase = caster.Batch.y;
+    uint runCapacity = caster.Batch.z;
+
+    // These three are CPU-supplied indices into two GPU buffers. The CPU sizes
+    // them correctly by construction (see the header comment), so like the slot
+    // guard below this is a tripwire — but one that keeps a malformed record
+    // from scribbling out of bounds rather than merely over-counting. The
+    // capacity check is spelled with subtraction so runBase + runCapacity
+    // cannot wrap in uint.
+    if (batch >= uint(VSM_MAX_BATCHES) || runBase >= uint(VSM_MAX_DRAW_INSTANCES) ||
+        runCapacity > uint(VSM_MAX_DRAW_INSTANCES) - runBase)
+    {
+        atomicAdd(b_CullOverflows, 1u);
+        return;
+    }
+
+    uint slot = atomicAdd(b_DrawCommands[batch].InstanceCount, 1u);
+    if (slot >= runCapacity)
+    {
+        atomicAdd(b_CullOverflows, 1u);
+        atomicMin(b_DrawCommands[batch].InstanceCount, runCapacity);
+        return;
+    }
+
+    VSMDrawInstance record;
+    record.Transform = caster.Transform;
+    record.ClipLevel = uint(clipLevel);
+    record._pad0 = 0u;
+    record._pad1 = 0u;
+    record._pad2 = 0u;
+    b_DrawInstances[runBase + slot] = record;
+    atomicAdd(b_StatDrawInstances, 1u);
+}

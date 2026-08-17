@@ -91,6 +91,10 @@ void main()
 #include "include/BindlessHeap.glsl"
 
 #include "include/PBRCommon.glsl"
+// Virtual Shadow Maps (issue #702) — self-contained (UBO 79/80, page-table
+// SSBO 54, sampler 65). BindForSampling publishes a DISABLED globals block
+// when VSM is off, so the runtime branch below costs nothing then.
+#include "include/VirtualShadowSampling.glsl"
 #include "include/SnowCommon.glsl"
 #include "include/LightProbeSampling.glsl"
 #include "include/AtmosphereShading.glsl"
@@ -373,17 +377,28 @@ void main()
             vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
             float viewDepth = viewSpacePos.z;
 
-            float shadow = calculateCascadedShadowFactorCSM(
-                u_ShadowMapCSM,
-                u_ShadowMapCSMRaw,
-                v_WorldPos,
-                viewDepth,
-                u_DirectionalLightSpaceMatrices,
-                u_CascadePlaneDistances,
-                u_ShadowParams,
-                u_ShadowMapResolution,
-                u_SoftShadowMode
-            );
+            // VSM owns the directional light when active (issue #702) — the CSM
+            // cascades are not rendered at all in that case, so this is an
+            // either/or rather than a blend.
+            float shadow;
+            if (VSM_ENABLED != 0)
+            {
+                shadow = vsmShadowFactor(v_WorldPos, N);
+            }
+            else
+            {
+                shadow = calculateCascadedShadowFactorCSM(
+                    u_ShadowMapCSM,
+                    u_ShadowMapCSMRaw,
+                    v_WorldPos,
+                    viewDepth,
+                    u_DirectionalLightSpaceMatrices,
+                    u_CascadePlaneDistances,
+                    u_ShadowParams,
+                    u_ShadowMapResolution,
+                    u_SoftShadowMode
+                );
+            }
             lightContrib *= shadow;
         }
         // Apply spot light shadows (atlas entry, issue #435)

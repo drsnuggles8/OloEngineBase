@@ -56,20 +56,22 @@ namespace OloEngine::Tests
         /// still has to be re-pointed by hand: deriving "the maximum" would
         /// need the constants enumerated somewhere, and the reason this test
         /// exists is that they are not.
+        /// Re-pointed from SSBO_PREFIX_SUM_TOTAL (56) to SSBO_VSM_STATS (68) by
+        /// issue #702: the Virtual Shadow Map allocator declares ten storage
+        /// buffers in 58..68, and its kernels are production shaders that this
+        /// test reflects.
         ///
-        /// It points at the highest slot reachable on THIS compile route, not at
-        /// the numerically highest SSBO_* constant. `SSBO_VERTEX_PULL` (57) and
-        /// `SSBO_BONE_PULL` (63) are both declared only inside `OLO_VULKAN`
-        /// branches this harness does not compile, so they never reach
-        /// reflection here. Keeping the bound at what the default route can
-        /// actually produce is what makes an undeclared slot still fail.
+        /// Re-pointed to SSBO_VSM_STATS (77) by issue #702: the Virtual Shadow
+        /// Map allocator's ten storage buffers moved to the contiguous 68..77
+        /// range, above #714's terrain-cull block (58..67) — the third VSM
+        /// renumber in one PR, each because a parallel branch landed first.
         ///
-        /// #713 raised it to `SSBO_PREFIX_SUM_TOTAL` (56) and #714 to the top of
-        /// the terrain GPU-LOD block; the terrain slots are the higher of the
-        /// two, and both sets are declared unconditionally (the four
-        /// Terrain*.comp kernels plus the terrain vertex stages' visible-node
-        /// buffer, and compute/PrefixSum_*.comp).
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_TERRAIN_NODE_LIST_OUT;
+        /// NOTE it is NOT simply "the numerically largest SSBO_* constant":
+        /// SSBO_VERTEX_PULL (57) and SSBO_BONE_PULL (63) are declared only
+        /// inside `#ifdef OLO_VULKAN` branches this harness does not compile,
+        /// so they never reach reflection. This constant tracks the highest
+        /// slot a production shader actually declares.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_VSM_STATS;
 
         struct BindingFailure
         {

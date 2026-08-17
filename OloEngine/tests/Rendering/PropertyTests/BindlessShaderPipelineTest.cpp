@@ -257,7 +257,12 @@ void main()
                 binding == ShaderBindingLayout::TEX_REFLECTION_PROBE_DISTANCE ||
                 // include/WindSampling.glsl; WindSystem::BindWindTexture binds it
                 // directly every frame, bypassing the seam entirely.
-                binding == ShaderBindingLayout::TEX_WIND_FIELD;
+                binding == ShaderBindingLayout::TEX_WIND_FIELD ||
+                // include/VirtualShadowSampling.glsl (issue #702) — the VSM
+                // physical page pool, published+bound every frame by
+                // VirtualShadowMap::BindForSampling for the bindless-route lit
+                // shaders and the slot-based MSAA variant alike.
+                binding == ShaderBindingLayout::TEX_VSM_PHYSICAL;
         }
 
         [[nodiscard]] std::string ReadWholeFile(const std::filesystem::path& path)
@@ -567,6 +572,93 @@ void main()
         }
     }
 
+    // The storage-image rebase, pinned the same way and for a sharper reason: it
+    // MOVES. `HEAP_IMAGE_SLOT_BASE` is `MAX_ENGINE_TEXTURE_SLOTS`, which is
+    // `TEX_SHADER_GRAPH_0 + 1` — so adding ANY engine texture slot shifts it,
+    // while the GLSL side is a hand-written literal that shifts with nothing.
+    //
+    // THAT DRIFT SHIPPED. Issue #702 inserted TEX_VSM_PHYSICAL at slot 65, moving
+    // the base 66 -> 67 and leaving both GLSL copies at 66. Every bindless storage
+    // image then resolved one table index low and read a SAMPLER descriptor as an
+    // image — undefined behaviour, not a blank read, and the only thing that
+    // noticed was a GPU test that SKIPs on headless CI. This test is the headless
+    // guard: it runs anywhere, needs no context, and names the fix in its message.
+    //
+    // BOTH copies are checked. BindlessHeapGpuTest.cpp keeps its own inline
+    // handwritten heap prologue (it builds raw programs without OpenGLShader), and
+    // that copy drifting is just as silent — it simply makes the GPU test itself
+    // wrong rather than the engine.
+    TEST(BindlessShaderPipeline, HeapImageBaseMatchesTheBindingLayout)
+    {
+        namespace fs = std::filesystem;
+
+        const std::array<fs::path, 2> kMirrors{ {
+            fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / "include" / "BindlessHeap.glsl",
+            fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path() / "OloEngine" / "tests" / "Rendering" /
+                "PropertyTests" / "BindlessHeapGpuTest.cpp",
+        } };
+
+        const std::regex kBase(R"(#define\s+OLO_HEAP_IMAGE_BASE\s+(\d+)u)");
+        for (const fs::path& mirror : kMirrors)
+        {
+            ASSERT_TRUE(fs::exists(mirror)) << mirror.string();
+            const std::string src = ReadWholeFile(mirror);
+
+            std::smatch match;
+            ASSERT_TRUE(std::regex_search(src, match, kBase))
+                << "OLO_HEAP_IMAGE_BASE is not defined in " << mirror.filename().string()
+                << " — if it moved, repoint this test rather than deleting the pin";
+
+            const auto glslBase = static_cast<u32>(std::stoul(match[1].str()));
+            EXPECT_EQ(glslBase, ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE)
+                << mirror.filename().string() << " says OLO_HEAP_IMAGE_BASE = " << glslBase
+                << " but ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE is "
+                << ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE
+                << ".\n  You almost certainly just added an engine texture slot: the base is "
+                   "MAX_ENGINE_TEXTURE_SLOTS = TEX_SHADER_GRAPH_0 + 1, so it moved and this literal "
+                   "did not.\n  Fix the literal. Every bindless storage image currently resolves to "
+                   "the wrong table index, which reads a sampler descriptor through an image "
+                   "declaration — undefined, not blank.";
+        }
+
+        // The table's LENGTH is the other half of the same contract, and it was
+        // one slot away from breaking too: HEAP_OFFSET_TABLE_SLOTS rounds up to a
+        // whole uvec4, so 66+8 and 67+8 both land on 76. The next slot added will
+        // push it to 80 and the shader's array declaration must follow, or the top
+        // offsets sit outside the std140 block the shader declares.
+        const std::string heapGlsl = ReadWholeFile(kMirrors[0]);
+        std::smatch vec4s;
+        ASSERT_TRUE(std::regex_search(heapGlsl, vec4s, std::regex(R"(g_OloHeapOffsets\[(\d+)\])")))
+            << "g_OloHeapOffsets is not declared in BindlessHeap.glsl";
+        EXPECT_EQ(static_cast<u32>(std::stoul(vec4s[1].str())),
+                  ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S)
+            << "BindlessHeap.glsl declares g_OloHeapOffsets[" << vec4s[1].str()
+            << "] but ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S is "
+            << ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S
+            << " — the shader's block is the wrong size, so the highest offsets read past it.";
+
+        // BindlessHeapGpuTest's inline prologues carry their own hand-written
+        // table declarations. The largest one is the full-table mirror the
+        // storage-image tests read OLO_HEAP_IMAGE_OFFSET through — if the table
+        // grows past it, those offsets index beyond the declared block. (The
+        // file also has a deliberately SMALLER sampler-only prologue that never
+        // touches the image region, so the pin is on the maximum, not on every
+        // match.)
+        const std::string gpuTest = ReadWholeFile(kMirrors[1]);
+        u32 maxDeclared = 0;
+        const std::regex kTableDecl(R"(g_OloHeapOffsets\[(\d+)\])");
+        for (auto it = std::sregex_iterator(gpuTest.begin(), gpuTest.end(), kTableDecl);
+             it != std::sregex_iterator(); ++it)
+        {
+            maxDeclared = std::max(maxDeclared, static_cast<u32>(std::stoul((*it)[1].str())));
+        }
+        EXPECT_EQ(maxDeclared, ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S)
+            << "BindlessHeapGpuTest's largest inline g_OloHeapOffsets declaration is " << maxDeclared
+            << " uvec4s but the table is " << ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S
+            << " — its storage-image prologue under-declares the block and the rebased image offsets "
+               "read past it.";
+    }
+
     TEST(BindlessShaderPipeline, NoBindlessRouteShaderKeepsASlotBasedSamplerDeclaration)
     {
         namespace fs = std::filesystem;
@@ -710,6 +802,23 @@ void main()
               "shared header; the three DDGI atlases are published+bound in DDGIProbeUpdatePass" },
             { "include/WindSampling.glsl",
               "shared header; TEX_WIND_FIELD is bound directly by WindSystem::BindWindTexture" },
+            { "include/VirtualShadowSampling.glsl",
+              "shared header (issue #702); TEX_VSM_PHYSICAL is published+bound every frame in "
+              "VirtualShadowMap::BindForSampling" },
+            { "include/VirtualShadowRasterStage.glsl",
+              "shared header, STORAGE IMAGE (issue #702): the VSM physical pool is bound through "
+              "HeapBinding::BindImageOrOffset (VirtualShadowMap::BindPhysicalPoolImage), which takes "
+              "the fallback because this declaration is slot-based — converting the declaration "
+              "without converting every VSM raster/clear entry point would stage an offset and bind "
+              "nothing" },
+            { "compute/VSM_ClearDirtyPages.comp",
+              "STORAGE IMAGE (issue #702): same pool, same slot-based declaration, bound through the "
+              "seam's fallback in VirtualShadowMap::BindPhysicalPoolImage" },
+            { "compute/VSM_MarkRequiredPages.comp",
+              "issue #702: the scene depth IS published through the seam "
+              "(HeapBinding::PublishTextureOffsetAndBind in VirtualShadowMap::MarkRequiredPages), but "
+              "the declaration here is still `layout(binding = 19) uniform sampler2D` — publish+bind "
+              "serves both routes, so converting the declaration is a separate, optional step" },
             { "include/VirtualDebugViz.glsl",
               "shared header, STORAGE IMAGES: bound directly by RenderCommand::BindImageTexture in "
               "VirtualGeometryPass, which never consults the seam" },

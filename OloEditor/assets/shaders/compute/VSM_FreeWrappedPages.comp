@@ -1,0 +1,64 @@
+#version 460 core
+
+// =============================================================================
+// VSM_FreeWrappedPages.comp — step 1 of the VSM frame (issue #702)
+//
+// Clip frusta slide in whole-page increments, so most of the page table survives
+// a camera move untouched. What does NOT survive is the band of slots the frustum
+// scrolled onto: under toroidal addressing a slot's owner is decided by
+// (world page index mod table resolution), so a slot at the leading edge silently
+// changes owner the moment the origin moves. Freeing it here is what makes
+// "pages entering the clip frustum reuse the slots of pages leaving it" safe —
+// without it, an incoming page would inherit the outgoing page's cached texels.
+//
+// The test needs BOTH offsets, not just the delta and not just the current one:
+// the offsets are stored modulo the table resolution, so a move of exactly one
+// whole table width is indistinguishable from no move at all. Slot s held world
+// page  originOld + r  where  r = (s - originOld) mod RES, and now holds
+// originNew + ((r - d) mod RES) for d = originNew - originOld. Those are the same
+// page exactly when 0 <= r - d < RES, which is the per-axis test below.
+// =============================================================================
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= uint(VSM_TOTAL_VIRTUAL_PAGES))
+        return;
+
+    uint entry = b_PageTable[idx];
+    if (entry == 0u)
+        return; // never touched — nothing to release
+
+    int clipLevel = int(idx / uint(VSM_PAGES_PER_CLIP_LEVEL));
+    uint inLevel = idx % uint(VSM_PAGES_PER_CLIP_LEVEL);
+    ivec2 slot = ivec2(int(inLevel % uint(VSM_PAGE_TABLE_RESOLUTION)),
+                       int(inLevel / uint(VSM_PAGE_TABLE_RESOLUTION)));
+
+    bool freeIt = (VSM_FULL_INVALIDATE != 0);
+    if (!freeIt)
+    {
+        ivec2 d = u_VSMClips[clipLevel].PageDelta;
+        ivec2 r = (slot - u_VSMClips[clipLevel].PrevPageOffset) & ivec2(VSM_PAGE_TABLE_MASK);
+        // 0 <= r - d < RES, spelled per axis. A |d| >= RES needs no special case:
+        // r is always in [0, RES), so both comparisons fail on their own.
+        bool keepX = (d.x >= 0) ? (r.x >= d.x) : (r.x < VSM_PAGE_TABLE_RESOLUTION + d.x);
+        bool keepY = (d.y >= 0) ? (r.y >= d.y) : (r.y < VSM_PAGE_TABLE_RESOLUTION + d.y);
+        freeIt = !(keepX && keepY);
+    }
+
+    if (!freeIt)
+        return;
+
+    if (vsmPageIsAllocated(entry))
+    {
+        // Release the backing page. Each physical page has exactly one owner, so
+        // no other invocation can be writing this meta entry.
+        b_MetaTable[vsmPhysicalPageIndex(vsmUnpackPhysicalPage(entry))] = 0u;
+        atomicAdd(b_PagesFreed, 1u);
+    }
+    b_PageTable[idx] = 0u;
+}

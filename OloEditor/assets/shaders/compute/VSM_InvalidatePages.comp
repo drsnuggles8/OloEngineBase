@@ -1,0 +1,72 @@
+#version 460 core
+
+// =============================================================================
+// VSM_InvalidatePages.comp — step 2 of the VSM frame (issue #702)
+//
+// Caching is what makes VSM affordable, and it is also what makes a moving object
+// leave its shadow behind: a page drawn last frame keeps its texels, including
+// the ones the object has since vacated. Every dynamic caster therefore submits
+// the bounds it swept (previous ∪ current) and this kernel re-dirties every
+// resident page those bounds touch, in every clip level.
+//
+// Dispatch shape: one WORKGROUP per (caster, clip level) pair, one THREAD per
+// page ROW of that pair's footprint. That bounds the per-thread loop at
+// VSM_PAGE_TABLE_RESOLUTION iterations even when a caster fills a whole clip
+// level — which the near levels make routine, since level 0 spans only a couple
+// of metres in total.
+// =============================================================================
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+void main()
+{
+    uint pair = gl_WorkGroupID.x;
+    uint invalidation = pair / uint(VSM_CLIP_LEVELS);
+    int clipLevel = int(pair % uint(VSM_CLIP_LEVELS));
+    if (invalidation >= b_InvalidationCount)
+        return;
+
+    vec3 boundsMin = b_InvalidationBounds[invalidation * 2u].xyz;
+    vec3 boundsMax = b_InvalidationBounds[invalidation * 2u + 1u].xyz;
+
+    // Project the eight corners and take the NDC-space extent. An ortho VP makes
+    // this exact rather than conservative-with-slop, since the projection is
+    // affine and the corner set is the AABB's own.
+    mat4 viewProj = u_VSMClips[clipLevel].ViewProjection;
+    vec2 ndcMin = vec2(1e30);
+    vec2 ndcMax = vec2(-1e30);
+    for (int corner = 0; corner < 8; ++corner)
+    {
+        vec3 p = vec3((corner & 1) != 0 ? boundsMax.x : boundsMin.x,
+                      (corner & 2) != 0 ? boundsMax.y : boundsMin.y,
+                      (corner & 4) != 0 ? boundsMax.z : boundsMin.z);
+        vec4 clipPos = viewProj * vec4(p, 1.0);
+        vec2 ndc = clipPos.xy / clipPos.w;
+        ndcMin = min(ndcMin, ndc);
+        ndcMax = max(ndcMax, ndc);
+    }
+    if (any(greaterThan(ndcMin, vec2(1.0))) || any(lessThan(ndcMax, vec2(-1.0))))
+        return;
+
+    vec2 uvMin = clamp(ndcMin * 0.5 + 0.5, vec2(0.0), vec2(0.99999));
+    vec2 uvMax = clamp(ndcMax * 0.5 + 0.5, vec2(0.0), vec2(0.99999));
+    ivec2 pageMin = ivec2(floor(uvMin * float(VSM_PAGE_TABLE_RESOLUTION)));
+    ivec2 pageMax = ivec2(floor(uvMax * float(VSM_PAGE_TABLE_RESOLUTION)));
+
+    int row = int(gl_LocalInvocationID.x);
+    for (int y = pageMin.y + row; y <= pageMax.y; y += int(gl_WorkGroupSize.x))
+    {
+        for (int x = pageMin.x; x <= pageMax.x; ++x)
+        {
+            ivec2 wrapped = vsmWrapPage(ivec2(x, y), u_VSMClips[clipLevel].PageOffset);
+            int idx = vsmPageIndex(clipLevel, wrapped);
+            // Only a RESIDENT page can be stale; an unallocated one will be drawn
+            // dirty by the allocator anyway.
+            uint entry = b_PageTable[idx];
+            if (vsmPageIsAllocated(entry) && !vsmPageIsDirty(entry))
+                atomicOr(b_PageTable[idx], VSM_PAGE_DIRTY_BIT);
+        }
+    }
+}

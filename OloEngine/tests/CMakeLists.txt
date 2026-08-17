@@ -256,6 +256,9 @@ add_executable(OloEngine-Tests
 		Fluid/FluidKernelContractTest.cpp
 		Fluid/CPUFluidSolverContractTest.cpp
 		Rendering/PCSSShadowTest.cpp
+		Rendering/VirtualShadowMapMarkPassTest.cpp
+		Rendering/VirtualShadowMapVulkanShaderTest.cpp
+		Rendering/VirtualShadowMapTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
 		Rendering/DeccerCubesLoadingTest.cpp
@@ -320,6 +323,7 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/DDGIReferenceParityTest.cpp
 		Rendering/PropertyTests/OverdrawVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VirtualShadowMapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp

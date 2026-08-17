@@ -47,6 +47,7 @@ namespace OloEngine
                 case ImageFormat::R32F:
                     return GL_RED;
                 case ImageFormat::R32I:
+                case ImageFormat::R32UI:
                     return GL_RED_INTEGER;
                 case ImageFormat::RG32F:
                     return GL_RG;
@@ -97,6 +98,8 @@ namespace OloEngine
                     return GL_R32F;
                 case ImageFormat::R32I:
                     return GL_R32I;
+                case ImageFormat::R32UI:
+                    return GL_R32UI;
                 case ImageFormat::RG32F:
                     return GL_RG32F;
                 case ImageFormat::RGB32F:
@@ -268,6 +271,7 @@ namespace OloEngine
                 bytesPerPixel = 4;
                 break;
             case ImageFormat::R32I:
+            case ImageFormat::R32UI:
                 bytesPerPixel = 4;
                 break;
             case ImageFormat::RG32F:
@@ -838,6 +842,10 @@ namespace OloEngine
                 bpp = 4;
                 dataType = GL_INT;
                 break;
+            case ImageFormat::R32UI:
+                bpp = 4;
+                dataType = GL_UNSIGNED_INT;
+                break;
             case ImageFormat::RG32F:
                 bpp = 8;
                 dataType = GL_FLOAT;
@@ -945,6 +953,9 @@ namespace OloEngine
                 // Integer format: the default arm would leave GL_UNSIGNED_BYTE
                 // and silently reinterpret the upload.
                 dataType = GL_INT;
+                break;
+            case ImageFormat::R32UI:
+                dataType = GL_UNSIGNED_INT;
                 break;
             default:
                 break;
@@ -1136,6 +1147,12 @@ namespace OloEngine
             case ImageFormat::R32F:
                 bytesPerPixel = 4;
                 dataType = GL_FLOAT;
+                break;
+            case ImageFormat::R32UI:
+                // Same reasoning as R32I below, unsigned: the VSM page pool is
+                // read back this way by its evidence tests.
+                bytesPerPixel = 4;
+                dataType = GL_UNSIGNED_INT;
                 break;
             case ImageFormat::R32I:
                 // Integer format — readback must use GL_INT, not the default

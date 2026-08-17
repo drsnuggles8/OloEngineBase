@@ -33,6 +33,7 @@
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
+#include "OloEngine/Renderer/Passes/VirtualShadowMapMarkPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSRRenderPass.h"
@@ -150,12 +151,18 @@ namespace OloEngine
         // and ScenePass (the forward lit shaders sample the atlases it
         // publishes; DeferredLightingPass does too).
         Ref<DDGIProbeUpdatePass> DDGIProbeUpdate;
+        // Virtual Shadow Map page marking (#702). Registered LATE — it projects
+        // the finished scene depth into the clip levels, and ShadowPass (which
+        // consumes what it marks) is the first node in the graph, so its output is
+        // one frame ahead of its consumer by construction.
+        Ref<VirtualShadowMapMarkPass> VirtualShadowMapMark;
 
         void Reset()
         {
             Shadow.Reset();
             Scene.Reset();
             DDGIProbeUpdate.Reset();
+            VirtualShadowMapMark.Reset();
         }
     };
 

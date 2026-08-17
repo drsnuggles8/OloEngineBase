@@ -239,6 +239,117 @@ namespace OloEngine
                               "by default.");
         if (ImGui::SliderFloat("Shadow Softness##qt", &qt.ShadowSoftness, 0.0f, 2.0f))
             changed = true;
+
+        DrawVirtualShadowMapControls();
+    }
+
+    void RendererSettingsPanel::DrawVirtualShadowMapControls()
+    {
+        // Edits ShadowSettings DIRECTLY rather than through QualityTieringSettings:
+        // VSM's knobs are structural (pool size, world extents) rather than a
+        // quality dial, and folding them into a preset would let "Low" silently
+        // resize a 64 MB allocation.
+        ImGui::Spacing();
+        ImGui::TextDisabled("Virtual Shadow Maps (directional)");
+
+        auto& shadowMap = Renderer3D::GetShadowMap();
+        ShadowSettings settings = shadowMap.GetSettings();
+        VirtualShadowMapSettings& vsm = settings.VSM;
+        bool vsmChanged = false;
+
+        if (ImGui::Checkbox("Enable VSM##vsm", &vsm.Enabled))
+            vsmChanged = true;
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Sparse page-table directional shadows (issue #702). Replaces the\n"
+                              "four CSM cascades for the SUN only; the local-light atlas is\n"
+                              "unaffected.\n\n"
+                              "Covers static and skinned MESH casters. Terrain, foliage, voxel and\n"
+                              "virtualized-geometry casters still need CSM, so a scene that relies\n"
+                              "on those should leave this off.");
+        }
+
+        if (vsm.Enabled)
+        {
+            static constexpr const char* kPoolItems[] = { "1024 (4 MB)", "2048 (16 MB)", "4096 (64 MB)",
+                                                          "8192 (256 MB)" };
+            static constexpr u32 kPoolValues[] = { 1024u, 2048u, 4096u, 8192u };
+            int poolIdx = 2;
+            for (int i = 0; i < 4; ++i)
+            {
+                if (kPoolValues[i] == vsm.PhysicalResolution)
+                {
+                    poolIdx = i;
+                    break;
+                }
+            }
+            if (ImGui::Combo("Physical Pool##vsm", &poolIdx, kPoolItems, IM_ARRAYSIZE(kPoolItems)))
+            {
+                vsm.PhysicalResolution = kPoolValues[poolIdx];
+                vsmChanged = true;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Backing store for the page table. 2048 is exactly the VRAM a\n"
+                                  "default 4x1024 CSM costs - the equal-VRAM comparison.\n\n"
+                                  "Watch 'alloc failed' below: a non-zero count means the pool is\n"
+                                  "too small for this view and shadows are degrading to coarser\n"
+                                  "clip levels.");
+            }
+
+            if (ImGui::SliderFloat("Clip 0 Half Extent (m)##vsm", &vsm.Clip0HalfExtent, 0.25f, 16.0f, "%.2f"))
+                vsmChanged = true;
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("World half-width of the finest clip level. The 16 levels double\n"
+                                  "from here, so 2 m reaches 2 * 2^15 = 65 km.");
+            }
+
+            if (ImGui::SliderFloat("Clip Selection Bias##vsm", &vsm.ClipSelectionBias, 0.25f, 4.0f, "%.2f"))
+                vsmChanged = true;
+            if (ImGui::SliderFloat("Depth Bias (m)##vsm", &vsm.DepthBiasMeters, 0.0f, 0.5f, "%.4f"))
+                vsmChanged = true;
+            if (ImGui::SliderFloat("Normal Bias (m)##vsm", &vsm.NormalBias, 0.0f, 0.5f, "%.4f"))
+                vsmChanged = true;
+
+            // 4-7 are the bring-up views: they take the sampler apart so a wrong
+            // frame says WHICH half is wrong. "Shadow factor" is the important
+            // one — it renders the number the lit pass receives, so a shadow that
+            // shows there but not in the beauty frame is a term being dropped by
+            // the caller rather than a page-table fault.
+            static constexpr const char* kDebugItems[] = { "Off", "Clip level", "Page address",
+                                                           "Residency", "Shadow test", "Stored depth",
+                                                           "Receiver depth", "Shadow factor" };
+            int debugIdx = std::clamp(vsm.DebugMode, 0, 7);
+            if (ImGui::Combo("Debug View##vsm", &debugIdx, kDebugItems, IM_ARRAYSIZE(kDebugItems)))
+            {
+                vsm.DebugMode = debugIdx;
+                vsmChanged = true;
+            }
+
+            // THE page-draw counter acceptance criterion #2 asks for. One frame
+            // stale by construction — it is read back from the buffer the previous
+            // frame wrote, so observing it never stalls the GPU.
+            const VSM::Statistics& stats = shadowMap.GetVirtualShadowMap().GetStatistics();
+            ImGui::Separator();
+            ImGui::Text("pages drawn %u / resident %u", stats.PagesDrawn, stats.PagesResident);
+            ImGui::Text("requested %u  allocated %u  freed %u", stats.PagesRequested, stats.PagesAllocated,
+                        stats.PagesFreed);
+            if (stats.PagesFailed > 0)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "alloc failed %u — pool too small", stats.PagesFailed);
+            if (stats.CullOverflows > 0)
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "cull overflow %u", stats.CullOverflows);
+            ImGui::Text("draw instances %u  VRAM %.1f MB", stats.DrawInstances,
+                        static_cast<f64>(shadowMap.GetVirtualShadowMap().GetVRAMBytes()) / (1024.0 * 1024.0));
+        }
+
+        if (vsmChanged)
+        {
+            shadowMap.SetSettings(settings);
+            OLO_CORE_INFO("RendererSettingsPanel: VSM {} (pool {}, clip0 {:.2f} m)",
+                          shadowMap.IsVirtualShadowMapActive() ? "enabled" : "disabled",
+                          vsm.PhysicalResolution, vsm.Clip0HalfExtent);
+        }
     }
 
     void RendererSettingsPanel::DrawAOControls(QualityTieringSettings& qt, bool& changed)

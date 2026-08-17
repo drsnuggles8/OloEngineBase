@@ -3207,6 +3207,7 @@ namespace OloEngine
         inputs.Passes.Scene = FrameCorePasses.Scene.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
+        inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
         inputs.Passes.DeferredGPUOcclusion = SceneCompositePasses.DeferredGPUOcclusion.Raw();
@@ -3266,6 +3267,15 @@ namespace OloEngine
         FrameCorePasses.Shadow->SetName("ShadowPass");
         FrameCorePasses.Shadow->Init(shadowPassSpec);
         FrameCorePasses.Shadow->SetShadowMap(&data.Shadow);
+
+        // Virtual Shadow Map page marking (#702). Registered late in the graph
+        // (see RegisterSceneAndLightingNodes) because it needs the finished scene
+        // depth; the shadow spec here is only lifetime bookkeeping, since the pass
+        // owns no framebuffer at all.
+        FrameCorePasses.VirtualShadowMapMark = Ref<VirtualShadowMapMarkPass>::Create();
+        FrameCorePasses.VirtualShadowMapMark->SetName("VirtualShadowMapMarkPass");
+        FrameCorePasses.VirtualShadowMapMark->Init(shadowPassSpec);
+        FrameCorePasses.VirtualShadowMapMark->SetShadowMap(&data.Shadow);
 
         FrameCorePasses.Scene = Ref<SceneRenderPass>::Create();
         FrameCorePasses.Scene->SetName("ScenePass");

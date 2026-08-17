@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderConstants.h"
 #include "OloEngine/Renderer/Shadow/ShadowAtlas.h"
+#include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
@@ -44,6 +45,14 @@ namespace OloEngine
         // measured PCSS at ~43 ms of a 46.6 ms scene pass vs ~3 ms with PCF —
         // PCSS is an Ultra-tier opt-in (see QualityTiering), not the baseline.
         bool SoftShadows = false;
+
+        // Virtual Shadow Maps (issue #702). When VSM.Enabled, the directional
+        // light's shadows come from the sparse page table instead of the four CSM
+        // cascades above; Resolution / CascadeSplitLambda are then unused for the
+        // directional light and the local-light ATLAS is unaffected either way.
+        // Off by default — see VirtualShadowMapSettings::Enabled for the caster
+        // types VSM does not yet cover.
+        VirtualShadowMapSettings VSM{};
     };
 
     // @brief Manages shadow map textures, light-space matrices, and UBO uploads
@@ -318,6 +327,27 @@ namespace OloEngine
         // Reset per-frame state (call at BeginScene)
         void BeginFrame();
 
+        // The directional Virtual Shadow Map (issue #702). Owned here rather than
+        // by ShadowRenderPass because the LIT passes need it too — a consumer asks
+        // for the shadow map, and which directional technique is behind it is not
+        // its business. Inactive (and cheap) unless Settings.VSM.Enabled.
+        [[nodiscard]] VirtualShadowMap& GetVirtualShadowMap()
+        {
+            return m_VirtualShadowMap;
+        }
+        [[nodiscard]] const VirtualShadowMap& GetVirtualShadowMap() const
+        {
+            return m_VirtualShadowMap;
+        }
+        // True when the directional light should read the page table instead of
+        // the CSM cascades. Every branch between the two techniques asks THIS, so
+        // a VSM that failed to initialise silently falls back rather than leaving
+        // the frame unshadowed.
+        [[nodiscard]] bool IsVirtualShadowMapActive() const
+        {
+            return m_VirtualShadowMap.IsActive();
+        }
+
         // Accessors for shadow-pass rendering UBOs (shared across frames).
         // GetShadowModelUBO was retired alongside the renderer's ModelMatrixUBO;
         // shadow shaders now read transforms from the engine-wide InstanceBuffer
@@ -366,6 +396,13 @@ namespace OloEngine
         // Diagnostics-only candidate list for the current frame (see
         // AtlasCasterRecord). Never read by the render path.
         std::vector<AtlasCasterRecord> m_AtlasLayout;
+
+        // Directional VSM (issue #702). Holds no GPU resources while disabled.
+        VirtualShadowMap m_VirtualShadowMap;
+        // Recorded by ComputeCSMCascades, consumed by UploadUBO — see the comment
+        // at each site for why the VSM's per-frame setup is split across the two.
+        glm::vec3 m_DirectionalLightDirection{ 0.0f, -1.0f, 0.0f };
+        glm::vec3 m_CameraWorldPosition{ 0.0f };
 
         // Shadow UBO
         Ref<UniformBuffer> m_ShadowUBO;

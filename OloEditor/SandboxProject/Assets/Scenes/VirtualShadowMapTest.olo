@@ -1,0 +1,234 @@
+Scene: VirtualShadowMapTest.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Virtual Shadow Maps demo scene (issue #702).
+#
+# A neutral grey floor with mesh props RESTING on it under a LOW GRAZING sun
+# whose cascaded shadow map is ON. Every prop is a static MeshComponent, which is
+# exactly the caster type VSM covers.
+#
+# HOW TO USE IT:
+#   1. Renderer Settings -> Active Path -> Deferred
+#   2. Renderer Settings -> Shadows -> Virtual Shadow Maps -> Enable VSM
+#   Toggle it off/on: the floor shadows must stay in the SAME PLACE and get
+#   sharper near the camera. Watch "pages drawn / resident" underneath — with the
+#   camera held still it should settle to ~0 drawn, which is the entire point of
+#   the page cache. Over MCP the same switch is
+#   olo_renderer_settings_set {"setting":"virtualshadowmaps","value":"on"}.
+#
+# WHY THIS SCENE EXISTS AT ALL. Three existing sandbox scenes each looked
+# "shadowless" for a different reason and cost a lot of debugging time before the
+# cause was found in the SCENE rather than the renderer:
+#   * ContactShadowTest deliberately sets CastShadows: false on the sun;
+#   * LightingTest never submits its props as casters (its cascade holds only the
+#     ground plane);
+#   * DeccerCubesTest / SponzaCSM put the sun near-overhead, so every object hides
+#     its own shadow from any camera that can also see the object.
+# This scene fixes all three: shadows ON, props that cast, sun low enough that the
+# shadow lands on open floor. Its C++ twin is
+# tests/Rendering/PropertyTests/VirtualShadowMapVisualEvidenceTest.cpp, which
+# builds the same arrangement in code so CI can assert on it.
+#
+# The props deliberately span two orders of magnitude in size and distance so
+# several CLIP LEVELS are on screen at once: a seam at a clip-level boundary, or a
+# level disagreeing about depth, shows up as a band across the floor here and is
+# invisible in a scene with one object at one distance.
+# ─────────────────────────────────────────────────────────────────────────────
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 0.8
+  Gamma: 2.2
+  BloomEnabled: false
+  ColorGradingEnabled: false
+  FXAAEnabled: true
+  SSAOEnabled: false
+  GTAOEnabled: false
+  SSREnabled: false
+  SSGIEnabled: false
+  ContactShadowEnabled: false
+Entities:
+  # -- Camera: low and off to the side, so the cast shadows run ACROSS the view
+  #    rather than away from it (a shadow pointing at the camera is hidden by its
+  #    own caster). --
+  - Entity: 900000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [-9, 6, 14]
+      Rotation: [-0.32, -0.42, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Dim IBL: enough ambient to see unlit faces, low enough that the cast
+  #    shadow still reads as a clear darkening on the floor. --
+  - Entity: 900000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 0.4
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.18
+      Tint: [1, 1, 1]
+  # -- Low grazing sun travelling +X, shadows ON. MaxShadowDistance is pushed to
+  #    600 on purpose: it is the "shadow distance well past the 200 m default"
+  #    acceptance criterion, and it is also what CSM cannot serve without thinning
+  #    its texel budget everywhere. --
+  - Entity: 900000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.72, -0.42, -0.18]
+      Color: [1, 0.98, 0.94]
+      Intensity: 2.6
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 600
+      CascadeSplitLambda: 0.92
+  # -- The receiver. Large enough that the far props' shadows still land on it. --
+  - Entity: 900000000000004
+    TagComponent:
+      Tag: GreyFloor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [400, 1, 400]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.72, 0.72]
+      Metallic: 0
+      Roughness: 1
+  # -- NEAR cluster: small props right in front of the camera. This is where the
+  #    near-field texel density difference between VSM and CSM is visible — the
+  #    finest clip levels back this region. --
+  - Entity: 900000000000005
+    TagComponent:
+      Tag: NearBox
+    TransformComponent:
+      Translation: [-2, 0.5, 3]
+      Rotation: [0, 0.3, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.86, 0.86, 0.9]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 900000000000006
+    TagComponent:
+      Tag: NearSphere
+    TransformComponent:
+      Translation: [0.8, 0.55, 2.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.1, 1.1, 1.1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.55, 0.5]
+      Metallic: 0
+      Roughness: 0.85
+  # -- A thin POST: a tall narrow caster is the classic thing a coarse cascade
+  #    loses entirely, so it is the clearest read on texel density. --
+  - Entity: 900000000000007
+    TagComponent:
+      Tag: ThinPost
+    TransformComponent:
+      Translation: [-4.5, 2, 1]
+      Rotation: [0, 0, 0]
+      Scale: [0.18, 4, 0.18]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.92]
+      Metallic: 0
+      Roughness: 1
+  # -- MID cluster --
+  - Entity: 900000000000008
+    TagComponent:
+      Tag: MidBox
+    TransformComponent:
+      Translation: [6, 1.5, -6]
+      Rotation: [0, 0.6, 0]
+      Scale: [3, 3, 3]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.75, 0.78, 0.85]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 900000000000009
+    TagComponent:
+      Tag: MidSphere
+    TransformComponent:
+      Translation: [-8, 2, -10]
+      Rotation: [0, 0, 0]
+      Scale: [4, 4, 4]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.7, 0.6]
+      Metallic: 0
+      Roughness: 0.9
+  # -- FAR pylons: several clip levels out. Their shadows are what a 200 m
+  #    MaxShadowDistance would clip away entirely. --
+  - Entity: 900000000000010
+    TagComponent:
+      Tag: FarPylonA
+    TransformComponent:
+      Translation: [40, 8, -55]
+      Rotation: [0, 0, 0]
+      Scale: [4, 16, 4]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.82]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 900000000000011
+    TagComponent:
+      Tag: FarPylonB
+    TransformComponent:
+      Translation: [-60, 10, -90]
+      Rotation: [0, 0.4, 0]
+      Scale: [5, 20, 5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.78, 0.8]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 900000000000012
+    TagComponent:
+      Tag: VeryFarBlock
+    TransformComponent:
+      Translation: [120, 15, -220]
+      Rotation: [0, 0.2, 0]
+      Scale: [30, 30, 30]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.76, 0.76, 0.78]
+      Metallic: 0
+      Roughness: 1

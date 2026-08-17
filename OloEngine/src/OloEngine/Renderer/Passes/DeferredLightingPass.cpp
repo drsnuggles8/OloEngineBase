@@ -353,6 +353,14 @@ namespace OloEngine
         // Comparison sampler — see HeapBinding::ShadowDepthSampler. The seam's
         // default carries Compare = Never, which mints a compare-DISABLED
         // descriptor and makes every `sampler2DArrayShadow` read of it undefined.
+        // Virtual Shadow Maps (issue #702). Publishes the globals block, the page
+        // table and the physical pool for include/VirtualShadowSampling.glsl.
+        // Called unconditionally: when VSM is inactive it uploads a DISABLED
+        // globals block, which is what lets the shader carry one runtime branch
+        // instead of needing a second variant. It must precede the pass's
+        // FlushHeapOffsets so the offset it stages is published with the rest.
+        Renderer3D::GetShadowMap().GetVirtualShadowMap().BindForSampling();
+
         const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW, csmShadowID,
                                         RHI::HeapSlotLifetime::FrameTransient, shadowSampler,

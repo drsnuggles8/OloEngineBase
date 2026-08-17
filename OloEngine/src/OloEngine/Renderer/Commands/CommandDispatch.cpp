@@ -859,6 +859,12 @@ namespace OloEngine
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_Data.AtlasRawShadowTexture, kShadowRaw,
                                RHI::NullSamplerKind::Texture2DArray);
 
+        // Virtual Shadow Maps (issue #702) — the forward path's half of the same
+        // publish the deferred lighting pass does. Unconditional: an inactive VSM
+        // publishes a disabled globals block, so the forward PBR shaders' runtime
+        // branch resolves to CSM without a second shader variant.
+        Renderer3D::GetShadowMap().GetVirtualShadowMap().BindForSampling();
+
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTexture);
 
         // Cloud shadow transmittance map (issue #633). A 0 id binds nothing —

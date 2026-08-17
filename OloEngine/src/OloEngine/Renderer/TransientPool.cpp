@@ -27,6 +27,7 @@ namespace OloEngine
                 case ImageFormat::RGBA8:
                 case ImageFormat::R32F:
                 case ImageFormat::R32I:
+                case ImageFormat::R32UI:
                 case ImageFormat::DEPTH24STENCIL8:
                     return 4;
                 case ImageFormat::RGBA16F:

@@ -85,6 +85,15 @@ namespace OloEngine
         m_UBOData.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         m_UBOData.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
 
+        // The directional VSM (issue #702). Init is a no-op while disabled, so the
+        // default path allocates nothing extra; when enabled it replaces the CSM
+        // cascades above for the directional light only.
+        m_VirtualShadowMap.Init(m_Settings.VSM);
+        // Init can refuse (wrong backend, shader load failure) and clears its own
+        // Enabled flag when it does. Mirror that back so the settings the editor
+        // and the serializer see match what is actually running.
+        m_Settings.VSM.Enabled = m_VirtualShadowMap.IsActive();
+
         m_Initialized = true;
         OLO_CORE_INFO("ShadowMap initialized: {}x{} CSM resolution ({} cascades), {}x{} shadow atlas ({} entry budget)",
                       m_Settings.Resolution, m_Settings.Resolution, MAX_CSM_CASCADES,
@@ -111,6 +120,8 @@ namespace OloEngine
             m_AtlasRawViewHandle = {};
         }
         m_AtlasRawViewID = 0;
+
+        m_VirtualShadowMap.Shutdown();
 
         m_CSMTextureArray.Reset();
         m_AtlasTexture.Reset();
@@ -271,6 +282,13 @@ namespace OloEngine
         }
 
         m_UBOData.DirectionalShadowEnabled = 1;
+
+        // Stashed for the VSM, whose clip projections need the same two inputs but
+        // are built in UploadUBO() — the only shadow-setup entry point that also
+        // receives the camera-relative render origin (issue #429). Splitting it
+        // that way keeps Scene's call sequence unchanged.
+        m_DirectionalLightDirection = lightDir;
+        m_CameraWorldPosition = cameraWorldPos;
     }
 
     glm::mat4 ShadowMap::BuildSpotLightMatrix(
@@ -382,6 +400,19 @@ namespace OloEngine
         // Re-establish binding point 6 every frame to guard against
         // anything (init ordering, driver quirks) that might unbind it.
         m_ShadowUBO->Bind();
+
+        // The VSM's clip projections (issue #702). Built here rather than in
+        // ComputeCSMCascades because this is the shadow-setup entry point that
+        // carries the render origin — and the origin matters twice over: the clip
+        // projections live in render-relative space, and a CHANGE to it re-anchors
+        // light space and therefore invalidates every cached page.
+        if (m_VirtualShadowMap.IsActive() && m_UBOData.DirectionalShadowEnabled != 0)
+        {
+            m_VirtualShadowMap.BeginFrame(m_DirectionalLightDirection,
+                                          m_CameraWorldPosition - renderOrigin,
+                                          renderOrigin);
+            m_VirtualShadowMap.SetSamplingParams(m_Settings.Softness, m_Settings.MaxShadowDistance);
+        }
     }
 
     void ShadowMap::BindCSMTexture(u32 slot) const
@@ -533,6 +564,16 @@ namespace OloEngine
             // Recreate textures at new resolution
             Shutdown();
             Init(m_Settings);
+            return;
+        }
+
+        // Not folded into the branch above: a VSM setting change must take effect
+        // without recreating the CSM textures, and a CSM resolution change already
+        // re-Inits the VSM through Init().
+        if (m_Initialized)
+        {
+            m_VirtualShadowMap.SetSettings(m_Settings.VSM);
+            m_Settings.VSM.Enabled = m_VirtualShadowMap.IsActive();
         }
     }
 

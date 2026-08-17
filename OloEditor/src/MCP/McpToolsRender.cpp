@@ -2213,6 +2213,10 @@ namespace OloEngine::MCP
                 lever.DepthPrepassAuto = Renderer3D::ComputeSettingsDerivedDepthPrepass();
                 lever.SoftShadows = Renderer3D::GetShadowMap().GetSettings().SoftShadows;
                 lever.HZBOcclusion = Renderer3D::IsHZBOcclusionCullingEnabled();
+                // The EFFECTIVE value, not the requested one: VirtualShadowMap::Init
+                // clears its own Enabled flag when it cannot come up, so a request
+                // that fell back to CSM must not read back as 'on' (issue #702).
+                lever.VirtualShadowMaps = Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
                 return lever;
             };
 
@@ -2233,7 +2237,7 @@ namespace OloEngine::MCP
                 // engine struct.
                 ::OloEngine::RendererSettings& rs = Renderer3D::GetRendererSettings();
                 LeverState lever = snapshotLever();
-                const ApplyResult applied = Apply(setting, value, pp, rs, lever);
+                ApplyResult applied = Apply(setting, value, pp, rs, lever);
                 if (!applied.Ok)
                     return Json{ { "__error", applied.Error } };
                 // A render-path switch changes the registered pass list, so the
@@ -2251,6 +2255,34 @@ namespace OloEngine::MCP
                     ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
                     shadow.SoftShadows = lever.SoftShadows;
                     Renderer3D::GetShadowMap().SetSettings(shadow);
+                }
+                else if (setting == Setting::VirtualShadowMaps)
+                {
+                    // SetSettings recreates the whole VSM resource set on a change
+                    // and mirrors the effective flag back, so a failed enable leaves
+                    // the CSM path running rather than an unshadowed frame.
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.VSM.Enabled = lever.VirtualShadowMaps;
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+
+                    // Report the EFFECTIVE state, not the requested one. Apply
+                    // builds the reply BEFORE this branch runs, and
+                    // VirtualShadowMap::Init clears its own Enabled flag when a
+                    // shader fails to load — so a refused enable runs CSM while
+                    // the pre-built reply would still say "on". An agent that
+                    // trusts that reply then verifies frames that were never
+                    // VSM's, which is precisely the class of lie this tool
+                    // surface must not tell.
+                    const bool effective = Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
+                    if (effective != lever.VirtualShadowMaps)
+                    {
+                        const std::string effectiveToken = effective ? "on" : "off";
+                        applied.Data["changed"] =
+                            applied.Data.value("previousValue", std::string{}) != effectiveToken;
+                        applied.Data["value"] = effectiveToken;
+                        applied.Data["note"] = "virtual shadow maps refused to initialise (see "
+                                               "OloEngine.log); reporting the effective state";
+                    }
                 }
                 else if (setting == Setting::HZBOcclusion)
                 {

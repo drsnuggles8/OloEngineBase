@@ -36,9 +36,16 @@ namespace OloEngine
         // Block-compressed formats (#440). Uploaded via glCompressedTextureSubImage2D
         // rather than a client pixel format; the sRGB variant of BC7 is selected from
         // TextureSpecification::SRGB. Appended to preserve legacy serialised values.
-        BC7, // BPTC RGBA — base color / albedo / emissive
-        BC5, // RGTC2 two-channel — tangent-space normal xy
-        BC6H // BPTC RGB half-float (unsigned) — HDR environment / IBL / emissive
+        BC7,  // BPTC RGBA — base color / albedo / emissive
+        BC5,  // RGTC2 two-channel — tangent-space normal xy
+        BC6H, // BPTC RGB half-float (unsigned) — HDR environment / IBL / emissive
+        // Appended, like every entry since RG16F, to preserve legacy serialised
+        // integer values. Added for Virtual Shadow Maps (issue #702): the page
+        // pool stores raw float depth BITS and is resolved with imageAtomicMin,
+        // which has no float form. Until this existed the Vulkan backend's
+        // RHI::Format::R32UInt arm had nothing to map to and returned the NULL
+        // texture handle, so the whole pool silently did not exist there.
+        R32UI
     };
 
     // True for the block-compressed ImageFormat values, which take the
@@ -63,7 +70,8 @@ namespace OloEngine
     [[nodiscard("Store this!")]] constexpr bool IsIntegerFormat(ImageFormat format) noexcept
     {
         return format == ImageFormat::R8UI || format == ImageFormat::R16UI ||
-               format == ImageFormat::RG16UI || format == ImageFormat::R32I;
+               format == ImageFormat::RG16UI || format == ImageFormat::R32I ||
+               format == ImageFormat::R32UI;
     }
 
     struct TextureSpecification

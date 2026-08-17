@@ -43,6 +43,13 @@ namespace OloEngine
         static void ApplyQualityTieringToRuntime(const QualityTieringSettings& qt);
         static void DrawPresetControls(QualityTieringSettings& qt);
         static void DrawShadowControls(QualityTieringSettings& qt, bool& changed);
+        // Virtual Shadow Maps (issue #702). Separate from DrawShadowControls'
+        // tiering knobs because it edits ShadowSettings directly: VSM's controls
+        // are structural (pool size, world extents) rather than a quality dial,
+        // and a preset that silently resized a 64 MB allocation would be a trap.
+        // Also renders the page-draw counter, which is what makes the caching
+        // claim observable rather than asserted.
+        static void DrawVirtualShadowMapControls();
         static void DrawAOControls(QualityTieringSettings& qt, bool& changed);
         static void DrawPostProcessControls(QualityTieringSettings& qt, bool& changed);
 

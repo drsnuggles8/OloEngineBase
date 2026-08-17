@@ -3937,7 +3937,7 @@ namespace OloEngine
                 case RHI::Format::R32Int:
                     return { ImageFormat::R32I, false };
                 case RHI::Format::R32UInt:
-                    break; // no ImageFormat member exists — see above
+                    return { ImageFormat::R32UI, false };
                 case RHI::Format::RG32Float:
                     return { ImageFormat::RG32F, false };
                 case RHI::Format::RGB32Float:

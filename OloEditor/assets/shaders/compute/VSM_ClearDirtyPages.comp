@@ -1,0 +1,60 @@
+#version 460 core
+
+// =============================================================================
+// VSM_ClearDirtyPages.comp — step 5 of the VSM frame (issue #702)
+//
+// Resets the physical texels of every page about to be redrawn. This is the
+// ONLY clear the system does, and that is the headline: a conventional CSM clears
+// four full cascades every frame whether or not anything changed, while this
+// touches exactly the pages the dirty set names.
+//
+// It is also where the page-draw counter comes from. A dirty page is by
+// definition redrawn, so counting them here is exact and costs one atomic per
+// page — as opposed to counting in the raster, where a page covered by ten
+// triangles would count ten times.
+//
+// Dispatch: one workgroup per physical page, 8x8 threads, each clearing an 8x8
+// block of the 64x64 page.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+layout(r32ui, binding = 0) uniform coherent uimage2D u_VSMPhysicalPages;
+
+void main()
+{
+    uint physicalIdx = gl_WorkGroupID.x;
+    if (physicalIdx >= uint(vsmPhysicalPageCount()))
+        return;
+
+    uint meta = b_MetaTable[physicalIdx];
+    if (!vsmMetaIsAllocated(meta))
+        return;
+
+    uint entry = b_PageTable[vsmPageIndex(vsmUnpackMetaOwnerLevel(meta), vsmUnpackMetaOwnerPage(meta))];
+    if (!vsmPageIsDirty(entry))
+        return; // cached — its texels are still valid, which is the whole point
+
+    if (gl_LocalInvocationIndex == 0u)
+        atomicAdd(b_PagesDrawn, 1u);
+
+    int tableRes = VSM_PHYSICAL_PAGE_TABLE_RES;
+    ivec2 physicalPage = ivec2(int(physicalIdx % uint(tableRes)), int(physicalIdx / uint(tableRes)));
+
+    // Derived, not the literal 8x8: each thread of the 8x8 workgroup clears a
+    // (VSM_PAGE_SIZE / 8)^2 block, so the kernel keeps covering exactly one
+    // page if VSM_PAGE_SIZE is ever retuned (a literal stride goes out of
+    // bounds at 32 and leaves texels sentinel at 128, both silently).
+    const int kBlock = VSM_PAGE_SIZE / int(gl_WorkGroupSize.x);
+    ivec2 base = physicalPage * VSM_PAGE_SIZE + ivec2(gl_LocalInvocationID.xy) * kBlock;
+
+    for (int y = 0; y < kBlock; ++y)
+    {
+        for (int x = 0; x < kBlock; ++x)
+        {
+            imageStore(u_VSMPhysicalPages, base + ivec2(x, y), uvec4(VSM_DEPTH_FAR_BITS));
+        }
+    }
+}

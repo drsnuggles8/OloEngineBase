@@ -58,6 +58,7 @@ the drift is silent because each side is individually self-consistent.
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | two build trees writing the same generated files |
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | four subsystems holding world-space state outside the set that gets rebased |
 | [destructible-debris.md](destructible-debris.md) | two unrelated physics "layer" numberings — `SetCollisionLayer(Debris /*7*/)` never reaches Jolt's `ObjectLayers::DEBRIS /*4*/`, so debris silently shoves the player |
+| `ShaderBindingLayout.h` ↔ `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is *derived* (`= MAX_ENGINE_TEXTURE_SLOTS`) but its GLSL twin `OLO_HEAP_IMAGE_BASE` is a hand-written literal — so **adding any `TEX_*` slot is also a shader edit**. #702 added one, the base moved 66→67, and every bindless storage image read a sampler descriptor through an image declaration (undefined, not blank). The comment there had claimed the two "cannot disagree". Now pinned by `BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout` |
 
 **The counter-move:** a parity test that reads both sides as text, or a generator that makes one
 side derived. A comment saying "keep these in sync" is not a mechanism.
@@ -117,7 +118,9 @@ rules for a swap that destroys the thing being iterated) ·
 [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) (input
 before the physics kick, camera last) ·
 [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) (pass order decides who still sees
-previous-frame depth) · [render-pass-published-state.md](render-pass-published-state.md) (publish
+previous-frame depth) ·
+[virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) (clearing the LRU bit one step
+early evicts the whole cache every frame) · [render-pass-published-state.md](render-pass-published-state.md) (publish
 last, restore deliberately) · [cluster-lod-simplification.md](cluster-lod-simplification.md) (a lock
 that must outlive the level that created it) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) (a read from a pooled
@@ -148,6 +151,11 @@ obvious grep suggests.
   sites, not the two a grep suggests, so the budget had to move inside `Play()`.
 - [render-pass-published-state.md](render-pass-published-state.md) — `MeshComponent { Primitive: 0 }`
   is `None`: an entity that silently never renders.
+- [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 — a render-graph pass's
+  `Setup()` runs only when the frame graph is *rebuilt*, and the rebuild fingerprint does not
+  include your feature's on/off setting. A `Setup()` that early-returns while the feature is off
+  freezes that decision in: the pass keeps executing and keeps doing nothing. **The tell is that the
+  feature works when it is enabled before the first frame and not when it is toggled on later.**
 
 ---
 
@@ -197,6 +205,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) ·
 [render-pipeline-caches.md](render-pipeline-caches.md) ·
 [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) ·
+[virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) ·
 [cluster-lod-simplification.md](cluster-lod-simplification.md) ·
 [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md) ·
 [camera-relative-rendering.md](camera-relative-rendering.md) ·
