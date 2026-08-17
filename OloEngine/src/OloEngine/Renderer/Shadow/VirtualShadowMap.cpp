@@ -562,6 +562,25 @@ namespace OloEngine
         m_StatsBuffers[m_StatsWriteIndex]->Bind();
     }
 
+    void VirtualShadowMap::BindPhysicalPoolImage() const
+    {
+        // Image unit 0, through the heap seam rather than RenderCommand directly
+        // (issue #691 Phase 3 — the RHI boundary ratchet counts raw facade bind
+        // sites, and this is the sanctioned spelling).
+        //
+        // MUST BE CALLED WITH THE CONSUMING SHADER ALREADY BOUND.
+        // BindImageOrOffset forks on Shader::IsBoundProgramBindless() — the
+        // program currently in flight — and every VSM shader declares the pool
+        // slot-based (`layout(r32ui, binding = 0) uniform coherent uimage2D`). So
+        // the fork must be allowed to see a VSM program, take the fallback, and
+        // issue a real bind. Called with some other program bound it would ask
+        // about that one instead, and a bindless answer would stage an offset and
+        // bind NOTHING — every imageAtomicMin in the pass silently discarded, with
+        // the pool left full of the far sentinel and the frame simply unshadowed.
+        HeapBinding::BindImageOrOffset(0, m_PhysicalPool, 0, false, 0, RHI::Access::StorageReadWrite,
+                                       RHI::Format::R32UInt, RHI::HeapSlotLifetime::Persistent);
+    }
+
     void VirtualShadowMap::DispatchKernel(const Ref<ComputeShader>& shader, u32 threadCount, u32 groupSize) const
     {
         if (!shader || threadCount == 0)
@@ -623,9 +642,15 @@ namespace OloEngine
         // 5. Clear only the pages that will be redrawn — one workgroup per page.
         if (m_ClearPagesShader)
         {
-            RenderCommand::BindImageTexture(0, m_PhysicalPool, 0, false, 0,
-                                            RHI::Access::StorageReadWrite, RHI::Format::R32UInt);
+            // Shader FIRST, then the image. HeapBinding::BindImageOrOffset forks on
+            // the program IN FLIGHT, so binding the image before the shader would
+            // ask the question of whichever program happened to be bound last —
+            // and if that one were bindless the seam would stage an offset and
+            // issue no bind, silently dropping every write. Bound in this order
+            // the fork sees a VSM shader, which is slot-declared
+            // (`layout(r32ui, binding = 0)`), takes the fallback and really binds.
             m_ClearPagesShader->Bind();
+            BindPhysicalPoolImage();
             RenderCommand::DispatchCompute(physicalPageCount, 1, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::ShaderImageAccess);
         }
@@ -811,13 +836,12 @@ namespace OloEngine
         RenderCommand::EnableCulling();
         RenderCommand::FrontCull();
 
-        RenderCommand::BindImageTexture(0, m_PhysicalPool, 0, false, 0,
-                                        RHI::Access::StorageReadWrite, RHI::Format::R32UInt);
-
         u32 drawnBatches = 0;
         if (m_DepthShader && !m_Batches.empty())
         {
             m_DepthShader->Bind();
+            // After the shader bind, not before — see BindPhysicalPoolImage().
+            BindPhysicalPoolImage();
             bool cullingDisabled = false;
             for (sizet i = 0; i < m_Batches.size(); ++i)
             {
@@ -885,6 +909,11 @@ namespace OloEngine
         // not-dirty early-out; what a skinned caster loses is only the chance to
         // skip its vertex work.
         m_DepthSkinnedShader->Bind();
+        // Again after the shader bind, and again unconditionally rather than
+        // relying on the static path having run: a scene whose only casters are
+        // skinned never enters that branch, and an unbound image unit makes every
+        // imageAtomicMin here a no-op with no diagnostic.
+        BindPhysicalPoolImage();
 
         u32 drawn = 0;
         u32 cursor = instanceBase;
@@ -1001,7 +1030,20 @@ namespace OloEngine
         m_Globals.Params3 = glm::ivec4(static_cast<i32>(depthWidth), static_cast<i32>(depthHeight), kMarkStride, 0);
 
         BindWorkingSet();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepth);
+
+        // Publish-AND-bind, not the forking BindTextureOrOffset: this runs before
+        // the mark shader is bound, so the fork would answer for whatever program
+        // was last in flight. PublishTextureOffsetAndBind is route-agnostic — it
+        // stages the offset AND issues the bind — so the order does not matter and
+        // the slot-declared `layout(binding = 19) uniform sampler2D` in
+        // VSM_MarkRequiredPages.comp is served either way. Same call, same reason,
+        // as BindForSampling's publish of the physical pool.
+        // The default SamplerDesc is deliberate here (unlike BindForSampling's
+        // explicit one): it means INHERIT the texture object's own state, which is
+        // exactly what the plain bind this replaced did, so the depth buffer is
+        // still sampled with whatever the G-Buffer gave it.
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepth,
+                                                 RHI::HeapSlotLifetime::FrameTransient);
 
         m_MarkShader->Bind();
         const u32 groupsX = DivideRoundUp(DivideRoundUp(depthWidth, static_cast<u32>(kMarkStride)), 8u);

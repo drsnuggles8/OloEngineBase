@@ -1696,12 +1696,29 @@ namespace OloEngine
         // would collide and each would silently overwrite the other's offset.
         //
         // Image unit `u` therefore occupies table index HEAP_IMAGE_SLOT_BASE + u.
-        // The base is applied identically on both sides — by
-        // RGCommandContext::BindImageOrHeapOffset on the CPU and by
-        // include/BindlessHeap.glsl's OLO_HEAP_IMAGE_* macros in the shader — from
-        // this one constant, so the shader still names the SAME image unit the
-        // bind names and the two cannot disagree. That is ADR 0011 amendment (25)'s
-        // property preserved across the second descriptor kind.
+        // The base is applied on both sides — by RGCommandContext::BindImageOrHeapOffset
+        // on the CPU and by include/BindlessHeap.glsl's OLO_HEAP_IMAGE_* macros in
+        // the shader — so the shader names the SAME image unit the bind names.
+        // That is ADR 0011 amendment (25)'s property preserved across the second
+        // descriptor kind.
+        //
+        // ⚠ THE TWO SIDES CAN DISAGREE, AND HAVE. This comment used to claim they
+        // could not "because both derive from this one constant". Only the C++
+        // side does: `OLO_HEAP_IMAGE_BASE` in BindlessHeap.glsl is a hand-written
+        // literal. And this base is DERIVED — it is MAX_ENGINE_TEXTURE_SLOTS — so
+        // it MOVES the moment anyone adds a TEX_* slot above.
+        //
+        // Issue #702 did exactly that (TEX_VSM_PHYSICAL at 65), shifting the base
+        // 66 → 67 while the GLSL literal stayed at 66. Every bindless storage image
+        // then resolved one index low and read a SAMPLER descriptor through an
+        // image declaration — undefined behaviour, not a blank read.
+        //
+        // SO: ADDING A TEXTURE SLOT IS ALSO A SHADER EDIT. Update
+        // `OLO_HEAP_IMAGE_BASE` in OloEditor/assets/shaders/include/BindlessHeap.glsl
+        // (and the copy in BindlessHeapGpuTest.cpp's inline prologue) in the same
+        // commit. Both are pinned headlessly by
+        // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout, so the drift
+        // now fails a test on any machine instead of only a bindless-capable GPU.
         static constexpr u32 HEAP_IMAGE_SLOT_BASE = MAX_ENGINE_TEXTURE_SLOTS;
 
         // GL 4.6 guarantees GL_MAX_IMAGE_UNITS >= 8. The engine's deepest user is
@@ -1709,9 +1726,12 @@ namespace OloEngine
         static constexpr u32 MAX_ENGINE_IMAGE_SLOTS = 8;
 
         // Total entries in the shared heap-offset table: every texture slot, then
-        // every image slot, rounded UP to a whole uvec4 group (66 + 8 = 74 used
+        // every image slot, rounded UP to a whole uvec4 group (67 + 8 = 75 used
         // entries → 76 declared; the A2 renumber moved the base off a multiple
-        // of four). The trailing pad entries are never indexed — image units
+        // of four). The round-up is why #702's extra texture slot did NOT change
+        // this number — 74 and 75 both round to 76 — which is exactly why the
+        // image-base drift it caused went unnoticed: the shader's array size, the
+        // more obvious of the two mirrors, still matched. The trailing pad entries are never indexed — image units
         // stay < MAX_ENGINE_IMAGE_SLOTS — they only keep the std140 block a
         // whole number of uvec4s. include/BindlessHeap.glsl declares
         // `uvec4 g_OloHeapOffsets[HEAP_OFFSET_TABLE_VEC4S]` and must match.

@@ -496,6 +496,9 @@ namespace OloEngine
 
         // Dispatch helper: binds `shader`, dispatches ceil(count / groupSize)
         // groups on X, and issues the SSBO/image barrier the next stage needs.
+        // Binds the physical pool on image unit 0. MUST be called with the
+        // consuming VSM shader already bound — see the definition.
+        void BindPhysicalPoolImage() const;
         void DispatchKernel(const Ref<ComputeShader>& shader, u32 threadCount, u32 groupSize) const;
 
         VirtualShadowMapSettings m_Settings{};

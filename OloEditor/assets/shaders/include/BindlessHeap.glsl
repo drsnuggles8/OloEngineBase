@@ -204,9 +204,22 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // zero, so image unit `u` lives at table index OLO_HEAP_IMAGE_BASE + u. Without
 // the rebase a compute pass writing image unit 0 would overwrite TEX_DIFFUSE's
 // offset and each would silently render the other's resource. The base must
-// match ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE (66 since the A2 renumber
-// moved TEX_DDGI_VISIBILITY to 64 and the shader-graph base to 65).
-#define OLO_HEAP_IMAGE_BASE 66u
+// match ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE, which is
+// MAX_ENGINE_TEXTURE_SLOTS = TEX_SHADER_GRAPH_0 + 1 — so it MOVES whenever an
+// engine texture slot is added, and this literal does not move with it.
+//
+// 67 since issue #702 inserted TEX_VSM_PHYSICAL at 65 and pushed the
+// shader-graph base to 66. Before that it was 66 (the A2 renumber moved
+// TEX_DDGI_VISIBILITY to 64 and the shader-graph base to 65).
+//
+// THIS EXACT DRIFT SHIPPED ONCE. Adding the VSM slot silently moved the C++ base
+// while this literal stayed at 66, so every bindless storage image resolved one
+// table index low — reading a SAMPLER descriptor as an image, which is undefined
+// rather than blank. The only thing that caught it was a GPU test that SKIPs on
+// headless CI. It is now pinned headlessly by
+// BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout — if you are here
+// because that failed, update this number, do not relax the test.
+#define OLO_HEAP_IMAGE_BASE 67u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 
 // Pass this as `mem` for an image you both read and write, or for one with no

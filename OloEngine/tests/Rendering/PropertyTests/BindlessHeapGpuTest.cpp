@@ -206,7 +206,11 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
-#define OLO_HEAP_IMAGE_BASE 66u
+// Mirrors ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE, which MOVES whenever an
+// engine texture slot is added (67 since #702's TEX_VSM_PHYSICAL). Pinned by
+// BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout, which reads this
+// literal out of this file for exactly that reason.
+#define OLO_HEAP_IMAGE_BASE 67u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 #define OLO_HEAP_IMAGE_RW
 #define OLO_HEAP_IMAGE(fmt, mem, type, name, imgUnit) \
