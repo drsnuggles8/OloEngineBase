@@ -2,21 +2,23 @@
 //
 // Visual evidence for the GPU terrain LOD quadtree (issue #714).
 //
-// The CPU quadtree it replaces mapped each selected node to ONE chunk mesh via
+// The CPU quadtree mapped each selected node to ONE chunk mesh via
 // TerrainChunkManager::FindChunkForNode — the chunk at the node's centre. That
 // is correct only while every selected node is a leaf (leaf == chunk); the
 // moment the descent picks a node one level up, the node covers 2x2 chunks and
-// three of them are simply never drawn. Nothing in the suite saw it, because no
+// three of them were simply never drawn. Nothing in the suite saw it, because no
 // sandbox scene had TessellationEnabled: true, so the quadtree path had no
 // coverage at all. From above — the exact camera the issue's acceptance criteria
 // name — the terrain was mostly missing.
 //
 // The GPU path has no such mapping: a visible node IS the drawn primitive, one
-// instance of a shared unit grid stretched over the node's rect. So the two
-// assertions here are:
+// instance of a shared unit grid stretched over the node's rect. The CPU path
+// no longer has it either — ChunkRangeForNode submits every chunk a selected
+// node covers — so these assertions now hold on BOTH paths, and this file's
+// earlier version, which asserted the CPU path stayed broken, was wrong to.
 //
 //   * TopDownCoverage — looking down at a terrain that spans the whole frame,
-//     essentially no background pixel survives. This fails hard on the CPU path.
+//     essentially no background pixel survives.
 //   * GroundLevelSilhouette — the near view still renders substantial lit
 //     terrain, i.e. the rewrite did not trade the far view for the near one.
 //
@@ -66,10 +68,15 @@ namespace OloEngine::Tests
         // neutrality**: the grid is untextured, so its channels come out bit
         // identical, while terrain is lit through a coloured splat material and
         // essentially never lands on r == g == b. Measured over the centre crop
-        // of the two top-down captures:
+        // of the two top-down captures, BEFORE the CPU path's coverage bug was
+        // fixed — which is what made it a useful calibration sample, since it
+        // gave a frame that was most background and a frame that was none:
         //
         //   r==g==b  AND luma in [118,170] -> CPU path 80.1%, GPU path 0.000%
         //   |r-g|<=1 AND luma in [118,170] -> CPU path 81.5%, GPU path 10.5%
+        //
+        // Both paths cover the frame now, so those CPU numbers are history, not
+        // an expectation. The constants they chose still stand.
         //
         // The tolerant form counts grey rock as background and is useless; the
         // exact form separates them completely. An earlier version of this file
@@ -272,9 +279,23 @@ namespace OloEngine::Tests
         EXPECT_GT(lit, 0.20f) << "ground-level terrain should fill a substantial part of the frame";
     }
 
-    // The A/B that shows the fix rather than just asserting the fixed state:
-    // same scene, same pose, only the selection path differs.
-    TEST_F(TerrainGPUQuadtreeVisualEvidenceTest, GpuPathCoversMoreOfTheTopDownFrameThanTheCpuPath)
+    // Same scene, same pose, only the selection path differs — the one test that
+    // renders both paths and compares them.
+    //
+    // This used to assert the CPU path left MORE than 10% background and the GPU
+    // path beat it, with a comment explaining that the CPU descent "draws
+    // exactly ONE of the four chunks it covers, so the gap is three quadrants
+    // wide". That was a defect written down as the expected result: selection
+    // stops above the leaf level wherever the screen-space error is small
+    // enough, and the old FindChunkForNode mapped each selected node to the
+    // single chunk under its centre. The remaining chunks of that block were
+    // simply never submitted.
+    //
+    // TerrainChunkManager::ChunkRangeForNode emits the whole block now, so the
+    // two paths agree and the assertion is the one that was always wanted: both
+    // cover the frame. A regression in EITHER path fails this, where the old
+    // comparison could be satisfied by the CPU path getting worse.
+    TEST_F(TerrainGPUQuadtreeVisualEvidenceTest, BothSelectionPathsCoverTheTopDownFrame)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
@@ -291,16 +312,12 @@ namespace OloEngine::Tests
         ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 1.50f, gpuTopDown));
         const f32 gpuBackground = CentreBackgroundFraction(gpuTopDown);
 
-        // Not "<=": at this target size the CPU descent selects level-1 nodes,
-        // each of which draws exactly ONE of the four chunks it covers, so the
-        // gap is three quadrants wide. If this ever comes out equal, the
-        // descent stopped selecting non-leaf nodes and the test has gone
-        // vacuous — check the target triangle size before believing the pass.
-        EXPECT_GT(cpuBackground, 0.10f)
-            << "the CPU path was expected to leave visible holes at this LOD setting; it left "
-            << cpuBackground << " — the comparison below would prove nothing";
-        EXPECT_LT(gpuBackground, cpuBackground)
-            << "GPU path background=" << gpuBackground << " CPU path background=" << cpuBackground
-            << " — the GPU descent must cover at least as much of the frame as the CPU one";
+        EXPECT_LT(cpuBackground, 0.02f)
+            << "CPU selection path left " << (cpuBackground * 100.0f)
+            << "% of the top-down frame as clear colour — a selected node is not submitting "
+               "every chunk it covers";
+        EXPECT_LT(gpuBackground, 0.02f)
+            << "GPU selection path left " << (gpuBackground * 100.0f)
+            << "% of the top-down frame as clear colour";
     }
 } // namespace OloEngine::Tests

@@ -208,6 +208,25 @@ namespace OloEngine
             glm::mat4 ViewProjection{ 1.0f };
         };
 
+        // The split threshold is user-editable and round-trips through YAML, so
+        // it can arrive non-finite or zero. Neither degrades gracefully:
+        //
+        //   NaN  — every comparison against it is false, so `screenError <
+        //          TargetTriangleSize` never holds and the descent never stops
+        //          splitting... except the same falsity in the CPU path's
+        //          split test makes it never split at all. One root-sized
+        //          patch, silently, with no error anywhere.
+        //   <= 0 — every node's error clears the threshold, so the descent runs
+        //          to max depth every frame regardless of distance.
+        //
+        // Sanitize at EVERY point the component's value is read. Doing it only
+        // where the GPU descent reads it left the CPU fallback and the streamer
+        // taking the raw value, which is the harder of the two to notice.
+        [[nodiscard]] f32 SanitizedTargetTriangleSize(f32 value)
+        {
+            return (std::isfinite(value) && value > 0.0f) ? value : TerrainLODConfig{}.TargetTriangleSize;
+        }
+
         [[nodiscard]] TerrainLocalCullInputs MakeTerrainLocalCullInputs(const glm::mat4& worldTransform,
                                                                         const glm::vec3& cameraWorldPos,
                                                                         const glm::mat4& worldViewProjection)
@@ -7508,7 +7527,7 @@ namespace OloEngine
                         config.LoadRadius = terrain.m_StreamingLoadRadius;
                         config.MaxLoadedTiles = terrain.m_StreamingMaxTiles;
                         config.TessellationEnabled = terrain.m_TessellationEnabled;
-                        config.TargetTriangleSize = terrain.m_TargetTriangleSize;
+                        config.TargetTriangleSize = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
                         config.MorphRegion = terrain.m_MorphRegion;
                         config.TileDirectory = terrain.m_TileDirectory;
                         config.TileFilePattern = terrain.m_TileFilePattern;
@@ -7588,7 +7607,7 @@ namespace OloEngine
                         // Apply LOD config from component
                         terrain.m_ChunkManager->TessellationEnabled = terrain.m_TessellationEnabled;
                         auto& lodCfg = terrain.m_ChunkManager->GetQuadtree().GetConfig();
-                        lodCfg.TargetTriangleSize = terrain.m_TargetTriangleSize;
+                        lodCfg.TargetTriangleSize = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
                         lodCfg.MorphRegion = terrain.m_MorphRegion;
 
                         terrain.m_ChunkManager->GenerateAllChunks(
@@ -7651,14 +7670,8 @@ namespace OloEngine
                         // the GPU tree is unusable (compute shaders unavailable,
                         // or OLO_TERRAIN_CPU_LOD=1), and only then does the CPU
                         // descent run.
-                        // The split threshold is user-editable and round-trips
-                        // through YAML, so it can arrive non-finite or zero. Every
-                        // comparison against NaN is false, which would stop the
-                        // descent splitting at all — one root-sized patch, silently.
                         const f32 targetTriangleSize =
-                            (std::isfinite(terrain.m_TargetTriangleSize) && terrain.m_TargetTriangleSize > 0.0f)
-                                ? terrain.m_TargetTriangleSize
-                                : TerrainLODConfig{}.TargetTriangleSize;
+                            SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
 
                         if (!terrain.m_ChunkManager->DispatchGPULOD(
                                 local.ViewFrustum, local.CameraPos, local.ViewProjection,
@@ -7890,36 +7903,49 @@ namespace OloEngine
                             // derives each instance's terrain rect and seam
                             // deltas from the list the compute pass built.
                             const auto& gpuQuadtree = chunkMgr.GetGPUQuadtree();
-                            const bool gpuDriven = useTess && gpuQuadtree && gpuQuadtree->HasDispatched();
+                            // The patch mesh is part of the GPU path's viability,
+                            // not a detail inside it. Treating it as an inner
+                            // check meant a null mesh drew NO terrain at all —
+                            // the branch was already taken, so the CPU path below
+                            // never ran. Asked for only once the rest of the path
+                            // is viable, because GetSharedPatchMesh() BUILDS the
+                            // mesh on first call and a context-less path must not
+                            // be made to build a vertex array it will never draw.
+                            const Ref<VertexArray>* gpuPatchMesh = nullptr;
+                            if (useTess && gpuQuadtree && gpuQuadtree->HasDispatched())
+                            {
+                                if (const auto& mesh = TerrainGPUQuadtree::GetSharedPatchMesh())
+                                {
+                                    gpuPatchMesh = &mesh;
+                                }
+                            }
+                            const bool gpuDriven = (gpuPatchMesh != nullptr);
                             if (gpuDriven)
                             {
-                                const auto& patchMesh = TerrainGPUQuadtree::GetSharedPatchMesh();
-                                if (patchMesh)
-                                {
-                                    ShaderBindingLayout::TerrainUBO gpuUBO = terrainUBOData;
-                                    // Tess level 1 on every edge: the quadtree now
-                                    // provides the LOD as real per-node geometry, and
-                                    // the seam snapping is what keeps neighbours
-                                    // welded. Subdividing on top would reintroduce
-                                    // the edge-density matching problem the snapping
-                                    // just solved.
-                                    gpuUBO.TessFactors = glm::vec4(1.0f);
-                                    gpuUBO.TessFactors2 = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-                                    gpuUBO.GpuDrivenMode = 1;
-                                    gpuUBO.GpuPatchGridRes = static_cast<i32>(TerrainGPUQuadtree::kPatchGridResolution);
+                                const auto& patchMesh = *gpuPatchMesh;
+                                ShaderBindingLayout::TerrainUBO gpuUBO = terrainUBOData;
+                                // Tess level 1 on every edge: the quadtree now
+                                // provides the LOD as real per-node geometry, and
+                                // the seam snapping is what keeps neighbours
+                                // welded. Subdividing on top would reintroduce
+                                // the edge-density matching problem the snapping
+                                // just solved.
+                                gpuUBO.TessFactors = glm::vec4(1.0f);
+                                gpuUBO.TessFactors2 = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+                                gpuUBO.GpuDrivenMode = 1;
+                                gpuUBO.GpuPatchGridRes = static_cast<i32>(TerrainGPUQuadtree::kPatchGridResolution);
 
-                                    auto* packet = Renderer3D::DrawTerrainPatch(
-                                        patchMesh->GetRHIHandle(),
-                                        TerrainGPUQuadtree::GetSharedPatchIndexCount(), 3,
-                                        terrainShader,
-                                        heightmapID, tileSplatmapID, tileSplatmap1ID,
-                                        tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        tileModel, gpuUBO, entityID,
-                                        gpuQuadtree->GetDrawArgsHandle(),
-                                        gpuQuadtree->GetVisibleNodesHandle());
-                                    if (packet)
-                                        Renderer3D::SubmitPacket(packet);
-                                }
+                                auto* packet = Renderer3D::DrawTerrainPatch(
+                                    patchMesh->GetRHIHandle(),
+                                    TerrainGPUQuadtree::GetSharedPatchIndexCount(), 3,
+                                    terrainShader,
+                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                    tileModel, gpuUBO, entityID,
+                                    gpuQuadtree->GetDrawArgsHandle(),
+                                    gpuQuadtree->GetVisibleNodesHandle());
+                                if (packet)
+                                    Renderer3D::SubmitPacket(packet);
 
                                 // Shadow casters stay on the chunk meshes. The
                                 // GPU visible list is culled against the CAMERA

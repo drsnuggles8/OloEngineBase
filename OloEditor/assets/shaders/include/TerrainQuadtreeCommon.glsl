@@ -41,6 +41,19 @@ uint oloTerrainNodeY(uint packedNode)
     return (packedNode >> 14u) & OLO_TERRAIN_COORD_MASK;
 }
 
+// A worklist slot that carries no node. Level 15 is unreachable for a real
+// node — TerrainGPUQuadtree::kMaxDepth is 12 and static_asserts it fits the 4
+// level bits — so this cannot collide with anything oloTerrainPackNode emits.
+//
+// It exists because the select kernel reserves its four child slots with ONE
+// atomicAdd, before it can know whether they fit. When that reservation
+// straddles the cap the parent stays unsplit (see TerrainNodeSelect.comp), but
+// the slots it already took below the cap must still be written: PendingCount
+// is clamped to capacity, so an unwritten slot would be read next level as
+// whatever the previous level left there. Writing this makes the next level
+// skip them instead. C++ twin: TerrainGPUQuadtree::kNodeSkipSentinel.
+#define OLO_TERRAIN_NODE_SKIP 0xFFFFFFFFu
+
 // ---- Level-major node index --------------------------------------------------
 // Nodes are stored level by level: level L occupies 4^L consecutive slots
 // starting at (4^L - 1) / 3, addressed row-major as y * 2^L + x. Both the

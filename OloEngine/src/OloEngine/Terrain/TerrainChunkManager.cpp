@@ -18,25 +18,16 @@ namespace OloEngine
         // OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL.
         bool GpuDrivenLODDefault()
         {
-            // NOSONAR cpp:S990 — the rule flags getenv because the pointer it
-            // returns can be invalidated by a concurrent setenv/putenv, and
-            // there is no portable thread-safe alternative in standard C++
-            // (Windows has GetEnvironmentVariableA; POSIX has nothing, so any
-            // cross-platform helper still bottoms out here).
+            // This used to be a raw std::getenv under a long NOSONAR arguing
+            // cpp:S990 was safe here. SonarCloud rejected the suppression and
+            // failed the quality gate on it (D reliability on new code), which
+            // was the right call for the wrong reason: the argument was sound,
+            // but "every site justifies its own getenv" is not a scheme that
+            // survives contact with 30 more sites.
             //
-            // Be precise about why it is safe, because the obvious claim is
-            // wrong: putenv DOES exist in this repo — OloEngineTest.cpp's main
-            // calls _putenv_s/setenv to force a diagnostic on. That call cannot
-            // race this one. This is a static initialiser, so it runs BEFORE
-            // main and before any thread exists, and the value is consumed
-            // immediately rather than stored, so no pointer outlives the call.
-            //
-            // (Renderer/RHI/RHIDescriptorHeap.cpp carries the same suppression
-            // and scopes its claim to OloEngine/src + OloEditor/src, where it
-            // does hold. Promoting that file-local IsTruthyEnvironmentVariable
-            // helper into a shared header would reduce the engine's ~32 getenv
-            // sites to one — worth doing, but not from a terrain branch while
-            // the RHI is being edited elsewhere.)
+            // The engine now has exactly one getenv, in Core/Environment.cpp,
+            // and the levers on top of it are enumerable — see
+            // Core/DebugLevers.inl.
             return !Levers::TerrainCpuLod();
         }
 
@@ -166,15 +157,54 @@ namespace OloEngine
         const auto& selectedNodes = m_Quadtree.GetSelectedNodes();
         m_SelectedChunks.reserve(selectedNodes.size());
 
+        // A selected node is NOT always one chunk. The tree is built to depth
+        // ceil(log2(numChunks)) so that a LEAF is one chunk, but selection stops
+        // wherever the screen-space error is already small enough — so a node
+        // selected above the leaf level covers a 2^k x 2^k block of them.
+        // Emitting only the chunk under its centre left the rest of that block
+        // undrawn: a hole, growing with how coarse the selected node is, and
+        // only visible on the CPU fallback path.
+        //
+        // The claim gate is the second half. m_NumChunksX is
+        // ceil(resolution / CHUNK_RESOLUTION) and NOT necessarily a power of
+        // two, so quadtree boundaries can fall inside a chunk and two adjacent
+        // nodes can both overlap it. First node wins; without that the chunk
+        // would be submitted twice with different LOD data.
+        m_ChunkClaimed.assign(m_Chunks.size(), 0u);
+
         for (const auto* node : selectedNodes)
         {
-            const TerrainChunk* chunk = FindChunkForNode(*node);
-            if (chunk && chunk->IsBuilt())
+            u32 x0 = 0;
+            u32 x1 = 0;
+            u32 z0 = 0;
+            u32 z1 = 0;
+            if (!ChunkRangeForNode(*node, x0, x1, z0, z1))
             {
-                TerrainRenderChunk rc;
-                rc.Chunk = chunk;
-                rc.LODData = m_Quadtree.GetChunkLODData(*node);
-                m_SelectedChunks.push_back(rc);
+                continue;
+            }
+
+            const TerrainChunkLODData lodData = m_Quadtree.GetChunkLODData(*node);
+            for (u32 cz = z0; cz <= z1; ++cz)
+            {
+                for (u32 cx = x0; cx <= x1; ++cx)
+                {
+                    const sizet idx = static_cast<sizet>(cz) * m_NumChunksX + cx;
+                    if (m_ChunkClaimed[idx] != 0u)
+                    {
+                        continue;
+                    }
+                    const TerrainChunk& chunk = m_Chunks[idx];
+                    if (!chunk.IsBuilt())
+                    {
+                        continue;
+                    }
+                    m_ChunkClaimed[idx] = 1u;
+
+                    TerrainRenderChunk rc;
+                    rc.Chunk = &chunk;
+                    rc.LODData = lodData;
+                    m_SelectedChunks.push_back(rc);
+                }
             }
         }
     }
@@ -251,25 +281,46 @@ namespace OloEngine
         }
     }
 
-    const TerrainChunk* TerrainChunkManager::FindChunkForNode(const TerrainQuadNode& node) const
+    bool TerrainChunkManager::ChunkRangeForNode(const TerrainQuadNode& node,
+                                                u32& outX0, u32& outX1,
+                                                u32& outZ0, u32& outZ1) const
     {
         OLO_PROFILE_FUNCTION();
 
         if (m_NumChunksX == 0 || m_NumChunksZ == 0)
         {
-            return nullptr;
+            return false;
         }
 
-        // Map the quadtree node center to a chunk grid coordinate
-        f32 centerX = (node.MinX + node.MaxX) * 0.5f;
-        f32 centerZ = (node.MinZ + node.MaxZ) * 0.5f;
+        // Node bounds are normalized [0,1] over the terrain footprint, the same
+        // space the chunk grid divides. Scale into chunk indices and take the
+        // INCLUSIVE cover.
+        //
+        // The epsilon is doing real work in both directions. A node edge that
+        // should land exactly on a chunk boundary often computes to
+        // 1.9999999 or 2.0000001 instead: without it, the first case drops the
+        // last chunk of the range (a one-chunk hole along every node seam) and
+        // the second pulls in a neighbouring chunk the adjacent node also
+        // claims. It is small enough that it can only absorb representation
+        // error, not a real fraction of a chunk.
+        constexpr f32 kEdgeEpsilon = 1e-4f;
 
-        u32 cx = static_cast<u32>(centerX * static_cast<f32>(m_NumChunksX));
-        u32 cz = static_cast<u32>(centerZ * static_cast<f32>(m_NumChunksZ));
-        cx = std::min(cx, m_NumChunksX - 1);
-        cz = std::min(cz, m_NumChunksZ - 1);
+        auto rangeOnAxis = [](f32 minN, f32 maxN, u32 chunkCount, u32& lo, u32& hi)
+        {
+            const f32 count = static_cast<f32>(chunkCount);
+            const f32 first = std::floor(minN * count + kEdgeEpsilon);
+            const f32 last = std::ceil(maxN * count - kEdgeEpsilon) - 1.0f;
+            const f32 maxIndex = static_cast<f32>(chunkCount - 1);
 
-        sizet idx = static_cast<sizet>(cz) * m_NumChunksX + cx;
-        return &m_Chunks[idx];
+            lo = static_cast<u32>(std::clamp(first, 0.0f, maxIndex));
+            hi = static_cast<u32>(std::clamp(last, 0.0f, maxIndex));
+            // A degenerate or sub-chunk node collapses to the single chunk it
+            // sits in rather than to an empty range.
+            hi = std::max(hi, lo);
+        };
+
+        rangeOnAxis(node.MinX, node.MaxX, m_NumChunksX, outX0, outX1);
+        rangeOnAxis(node.MinZ, node.MaxZ, m_NumChunksZ, outZ0, outZ1);
+        return true;
     }
 } // namespace OloEngine

@@ -112,8 +112,16 @@ namespace OloEngine
         bool TessellationEnabled = true;
 
       private:
-        // Find the chunk that covers a given terrain-space point
-        const TerrainChunk* FindChunkForNode(const TerrainQuadNode& node) const;
+        // The INCLUSIVE chunk-grid rectangle a quadtree node covers, in chunk
+        // indices. A leaf node yields a single chunk; a node selected above the
+        // leaf level yields the whole 2^k x 2^k block beneath it. Returns false
+        // only when there is no chunk grid yet.
+        //
+        // Replaced a FindChunkForNode() that mapped the node's CENTRE to one
+        // chunk — correct for leaves, and a hole for everything coarser.
+        bool ChunkRangeForNode(const TerrainQuadNode& node,
+                               u32& outX0, u32& outX1,
+                               u32& outZ0, u32& outZ1) const;
 
         std::vector<TerrainChunk> m_Chunks;
         u32 m_NumChunksX = 0;
@@ -121,6 +129,11 @@ namespace OloEngine
 
         TerrainQuadtree m_Quadtree;
         std::vector<TerrainRenderChunk> m_SelectedChunks;
+        // One byte per chunk, reset at the start of each CPU selection: which
+        // chunks this frame's selection has already claimed. Needed because the
+        // chunk grid is not necessarily a power of two, so a quadtree boundary
+        // can fall inside a chunk and two nodes can both cover it.
+        std::vector<u8> m_ChunkClaimed;
 
         // Created lazily by GenerateAllChunks; null when the terrain never
         // built. Held by Ref because Scene.cpp hands its buffers to a render

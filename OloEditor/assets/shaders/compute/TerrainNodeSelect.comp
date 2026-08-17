@@ -66,6 +66,11 @@ void main()
         return;
 
     uint packedNode = b_NodesIn[idx];
+    // A slot a previous level reserved but could not use (see the straddling
+    // reservation below). Not a node — skipping it is the whole point.
+    if (packedNode == OLO_TERRAIN_NODE_SKIP)
+        return;
+
     uint level = oloTerrainNodeLevel(packedNode);
     uint nx = oloTerrainNodeX(packedNode);
     uint ny = oloTerrainNodeY(packedNode);
@@ -114,26 +119,39 @@ void main()
 
         if (screenError >= u_TerrainSizeAndTarget.z)
         {
-            b_SplitMap[oloTerrainNodeIndex(level, nx, ny)] = 1u;
-
             uint capacity = u_TerrainBufferParams.x;
             uint base = atomicAdd(b_TerrainState.NextCount, 4u);
             uint childLevel = level + 1u;
-            // Bound every child slot individually rather than the whole group:
-            // a partially-fitting group must still fill the slots below the cap
-            // so the clamped PendingCount never addresses a stale entry from an
-            // earlier level or frame.
-            if (base + 0u < capacity)
+
+            // ALL FOUR CHILDREN OR NONE. Splitting is only safe if every child
+            // survives: marking the parent split retires it from rendering, so
+            // a group that lands two children and drops two leaves that quarter
+            // of the terrain covered by nothing at all — a hole, not a missing
+            // detail. Coverage is the invariant, so a reservation that does not
+            // fit leaves the parent unsplit and renders it at this level:
+            // coarser than the screen-space error asked for, but no gap.
+            if (base + 4u <= capacity)
+            {
+                b_SplitMap[oloTerrainNodeIndex(level, nx, ny)] = 1u;
                 b_NodesOut[base + 0u] = oloTerrainPackNode(childLevel, nx * 2u, ny * 2u);
-            if (base + 1u < capacity)
                 b_NodesOut[base + 1u] = oloTerrainPackNode(childLevel, nx * 2u + 1u, ny * 2u);
-            if (base + 2u < capacity)
                 b_NodesOut[base + 2u] = oloTerrainPackNode(childLevel, nx * 2u, ny * 2u + 1u);
-            if (base + 3u < capacity)
                 b_NodesOut[base + 3u] = oloTerrainPackNode(childLevel, nx * 2u + 1u, ny * 2u + 1u);
-            if (base + 4u > capacity)
-                atomicOr(b_TerrainState.OverflowFlags, OLO_TERRAIN_OVERFLOW_NODES);
-            return;
+                return;
+            }
+
+            // The reservation straddles the cap (or sits past it). Whatever it
+            // took below the cap must still be written: TerrainCullArgs.comp
+            // clamps PendingCount to capacity, so an unwritten slot would be
+            // read next level as whatever the previous level left there —
+            // which is why the old code filled partial groups. The sentinel
+            // keeps that property without the split.
+            for (uint slot = base; slot < capacity; ++slot)
+                b_NodesOut[slot] = OLO_TERRAIN_NODE_SKIP;
+
+            atomicOr(b_TerrainState.OverflowFlags, OLO_TERRAIN_OVERFLOW_NODES);
+            // Deliberately no `return` — fall through and append this node to
+            // the visible list, so the ground it covers still gets drawn.
         }
     }
 

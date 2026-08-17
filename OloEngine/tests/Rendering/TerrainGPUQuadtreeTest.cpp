@@ -398,6 +398,33 @@ namespace OloEngine::Tests
         }
     }
 
+    // The select kernel reserves four child slots with one atomicAdd before it
+    // can know they fit, and writes kNodeSkipSentinel into any it took but
+    // could not use — TerrainCullArgs clamps PendingCount to capacity, so an
+    // unwritten slot is read next level as stale data. That only works while no
+    // real node can encode to the sentinel. A depth bump is exactly the change
+    // that would break it silently, turning a real node into "skip me".
+    TEST(TerrainGPUQuadtree, SkipSentinelCannotCollideWithAnyRealNode)
+    {
+        for (u32 level = 0; level <= TerrainGPUQuadtree::kMaxDepth; ++level)
+        {
+            const u32 span = 1u << level;
+            for (u32 y : { 0u, span / 2u, span - 1u })
+            {
+                for (u32 x : { 0u, span / 2u, span - 1u })
+                {
+                    EXPECT_NE(TerrainGPUQuadtree::PackNode(level, x, y),
+                              TerrainGPUQuadtree::kNodeSkipSentinel)
+                        << "level " << level << " node (" << x << ", " << y
+                        << ") encodes to the skip sentinel";
+                }
+            }
+        }
+        // The structural reason, not just the sampled one: the sentinel's level
+        // field is above every level the tree can hold.
+        EXPECT_GT(TerrainGPUQuadtree::kNodeSkipSentinel >> 28u, TerrainGPUQuadtree::kMaxDepth);
+    }
+
     // =========================================================================
     // The height pyramid both paths read
     // =========================================================================

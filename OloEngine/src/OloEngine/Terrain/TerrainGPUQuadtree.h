@@ -81,6 +81,21 @@ namespace OloEngine
         static_assert(kMaxDepth <= 15, "packed node coord stores the level in 4 bits");
         static_assert(kMaxDepth <= 14, "packed node coord stores x/y in 14 bits each");
 
+        // Twin of OLO_TERRAIN_NODE_SKIP in TerrainQuadtreeCommon.glsl: a
+        // worklist slot the select kernel reserved but could not use, because
+        // its four-child reservation straddled the capacity. The kernel writes
+        // this rather than leaving the slot untouched, since PendingCount is
+        // clamped to capacity and an unwritten slot would be read as whatever
+        // the previous level left there.
+        //
+        // Safe as a sentinel only because its level field (15) is above
+        // kMaxDepth, so PackNode can never produce it — asserted below rather
+        // than trusted, since a future depth bump is exactly the change that
+        // would silently turn a real node into "skip me".
+        static constexpr u32 kNodeSkipSentinel = 0xFFFFFFFFu;
+        static_assert((kNodeSkipSentinel >> 28u) > kMaxDepth,
+                      "the skip sentinel's level must be unreachable for a real node");
+
         // Per-pass worklist capacity and visible-node capacity. Both are
         // clamped rather than grown per frame — an overflow sets a flag the CPU
         // reads occasionally and warns about, which is far cheaper than sizing
