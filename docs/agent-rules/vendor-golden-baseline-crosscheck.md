@@ -38,9 +38,18 @@ delivers the verdict.
 
 ## 2. Measure the noise floor first — before attributing anything
 
-Two runs of the **identical binary on the identical GPU** do not produce identical PNGs
-here. `docs/process/task-loop.md` records `VirtualGeometry_Debug_ClusterId` moving by
+Two runs of the **identical binary on the identical GPU** need not produce identical PNGs
+here: `docs/process/task-loop.md` records `VirtualGeometry_Debug_ClusterId` moving by
 158/255 and `Fluid_Waterline` by 80/255 between two runs of one binary.
+
+**The floor is per-test, and you cannot guess which kind of test you have.** The #735
+captures turned out to be the opposite extreme — **12 of 17 byte-identical** between runs,
+and the five that moved (the three `*Storm` cells, `NightStorm`, `NightClear`) all sat at
+≤0.30/255. A test is stable or it isn't depending on whether anything in it accumulates
+across frames — the cloud raymarch keeps a jittered start whose temporal accumulation
+depends on the global frame counter, which `AtmosphereVisualEvidenceTest`'s own header calls
+out as the reason its threshold is looser than the water test's. The only way to know is to
+measure.
 
 **A delta at or below that floor is not a vendor difference — it is the same GPU
 disagreeing with itself.** Capture the reference vendor twice into two scratch directories
@@ -115,7 +124,7 @@ faster than any statistic:
   baselines produced a textbook grid-line heatmap that read as obvious cross-vendor
   depth-tie variance — and it was nothing of the kind. It was **drift in the stale shared
   baselines**, and the actual vendor difference on the same frame was *five pixels*. Both
-  vendors had moved away from a two-month-old recording, together. Only the decomposition in
+  vendors had moved away from a month-old recording, together. Only the decomposition in
   §3 separates those two readings, and the heatmap cannot.
 - **Isolated bright specks scattered through the sky band** — stars at the visibility
   threshold. Benign *if* the positions coincide; see below.
@@ -148,10 +157,21 @@ which is the scale a real hash divergence would exceed.
 - **`<name>.actual.png` / `<name>.diff.png` are generated L10 escalation artefacts**, written
   next to the baseline when a compare fails. They are `.gitignore`d. Eight of them were once
   committed into `assets/tests/golden/`, byte-identical to the baselines beside them.
-- **A vendor directory that does not exist is not an error** — `--olo-golden-vendor=llvmpipe`
-  is passed by the nightly with no `golden/llvmpipe/` present, by design ("maintainers promote
-  a set by committing PNGs into that directory"). The consequence is worth knowing: **that
-  nightly currently compares no goldens at all.**
+- **A missing vendor baseline is a hard FAIL, not a skip.** `CompareOrBootstrap` returns
+  `m_Passed == false` under an `EXPECT_TRUE`, and `AtmosphereVisualEvidenceTest::Capture` does
+  `ASSERT_NE(golden, nullptr)`. So `--olo-golden-vendor=<v>` with no `golden/<v>/` fails all
+  17 golden-backed tests. `cross-vendor.yml` passes `--olo-golden-vendor=llvmpipe` and no such
+  directory exists (by design — "maintainers promote a set by committing PNGs into that
+  directory"), yet that nightly is green, so those tests cannot be executing there; the likely
+  reason is the GPU gate (`OLO_ENSURE_GPU_OR_SKIP` / the `RendererAttachedTest` skip) rather
+  than any tolerance for a missing directory. **Not confirmed from the runner** — do not
+  assume a missing vendor directory is benign.
+- **Passing `--olo-golden-vendor=<v>` CREATES `golden/<v>/` even when it then fails.**
+  `CompareOrBootstrap` calls `fs::create_directories` on the composed path unconditionally,
+  *before* checking whether the baseline exists. So empty vendor directories appear as a side
+  effect of any vendor-scoped run — which is why `GoldenBaselineAuditTest` treats an empty one
+  as "not a baseline set" rather than as a fault, and why a scratch run leaves a directory to
+  clean up even if it failed.
 
 ## 7. Never rebake into the shared set to close a cross-check
 
@@ -188,7 +208,7 @@ The decomposition of §3, on a fresh NVIDIA capture at `d780bd6e4`:
 
 | comparison | isolates | result (RMSE, 0..255) |
 |---|---|---|
-| run 1 vs run 2 | **noise floor** | **≤ 0.30**; 13 of 17 byte-identical |
+| run 1 vs run 2 | **noise floor** | **≤ 0.30**; 12 of 17 byte-identical |
 | fresh NVIDIA vs committed shared | **temporal drift** | goldens **byte-identical**; Atmosphere day cells **0.87–2.60** |
 | fresh NVIDIA vs committed AMD | **vendor** (+ negligible drift) | **0.10–0.72** |
 
@@ -196,8 +216,14 @@ The decomposition of §3, on a fresh NVIDIA capture at `d780bd6e4`:
 Diffing the committed AMD set against the committed shared set gives 0.23–2.59 and a
 textbook grid-line heatmap — which reads as cross-vendor depth-tie variance and is not.
 Fresh NVIDIA sits *closer to AMD* (≤0.72) than to the shared baselines (≤2.60). Both vendors
-have drifted away from a shared set last rebaked 2026-07-16, **together**; the AMD set, baked
-2026-08-01, is simply the more recent recording of the two.
+have drifted away from the shared set **together**; the AMD set, baked 2026-08-01, is simply
+the more recent recording of the two.
+
+The baselines' own provenance confirms the reading: the shared **day** cells date from
+`91e1e108f` (2026-07-16) and are the ones carrying 0.87–2.60 of drift, while the **night**
+cells were rebaked in `f7e2db2f0` (2026-08-11, the #754 fix) and show essentially none —
+`NightClear` 0.016, `NightOvercast` 0.004. Drift tracks bake date, exactly as it should if
+this is temporal rather than vendor.
 
 On the worst cell (`DuskClear`), the same frame compared both ways:
 
@@ -247,8 +273,8 @@ real sets passed in the same run.
 ### What to do about it
 
 1. **The four renderer goldens: vendor scoping is unnecessary.** Fresh NVIDIA@HEAD is
-   byte-identical to the shared set and AMD differs by 1 LSB, against a `kRmsePassBelow` gate
-   twelve times larger than the observed delta. `assets/tests/golden/amd/` can go.
+   byte-identical to the shared set and AMD differs by 1 LSB — 2.5× inside `kRmsePassBelow`
+   and 12× inside `kRmseFailAbove`. `assets/tests/golden/amd/` can go.
 2. **The thirteen Atmosphere captures: vendor scoping is also unnecessary** — vendor ≤0.72 on
    a noise floor of ≤0.30 against a threshold of 8.0. **But rebake the shared set at HEAD
    first**, because it currently carries 0.87–2.60 of accumulated drift that would otherwise

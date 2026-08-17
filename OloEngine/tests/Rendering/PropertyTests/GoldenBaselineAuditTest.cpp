@@ -373,7 +373,16 @@ namespace OloEngine::Tests
             if (!LoadForAudit(set.m_GoldenDir / "fxaa_hard_edge.png", image))
                 continue;
             SCOPED_TRACE("baseline set: " + set.m_Label);
-            ASSERT_EQ(image.m_Width, image.m_Height) << "the FXAA fixture is square";
+            // EXPECT + continue, never ASSERT: an ASSERT here returns from the
+            // whole test, so one malformed vendor set would stop every LATER
+            // set from being audited — losing coverage exactly when something
+            // is already wrong. Same reasoning at every in-loop check below.
+            if (image.m_Width != image.m_Height)
+            {
+                ADD_FAILURE() << "the FXAA fixture is square, but this baseline is "
+                              << image.m_Width << "x" << image.m_Height;
+                continue;
+            }
             ++audited;
 
             const u32 size = image.m_Width;
@@ -408,9 +417,17 @@ namespace OloEngine::Tests
                 << "the recorded frame altered " << alteredCount << " of " << (size * size)
                 << " pixels — that is a whole-frame smear, not edge anti-aliasing";
 
-            ASSERT_EQ(darkBlends.size(), brightBlends.size())
-                << "recorded " << darkBlends.size() << " dark blends but " << brightBlends.size()
-                << " bright ones — the captured filter is not symmetric across the edge";
+            if (darkBlends.size() != brightBlends.size())
+            {
+                // The complementary-pair check below indexes both multisets in
+                // lockstep, so it is only meaningful when they are the same
+                // size. Report and move to the next set rather than pairing
+                // mismatched lists.
+                ADD_FAILURE() << "recorded " << darkBlends.size() << " dark blends but "
+                              << brightBlends.size()
+                              << " bright ones — the captured filter is not symmetric across the edge";
+                continue;
+            }
 
             std::sort(darkBlends.begin(), darkBlends.end());
             std::sort(brightBlends.begin(), brightBlends.end());
@@ -456,7 +473,11 @@ namespace OloEngine::Tests
             ++audited;
 
             const std::vector<ColorPopulation> colors = RankColorsByPopulation(image);
-            ASSERT_GE(colors.size(), 2u) << "the recorded shadow frame has fewer than two distinct colours";
+            if (colors.size() < 2u)
+            {
+                ADD_FAILURE() << "the recorded shadow frame has fewer than two distinct colours";
+                continue;
+            }
             EXPECT_GE(colors.size(), 4u)
                 << "the recorded frame has only " << colors.size()
                 << " distinct colours — a 3x3 PCF kernel produces intermediate shadow factors (k/9), so "
@@ -474,7 +495,11 @@ namespace OloEngine::Tests
             const f32 lumaB = Rec601Luma(flatB[0], flatB[1], flatB[2]);
             const f32 litLuma = std::max(lumaA, lumaB);
             const f32 shadowedLuma = std::min(lumaA, lumaB);
-            ASSERT_GT(litLuma, 0.0f) << "both flat regions are black — the recording has nothing lit";
+            if (!(litLuma > 0.0f))
+            {
+                ADD_FAILURE() << "both flat regions are black — the recording has nothing lit";
+                continue;
+            }
 
             const f32 attenuation = shadowedLuma / litLuma;
             EXPECT_GT(attenuation, 0.50f)
@@ -519,7 +544,12 @@ namespace OloEngine::Tests
             if (!LoadForAudit(set.m_GoldenDir / "scene_splatmap_integration.png", image))
                 continue;
             SCOPED_TRACE("baseline set: " + set.m_Label);
-            ASSERT_EQ(image.m_Width, image.m_Height) << "the splatmap fixture is square";
+            if (image.m_Width != image.m_Height)
+            {
+                ADD_FAILURE() << "the splatmap fixture is square, but this baseline is "
+                              << image.m_Width << "x" << image.m_Height;
+                continue;
+            }
             ++audited;
 
             const u32 size = image.m_Width;
@@ -661,27 +691,51 @@ namespace OloEngine::Tests
                    "(expected <repo>/OloEditor)";
         }
 
-        // Every vendor directory that exists must hold at least one auditable
-        // baseline. An empty vendor directory is the silent-skip shape: the
-        // nightly for that vendor would find no baseline and this audit would
-        // report nothing wrong.
+        // A vendor directory that holds PNGs must hold at least one this audit
+        // can actually read. A PNG that is present but unreadable (truncated,
+        // wrong format, renamed) is the silent-skip shape: the nightly for that
+        // vendor sees a baseline, this audit sees nothing, and neither says so.
+        //
+        // An EMPTY vendor directory is explicitly NOT a failure, because the
+        // golden machinery creates one as a side effect:
+        // CompareOrBootstrap (GoldenImageTests.cpp) calls fs::create_directories
+        // on the composed path UNCONDITIONALLY, before it checks whether the
+        // baseline exists. So any run passing --olo-golden-vendor=<v> leaves
+        // an empty golden/<v>/ behind even when it then fails for a missing
+        // baseline — cross-vendor.yml does exactly that with llvmpipe, and so
+        // does the scratch-directory workflow in
+        // docs/agent-rules/vendor-golden-baseline-crosscheck.md. Failing on an
+        // empty directory would turn this audit red for a reason that has
+        // nothing to do with baseline quality.
         for (std::size_t i = 1; i < sets.size(); ++i)
         {
             const BaselineSet& set = sets[i];
             SCOPED_TRACE("vendor set: " + set.m_Label);
-            u32 found = 0;
-            for (const char* name : requiredGoldens)
+
+            u32 pngsPresent = 0;
+            u32 auditable = 0;
+            for (const fs::path& dir : { set.m_GoldenDir, set.m_VisualDir })
             {
-                Image image;
-                if (LoadForAudit(set.m_GoldenDir / name, image))
-                    ++found;
+                std::error_code ec;
+                if (!fs::is_directory(dir, ec))
+                    continue;
+                for (const fs::directory_entry& entry : fs::directory_iterator(dir, ec))
+                {
+                    if (!entry.is_regular_file() || entry.path().extension() != ".png")
+                        continue;
+                    ++pngsPresent;
+                    Image image;
+                    if (LoadForAudit(entry.path(), image))
+                        ++auditable;
+                }
             }
-            Image atmosphere;
-            if (LoadForAudit(set.m_VisualDir / "Atmosphere_NoonClear.png", atmosphere))
-                ++found;
-            EXPECT_GT(found, 0u)
-                << "vendor baseline directory '" << set.m_Label
-                << "' exists but holds no auditable baseline — it would silently audit nothing";
+
+            if (pngsPresent == 0)
+                continue; // side-effect directory, not a baseline set
+
+            EXPECT_GT(auditable, 0u)
+                << "vendor baseline directory '" << set.m_Label << "' holds " << pngsPresent
+                << " PNG(s) but none this audit can read — they would silently audit nothing";
         }
     }
 } // namespace OloEngine::Tests
