@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Core/Environment.h"
 
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -56,15 +57,9 @@ namespace OloEngine
             entry->ApplyRenderViewport(renderW, renderH);
         }
 
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            const char* value = std::getenv(name);
-            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
-        }
-
         bool IsRenderGraphDiagnosticsEnabled()
         {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
+            static const bool enabled = Env::IsTruthy("OLO_RENDERGRAPH_DIAGNOSTICS");
             return enabled;
         }
 
@@ -103,9 +98,9 @@ namespace OloEngine
             std::call_once(s_TransientDebugFlagsSeedOnce,
                            []
                            {
-                               s_PoisonTransients.store(IsTruthyEnvironmentVariable("OLO_RG_POISON_TRANSIENTS"),
+                               s_PoisonTransients.store(Env::IsTruthy("OLO_RG_POISON_TRANSIENTS"),
                                                         std::memory_order_relaxed);
-                               s_DisableAliasing.store(IsTruthyEnvironmentVariable("OLO_RG_DISABLE_ALIASING"),
+                               s_DisableAliasing.store(Env::IsTruthy("OLO_RG_DISABLE_ALIASING"),
                                                        std::memory_order_relaxed);
                            });
         }
@@ -131,7 +126,7 @@ namespace OloEngine
         // readback per pass); debug hunts only.
         bool IsBlackSquareHuntEnabled()
         {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RG_BLACKSQUARE_HUNT");
+            static const bool enabled = Env::IsTruthy("OLO_RG_BLACKSQUARE_HUNT");
             return enabled;
         }
 

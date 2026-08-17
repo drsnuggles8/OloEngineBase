@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/Environment.h"
 
 #if OLO_WITH_VULKAN
 
@@ -521,8 +522,7 @@ namespace OloEngine
         // foliage OOB was named by exactly this pairing).
         static const bool s_TraceBuffers = []
         {
-            const char* env = std::getenv("OLO_VK_TRACE_BUFFERS");
-            return env != nullptr && *env != '\0' && *env != '0';
+            return Env::IsTruthy("OLO_VK_TRACE_BUFFERS");
         }();
         if (s_TraceBuffers)
         {

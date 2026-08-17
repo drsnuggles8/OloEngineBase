@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Asset/Interchange/USD/UsdMeshImporter.h"
 
 #if defined(OLO_WITH_USD)
@@ -54,8 +55,8 @@ namespace OloEngine
             std::call_once(flag,
                            []()
                            {
-                               if (const char* env = std::getenv("OLO_USD_PLUGIN_PATH"); env && *env)
-                                   PlugRegistry::GetInstance().RegisterPlugins(std::string(env));
+                               if (const std::optional<std::string> env = Env::Get("OLO_USD_PLUGIN_PATH"))
+                                   PlugRegistry::GetInstance().RegisterPlugins(*env);
 
                                namespace fs = std::filesystem;
                                std::error_code ec;

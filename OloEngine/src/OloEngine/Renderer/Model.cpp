@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
@@ -51,20 +52,9 @@ namespace OloEngine
             return value;
         }
 
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            const char* value = std::getenv(name);
-            if (value == nullptr)
-                return false;
-
-            const std::string normalized = ToLowerCopy(value);
-            return !normalized.empty() && normalized != "0" && normalized != "false" &&
-                   normalized != "off" && normalized != "no";
-        }
-
         bool IsModelImportDiagnosticsEnabled()
         {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_MODEL_IMPORT_DIAGNOSTICS");
+            static const bool enabled = Env::IsTruthy("OLO_MODEL_IMPORT_DIAGNOSTICS");
             return enabled;
         }
 

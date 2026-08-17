@@ -2,6 +2,7 @@
 // Ported to OloEngine
 
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/LowLevelTask.h"
 #include "OloEngine/Core/Log.h"
@@ -99,13 +100,16 @@ namespace OloEngine::LowLevelTasks
         g_TaskGraphConfigInitialized = true;
 
         // Check environment variables for configuration
-        if (const char* EnvDynamicPrioritization = std::getenv("OLO_TASK_GRAPH_DYNAMIC_PRIORITIZATION"))
+        // Tri-state on purpose: "0"/"false" force off, "1"/"true" force on, and
+        // anything else leaves the hardware-derived default alone. That is why
+        // this one does not collapse into Env::IsTruthy.
+        if (const std::optional<std::string> value = Env::Get("OLO_TASK_GRAPH_DYNAMIC_PRIORITIZATION"))
         {
-            if (std::strcmp(EnvDynamicPrioritization, "0") == 0 || std::strcmp(EnvDynamicPrioritization, "false") == 0)
+            if (*value == "0" || *value == "false")
             {
                 g_TaskGraphUseDynamicPrioritization = false;
             }
-            else if (std::strcmp(EnvDynamicPrioritization, "1") == 0 || std::strcmp(EnvDynamicPrioritization, "true") == 0)
+            else if (*value == "1" || *value == "true")
             {
                 g_TaskGraphUseDynamicPrioritization = true;
             }
@@ -115,13 +119,16 @@ namespace OloEngine::LowLevelTasks
             }
         }
 
-        if (const char* EnvDynamicThreadCreation = std::getenv("OLO_TASK_GRAPH_DYNAMIC_THREAD_CREATION"))
+        // Tri-state on purpose: "0"/"false" force off, "1"/"true" force on, and
+        // anything else leaves the hardware-derived default alone. That is why
+        // this one does not collapse into Env::IsTruthy.
+        if (const std::optional<std::string> value = Env::Get("OLO_TASK_GRAPH_DYNAMIC_THREAD_CREATION"))
         {
-            if (std::strcmp(EnvDynamicThreadCreation, "0") == 0 || std::strcmp(EnvDynamicThreadCreation, "false") == 0)
+            if (*value == "0" || *value == "false")
             {
                 g_TaskGraphUseDynamicThreadCreation = false;
             }
-            else if (std::strcmp(EnvDynamicThreadCreation, "1") == 0 || std::strcmp(EnvDynamicThreadCreation, "true") == 0)
+            else if (*value == "1" || *value == "true")
             {
                 g_TaskGraphUseDynamicThreadCreation = true;
             }
@@ -131,9 +138,9 @@ namespace OloEngine::LowLevelTasks
             }
         }
 
-        if (const char* EnvOversubscriptionRatio = std::getenv("OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO"))
+        if (const std::optional<std::string> EnvOversubscriptionRatio = Env::Get("OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO"))
         {
-            if (const std::optional<f32> Ratio = ParseOversubscriptionRatio(EnvOversubscriptionRatio))
+            if (const std::optional<f32> Ratio = ParseOversubscriptionRatio(EnvOversubscriptionRatio->c_str()))
             {
                 g_TaskGraphOversubscriptionRatio = *Ratio;
             }
@@ -325,13 +332,9 @@ namespace OloEngine::LowLevelTasks
         // CI's low worker count; std::thread::hardware_concurrency() ignores
         // process affinity, so a 2-core affinity pin alone still spawns one
         // worker per physical core). Clamped to >=1; ignored if unset/invalid.
-        if (const char* EnvNumWorkers = std::getenv("OLO_TASK_GRAPH_NUM_WORKERS"))
+        if (const std::optional<i64> numWorkers = Env::GetInt("OLO_TASK_GRAPH_NUM_WORKERS"); numWorkers && *numWorkers >= 1)
         {
-            const int Value = std::atoi(EnvNumWorkers);
-            if (Value >= 1)
-            {
-                return static_cast<u32>(Value);
-            }
+            return static_cast<u32>(*numWorkers);
         }
 
         u32 NumCores = std::thread::hardware_concurrency();

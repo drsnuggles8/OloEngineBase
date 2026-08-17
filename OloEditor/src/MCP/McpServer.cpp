@@ -3,6 +3,7 @@
 // the legacy <winsock.h> and cause redefinition errors). OloEditor has no PCH, so
 // this single ordering rule is enough.
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/Environment.h"
 #include <httplib.h>
 
 #include "MCP/McpServer.h"
@@ -1313,9 +1314,8 @@ namespace OloEngine::MCP
     {
         // An explicit override wins: the launching tool picks the exact path it will
         // read back, so parallel worktree editors never collide regardless of port.
-        if (const char* overridePath = std::getenv("OLO_MCP_DISCOVERY_FILE");
-            overridePath != nullptr && *overridePath != '\0')
-            return overridePath;
+        if (const std::optional<std::string> overridePath = Env::Get("OLO_MCP_DISCOVERY_FILE"))
+            return *overridePath;
 
         std::error_code ec;
         const std::filesystem::path dir = std::filesystem::temp_directory_path(ec);

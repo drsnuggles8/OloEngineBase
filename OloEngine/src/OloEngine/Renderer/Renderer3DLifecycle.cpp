@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Terrain/TerrainGPUQuadtree.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 
@@ -76,15 +77,9 @@ namespace OloEngine
 {
     namespace
     {
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            const char* value = std::getenv(name);
-            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
-        }
-
         bool IsRenderGraphDiagnosticsEnabled()
         {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
+            static const bool enabled = Env::IsTruthy("OLO_RENDERGRAPH_DIAGNOSTICS");
             return enabled;
         }
     } // namespace

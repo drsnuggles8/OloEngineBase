@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Fluid/FluidSystem.h"
 
 #include "OloEngine/Asset/AssetManager.h"
@@ -361,8 +362,7 @@ namespace OloEngine
     {
         static const bool s_Forced = []
         {
-            const char* env = std::getenv("OLO_FLUID_SEQUENTIAL");
-            return env && env[0] == '1';
+            return Env::IsTruthy("OLO_FLUID_SEQUENTIAL");
         }();
         return s_Forced;
     }

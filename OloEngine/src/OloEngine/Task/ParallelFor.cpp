@@ -2,6 +2,8 @@
 // Ported from UE5.7 Async/ParallelFor.cpp
 
 #include "OloEnginePCH.h"
+#include <optional>
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/HAL/PlatformMisc.h"
 
@@ -41,42 +43,26 @@ namespace OloEngine
         const u32 NumCores = std::thread::hardware_concurrency();
         s_ShouldUseThreadingForPerformance = (NumCores > 1);
 
-        // Check environment variables for configuration
-        // OLO_NO_THREADING=1 disables threading
-        if (const char* EnvNoThreading = std::getenv("OLO_NO_THREADING"))
+        // Startup tuning knobs. Read once, here, through the engine's single
+        // environment accessor — these used to be four hand-rolled strcmp /
+        // atoi parses that disagreed about what counted as "on".
+        if (Env::IsTruthy("OLO_NO_THREADING"))
         {
-            if (std::strcmp(EnvNoThreading, "1") == 0 || std::strcmp(EnvNoThreading, "true") == 0)
-            {
-                s_ShouldUseThreadingForPerformance = false;
-            }
+            s_ShouldUseThreadingForPerformance = false;
         }
-
-        // OLO_FORCE_MULTITHREAD=1 forces threading even on single-core
-        if (const char* EnvForceMultithread = std::getenv("OLO_FORCE_MULTITHREAD"))
+        if (Env::IsTruthy("OLO_FORCE_MULTITHREAD"))
         {
-            if (std::strcmp(EnvForceMultithread, "1") == 0 || std::strcmp(EnvForceMultithread, "true") == 0)
-            {
-                s_ShouldUseThreadingForPerformance = true;
-            }
+            s_ShouldUseThreadingForPerformance = true;
         }
-
-        // OLO_PARALLEL_FOR_YIELD_MS sets the background yield timeout
-        if (const char* EnvYieldMs = std::getenv("OLO_PARALLEL_FOR_YIELD_MS"))
+        // Unparseable is ignored rather than silently read as 0, which is what
+        // std::atoi did here.
+        if (const std::optional<i64> yieldMs = Env::GetInt("OLO_PARALLEL_FOR_YIELD_MS"); yieldMs && *yieldMs >= 0)
         {
-            i32 Value = std::atoi(EnvYieldMs);
-            if (Value >= 0)
-            {
-                GParallelForBackgroundYieldingTimeoutMs = Value;
-            }
+            GParallelForBackgroundYieldingTimeoutMs = static_cast<i32>(*yieldMs);
         }
-
-        // OLO_DISABLE_OVERSUBSCRIPTION=1 disables oversubscription
-        if (const char* EnvDisableOversub = std::getenv("OLO_DISABLE_OVERSUBSCRIPTION"))
+        if (Env::IsTruthy("OLO_DISABLE_OVERSUBSCRIPTION"))
         {
-            if (std::strcmp(EnvDisableOversub, "1") == 0 || std::strcmp(EnvDisableOversub, "true") == 0)
-            {
-                GParallelForDisableOversubscription = true;
-            }
+            GParallelForDisableOversubscription = true;
         }
     }
 

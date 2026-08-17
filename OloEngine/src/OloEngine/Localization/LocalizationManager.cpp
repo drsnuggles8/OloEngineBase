@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Localization/LocalizationEvents.h"
 #include "OloEngine/Core/Log.h"
@@ -1213,10 +1214,10 @@ namespace OloEngine
         const char* envOrder[] = { "LC_ALL", "LC_MESSAGES", "LANG" };
         for (const char* var : envOrder)
         {
-            const char* v = std::getenv(var);
-            if (!v || !*v)
+            const std::optional<std::string> value = Env::Get(var);
+            if (!value)
                 continue;
-            std::string s = v;
+            std::string s = *value;
             if (s == "C" || s == "POSIX")
                 continue;
             // Drop encoding suffix (".UTF-8") and modifier ("@euro").
