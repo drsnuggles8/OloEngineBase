@@ -17,21 +17,32 @@ namespace OloEngine
         // OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL.
         bool GpuDrivenLODDefault()
         {
+            // NOSONAR cpp:S990 — the rule flags getenv because the pointer it
+            // returns can be invalidated by a concurrent setenv/putenv. Neither
+            // appears anywhere in this engine, this runs once during static
+            // init, and the value is consumed immediately rather than stored —
+            // so the race the rule guards against cannot arise. Same
+            // justification as IsTruthyEnvironmentVariable in
+            // Renderer/RHI/RHIDescriptorHeap.cpp.
             const char* env = std::getenv("OLO_TERRAIN_CPU_LOD");
             return !(env && env[0] == '1' && env[1] == '\0');
         }
 
+        // Sequentially consistent by default rather than relaxed. A relaxed
+        // toggle would be correct — the flag orders no other data — but it is
+        // read once per terrain per frame, so the ordering buys nothing
+        // measurable and the explicit argument is only a thing to get wrong.
         std::atomic<bool> s_GpuDrivenLODEnabled{ GpuDrivenLODDefault() };
     } // namespace
 
     void TerrainChunkManager::SetGpuDrivenLODEnabled(bool enabled)
     {
-        s_GpuDrivenLODEnabled.store(enabled, std::memory_order_relaxed);
+        s_GpuDrivenLODEnabled.store(enabled);
     }
 
     bool TerrainChunkManager::IsGpuDrivenLODEnabled()
     {
-        return s_GpuDrivenLODEnabled.load(std::memory_order_relaxed);
+        return s_GpuDrivenLODEnabled.load();
     }
 
     void TerrainChunkManager::GenerateAllChunks(const TerrainData& terrainData,
