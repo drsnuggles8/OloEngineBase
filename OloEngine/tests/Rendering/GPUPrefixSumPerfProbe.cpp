@@ -23,12 +23,22 @@
 //   OloEngine-Tests.exe --gtest_also_run_disabled_tests \
 //                       --gtest_filter='*GPUPrefixSumPerfProbe*'
 //
-// WHAT TO EXPECT FROM THE SHAPE OF THE TWO PATHS, before reading the numbers:
-// the atomic path is ONE dispatch whose cost grows with contention on a single
-// address; the scan path is seven dispatches (flag, three scan levels, two
-// fold-backs, scatter) whose cost grows with N but not with contention. So the
-// atomic should win at small counts, and the gap should close — or invert — as
-// the particle count and the alive fraction rise.
+// WHAT THIS PROBE DOES AND DOES NOT ISOLATE. It reports the end-to-end cost of
+// each compaction. It is NOT a controlled contention experiment, and the numbers
+// must not be read as one:
+//
+//   * every atomic-path invocation performs exactly one `atomicAdd` at every
+//     alive fraction — the sweep changes only how the increments SPLIT between
+//     `aliveCount` and `deadCount`, so it contrasts "mostly one address" (95 %)
+//     with "two addresses" (50 %), not "contended" with "uncontended";
+//   * isolating same-address contention would need a third variant with the
+//     atomics removed as a control, which this does not build.
+//
+// The going-in hypothesis was that the atomic path would degrade as the particle
+// count and alive fraction rose, and that the scan would converge with or beat
+// it. Treat that as a hypothesis the probe REPORTS ON, not one it establishes —
+// on the measured configuration it did not hold, and §3 of
+// docs/agent-rules/gpu-scan-compaction.md states the scoped conclusion.
 // =============================================================================
 
 #include "OloEnginePCH.h"

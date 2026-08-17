@@ -170,6 +170,18 @@ namespace OloEngine
             return false;
         }
 
+        // Aliasing the two outputs is silently wrong rather than loud. The scan
+        // writes `values[0] = 0` (element 0 of an exclusive scan) and, in the
+        // same invocation, `total[0] = groupTotal` — the same address if these
+        // are one buffer, with the total landing last. The caller would get a
+        // plausible buffer whose first element is the grand total instead of 0.
+        if (totalOut && buffer->GetRHIHandle() == totalOut->GetRHIHandle())
+        {
+            OLO_CORE_ERROR("GPUPrefixSum: buffer and totalOut are the same resource — "
+                           "element 0 of the scan and the grand total would collide");
+            return false;
+        }
+
         // Release slots 54/55/56 when the scan is done. Not hygiene theatre: the
         // caller's buffer is bound at 54, and a caller that frees it while it is
         // still bound leaves a dangling indexed binding for whatever runs next —

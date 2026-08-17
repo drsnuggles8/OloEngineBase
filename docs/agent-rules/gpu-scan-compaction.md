@@ -106,11 +106,26 @@ median of 31 GPU-timed samples:
 | 100 000 | 10 / 50 / 95 | 0.0082 / 0.0092 / 0.0082 | 0.0348 / 0.0338 / 0.0338 | 3.7–4.3× |
 | 1 000 000 | 10 / 50 / 95 | 0.0584 / 0.0604 / 0.0543 | 0.1219 / 0.1219 / 0.1229 | 2.0–2.3× |
 
-Two things to take from it. **The scan never wins** — the ratio narrows from 4.4× to 2.0× as fixed
-dispatch overhead stops dominating, but it does not invert anywhere in the range. And **the alive
-fraction barely moves the atomic path** (1M particles: 0.0584 / 0.0604 / 0.0543 ms at 10 / 50 / 95 %
-survivors) — a modern GPU's atomic unit absorbs a million same-address increments with no measurable
-contention penalty, so the "relieves contention" half of the argument buys nothing here.
+**The scan never wins** on this configuration — the ratio narrows from 4.4× to 2.0× as fixed dispatch
+overhead stops dominating, but it does not invert anywhere in the range.
+
+**On contention, be careful what this does and does not show.** Read honestly, the probe is evidence
+*against* serialization being the cost here, but it is not a controlled contention experiment:
+
+- Every atomic-path invocation does exactly one `atomicAdd` at every alive fraction — sweeping
+  10 → 95 % changes only how those increments *split* between `aliveCount` and `deadCount`, not how
+  many there are. So the sweep contrasts "mostly one address" (95 %) against "two addresses"
+  (50 %), and the 95 % case came out no slower (0.0543 vs 0.0604 ms at 1 M). That is a *narrow*
+  result, not a general statement about atomics.
+- The count sweep is the stronger signal: 1 000 → 1 000 000 particles is 1000× the atomics for 11×
+  the time (0.0051 → 0.0584 ms). Serialization on a single address cannot produce sublinear scaling
+  like that, so on this device the atomic path is bandwidth-bound rather than serialization-bound.
+
+What that supports is a scoped claim: **on an RTX 4090 / GL 4.6, for this shader at these sizes,
+atomic-slot allocation showed no contention penalty worth converting away from.** It is not a claim
+about GPUs generally, and it is not an isolated measurement of same-address contention — that would
+need a variant with the atomics removed as a control. If you need the general claim, build that
+control first.
 
 What is left is the half that is real: **determinism**, plus an absolute cost small enough to pay for
 it (+0.026 ms at the engine's default 100 k particles; +0.065 ms at 1 M — under 1 % of a 60 fps

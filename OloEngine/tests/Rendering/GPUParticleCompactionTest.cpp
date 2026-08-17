@@ -37,9 +37,15 @@
 
 #include "OloEngine/Particle/GPUParticleData.h"
 #include "OloEngine/Particle/GPUParticleSystem.h"
+#include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/MemoryBarrierFlags.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "PropertyTests/RenderPropertyTest.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <random>
 #include <vector>
@@ -196,6 +202,100 @@ namespace OloEngine::Tests
                     << "run " << run << ", free slot " << i << " — compaction is not deterministic";
             }
         }
+    }
+
+    // =========================================================================
+    // The perf probe's baseline shader actually does the work.
+    //
+    // `GPUPrefixSumPerfProbe` times the preserved pre-#713 atomic compaction
+    // against the scan, and the PR quotes that ratio. If the baseline shader
+    // silently did nothing — failed to bind, wrote no slots — it would be very
+    // fast and the published comparison would be meaningless. Nothing else in
+    // CI touches that shader, so this is the test that makes the measurement
+    // trustworthy rather than merely reproducible.
+    //
+    // Asserts counts and MEMBERSHIP but deliberately NOT order — the atomic
+    // allocation is unordered by construction, which is the whole reason #713
+    // replaced it. Asserting a sequence here would fail randomly; §2 of
+    // gpu-scan-compaction.md is about the inverse mistake (asserting membership
+    // where order is the point), and both directions matter.
+    // =========================================================================
+    TEST(GPUParticleCompactionTest, AtomicPerfBaselineProducesTheSameSetsAsTheScan)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        auto atomicShader = ComputeShader::Create("assets/shaders/tests/PerfProbe_ParticleCompactAtomic.comp");
+        ASSERT_TRUE(atomicShader && atomicShader->IsValid())
+            << "the perf probe's baseline shader must compile, or its timings compare against nothing";
+
+        std::mt19937 rng(0xBA5Eu);
+        std::bernoulli_distribution keep(0.45);
+        std::vector<bool> alive(kMaxParticles);
+        for (u32 i = 0; i < kMaxParticles; ++i)
+            alive[i] = keep(rng);
+
+        std::vector<u32> expectedAlive;
+        std::vector<u32> expectedFree;
+        for (u32 i = 0; i < kMaxParticles; ++i)
+            (alive[i] ? expectedAlive : expectedFree).push_back(i);
+        ASSERT_FALSE(expectedAlive.empty());
+        ASSERT_FALSE(expectedFree.empty());
+
+        const std::vector<GPUParticle> particles = MakeParticles(alive);
+        const u32 particleBytes = kMaxParticles * static_cast<u32>(sizeof(GPUParticle));
+        const u32 indexBytes = kMaxParticles * static_cast<u32>(sizeof(u32));
+
+        auto particleBuf = StorageBuffer::Create(particleBytes, ShaderBindingLayout::SSBO_GPU_PARTICLES,
+                                                 StorageBufferUsage::DynamicCopy);
+        particleBuf->SetData(particles.data(), particleBytes, 0);
+        auto aliveBuf = StorageBuffer::Create(indexBytes, ShaderBindingLayout::SSBO_ALIVE_INDICES,
+                                              StorageBufferUsage::DynamicCopy);
+        auto freeBuf = StorageBuffer::Create(indexBytes, ShaderBindingLayout::SSBO_FREE_LIST,
+                                             StorageBufferUsage::DynamicCopy);
+        auto counterBuf = StorageBuffer::Create(static_cast<u32>(sizeof(GPUParticleCounters)),
+                                                ShaderBindingLayout::SSBO_COUNTERS,
+                                                StorageBufferUsage::DynamicCopy);
+        GPUParticleCounters zeroed{};
+        counterBuf->SetData(&zeroed, sizeof(GPUParticleCounters));
+
+        UBOStructures::GPUParticleParamsUBO params{};
+        params.MaxParticles = kMaxParticles;
+        auto paramsUBO = UniformBuffer::Create(UBOStructures::GPUParticleParamsUBO::GetSize(),
+                                               ShaderBindingLayout::UBO_PARTICLE_SIM);
+
+        particleBuf->Bind();
+        aliveBuf->Bind();
+        counterBuf->Bind();
+        freeBuf->Bind();
+        atomicShader->Bind();
+        paramsUBO->SetData(&params, sizeof(params));
+        paramsUBO->Bind();
+        RenderCommand::DispatchCompute((kMaxParticles + 255u) / 256u, 1, 1);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+        GPUParticleCounters counters{};
+        counterBuf->GetData(&counters, static_cast<u32>(sizeof(GPUParticleCounters)), 0);
+        std::vector<u32> aliveIndices(kMaxParticles);
+        std::vector<u32> freeList(kMaxParticles);
+        aliveBuf->GetData(aliveIndices.data(), indexBytes, 0);
+        freeBuf->GetData(freeList.data(), indexBytes, 0);
+
+        EXPECT_EQ(counters.AliveCount, static_cast<u32>(expectedAlive.size()));
+        EXPECT_EQ(counters.DeadCount, static_cast<u32>(expectedFree.size()));
+
+        // Sort before comparing: this baseline is the unordered one.
+        aliveIndices.resize(counters.AliveCount);
+        freeList.resize(counters.DeadCount);
+        std::ranges::sort(aliveIndices);
+        std::ranges::sort(freeList);
+        EXPECT_EQ(aliveIndices, expectedAlive) << "the atomic baseline lost or duplicated alive slots";
+        EXPECT_EQ(freeList, expectedFree) << "the atomic baseline lost or duplicated free slots";
+
+        particleBuf->Unbind();
+        aliveBuf->Unbind();
+        freeBuf->Unbind();
+        counterBuf->Unbind();
+        atomicShader->Unbind();
     }
 
     // =========================================================================
