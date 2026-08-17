@@ -1,0 +1,45 @@
+#version 460 core
+
+// =============================================================================
+// ShaderUnit_PrefixSumShared.comp — L2 probe for include/PrefixSum.glsl's
+// PORTABLE (shared-memory Hillis-Steele) path (issue #713).
+//
+// Byte-identical to ShaderUnit_PrefixSumSubgroup.comp apart from the missing
+// `#extension` directives and the missing `OLO_PREFIX_SUM_USE_SUBGROUP` opt-in.
+// Not defining it IS the selection — the shared path is the default, precisely
+// so that a shader which forgets the `#extension` lines cannot end up on the
+// subgroup path by accident. This is the path every PRODUCTION `.comp` in the
+// engine compiles, so it is the one whose correctness is load-bearing today.
+// =============================================================================
+
+// BEFORE the include — contract 2 in PrefixSum.glsl. Kept identical to the
+// subgroup twin so the two files differ only in the opt-in.
+layout(local_size_x = 256) in;
+
+#define OLO_PREFIX_SUM_GROUP_SIZE 256
+#include "../include/PrefixSum.glsl"
+
+layout(std430, binding = 0) readonly buffer PrefixSumProbeIn { uint u_Values[]; };
+
+layout(std430, binding = 1) writeonly buffer PrefixSumProbeOut
+{
+    uint o_GroupTotal;     // the work group's grand total, written by lane 0
+    uint o_PathIsSubgroup; // always 0 here — the force-define guarantees it
+    uint o_Pad0;
+    uint o_Pad1;
+    uint o_Exclusive[];    // per-lane exclusive prefix
+};
+
+void main()
+{
+    uint groupTotal;
+    uint exclusive = OloPrefixSumExclusive(u_Values[gl_LocalInvocationIndex], groupTotal);
+
+    o_Exclusive[gl_LocalInvocationIndex] = exclusive;
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        o_GroupTotal = groupTotal;
+        o_PathIsSubgroup = uint(OLO_PREFIX_SUM_SUBGROUP);
+    }
+}

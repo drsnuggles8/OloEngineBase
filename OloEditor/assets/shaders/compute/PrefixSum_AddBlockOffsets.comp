@@ -1,0 +1,46 @@
+#version 460 core
+
+// =============================================================================
+// PrefixSum_AddBlockOffsets.comp — the fold-back half of the device-level
+// exclusive scan (issue #713).
+//
+// After PrefixSum_Scan.comp has scanned each block independently, element `i`
+// holds its prefix WITHIN its own block. `blockSums[]` has meanwhile been
+// exclusive-scanned in turn, so `blockSums[b]` holds the number of items in all
+// blocks before `b`. Adding it makes every prefix global.
+//
+// Block 0's offset is 0 for free — that is the point of scanning the block
+// totals EXCLUSIVELY rather than inclusively, and it is why this shader needs
+// no special case for the first block.
+//
+// This one may early-return: it contains no barrier.
+// =============================================================================
+
+// One work group per scanned block, dispatched 1:1 with PrefixSum_Scan.comp —
+// so the block an element belongs to IS gl_WorkGroupID.x, and this file needs
+// no second copy of the 256 constant to divide by. Keeping the two group sizes
+// equal is still load-bearing; it is now the only thing that has to agree.
+layout(local_size_x = 256) in;
+
+// Must match ShaderBindingLayout::SSBO_PREFIX_SUM_*.
+layout(std430, binding = 54) buffer PrefixSumValues { uint values[]; };
+layout(std430, binding = 55) readonly buffer PrefixSumBlockSums { uint blockSums[]; };
+
+// Declared VERBATIM in PrefixSum_Scan.comp — see that file for the block's
+// documentation. This shader reads only u_Count.
+layout(std140, binding = 79) uniform PrefixSumParams
+{
+    uint u_Count;          // 0
+    uint u_WriteBlockSums; // 4  (unused here)
+    uint u_WriteTotal;     // 8  (unused here)
+    uint _prefixSumPad0;   // 12
+};
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= u_Count)
+        return;
+
+    values[idx] += blockSums[gl_WorkGroupID.x];
+}

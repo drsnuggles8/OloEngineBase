@@ -17,7 +17,7 @@
 // selected-node set instead of a fuzzy one.
 // =============================================================================
 
-layout(std140, binding = 79) uniform TerrainCullParams
+layout(std140, binding = 80) uniform TerrainCullParams
 {
     // 0 — six frustum planes in TERRAIN-LOCAL space (xyz = normal, w = distance),
     // normalized, ordered Near, Far, Left, Right, Top, Bottom exactly as

@@ -9484,6 +9484,17 @@ namespace
         "assets/shaders/compute/Ocean_Assemble.comp",
         "assets/shaders/compute/Precipitation_Feed.comp",
         "assets/shaders/compute/ReflectionProbeCull.comp",
+        // Issue #713 — the GPU prefix-sum primitive and the particle
+        // compaction retrofitted onto it. Not part of the Phase 7 sweep (they
+        // never had bare uniforms), but they belong to the same contract this
+        // test enforces: a pass-owned std140 block compiled through the REAL
+        // Vulkan compute path. PrefixSum_Scan additionally pulls in
+        // include/PrefixSum.glsl, so this is what proves the shared-memory scan
+        // and its barriers survive shaderc's Vulkan target, not just GL's
+        // native compiler.
+        "assets/shaders/compute/PrefixSum_Scan.comp",
+        "assets/shaders/compute/PrefixSum_AddBlockOffsets.comp",
+        "assets/shaders/compute/Particle_CompactScatter.comp",
     };
 } // namespace
 

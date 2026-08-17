@@ -31,17 +31,17 @@ layout(local_size_x = 64) in;
 // Per-node world-space height extremes, level-major (oloTerrainNodeIndex).
 // Built once per terrain rebuild by TerrainQuadtree's min/max pyramid, so the
 // GPU AABB is bit-identical to the CPU node's Bounds.
-layout(std430, binding = 54) readonly buffer TerrainNodeBounds
+layout(std430, binding = 65) readonly buffer TerrainNodeBounds
 {
     vec2 b_NodeMinMaxY[];
 };
 
-layout(std430, binding = 55) readonly buffer TerrainNodeListIn
+layout(std430, binding = 66) readonly buffer TerrainNodeListIn
 {
     uint b_NodesIn[];
 };
 
-layout(std430, binding = 56) writeonly buffer TerrainNodeListOut
+layout(std430, binding = 67) writeonly buffer TerrainNodeListOut
 {
     uint b_NodesOut[];
 };

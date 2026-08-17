@@ -1,0 +1,60 @@
+#version 460 core
+
+// The subgroup opt-in, which MUST sit between `#version` and the first
+// non-preprocessor token — see the "HOW TO TAKE THE SUBGROUP PATH" block in
+// include/PrefixSum.glsl.
+//
+// `: require`, not `: enable`. There is no silent-fallback option here: the
+// `#define` below selects the subgroup path unconditionally (it is not, and
+// cannot be, auto-detected), so a driver lacking the extension must fail this
+// shader LOUDLY at compile time rather than reach `subgroupExclusiveAdd` with
+// the extension off. GPUPrefixSumTest treats that compile failure as "this
+// driver has no subgroup support, skip this half" and says so.
+#extension GL_KHR_shader_subgroup_basic      : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// =============================================================================
+// ShaderUnit_PrefixSumSubgroup.comp — L2 probe for include/PrefixSum.glsl's
+// SUBGROUP path (issue #713).
+//
+// Twin of ShaderUnit_PrefixSumShared.comp, which is byte-identical apart from
+// the directives above and the opt-in define below. The two paths must agree
+// exactly on every input — that equality IS the test, because an exclusive scan
+// has one right answer and neither path is allowed to be a
+// different-but-plausible one.
+// =============================================================================
+
+// BEFORE the include — contract 2 in PrefixSum.glsl. This shader is the one
+// that proves the rule: with the layout after the include, NVIDIA rejects it
+// with `error C7594: ... before using the builtin constant gl_WorkGroupSize`,
+// because the subgroup path reads gl_NumSubgroups.
+layout(local_size_x = 256) in;
+
+#define OLO_PREFIX_SUM_USE_SUBGROUP 1
+#define OLO_PREFIX_SUM_GROUP_SIZE 256
+#include "../include/PrefixSum.glsl"
+
+layout(std430, binding = 0) readonly buffer PrefixSumProbeIn { uint u_Values[]; };
+
+layout(std430, binding = 1) writeonly buffer PrefixSumProbeOut
+{
+    uint o_GroupTotal;    // the work group's grand total, written by lane 0
+    uint o_PathIsSubgroup; // 1 when the subgroup path was compiled, 0 when not
+    uint o_Pad0;
+    uint o_Pad1;
+    uint o_Exclusive[];   // per-lane exclusive prefix
+};
+
+void main()
+{
+    uint groupTotal;
+    uint exclusive = OloPrefixSumExclusive(u_Values[gl_LocalInvocationIndex], groupTotal);
+
+    o_Exclusive[gl_LocalInvocationIndex] = exclusive;
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        o_GroupTotal = groupTotal;
+        o_PathIsSubgroup = uint(OLO_PREFIX_SUM_SUBGROUP);
+    }
+}
