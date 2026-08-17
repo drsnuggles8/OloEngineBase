@@ -244,12 +244,25 @@ completely unshadowed, and it looks like the light is wrong rather than like a
 missing feature.
 
 **Vulkan status, stated precisely, because the imprecise version was wrong twice.**
-VSM RUNS on Vulkan: `VulkanPassSuite.VirtualShadowMapRunsAFullFrameOnVulkan`
-drives a real frame on a real device and asserts the allocator backs pages and
-the raster leaves real depth in the pool, with the fixture's zero-validation-error
-gate over it. What has NOT been done is a side-by-side of a Vulkan frame against
-a GL one, so the y-flip composition below — a claim about two conventions
-cancelling — is argued, tested for execution, and not yet confirmed by eye.
+VSM WORKS on Vulkan, confirmed two ways:
+
+  * `VulkanPassSuite.VirtualShadowMapRunsAFullFrameOnVulkan` drives a real frame
+    on a real device — allocator backs pages, raster leaves real depth in the
+    pool, zero validation errors, zero unimplemented-facade hits.
+  * BY EYE, live in the editor under `--rhi=vulkan` on the **forward** path:
+    four poses of `VirtualShadowMapTest.olo`, CSM vs VSM, with the same
+    qualitative wins as GL (the thin post casts, contact shadows attach, no
+    detached crescents) and the shadows in the SAME places — which is what
+    settles the y-flip composition below, a claim about two conventions
+    cancelling that only a rendered frame could confirm.
+
+THE CAVEAT, and it will bite the next person: the Vulkan editor's **deferred**
+path renders a FROZEN frame — light edits (intensity, CastShadows) never reach
+the screen, with VSM out of the picture entirely (issue #823). Verifying any
+lighting feature live on Vulkan therefore means `renderpath=forward` first. A
+CSM-vs-VSM comparison run on Vulkan-deferred returns byte-identical frames and
+reads as "VSM does nothing"; it cost this task a full verification round before
+the per-pose CSM==VSM hash check exposed it.
 
 GETTING THERE COST TWO ENGINE FIXES, both invisible to every GL test:
 
