@@ -239,6 +239,7 @@ add_executable(OloEngine-Tests
 		Fluid/CPUFluidSolverContractTest.cpp
 		Rendering/PCSSShadowTest.cpp
 		Rendering/VirtualShadowMapMarkPassTest.cpp
+		Rendering/VirtualShadowMapVulkanShaderTest.cpp
 		Rendering/VirtualShadowMapTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp

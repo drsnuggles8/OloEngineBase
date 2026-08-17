@@ -243,8 +243,23 @@ limitation you can ignore: with VSM on, a terrain-heavy scene renders the terrai
 completely unshadowed, and it looks like the light is wrong rather than like a
 missing feature.
 
-Both backends ARE supported. The whole fork is one line, and where it sits is
-the point:
+**Vulkan status, stated precisely, because the imprecise version was wrong once.**
+The Vulkan branches COMPILE — every VSM shader is built with `OLO_VULKAN` defined
+for the Vulkan target env by
+`VirtualShadowMapVulkanShaders.EveryVsmShaderCompilesForTheVulkanTarget`. VSM has
+never RENDERED a Vulkan frame. Do not shorten that to "both backends are
+supported"; the composition below is a claim about two conventions cancelling,
+and only a rendered frame can settle it.
+
+Why the test had to exist at all: `OLO_VULKAN` is defined in exactly two places
+in the engine — `VulkanShader.cpp` and `VulkanComputeShader.cpp` — so an
+`#ifdef OLO_VULKAN` branch is fed to a compiler ONLY when a live Vulkan backend
+loads that shader. Nothing drives VSM on Vulkan, so for the whole of #702 those
+branches had never been **parsed by anything**. A syntax error in them would have
+shipped with the GL suite green. If you add an `OLO_VULKAN` branch to any shader,
+assume it is unparsed until you can name the thing that parses it.
+
+The whole fork is one line, and where it sits is the point:
 
 - The clip projection is carried in **two flavours** —
   `ViewProjection` (raw, the math flavour) and `ViewProjectionRaster`
