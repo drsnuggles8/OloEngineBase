@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Core/Environment.h"
 
@@ -55,12 +56,6 @@ namespace OloEngine
             const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(physicalWidth) * renderScale));
             const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(physicalHeight) * renderScale));
             entry->ApplyRenderViewport(renderW, renderH);
-        }
-
-        bool IsRenderGraphDiagnosticsEnabled()
-        {
-            static const bool enabled = Env::IsTruthy("OLO_RENDERGRAPH_DIAGNOSTICS");
-            return enabled;
         }
 
         // Transient-corruption debug instruments (the transient black-square

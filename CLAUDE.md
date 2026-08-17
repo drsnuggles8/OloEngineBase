@@ -247,7 +247,7 @@ Tests live on **two independent axes** that share only GoogleTest and the regist
 
 The decision tree, per-layer reference, and anti-patterns all live in [docs/agent-rules/testing-architecture.md](docs/agent-rules/testing-architecture.md) and [docs/testing.md](docs/testing.md). When adding an engine feature, pick the right classification(s) from there before writing code.
 
-Special rebase modes: `OLOENGINE_GOLDEN_REBASE=1` for goldens, `OLOENGINE_PERF_REBASE=1` for perf baselines — only after a deliberate visual change or a hardware/optimisation move.
+Special rebase modes: `--olo-golden-rebase` for goldens, `--olo-perf-rebase` for perf baselines — only after a deliberate visual change or a hardware/optimisation move.
 
 ### Rendering changes MUST be visually verified — unit tests are not enough
 

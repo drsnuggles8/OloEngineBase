@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestOptions.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Video/VideoDecoder.h"
@@ -18,8 +19,8 @@ using namespace OloEngine;
 // decoder failure paths, the VideoPlayer transport state machine + input clamping,
 // and the VideoTexture no-op-until-initialized contract — none of which touch GL.
 //
-// A real decode is exercised only when a fixture is supplied via the OLO_TEST_VIDEO
-// environment variable (or one of the probed default paths); otherwise that test
+// A real decode is exercised only when a fixture is supplied via --olo-video=<path>
+// (or one of the probed default paths); otherwise that test
 // GTEST_SKIPs cleanly, mirroring the engine's "skip when no GL context" pattern.
 
 namespace
@@ -27,10 +28,10 @@ namespace
     // Resolve an MPEG-1 fixture path, or "" if none is available.
     std::string FindTestVideo()
     {
-        if (const char* env = std::getenv("OLO_TEST_VIDEO"))
+        if (const std::string& supplied = OloEngine::Tests::Options().VideoPath;
+            !supplied.empty() && std::filesystem::exists(supplied))
         {
-            if (std::filesystem::exists(env))
-                return env;
+            return supplied;
         }
         const char* candidates[] = {
             "OloEditor/assets/tests/video/test.mpg",
@@ -244,7 +245,7 @@ TEST(VideoDecoderFixture, DecodesFrameWhenFixtureAvailable)
 {
     const std::string path = FindTestVideo();
     if (path.empty())
-        GTEST_SKIP() << "No MPEG-1 fixture (set OLO_TEST_VIDEO to a .mpg to exercise decoding).";
+        GTEST_SKIP() << "No MPEG-1 fixture (pass --olo-video=<path.mpg> to exercise decoding).";
 
     VideoDecoder decoder;
     ASSERT_TRUE(decoder.Open(path));

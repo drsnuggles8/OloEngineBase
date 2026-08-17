@@ -111,7 +111,7 @@ Two entry points, both in
   # …then `claude mcp add` with the token from the discovery file (see "Attaching an agent").
   ```
 
-  The session runs for `OLO_MCP_ATTACH_SECONDS` (default 600, capped 7200), or stops early
+  The session runs for `--olo-mcp-attach-seconds=<n>` (default 600, capped 7200), or stops early
   when the sentinel file `<discovery-file>.stop` is created and then removed.
 
 Honesty boundary: the headless host wires the read-only/inspection hooks, plus the two
@@ -232,7 +232,7 @@ and for what to do when adding a tool.
 | `olo_render_target_stats` | exact float min/max/mean + a **bit-exact unique-value histogram** over a `rect` of one target at a `mip` — the 1-ULP instrument an 8-bit PNG cannot be (1.0 and 0.99999994 both encode as 255). Per channel: finite/NaN/Inf counts, distinct-bit-pattern count, most frequent values with exact counts. Supports `layer` and `afterPass` |
 | `olo_render_validate` | on-demand render-graph frame validation: the compiled resource-hazard sweep, barrier/build diagnostics, execute-path resolve failures, consumed-but-unbacked resources, and versioned-name physical-id groups; optional `compare` checks two targets **bit-exactly** (channel 0), e.g. `compare:{a:"SceneDepth", b:"HZB", afterPass:"GTAOPass"}` — both sides snapshotted in the SAME frame |
 | `olo_froxel_fog_probe` | sample the volumetric-fog **froxel volume** at one cell (`froxel`:[x,y,z] or `worldPos`:[x,y,z]) — returns the RAW scatter (in-scatter + extinction) **and** the INTEGRATED values (accumulated in-scatter + transmittance) plus the cell's world bounds, so "scatter pass wrong" and "composite tap wrong" separate without a PNG round trip |
-| `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
+| `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `--olo-golden-rebase` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer, the overdraw heatmap, or a virtualized-geometry visualization (`mode`: none/ssao/gtao/ssr/ssgi/overdraw/**vgclusterid/vglod/vgoverdraw**); reports whether the backing pass is actually running, and (for the vg\* modes) the `captureTarget` to read back. No `mode` lists the modes + current state |
 | `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred), `depthprepass` (off/on/auto — the #316 perf lever), `softshadows` (pcf/pcss — THE ScenePass shadow-cost lever) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
@@ -484,7 +484,7 @@ rule — instead of eyeballing a screenshot, an agent gets a deterministic
 an optional fixed `camera`/`orbit` pose, with the same save/restore as
 `olo_screenshot`), then diffs the result against `goldenPath` using the **same
 RMSE→SSIM metric as the `GoldenImageTests` suite**, so the MCP verdict agrees with the
-`OLOENGINE_GOLDEN_REBASE` test workflow.
+`--olo-golden-rebase` test workflow.
 
 - **`goldenPath`** is a PNG under `assets/tests/visual/` (a bare name like
   `water_side.png` lands there; absolute paths and `..` traversal are rejected — the

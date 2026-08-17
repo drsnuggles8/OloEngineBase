@@ -263,15 +263,52 @@ matches your intent:
 Two rules that come with it:
 
 - **Read once, at startup, into your own state.** `getenv` hands back a pointer
-  into shared static storage, and the test harness *does* write the environment
-  (`OloEngineTest.cpp`'s `main` calls `_putenv_s`; `McpDispatchTest` sets and
-  restores variables around a case). Reading once during init keeps you clear of
-  that, and it is why the cpp:S990 suppression in `Environment.cpp` is honest
-  rather than hand-waved.
+  into shared static storage, and `McpDispatchTest` sets and restores variables
+  around a case. Reading once during init keeps you clear of that, and it is why
+  the cpp:S990 suppression in `Environment.cpp` is honest rather than
+  hand-waved.
 - **`Env::Get` returns `std::optional<std::string>`, which fmt cannot format.**
   Log `*value`, not `value` — passing the optional is a wall of
   `type_is_unformattable_for` template spew that names the *formatter*, not your
   call site. Cost one build cycle during the consolidation.
+
+### An environment variable is the wrong mechanism for a knob you own
+
+Reach for `Env::` when the value comes from **outside the process** — the OS
+(`HOME`, `APPDATA`, `COMPUTERNAME`, `XDG_*`), or a launcher configuring a child
+it started (`driver.ps1` handing the editor its per-worktree MCP port). Also for
+a **one-run debug lever on an already-built binary**: `OLO_RG_POISON_TRANSIENTS`,
+`OLO_RHI_BINDLESS`, `OLO_NO_THREADING`. Those are all genuinely environmental.
+
+For a knob the process owns, a **command-line flag** is strictly better, and the
+test suite is the worked example. It had twelve variables read from 26 sites;
+they are now `--olo-*` flags in `OloEngine/tests/TestOptions.{h,cpp}`, parsed in
+`main` before `InitGoogleTest`. Three things went wrong that flags make
+impossible:
+
+* **Invisibility.** A flag is in the command line CI already prints. A variable
+  set three YAML levels up is not, so "why did this run rebase the goldens?"
+  was archaeology.
+* **Readers disagreeing about their own values.** The AMD conformance workflow
+  carried a comment explaining it had to emit `'0'` and not `'false'`, because
+  one of the three `OLOENGINE_GOLDEN_REBASE` readers tested only the first
+  character — so `false` *enabled* a rebase there. Present-or-absent has no
+  such class of bug.
+* **Leaking into children.** Environment is inherited. `McpHeadlessAttachTest`
+  spawns an editor and was handing it the whole set by accident.
+
+A fourth, subtler one: an env-seeded `static const bool` **latches**. Five
+renderer TUs each had their own copy of the `OLO_RENDERGRAPH_DIAGNOSTICS` gate,
+so whichever asked first froze the answer process-wide — which is why the test
+`main` had to *write* the environment to reach it. One accessor
+(`Renderer/RenderGraphDiagnostics.h`, with a `Set…` alongside the `Is…`) removed
+both the duplication and the only place the engine mutated its own environment.
+If you find yourself writing `_putenv_s`/`setenv` to reach your own code, the
+value wants a setter, not a variable.
+
+Unknown `--olo-*` flags are deliberately **fatal**: a silently-ignored
+`--olo-golden-rebse` would reproduce exactly the invisibility being replaced.
+`--olo-help` lists them.
 
 ### Do not add a fourth way to skip a modal
 

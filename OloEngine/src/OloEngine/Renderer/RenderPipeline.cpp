@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
-#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
@@ -37,7 +37,6 @@
 #include <array>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <utility>
 #include <variant>
 
@@ -46,12 +45,6 @@ namespace OloEngine
     namespace
     {
         constexpr ImageFormat kTemporalHistoryFormat = ImageFormat::RGBA16F;
-
-        bool IsRenderGraphDiagnosticsEnabled()
-        {
-            static const bool enabled = Env::IsTruthy("OLO_RENDERGRAPH_DIAGNOSTICS");
-            return enabled;
-        }
 
         // Halton low-discrepancy sequence used for TAA sub-pixel jitter. Index is
         // 1-based (index 0 is undefined for Halton); the sequence repeats every

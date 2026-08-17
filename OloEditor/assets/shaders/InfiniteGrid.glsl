@@ -193,7 +193,7 @@ void main() {
         // GOLDEN COUPLING: the grid dominates the near-black ground band of the
         // Atmosphere_Night* visual goldens (AtmosphereVisualEvidenceTest.cpp),
         // so changing this bias / the grid's depth path MUST rebake those
-        // goldens in the SAME PR (OLOENGINE_GOLDEN_REBASE=1) -- see issue #754,
+        // goldens in the SAME PR (--olo-golden-rebase) -- see issue #754,
         // where this bias landed (dfd100ef) without a rebake and left the night
         // ground band drifting alongside the star-hash change.
         const float kCoplanarBias = 1e-5;

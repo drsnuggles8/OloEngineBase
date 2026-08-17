@@ -50,13 +50,14 @@
 //   (the DDGIProbeUpdatePass singleton persists across tests in the suite,
 //   so this is also what makes the goldens independent of test order).
 //   Golden compare follows WaterVisualEvidenceTest: a normal run COMPARES
-//   (RMSE <= 6.0) and writes nothing; OLOENGINE_GOLDEN_REBASE=1 (re)writes.
+//   (RMSE <= 6.0) and writes nothing; --olo-golden-rebase (re)writes.
 //   Run from OloEditor/ so the PNGs land under OloEditor/assets/tests/visual/.
 //
 // Classification: L8 / integration (full GL pipeline + RGBA8 readback + PNG).
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "PropertyTests/RendererAttachedTest.h"
@@ -236,8 +237,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
 
         struct BandStats
@@ -562,7 +562,7 @@ namespace OloEngine::Tests
         }
 
         // Golden-image model (WaterVisualEvidenceTest's): rebase mode
-        // (OLOENGINE_GOLDEN_REBASE=1) (re)writes the PNG; a normal run
+        // (--olo-golden-rebase) (re)writes the PNG; a normal run
         // COMPARES against the committed golden (RMSE) and never writes.
         void CompareOrRebaseGolden(const std::string& fileName, const std::vector<u8>& pixels)
         {
@@ -585,7 +585,7 @@ namespace OloEngine::Tests
             int gw = 0, gh = 0, gch = 0;
             stbi_uc* golden = ::stbi_load(path.c_str(), &gw, &gh, &gch, 4);
             ASSERT_NE(golden, nullptr)
-                << "Missing golden '" << path << "' — rerun with OLOENGINE_GOLDEN_REBASE=1 to create it.";
+                << "Missing golden '" << path << "' — rerun with --olo-golden-rebase to create it.";
             const bool sizeMatches = (gw == static_cast<int>(kWidth) && gh == static_cast<int>(kHeight));
             std::vector<u8> goldenPixels;
             if (sizeMatches)
@@ -593,13 +593,13 @@ namespace OloEngine::Tests
             ::stbi_image_free(golden);
             ASSERT_TRUE(sizeMatches) << "Golden '" << path << "' is " << gw << "x" << gh << ", expected "
                                      << kWidth << "x" << kHeight
-                                     << " — rerun with OLOENGINE_GOLDEN_REBASE=1.";
+                                     << " — rerun with --olo-golden-rebase.";
 
             const f64 rmse = Rgba8Rmse(pixels, goldenPixels);
             EXPECT_LE(rmse, kGoldenRmseThreshold)
                 << "'" << fileName << "' diverged from golden (RMSE " << rmse << " > "
                 << kGoldenRmseThreshold << "). If this is an intended visual change, rerun with "
-                << "OLOENGINE_GOLDEN_REBASE=1 to update " << path;
+                << "--olo-golden-rebase to update " << path;
         }
     };
 

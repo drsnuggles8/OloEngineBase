@@ -657,6 +657,8 @@
 		"OloEngine/Renderer/RenderGraph.h"
 		"OloEngine/Renderer/RenderGraphBarrierPlanner.cpp"
 		"OloEngine/Renderer/RenderGraphBarrierPlanner.h"
+		"OloEngine/Renderer/RenderGraphDiagnostics.cpp"
+		"OloEngine/Renderer/RenderGraphDiagnostics.h"
 		"OloEngine/Renderer/RenderGraphHandleAllocator.h"
 		"OloEngine/Renderer/RenderGraphHazardValidator.cpp"
 		"OloEngine/Renderer/RenderGraphHazardValidator.h"
@@ -1717,12 +1719,18 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/ImGui/ImGuiBuild.cpp"           # Dear ImGui backend implementation TU
 		"OloEngine/ImGui/ImGuiBuildVulkan.cpp"     # Dear ImGui Vulkan backend TU (volk-first include order)
 		# GROUP 2 — duplicated file-local helper names that collide across a jumbo (de-dup TODO)
-		"OloEngine/Renderer/RenderPipeline.cpp"            # anon IsTruthyEnvironmentVariable / IsRenderGraphDiagnosticsEnabled
-		"OloEngine/Renderer/RenderGraph.cpp"              #   "
-		"OloEngine/Renderer/Renderer3DFrameExecution.cpp" #   "
-		"OloEngine/Renderer/Renderer3DLifecycle.cpp"      #   "
-		"OloEngine/Renderer/Renderer3DRenderGraphSetup.cpp" # "
-		"OloEngine/Renderer/Model.cpp"             # anon FindTextureInDirectory (+ IsTruthyEnvironmentVariable)
+		# The next five no longer HAVE a duplicated helper: IsTruthyEnvironmentVariable
+		# is gone (every caller uses OloEngine::Env now) and IsRenderGraphDiagnosticsEnabled
+		# is one real function in RenderGraphDiagnostics.{h,cpp}. They stay listed only
+		# because OLO_ENABLE_UNITY_BUILD is OFF by default, so nothing here has proven
+		# these five batch cleanly against their new neighbours — drop them in a change
+		# that actually runs a unity build, not on the strength of this comment.
+		"OloEngine/Renderer/RenderPipeline.cpp"
+		"OloEngine/Renderer/RenderGraph.cpp"
+		"OloEngine/Renderer/Renderer3DFrameExecution.cpp"
+		"OloEngine/Renderer/Renderer3DLifecycle.cpp"
+		"OloEngine/Renderer/Renderer3DRenderGraphSetup.cpp"
+		"OloEngine/Renderer/Model.cpp"             # anon FindTextureInDirectory
 		"OloEngine/Renderer/AnimatedModel.cpp"     # anon FindTextureInDirectory
 		"OloEngine/Renderer/Ocean/OceanFFT.cpp"    # anon constant kTwoPi
 		"OloEngine/Renderer/Ocean/OceanFFTGpu.cpp" # anon constant kTwoPi

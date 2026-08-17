@@ -110,7 +110,7 @@ through `SceneSerializer` and `SaveGameComponentSerializer`, are registered for 
 `OloEngine/tests/VideoPlaybackTest.cpp` (`unit`): decoder failure paths, the player transport
 state machine + input clamping, and the texture no-op-until-initialized contract — all GL-free
 and CI-runnable. A real-decode test (`VideoDecoderFixture`) runs only when an MPEG-1 fixture is
-supplied via `OLO_TEST_VIDEO=<path.mpg>` and otherwise `GTEST_SKIP`s cleanly.
+supplied via `--olo-video=<path.mpg>` and otherwise `GTEST_SKIP`s cleanly.
 
 ## Rendering
 

@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
 #include "OloEngine/Renderer/Renderer3D.h"
-#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
@@ -8,19 +8,9 @@
 #include "OloEngine/Renderer/ShaderConstants.h"
 
 #include <algorithm>
-#include <cstdlib>
 
 namespace OloEngine
 {
-    namespace
-    {
-        bool IsRenderGraphDiagnosticsEnabled()
-        {
-            static const bool enabled = Env::IsTruthy("OLO_RENDERGRAPH_DIAGNOSTICS");
-            return enabled;
-        }
-    } // namespace
-
     void Renderer3D::SetupRenderGraph(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();

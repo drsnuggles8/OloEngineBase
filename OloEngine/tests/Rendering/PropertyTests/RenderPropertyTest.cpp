@@ -4,6 +4,7 @@
 // See RenderPropertyTest.h for design notes.
 // =============================================================================
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/HeapBindingSeam.h"
@@ -41,7 +42,7 @@ namespace OloEngine::Tests
     namespace
     {
         // Which windowing/context path to use for the shared GL context, via
-        // the OLO_TEST_GL_BACKEND environment variable.
+        // the --olo-gl-backend flag.
         //
         //   Auto (default) — prefer GLFW, the context a developer gets locally;
         //                    fall back to EGL when GLFW cannot reach a display
@@ -61,8 +62,8 @@ namespace OloEngine::Tests
 
         GlBackend SelectBackend()
         {
-            const char* raw = std::getenv("OLO_TEST_GL_BACKEND");
-            if (raw == nullptr || raw[0] == '\0')
+            const std::string& raw = OloEngine::Tests::Options().GlBackend;
+            if (raw.empty())
                 return GlBackend::Auto;
 
             std::string value(raw);

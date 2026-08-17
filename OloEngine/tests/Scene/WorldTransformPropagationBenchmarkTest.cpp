@@ -1,5 +1,6 @@
 // OLO_TEST_LAYER: unit
 #include "OloEnginePCH.h"
+#include "../TestOptions.h"
 #include <gtest/gtest.h>
 
 // =============================================================================
@@ -15,8 +16,8 @@
 //
 // Follows the CommandBucketBenchmarkTest pattern: logs timings unconditionally
 // (visible via ctest -V / direct exe run) and only *asserts* an upper bound
-// when OLOENGINE_BENCH_ASSERT=1, since absolute timings vary by machine and a
-// hard-coded threshold would make CI flaky on shared/loaded runners.
+// when --olo-bench-assert is passed, since absolute timings vary by machine
+// and a hard-coded threshold would make CI flaky on shared/loaded runners.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -34,8 +35,7 @@ namespace
 {
     bool BenchAssertEnabled()
     {
-        const char* env = std::getenv("OLOENGINE_BENCH_ASSERT"); // NOLINT(concurrency-mt-unsafe)
-        return env && std::string(env) == "1";
+        return OloEngine::Tests::Options().BenchAssert;
     }
 
     using Clock = std::chrono::high_resolution_clock;

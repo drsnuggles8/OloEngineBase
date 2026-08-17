@@ -17,9 +17,10 @@
 // far_on == near_ref (RMSE ~0) proves the far terrain still renders — and at the
 // same LOD — instead of degenerating / culling. Both frames are asserted to
 // contain substantial lit terrain (a black/culled frame fails). PNGs are written
-// in OLOENGINE_GOLDEN_REBASE mode for a human to eyeball. SKIPs cleanly without a
+// in --olo-golden-rebase mode for a human to eyeball. SKIPs cleanly without a
 // GL 4.6 context — mirrors TerrainGenerationEvidenceTest / WaterVisualEvidenceTest.
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -56,8 +57,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
 
         [[nodiscard]] f32 Luma(u8 r, u8 g, u8 b)

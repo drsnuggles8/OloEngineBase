@@ -2,23 +2,25 @@
 #include <gtest/gtest.h>
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Interactivity.h"
+#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
+#include "TestOptions.h"
 #include "TestTempDir.h"
-
-#include <cstdlib>
 
 int main(int argc, char** argv)
 {
+    // Consume the `--olo-*` flags before gtest's parser sees them, so an
+    // unknown one is OUR diagnostic rather than gtest silently leaving it as a
+    // positional argument.
+    OloEngine::Tests::ParseTestOptions(argc, argv);
+
     // RenderGraphBuildDiagnostics tests rely on the registration-order-sensitivity
-    // diagnostic running. Production code gates it behind OLO_RENDERGRAPH_DIAGNOSTICS;
-    // force it on here before anything reads the static cache.
-#if defined(_WIN32)
-    _putenv_s("OLO_RENDERGRAPH_DIAGNOSTICS", "1");
-#else
-    setenv("OLO_RENDERGRAPH_DIAGNOSTICS", "1", 1);
-#endif
+    // diagnostic running. It is otherwise seeded from OLO_RENDERGRAPH_DIAGNOSTICS;
+    // say so directly instead of writing the environment and hoping nothing has
+    // read it yet.
+    OloEngine::SetRenderGraphDiagnosticsEnabled(true);
 
     // Initialize logging explicitly
     OloEngine::Log::Initialize();

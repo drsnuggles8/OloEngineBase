@@ -15,7 +15,7 @@ that case.
 
 ## Machine tag resolution
 
-1. `OLOENGINE_PERF_MACHINE` env var (canonical, set by CI).
+1. `--olo-perf-machine=<name>` (canonical, passed by CI).
 2. `COMPUTERNAME` / `HOSTNAME` env var.
 3. Literal `"unknown"`.
 
@@ -31,6 +31,6 @@ python OloEngine/tests/scripts/perf_trend.py
 
 ## Rebasing the baseline
 
-Setting `OLOENGINE_PERF_REBASE=1` rewrites `perf_baselines.txt` with the
+Passing `--olo-perf-rebase` rewrites `perf_baselines.txt` with the
 current run's numbers. The history file continues to record every run —
 rebases are visible in the TSV as a point where ratio returns to ~1.0.

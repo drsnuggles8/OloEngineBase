@@ -30,7 +30,7 @@ namespace OloEngine
         // GOLDEN COUPLING: this star path also feeds the Atmosphere_Night*
         // visual goldens (AtmosphereVisualEvidenceTest.cpp). Changing the hash
         // relocates every star, so it MUST rebake those goldens in the SAME PR
-        // (OLOENGINE_GOLDEN_REBASE=1) — see the matching note in the shader and
+        // (--olo-golden-rebase) — see the matching note in the shader and
         // issue #754.
         //
         // The hash chain below IS bit-exact against the shader (integer ops

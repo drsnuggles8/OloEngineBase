@@ -8,7 +8,7 @@
 # will differ (sometimes by an order of magnitude) on other GPUs.
 #
 # To rebase (after confirming the change is expected):
-#   set OLOENGINE_PERF_REBASE=1
+#   pass --olo-perf-rebase
 #   run-tests-debug
 # The test harness will rewrite this file with fresh numbers from the
 # current run and pass unconditionally while the env var is set.
@@ -18,7 +18,7 @@
 # (gtest property + perf_history TSV) and logged via GTEST_LOG_(WARNING),
 # but do NOT fail the test — these low-microsecond GPU microbenchmarks
 # flake under machine/GPU contention (issue #324). Set
-# OLOENGINE_PERF_STRICT=1 to turn a regression into an ADD_FAILURE
+# --olo-perf-strict to turn a regression into an ADD_FAILURE
 # failure on a quiet machine.
 #   - Measured >= 2.5x baseline  -> FAIL-level (fails only when STRICT)
 #   - Measured >= 1.5x baseline  -> WARN-level (fails only when STRICT)

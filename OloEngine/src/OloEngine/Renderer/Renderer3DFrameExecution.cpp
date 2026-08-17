@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
 #include "OloEngine/Renderer/Renderer3D.h"
-#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/CameraRelative.h"
@@ -14,19 +14,8 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 
-#include <cstdlib>
-
 namespace OloEngine
 {
-    namespace
-    {
-        bool IsRenderGraphDiagnosticsEnabled()
-        {
-            static const bool enabled = Env::IsTruthy("OLO_RENDERGRAPH_DIAGNOSTICS");
-            return enabled;
-        }
-    } // namespace
-
     void Renderer3D::SetParticleRenderCallback(RenderCallback callback)
     {
         s_Data.PendingParticleRenderCallback = std::move(callback);

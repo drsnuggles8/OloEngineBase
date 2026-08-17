@@ -101,8 +101,8 @@ If a feature touches multiple surfaces, write one test per surface — and write
 - **Full suite:** VS Code task `run-tests-debug` (builds then runs).
 - **Single test:** `./build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=SuiteName.TestName`.
 - **Fuzz smoke:** build target `OloEngine-FuzzSmoke`, then run each harness with `-runs=N -max_total_time=T`.
-- **Golden rebase** (only when a deliberate visual change lands): `OLOENGINE_GOLDEN_REBASE=1 <test binary> --gtest_filter=GoldenImage*`.
-- **Perf rebase** (only when moving to new hardware or after an intentional optimisation): `OLOENGINE_PERF_REBASE=1 <test binary> --gtest_filter=PerfRegression*`.
+- **Golden rebase** (only when a deliberate visual change lands): `<test binary> --olo-golden-rebase --gtest_filter=GoldenImage*`.
+- **Perf rebase** (only when moving to new hardware or after an intentional optimisation): `<test binary> --olo-perf-rebase --gtest_filter=PerfRegression*`.
 
 Working directory matters: run from the repo root so asset paths resolve.
 
@@ -135,7 +135,7 @@ OloEngine::Tests::TempDir("staging")    // ...a second directory for the same ca
 OloEngine::Tests::TempFile("cfg.yaml")  // a file inside it; parent created, file not
 ```
 
-It roots every scratch path in `<temp>/OloEngineTests-<pid>_<random64>` — a flat prefix, deliberately, not a shared `OloEngineTests/` parent, because a fixed-name directory in a sticky world-writable `/tmp` cannot be created inside by any account except the one that made it. The root is **claimed exclusively** at first use (so a recycled PID cannot adopt a crashed run's leftovers) and removed at process exit; the leaf under it is the gtest case, emptied on the first call within each test. That covers both axes: sibling cases in one run, *and* two concurrent runs of the binary — two worktrees on one box, or a local run alongside CI, where case-name keying alone collides. `OLO_TEST_KEEP_TEMP=1` keeps the tree for a post-mortem.
+It roots every scratch path in `<temp>/OloEngineTests-<pid>_<random64>` — a flat prefix, deliberately, not a shared `OloEngineTests/` parent, because a fixed-name directory in a sticky world-writable `/tmp` cannot be created inside by any account except the one that made it. The root is **claimed exclusively** at first use (so a recycled PID cannot adopt a crashed run's leftovers) and removed at process exit; the leaf under it is the gtest case, emptied on the first call within each test. That covers both axes: sibling cases in one run, *and* two concurrent runs of the binary — two worktrees on one box, or a local run alongside CI, where case-name keying alone collides. `--olo-keep-temp` keeps the tree for a post-mortem.
 
 This is enforced, not conventional: the `test-temp-dir-isolated` pre-commit hook ([`check_temp_dir_isolation.py`](../../OloEngine/tests/scripts/check_temp_dir_isolation.py)) fails any direct `std::filesystem::temp_directory_path()` call under `OloEngine/tests`. A site that genuinely must name the system temp root opts out with `// OLO_TEMP_DIR_OK: <reason>` — currently only the three libFuzzer targets, which are separate executables with no gtest case to key by.
 

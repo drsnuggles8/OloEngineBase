@@ -1,6 +1,9 @@
 ﻿enable_testing()
 add_executable(OloEngine-Tests
 		OloEngineTest.cpp
+		# The suite's own `--olo-*` flags. Parsed in main() before gtest sees
+		# argv; replaced twelve environment variables read from 26 sites.
+		TestOptions.cpp
 		# Per-process, per-case scratch paths. Every test that writes a file goes
 		# through this instead of std::filesystem::temp_directory_path() — see
 		# docs/agent-rules/shared-temp-dir-test-isolation.md (issue #789).
