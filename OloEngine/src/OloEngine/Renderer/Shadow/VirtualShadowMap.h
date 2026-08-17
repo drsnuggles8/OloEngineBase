@@ -16,6 +16,7 @@
 #include <glm/glm.hpp>
 #include <array>
 #include <functional>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -484,6 +485,40 @@ namespace OloEngine
             u32 RunBase = 0; // start of this batch's compacted instance run
         };
 
+        // The batch identity, as a hashable key. RenderCasters used to find a
+        // caster's batch with a linear scan over m_Batches -- run TWICE per
+        // caster per frame, which at the documented budgets (kMaxCasters x
+        // kMaxBatches) is millions of four-field compares on the render thread.
+        // The map also removes the duplicated predicate the two scans carried.
+        struct BatchKey
+        {
+            u64 Vao = 0; // ResourceHandle packed as (Generation << 32) | Index
+            u32 IndexCount = 0;
+            u32 BaseIndex = 0;
+            bool TwoSided = false;
+
+            bool operator==(const BatchKey&) const = default;
+        };
+        struct BatchKeyHash
+        {
+            [[nodiscard]] sizet operator()(const BatchKey& key) const
+            {
+                // FNV-1a over the four fields -- cheap, and a collision only
+                // costs an equality re-check.
+                u64 hash = 1469598103934665603ull;
+                const auto mix = [&hash](u64 value)
+                {
+                    hash ^= value;
+                    hash *= 1099511628211ull;
+                };
+                mix(key.Vao);
+                mix(key.IndexCount);
+                mix(key.BaseIndex);
+                mix(key.TwoSided ? 1u : 0u);
+                return static_cast<sizet>(hash);
+            }
+        };
+
         void CreateResources();
         void DestroyResources();
         bool LoadShaders();
@@ -494,11 +529,14 @@ namespace OloEngine
                                  const glm::vec3& renderOrigin, u32 instanceBase,
                                  const BoneUploader& uploadBones);
 
-        // Dispatch helper: binds `shader`, dispatches ceil(count / groupSize)
-        // groups on X, and issues the SSBO/image barrier the next stage needs.
         // Binds the physical pool on image unit 0. MUST be called with the
         // consuming VSM shader already bound — see the definition.
         void BindPhysicalPoolImage() const;
+
+        // Dispatch helper: binds `shader`, dispatches ceil(count / groupSize)
+        // groups on X, and issues the SSBO/image barrier the next stage needs.
+        // (Deliberately does NOT touch the pool image — the callers that need it
+        // bind it themselves, in shader-then-image order.)
         void DispatchKernel(const Ref<ComputeShader>& shader, u32 threadCount, u32 groupSize) const;
 
         VirtualShadowMapSettings m_Settings{};
@@ -589,6 +627,7 @@ namespace OloEngine
         std::vector<CasterPose> m_PrevCasterPoses;
 
         std::vector<Batch> m_Batches;
+        std::unordered_map<BatchKey, u32, BatchKeyHash> m_BatchLookup; // key -> index into m_Batches
         std::vector<VSM::CullInstance> m_CullInput;
         std::vector<VSM::DrawCommand> m_DrawCommandStaging;
         std::vector<VSM::DrawInstance> m_SkinnedInstanceStaging;
@@ -597,5 +636,6 @@ namespace OloEngine
         VSM::Statistics m_Statistics{};
         bool m_LoggedRasterIncomplete = false;
         bool m_LoggedDrawBudgetExhausted = false;
+        bool m_LoggedCasterBudgetExhausted = false;
     };
 } // namespace OloEngine

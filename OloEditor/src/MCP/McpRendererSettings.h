@@ -346,23 +346,30 @@ namespace OloEngine::MCP::RendererSettings
         // the token parsed, applied and described correctly everywhere, and the
         // tool still rejected it at the schema gate — which reads as "the feature
         // is missing" rather than as "one list was not updated".
-        std::vector<std::string> settingTokens;
-        std::string valueHelp;
-        for (const auto& info : kSettings)
+        // Built once: kSettings is constexpr, so the derived strings cannot
+        // change at runtime, and this runs on every tools/list request.
+        static const auto kDerived = []
         {
-            settingTokens.emplace_back(info.Token);
-            if (!valueHelp.empty())
-                valueHelp += "; ";
-            valueHelp += std::string(info.Token) + ": ";
-            bool first = true;
-            for (const auto& allowed : SettingValues(info.Id))
+            std::pair<std::vector<std::string>, std::string> derived;
+            auto& [settingTokens, valueHelp] = derived;
+            for (const auto& info : kSettings)
             {
-                if (!first)
-                    valueHelp += "|";
-                valueHelp += std::string(allowed.Token);
-                first = false;
+                settingTokens.emplace_back(info.Token);
+                if (!valueHelp.empty())
+                    valueHelp += "; ";
+                valueHelp += std::string(info.Token) + ": ";
+                bool first = true;
+                for (const auto& allowed : SettingValues(info.Id))
+                {
+                    if (!first)
+                        valueHelp += "|";
+                    valueHelp += std::string(allowed.Token);
+                    first = false;
+                }
             }
-        }
+            return derived;
+        }();
+        const auto& [settingTokens, valueHelp] = kDerived;
 
         return Schema::Object()
             .Prop("setting", Schema::String().EnumFrom(settingTokens).Desc("Which renderer / post-process setting to set. Omit both arguments to list every setting with its current value and allowed values."))

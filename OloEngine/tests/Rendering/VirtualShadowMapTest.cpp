@@ -21,7 +21,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <array>
+#include <bit>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -35,6 +38,26 @@ namespace
     // The shader half of every constant this system shares. Parsed rather than
     // duplicated: a test that restates the number is a second copy to keep in
     // sync, which is the failure it exists to prevent.
+    [[nodiscard]] std::string ReadShaderFile(const char* relative)
+    {
+        namespace fs = std::filesystem;
+        const std::array<fs::path, 3> candidates{
+            fs::path("OloEditor/assets/shaders") / relative,
+            fs::path("assets/shaders") / relative,
+            fs::path("../OloEditor/assets/shaders") / relative,
+        };
+        for (const auto& path : candidates)
+        {
+            std::ifstream in(path);
+            if (!in)
+                continue;
+            std::ostringstream buffer;
+            buffer << in.rdbuf();
+            return buffer.str();
+        }
+        return {};
+    }
+
     [[nodiscard]] std::string ReadShaderInclude(const char* name)
     {
         namespace fs = std::filesystem;
@@ -91,13 +114,18 @@ TEST(VirtualShadowMap, ConstantsMirrorTheShaderContract)
         const char* Define;
         u32 Cpp;
     };
-    const std::array<Mirror, 6> mirrors{ {
+    const std::array<Mirror, 8> mirrors{ {
         { "VSM_VIRTUAL_RESOLUTION", VSM::kVirtualResolution },
         { "VSM_PAGE_SIZE", VSM::kPageSize },
         { "VSM_PAGE_SIZE_LOG2", VSM::kPageSizeLog2 },
         { "VSM_CLIP_LEVELS", VSM::kClipLevels },
         { "VSM_HPB_MIP_COUNT", VSM::kHPBMipCount },
         { "VSM_MAX_REQUESTS", VSM::kMaxRequests },
+        // The cull validates every CPU-supplied batch record against these two
+        // before touching its buffers — a drift here turns that tripwire into
+        // either a scribble (GLSL smaller) or a false overflow (GLSL larger).
+        { "VSM_MAX_BATCHES", VSM::kMaxBatches },
+        { "VSM_MAX_DRAW_INSTANCES", VSM::kMaxDrawInstances },
     } };
 
     for (const auto& mirror : mirrors)
@@ -115,6 +143,34 @@ TEST(VirtualShadowMap, ConstantsMirrorTheShaderContract)
     EXPECT_EQ(VSM::kPageSize, 1u << VSM::kPageSizeLog2);
     EXPECT_EQ(VSM::kPagesPerClipLevel, VSM::kPageTableResolution * VSM::kPageTableResolution);
     EXPECT_EQ(VSM::kTotalVirtualPages, VSM::kPagesPerClipLevel * VSM::kClipLevels);
+
+    // Two sampler bindings are hand-written LITERALS in the shaders (GLSL on
+    // this compile route cannot read C++ constants), each next to a comment
+    // naming the constant it mirrors. The comment is not a mechanism; this is.
+    // A drift makes the kernel/sampler read whatever texture the stale slot
+    // holds — a wrong-resource read, not an error.
+    {
+        const std::string markKernel = ReadShaderFile("compute/VSM_MarkRequiredPages.comp");
+        ASSERT_FALSE(markKernel.empty()) << "VSM_MarkRequiredPages.comp not found";
+        std::smatch match;
+        ASSERT_TRUE(std::regex_search(
+            markKernel, match,
+            std::regex(R"(layout\(binding\s*=\s*(\d+)\)\s*uniform\s+sampler2D\s+u_VSMSceneDepth)")))
+            << "u_VSMSceneDepth declaration not found in VSM_MarkRequiredPages.comp";
+        EXPECT_EQ(static_cast<u32>(std::stoul(match[1].str())), ShaderBindingLayout::TEX_POSTPROCESS_DEPTH)
+            << "u_VSMSceneDepth's binding literal drifted from TEX_POSTPROCESS_DEPTH — the marker now "
+               "unprojects whatever texture that slot holds and marks pages for a scene that does not "
+               "exist";
+
+        const std::string sampling = ReadShaderInclude("VirtualShadowSampling.glsl");
+        ASSERT_FALSE(sampling.empty()) << "VirtualShadowSampling.glsl not found";
+        ASSERT_TRUE(std::regex_search(
+            sampling, match,
+            std::regex(R"(layout\(binding\s*=\s*(\d+)\)\s*uniform\s+usampler2D\s+u_VSMPhysicalPool)")))
+            << "u_VSMPhysicalPool declaration not found in VirtualShadowSampling.glsl";
+        EXPECT_EQ(static_cast<u32>(std::stoul(match[1].str())), ShaderBindingLayout::TEX_VSM_PHYSICAL)
+            << "u_VSMPhysicalPool's binding literal drifted from TEX_VSM_PHYSICAL";
+    }
 
     // The shader shifts by "the page TABLE's log2" in the cull's seam test. That
     // it currently equals the page size's log2 is a coincidence of 4096/64 = 64,

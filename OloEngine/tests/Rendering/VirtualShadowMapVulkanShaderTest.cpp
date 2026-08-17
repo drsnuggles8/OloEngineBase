@@ -288,12 +288,16 @@ void main() {}
             }
         }
 
-        // The harness must have done work. Without this, a path typo or a broken
-        // splitter makes the loop compile nothing and the test pass vacuously —
-        // which is the failure mode this whole file exists to prevent elsewhere.
-        EXPECT_GE(stagesCompiled, kVsmShaders.size())
-            << "compiled only " << stagesCompiled << " stages from " << kVsmShaders.size()
-            << " shaders — the harness is not reaching the sources";
+        // The harness must have compiled EXACTLY the expected stage set: the nine
+        // compute kernels are one stage each and the two graphics shaders are two
+        // each. A >= floor would let a broken #type splitter silently drop a
+        // fragment stage — which is precisely the stage carrying the y-flip this
+        // file exists to keep parsed.
+        constexpr u32 kExpectedStages = 9u + 2u * 2u;
+        EXPECT_EQ(stagesCompiled, kExpectedStages)
+            << "compiled " << stagesCompiled << " stages from " << kVsmShaders.size()
+            << " shaders (expected " << kExpectedStages
+            << ") — a path typo or a broken stage splitter is hiding sources from the compiler";
     }
 
     // The flip is the ONE backend fork in the whole system, so its absence is

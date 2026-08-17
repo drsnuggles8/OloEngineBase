@@ -42,11 +42,17 @@ void main()
 
     int tableRes = VSM_PHYSICAL_PAGE_TABLE_RES;
     ivec2 physicalPage = ivec2(int(physicalIdx % uint(tableRes)), int(physicalIdx / uint(tableRes)));
-    ivec2 base = physicalPage * VSM_PAGE_SIZE + ivec2(gl_LocalInvocationID.xy) * 8;
 
-    for (int y = 0; y < 8; ++y)
+    // Derived, not the literal 8x8: each thread of the 8x8 workgroup clears a
+    // (VSM_PAGE_SIZE / 8)^2 block, so the kernel keeps covering exactly one
+    // page if VSM_PAGE_SIZE is ever retuned (a literal stride goes out of
+    // bounds at 32 and leaves texels sentinel at 128, both silently).
+    const int kBlock = VSM_PAGE_SIZE / int(gl_WorkGroupSize.x);
+    ivec2 base = physicalPage * VSM_PAGE_SIZE + ivec2(gl_LocalInvocationID.xy) * kBlock;
+
+    for (int y = 0; y < kBlock; ++y)
     {
-        for (int x = 0; x < 8; ++x)
+        for (int x = 0; x < kBlock; ++x)
         {
             imageStore(u_VSMPhysicalPages, base + ivec2(x, y), uvec4(VSM_DEPTH_FAR_BITS));
         }

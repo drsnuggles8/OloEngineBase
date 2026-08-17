@@ -109,7 +109,12 @@ namespace OloEngine
                                m_BuildHPBShader && m_BuildHPBShader->IsValid() &&
                                m_CullShader && m_CullShader->IsValid() &&
                                m_EndFrameShader && m_EndFrameShader->IsValid();
-        return computeOk && m_DepthShader && m_DepthSkinnedShader;
+        // IsReady(), not just non-null: Shader::Create can return a live object
+        // whose compilation FAILED, and VSM staying "active" with a dead depth
+        // raster is precisely the unshadowed-frame-with-no-error state this
+        // whole function exists to refuse (the caller falls back to CSM).
+        return computeOk && m_DepthShader && m_DepthShader->IsReady() &&
+               m_DepthSkinnedShader && m_DepthSkinnedShader->IsReady();
     }
 
     void VirtualShadowMap::CreateResources()
@@ -147,6 +152,22 @@ namespace OloEngine
         using SB = StorageBuffer;
         constexpr auto kGPUWritten = StorageBufferUsage::DynamicCopy;
 
+        // glMultiDrawElementsIndirectCount sources its draw count from a GPU
+        // buffer. Every VSM batch issues exactly one command, so this holds a
+        // constant 1 — the count is fixed but the INSTANCE count inside the
+        // command is not, and that is the number the cull writes. It reuses
+        // SSBO_VSM_DRAW_COMMANDS' binding number but is only ever consumed as
+        // an indirect PARAMETER buffer (never bound by BindWorkingSet), so it is
+        // created FIRST: StorageBuffer::Create issues an initial bind at its
+        // binding point, and creating it after m_DrawCommands would displace the
+        // real working-set buffer until the next BindWorkingSet re-bound it —
+        // harmless under the current call order, and exactly the kind of
+        // ordering dependency that breaks silently when someone reorders a
+        // frame.
+        m_DrawCountBuffer = SB::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_DRAW_COMMANDS);
+        const u32 oneDraw = 1u;
+        m_DrawCountBuffer->SetData(&oneDraw, sizeof(u32));
+
         m_PageTable = SB::Create(VSM::kTotalVirtualPages * sizeof(u32),
                                  ShaderBindingLayout::SSBO_VSM_PAGE_TABLE, kGPUWritten);
         m_MetaTable = SB::Create(physicalPageCount * sizeof(u32),
@@ -167,14 +188,6 @@ namespace OloEngine
                                     ShaderBindingLayout::SSBO_VSM_DRAW_COMMANDS, kGPUWritten);
         for (auto& stats : m_StatsBuffers)
             stats = SB::Create(sizeof(VSM::Statistics), ShaderBindingLayout::SSBO_VSM_STATS, kGPUWritten);
-
-        // glMultiDrawElementsIndirectCount sources its draw count from a GPU
-        // buffer. Every VSM batch issues exactly one command, so this holds a
-        // constant 1 — the count is fixed but the INSTANCE count inside the
-        // command is not, and that is the number the cull writes.
-        m_DrawCountBuffer = SB::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_DRAW_COMMANDS);
-        const u32 oneDraw = 1u;
-        m_DrawCountBuffer->SetData(&oneDraw, sizeof(u32));
 
         m_GlobalsUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
         m_PassUBO = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
@@ -269,9 +282,14 @@ namespace OloEngine
         // page: the stored depths and the page-to-world mapping were produced
         // under the old numbers, and a partially-refreshed table would blend the
         // two silently.
-        const bool invalidates = settings.Clip0HalfExtent != m_Settings.Clip0HalfExtent ||
-                                 settings.DepthRange != m_Settings.DepthRange ||
-                                 settings.ClipSelectionBias != m_Settings.ClipSelectionBias;
+        // Epsilon compare, not ==/!= (cpp-coding-quality.md par.2): these arrive
+        // from UI sliders and (eventually) serialized settings, and a last-bit
+        // round-trip difference must not torch every cached page.
+        const auto differs = [](f32 a, f32 b)
+        { return std::fabs(a - b) > 1.0e-6f; };
+        const bool invalidates = differs(settings.Clip0HalfExtent, m_Settings.Clip0HalfExtent) ||
+                                 differs(settings.DepthRange, m_Settings.DepthRange) ||
+                                 differs(settings.ClipSelectionBias, m_Settings.ClipSelectionBias);
 
         m_Settings = settings;
 
@@ -690,6 +708,13 @@ namespace OloEngine
         // same submesh, so they collapse into one instanced indirect draw.
         m_Batches.clear();
         m_CullInput.clear();
+        m_BatchLookup.clear();
+
+        const auto batchKeyOf = [](const ShadowMeshCaster& caster, RHI::ResourceHandle drawVao)
+        {
+            return BatchKey{ (static_cast<u64>(drawVao.Generation) << 32) | drawVao.Index,
+                             caster.indexCount, caster.baseIndex, caster.twoSided };
+        };
 
         for (const auto& caster : meshCasters)
         {
@@ -697,20 +722,20 @@ namespace OloEngine
             if (!drawVao.IsValid() || caster.indexCount == 0)
                 continue;
 
-            auto it = std::ranges::find_if(m_Batches,
-                                           [&](const Batch& b)
-                                           {
-                                               return b.Vao == drawVao && b.IndexCount == caster.indexCount &&
-                                                      b.BaseIndex == caster.baseIndex && b.TwoSided == caster.twoSided;
-                                           });
-            if (it == m_Batches.end())
+            const auto [slot, inserted] =
+                m_BatchLookup.try_emplace(batchKeyOf(caster, drawVao), static_cast<u32>(m_Batches.size()));
+            if (inserted)
             {
                 if (m_Batches.size() >= VSM::kMaxBatches)
+                {
+                    // Over budget: forget the tentative mapping so the second
+                    // pass skips this caster, exactly as the old scan did.
+                    m_BatchLookup.erase(slot->first);
                     continue;
+                }
                 m_Batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, 0, 0 });
-                it = std::prev(m_Batches.end());
             }
-            it->CasterCount += 1;
+            m_Batches[slot->second].CasterCount += 1;
         }
 
         if (m_Batches.empty() && skinnedCasters.empty())
@@ -761,17 +786,12 @@ namespace OloEngine
             if (!drawVao.IsValid() || caster.indexCount == 0)
                 continue;
 
-            const auto it = std::ranges::find_if(m_Batches,
-                                                 [&](const Batch& b)
-                                                 {
-                                                     return b.Vao == drawVao && b.IndexCount == caster.indexCount &&
-                                                            b.BaseIndex == caster.baseIndex &&
-                                                            b.TwoSided == caster.twoSided;
-                                                 });
-            if (it == m_Batches.end())
-                continue;
+            const auto found = m_BatchLookup.find(batchKeyOf(caster, drawVao));
+            if (found == m_BatchLookup.end())
+                continue; // dropped by the batch budget in the first pass
 
-            const auto batchIndex = static_cast<u32>(std::distance(m_Batches.begin(), it));
+            const u32 batchIndex = found->second;
+            const Batch& batch = m_Batches[batchIndex];
 
             VSM::CullInstance entry{};
             entry.Transform = MakeModelRelative(caster.transform, renderOrigin);
@@ -781,13 +801,25 @@ namespace OloEngine
                 entry.BoundsMin = glm::vec4(caster.WorldBounds.Min - renderOrigin, 0.0f);
                 entry.BoundsMax = glm::vec4(caster.WorldBounds.Max - renderOrigin, 0.0f);
             }
-            entry.Batch = glm::uvec4(batchIndex, it->RunBase, it->CasterCount * VSM::kClipLevels,
+            entry.Batch = glm::uvec4(batchIndex, batch.RunBase, batch.CasterCount * VSM::kClipLevels,
                                      unbounded ? 1u : 0u);
             m_CullInput.push_back(entry);
         }
 
         if (m_CullInput.size() > VSM::kMaxCasters)
+        {
+            // Same contract as the batch and draw-instance budgets above: a
+            // budget may drop work, but it says so. Silent truncation here is a
+            // caster whose shadow vanishes with nothing to grep for.
+            if (!m_LoggedCasterBudgetExhausted)
+            {
+                OLO_CORE_WARN("VirtualShadowMap: caster budget exhausted ({} submitted, {} kept) — "
+                              "raise VSM::kMaxCasters or reduce shadow casters",
+                              m_CullInput.size(), VSM::kMaxCasters);
+                m_LoggedCasterBudgetExhausted = true;
+            }
             m_CullInput.resize(VSM::kMaxCasters);
+        }
 
         if (!m_CullInput.empty())
         {
@@ -1120,6 +1152,13 @@ namespace OloEngine
         const auto& source = m_StatsBuffers[m_StatsWriteIndex];
         if (!source)
             return;
+        // The kernels that wrote this buffer were fenced with ShaderStorage
+        // barriers, which order SHADER reads — a CPU GetData is a buffer-update
+        // client and needs its own barrier class. The frame-late read makes the
+        // race close to unhittable in practice, which is exactly why it would
+        // ship: it costs one barrier to make the ordering guaranteed instead of
+        // probable.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::BufferUpdate);
         VSM::Statistics readback{};
         source->GetData(&readback, sizeof(VSM::Statistics));
         m_Statistics = readback;

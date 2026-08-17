@@ -133,6 +133,19 @@ void main()
     uint runBase = caster.Batch.y;
     uint runCapacity = caster.Batch.z;
 
+    // These three are CPU-supplied indices into two GPU buffers. The CPU sizes
+    // them correctly by construction (see the header comment), so like the slot
+    // guard below this is a tripwire — but one that keeps a malformed record
+    // from scribbling out of bounds rather than merely over-counting. The
+    // capacity check is spelled with subtraction so runBase + runCapacity
+    // cannot wrap in uint.
+    if (batch >= uint(VSM_MAX_BATCHES) || runBase >= uint(VSM_MAX_DRAW_INSTANCES) ||
+        runCapacity > uint(VSM_MAX_DRAW_INSTANCES) - runBase)
+    {
+        atomicAdd(b_CullOverflows, 1u);
+        return;
+    }
+
     uint slot = atomicAdd(b_DrawCommands[batch].InstanceCount, 1u);
     if (slot >= runCapacity)
     {

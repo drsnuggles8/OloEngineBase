@@ -636,6 +636,27 @@ void main()
             << "] but ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S is "
             << ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S
             << " — the shader's block is the wrong size, so the highest offsets read past it.";
+
+        // BindlessHeapGpuTest's inline prologues carry their own hand-written
+        // table declarations. The largest one is the full-table mirror the
+        // storage-image tests read OLO_HEAP_IMAGE_OFFSET through — if the table
+        // grows past it, those offsets index beyond the declared block. (The
+        // file also has a deliberately SMALLER sampler-only prologue that never
+        // touches the image region, so the pin is on the maximum, not on every
+        // match.)
+        const std::string gpuTest = ReadWholeFile(kMirrors[1]);
+        u32 maxDeclared = 0;
+        const std::regex kTableDecl(R"(g_OloHeapOffsets\[(\d+)\])");
+        for (auto it = std::sregex_iterator(gpuTest.begin(), gpuTest.end(), kTableDecl);
+             it != std::sregex_iterator(); ++it)
+        {
+            maxDeclared = std::max(maxDeclared, static_cast<u32>(std::stoul((*it)[1].str())));
+        }
+        EXPECT_EQ(maxDeclared, ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S)
+            << "BindlessHeapGpuTest's largest inline g_OloHeapOffsets declaration is " << maxDeclared
+            << " uvec4s but the table is " << ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S
+            << " — its storage-image prologue under-declares the block and the rebased image offsets "
+               "read past it.";
     }
 
     TEST(BindlessShaderPipeline, NoBindlessRouteShaderKeepsASlotBasedSamplerDeclaration)

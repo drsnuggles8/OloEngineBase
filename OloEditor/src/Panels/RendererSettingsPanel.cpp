@@ -271,20 +271,21 @@ namespace OloEngine
 
         if (vsm.Enabled)
         {
-            static const char* poolItems[] = { "1024 (4 MB)", "2048 (16 MB)", "4096 (64 MB)", "8192 (256 MB)" };
-            static const u32 poolValues[] = { 1024u, 2048u, 4096u, 8192u };
+            static constexpr const char* kPoolItems[] = { "1024 (4 MB)", "2048 (16 MB)", "4096 (64 MB)",
+                                                          "8192 (256 MB)" };
+            static constexpr u32 kPoolValues[] = { 1024u, 2048u, 4096u, 8192u };
             int poolIdx = 2;
             for (int i = 0; i < 4; ++i)
             {
-                if (poolValues[i] == vsm.PhysicalResolution)
+                if (kPoolValues[i] == vsm.PhysicalResolution)
                 {
                     poolIdx = i;
                     break;
                 }
             }
-            if (ImGui::Combo("Physical Pool##vsm", &poolIdx, poolItems, IM_ARRAYSIZE(poolItems)))
+            if (ImGui::Combo("Physical Pool##vsm", &poolIdx, kPoolItems, IM_ARRAYSIZE(kPoolItems)))
             {
-                vsm.PhysicalResolution = poolValues[poolIdx];
+                vsm.PhysicalResolution = kPoolValues[poolIdx];
                 vsmChanged = true;
             }
             if (ImGui::IsItemHovered())
@@ -316,11 +317,11 @@ namespace OloEngine
             // one — it renders the number the lit pass receives, so a shadow that
             // shows there but not in the beauty frame is a term being dropped by
             // the caller rather than a page-table fault.
-            static const char* debugItems[] = { "Off", "Clip level", "Page address",
-                                                "Residency", "Shadow test", "Stored depth",
-                                                "Receiver depth", "Shadow factor" };
+            static constexpr const char* kDebugItems[] = { "Off", "Clip level", "Page address",
+                                                           "Residency", "Shadow test", "Stored depth",
+                                                           "Receiver depth", "Shadow factor" };
             int debugIdx = std::clamp(vsm.DebugMode, 0, 7);
-            if (ImGui::Combo("Debug View##vsm", &debugIdx, debugItems, IM_ARRAYSIZE(debugItems)))
+            if (ImGui::Combo("Debug View##vsm", &debugIdx, kDebugItems, IM_ARRAYSIZE(kDebugItems)))
             {
                 vsm.DebugMode = debugIdx;
                 vsmChanged = true;

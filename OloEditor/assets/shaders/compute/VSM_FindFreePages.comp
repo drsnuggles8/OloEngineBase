@@ -10,9 +10,13 @@
 // only ever happens under real memory pressure and a page that is still on screen
 // is never taken from under a page that has just left it.
 //
-// VISITED is cleared at the end of every shadow pass and re-set by the marker, so
-// "not visited" means exactly "no on-screen texel referenced this page last
-// frame" — the LRU signal, computed without a timestamp or a sort.
+// THE VISITED CYCLE, stated once and mirrored verbatim in VSM_EndFrame.comp:
+// within frame N's shadow pass this kernel (step 3) READS the bits and
+// VSM_EndFrame (step 8) CLEARS them; the marking pass then re-SETS them late in
+// frame N, after the scene depth exists. Nothing else touches them, so the bits
+// read here are exactly the PREVIOUS frame's marker output — "not visited"
+// means "no on-screen texel referenced this page last frame", the LRU signal,
+// computed without a timestamp or a sort.
 // =============================================================================
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;

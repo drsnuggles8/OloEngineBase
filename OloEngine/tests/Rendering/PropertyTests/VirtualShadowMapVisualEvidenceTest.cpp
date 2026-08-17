@@ -205,6 +205,18 @@ namespace OloEngine::Tests
     class VirtualShadowMapVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // SetVirtualShadowMaps mutates the PROCESS-WIDE shadow settings, and each
+        // test body restores CSM only on its success path — an ASSERT_* firing
+        // inside Capture leaves VSM enabled for every later test in the process,
+        // which is exactly the cross-test bleed GLStateGuard exists to stop for
+        // GL state. Restore unconditionally; the call is idempotent when the
+        // body already did it.
+        void TearDown() override
+        {
+            (void)SetVirtualShadowMaps(false);
+            RendererAttachedTest::TearDown();
+        }
+
         void BuildScene() override
         {
             Scene& scene = GetScene();

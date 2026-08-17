@@ -9,9 +9,13 @@
 // cache: whatever survives here is what the next frame gets for free.
 //
 // It must run AFTER the raster and BEFORE the marking pass, and the ordering is
-// not cosmetic. VISITED is the LRU signal VSM_FindFreePages reads; clear it after
-// the marker instead of before and every resident page looks unreferenced, so the
-// pool evicts itself completely every frame and nothing is ever cached.
+// not cosmetic. THE VISITED CYCLE, stated once and mirrored verbatim in
+// VSM_FindFreePages.comp: within frame N's shadow pass VSM_FindFreePages
+// (step 3) READS the bits and this kernel (step 8) CLEARS them; the marking
+// pass then re-SETS them late in frame N. Clear after the marker instead and
+// every resident page looks unreferenced, so the pool evicts itself completely
+// every frame and nothing is ever cached — visible only as a page-draw count
+// that never settles.
 //
 // Dispatched over VSM_TOTAL_VIRTUAL_PAGES, which is always >= the physical page
 // count, so the meta sweep rides along in the same dispatch.
@@ -34,9 +38,13 @@ void main()
 
     if (idx == 0u)
     {
-        // Reset the allocator's per-frame counters. The stats buffer is zeroed
-        // CPU-side at the top of the next frame's page update (it is the buffer
-        // being read back this frame, so it must survive until then).
+        // Reset the allocator's per-frame counters. Two related resets live
+        // CPU-side, deliberately: the stats buffer is zeroed at the top of the
+        // next frame's page update (it is the buffer being read back this
+        // frame, so it must survive until then), and the indirect draw
+        // commands' InstanceCount is re-staged to zero by RenderCasters
+        // (m_DrawCommandStaging -> m_DrawCommands->SetData) before every cull
+        // dispatch.
         b_RequestCount = 0u;
         b_RequestConsumed = 0u;
         b_FreeCount = 0u;

@@ -46,6 +46,14 @@
 // overflow is counted (Statistics::PagesFailed) rather than silently wrapping.
 #define VSM_MAX_REQUESTS            16384
 
+// Cull-stage buffer capacities, mirrored from VSM::kMaxBatches /
+// VSM::kMaxDrawInstances (pinned by VirtualShadowMapTest's mirror test). The
+// cull validates every CPU-supplied batch record against these before touching
+// b_DrawCommands / b_DrawInstances — a malformed record must count as an
+// overflow, never scribble.
+#define VSM_MAX_BATCHES             1024
+#define VSM_MAX_DRAW_INSTANCES      131072
+
 // Hierarchical Page Buffer: a HiZ-shaped pyramid over the DIRTY flag (not
 // depth), one pyramid per clip level. 64 -> 32 -> 16 -> 8 -> 4 -> 2 -> 1.
 #define VSM_HPB_MIP_COUNT           7
