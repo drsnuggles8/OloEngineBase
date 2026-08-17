@@ -35,7 +35,7 @@ struct VSMClipProjection
     float TexelWorldSize;
 };
 
-layout(std140, binding = 79) uniform VirtualShadowGlobals
+layout(std140, binding = 80) uniform VirtualShadowGlobals
 {
     VSMClipProjection u_VSMClips[VSM_CLIP_LEVELS];
     mat4 u_VSMInverseViewProjection;
@@ -65,16 +65,16 @@ layout(std140, binding = 79) uniform VirtualShadowGlobals
 // per SetData. Two consumers, disjoint in time:
 //   .x — VSM_BuildHPB: the mip being written.
 //      — VSM_Depth raster: the base of this batch's compacted instance run.
-layout(std140, binding = 80) uniform VirtualShadowPass
+layout(std140, binding = 81) uniform VirtualShadowPass
 {
     uvec4 u_VSMPassParams;
 };
 
 // Virtual page table — VSM_TOTAL_VIRTUAL_PAGES entries, one uint each.
 #ifndef VSM_PAGE_TABLE_READONLY
-layout(std430, binding = 54) coherent buffer VSMPageTable { uint b_PageTable[]; };
+layout(std430, binding = 58) coherent buffer VSMPageTable { uint b_PageTable[]; };
 #else
-layout(std430, binding = 54) readonly buffer VSMPageTable { uint b_PageTable[]; };
+layout(std430, binding = 58) readonly buffer VSMPageTable { uint b_PageTable[]; };
 #endif
 
 // Selects the clip level for a render-relative world position, using the shared

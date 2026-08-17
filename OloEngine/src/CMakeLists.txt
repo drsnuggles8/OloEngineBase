@@ -534,6 +534,8 @@
 		"OloEngine/Renderer/Frustum.h"
 		"OloEngine/Renderer/GBuffer.cpp"
 		"OloEngine/Renderer/GBuffer.h"
+		"OloEngine/Renderer/GPUPrefixSum.cpp"
+		"OloEngine/Renderer/GPUPrefixSum.h"
 		"OloEngine/Renderer/GraphicsContext.cpp"
 		"OloEngine/Renderer/GraphicsContext.h"
 		"OloEngine/Renderer/IndexBuffer.cpp"

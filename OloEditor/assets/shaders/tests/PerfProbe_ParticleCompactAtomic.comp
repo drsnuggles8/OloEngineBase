@@ -1,0 +1,92 @@
+#version 450 core
+
+// =============================================================================
+// PerfProbe_ParticleCompactAtomic.comp — the PRE-#713 particle compaction,
+// preserved verbatim so the scan that replaced it can be measured against it.
+//
+// This is not a production shader and nothing in the engine binds it. It exists
+// only so `GPUPrefixSumPerfProbe` can time the old single-dispatch `atomicAdd`
+// compaction and the new flag→scan→scatter compaction over byte-identical input
+// on the same GPU in the same process. Without it, any claim about the cost of
+// the conversion would be an estimate rather than a measurement.
+//
+// Kept under tests/ deliberately: ShaderHarness::EnumerateProductionShaders
+// excludes that directory, so this does not enter the production shader
+// contracts (binding registry, UBO size consistency, Vulkan compile sweep).
+// =============================================================================
+
+layout(local_size_x = 256) in;
+
+struct GPUParticle
+{
+    vec4 PositionLifetime;
+    vec4 VelocityMaxLifetime;
+    vec4 Color;
+    vec4 InitialColor;
+    vec4 InitialVelocitySize;
+    vec4 Misc;                 // z = alive (1/0)
+};
+
+layout(std430, binding = 0) readonly buffer ParticleBuffer
+{
+    GPUParticle particles[];
+};
+
+layout(std430, binding = 1) writeonly buffer AliveIndexBuffer
+{
+    uint aliveIndices[];
+};
+
+layout(std430, binding = 2) buffer CounterBuffer
+{
+    uint aliveCount;
+    uint deadCount;
+    uint emitCount;
+    uint pad;
+} counters;
+
+layout(std430, binding = 3) writeonly buffer FreeListBuffer
+{
+    uint freeList[];
+};
+
+layout(std140, binding = 61) uniform ParticleSimParams
+{
+    vec3  u_Gravity;
+    float u_DeltaTime;
+    float u_DragCoefficient;
+    uint  u_MaxParticles;
+    int   u_EmitCount;
+    int   u_EnableGravity;
+    int   u_EnableDrag;
+    int   u_EnableWind;
+    float u_WindInfluence;
+    int   u_EnableNoise;
+    float u_NoiseStrength;
+    float u_NoiseFrequency;
+    int   u_EnableGroundCollision;
+    float u_GroundY;
+    float u_CollisionBounce;
+    float u_CollisionFriction;
+    vec2  _particlePad0;
+};
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= u_MaxParticles)
+        return;
+
+    // The exact shape #713 replaced: one global atomic per particle, on one of
+    // two counters, with the returned slot deciding output order.
+    if (particles[idx].Misc.z > 0.5)
+    {
+        uint aliveIdx = atomicAdd(counters.aliveCount, 1);
+        aliveIndices[aliveIdx] = idx;
+    }
+    else
+    {
+        uint freeIdx = atomicAdd(counters.deadCount, 1);
+        freeList[freeIdx] = idx;
+    }
+}

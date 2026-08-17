@@ -2,9 +2,10 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Particle/GPUParticleData.h"
-#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/GPUPrefixSum.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <span>
@@ -54,6 +55,18 @@ namespace OloEngine
         {
             return m_PrevPositionSSBO;
         }
+        // The two buffers Compact() writes besides the alive-index list. Exposed
+        // for the same reason the four above are — they are the pass's output,
+        // and GPUParticleCompactionTest asserts on their ORDER, which
+        // GetAliveCount() cannot express.
+        [[nodiscard]] const Ref<StorageBuffer>& GetCounterSSBO() const
+        {
+            return m_CounterSSBO;
+        }
+        [[nodiscard]] const Ref<StorageBuffer>& GetFreeListSSBO() const
+        {
+            return m_FreeListSSBO;
+        }
 
         // CPU readback (debug/UI only — involves GPU sync)
         [[nodiscard]] u32 GetAliveCount() const;
@@ -85,11 +98,27 @@ namespace OloEngine
         Ref<StorageBuffer> m_EmitStagingSSBO;  // binding 5: GPUParticle[emitBatchSize]
         Ref<StorageBuffer> m_PrevPositionSSBO; // binding 14: vec4[maxParticles] — previous-frame position snapshot (for motion vectors)
 
+        // Compaction scratch (issue #713), binding 54 = SSBO_PREFIX_SUM_VALUES.
+        // Holds a 0/1 alive flag per particle after Particle_Compact.comp, and
+        // the exclusive prefix sum of those flags after GPUPrefixSum has scanned
+        // it in place — the same buffer, one dispatch apart.
+        Ref<StorageBuffer> m_AliveScanSSBO;
+
         // Compute shaders
         Ref<ComputeShader> m_EmitShader;
         Ref<ComputeShader> m_SimulateShader;
-        Ref<ComputeShader> m_CompactShader;
+        Ref<ComputeShader> m_CompactShader;        // pass 1: write alive flags
+        Ref<ComputeShader> m_CompactScatterShader; // pass 3: prefixes -> slots
         Ref<ComputeShader> m_BuildIndirectShader;
+
+        // Pass 2: the exclusive scan between them (issue #713). Owned per
+        // system rather than shared, so its scratch grows to THIS system's
+        // particle count and two particle systems cannot alias each other's
+        // block sums mid-frame. Held by Ref so it travels through this class's
+        // move operations with everything else — a by-value member would be
+        // left behind by the member-init lists below and silently re-load its
+        // shaders on the first Compact() after a move.
+        Ref<GPUPrefixSum> m_PrefixSum;
 
         // Emit/simulate/compact parameters (issue #691 Phase 7). These were
         // bare `uniform` declarations fed by ComputeShader::Set*, which the
