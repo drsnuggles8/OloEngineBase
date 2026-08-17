@@ -1,4 +1,7 @@
 #include "OloEnginePCH.h"
+#include <optional>
+#include "OloEngine/Core/Interactivity.h"
+#include "OloEngine/Core/Environment.h"
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
@@ -120,10 +123,21 @@ namespace
     // the interactive modal, so this never changes a human's editor.
     [[nodiscard]] AutoSaveRecoveryChoice ResolveAutoSaveRecoveryChoice()
     {
-        const char* env = std::getenv("OLO_EDITOR_AUTOSAVE_RECOVERY");
-        if (env == nullptr || *env == '\0')
+        const std::optional<std::string> env = OloEngine::Env::Get("OLO_EDITOR_AUTOSAVE_RECOVERY");
+        if (!env)
+        {
+            // No explicit answer. A non-interactive process must not block on
+            // the modal, so take the least destructive option: keep what is on
+            // disk and leave the recovery file alone.
+            if (OloEngine::IsNonInteractive())
+            {
+                OLO_CORE_WARN("Non-interactive: auto-save recovery prompt answered 'original' "
+                              "(set OLO_EDITOR_AUTOSAVE_RECOVERY to choose)");
+                return AutoSaveRecoveryChoice::Original;
+            }
             return AutoSaveRecoveryChoice::Prompt;
-        std::string value(env);
+        }
+        std::string value(*env);
         std::ranges::transform(value, value.begin(),
                                [](unsigned char c)
                                { return static_cast<char>(std::tolower(c)); });
@@ -659,16 +673,13 @@ namespace OloEngine
             // Auto-start is opt-in and explicit: either the persisted preference
             // (Window > MCP Server > "Start automatically") or the OLO_MCP_AUTOSTART
             // env var (for headless attach / the smoke test). Default stays off.
-            const char* autostartEnv = std::getenv("OLO_MCP_AUTOSTART");
-            const bool envAutoStart = autostartEnv != nullptr && std::string_view(autostartEnv) != "0" && *autostartEnv != '\0';
-            if (envAutoStart || m_Prefs.McpAutoStart)
+            if (Env::IsTruthy("OLO_MCP_AUTOSTART") || m_Prefs.McpAutoStart)
             {
                 auto port = static_cast<u16>(std::clamp(m_Prefs.McpPort, 1024, 65535));
-                if (const char* portEnv = std::getenv("OLO_MCP_PORT"); portEnv != nullptr)
+                if (const std::optional<i64> parsed = Env::GetInt("OLO_MCP_PORT");
+                    parsed && *parsed >= 1024 && *parsed <= 65535)
                 {
-                    if (const unsigned long parsed = std::strtoul(portEnv, nullptr, 10);
-                        parsed >= 1024 && parsed <= 65535)
-                        port = static_cast<u16>(parsed);
+                    port = static_cast<u16>(*parsed);
                 }
                 if (m_McpServer->Start(port))
                 {
@@ -685,8 +696,7 @@ namespace OloEngine
                     // user. Gated on Start() succeeding: arming write consent on a
                     // server that never actually started listening is meaningless at
                     // best and misleading state to carry if it's started later.
-                    const char* allowWritesEnv = std::getenv("OLO_MCP_ALLOW_WRITES");
-                    if (allowWritesEnv != nullptr && *allowWritesEnv != '\0' && std::string_view(allowWritesEnv) != "0")
+                    if (Env::IsTruthy("OLO_MCP_ALLOW_WRITES"))
                     {
                         OLO_CORE_INFO("OLO_MCP_ALLOW_WRITES set - MCP write consent = AllowSession");
                         m_McpServer->SetAllowWrites(true);

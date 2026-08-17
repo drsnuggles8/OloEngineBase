@@ -208,6 +208,25 @@ namespace OloEngine
             glm::mat4 ViewProjection{ 1.0f };
         };
 
+        // The split threshold is user-editable and round-trips through YAML, so
+        // it can arrive non-finite or zero. Neither degrades gracefully:
+        //
+        //   NaN  — every comparison against it is false, so `screenError <
+        //          TargetTriangleSize` never holds and the descent never stops
+        //          splitting... except the same falsity in the CPU path's
+        //          split test makes it never split at all. One root-sized
+        //          patch, silently, with no error anywhere.
+        //   <= 0 — every node's error clears the threshold, so the descent runs
+        //          to max depth every frame regardless of distance.
+        //
+        // Sanitize at EVERY point the component's value is read. Doing it only
+        // where the GPU descent reads it left the CPU fallback and the streamer
+        // taking the raw value, which is the harder of the two to notice.
+        [[nodiscard]] f32 SanitizedTargetTriangleSize(f32 value)
+        {
+            return (std::isfinite(value) && value > 0.0f) ? value : TerrainLODConfig{}.TargetTriangleSize;
+        }
+
         [[nodiscard]] TerrainLocalCullInputs MakeTerrainLocalCullInputs(const glm::mat4& worldTransform,
                                                                         const glm::vec3& cameraWorldPos,
                                                                         const glm::mat4& worldViewProjection)
@@ -7508,7 +7527,7 @@ namespace OloEngine
                         config.LoadRadius = terrain.m_StreamingLoadRadius;
                         config.MaxLoadedTiles = terrain.m_StreamingMaxTiles;
                         config.TessellationEnabled = terrain.m_TessellationEnabled;
-                        config.TargetTriangleSize = terrain.m_TargetTriangleSize;
+                        config.TargetTriangleSize = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
                         config.MorphRegion = terrain.m_MorphRegion;
                         config.TileDirectory = terrain.m_TileDirectory;
                         config.TileFilePattern = terrain.m_TileFilePattern;
@@ -7588,7 +7607,7 @@ namespace OloEngine
                         // Apply LOD config from component
                         terrain.m_ChunkManager->TessellationEnabled = terrain.m_TessellationEnabled;
                         auto& lodCfg = terrain.m_ChunkManager->GetQuadtree().GetConfig();
-                        lodCfg.TargetTriangleSize = terrain.m_TargetTriangleSize;
+                        lodCfg.TargetTriangleSize = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
                         lodCfg.MorphRegion = terrain.m_MorphRegion;
 
                         terrain.m_ChunkManager->GenerateAllChunks(
@@ -7643,11 +7662,27 @@ namespace OloEngine
                         const auto& terrainTransform = terrainView.get<TransformComponent>(entity);
                         const TerrainLocalCullInputs local = MakeTerrainLocalCullInputs(
                             terrainTransform.GetTransform(), cameraPosition, viewProjection);
-                        terrain.m_ChunkManager->SelectVisibleChunks(
-                            local.ViewFrustum,
-                            local.CameraPos,
-                            local.ViewProjection,
-                            static_cast<f32>(m_ViewportHeight));
+
+                        // GPU descent first (issue #714): it does the whole
+                        // selection + seam resolution on the GPU and leaves an
+                        // indirect draw behind, so neither SelectLOD nor
+                        // ResolveNeighborLODs runs at all. It returns false when
+                        // the GPU tree is unusable (compute shaders unavailable,
+                        // or OLO_TERRAIN_CPU_LOD=1), and only then does the CPU
+                        // descent run.
+                        const f32 targetTriangleSize =
+                            SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
+
+                        if (!terrain.m_ChunkManager->DispatchGPULOD(
+                                local.ViewFrustum, local.CameraPos, local.ViewProjection,
+                                static_cast<f32>(m_ViewportHeight), targetTriangleSize))
+                        {
+                            terrain.m_ChunkManager->SelectVisibleChunks(
+                                local.ViewFrustum,
+                                local.CameraPos,
+                                local.ViewProjection,
+                                static_cast<f32>(m_ViewportHeight));
+                        }
                     }
                 }
 
@@ -7862,7 +7897,82 @@ namespace OloEngine
                                 }
                             }
 
-                            if (useTess)
+                            // GPU-driven LOD (issue #714). One instanced indirect
+                            // draw over the shared unit patch grid replaces the
+                            // per-selected-chunk loop below; the vertex stage
+                            // derives each instance's terrain rect and seam
+                            // deltas from the list the compute pass built.
+                            const auto& gpuQuadtree = chunkMgr.GetGPUQuadtree();
+                            // The patch mesh is part of the GPU path's viability,
+                            // not a detail inside it. Treating it as an inner
+                            // check meant a null mesh drew NO terrain at all —
+                            // the branch was already taken, so the CPU path below
+                            // never ran. Asked for only once the rest of the path
+                            // is viable, because GetSharedPatchMesh() BUILDS the
+                            // mesh on first call and a context-less path must not
+                            // be made to build a vertex array it will never draw.
+                            const Ref<VertexArray>* gpuPatchMesh = nullptr;
+                            if (useTess && gpuQuadtree && gpuQuadtree->HasDispatched())
+                            {
+                                if (const auto& mesh = TerrainGPUQuadtree::GetSharedPatchMesh())
+                                {
+                                    gpuPatchMesh = &mesh;
+                                }
+                            }
+                            const bool gpuDriven = (gpuPatchMesh != nullptr);
+                            if (gpuDriven)
+                            {
+                                const auto& patchMesh = *gpuPatchMesh;
+                                ShaderBindingLayout::TerrainUBO gpuUBO = terrainUBOData;
+                                // Tess level 1 on every edge: the quadtree now
+                                // provides the LOD as real per-node geometry, and
+                                // the seam snapping is what keeps neighbours
+                                // welded. Subdividing on top would reintroduce
+                                // the edge-density matching problem the snapping
+                                // just solved.
+                                gpuUBO.TessFactors = glm::vec4(1.0f);
+                                gpuUBO.TessFactors2 = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+                                gpuUBO.GpuDrivenMode = 1;
+                                gpuUBO.GpuPatchGridRes = static_cast<i32>(TerrainGPUQuadtree::kPatchGridResolution);
+
+                                auto* packet = Renderer3D::DrawTerrainPatch(
+                                    patchMesh->GetRHIHandle(),
+                                    TerrainGPUQuadtree::GetSharedPatchIndexCount(), 3,
+                                    terrainShader,
+                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                    tileModel, gpuUBO, entityID,
+                                    gpuQuadtree->GetDrawArgsHandle(),
+                                    gpuQuadtree->GetVisibleNodesHandle());
+                                if (packet)
+                                    Renderer3D::SubmitPacket(packet);
+
+                                // Shadow casters stay on the chunk meshes. The
+                                // GPU visible list is culled against the CAMERA
+                                // frustum, so replaying it per cascade would drop
+                                // every caster that is off-screen but still
+                                // shadowing — and building a second GPU descent
+                                // per cascade is its own change. This matches what
+                                // the non-tessellated path has always done.
+                                if (hasActiveShadows)
+                                {
+                                    ShaderBindingLayout::TerrainUBO shadowUBO = terrainUBOData;
+                                    shadowUBO.TessFactors = glm::vec4(1.0f);
+                                    shadowUBO.TessFactors2.w = 1.0f;
+                                    std::vector<const TerrainChunk*> shadowChunks;
+                                    chunkMgr.GetVisibleChunks(tileCull.ViewFrustum, shadowChunks);
+                                    for (const auto* chunk : shadowChunks)
+                                    {
+                                        auto va = chunk->GetVertexArray();
+                                        if (!va)
+                                            continue;
+                                        Renderer3D::AddTerrainShadowCaster(
+                                            va->GetRHIHandle(), chunk->GetIndexCount(), 3,
+                                            tileModel, heightmapID, shadowUBO);
+                                    }
+                                }
+                            }
+                            else if (useTess)
                             {
                                 const auto& selectedChunks = chunkMgr.GetSelectedChunks();
                                 for (const auto& rc : selectedChunks)

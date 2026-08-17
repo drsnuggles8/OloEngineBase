@@ -279,13 +279,6 @@ namespace OloEngine
             s_RendererAPI->DrawArraysIndirect(vertexArray, indirectBuffer);
         }
 
-        // Draws from the ALREADY-BOUND vertex array — used by the GPU
-        // frustum-cull path, whose caller has just run BindVAOIfNeeded.
-        static void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer)
-        {
-            s_RendererAPI->DrawBoundElementsIndirect(indirectBuffer);
-        }
-
         static void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices)
         {
             s_RendererAPI->DrawIndexedPatchesRaw(vertexArray, indexCount, patchVertices);
@@ -322,6 +315,22 @@ namespace OloEngine
         static void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
         {
             s_RendererAPI->DispatchCompute(groupsX, groupsY, groupsZ);
+        }
+
+        // GPU-sourced dispatch dimensions (issue #714). `offsetBytes` must be
+        // 4-byte aligned and address a uvec3 group count.
+        static void DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes)
+        {
+            s_RendererAPI->DispatchComputeIndirect(argsBuffer, offsetBytes);
+        }
+
+        // Draws from the ALREADY-BOUND vertex array — used by the GPU
+        // frustum-cull path (Triangles) and the GPU-driven terrain path
+        // (PatchList), whose callers have just run BindVAOIfNeeded.
+        static void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
+                                              RHI::PrimitiveTopology topology)
+        {
+            s_RendererAPI->DrawBoundElementsIndirect(indirectBuffer, topology);
         }
 
         static void MemoryBarrier(MemoryBarrierFlags flags)

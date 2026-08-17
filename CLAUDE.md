@@ -88,6 +88,7 @@ you are in.
 - [render-pipeline-caches.md](docs/agent-rules/render-pipeline-caches.md) — process-wide render caches must invalidate on every topology reset, not just on a fingerprint change.
 - [two-phase-occlusion-culling.md](docs/agent-rules/two-phase-occlusion-culling.md) — phase 1 must test the previous frame's FINAL pyramid; pass order decides who still sees previous-frame depth.
 - [cluster-lod-simplification.md](docs/agent-rules/cluster-lod-simplification.md) — a terminal group's boundary lock must outlive the level that created it; plus how to A/B a builder change the editor never runs.
+- [terrain-gpu-lod-quadtree.md](docs/agent-rules/terrain-gpu-lod-quadtree.md) — the GPU terrain descent: crack-freedom is a vertex-set property, and a gating flag no scene sets is a feature with zero coverage.
 - [camera-relative-rendering.md](docs/agent-rules/camera-relative-rendering.md) — every world-space GPU upload is a site; large-coordinate f32 cancellation shows up as vertex jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](docs/agent-rules/distance-impostor-reflection-probes.md) — one encoding contract mirrored in three places, and the miss-sentinel that shades from stale sky.
 - [foliage-impostor-card-rendering.md](docs/agent-rules/foliage-impostor-card-rendering.md) — three ways impostor cards go missing, separable only by reading the PNG from several azimuths.
@@ -246,7 +247,7 @@ Tests live on **two independent axes** that share only GoogleTest and the regist
 
 The decision tree, per-layer reference, and anti-patterns all live in [docs/agent-rules/testing-architecture.md](docs/agent-rules/testing-architecture.md) and [docs/testing.md](docs/testing.md). When adding an engine feature, pick the right classification(s) from there before writing code.
 
-Special rebase modes: `OLOENGINE_GOLDEN_REBASE=1` for goldens, `OLOENGINE_PERF_REBASE=1` for perf baselines — only after a deliberate visual change or a hardware/optimisation move.
+Special rebase modes: `--olo-golden-rebase` for goldens, `--olo-perf-rebase` for perf baselines — only after a deliberate visual change or a hardware/optimisation move.
 
 ### Rendering changes MUST be visually verified — unit tests are not enough
 

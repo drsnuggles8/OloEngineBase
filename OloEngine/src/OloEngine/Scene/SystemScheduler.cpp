@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "SystemScheduler.h"
 
 #include "OloEngine/Core/Log.h"
@@ -29,8 +30,7 @@ namespace OloEngine
         // (OLO_TASK_GRAPH_*); only the exact value "1" disables.
         bool ParallelEnabledDefault()
         {
-            const char* env = std::getenv("OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL");
-            return !(env && env[0] == '1' && env[1] == '\0');
+            return !Levers::GameplaySchedulerSequential();
         }
 
         std::atomic<bool> s_ParallelExecutionEnabled{ ParallelEnabledDefault() };

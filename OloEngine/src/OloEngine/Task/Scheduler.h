@@ -27,13 +27,10 @@ namespace OloEngine::LowLevelTasks
     // read from config would blow up the thread budget — clamp it to something sane.
     inline constexpr f32 kMaxOversubscriptionRatio = 64.0f;
 
-    // Parse and validate the OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO environment value.
-    // Environment config is untrusted input: a non-finite (NaN / ±inf) or out-of-range
-    // value must be rejected before it reaches the scheduler's worker-budget math
-    // (std::strtof yields inf for "inf", and `inf >= 1.0f` is true). Returns the
-    // validated ratio, or std::nullopt when the value is null/unparsable/out of the
-    // accepted [1, kMaxOversubscriptionRatio] range. Pure + side-effect free for testing.
-    [[nodiscard]] std::optional<f32> ParseOversubscriptionRatio(const char* envValue);
+    // The parse/validate boundary for this bound now lives in Core/DebugLevers.h
+    // as Levers::ParseNumberLever(raw, 1.0f, kMaxOversubscriptionRatio) — one
+    // implementation shared by every numeric lever, rather than a copy here and
+    // a second one in the registry that could disagree about "inf".
 
     // @enum EQueuePreference
     // @brief Preference for which queue to use when launching tasks

@@ -391,9 +391,10 @@ namespace OloEngine
         void SetScissorBox(i32 x, i32 y, u32 width, u32 height) override;
         void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override;
         void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override;
-        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer) override;
+        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer, RHI::PrimitiveTopology topology) override;
         void MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer, u32 indirectOffsetBytes, RHI::ResourceHandle parameterBuffer, u32 parameterOffsetBytes, u32 maxDrawCount, u32 strideBytes) override;
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
+        void DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;
         void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) override;
         void BindDefaultFramebuffer() override;

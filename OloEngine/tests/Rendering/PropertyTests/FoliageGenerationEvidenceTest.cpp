@@ -20,7 +20,7 @@
 //      directly — the foliage draw pass writes there before the post/UI composite
 //      — and assert the frame contains a non-trivial number of "grass-green"
 //      pixels (a framing-tolerant contract, not a brittle golden RMSE). In
-//      OLOENGINE_GOLDEN_REBASE mode the frame is written to
+//      --olo-golden-rebase mode the frame is written to
 //      OloEditor/assets/tests/visual/FoliageGen_grassland.png for a human to
 //      eyeball.
 //
@@ -31,6 +31,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -68,8 +69,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
 
         // A pixel that reads as foliage/grass green: clearly green-dominant and

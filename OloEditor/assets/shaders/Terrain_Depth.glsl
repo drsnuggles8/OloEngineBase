@@ -26,6 +26,11 @@ layout(location = 1) in vec2 a_TexCoord;
 layout(location = 2) in vec3 a_Normal;
 #endif
 
+// GPU-driven LOD (issue #714). The shadow-caster draws keep the chunk meshes
+// and set u_TerrainGpuDriven = 0, so this is inert for them — it exists so the
+// depth program stays usable if the shadow path ever moves onto the node list.
+#include "include/TerrainGpuDrivenVertex.glsl"
+
 layout(location = 0) out vec3 v_Position;
 layout(location = 1) out vec2 v_TexCoord;
 
@@ -36,8 +41,13 @@ void main()
     vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
     vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4]);
 #endif
-    v_Position = a_Position;
-    v_TexCoord = a_TexCoord;
+    vec3 position = a_Position;
+    vec2 texCoord = a_TexCoord;
+    vec3 normal = vec3(0.0, 1.0, 0.0); // unused by this stage; the helper wants a slot
+    oloTerrainApplyGpuDrivenNode(position, texCoord, normal);
+
+    v_Position = position;
+    v_TexCoord = texCoord;
 }
 
 #type tess_control
@@ -56,8 +66,8 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
     vec4 u_TerrainParams;
     int u_HeightmapResolution;
-    int _terrainPad0;
-    int _terrainPad1;
+    int u_TerrainGpuDriven;
+    int u_TerrainGpuGridRes;
     int _terrainPad2;
     vec4 u_TessFactors;
     vec4 u_TessFactors2;
@@ -122,8 +132,8 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
     vec4 u_TerrainParams;
     int u_HeightmapResolution;
-    int _terrainPad0;
-    int _terrainPad1;
+    int u_TerrainGpuDriven;
+    int u_TerrainGpuGridRes;
     int _terrainPad2;
     vec4 u_TessFactors;
     vec4 u_TessFactors2;

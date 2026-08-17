@@ -13,7 +13,7 @@
 // Consistency with the test-suite goldens (HANDOVER: "Don't reinvent"): the RMSE,
 // SSIM and per-pixel diff math here MIRROR
 // OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp so the MCP verdict
-// agrees with the OLOENGINE_GOLDEN_REBASE workflow. The default (no caller
+// agrees with the --olo-golden-rebase workflow. The default (no caller
 // threshold) verdict reproduces that file's cascaded RMSE -> SSIM decision with
 // the same constants; an explicit caller threshold switches to a single,
 // predictable SSIM gate the agent controls.

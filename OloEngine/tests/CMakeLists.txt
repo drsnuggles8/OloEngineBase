@@ -1,6 +1,9 @@
 ﻿enable_testing()
 add_executable(OloEngine-Tests
 		OloEngineTest.cpp
+		# The suite's own `--olo-*` flags. Parsed in main() before gtest sees
+		# argv; replaced twelve environment variables read from 26 sites.
+		TestOptions.cpp
 		# Per-process, per-case scratch paths. Every test that writes a file goes
 		# through this instead of std::filesystem::temp_directory_path() — see
 		# docs/agent-rules/shared-temp-dir-test-isolation.md (issue #789).
@@ -8,6 +11,9 @@ add_executable(OloEngine-Tests
 		TestTempDirTest.cpp
 		FastRandomTest.cpp
 		RefTest.cpp
+		# Guards the debug-lever registry, including the grep test that stops a
+		# new lever from being added as a bare Env:: read again.
+		Core/DebugLeversTest.cpp
 		ContainerTest.cpp
 		SnowSettingsTest.cpp
 		WindSettingsTest.cpp
@@ -102,6 +108,7 @@ add_executable(OloEngine-Tests
 		Rendering/CameraRelativeTest.cpp
 		Rendering/Renderer2DCameraRelativeTest.cpp
 		Rendering/TerrainCameraRelativeLODTest.cpp
+		Rendering/TerrainGPUQuadtreeTest.cpp
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/SubmeshMaterialResolveTest.cpp
@@ -314,6 +321,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
 		Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainCameraRelativeVisualEvidenceTest.cpp
+		Rendering/PropertyTests/TerrainGPUQuadtreeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp

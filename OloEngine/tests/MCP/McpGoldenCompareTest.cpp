@@ -10,7 +10,7 @@
 // that maps two RGBA8 buffers -> similarity + pass/fail.
 //
 // The metrics mirror OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp
-// so the MCP verdict agrees with the OLOENGINE_GOLDEN_REBASE test-suite goldens.
+// so the MCP verdict agrees with the --olo-golden-rebase test-suite goldens.
 #include "MCP/McpGoldenCompare.h"
 
 #include <algorithm>

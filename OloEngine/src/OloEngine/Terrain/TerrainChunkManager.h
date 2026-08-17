@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
+#include "OloEngine/Terrain/TerrainGPUQuadtree.h"
 #include "OloEngine/Terrain/TerrainQuadtree.h"
 
 #include <glm/glm.hpp>
@@ -35,11 +36,38 @@ namespace OloEngine
         void RebuildChunk(const TerrainData& terrainData, u32 chunkX, u32 chunkZ,
                           f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
-        // Select visible chunks via quadtree LOD and frustum culling
+        // Select visible chunks via quadtree LOD and frustum culling.
+        // The pre-#714 CPU path: a recursive descent plus a neighbour-LOD
+        // resolution pass, both per frame. Still the fallback when the GPU
+        // descent is unavailable (no compute shaders) or switched off.
         void SelectVisibleChunks(const Frustum& frustum,
                                  const glm::vec3& cameraPos,
                                  const glm::mat4& viewProjection,
                                  f32 viewportHeight);
+
+        // Run the GPU LOD descent for this frame (issue #714). Returns false if
+        // the GPU tree is not usable, in which case the caller should fall back
+        // to SelectVisibleChunks. Nothing is read back and no per-chunk LOD data
+        // is produced — the terrain draws from GetGPUQuadtree()'s indirect list.
+        bool DispatchGPULOD(const Frustum& frustum,
+                            const glm::vec3& cameraPos,
+                            const glm::mat4& viewProjection,
+                            f32 viewportHeight,
+                            f32 targetTriangleSize);
+
+        [[nodiscard]] const Ref<TerrainGPUQuadtree>& GetGPUQuadtree() const
+        {
+            return m_GPUQuadtree;
+        }
+
+        // Process-wide A/B lever for the GPU LOD descent. Defaults to enabled
+        // unless OLO_TERRAIN_CPU_LOD=1 is set — same shape as the gameplay
+        // scheduler's OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL, and for the same
+        // reason: when terrain looks wrong, the first question is which of the
+        // two selection paths produced it, and that has to be answerable
+        // without a rebuild.
+        static void SetGpuDrivenLODEnabled(bool enabled);
+        [[nodiscard]] static bool IsGpuDrivenLODEnabled();
 
         // Get chunks visible to the given frustum (Phase 1 compat — flat culling)
         void GetVisibleChunks(const Frustum& frustum,
@@ -84,8 +112,16 @@ namespace OloEngine
         bool TessellationEnabled = true;
 
       private:
-        // Find the chunk that covers a given terrain-space point
-        const TerrainChunk* FindChunkForNode(const TerrainQuadNode& node) const;
+        // The INCLUSIVE chunk-grid rectangle a quadtree node covers, in chunk
+        // indices. A leaf node yields a single chunk; a node selected above the
+        // leaf level yields the whole 2^k x 2^k block beneath it. Returns false
+        // only when there is no chunk grid yet.
+        //
+        // Replaced a FindChunkForNode() that mapped the node's CENTRE to one
+        // chunk — correct for leaves, and a hole for everything coarser.
+        bool ChunkRangeForNode(const TerrainQuadNode& node,
+                               u32& outX0, u32& outX1,
+                               u32& outZ0, u32& outZ1) const;
 
         std::vector<TerrainChunk> m_Chunks;
         u32 m_NumChunksX = 0;
@@ -93,5 +129,15 @@ namespace OloEngine
 
         TerrainQuadtree m_Quadtree;
         std::vector<TerrainRenderChunk> m_SelectedChunks;
+        // One byte per chunk, reset at the start of each CPU selection: which
+        // chunks this frame's selection has already claimed. Needed because the
+        // chunk grid is not necessarily a power of two, so a quadtree boundary
+        // can fall inside a chunk and two nodes can both cover it.
+        std::vector<u8> m_ChunkClaimed;
+
+        // Created lazily by GenerateAllChunks; null when the terrain never
+        // built. Held by Ref because Scene.cpp hands its buffers to a render
+        // command that outlives the submission call.
+        Ref<TerrainGPUQuadtree> m_GPUQuadtree;
     };
 } // namespace OloEngine

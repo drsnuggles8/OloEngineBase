@@ -15,6 +15,7 @@
 // after a stack-overflow.
 
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Debug/CrashReporterPlatform.h"
 
 #ifdef OLO_PLATFORM_LINUX
@@ -851,10 +852,9 @@ namespace OloEngine::CrashReporterPlatform
         // Skip silently when there's no display — typical for OloServer running
         // under systemd or in a container. The crash report already went to disk
         // and to the log; a popup would just be a no-op fork+exec cost.
-        const char* display = ::getenv("DISPLAY");
-        const char* waylandDisplay = ::getenv("WAYLAND_DISPLAY");
-        if ((display == nullptr || display[0] == '\0') &&
-            (waylandDisplay == nullptr || waylandDisplay[0] == '\0'))
+        // Env::Get already treats an empty value as unset, which is what the
+        // explicit '\0' checks here were doing by hand.
+        if (!Env::Get("DISPLAY") && !Env::Get("WAYLAND_DISPLAY"))
         {
             return;
         }

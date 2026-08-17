@@ -53,7 +53,7 @@ OloEngine::Tests::TempFile("cfg.yaml")  // a file inside TempDir(); parent creat
 
 The root is `<system temp>/OloEngineTests-<pid>_<random64>`, **claimed exclusively** with
 `create_directory` (a losing claim retries with a fresh suffix, so a recycled PID can never adopt a
-stale tree) and `remove_all`'d at normal process exit. Set `OLO_TEST_KEEP_TEMP=1` to keep it for a
+stale tree) and `remove_all`'d at normal process exit. Pass `--olo-keep-temp` to keep it for a
 post-mortem.
 
 Three properties matter and none is free:

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Fluid/FluidSystem.h"
 
 #include "OloEngine/Asset/AssetManager.h"
@@ -359,12 +360,7 @@ namespace OloEngine
 
     bool FluidSystem::IsSequentialForced()
     {
-        static const bool s_Forced = []
-        {
-            const char* env = std::getenv("OLO_FLUID_SEQUENTIAL");
-            return env && env[0] == '1';
-        }();
-        return s_Forced;
+        return Levers::FluidSequential();
     }
 
     void FluidSystem::OnUpdate(Scene* scene, f32 deltaTime)

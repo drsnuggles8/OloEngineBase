@@ -543,7 +543,7 @@ first sample trips WARN and keeps the faster of the two. This retry
 only runs on bad samples; steady-state cost is unchanged.
 
 Every run appends a row to `perf_history/<machine>.tsv`. Machine tag
-resolves `OLOENGINE_PERF_MACHINE → COMPUTERNAME → HOSTNAME → "unknown"`.
+resolves `--olo-perf-machine=<name> → COMPUTERNAME → HOSTNAME → "unknown"`.
 Schema: `iso_utc \t name \t measured_ns \t baseline_ns \t ratio`.
 `perf_trend.py` computes min / median / p95 per (machine, benchmark)
 and runs a 3-sigma drift detector that compares the last 30 samples
@@ -590,7 +590,7 @@ that only manifest end-to-end.
 
 - [`OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp`](../OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp)
 - Baselines: `OloEditor/assets/tests/golden/*.png` (committed to the
-  repo; regenerate with `OLOENGINE_GOLDEN_REBASE=1`).
+  repo; regenerate with `--olo-golden-rebase`).
 
 **How it works — cascaded RMSE → SSIM.** On every run we read the
 rendered frame, compute RGB RMSE over the reference, and decide:
@@ -632,8 +632,8 @@ differences, fast-math reordering, driver extension quirks.
 downloads `pal1000/mesa-dist-win 24.3.4`, drops its `opengl32.dll`
 next to the test binary, sets `GALLIUM_DRIVER=llvmpipe`,
 `LIBGL_ALWAYS_SOFTWARE=1`, `MESA_GL_VERSION_OVERRIDE=4.6`, tags the
-run with `OLOENGINE_PERF_MACHINE=ci-llvmpipe-windows` +
-`OLOENGINE_GOLDEN_VENDOR=llvmpipe`, runs the full suite, then invokes
+run with `--olo-perf-machine=ci-llvmpipe-windows` +
+`--olo-golden-vendor=llvmpipe`, runs the full suite, then invokes
 `perf_trend.py`. On failure it uploads the test output, the appended
 perf-history row, and any golden-image diffs as CI artefacts.
 
@@ -925,15 +925,20 @@ $f = (python OloEngine/tests/scripts/generate_test_catalogue.py --gtest-filter -
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe "--gtest_filter=$f"
 
 # Golden rebase (only after a deliberate visual change)
-$env:OLOENGINE_GOLDEN_REBASE = "1"
-.\build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=GoldenImage*
-Remove-Item Env:OLOENGINE_GOLDEN_REBASE
+.\build\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-golden-rebase --gtest_filter=GoldenImage*
 
 # Perf rebase (only after a hardware swap or deliberate optimisation)
-$env:OLOENGINE_PERF_REBASE = "1"
-.\build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=PerfRegression*
-Remove-Item Env:OLOENGINE_PERF_REBASE
+.\build\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-perf-rebase --gtest_filter=PerfRegression*
+
+# Every knob the suite has of its own
+.\build\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-help
 ```
+
+The `--olo-*` flags are the suite's own, declared in
+[`OloEngine/tests/TestOptions.h`](../OloEngine/tests/TestOptions.h) and consumed
+in `main` before gtest parses `argv`. They were twelve environment variables
+until they became flags: a flag appears in the command line CI logs already
+print, and an unknown one is a hard error instead of a silent no-op.
 
 Perf baselines are developer-machine local —
 [`perf_history/`](../OloEngine/tests/Rendering/PropertyTests/perf_history/)

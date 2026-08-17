@@ -6,48 +6,211 @@
 #include <glm/gtc/matrix_access.hpp>
 #include <algorithm>
 #include <cmath>
+#include <span>
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Ceiling on BuildHeightPyramid's depth argument. Mirrors
+        // TerrainGPUQuadtree::kMaxDepth; kept as its own constant so the CPU
+        // builder does not depend on the GPU class for a bounds check.
+        constexpr u32 kMaxHeightPyramidDepth = 12;
+
+        // Level-major index of node (level, nx, ny) — twin of
+        // oloTerrainNodeIndex() in include/TerrainQuadtreeCommon.glsl.
+        [[nodiscard]] sizet PyramidIndex(u32 level, u32 nx, u32 ny)
+        {
+            const sizet levelOffset = ((static_cast<sizet>(1) << (2 * level)) - 1) / 3;
+            return levelOffset + (static_cast<sizet>(ny) << level) + nx;
+        }
+    } // namespace
+
+    std::vector<glm::vec2> TerrainQuadtree::BuildHeightPyramid(const TerrainData& terrainData,
+                                                               f32 heightScale, u32 maxDepth)
+    {
+        return BuildHeightPyramid(terrainData.GetHeightData(), terrainData.GetResolution(),
+                                  heightScale, maxDepth);
+    }
+
+    std::vector<glm::vec2> TerrainQuadtree::BuildHeightPyramid(std::span<const f32> heights,
+                                                               u32 resolution, f32 heightScale,
+                                                               u32 maxDepth)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (resolution == 0 || heights.size() < static_cast<sizet>(resolution) * resolution)
+        {
+            return {};
+        }
+        // Bound BEFORE sizing: the pyramid is 4^(maxDepth+1)/3 entries, so an
+        // unchecked depth allocates gigabytes before any other guard runs.
+        if (maxDepth > kMaxHeightPyramidDepth)
+        {
+            OLO_CORE_ERROR("TerrainQuadtree::BuildHeightPyramid: depth {} exceeds the maximum of {}",
+                           maxDepth, kMaxHeightPyramidDepth);
+            return {};
+        }
+
+        sizet total = 0;
+        for (u32 d = 0; d <= maxDepth; ++d)
+        {
+            total += static_cast<sizet>(1) << (2 * d);
+        }
+        std::vector<glm::vec2> pyramid(total, glm::vec2(0.0f));
+
+        // Finest level: sample the heightmap directly. The inclusive texel range
+        // is derived exactly as the pre-#714 BuildNode did, so adjacent nodes
+        // share their boundary texel and the bounds stay conservative at seams.
+        const u32 finestSpan = 1u << maxDepth;
+        const f32 texelMax = static_cast<f32>(resolution - 1);
+        for (u32 ny = 0; ny < finestSpan; ++ny)
+        {
+            const f32 minZ = static_cast<f32>(ny) / static_cast<f32>(finestSpan);
+            const f32 maxZ = static_cast<f32>(ny + 1) / static_cast<f32>(finestSpan);
+            const u32 sampleMinZ = static_cast<u32>(minZ * texelMax);
+            const u32 sampleMaxZ = std::min(static_cast<u32>(maxZ * texelMax), resolution - 1);
+
+            for (u32 nx = 0; nx < finestSpan; ++nx)
+            {
+                const f32 minX = static_cast<f32>(nx) / static_cast<f32>(finestSpan);
+                const f32 maxX = static_cast<f32>(nx + 1) / static_cast<f32>(finestSpan);
+                const u32 sampleMinX = static_cast<u32>(minX * texelMax);
+                const u32 sampleMaxX = std::min(static_cast<u32>(maxX * texelMax), resolution - 1);
+
+                f32 hMin = std::numeric_limits<f32>::max();
+                f32 hMax = std::numeric_limits<f32>::lowest();
+                for (u32 z = sampleMinZ; z <= sampleMaxZ; ++z)
+                {
+                    const sizet row = static_cast<sizet>(z) * resolution;
+                    for (u32 x = sampleMinX; x <= sampleMaxX; ++x)
+                    {
+                        const f32 h = heights[row + x] * heightScale;
+                        // A heightmap comes off disk, so a NaN is reachable. It
+                        // would propagate through the whole pyramid, and a NaN
+                        // AABB makes every frustum comparison false — so the
+                        // node tests "visible" at every level and the descent
+                        // splits the entire tree. Skip the sample instead.
+                        if (!std::isfinite(h))
+                            continue;
+                        hMin = std::min(hMin, h);
+                        hMax = std::max(hMax, h);
+                    }
+                }
+                // Every sample was non-finite: fall back to a degenerate but
+                // FINITE range rather than leaving the sentinels in place.
+                if (!std::isfinite(hMin) || !std::isfinite(hMax) || hMin > hMax)
+                {
+                    hMin = 0.0f;
+                    hMax = 0.0f;
+                }
+
+                // A perfectly flat node would produce a zero-thickness AABB,
+                // which the positive-vertex plane test treats as a plane and
+                // can reject at a grazing angle. Same epsilon the pre-#714
+                // BuildNode applied, for the same reason.
+                if (hMin >= hMax)
+                {
+                    hMin -= 0.01f;
+                    hMax += 0.01f;
+                }
+                pyramid[PyramidIndex(maxDepth, nx, ny)] = glm::vec2(hMin, hMax);
+            }
+        }
+
+        // Coarser levels: reduce over the four children. Exact, not merely
+        // conservative — the children's inclusive texel ranges tile the parent's.
+        for (u32 level = maxDepth; level-- > 0;)
+        {
+            const u32 span = 1u << level;
+            for (u32 ny = 0; ny < span; ++ny)
+            {
+                for (u32 nx = 0; nx < span; ++nx)
+                {
+                    f32 hMin = std::numeric_limits<f32>::max();
+                    f32 hMax = std::numeric_limits<f32>::lowest();
+                    for (u32 cy = 0; cy < 2; ++cy)
+                    {
+                        for (u32 cx = 0; cx < 2; ++cx)
+                        {
+                            const glm::vec2 child = pyramid[PyramidIndex(level + 1, nx * 2 + cx, ny * 2 + cy)];
+                            hMin = std::min(hMin, child.x);
+                            hMax = std::max(hMax, child.y);
+                        }
+                    }
+                    pyramid[PyramidIndex(level, nx, ny)] = glm::vec2(hMin, hMax);
+                }
+            }
+        }
+
+        return pyramid;
+    }
+
     void TerrainQuadtree::Build(const TerrainData& terrainData,
                                 f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                                 u32 maxDepth)
     {
         OLO_PROFILE_FUNCTION();
 
-        m_WorldSizeX = worldSizeX;
-        m_WorldSizeZ = worldSizeZ;
         m_HeightScale = heightScale;
-        m_MaxDepth = std::min(maxDepth, TerrainLODConfig::MAX_LOD_LEVELS);
-
-        m_Nodes.clear();
-        m_SelectedNodes.clear();
 
         if (u32 resolution = terrainData.GetResolution(); resolution == 0 || terrainData.GetHeightData().size() < static_cast<sizet>(resolution) * resolution)
         {
             OLO_CORE_ERROR("TerrainQuadtree::Build: Invalid terrain data (resolution={}, heights={})",
                            resolution, terrainData.GetHeightData().size());
+            m_Nodes.clear();
+            m_SelectedNodes.clear();
+            m_NodeHeightPyramid.clear();
             m_RootIndex = -1;
             return;
         }
 
-        // Pre-allocate — a full quadtree of depth D has sum(4^i, i=0..D) nodes
-        // But we won't necessarily fill all levels
-        sizet estimatedNodes = 0;
-        for (u32 d = 0; d <= m_MaxDepth; ++d)
-        {
-            estimatedNodes += static_cast<sizet>(1) << (2 * d); // 4^d
-        }
-        m_Nodes.reserve(std::min(estimatedNodes, static_cast<sizet>(100000)));
-
-        m_RootIndex = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                0.0f, 0.0f, 1.0f, 1.0f, 0);
-
-        OLO_CORE_INFO("TerrainQuadtree: Built {} nodes, max depth {}", m_Nodes.size(), maxDepth);
+        // Node bounds come from the pyramid rather than a per-node strided
+        // resample (issue #714). The old sampler stepped every (extent / 16)
+        // texels plus the four corners, so a spike between samples was missed
+        // and the AABB could clip its own terrain; this is exact, costs one
+        // pass over the heightmap for the whole tree, and — because the GPU
+        // descent uploads the same array — is what makes the two paths select
+        // the same nodes.
+        const u32 clampedDepth = std::min(maxDepth, TerrainLODConfig::MAX_LOD_LEVELS);
+        BuildFromPyramid(BuildHeightPyramid(terrainData, heightScale, clampedDepth),
+                         worldSizeX, worldSizeZ, maxDepth);
     }
 
-    i32 TerrainQuadtree::BuildNode(const TerrainData& terrainData,
-                                   f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+    void TerrainQuadtree::BuildFromPyramid(std::vector<glm::vec2> pyramid,
+                                           f32 worldSizeX, f32 worldSizeZ, u32 maxDepth)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_WorldSizeX = worldSizeX;
+        m_WorldSizeZ = worldSizeZ;
+        m_MaxDepth = std::min(maxDepth, TerrainLODConfig::MAX_LOD_LEVELS);
+
+        m_Nodes.clear();
+        m_SelectedNodes.clear();
+        m_NodeHeightPyramid = std::move(pyramid);
+
+        sizet expectedNodes = 0;
+        for (u32 d = 0; d <= m_MaxDepth; ++d)
+        {
+            expectedNodes += static_cast<sizet>(1) << (2 * d); // 4^d
+        }
+        if (m_NodeHeightPyramid.size() != expectedNodes)
+        {
+            OLO_CORE_ERROR("TerrainQuadtree::BuildFromPyramid: pyramid has {} entries, expected {} for depth {}",
+                           m_NodeHeightPyramid.size(), expectedNodes, m_MaxDepth);
+            m_NodeHeightPyramid.clear();
+            m_RootIndex = -1;
+            return;
+        }
+
+        m_Nodes.reserve(std::min(expectedNodes, static_cast<sizet>(100000)));
+        m_RootIndex = BuildNode(worldSizeX, worldSizeZ, 0.0f, 0.0f, 1.0f, 1.0f, 0);
+
+        OLO_CORE_INFO("TerrainQuadtree: Built {} nodes, max depth {}", m_Nodes.size(), m_MaxDepth);
+    }
+
+    i32 TerrainQuadtree::BuildNode(f32 worldSizeX, f32 worldSizeZ,
                                    f32 minX, f32 minZ, f32 maxX, f32 maxZ,
                                    u32 depth)
     {
@@ -63,57 +226,23 @@ namespace OloEngine
         m_Nodes[static_cast<sizet>(nodeIndex)].Depth = depth;
         m_Nodes[static_cast<sizet>(nodeIndex)].IsLeaf = true;
 
-        // Compute world-space bounding box by sampling heights in the region
+        // World-space bounding box: XZ from the node's share of the footprint,
+        // Y from the shared height pyramid.
         f32 worldMinX = minX * worldSizeX;
         f32 worldMinZ = minZ * worldSizeZ;
         f32 worldMaxX = maxX * worldSizeX;
         f32 worldMaxZ = maxZ * worldSizeZ;
 
-        // Sample heightmap to find height extremes in this region
-        f32 hMin = std::numeric_limits<f32>::max();
-        f32 hMax = std::numeric_limits<f32>::lowest();
-
-        u32 resolution = terrainData.GetResolution();
-        u32 sampleMinX = static_cast<u32>(minX * static_cast<f32>(resolution - 1));
-        u32 sampleMinZ = static_cast<u32>(minZ * static_cast<f32>(resolution - 1));
-        u32 sampleMaxX = std::min(static_cast<u32>(maxX * static_cast<f32>(resolution - 1)), resolution - 1);
-        u32 sampleMaxZ = std::min(static_cast<u32>(maxZ * static_cast<f32>(resolution - 1)), resolution - 1);
-
-        // Step through heightmap samples; at deep levels sample every texel,
-        // at shallow levels skip to keep build fast
-        u32 step = std::max(1u, (sampleMaxX - sampleMinX) / 16);
-        const auto& heights = terrainData.GetHeightData();
-
-        for (u32 z = sampleMinZ; z <= sampleMaxZ; z += step)
-        {
-            for (u32 x = sampleMinX; x <= sampleMaxX; x += step)
-            {
-                f32 h = heights[static_cast<sizet>(z) * resolution + x] * heightScale;
-                hMin = std::min(hMin, h);
-                hMax = std::max(hMax, h);
-            }
-        }
-        // Always include boundary samples
-        auto sampleHeight = [&heights, &resolution, &heightScale, &hMin, &hMax](u32 x, u32 z)
-        {
-            f32 h = heights[static_cast<sizet>(z) * resolution + x] * heightScale;
-            hMin = std::min(hMin, h);
-            hMax = std::max(hMax, h);
-        };
-        sampleHeight(sampleMinX, sampleMinZ);
-        sampleHeight(sampleMaxX, sampleMinZ);
-        sampleHeight(sampleMinX, sampleMaxZ);
-        sampleHeight(sampleMaxX, sampleMaxZ);
-
-        if (hMin >= hMax)
-        {
-            hMin -= 0.01f;
-            hMax += 0.01f;
-        }
+        // Height extremes come from the shared pyramid (issue #714), so the CPU
+        // node bounds and the AABB the GPU descent tests are the same numbers.
+        const u32 span = 1u << depth;
+        const auto nx = static_cast<u32>(std::lround(minX * static_cast<f32>(span)));
+        const auto nz = static_cast<u32>(std::lround(minZ * static_cast<f32>(span)));
+        const glm::vec2 heightRange = m_NodeHeightPyramid[PyramidIndex(depth, std::min(nx, span - 1), std::min(nz, span - 1))];
 
         m_Nodes[static_cast<sizet>(nodeIndex)].Bounds = BoundingBox(
-            glm::vec3(worldMinX, hMin, worldMinZ),
-            glm::vec3(worldMaxX, hMax, worldMaxZ));
+            glm::vec3(worldMinX, heightRange.x, worldMinZ),
+            glm::vec3(worldMaxX, heightRange.y, worldMaxZ));
 
         // Recursively subdivide if not at max depth
         if (depth < m_MaxDepth)
@@ -124,20 +253,16 @@ namespace OloEngine
 
             // Children: [0]=SW, [1]=SE, [2]=NW, [3]=NE
             // Each BuildNode call may reallocate m_Nodes, so re-index after each call.
-            i32 child0 = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                   minX, minZ, midX, midZ, depth + 1);
+            i32 child0 = BuildNode(worldSizeX, worldSizeZ, minX, minZ, midX, midZ, depth + 1);
             m_Nodes[static_cast<sizet>(nodeIndex)].Children[0] = child0;
 
-            i32 child1 = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                   midX, minZ, maxX, midZ, depth + 1);
+            i32 child1 = BuildNode(worldSizeX, worldSizeZ, midX, minZ, maxX, midZ, depth + 1);
             m_Nodes[static_cast<sizet>(nodeIndex)].Children[1] = child1;
 
-            i32 child2 = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                   minX, midZ, midX, maxZ, depth + 1);
+            i32 child2 = BuildNode(worldSizeX, worldSizeZ, minX, midZ, midX, maxZ, depth + 1);
             m_Nodes[static_cast<sizet>(nodeIndex)].Children[2] = child2;
 
-            i32 child3 = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                   midX, midZ, maxX, maxZ, depth + 1);
+            i32 child3 = BuildNode(worldSizeX, worldSizeZ, midX, midZ, maxX, maxZ, depth + 1);
             m_Nodes[static_cast<sizet>(nodeIndex)].Children[3] = child3;
         }
 

@@ -27,7 +27,7 @@
 // Golden model mirrors WaterVisualEvidenceTest: deterministic frame (mock
 // time pinned; the time-of-day clock is paused — each capture sets the hour
 // explicitly), normal runs COMPARE (RMSE) against the committed PNGs; set
-// OLOENGINE_GOLDEN_REBASE=1 to (re)write them after a deliberate change.
+// --olo-golden-rebase to (re)write them after a deliberate change.
 // Runs in the normal suite; SKIPs cleanly without a GL 4.6 context.
 //
 // NIGHT-CELL COUPLING (issue #754). The three Night* cells are uniquely
@@ -55,6 +55,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -174,13 +175,13 @@ namespace OloEngine::Tests
         [[nodiscard]] fs::path GoldenBaselineDir()
         {
             fs::path base = fs::path("assets") / "tests" / "visual";
-            if (const char* vendor = std::getenv("OLOENGINE_GOLDEN_VENDOR"); vendor != nullptr && vendor[0] != '\0')
+            if (const std::string& vendor = OloEngine::Tests::Options().GoldenVendor; !vendor.empty())
             {
                 // The vendor must name ONE directory below the baseline root,
                 // nothing else. `base /= vendor` is not safe on its own: an
                 // absolute value REPLACES base outright (fs::path semantics),
-                // and "../.." walks out of the tree — so with
-                // OLOENGINE_GOLDEN_REBASE=1 a stray value would write goldens
+                // and "../.." walks out of the tree — so under
+                // --olo-golden-rebase a stray value would write goldens
                 // anywhere the process can reach. Accept only a plain name.
                 const std::string_view name(vendor);
                 // A separator/dot check alone is not enough on Windows: a
@@ -195,7 +196,7 @@ namespace OloEngine::Tests
                                   !vendorPath.has_root_name() && !vendorPath.has_root_directory();
                 if (!safe)
                 {
-                    ADD_FAILURE() << "OLOENGINE_GOLDEN_VENDOR must be a single directory name "
+                    ADD_FAILURE() << "--olo-golden-vendor must be a single directory name "
                                      "(no separators, '.', '..', drive letter or root) — got '"
                                   << name << "'";
                     return base;
@@ -207,8 +208,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
     } // namespace
 
@@ -419,14 +419,14 @@ namespace OloEngine::Tests
             int gw = 0, gh = 0, gch = 0;
             stbi_uc* golden = ::stbi_load(path.c_str(), &gw, &gh, &gch, 4);
             ASSERT_NE(golden, nullptr) << "Missing golden '" << path
-                                       << "' — rerun with OLOENGINE_GOLDEN_REBASE=1 to create it.";
+                                       << "' — rerun with --olo-golden-rebase to create it.";
             const bool sizeMatches = (gw == static_cast<int>(kWidth) && gh == static_cast<int>(kHeight));
             std::vector<u8> goldenPixels;
             if (sizeMatches)
                 goldenPixels.assign(golden, golden + static_cast<std::size_t>(kWidth) * kHeight * 4u);
             ::stbi_image_free(golden);
             ASSERT_TRUE(sizeMatches) << "Golden '" << path << "' is " << gw << "x" << gh
-                                     << " — rerun with OLOENGINE_GOLDEN_REBASE=1.";
+                                     << " — rerun with --olo-golden-rebase.";
             const f64 rmse = Rgba8Rmse(pixels, goldenPixels);
             EXPECT_LE(rmse, kGoldenRmseThreshold)
                 << "Capture '" << name << "' drifted from its golden (RMSE " << rmse << ")";

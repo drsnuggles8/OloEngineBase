@@ -1,0 +1,57 @@
+#version 450 core
+
+// =============================================================================
+// Terrain LOD level map (issue #714) — the replacement for
+// TerrainQuadtree::FindLeafAt()'s per-node CPU point queries.
+//
+// One texel per finest-level node (a 2^maxDepth square). Each thread walks the
+// split map from the root down and stops at the first node that did NOT split:
+// that node's level is the level covering this texel, because a node that did
+// not split is either the one selected for rendering or one that was frustum
+// culled (see TerrainNodeSelect.comp — a culled subtree reports its culled
+// ancestor's level, which is safe precisely because nothing draws there).
+//
+// The seam kernel then samples this map just outside each visible node's four
+// edges. That is the whole reason the map exists: it turns "which LOD is my
+// neighbour?" — a tree query the CPU answered with a hash-set walk per node per
+// frame — into a single buffer read at a known address.
+// =============================================================================
+
+#include "../include/TerrainQuadtreeCommon.glsl"
+#include "../include/TerrainCullParams.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(std430, binding = 60) readonly buffer TerrainSplitMap
+{
+    uint b_SplitMap[];
+};
+
+layout(std430, binding = 61) writeonly buffer TerrainLODMap
+{
+    uint b_LODMap[];
+};
+
+void main()
+{
+    uint resolution = u_TerrainBufferParams.y; // 1 << maxDepth
+    uvec2 texel = gl_GlobalInvocationID.xy;
+    if (texel.x >= resolution || texel.y >= resolution)
+        return;
+
+    uint maxDepth = u_TerrainLevelParams.x;
+    uint selected = maxDepth;
+    for (uint level = 0u; level < maxDepth; ++level)
+    {
+        uint shift = maxDepth - level;
+        uint nx = texel.x >> shift;
+        uint ny = texel.y >> shift;
+        if (b_SplitMap[oloTerrainNodeIndex(level, nx, ny)] == 0u)
+        {
+            selected = level;
+            break;
+        }
+    }
+
+    b_LODMap[texel.y * resolution + texel.x] = selected;
+}

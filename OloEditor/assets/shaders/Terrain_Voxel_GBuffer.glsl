@@ -90,8 +90,8 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
     vec4 u_TerrainParams;
     int u_HeightmapResolution;
-    int _terrainPad0;
-    int _terrainPad1;
+    int u_TerrainGpuDriven;
+    int u_TerrainGpuGridRes;
     int _terrainPad2;
     vec4 u_TessFactors;
     vec4 u_TessFactors2;

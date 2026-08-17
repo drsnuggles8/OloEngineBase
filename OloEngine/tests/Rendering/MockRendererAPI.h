@@ -577,9 +577,14 @@ namespace OloEngine::Testing
         {
             DrawArraysIndirect(vertexArray, Native(indirectBuffer, RHI::ResourceKind::Buffer));
         }
-        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer) override
+        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
+                                       RHI::PrimitiveTopology /*topology*/) override
         {
             DrawBoundElementsIndirect(Native(indirectBuffer, RHI::ResourceKind::Buffer));
+        }
+        void DispatchComputeIndirect(RHI::ResourceHandle /*argsBuffer*/, u32 /*offsetBytes*/) override
+        {
+            Record("DispatchComputeIndirect");
         }
         void MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer,
                                                u32 indirectOffsetBytes, RHI::ResourceHandle parameterBuffer,

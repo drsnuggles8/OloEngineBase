@@ -3,6 +3,7 @@
 // handled by OloEngine::ModelImporter (Scene/ModelImporter.h), the single source of truth shared
 // by the editor import buttons, viewport drag-drop, and scene deserialization.
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 
 #include <algorithm>
 #include <array>
@@ -51,21 +52,9 @@ namespace OloEngine
             return value;
         }
 
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            const char* value = std::getenv(name);
-            if (value == nullptr)
-                return false;
-
-            const std::string normalized = ToLowerCopy(value);
-            return !normalized.empty() && normalized != "0" && normalized != "false" &&
-                   normalized != "off" && normalized != "no";
-        }
-
         bool IsModelImportDiagnosticsEnabled()
         {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_MODEL_IMPORT_DIAGNOSTICS");
-            return enabled;
+            return Levers::ModelImportDiagnostics();
         }
 
         bool IsObjModelPath(const std::filesystem::path& path)

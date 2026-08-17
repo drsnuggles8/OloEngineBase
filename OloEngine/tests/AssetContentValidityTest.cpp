@@ -1684,7 +1684,7 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     // DISABLED_RebaseAssetRegistry — manual cleanup helper
     //
-    // Mirrors the existing `OLOENGINE_GOLDEN_REBASE=1` pattern for golden
+    // Mirrors the existing `--olo-golden-rebase` pattern for golden
     // image baselines. The asset registry is regenerated automatically by
     // OloEditor on next launch from on-disk asset discovery; when a
     // developer can't launch the editor (CI, headless dev box), this

@@ -111,15 +111,12 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_GL_VERSION_OVERRIDE: '4.6'
           MESA_GLSL_VERSION_OVERRIDE: '460'
-          # Tag perf history rows so they don't clobber hardware baselines.
-          OLOENGINE_PERF_MACHINE: ci-llvmpipe-windows
-          # Goldens are baselined on real NVIDIA hardware; allow rebase during
-          # the first llvmpipe run so the artifact can be inspected offline.
-          # After the first successful run, maintainers promote a llvmpipe
-          # baseline set by committing assets/tests/golden/llvmpipe/*.png.
-          OLOENGINE_GOLDEN_VENDOR: llvmpipe
+        # --olo-perf-machine tags perf-history rows so they don't clobber hardware
+        # baselines. --olo-golden-vendor scopes goldens to assets/tests/golden/llvmpipe/,
+        # since the committed set is baselined on real NVIDIA hardware; maintainers
+        # promote a llvmpipe set by committing PNGs into that directory.
         run: |
-          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\cross_vendor.xml
+          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --olo-perf-machine=ci-llvmpipe-windows --olo-golden-vendor=llvmpipe --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\cross_vendor.xml
 
       - name: Perf-history trend analysis
         if: always()

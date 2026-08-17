@@ -32,7 +32,7 @@
 //   without poisoning it, and SKIPs (not fails) when no GL 4.6 context exists.
 //
 //   The committed Water_<pose>.png files act as golden references: a normal run
-//   COMPARES (RMSE) and writes nothing; set OLOENGINE_GOLDEN_REBASE=1 to
+//   COMPARES (RMSE) and writes nothing; pass --olo-golden-rebase to
 //   (re)write them after a deliberate visual change. Run from OloEditor/ so
 //   assets resolve and any rebased PNGs land under
 //   OloEditor/assets/tests/visual/. The cheaper water *math* contracts live in
@@ -43,6 +43,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -114,8 +115,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
     } // namespace
 
@@ -279,7 +279,7 @@ namespace OloEngine::Tests
             // is deterministic, so the committed PNG is a stable reference. In
             // rebase mode we (re)write it; otherwise we COMPARE the freshly
             // rendered frame against it and never write — so a passing run leaves
-            // the tracked PNG untouched (no churn). Set OLOENGINE_GOLDEN_REBASE=1
+            // the tracked PNG untouched (no churn). Pass --olo-golden-rebase
             // to update the goldens after a deliberate visual change.
             if (GoldenRebaseRequested())
             {
@@ -297,27 +297,27 @@ namespace OloEngine::Tests
             int gw = 0, gh = 0, gch = 0;
             stbi_uc* golden = ::stbi_load(path.c_str(), &gw, &gh, &gch, 4);
             ASSERT_NE(golden, nullptr)
-                << "Missing golden '" << path << "' — rerun with OLOENGINE_GOLDEN_REBASE=1 to create it.";
+                << "Missing golden '" << path << "' — rerun with --olo-golden-rebase to create it.";
             const bool sizeMatches = (gw == static_cast<int>(kWidth) && gh == static_cast<int>(kHeight));
             std::vector<u8> goldenPixels;
             if (sizeMatches)
                 goldenPixels.assign(golden, golden + static_cast<std::size_t>(kWidth) * kHeight * 4u);
             ::stbi_image_free(golden);
             ASSERT_TRUE(sizeMatches) << "Golden '" << path << "' is " << gw << "x" << gh << ", expected "
-                                     << kWidth << "x" << kHeight << " — rerun with OLOENGINE_GOLDEN_REBASE=1.";
+                                     << kWidth << "x" << kHeight << " — rerun with --olo-golden-rebase.";
 
             const f64 rmse = Rgba8Rmse(outPixels, goldenPixels);
             EXPECT_LE(rmse, kGoldenRmseThreshold)
                 << "Pose '" << poseName << "' diverged from golden (RMSE " << rmse << " > "
                 << kGoldenRmseThreshold << "). If this is an intended visual change, rerun with "
-                << "OLOENGINE_GOLDEN_REBASE=1 to update " << path;
+                << "--olo-golden-rebase to update " << path;
         }
     };
 
     // Runs in the normal suite (SKIPs without a GL 4.6 context — see the file
     // header). The render is frozen (kCaptureTime) so each pose is deterministic
     // and the committed PNGs act as golden references: a normal run COMPARES
-    // against them (RMSE) and writes nothing; set OLOENGINE_GOLDEN_REBASE=1 to
+    // against them (RMSE) and writes nothing; pass --olo-golden-rebase to
     // (re)write the goldens after a deliberate change.
     TEST_F(WaterVisualEvidenceTest, CaptureWaterFromMultipleAngles)
     {

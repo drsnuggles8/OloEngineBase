@@ -1724,8 +1724,8 @@ retaking them on it will keep being meaningless. Do not quote a live A/B here.
 **The deterministic instrument already exists and was ignored.** The suite's 80
 golden and visual-evidence tests use fixed cameras and committed goldens, and they
 run under `OLO_RHI_BINDLESS=1` exactly as they run without it. On this branch all
-80 **ran (0 skipped) and passed in both configurations with
-`OLOENGINE_GOLDEN_REBASE` unset** — that is the ON-vs-OFF pixel comparison, done
+80 **ran (0 skipped) and passed in both configurations without
+`--olo-golden-rebase`** — that is the ON-vs-OFF pixel comparison, done
 against a stable reference, and it is the evidence to cite. A live capture is
 still worth taking for what it *can* show (the frame renders, the log is clean,
 the expected shaders took the route); it is not worth differencing.

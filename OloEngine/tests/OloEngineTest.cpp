@@ -1,26 +1,48 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/Interactivity.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
+#include "TestOptions.h"
 #include "TestTempDir.h"
-
-#include <cstdlib>
 
 int main(int argc, char** argv)
 {
+    // Consume the `--olo-*` flags before gtest's parser sees them, so an
+    // unknown one is OUR diagnostic rather than gtest silently leaving it as a
+    // positional argument.
+    OloEngine::Tests::ParseTestOptions(argc, argv);
+
     // RenderGraphBuildDiagnostics tests rely on the registration-order-sensitivity
-    // diagnostic running. Production code gates it behind OLO_RENDERGRAPH_DIAGNOSTICS;
-    // force it on here before anything reads the static cache.
-#if defined(_WIN32)
-    _putenv_s("OLO_RENDERGRAPH_DIAGNOSTICS", "1");
-#else
-    setenv("OLO_RENDERGRAPH_DIAGNOSTICS", "1", 1);
-#endif
+    // diagnostic running. It is otherwise seeded from OLO_RENDERGRAPH_DIAGNOSTICS;
+    // say so directly instead of writing the environment and hoping nothing has
+    // read it yet.
+    OloEngine::Levers::SetRenderGraphDiagnostics(true);
 
     // Initialize logging explicitly
     OloEngine::Log::Initialize();
+
+    // Most headless tests never construct an Application, so the startup line
+    // it normally prints would never appear here. A suite run with a lever set
+    // — a bisection switch left exported in the shell — must say so, or the
+    // resulting pass/fail is being read out of context. Silent when everything
+    // is at its default. Also flushes any malformed-value warning the lazy seed
+    // above deferred, now that the logger exists.
+    OloEngine::Levers::LogActive();
+
+    // No one is here to click OK. Without this, ANY blocking modal in a test run
+    // parks the process forever at ~0% CPU — it presents as a hung/slow test,
+    // not a failing one. Cost hours on #714 when a compute shader failed to
+    // compile and the assert dialog waited for a click that never came.
+    //
+    // This is the process-wide answer, not the assert-specific one: it also
+    // covers the auto-save recovery and unsaved-changes prompts, and any modal
+    // added later that asks IsNonInteractive() as it should. Everything still
+    // logs; only the blocking is removed.
+    OloEngine::SetNonInteractive(true);
     ::testing::InitGoogleTest(&argc, argv);
     OloEngine::Tests::TestFailureCapture::RegisterFailureListener();
     // Assert a clean glGetError() state after every test so a test that

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
@@ -36,7 +37,6 @@
 #include <array>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <utility>
 #include <variant>
 
@@ -45,18 +45,6 @@ namespace OloEngine
     namespace
     {
         constexpr ImageFormat kTemporalHistoryFormat = ImageFormat::RGBA16F;
-
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            const char* value = std::getenv(name);
-            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
-        }
-
-        bool IsRenderGraphDiagnosticsEnabled()
-        {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
-            return enabled;
-        }
 
         // Halton low-discrepancy sequence used for TAA sub-pixel jitter. Index is
         // 1-based (index 0 is undefined for Halton); the sequence repeats every
@@ -2194,7 +2182,7 @@ namespace OloEngine
                 gtaoReady != s_PrevGTAOReady ||
                 aoHandleValid != s_PrevAOHandleValid)
             {
-                if (IsRenderGraphDiagnosticsEnabled())
+                if (Levers::RenderGraphDiagnostics())
                 {
                     OLO_CORE_TRACE("Renderer3D: AO output state: graphTechnique={}, requestedTechnique={}, ssaoEnabled={}, gtaoEnabled={}, ssaoReady={}, gtaoReady={}, aoHandleValid={}",
                                    activeTechnique,

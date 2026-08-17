@@ -241,7 +241,7 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
   *banding* contracts (many distinct colour buckets + a wide luminance spread) —
   i.e. the splatmap actually reached the shader and the terrain is textured, not
   a flat single layer. Writes PNGs to `OloEditor/assets/tests/visual/` under
-  `OLOENGINE_GOLDEN_REBASE=1`. SKIPs cleanly without a GL 4.6 context.
+  `--olo-golden-rebase`. SKIPs cleanly without a GL 4.6 context.
 - **Script-driven regeneration** —
   [`LuaDrivesTerrainRegenerationTest.cpp`](../OloEngine/tests/Functional/Scripting/LuaDrivesTerrainRegenerationTest.cpp)
   (`Functional`, runs in CI): drives a real `Scene::OnUpdateRuntime` tick where a

@@ -16,7 +16,7 @@
 // guards. So rather than a brittle golden RMSE, we assert framing-independent
 // banding contracts: the rendered terrain must show clear multi-material colour
 // variation (many distinct hue buckets + a wide luminance spread), not a single
-// uniform surface. PNGs are written only in OLOENGINE_GOLDEN_REBASE mode for a
+// uniform surface. PNGs are written only in --olo-golden-rebase mode for a
 // human to eyeball; a normal run asserts the contracts and writes nothing.
 //
 // Runs in the normal suite and SKIPs cleanly (not fails) when there is no GL
@@ -26,6 +26,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -63,8 +64,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
 
         [[nodiscard]] f32 Luma(u8 r, u8 g, u8 b)

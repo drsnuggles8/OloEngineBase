@@ -132,7 +132,7 @@ class SoundConfigSerializerTest : public ::testing::Test
         m_AssetManager.Reset();
         // No remove_all: TempDir() empties this directory at the start of every
         // test, and the process root is swept at exit — so wiping here is dead
-        // work that also defeats OLO_TEST_KEEP_TEMP=1.
+        // work that also defeats --olo-keep-temp.
     }
 
     fs::path m_TempDir;

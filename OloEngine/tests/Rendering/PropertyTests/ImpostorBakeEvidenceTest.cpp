@@ -13,7 +13,7 @@
 //      grid (a top-down tile of a cone is a filled disc; a side tile is a
 //      triangle). A flat billboard would make every tile identical — this is the
 //      check that the impostor is genuinely 3D, not a repeated card.
-//   3. In OLOENGINE_GOLDEN_REBASE mode writes the albedo + normal/depth atlases
+//   3. In --olo-golden-rebase mode writes the albedo + normal/depth atlases
 //      to OloEditor/assets/tests/visual/ so a human can eyeball the tile grid.
 //
 // Runs in the normal suite and SKIPs cleanly (not fails) when there is no GL 4.6
@@ -23,6 +23,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -62,8 +63,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
 
         void WriteAtlasPng(const std::string& name, const std::vector<u8>& rgba, u32 size)

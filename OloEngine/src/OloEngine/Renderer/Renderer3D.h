@@ -282,7 +282,12 @@ namespace OloEngine
             RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
             const glm::mat4& transform,
             const ShaderBindingLayout::TerrainUBO& terrainUBO,
-            i32 entityID = -1);
+            i32 entityID = -1,
+            // GPU-driven LOD (issue #714). Supply both to draw the shared unit
+            // patch grid instanced from the GPU-built visible-node list; leave
+            // both null for a chunk-geometry draw.
+            RHI::ResourceHandle terrainIndirectArgsID = {},
+            RHI::ResourceHandle terrainVisibleNodesID = {});
 
         static CommandPacket* DrawVoxelMesh(
             RHI::ResourceHandle vaoID, u32 indexCount,

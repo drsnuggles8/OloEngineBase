@@ -334,7 +334,7 @@ Measured reference values on the fixtures, for anyone recalibrating:
 a region mean and resolution buys them nothing but runtime). They are diagnostics, not goldens —
 nothing compares against them, and the test never fails because it could not write one.
 
-For something a human can actually read, set **`OLO_PATHTRACER_EVIDENCE=1`** and the same test also
+For something a human can actually read, pass **`--olo-pathtracer-evidence`** and the same test also
 writes converged 192×192 / 256-spp frames from **two** angles —
 `PathTracer_CornellBox_HiRes_HeadOn.png` and `…_Raking.png`. Two, because they cover different
 things: head-on shows the emitter and the ceiling (the indirect-ONLY surface), while the raking pose
