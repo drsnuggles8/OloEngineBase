@@ -305,7 +305,8 @@ namespace OloEngine
                 return;
             // Integer and depth formats take different clear formats and are
             // not implicated in the artifact; skip them.
-            if (spec.Format == ImageFormat::R32I || spec.Format == ImageFormat::DEPTH24STENCIL8)
+            if (spec.Format == ImageFormat::R32I || spec.Format == ImageFormat::R32UI ||
+                spec.Format == ImageFormat::DEPTH24STENCIL8)
                 return;
             const u32 mipLevels = std::max(spec.MipLevels, 1u);
             for (u32 level = 0; level < mipLevels; ++level)

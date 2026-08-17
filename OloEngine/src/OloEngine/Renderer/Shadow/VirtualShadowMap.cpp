@@ -891,8 +891,18 @@ namespace OloEngine
         RenderCommand::SetDepthMask(true);
         RenderCommand::BackCull();
         RenderCommand::BindDefaultFramebuffer();
-        RenderCommand::SetViewport(previousViewport.x, previousViewport.y,
-                                   previousViewport.width, previousViewport.height);
+        // Restore only a REAL viewport. GetViewport() answers {0,0,0,0} when
+        // nothing has set one yet — VSM runs at the very top of the frame, so
+        // that is the normal case on the first frame and in any harness that
+        // drives it directly. GL shrugs at glViewport(0,0,0,0); Vulkan does not:
+        // vkCmdSetViewport with width 0 is VUID-VkViewport-width-01770, one
+        // validation error per frame, and in a suite that gates on zero errors
+        // it fails whatever else the pass did correctly.
+        if (previousViewport.width > 0 && previousViewport.height > 0)
+        {
+            RenderCommand::SetViewport(previousViewport.x, previousViewport.y,
+                                       previousViewport.width, previousViewport.height);
+        }
 
         return drawnBatches > 0;
     }

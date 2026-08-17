@@ -42,6 +42,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
+#include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
@@ -9858,6 +9860,220 @@ TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDr
     EXPECT_EQ(px(5, 5)[0], 0) << "corner background keeps the clear";
 
     EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+}
+
+// =============================================================================
+// Virtual Shadow Maps on Vulkan (issue #702) — the FIRST shadow-pass case in
+// this suite, which is why it is the last one in the file.
+//
+// VSM is not a graph node: ShadowRenderPass drives it directly, so this test
+// drives the same API in the same order a frame does rather than going through
+// RGBuilder. What it puts through the Vulkan backend is everything the OpenGL
+// evidence tests cover plus the parts only Vulkan has:
+//
+//   * eleven shaders compiled and LINKED on a real device with OLO_VULKAN
+//     defined — the branches that, before this, had never been parsed at all;
+//   * ten SSBOs and two UBOs resolved through the Vulkan binding state, which
+//     is where a std140/std430 layout disagreement surfaces;
+//   * the R32UI physical pool as a storage image, and the 4096^2 raster scope
+//     framebuffer, whose spec IS the render area on Vulkan — unlike GL, where a
+//     stale spec is forgiven (the #691 Phase 8 lesson recorded in
+//     ShadowRenderPass, where a 1024 spec rendered a quarter of each cascade);
+//   * MultiDrawElementsIndirectCountRaw, which needs the drawIndirectCount
+//     feature and silently drops the draw without it;
+//   * the section 5 vertex-pull path — VSM_Depth's OLO_VULKAN branch reads the
+//     VAO's stream 0 through SSBO_VERTEX_PULL rather than a vertex attribute.
+//
+// THE ASSERTION THAT MATTERS MOST IS THE FIXTURE'S, not this body's: TearDown
+// requires zero validation errors, sync validation included. A descriptor
+// mismatch, a missing barrier between the clear and the raster, or an image
+// used in the wrong layout fails there even when every number below is right.
+//
+// What this does NOT prove is that the frame LOOKS right on Vulkan. The y-flip
+// composition in VirtualShadowRasterStage.glsl is a claim about two conventions
+// cancelling, and it is settled by comparing rendered frames between the
+// backends in the editor, not here.
+// =============================================================================
+TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
+{
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    // A 2048^2 pool (1024 pages) rather than the 4096^2 default: the clear
+    // kernel dispatches one workgroup per PHYSICAL page, so the default runs
+    // 4096 groups for a test that needs far fewer. Not smaller, though — at 256
+    // pages this scene overruns the pool (PagesFailed = 35), and a test that
+    // tolerates allocation failure cannot tell "the pool is small" from "the
+    // free list is broken".
+    VirtualShadowMapSettings settings;
+    settings.Enabled = true;
+    settings.PhysicalResolution = 2048;
+    settings.Clip0HalfExtent = 2.0f;
+
+    VirtualShadowMap vsm;
+    vsm.Init(settings);
+    ASSERT_TRUE(vsm.IsActive())
+        << "VirtualShadowMap::Init refused on Vulkan. It clears its own Enabled flag when a shader "
+           "fails to load, so this is a compile or link failure in one of the eleven VSM shaders — "
+           "the log above names it.";
+
+    // A synthetic scene depth, because page marking is what drives the whole
+    // allocator: no depth buffer means no requests, no pages, and the raster
+    // then has nothing to write into and every assertion below passes vacuously.
+    constexpr u32 kDepthRes = 128;
+    constexpr f32 kNear = 0.1f;
+    constexpr f32 kFar = 500.0f;
+
+    const glm::vec3 cameraPos{ 0.0f, 6.0f, 12.0f };
+    const glm::mat4 view = glm::lookAt(cameraPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 projection = glm::perspective(glm::radians(60.0f), 1.0f, kNear, kFar);
+    const glm::mat4 inverseViewProjection = glm::inverse(projection * view);
+
+    const RHI::ResourceHandle sceneDepth =
+        RenderCommand::CreateTexture2DHandle(kDepthRes, kDepthRes, RHI::Format::R32Float);
+    ASSERT_TRUE(sceneDepth.IsValid());
+    {
+        // The depth value is COMPUTED from the distance we want the surface to
+        // land at, not picked. A constant 0.5 seems like the obvious choice and
+        // is badly wrong: a perspective depth buffer is so front-loaded that
+        // 0.5 unprojects to ~0.2 units from the eye, so the marker requested
+        // pages hugging the CAMERA while the caster sat 13 units away. The cull
+        // then correctly found no dirty page under the cube, drew nothing, and
+        // the empty pool read exactly like a broken raster on Vulkan.
+        //
+        // glm::perspective is RH_NO, so ndc_z = ((f + n) - 2fn/d) / (f - n) for
+        // an eye distance d, and the window depth is ndc * 0.5 + 0.5.
+        constexpr f32 kSurfaceDistance = 12.0f; // ~ the cube's distance from the eye
+        constexpr f32 kNdcZ = ((kFar + kNear) - (2.0f * kFar * kNear) / kSurfaceDistance) / (kFar - kNear);
+        constexpr f32 kWindowDepth = kNdcZ * 0.5f + 0.5f;
+        static_assert(kWindowDepth > 0.0f && kWindowDepth < 1.0f,
+                      "the synthetic depth must be in front of the far plane, or the marker treats it "
+                      "as sky and requests nothing");
+
+        const std::vector<f32> texels(static_cast<sizet>(kDepthRes) * kDepthRes, kWindowDepth);
+        RenderCommand::UploadTextureSubImage2D(sceneDepth, kDepthRes, kDepthRes, RHI::Format::R32Float,
+                                               texels.data());
+    }
+    const glm::vec3 lightDirection = glm::normalize(glm::vec3(0.7f, -0.45f, 0.0f));
+
+    // One static caster: a cube from the shared primitive cache.
+    Ref<Mesh> cube = MeshPrimitives::CreateCube();
+    ASSERT_TRUE(cube) << "MeshPrimitives::CreateCube returned null on Vulkan";
+    const Ref<VertexArray> vao = cube->GetVertexArray();
+    ASSERT_TRUE(vao) << "the cube has no vertex array — nothing to draw";
+    ASSERT_TRUE(vao->GetIndexBuffer()) << "the cube has no index buffer";
+
+    std::vector<ShadowMeshCaster> meshCasters;
+    {
+        ShadowMeshCaster caster{};
+        caster.vaoID = vao->GetRHIHandle();
+        caster.indexCount = vao->GetIndexBuffer()->GetCount();
+        caster.baseIndex = 0;
+        caster.transform = glm::scale(glm::mat4(1.0f), glm::vec3(4.0f));
+        caster.WorldBounds = BoundingBox{ glm::vec3(-2.0f), glm::vec3(2.0f) };
+        meshCasters.push_back(caster);
+    }
+    ASSERT_GT(meshCasters[0].indexCount, 0u);
+    ASSERT_TRUE(meshCasters[0].vaoID.IsValid());
+
+    const std::vector<ShadowSkinnedCaster> skinnedCasters;
+    const auto noBones = [](const ShadowSkinnedCaster&) {};
+
+    // INSIDE SubmitFrame's recording bracket, which is not optional and not
+    // obvious: on Vulkan every DispatchCompute/Draw issued outside a bracket is
+    // a logged NO-OP that returns success. The first version of this test ran
+    // the frames bare and scored 90 Phase 6 stub hits — an empty page table and
+    // an all-sentinel pool that looked exactly like a broken raster. The other
+    // tests in this suite never hit it because the render graph opens the
+    // bracket for them; VSM is driven directly, so it has to open its own.
+    const auto runFrame = [&](bool mark)
+    {
+        SubmitFrame(
+            [&]
+            {
+                vsm.BeginFrame(lightDirection, cameraPos, glm::vec3(0.0f));
+                vsm.SetSamplingParams(1.0f, 200.0f);
+                vsm.SubmitDynamicInvalidations(meshCasters, skinnedCasters, glm::vec3(0.0f));
+                vsm.UpdatePages();
+                vsm.RenderCasters(meshCasters, skinnedCasters, glm::vec3(0.0f), noBones);
+                vsm.EndFrame();
+                if (mark)
+                {
+                    vsm.MarkRequiredPages(sceneDepth, kDepthRes, kDepthRes, inverseViewProjection,
+                                          cameraPos);
+                }
+            });
+    };
+
+    // Three frames, because marking runs one frame BEHIND by construction: it
+    // needs the depth buffer, which does not exist when the shadow pass runs.
+    // Frame 1 marks, frame 2 allocates what frame 1 asked for and rasterizes
+    // into it, frame 3 publishes the statistics frame 2 wrote (the readback is
+    // deliberately a frame late so observing it never stalls the GPU). A
+    // single-frame version of this test reads an empty page table and concludes
+    // the raster is broken.
+    runFrame(true);
+    runFrame(true);
+    runFrame(false);
+
+    const VSM::Statistics stats = vsm.GetStatistics();
+    GTEST_LOG_(INFO) << "Vulkan VSM: resident=" << stats.PagesResident << " drawn=" << stats.PagesDrawn
+                     << " requested=" << stats.PagesRequested << " allocated=" << stats.PagesAllocated
+                     << " failed=" << stats.PagesFailed << " drawInstances=" << stats.DrawInstances;
+
+    // ALLOCATED, not RESIDENT. PagesResident is counted by the free-list kernel
+    // at the TOP of a frame, before that frame allocates, so it reports the
+    // steady state a long-running frame loop reaches — and this harness runs
+    // three frames from a cold, fully-invalidated page table, where the count is
+    // legitimately still zero. Asserting on it here would be asserting on the
+    // harness's warm-up, not on VSM. The GL evidence test covers the steady
+    // state (1094 resident, settling to zero redraws); what THIS test is for is
+    // whether the Vulkan backend executes the chain at all.
+    EXPECT_GT(stats.PagesAllocated, 0u)
+        << "the allocator backed nothing on Vulkan. Either the marking kernel requested nothing — the "
+           "synthetic depth never reached u_VSMSceneDepth, or the globals UBO did not, in which case "
+           "the clip projections are identity and every unprojected position falls outside every clip "
+           "level — or the free list is empty.";
+    EXPECT_GT(stats.DrawInstances, 0u)
+        << "the cull emitted no (caster x clip level) pair, so the indirect draw had an instance count "
+           "of zero and the raster below could only ever write nothing";
+    EXPECT_EQ(stats.PagesFailed, 0u) << "the 256-page pool could not satisfy every request";
+    EXPECT_EQ(stats.CullOverflows, 0u) << "the cull dropped draw records — a CPU-side sizing bug";
+
+    // Did the RASTER write anything? PagesDrawn counts pages the CLEAR kernel
+    // reset, which happens whether or not a triangle then lands on them, so it
+    // cannot answer this. The pool can: a cleared-but-never-drawn page still
+    // holds the far sentinel, and an all-sentinel pool is exactly what "the
+    // shaders ran and wrote nothing" looks like — indistinguishable from a
+    // working frame on the CPU side, and the most expensive thing to
+    // misdiagnose in this system.
+    {
+        const u32 res = vsm.GetPhysicalResolution();
+        std::vector<u32> pool(static_cast<sizet>(res) * res, 0u);
+        ASSERT_TRUE(RenderCommand::ReadTextureImage(vsm.GetPhysicalPoolHandle(), 0, RHI::Format::R32UInt,
+                                                    pool.size() * sizeof(u32), pool.data()))
+            << "could not read the VSM physical pool back on Vulkan";
+
+        const auto written =
+            static_cast<u32>(std::ranges::count_if(pool, [](u32 texel)
+                                                   { return texel != 0xFFFFFFFFu; }));
+        GTEST_LOG_(INFO) << "Vulkan VSM pool: " << written << " / " << pool.size() << " texels hold depth";
+        EXPECT_GT(written, 0u)
+            << "every texel of the physical pool is still the far sentinel. The compute kernels ran "
+               "(pages are resident) but the depth RASTER wrote nothing. On Vulkan the first suspects "
+               "are the raster framebuffer's spec — it IS the render area here, unlike GL — and "
+               "MultiDrawElementsIndirectCountRaw, which needs the drawIndirectCount feature and drops "
+               "the draw without it.";
+    }
+
+    vsm.Shutdown();
+    RenderCommand::DeleteTexture(sceneDepth);
+
+    // No facade call fell through to a Phase 6 stub. A stub returns quietly, so
+    // without this the pass could "succeed" having done nothing at all.
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore) << "VSM hit an unimplemented Vulkan facade path";
 }
 
 #endif // OLO_WITH_VULKAN

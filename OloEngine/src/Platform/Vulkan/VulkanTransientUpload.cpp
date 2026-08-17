@@ -93,6 +93,8 @@ namespace OloEngine::VulkanUpload
                 return VK_FORMAT_R16G16_SFLOAT;
             case ImageFormat::R32I:
                 return VK_FORMAT_R32_SINT;
+            case ImageFormat::R32UI:
+                return VK_FORMAT_R32_UINT;
             case ImageFormat::RG8:
                 return VK_FORMAT_R8G8_UNORM;
             case ImageFormat::BC7:
@@ -130,6 +132,7 @@ namespace OloEngine::VulkanUpload
             case ImageFormat::R32F:
             case ImageFormat::RG16F:
             case ImageFormat::R32I:
+            case ImageFormat::R32UI:
                 return 4;
             case ImageFormat::RGBA16F:
             case ImageFormat::RG32F:

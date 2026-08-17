@@ -243,13 +243,31 @@ limitation you can ignore: with VSM on, a terrain-heavy scene renders the terrai
 completely unshadowed, and it looks like the light is wrong rather than like a
 missing feature.
 
-**Vulkan status, stated precisely, because the imprecise version was wrong once.**
-The Vulkan branches COMPILE — every VSM shader is built with `OLO_VULKAN` defined
-for the Vulkan target env by
-`VirtualShadowMapVulkanShaders.EveryVsmShaderCompilesForTheVulkanTarget`. VSM has
-never RENDERED a Vulkan frame. Do not shorten that to "both backends are
-supported"; the composition below is a claim about two conventions cancelling,
-and only a rendered frame can settle it.
+**Vulkan status, stated precisely, because the imprecise version was wrong twice.**
+VSM RUNS on Vulkan: `VulkanPassSuite.VirtualShadowMapRunsAFullFrameOnVulkan`
+drives a real frame on a real device and asserts the allocator backs pages and
+the raster leaves real depth in the pool, with the fixture's zero-validation-error
+gate over it. What has NOT been done is a side-by-side of a Vulkan frame against
+a GL one, so the y-flip composition below — a claim about two conventions
+cancelling — is argued, tested for execution, and not yet confirmed by eye.
+
+GETTING THERE COST TWO ENGINE FIXES, both invisible to every GL test:
+
+  * `ImageFormat` had no `R32UI` member, so `CreateTexture2DHandle(R32UInt)`
+    returned the NULL HANDLE on Vulkan. The whole physical pool did not exist:
+    VSM initialised, reported its 91.8 MB, and every imageAtomicMin went nowhere.
+    The only surface symptom was one warn-once line per shader —
+    `'VSM_ClearDirtyPages' image binding 0 has no staged heap slot`. VSM is the
+    first system in the engine to want an R32UI texture, which is why the hole
+    sat there unnoticed.
+  * VSM restored the previous viewport unconditionally, and `GetViewport()`
+    answers `{0,0,0,0}` when nothing has set one — which is the normal case,
+    since VSM runs at the top of the frame. GL shrugs; Vulkan raises
+    VUID-VkViewport-width-01770 once per frame.
+
+Neither could have been found by compiling, and neither could have been found on
+GL. If you extend VSM, run the Vulkan test — it is the only thing in the suite
+that executes this code on the other backend.
 
 Why the test had to exist at all: `OLO_VULKAN` is defined in exactly two places
 in the engine — `VulkanShader.cpp` and `VulkanComputeShader.cpp` — so an
