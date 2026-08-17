@@ -138,13 +138,7 @@ namespace OloEngine
     std::filesystem::path JoltShapes::GetDefaultCacheDirectory()
     {
         // An explicit override wins over the default location.
-        if (const std::optional<std::string> envCacheDir = Levers::PhysicsCacheDir())
-        {
-            return std::filesystem::path(*envCacheDir);
-        }
-
-        // Fallback to default location
-        return std::filesystem::path("assets/cache/shapes");
+        return std::filesystem::path(Levers::PhysicsCacheDir().value_or("assets/cache/shapes"));
     }
 
     JPH::Ref<JPH::Shape> JoltShapes::CreateBoxShape(const BoxCollider3DComponent& component, const glm::vec3& scale)

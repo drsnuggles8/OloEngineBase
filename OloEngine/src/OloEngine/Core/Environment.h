@@ -38,7 +38,15 @@ namespace OloEngine::Env
     // The raw value, if the variable is set AND non-empty. An empty variable is
     // reported as absent: every caller in this engine treated "" as unset, and
     // the MSVC CRT uses an empty value to mean "delete the variable".
-    [[nodiscard]] std::optional<std::string> Get(const char* name);
+    //
+    // Takes the name by std::string_view rather than const char* — every call
+    // site passes a string literal, which converts implicitly and for free, and
+    // it avoids the array-to-pointer decay a raw `const char*` parameter forces
+    // at every one of them. The implementation still needs a null-terminated
+    // string for getenv, so it copies once internally; that copy is the whole
+    // reason the header's contract asks callers to read once at startup rather
+    // than in a hot loop.
+    [[nodiscard]] std::optional<std::string> Get(std::string_view name);
 
     // The engine's definition of an on/off switch: set, non-empty, and not
     // starting with '0', 'f' or 'F'. So "1", "true", "yes", "on" are all on;
@@ -47,14 +55,14 @@ namespace OloEngine::Env
     // Deliberately lenient, because the failure it prevents is silent: a lever
     // typed as `FOO=true` when the code tested `strcmp(v, "1") == 0` reads as
     // "off" and the developer concludes the lever does not work.
-    [[nodiscard]] bool IsTruthy(const char* name);
+    [[nodiscard]] bool IsTruthy(std::string_view name);
 
     // Exact, case-sensitive match. For the levers whose contract is "only this
     // one value does anything" — where a typo must NOT be interpreted as on.
-    [[nodiscard]] bool IsExactly(const char* name, std::string_view expected);
+    [[nodiscard]] bool IsExactly(std::string_view name, std::string_view expected);
 
     // Integer value, or nullopt when unset or unparseable. Unlike `std::atoi`
     // this does not silently return 0 for garbage, so a caller can tell "set to
     // zero" apart from "mistyped".
-    [[nodiscard]] std::optional<i64> GetInt(const char* name);
+    [[nodiscard]] std::optional<i64> GetInt(std::string_view name);
 } // namespace OloEngine::Env

@@ -17,13 +17,12 @@ namespace OloEngine
         // OLO_NON_INTERACTIVE lets a launcher set this without a command-line
         // flag, for the case the engine is started by something that cannot pass
         // argv through (a detached Start-Process, a service host).
-        std::atomic<bool> s_NonInteractive{ Env::IsTruthy("OLO_NON_INTERACTIVE") };
+        std::atomic s_NonInteractive{ Env::IsTruthy("OLO_NON_INTERACTIVE") };
     } // namespace
 
     void SetNonInteractive(bool nonInteractive)
     {
-        const bool previous = s_NonInteractive.exchange(nonInteractive);
-        if (previous != nonInteractive)
+        if (const bool previous = s_NonInteractive.exchange(nonInteractive); previous != nonInteractive)
         {
             OLO_CORE_INFO("Interactivity: non-interactive mode {} — blocking modals will {}",
                           nonInteractive ? "ON" : "OFF",

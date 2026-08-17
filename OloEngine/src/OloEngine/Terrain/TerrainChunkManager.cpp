@@ -174,19 +174,16 @@ namespace OloEngine
 
         for (const auto* node : selectedNodes)
         {
-            u32 x0 = 0;
-            u32 x1 = 0;
-            u32 z0 = 0;
-            u32 z1 = 0;
-            if (!ChunkRangeForNode(*node, x0, x1, z0, z1))
+            const std::optional<ChunkRange> range = RangeForNode(*node);
+            if (!range)
             {
                 continue;
             }
 
             const TerrainChunkLODData lodData = m_Quadtree.GetChunkLODData(*node);
-            for (u32 cz = z0; cz <= z1; ++cz)
+            for (u32 cz = range->Z0; cz <= range->Z1; ++cz)
             {
-                for (u32 cx = x0; cx <= x1; ++cx)
+                for (u32 cx = range->X0; cx <= range->X1; ++cx)
                 {
                     const sizet idx = static_cast<sizet>(cz) * m_NumChunksX + cx;
                     if (m_ChunkClaimed[idx] != 0u)
@@ -281,15 +278,13 @@ namespace OloEngine
         }
     }
 
-    bool TerrainChunkManager::ChunkRangeForNode(const TerrainQuadNode& node,
-                                                u32& outX0, u32& outX1,
-                                                u32& outZ0, u32& outZ1) const
+    std::optional<TerrainChunkManager::ChunkRange> TerrainChunkManager::RangeForNode(const TerrainQuadNode& node) const
     {
         OLO_PROFILE_FUNCTION();
 
         if (m_NumChunksX == 0 || m_NumChunksZ == 0)
         {
-            return false;
+            return std::nullopt;
         }
 
         // Node bounds are normalized [0,1] over the terrain footprint, the same
@@ -319,8 +314,9 @@ namespace OloEngine
             hi = std::max(hi, lo);
         };
 
-        rangeOnAxis(node.MinX, node.MaxX, m_NumChunksX, outX0, outX1);
-        rangeOnAxis(node.MinZ, node.MaxZ, m_NumChunksZ, outZ0, outZ1);
-        return true;
+        ChunkRange range;
+        rangeOnAxis(node.MinX, node.MaxX, m_NumChunksX, range.X0, range.X1);
+        rangeOnAxis(node.MinZ, node.MaxZ, m_NumChunksZ, range.Z0, range.Z1);
+        return range;
     }
 } // namespace OloEngine
