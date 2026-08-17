@@ -311,8 +311,15 @@ namespace OloEngine
             if (ImGui::SliderFloat("Normal Bias (m)##vsm", &vsm.NormalBias, 0.0f, 0.5f, "%.4f"))
                 vsmChanged = true;
 
-            static const char* debugItems[] = { "Off", "Clip level", "Page address", "Residency" };
-            int debugIdx = std::clamp(vsm.DebugMode, 0, 3);
+            // 4-7 are the bring-up views: they take the sampler apart so a wrong
+            // frame says WHICH half is wrong. "Shadow factor" is the important
+            // one — it renders the number the lit pass receives, so a shadow that
+            // shows there but not in the beauty frame is a term being dropped by
+            // the caller rather than a page-table fault.
+            static const char* debugItems[] = { "Off", "Clip level", "Page address",
+                                                "Residency", "Shadow test", "Stored depth",
+                                                "Receiver depth", "Shadow factor" };
+            int debugIdx = std::clamp(vsm.DebugMode, 0, 7);
             if (ImGui::Combo("Debug View##vsm", &debugIdx, debugItems, IM_ARRAYSIZE(debugItems)))
             {
                 vsm.DebugMode = debugIdx;

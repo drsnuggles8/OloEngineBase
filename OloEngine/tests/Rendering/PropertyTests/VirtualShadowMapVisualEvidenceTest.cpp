@@ -26,14 +26,24 @@
 //
 //   1. CSM darkens the floor on the cube's lee side  (the baseline is real)
 //   2. VSM darkens it too                            (VSM casts at all)
-//   3. both darkenings land in the SAME cell region  (VSM agrees with CSM about
+//   3. both darkenings have the same CENTROID        (VSM agrees with CSM about
 //      WHERE the shadow is — this is what catches a wrong clip level, a wrong
 //      page wrap, or a flipped raster origin, each of which still produces "a
 //      shadow", just not in the right place)
-//   4. the lit control band stays bright under both  (neither dims globally)
+//   4. both carry a comparable amount of darkening   (same footprint, not a
+//      correctly-placed fragment of one — the centroid alone cannot tell those
+//      apart, since a dot inside the real footprint has the right centroid)
+//   5. the lit control band stays bright under both  (neither dims globally)
 //
-// (3) is the load-bearing one. (1) and (2) alone would pass for a system that
-// shadows the entire floor.
+// (3) is the load-bearing one, with (4) closing its blind spot. (1) and (2) alone
+// would pass for a system that shadows the entire floor.
+//
+// Position is measured as a darkness-weighted CENTROID, not as the darkest cell.
+// The darkest-cell version of this test reported the two techniques as seven
+// cells apart on frames that were, to the eye, identical: the cast shadow fills
+// most of the lee band, so "darkest cell" was an argmin over a nearly flat field.
+// A metric whose answer is decided by the noise in a flat region is worse than no
+// metric, because it fails loudly and points somewhere real.
 //
 // Runs in the normal suite and SKIPs (not fails) when no GL 4.6 context exists,
 // matching ContactShadowVisualEvidenceTest. The page-table MATHS contracts (wrap
@@ -66,6 +76,7 @@
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -128,35 +139,66 @@ namespace OloEngine::Tests
                      static_cast<f64>(sumB) / count };
         }
 
-        // The darkest cell of a scanned region, and where it sits. `Cell` is the
-        // grid index so two techniques can be compared on POSITION, not just on
-        // "something got darker".
-        struct DarkCell
+        // WHERE the shadow is and HOW MUCH of it there is, as a first moment of
+        // "darkness" over a scanned region.
+        //
+        // This replaced a darkest-CELL scan, and the reason is worth keeping: the
+        // cast shadow fills most of the lee band, so the darkest cell was an argmin
+        // over a nearly flat field and landed wherever the grid texture happened to
+        // put a pixel. It reported CSM and VSM as seven cells apart while the two
+        // frames were, to the eye, the same shadow in the same place. A centroid
+        // has no such failure — every shadowed pixel votes, so it moves only when
+        // the shadow actually moves, which is precisely the regression the test
+        // exists to catch (a wrong clip level, a wrong page wrap or a flipped
+        // raster origin all displace the whole footprint).
+        //
+        // Weighting by (lit - luma) rather than counting thresholded pixels keeps
+        // it continuous: a penumbra pixel contributes in proportion to how dark it
+        // is, so the two techniques' different edge softness shifts the centroid by
+        // a fraction of the penumbra rather than by a whole cell.
+        struct DarkMoment
         {
-            f64 Luma = 1e9;
-            u32 CellX = 0;
-            u32 CellY = 0;
+            f64 Mass = 0.0; // summed darkening — proportional to shadow area x depth
+            f64 Cx = 0.0;   // centroid, in frame UV
+            f64 Cy = 0.0;
             bool Found = false;
         };
 
-        [[nodiscard]] DarkCell DarkestCell(const std::vector<u8>& px, f32 x0, f32 x1, f32 y0, f32 y1,
-                                           u32 cellsX, u32 cellsY)
+        // Only pixels at least this much darker than the lit control band count.
+        // Grid lines are BRIGHTER than the floor so they weigh nothing either way;
+        // this rejects shading gradient and readback noise.
+        constexpr f64 kDarkNoiseFloor = 8.0;
+
+        [[nodiscard]] DarkMoment DarknessCentroid(const std::vector<u8>& px, f32 x0, f32 x1, f32 y0,
+                                                  f32 y1, f64 litLuma)
         {
-            DarkCell best;
-            const f32 dx = (x1 - x0) / static_cast<f32>(cellsX);
-            const f32 dy = (y1 - y0) / static_cast<f32>(cellsY);
-            for (u32 cy = 0; cy < cellsY; ++cy)
+            const u32 ix0 = static_cast<u32>(x0 * kWidth);
+            const u32 ix1 = std::min(static_cast<u32>(x1 * kWidth), kWidth);
+            const u32 iy0 = static_cast<u32>(y0 * kHeight);
+            const u32 iy1 = std::min(static_cast<u32>(y1 * kHeight), kHeight);
+
+            f64 mass = 0.0;
+            f64 sumX = 0.0;
+            f64 sumY = 0.0;
+            for (u32 y = iy0; y < iy1; ++y)
             {
-                for (u32 cx = 0; cx < cellsX; ++cx)
+                for (u32 x = ix0; x < ix1; ++x)
                 {
-                    const f32 cellX0 = x0 + dx * static_cast<f32>(cx);
-                    const f32 cellY0 = y0 + dy * static_cast<f32>(cy);
-                    const f64 luma = SampleBand(px, cellX0, cellX0 + dx, cellY0, cellY0 + dy).Luma();
-                    if (luma < best.Luma)
-                        best = { luma, cx, cy, true };
+                    const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4u;
+                    if (idx + 2 >= px.size())
+                        continue;
+                    const f64 luma = 0.2126 * px[idx + 0] + 0.7152 * px[idx + 1] + 0.0722 * px[idx + 2];
+                    const f64 weight = litLuma - luma;
+                    if (weight <= kDarkNoiseFloor)
+                        continue;
+                    mass += weight;
+                    sumX += weight * (static_cast<f64>(x) / kWidth);
+                    sumY += weight * (static_cast<f64>(y) / kHeight);
                 }
             }
-            return best;
+            if (mass <= 0.0)
+                return {};
+            return { mass, sumX / mass, sumY / mass, true };
         }
     } // namespace
 
@@ -283,6 +325,19 @@ namespace OloEngine::Tests
             ASSERT_FALSE(ec) << "Failed to create evidence dir '" << dir.generic_string()
                              << "': " << ec.message();
 
+            // Stamped next to every capture. When the comparison below fails, the
+            // first question is always "was the page table even populated for
+            // THIS frame sequence" — and re-running to find out costs a full GL
+            // fixture spin-up, so it is recorded unconditionally.
+            {
+                const auto& shadowMap = Renderer3D::GetShadowMap();
+                const VSM::Statistics s = shadowMap.GetVirtualShadowMap().GetStatistics();
+                GTEST_LOG_(INFO) << "[" << tag << "] vsmActive=" << shadowMap.IsVirtualShadowMapActive()
+                                 << " resident=" << s.PagesResident << " drawn=" << s.PagesDrawn
+                                 << " requested=" << s.PagesRequested << " allocated=" << s.PagesAllocated
+                                 << " failed=" << s.PagesFailed << " drawInstances=" << s.DrawInstances;
+            }
+
             const std::string path = (dir / ("VirtualShadowMap_" + tag + ".png")).string();
             const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
                                                static_cast<int>(kHeight), 4, outPixels.data(),
@@ -327,10 +382,13 @@ namespace OloEngine::Tests
         } };
 
         // Lee = screen-right of the cube (shadow side); Lit = mirrored control.
-        constexpr f32 kLeeX0 = 0.62f, kLeeX1 = 0.88f;
+        // The lee window starts just clear of the cube's right edge (~0.62) so the
+        // cube's own unlit faces cannot contribute to the centroid, and runs to the
+        // frame edge so the whole cast footprint is inside it — a window that
+        // clipped the shadow would move the centroid by however much it clipped.
+        constexpr f32 kLeeX0 = 0.635f, kLeeX1 = 0.99f;
         constexpr f32 kLitX0 = 0.12f, kLitX1 = 0.38f;
-        constexpr f32 kScanY0 = 0.35f, kScanY1 = 0.75f;
-        constexpr u32 kCellsX = 12, kCellsY = 12;
+        constexpr f32 kScanY0 = 0.32f, kScanY1 = 0.78f;
 
         for (const Pose& pose : poses)
         {
@@ -354,46 +412,84 @@ namespace OloEngine::Tests
             Capture(std::string("VSM_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, vsm);
             if (::testing::Test::HasFatalFailure())
                 return;
+
+            // DebugMode 7 renders the shadow factor the lit pass RECEIVES. It is
+            // captured unconditionally, right here, because the two ways this
+            // test fails need opposite fixes and the beauty frame cannot tell
+            // them apart: a shadow visible here but not above means the term is
+            // computed correctly and then dropped by the caller; no shadow here
+            // means the page table or the raster is at fault. DebugMode does not
+            // recreate any VSM resource (VirtualShadowMap::SetSettings only
+            // recreates on Enabled/resolution), so this frame sees exactly the
+            // page table the beauty frame saw.
+            ASSERT_TRUE(SetVirtualShadowMaps(true, 7));
+            std::vector<u8> factor;
+            Capture(std::string("VSM_") + pose.Name + "_ShadowFactor", pose.Position, pose.Yaw, pose.Pitch,
+                    factor);
+            const bool factorFatal = ::testing::Test::HasFatalFailure();
             ASSERT_TRUE(SetVirtualShadowMaps(false)) << "could not restore the CSM path";
+            if (factorFatal)
+                return;
 
             const BandStats csmLit = SampleBand(csm, kLitX0, kLitX1, kScanY0, kScanY1);
             const BandStats vsmLit = SampleBand(vsm, kLitX0, kLitX1, kScanY0, kScanY1);
-            const DarkCell csmDark = DarkestCell(csm, kLeeX0, kLeeX1, kScanY0, kScanY1, kCellsX, kCellsY);
-            const DarkCell vsmDark = DarkestCell(vsm, kLeeX0, kLeeX1, kScanY0, kScanY1, kCellsX, kCellsY);
-
-            ASSERT_TRUE(csmDark.Found && vsmDark.Found) << "the lee scan region was empty";
 
             // The floor must actually be lit somewhere, or every comparison below
-            // is between two blacks and passes vacuously.
-            EXPECT_GT(csmLit.Luma(), 25.0) << "the CSM control band is not lit — the scene is too dark "
+            // is between two blacks and passes vacuously. Asserted before the
+            // moments are taken, because the lit luma is their reference level.
+            ASSERT_GT(csmLit.Luma(), 25.0) << "the CSM control band is not lit — the scene is too dark "
                                               "to draw any conclusion from";
-            EXPECT_GT(vsmLit.Luma(), 25.0) << "the VSM control band is not lit";
+            ASSERT_GT(vsmLit.Luma(), 25.0) << "the VSM control band is not lit";
+
+            const DarkMoment csmDark = DarknessCentroid(csm, kLeeX0, kLeeX1, kScanY0, kScanY1, csmLit.Luma());
+            const DarkMoment vsmDark = DarknessCentroid(vsm, kLeeX0, kLeeX1, kScanY0, kScanY1, vsmLit.Luma());
+
+            GTEST_LOG_(INFO) << "lee darkness — CSM mass=" << csmDark.Mass << " at (" << csmDark.Cx << ", "
+                             << csmDark.Cy << ")  VSM mass=" << vsmDark.Mass << " at (" << vsmDark.Cx
+                             << ", " << vsmDark.Cy << ")";
 
             // 1. CSM casts a shadow at all (the baseline is real, not another
             //    shadowless scene).
-            EXPECT_LT(csmDark.Luma, csmLit.Luma() - 8.0)
-                << "CSM did not darken the lee floor (darkest lee cell " << csmDark.Luma
-                << " vs lit band " << csmLit.Luma() << ") — the baseline casts nothing, so this "
-                << "test cannot say anything about VSM";
+            ASSERT_TRUE(csmDark.Found)
+                << "CSM did not darken the lee floor at all (lit band " << csmLit.Luma()
+                << ") — the baseline casts nothing, so this test cannot say anything about VSM";
 
             // 2. VSM casts a shadow at all.
-            EXPECT_LT(vsmDark.Luma, vsmLit.Luma() - 8.0)
-                << "VSM did not darken the lee floor (darkest lee cell " << vsmDark.Luma
-                << " vs lit band " << vsmLit.Luma() << ")";
+            EXPECT_TRUE(vsmDark.Found)
+                << "VSM did not darken the lee floor at all (lit band " << vsmLit.Luma()
+                << ") — every lee pixel is within " << kDarkNoiseFloor << " luma of the lit control";
+            if (!vsmDark.Found)
+                continue;
 
             // 3. THE LOAD-BEARING ONE: both put it in the same place. A wrong clip
             //    level, a wrong page wrap or a flipped raster origin all still
-            //    produce "a shadow" — just not here.
-            const i32 dx = static_cast<i32>(vsmDark.CellX) - static_cast<i32>(csmDark.CellX);
-            const i32 dy = static_cast<i32>(vsmDark.CellY) - static_cast<i32>(csmDark.CellY);
-            EXPECT_LE(std::abs(dx), 2) << "VSM's darkest lee cell is " << dx
-                                       << " cells from CSM's in X — the shadow exists but is in the "
-                                          "wrong place";
-            EXPECT_LE(std::abs(dy), 2) << "VSM's darkest lee cell is " << dy
-                                       << " cells from CSM's in Y — the shadow exists but is in the "
-                                          "wrong place";
+            //    produce "a shadow" — just not here. The tolerance is 2.5% of the
+            //    frame, which is a few pixels wider than the two techniques'
+            //    penumbra difference and far tighter than any of those faults.
+            constexpr f64 kCentroidTolerance = 0.025;
+            EXPECT_NEAR(vsmDark.Cx, csmDark.Cx, kCentroidTolerance)
+                << "VSM's cast shadow sits " << std::abs(vsmDark.Cx - csmDark.Cx)
+                << " of the frame width from CSM's — it exists but is in the wrong place";
+            EXPECT_NEAR(vsmDark.Cy, csmDark.Cy, kCentroidTolerance)
+                << "VSM's cast shadow sits " << std::abs(vsmDark.Cy - csmDark.Cy)
+                << " of the frame height from CSM's — it exists but is in the wrong place";
 
-            // 4. Neither technique globally dims the frame: the lit control band
+            // 4. …and it is the same SIZE, to within the sharpness difference the
+            //    two techniques legitimately have. Without this, a VSM that
+            //    shadowed a single correct pixel would satisfy (2) and (3): the
+            //    centroid of a dot inside the real footprint is still in the right
+            //    place. The band is generous on purpose — VSM's finer clip levels
+            //    genuinely peter-pan less than CSM's cascade, so its footprint runs
+            //    slightly larger, and pinning this tighter would fail on a real
+            //    improvement.
+            EXPECT_GT(vsmDark.Mass, csmDark.Mass * 0.5)
+                << "VSM's shadow carries only " << (vsmDark.Mass / csmDark.Mass)
+                << "x CSM's darkening — it is casting a fragment of the footprint, not the footprint";
+            EXPECT_LT(vsmDark.Mass, csmDark.Mass * 2.0)
+                << "VSM's shadow carries " << (vsmDark.Mass / csmDark.Mass)
+                << "x CSM's darkening — it is over-shadowing (acne, or a bias that lost its sign)";
+
+            // 5. Neither technique globally dims the frame: the lit control band
             //    must agree between them.
             EXPECT_NEAR(vsmLit.Luma(), csmLit.Luma(), 18.0)
                 << "the lit control band changed between CSM and VSM — one of them is dimming the "

@@ -287,7 +287,7 @@ vec3 ComputeDeferredLit(
     // usable when the shadow term is coming out wrong, and gating it on the same
     // flag the broken path reads would hide exactly the case it exists for.
     if (VSM_DEBUG_MODE != 0)
-        color = mix(color, vsmDebugTint(worldPos), 0.85);
+        color = mix(color, vsmDebugTint(worldPos, N), 0.85);
 
     return color;
 }

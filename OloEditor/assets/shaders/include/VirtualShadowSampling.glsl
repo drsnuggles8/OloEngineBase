@@ -112,13 +112,122 @@ float vsmShadowFactor(vec3 worldPosRelative, vec3 normalRelative)
     return 1.0;
 }
 
+// The internals of ONE sampling decision, for the debug views below. It walks
+// exactly the levels vsmShadowFactor walks and applies the same normal offset, so
+// what it reports is what the shading actually saw — a probe that re-derived the
+// level or skipped the offset would answer a question nobody asked.
+#define VSM_PROBE_OK          0 // reached the depth comparison
+#define VSM_PROBE_BEYOND_MAX  1 // distance > VSM_MAX_SHADOW_DISTANCE — bailed before sampling
+#define VSM_PROBE_NO_PAGE     2 // no resident page at any of the three levels
+
+struct VSMProbe
+{
+    int Reason;     // one of VSM_PROBE_*
+    int Level;      // the level a resident page was found at, or -1
+    float Receiver; // receiver depth there
+    float Stored;   // depth the raster left in that page's texel (1.0 = far sentinel)
+};
+
+VSMProbe vsmProbe(vec3 worldPosRelative, vec3 normalRelative)
+{
+    VSMProbe probe;
+    probe.Reason = VSM_PROBE_NO_PAGE;
+    probe.Level = -1;
+    probe.Receiver = 0.0;
+    probe.Stored = 1.0;
+
+    float dist = length(worldPosRelative - u_VSMCameraPosition.xyz);
+    // Replicated from vsmShadowFactor deliberately: an early-out the probe does
+    // not model is an early-out the probe cannot report, and this one silently
+    // turns the whole system off.
+    if (dist > VSM_MAX_SHADOW_DISTANCE)
+    {
+        probe.Reason = VSM_PROBE_BEYOND_MAX;
+        return probe;
+    }
+
+    int baseLevel = vsmClipLevelForDistance(dist, VSM_CLIP0_HALF_EXTENT, VSM_CLIP_SELECTION_BIAS);
+
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        int level = min(baseLevel + attempt, VSM_CLIP_LEVELS - 1);
+        vec3 offsetPos = worldPosRelative +
+                         normalRelative * (VSM_NORMAL_BIAS + u_VSMClips[level].TexelWorldSize * 1.5);
+
+        vec2 uv;
+        float depth;
+        if (vsmProjectIntoClip(offsetPos, level, uv, depth))
+        {
+            uint entry = b_PageTable[vsmPageIndex(level, vsmUVToWrappedPage(uv, level))];
+            if (vsmPageIsAllocated(entry))
+            {
+                probe.Reason = VSM_PROBE_OK;
+                probe.Level = level;
+                probe.Receiver = depth;
+                probe.Stored = vsmDecodeDepth(texelFetch(u_VSMPhysicalPool, vsmPhysicalTexel(uv, entry), 0).r);
+                break;
+            }
+        }
+        if (level == VSM_CLIP_LEVELS - 1)
+            break;
+    }
+    return probe;
+}
+
+// Both depths sit within a hair of 0.5 — the ortho range is +-DepthRange metres
+// (4096 by default) so a whole scene occupies ~0.1% of it. Raw, the ramps below
+// would be a flat grey field; this expands roughly +-40 m around the render
+// origin into the full [0,1] display range.
+float vsmDebugDepthRamp(float depth)
+{
+    return clamp((depth - 0.5) * 100.0 + 0.5, 0.0, 1.0);
+}
+
 // Debug visualisation, gated by VirtualShadowMapSettings::DebugMode.
 //   1 — clip-level tint (the concentric rings should be centred on the camera)
 //   2 — page address within the level (a checkerboard; a discontinuity that does
 //       NOT lie on a page edge means the wraparound maths is wrong)
 //   3 — residency (green resident, red requested-but-unbacked)
-vec3 vsmDebugTint(vec3 worldPosRelative)
+//   4 — THE SHADOW DECISION, split three ways: green where the stored depth is
+//       nearer than the receiver (this pixel SHOULD be shadowed), grey where it
+//       is not, red where no resident page was found at any level. A frame whose
+//       green region matches CSM's shadow but which still renders lit means the
+//       data is right and vsmSampleLevel's comparison is wrong; an all-grey frame
+//       means the raster never wrote the pages the receiver reads.
+//   5 — stored depth ramp; 6 — receiver depth ramp. Same mapping, so the two are
+//       directly comparable: where 5 is brighter than 6 the map holds nothing
+//       nearer than the surface, which is "lit" by definition.
+//   7 — the shadow factor the lit path actually receives, as greyscale. The one
+//       view that is NOT a reimplementation: 4-6 walk their own copy of the level
+//       search, so a frame where 4 shows a shadow and 7 does not is the sampler
+//       and the probe disagreeing, and a frame where 7 shows a shadow the RENDER
+//       does not have means the term is computed and then dropped by the caller.
+//       Both of those happened while this system was being brought up.
+vec3 vsmDebugTint(vec3 worldPosRelative, vec3 normalRelative)
 {
+    if (VSM_DEBUG_MODE == 7)
+        return vec3(vsmShadowFactor(worldPosRelative, normalRelative));
+
+    if (VSM_DEBUG_MODE >= 4)
+    {
+        VSMProbe probe = vsmProbe(worldPosRelative, normalRelative);
+        if (probe.Reason == VSM_PROBE_BEYOND_MAX)
+            return vec3(0.9, 0.1, 0.9); // MAGENTA — the max-distance gate ate it
+        if (probe.Reason == VSM_PROBE_NO_PAGE)
+            return vec3(0.9, 0.1, 0.1); // RED — nothing resident at any level
+        if (VSM_DEBUG_MODE == 5)
+            return vec3(vsmDebugDepthRamp(probe.Stored));
+        if (VSM_DEBUG_MODE == 6)
+            return vec3(vsmDebugDepthRamp(probe.Receiver));
+        // Mode 4 answers all three questions in one frame: GREEN where the map
+        // says shadowed, otherwise the stored-depth ramp — so pure white grey is
+        // "the raster wrote nothing here" and mid-grey is "it wrote something,
+        // just not nearer than the surface".
+        if (probe.Receiver - VSM_DEPTH_BIAS > probe.Stored)
+            return vec3(0.1, 0.9, 0.1);
+        return vec3(vsmDebugDepthRamp(probe.Stored));
+    }
+
     const vec3 levelColors[8] = vec3[8](
         vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.2), vec3(1.0, 1.0, 0.2), vec3(0.2, 1.0, 0.2),
         vec3(0.2, 1.0, 1.0), vec3(0.2, 0.4, 1.0), vec3(0.7, 0.3, 1.0), vec3(1.0, 0.3, 0.8));

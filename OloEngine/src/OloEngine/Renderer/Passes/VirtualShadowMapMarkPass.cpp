@@ -45,9 +45,23 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
 
         m_SceneDepth = {};
-        if (!VirtualShadowMapActive())
-            return;
 
+        // DELIBERATELY NOT GATED ON VirtualShadowMapActive(), for the same reason
+        // IsEnabled() is not: RenderGraph::BuildFrameGraph caches the compiled
+        // frame behind a fingerprint, and that fingerprint does not include
+        // whether VSM is on. So Setup runs on the frame the topology was last
+        // rebuilt and NOT when the setting is toggled — an early return here
+        // leaves m_SceneDepth invalid forever, Execute() bails on it every frame,
+        // no page is ever marked, nothing is ever allocated, and the frame renders
+        // completely unshadowed with no error anywhere.
+        //
+        // That is not hypothetical: it is why enabling VSM produced a correct
+        // shadow when it was on before the first frame, and NO shadow when it was
+        // switched on after some frames had already been drawn — which is the
+        // order the editor's toggle, and the CSM-then-VSM comparison test, both
+        // use. Declaring a read the pass may not use costs one graph edge; this
+        // node is NeverCull, so it does not even change what gets culled.
+        //
         // Read the SEMANTIC scene depth, not an attachment view: the pass has to
         // work on the forward path (a snapshot texture) and the deferred one (a
         // G-Buffer attachment view / MSAA resolve) alike, and the blackboard's

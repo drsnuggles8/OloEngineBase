@@ -52,8 +52,16 @@ namespace OloEngine
         // session after an enable: page marking never ran, so nothing was ever
         // requested, so nothing was ever allocated — a completely unshadowed
         // frame with no error anywhere. Registering unconditionally and
-        // self-disabling in Setup/Execute is the same shape DDGIProbeUpdatePass
-        // uses, and it costs a no-op node when VSM is off.
+        // self-disabling in EXECUTE is the same shape DDGIProbeUpdatePass uses,
+        // and it costs a no-op node when VSM is off.
+        //
+        // Execute, and NOT Setup: the same trap bites one layer down, because
+        // BuildFrameGraph caches the compiled frame behind a fingerprint that
+        // does not include the VSM setting either. See the long comment on
+        // Setup() in the .cpp, and agent-rules/virtual-shadow-map-page-cache.md
+        // §5 — the rule generalises to any pass with a runtime toggle.
+        // Both halves are guarded headlessly by
+        // tests/Rendering/VirtualShadowMapMarkPassTest.cpp.
         [[nodiscard]] bool IsEnabled() const noexcept override;
 
       private:

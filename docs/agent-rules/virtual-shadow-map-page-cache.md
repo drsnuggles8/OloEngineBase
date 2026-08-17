@@ -1,5 +1,9 @@
 # Virtual Shadow Maps: the page cache has four invariants, and breaking one is invisible
 
+> §5 is the one to read first if VSM renders **no shadow at all** while every
+> diagnostic says the system is up — it is a render-graph caching trap, not a VSM
+> bug, and it applies to any pass with a runtime toggle.
+
 Applies to: `OloEngine/src/OloEngine/Renderer/Shadow/VirtualShadowMap.{h,cpp}`,
 `OloEditor/assets/shaders/include/VirtualShadow*.glsl`,
 `OloEditor/assets/shaders/compute/VSM_*.comp`, `OloEditor/assets/shaders/VSM_Depth*.glsl`
@@ -141,7 +145,65 @@ still camera should settle to **`pages drawn` ≈ 0**. If it sits near
 
 ---
 
-## 5. Why the raster looks nothing like the CSM pass
+## 5. A render-graph pass's `Setup()` is CACHED — it must not branch on a setting
+
+This one is not really about VSM. It is about `RenderGraph::BuildFrameGraph`, and
+VSM is simply the feature that found it. Read it before writing any pass that a
+user can toggle at runtime.
+
+`BuildFrameGraph(fingerprint)` returns early when the fingerprint matches the last
+successful build and nothing marked the graph dirty. Everything a pass declares in
+`Setup()` — its reads, its writes, any handle it stashes — is therefore computed on
+the frame the topology was last *rebuilt*, and is then reused verbatim for every
+frame after it. **The fingerprint does not include your pass's settings.**
+
+`VirtualShadowMapMarkPass::Setup` originally opened with
+
+```cpp
+m_SceneDepth = {};
+if (!VirtualShadowMapActive())
+    return;              // <-- frozen in for the life of the topology
+```
+
+which is correct exactly once: on the first frame after the graph is rebuilt. Turn
+VSM **on afterwards** — which is what the editor's checkbox does, and what any test
+that renders CSM first and VSM second does — and `Setup` never runs again.
+`m_SceneDepth` stays invalid, `Execute` early-outs on it every frame, no page is
+ever marked, so nothing is ever allocated and nothing is ever rasterized.
+
+The frame then renders **completely unshadowed, with no error anywhere**, and every
+piece of evidence points somewhere else:
+
+- `IsActive()` is true, the physical pool exists, the VRAM is allocated;
+- the lit pass *does* enter the VSM branch (the debug tint proves it);
+- the page table reads as "resident" wherever the sampler looks, because the
+  residency view is showing you *last* topology's pages;
+- and the same build produces a **perfect** shadow in any test that enables VSM
+  before the first frame.
+
+That last property is the tell, and it is worth naming because it is what makes
+this bug so expensive: the feature works or does not work depending on **when the
+setting was flipped relative to the last graph rebuild**, which is not a variable
+anyone thinks to control. Two tests exercising the identical code path disagreed
+for four rounds of debugging.
+
+**The rule:** declare resources in `Setup()` unconditionally, and gate the *work*
+in `Execute()`, which does run every frame. A read the pass may not use costs one
+graph edge. The same reasoning already applies to `IsEnabled()` — it is consulted
+at topology-build time, so it must answer "could this pass ever run" (here:
+`m_ShadowMap != nullptr`), never "is the feature on right now".
+
+The diagnostic that separates this from a page-table fault in one frame is
+**DebugMode 7** (`Shadow factor`): it renders the number the lit pass actually
+receives. A shadow visible there but absent from the beauty frame means the term is
+computed and dropped by the caller; no shadow there means the page table or the
+raster is at fault. Modes 4–6 (shadow test / stored depth / receiver depth) take
+the comparison itself apart, but note they walk their *own* copy of the level
+search — so mode 7 disagreeing with mode 4 is itself a finding.
+
+---
+
+## 6. Why the raster looks nothing like the CSM pass
 
 Three deliberate departures, each of which reads as a mistake until you know why:
 
@@ -167,7 +229,7 @@ Three deliberate departures, each of which reads as a mistake until you know why
 
 ---
 
-## 6. What VSM does NOT cover yet
+## 7. What VSM does NOT cover yet
 
 Static and skinned **mesh** casters only. Terrain, foliage, voxel and
 virtualized-geometry casters still render through the CSM path, because each
