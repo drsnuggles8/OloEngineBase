@@ -277,6 +277,18 @@ vec3 ComputeDeferredLit(
     if (cascadeDebug && u_DirectionalShadowEnabled != 0)
         color = ApplyCascadeDebug(color, worldPos);
 
+    // Virtual Shadow Map debug views (issue #702), driven by
+    // VirtualShadowMapSettings::DebugMode. Applied AFTER the cascade tint because
+    // the two are alternatives — VSM replaces the cascades, so they can never be
+    // meaningful in the same frame.
+    //
+    // Deliberately gated only on VSM_DEBUG_MODE and not on
+    // u_DirectionalShadowEnabled: the whole point of the residency view is to be
+    // usable when the shadow term is coming out wrong, and gating it on the same
+    // flag the broken path reads would hide exactly the case it exists for.
+    if (VSM_DEBUG_MODE != 0)
+        color = mix(color, vsmDebugTint(worldPos), 0.85);
+
     return color;
 }
 

@@ -300,6 +300,7 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/DDGIReferenceParityTest.cpp
 		Rendering/PropertyTests/OverdrawVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VirtualShadowMapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
