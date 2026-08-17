@@ -2,6 +2,7 @@
 // Ported to OloEngine
 
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/LowLevelTask.h"
 #include "OloEngine/Core/Log.h"
@@ -44,41 +45,6 @@ namespace OloEngine::LowLevelTasks
     static bool g_TaskGraphUseDynamicThreadCreation = false;
     static bool g_TaskGraphConfigInitialized = false;
 
-    std::optional<f32> ParseOversubscriptionRatio(const char* envValue)
-    {
-        if (envValue == nullptr)
-        {
-            return std::nullopt;
-        }
-
-        // Parse with std::strtof rather than std::atof: atof has no error reporting and
-        // undefined behaviour on overflow, whereas strtof reports "not a number at all"
-        // via endPtr and overflow via ±HUGE_VALF (== ±inf). "inf"/"nan" likewise parse to
-        // non-finite values. All of those must be rejected before they reach the
-        // worker-budget math (inf >= 1.0f is true; the product ceil(workers * inf) then
-        // casts to i32, which is undefined behaviour) — the endPtr and isfinite guards
-        // below do exactly that.
-        char* endPtr = nullptr;
-        const f32 value = std::strtof(envValue, &endPtr);
-        if (endPtr == envValue)
-        {
-            // No characters consumed → the value is not a number.
-            return std::nullopt;
-        }
-        if (*endPtr != '\0')
-        {
-            // Trailing, unconsumed characters → a partially-numeric string like "2.0abc".
-            // strtof would silently parse the "2.0" prefix; require the whole string instead.
-            return std::nullopt;
-        }
-        if (!std::isfinite(value) || value < 1.0f || value > kMaxOversubscriptionRatio)
-        {
-            return std::nullopt;
-        }
-
-        return value;
-    }
-
     // @brief Parse command-line or environment configuration for task graph settings
     //
     // This mirrors UE5.7's approach of parsing command-line arguments like:
@@ -98,51 +64,29 @@ namespace OloEngine::LowLevelTasks
         }
         g_TaskGraphConfigInitialized = true;
 
-        // Check environment variables for configuration
-        if (const char* EnvDynamicPrioritization = std::getenv("OLO_TASK_GRAPH_DYNAMIC_PRIORITIZATION"))
+        // Tri-state on purpose: Off/On force the value, Unset leaves the
+        // hardware-derived default alone. That is why these two are not plain
+        // toggles — a garbage value must not silently replace a computed
+        // default. The registry (Core/DebugLevers.h) owns the parse.
+        if (const Levers::Tristate prioritization = Levers::TaskGraphDynamicPrioritization();
+            prioritization != Levers::Tristate::Unset)
         {
-            if (std::strcmp(EnvDynamicPrioritization, "0") == 0 || std::strcmp(EnvDynamicPrioritization, "false") == 0)
-            {
-                g_TaskGraphUseDynamicPrioritization = false;
-            }
-            else if (std::strcmp(EnvDynamicPrioritization, "1") == 0 || std::strcmp(EnvDynamicPrioritization, "true") == 0)
-            {
-                g_TaskGraphUseDynamicPrioritization = true;
-            }
-            else
-            {
-                // No additional handling required.
-            }
+            g_TaskGraphUseDynamicPrioritization = (prioritization == Levers::Tristate::On);
         }
 
-        if (const char* EnvDynamicThreadCreation = std::getenv("OLO_TASK_GRAPH_DYNAMIC_THREAD_CREATION"))
+        if (const Levers::Tristate threadCreation = Levers::TaskGraphDynamicThreadCreation();
+            threadCreation != Levers::Tristate::Unset)
         {
-            if (std::strcmp(EnvDynamicThreadCreation, "0") == 0 || std::strcmp(EnvDynamicThreadCreation, "false") == 0)
-            {
-                g_TaskGraphUseDynamicThreadCreation = false;
-            }
-            else if (std::strcmp(EnvDynamicThreadCreation, "1") == 0 || std::strcmp(EnvDynamicThreadCreation, "true") == 0)
-            {
-                g_TaskGraphUseDynamicThreadCreation = true;
-            }
-            else
-            {
-                // No additional handling required.
-            }
+            g_TaskGraphUseDynamicThreadCreation = (threadCreation == Levers::Tristate::On);
         }
 
-        if (const char* EnvOversubscriptionRatio = std::getenv("OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO"))
+        // The registry rejects non-finite and out-of-[1, kMaxOversubscriptionRatio]
+        // values, and reports them through Levers::LogActive() once the logger
+        // is definitely up. inf must never reach the worker-budget math: inf >= 1.0f
+        // is true, and ceil(workers * inf) cast to i32 is undefined behaviour.
+        if (const std::optional<f32> ratio = Levers::TaskGraphOversubscriptionRatio())
         {
-            if (const std::optional<f32> Ratio = ParseOversubscriptionRatio(EnvOversubscriptionRatio))
-            {
-                g_TaskGraphOversubscriptionRatio = *Ratio;
-            }
-            else
-            {
-                OLO_CORE_WARN("[TaskGraph] Ignoring invalid OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO='{}' "
-                              "(must be finite and within [1, {}]); keeping {}",
-                              EnvOversubscriptionRatio, kMaxOversubscriptionRatio, g_TaskGraphOversubscriptionRatio);
-            }
+            g_TaskGraphOversubscriptionRatio = *ratio;
         }
     }
 
@@ -325,13 +269,9 @@ namespace OloEngine::LowLevelTasks
         // CI's low worker count; std::thread::hardware_concurrency() ignores
         // process affinity, so a 2-core affinity pin alone still spawns one
         // worker per physical core). Clamped to >=1; ignored if unset/invalid.
-        if (const char* EnvNumWorkers = std::getenv("OLO_TASK_GRAPH_NUM_WORKERS"))
+        if (const std::optional<i64> numWorkers = Levers::TaskGraphNumWorkers())
         {
-            const int Value = std::atoi(EnvNumWorkers);
-            if (Value >= 1)
-            {
-                return static_cast<u32>(Value);
-            }
+            return static_cast<u32>(*numWorkers);
         }
 
         u32 NumCores = std::thread::hardware_concurrency();

@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include <optional>
 #include "JoltShapes.h"
 #include "JoltBinaryStream.h"
 #include "OloEngine/Core/Log.h"
@@ -135,10 +137,10 @@ namespace OloEngine
 
     std::filesystem::path JoltShapes::GetDefaultCacheDirectory()
     {
-        // Check environment variable first
-        if (const char* envCacheDir = std::getenv("OLO_PHYSICS_CACHE_DIR"); envCacheDir && ::strlen(envCacheDir) > 0)
+        // An explicit override wins over the default location.
+        if (const std::optional<std::string> envCacheDir = Levers::PhysicsCacheDir())
         {
-            return std::filesystem::path(envCacheDir);
+            return std::filesystem::path(*envCacheDir);
         }
 
         // Fallback to default location

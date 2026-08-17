@@ -40,7 +40,7 @@ Corollaries that bit here:
 - **The coupling must be documented at the CHANGE SITE, not (only) in the test.** The person editing the
   star hash is in `AtmosphereSky.glsl`, not the test file — a note buried in the test never reaches them.
   Both change sites (and the CPU mirror) now carry a `GOLDEN COUPLING:` comment naming the affected
-  goldens and the `OLOENGINE_GOLDEN_REBASE=1` mechanism.
+  goldens and the `--olo-golden-rebase` mechanism.
 - **A red that recurs every run gets *normalised*, and a normalised red blinds the whole suite.** The cost
   is not the one failing test — it is that every other test's signal now reads through "well, there's
   always 1 red." Clearing it is worth a PR on its own.

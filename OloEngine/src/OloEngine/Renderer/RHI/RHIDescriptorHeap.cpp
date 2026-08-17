@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
@@ -9,24 +10,6 @@
 
 namespace OloEngine::RHI
 {
-    namespace
-    {
-        // The engine's established debug-toggle idiom — RenderGraph.cpp,
-        // RenderPipeline.cpp and eight other sites read env vars exactly this
-        // way, and OLO_RHI_BINDLESS deliberately behaves like every other one.
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            // NOSONAR cpp:S990 — the rule flags getenv because the pointer it
-            // returns can be invalidated by a concurrent setenv/putenv. Neither
-            // appears anywhere in this engine (verified across OloEngine/src and
-            // OloEditor/src), this is read once during single-threaded renderer
-            // init, and the value is consumed immediately rather than stored — so
-            // the race the rule guards against cannot arise here.
-            const char* value = std::getenv(name);
-            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
-        }
-    } // namespace
-
     auto DescriptorHeap::Get() -> DescriptorHeap&
     {
         // Leaked for the same reason ResourceRegistry::Get() is: a view can be
@@ -210,8 +193,7 @@ namespace OloEngine::RHI
         // The toggle defaults from the environment so an A/B capture needs no
         // rebuild, and defaults OFF so that a machine without the extension —
         // and every headless test — takes the slot-based path it always took.
-        m_Enabled = m_Initialized && backend->IsBindlessSupported() &&
-                    IsTruthyEnvironmentVariable("OLO_RHI_BINDLESS");
+        m_Enabled = m_Initialized && backend->IsBindlessSupported() && Levers::BindlessDescriptorHeap();
 
         if (m_Initialized)
         {

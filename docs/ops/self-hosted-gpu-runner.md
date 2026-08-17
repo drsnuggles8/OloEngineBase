@@ -51,7 +51,7 @@ The suite used to get its GL context only from GLFW, which on Linux needs an
 X11 or Wayland display. This host has neither, so `glfwCreateWindow` failed and
 every GPU test skipped — the exact condition the runner exists to eliminate.
 
-`RenderPropertyTest.cpp` now selects a backend via **`OLO_TEST_GL_BACKEND`**:
+`RenderPropertyTest.cpp` now selects a backend via **`--olo-gl-backend`**:
 
 | Value | Behaviour |
 |---|---|
@@ -353,7 +353,7 @@ These are defence in depth:
 
 ## Bootstrapping the AMD golden baseline
 
-`GoldenImageTests.cpp` reads `OLOENGINE_GOLDEN_VENDOR` to select a per-vendor
+`GoldenImageTests.cpp` uses `--olo-golden-vendor=<name>` to select a per-vendor
 golden directory, so AMD output cannot clobber the NVIDIA baselines.
 
 1. Land the EGL harness change; run the workflow via **Run workflow**.
@@ -362,10 +362,10 @@ golden directory, so AMD output cannot clobber the NVIDIA baselines.
 3. Download the `gpu_amd_golden_diffs` artifact and **look at the PNGs**. Do not
    promote them unseen; a genuine AMD-vs-NVIDIA divergence and a broken headless
    context both present as "all goldens differ".
-4. Once the images are confirmed correct, re-run with `OLOENGINE_GOLDEN_REBASE=1`
+4. Once the images are confirmed correct, re-run with `--olo-golden-rebase`
    and commit the resulting `assets/tests/golden/amd/*.png`.
 
-Perf baselines follow the same pattern with `OLOENGINE_PERF_REBASE=1`. Because
+Perf baselines follow the same pattern with `--olo-perf-rebase`. Because
 the box is dedicated rather than a shared hosted VM, these numbers are actually
 stable enough to be worth trending — unlike hosted-runner perf data.
 
@@ -375,6 +375,6 @@ stable enough to be worth trending — unlike hosted-runner perf data.
 |---|---|
 | Preflight: `no /dev/dri/renderD128` | `amdgpu` not loaded, or the runner user lost `render` group |
 | Preflight: `SOFTWARE RENDERER` | Mesa fell back to llvmpipe — check `MESA_LOADER_DRIVER_OVERRIDE`, driver install, and that the *software* EGL device wasn't selected |
-| All GPU tests still skip | The EGL harness fallback is missing, or `OLO_TEST_GL_BACKEND=egl` is not reaching the process |
+| All GPU tests still skip | The EGL harness fallback is missing, or `--olo-gl-backend=egl` is not reaching the process |
 | Failures that look like missing shaders | Job ran from the repo root instead of `OloEditor/` |
 | Stale generated `.inl` failures | Workspace not wiped; the workflow's first step does this, but a manually-run build may not have |

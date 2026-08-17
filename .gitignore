@@ -65,7 +65,7 @@ OloEngine/vendor/*
 OloEditor/assets/tests/captures/
 /assets/tests/captures/
 
-# Opt-in high-resolution path-tracer evidence (OLO_PATHTRACER_EVIDENCE=1). Only
+# Opt-in high-resolution path-tracer evidence (--olo-pathtracer-evidence). Only
 # regenerated on demand, so a committed copy would silently go stale against the
 # tracer it is supposed to be evidence for. The gate-resolution PNGs beside them
 # ARE committed — those are rewritten by every test run.

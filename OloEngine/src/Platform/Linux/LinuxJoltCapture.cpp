@@ -1,6 +1,8 @@
 // Linux implementation of JoltCapturePlatform.
 
 #include "OloEnginePCH.h"
+#include <optional>
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Physics3D/JoltCapturePlatform.h"
 
 #ifdef OLO_PLATFORM_LINUX
@@ -13,13 +15,15 @@ namespace OloEngine::JoltCapturePlatform
     {
         std::filesystem::path GetUserDataRoot()
         {
-            if (const char* xdgDataHome = std::getenv("XDG_DATA_HOME"); xdgDataHome != nullptr)
+            // OS-provided, not an engine knob: this IS the documented way to
+            // find the user data directory on Linux.
+            if (const std::optional<std::string> xdgDataHome = Env::Get("XDG_DATA_HOME"))
             {
-                return std::filesystem::path(xdgDataHome);
+                return std::filesystem::path(*xdgDataHome);
             }
-            if (const char* home = std::getenv("HOME"); home != nullptr)
+            if (const std::optional<std::string> home = Env::Get("HOME"))
             {
-                return std::filesystem::path(home) / ".local" / "share";
+                return std::filesystem::path(*home) / ".local" / "share";
             }
             return {};
         }
@@ -46,11 +50,11 @@ namespace OloEngine::JoltCapturePlatform
     {
         std::vector<std::filesystem::path> result;
 
-        if (const char* xdgDataHome = std::getenv("XDG_DATA_HOME"); xdgDataHome != nullptr)
+        if (const std::optional<std::string> xdgDataHome = Env::Get("XDG_DATA_HOME"))
         {
             try
             {
-                result.push_back(std::filesystem::weakly_canonical(std::filesystem::path(xdgDataHome)));
+                result.push_back(std::filesystem::weakly_canonical(std::filesystem::path(*xdgDataHome)));
             }
             catch (const std::filesystem::filesystem_error&)
             {
@@ -58,11 +62,11 @@ namespace OloEngine::JoltCapturePlatform
             }
         }
 
-        if (const char* home = std::getenv("HOME"); home != nullptr)
+        if (const std::optional<std::string> home = Env::Get("HOME"))
         {
             try
             {
-                result.push_back(std::filesystem::weakly_canonical(std::filesystem::path(home) / ".local" / "share"));
+                result.push_back(std::filesystem::weakly_canonical(std::filesystem::path(*home) / ".local" / "share"));
             }
             catch (const std::filesystem::filesystem_error&)
             {

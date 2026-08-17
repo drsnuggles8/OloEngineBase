@@ -21,7 +21,7 @@
 // Each pose is also captured to OloEditor/assets/tests/visual/UnderwaterFx_*.png
 // for a human / the authoring agent to eyeball (the caustic web + chromatic
 // wobble are obvious there). These are evidence, not golden references — the test
-// never compares against them, so the write is gated behind OLOENGINE_GOLDEN_REBASE
+// never compares against them, so the write is gated behind --olo-golden-rebase
 // to keep the committed PNGs churn-free on normal runs. The cheap CPU math
 // contracts (offset bounds, pattern range, depth fade) live in WaterRenderingTest.cpp.
 //
@@ -32,6 +32,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -118,8 +119,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
 
         // Mean RGB RMSE (0..255) over a rectangular band of two equal-size buffers.

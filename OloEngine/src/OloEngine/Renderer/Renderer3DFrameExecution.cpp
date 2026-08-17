@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
@@ -13,25 +14,8 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 
-#include <cstdlib>
-
 namespace OloEngine
 {
-    namespace
-    {
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            const char* value = std::getenv(name);
-            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
-        }
-
-        bool IsRenderGraphDiagnosticsEnabled()
-        {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
-            return enabled;
-        }
-    } // namespace
-
     void Renderer3D::SetParticleRenderCallback(RenderCallback callback)
     {
         s_Data.PendingParticleRenderCallback = std::move(callback);
@@ -253,7 +237,7 @@ namespace OloEngine
 
             if (buildStatsChanged)
             {
-                if (IsRenderGraphDiagnosticsEnabled())
+                if (Levers::RenderGraphDiagnostics())
                 {
                     OLO_CORE_TRACE("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}, orderSensitiveResults={}",
                                    buildStats.PassesVisited,
@@ -267,7 +251,7 @@ namespace OloEngine
             }
         }
 
-        bool validateCompiledHazards = IsRenderGraphDiagnosticsEnabled();
+        bool validateCompiledHazards = Levers::RenderGraphDiagnostics();
 #if !defined(OLO_DIST)
         validateCompiledHazards = validateCompiledHazards || buildStatsChanged;
 #endif
@@ -281,7 +265,7 @@ namespace OloEngine
                                compiledHazards.size());
                 OLO_CORE_ASSERT(compiledHazards.empty(), "Compiled RenderGraph resource hazard detected (see log). Fix the offending setup-time resource declarations or ordering edges.");
             }
-            else if (IsRenderGraphDiagnosticsEnabled() && buildStatsChanged)
+            else if (Levers::RenderGraphDiagnostics() && buildStatsChanged)
             {
                 OLO_CORE_TRACE("Renderer3D::EndScene: compiled RenderGraph validation passed.");
             }

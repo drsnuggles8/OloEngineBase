@@ -1,5 +1,8 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Core/Environment.h"
 
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -56,18 +59,6 @@ namespace OloEngine
             entry->ApplyRenderViewport(renderW, renderH);
         }
 
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            const char* value = std::getenv(name);
-            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
-        }
-
-        bool IsRenderGraphDiagnosticsEnabled()
-        {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
-            return enabled;
-        }
-
         // Transient-corruption debug instruments (the transient black-square
         // artifact hunt). OLO_RG_POISON_TRANSIENTS=1 clears every pool-acquired
         // transient texture / color attachment to a per-resource hue at
@@ -85,41 +76,22 @@ namespace OloEngine
         // live flags own it. They were `static const bool` latches before, which
         // meant an editor restart per flip — the wrong ergonomics for a probe
         // whose whole value is being usable against a running editor.
-        std::once_flag s_TransientDebugFlagsSeedOnce;
-        std::atomic<bool> s_PoisonTransients{ false };
-        std::atomic<bool> s_DisableAliasing{ false };
-
-        // std::call_once, NOT a test-then-set on an atomic flag: the seed must be
-        // atomic with respect to SetTransientDebugFlags, which seeds first and
-        // then stores the caller's values. With a plain check-then-seed, a reader
-        // that observed "not yet initialized" could still be inside the env reads
-        // when the setter's stores land, and would then overwrite them with the
-        // env defaults — silently losing the flag flip. Reads reach here from an
-        // httplib worker (GetTransientDebugFlags) as well as the render thread,
-        // so the window is real. call_once makes every later caller wait for (and
-        // observe) the completed seeding instead of racing it.
-        void EnsureTransientDebugFlagsSeeded()
-        {
-            std::call_once(s_TransientDebugFlagsSeedOnce,
-                           []
-                           {
-                               s_PoisonTransients.store(IsTruthyEnvironmentVariable("OLO_RG_POISON_TRANSIENTS"),
-                                                        std::memory_order_relaxed);
-                               s_DisableAliasing.store(IsTruthyEnvironmentVariable("OLO_RG_DISABLE_ALIASING"),
-                                                       std::memory_order_relaxed);
-                           });
-        }
-
+        // The seed-once + relaxed-atomic + setter-seeds-first machinery these
+        // two flags needed now lives in Core/DebugLevers.h, which generalises
+        // it for every lever. The ordering argument that made it necessary is
+        // unchanged and worth keeping visible: reads reach here from an httplib
+        // worker (GetTransientDebugFlags) as well as the render thread, so a
+        // plain check-then-seed could let a reader still inside the environment
+        // reads overwrite a concurrent setter's stores with the environment
+        // defaults — silently losing the flip.
         bool IsTransientPoisonEnabled()
         {
-            EnsureTransientDebugFlagsSeeded();
-            return s_PoisonTransients.load(std::memory_order_relaxed);
+            return Levers::PoisonTransients();
         }
 
         bool IsTransientAliasingDisabled()
         {
-            EnsureTransientDebugFlagsSeeded();
-            return s_DisableAliasing.load(std::memory_order_relaxed);
+            return Levers::DisableTransientAliasing();
         }
 
         // OLO_RG_BLACKSQUARE_HUNT=1 — per-pass output readback scan for the
@@ -131,8 +103,7 @@ namespace OloEngine
         // readback per pass); debug hunts only.
         bool IsBlackSquareHuntEnabled()
         {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RG_BLACKSQUARE_HUNT");
-            return enabled;
+            return Levers::BlackSquareHunt();
         }
 
         void HuntBlackSquares(const std::string& passName, const Ref<Framebuffer>& target,
@@ -399,7 +370,7 @@ namespace OloEngine
     void RenderGraph::Init(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Initializing RenderGraph with dimensions: {}x{}", width, height);
 
         m_PhysicalWidth = width;
@@ -417,7 +388,7 @@ namespace OloEngine
     void RenderGraph::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Shutting down RenderGraph");
 
         m_TransientPool.Clear();
@@ -604,7 +575,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(!m_NodeLookup.contains(name),
                         "RenderGraph entries must have unique names");
 
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Adding graph node: {}", name);
 
         m_InsertionOrder.push_back(name);
@@ -2894,11 +2865,11 @@ namespace OloEngine
 
     void RenderGraph::SetTransientDebugFlags(const TransientDebugFlags& flags)
     {
-        // Seed first so a Set that only means to change one flag doesn't get the
-        // other silently overwritten by a later lazy env read.
-        EnsureTransientDebugFlagsSeeded();
-        s_PoisonTransients.store(flags.PoisonTransients, std::memory_order_relaxed);
-        s_DisableAliasing.store(flags.DisableAliasing, std::memory_order_relaxed);
+        // The registry's setters seed before storing, so a Set that only means
+        // to change one flag cannot have the other silently overwritten by a
+        // later lazy environment read.
+        Levers::SetPoisonTransients(flags.PoisonTransients);
+        Levers::SetDisableTransientAliasing(flags.DisableAliasing);
         OLO_CORE_WARN("RenderGraph transient debug mode set at runtime: poison={}, aliasing disabled={}",
                       flags.PoisonTransients, flags.DisableAliasing);
     }
@@ -3140,7 +3111,7 @@ namespace OloEngine
             return;
         }
 
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Connecting passes (ordering only): {} -> {}", outputPass, inputPass);
         AddExecutionDependency(outputPass, inputPass);
     }
@@ -3161,7 +3132,7 @@ namespace OloEngine
             return;
         }
 
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Adding execution dependency (ordering only): {} -> {}", beforePass, afterPass);
 
         // Only add dependency for execution ordering, no framebuffer piping (avoid duplicates)
@@ -4032,7 +4003,7 @@ namespace OloEngine
             }
         }
 
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("RenderGraph execution order updated with {} nodes", m_ExecutionOrder.size());
 
         // Hoist independent AsyncComputeCandidate passes before graphics.
@@ -4211,7 +4182,7 @@ namespace OloEngine
         if (reordered.size() == m_ExecutionOrder.size())
         {
             m_ExecutionOrder = std::move(reordered);
-            if (IsRenderGraphDiagnosticsEnabled())
+            if (Levers::RenderGraphDiagnostics())
                 OLO_CORE_TRACE("RenderGraph: Compute-hoist applied to execution order");
         }
     }
@@ -4541,7 +4512,7 @@ namespace OloEngine
 
     void RenderGraph::LogSubmissionPlanIfChanged()
     {
-        if (!IsRenderGraphDiagnosticsEnabled())
+        if (!Levers::RenderGraphDiagnostics())
             return;
 
         std::string digest;
@@ -4693,7 +4664,7 @@ namespace OloEngine
             if (IsGraphEntrySideEffecting(passName))
             {
                 m_ReachablePasses.insert(passName);
-                if (IsRenderGraphDiagnosticsEnabled())
+                if (Levers::RenderGraphDiagnostics())
                     OLO_CORE_TRACE("Pass '{}' is unreachable but has side effects; keeping it", passName);
             }
             else
@@ -4716,7 +4687,7 @@ namespace OloEngine
 
         if (digest != m_LastLoggedCulledPassDigest)
         {
-            if (IsRenderGraphDiagnosticsEnabled())
+            if (Levers::RenderGraphDiagnostics())
                 OLO_CORE_TRACE("RenderGraph culled passes changed: {}", digest);
             m_LastLoggedCulledPassDigest = std::move(digest);
         }
@@ -7013,7 +6984,7 @@ namespace OloEngine
                 // diagnostics are explicitly enabled so it's available for
                 // catching typos during development without spamming
                 // production logs.
-                if (IsRenderGraphDiagnosticsEnabled())
+                if (Levers::RenderGraphDiagnostics())
                 {
                     OLO_CORE_WARN("tryAddDerivedDependency: graph entry not found: {} -> {}",
                                   beforePass, afterPass);
@@ -7410,7 +7381,7 @@ namespace OloEngine
         // Stripped in Dist; gated behind OLO_RENDERGRAPH_DIAGNOSTICS otherwise so it
         // does not run on the per-frame hot path unless explicitly enabled.
 #if !defined(OLO_DIST)
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
         {
             const auto currentSimulation = simulateDerivedDependencies(processedNodeNames);
             auto reversedProcessedNodeNames = processedNodeNames;
@@ -7624,7 +7595,7 @@ namespace OloEngine
                     m_LastLoggedBuildDiagnosticDigest = std::move(buildDiagnosticDigest);
                 }
             }
-        } // end if (IsRenderGraphDiagnosticsEnabled())
+        } // end if (Levers::RenderGraphDiagnostics())
 #endif // !defined(OLO_DIST)
 
         {

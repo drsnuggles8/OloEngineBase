@@ -17,15 +17,15 @@
 
 // Physical page -> its owning virtual page (or unallocated). One entry per
 // physical page; see the VSM_META_* encoding in VirtualShadowCommon.glsl.
-layout(std430, binding = 59) coherent buffer VSMMetaTable { uint b_MetaTable[]; };
+layout(std430, binding = 69) coherent buffer VSMMetaTable { uint b_MetaTable[]; };
 
 // Hierarchical Page Buffer: VSM_HPB_MIP_COUNT mips of the DIRTY flag per clip
 // level, packed by vsmHPBIndex().
-layout(std430, binding = 60) coherent buffer VSMHierarchicalPageBuffer { uint b_HPB[]; };
+layout(std430, binding = 70) coherent buffer VSMHierarchicalPageBuffer { uint b_HPB[]; };
 
 // Allocation requests appended by the marker, consumed by the allocator.
 // x = clip level, y = wrapped page X, z = wrapped page Y, w = unused.
-layout(std430, binding = 61) coherent buffer VSMRequests
+layout(std430, binding = 71) coherent buffer VSMRequests
 {
     uint b_RequestCount;
     uint b_RequestConsumed;
@@ -40,7 +40,7 @@ layout(std430, binding = 61) coherent buffer VSMRequests
 // NOT referenced this frame and may therefore be evicted. The allocator drains
 // the first list before touching the second, so eviction only ever happens under
 // real pressure.
-layout(std430, binding = 62) coherent buffer VSMFreePages
+layout(std430, binding = 72) coherent buffer VSMFreePages
 {
     uint b_FreeCount;
     uint b_NotVisitedCount;
@@ -50,7 +50,7 @@ layout(std430, binding = 62) coherent buffer VSMFreePages
 };
 
 // Dynamic-caster bounds submitted this frame; pairs of (min.xyz, max.xyz).
-layout(std430, binding = 64) readonly buffer VSMInvalidations
+layout(std430, binding = 73) readonly buffer VSMInvalidations
 {
     uint b_InvalidationCount;
     uint _vsmInvPad0;
@@ -67,7 +67,7 @@ struct VSMCullInstance
     vec4 BoundsMax;
     uvec4 Batch; // x = batch index, y = run base, z = run capacity, w = unbounded flag
 };
-layout(std430, binding = 65) readonly buffer VSMCullInstances { VSMCullInstance b_CullInstances[]; };
+layout(std430, binding = 74) readonly buffer VSMCullInstances { VSMCullInstance b_CullInstances[]; };
 
 // Cull output. Declared in its own header because the DEPTH RASTER reads the
 // very same buffer from a vertex stage — sharing the declaration is what stops
@@ -84,11 +84,11 @@ struct VSMDrawCommand
     uint BaseVertex;
     uint BaseInstance;
 };
-layout(std430, binding = 67) coherent buffer VSMDrawCommands { VSMDrawCommand b_DrawCommands[]; };
+layout(std430, binding = 76) coherent buffer VSMDrawCommands { VSMDrawCommand b_DrawCommands[]; };
 
 // C++ twin VSM::Statistics. Zeroed at the top of each frame's page update and
 // read back one frame late, so nothing here ever stalls the GPU.
-layout(std430, binding = 68) coherent buffer VSMStatistics
+layout(std430, binding = 77) coherent buffer VSMStatistics
 {
     uint b_PagesRequested;
     uint b_PagesAllocated;

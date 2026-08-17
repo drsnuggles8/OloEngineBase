@@ -2,6 +2,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -39,6 +40,12 @@ namespace OloEngine
         : m_Specification(std::move(specification))
     {
         OLO_PROFILE_FUNCTION();
+
+        // Say which debug levers are on, before anything acts on one. A run
+        // that behaves oddly because someone left OLO_RG_POISON_TRANSIENTS set
+        // should say so in its own log, not in a shell history nobody has.
+        // Silent when everything is at its default, which is the normal case.
+        Levers::LogActive();
 
         // Initialize Game Thread identity for the task system
         LowLevelTasks::InitGameThreadId();

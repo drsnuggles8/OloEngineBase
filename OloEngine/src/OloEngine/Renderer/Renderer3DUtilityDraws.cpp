@@ -644,7 +644,9 @@ namespace OloEngine
         RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
         const glm::mat4& transform,
         const ShaderBindingLayout::TerrainUBO& terrainUBO,
-        i32 entityID)
+        i32 entityID,
+        RHI::ResourceHandle terrainIndirectArgsID,
+        RHI::ResourceHandle terrainVisibleNodesID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -698,6 +700,19 @@ namespace OloEngine
         cmd->armArrayTextureID = armArrayID;
         cmd->transform = transform;
         cmd->entityID = entityID;
+        // Both or neither. With only one supplied the dispatcher takes the
+        // non-indirect path while the VAO is the shared UNIT grid and the UBO
+        // still says GpuDrivenMode — one garbage patch at node (0,0), drawn
+        // silently. Fail the draw instead.
+        if (terrainIndirectArgsID.IsValid() != terrainVisibleNodesID.IsValid())
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawTerrainPatch: GPU-driven terrain needs BOTH the indirect "
+                           "args and the visible-node buffer; got args={} nodes={}",
+                           terrainIndirectArgsID.IsValid(), terrainVisibleNodesID.IsValid());
+            return nullptr;
+        }
+        cmd->terrainIndirectArgsID = terrainIndirectArgsID;
+        cmd->terrainVisibleNodesID = terrainVisibleNodesID;
         cmd->terrainUBOData = terrainUBO;
 
         // Terrain is opaque — depth test on, no blending, culling on

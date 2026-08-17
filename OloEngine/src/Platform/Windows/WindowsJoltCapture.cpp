@@ -1,6 +1,8 @@
 // Windows implementation of JoltCapturePlatform.
 
 #include "OloEnginePCH.h"
+#include <optional>
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Physics3D/JoltCapturePlatform.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
@@ -12,10 +14,11 @@ namespace OloEngine::JoltCapturePlatform
     CapturePaths GetDefaultCapturePaths()
     {
         CapturePaths result;
-        if (const char* appData = std::getenv("APPDATA"); appData != nullptr)
+        // OS-provided, not an engine knob.
+        if (const std::optional<std::string> appData = Env::Get("APPDATA"))
         {
-            result.CapturesPath = std::filesystem::path(appData) / "OloEngine" / "Captures";
-            result.ExpectedRoot = std::filesystem::path(appData);
+            result.CapturesPath = std::filesystem::path(*appData) / "OloEngine" / "Captures";
+            result.ExpectedRoot = std::filesystem::path(*appData);
         }
         else
         {
@@ -28,11 +31,11 @@ namespace OloEngine::JoltCapturePlatform
     std::vector<std::filesystem::path> GetAllowedBasePaths()
     {
         std::vector<std::filesystem::path> result;
-        if (const char* appData = std::getenv("APPDATA"); appData != nullptr)
+        if (const std::optional<std::string> appData = Env::Get("APPDATA"))
         {
             try
             {
-                result.push_back(std::filesystem::weakly_canonical(std::filesystem::path(appData)));
+                result.push_back(std::filesystem::weakly_canonical(std::filesystem::path(*appData)));
             }
             catch (const std::filesystem::filesystem_error&)
             {

@@ -240,3 +240,143 @@ packet can't apply twice. That is the opposite trust model from lockstep.
 
 **Don't "upgrade" the gameplay RNG to a CSPRNG or obscure the seed** — it breaks determinism without
 adding real security.
+
+## 14. Environment variables: one reader, and don't add a modal escape hatch
+
+`Core/Environment.h` is the **only** place the engine calls `getenv`. Use
+`Env::Get` / `IsTruthy` / `IsExactly` / `GetInt`; do not add a private wrapper.
+
+This was consolidated from ~60 scattered call sites, eight of which were private
+near-identical `IsTruthyEnvironmentVariable` copies. They had already drifted:
+some sites tested `strcmp(v, "1") == 0`, others `*v != '0'`, others
+`value[0] != 'f'`. So two variables documented the same way behaved differently,
+and `FOO=true` silently meant *off* at half of them. Pick the accessor that
+matches your intent:
+
+| you want | use | note |
+|---|---|---|
+| an on/off toggle | `IsTruthy` | set, non-empty, not starting `0`/`f`/`F` |
+| "only this exact value acts" | `IsExactly` | a typo must NOT read as on |
+| a number | `GetInt` | `from_chars`; rejects garbage instead of `atoi`'s silent 0 |
+| a path or free string | `Get` | empty is reported as unset |
+
+Two rules that come with it:
+
+- **Read once, at startup, into your own state.** `getenv` hands back a pointer
+  into shared static storage, and `McpDispatchTest` sets and restores variables
+  around a case. Reading once during init keeps you clear of that, and it is why
+  the cpp:S990 suppression in `Environment.cpp` is honest rather than
+  hand-waved.
+- **`Env::Get` returns `std::optional<std::string>`, which fmt cannot format.**
+  Log `*value`, not `value` — passing the optional is a wall of
+  `type_is_unformattable_for` template spew that names the *formatter*, not your
+  call site. Cost one build cycle during the consolidation.
+
+### Debug levers go in the registry, not in a fresh `Env::IsTruthy`
+
+`Core/DebugLevers.h` + `DebugLevers.inl` hold the ~21 switches you flip for one
+run of an already-built binary — transient poisoning, bindless routing, the
+threading and terrain-LOD bisection switches, the task-graph tuning knobs.
+**Add a lever to `DebugLevers.inl` and nowhere else.** The accessors, the
+setters, the environment seeding and the enumeration are all generated from
+that one table, so there is no second list to update.
+
+The environment is still the *input* — that part was never wrong. What was
+missing is everything around it:
+
+- **No list.** Twenty-one independent `Env::IsTruthy(...)` reads across twelve
+  TUs. "Which levers exist?" had no answer but a grep, and "which are on in
+  this session?" had none at all — an editor launched hours ago with
+  `OLO_RG_POISON_TRANSIENTS` set looked identical to a clean one.
+- **Not addressable from code.** A test or tool that wanted one on had to write
+  the environment. That is the `_putenv_s` the test harness carried.
+
+So now: `Levers::LogActive()` prints the non-default levers at startup (silent
+when everything is default), and `olo_debug_levers` answers the same question
+against a running editor. `DebugLeversTest` fails if a new `Env::` read of an
+`OLO_*` variable appears anywhere in `OloEngine/src` — which is exactly how the
+previous 21 accumulated, each one individually reasonable.
+
+Two things to get right when adding one:
+
+- **Pick the right shape.** `TOGGLE` is lenient (`Env::IsTruthy`). `EXACT` only
+  accepts `"1"`, for a lever where a typo silently disabling the fast path
+  would read as a mysterious performance cliff rather than a visible failure.
+  `TRISTATE` exists because two task-graph knobs must distinguish "force off"
+  from "leave the hardware-derived default alone" — flattening that into a
+  toggle would change behaviour. `INT`/`NUMBER` return `optional` so
+  set-to-zero stays distinguishable from unset, which is what `std::atoi`
+  silently destroyed at the old call sites. `TEXT` has no setter, because every
+  text lever is a path consumed once at init.
+- **Seeding is lazy and once.** A setter marks the lever overridden *before*
+  seeding, so a set that happens before any read survives the seed the first
+  read triggers. Get that order backwards and the environment quietly wins.
+  A subsystem that cached the value at init still won't see a later change —
+  check the consumer.
+
+This is deliberately **not** a console-variable system: no name-based lookup, no
+editor console, no persistence, and no runtime change without a restart. It is
+the registry such a system would need underneath it — that layer is issue #821,
+which would also retire `FTaskPriorityCVar` in `Task.h`, a UE port whose own
+constructor says the engine has no console-variable system yet and which has
+zero call sites.
+
+### An environment variable is the wrong mechanism for a knob you own
+
+Reach for `Env::` when the value comes from **outside the process** — the OS
+(`HOME`, `APPDATA`, `COMPUTERNAME`, `XDG_*`), or a launcher configuring a child
+it started (`driver.ps1` handing the editor its per-worktree MCP port). Also for
+a **one-run debug lever on an already-built binary**: `OLO_RG_POISON_TRANSIENTS`,
+`OLO_RHI_BINDLESS`, `OLO_NO_THREADING`. Those are all genuinely environmental.
+
+For a knob the process owns, a **command-line flag** is strictly better, and the
+test suite is the worked example. It had twelve variables read from 26 sites;
+they are now `--olo-*` flags in `OloEngine/tests/TestOptions.{h,cpp}`, parsed in
+`main` before `InitGoogleTest`. Three things went wrong that flags make
+impossible:
+
+* **Invisibility.** A flag is in the command line CI already prints. A variable
+  set three YAML levels up is not, so "why did this run rebase the goldens?"
+  was archaeology.
+* **Readers disagreeing about their own values.** The AMD conformance workflow
+  carried a comment explaining it had to emit `'0'` and not `'false'`, because
+  one of the three `OLOENGINE_GOLDEN_REBASE` readers tested only the first
+  character — so `false` *enabled* a rebase there. Present-or-absent has no
+  such class of bug.
+* **Leaking into children.** Environment is inherited. `McpHeadlessAttachTest`
+  spawns an editor and was handing it the whole set by accident.
+
+A fourth, subtler one: an env-seeded `static const bool` **latches**. Five
+renderer TUs each had their own copy of the `OLO_RENDERGRAPH_DIAGNOSTICS` gate,
+so whichever asked first froze the answer process-wide — which is why the test
+`main` had to *write* the environment to reach it. One accessor
+(`Renderer/RenderGraphDiagnostics.h`, with a `Set…` alongside the `Is…`) removed
+both the duplication and the only place the engine mutated its own environment.
+If you find yourself writing `_putenv_s`/`setenv` to reach your own code, the
+value wants a setter, not a variable.
+
+Unknown `--olo-*` flags are deliberately **fatal**: a silently-ignored
+`--olo-golden-rebse` would reproduce exactly the invisibility being replaced.
+`--olo-help` lists them.
+
+### Do not add a fourth way to skip a modal
+
+`Core/Interactivity.h` answers "is anyone at the keyboard?" once, for the
+process. Before it existed the engine had grown three separate escape hatches,
+each added *after* someone lost time to a hang:
+
+* `OLO_EDITOR_AUTOSAVE_RECOVERY` — the auto-save recovery modal (#316 Part 5)
+* `OLO_EDITOR_UNSAVED_PROMPT` — the unsaved-changes modal
+* the assert dialog — `OLO_CORE_ASSERT` called `MessageBoxA` unconditionally (#714)
+
+That is one problem wearing three hats: **a blocking modal in a process nobody
+is watching is a hang, not a prompt** — and it does not look like a failure. The
+process sits in `NtUserWaitMessage` burning ~0% CPU, which reads as "slow" for
+as long as you are willing to believe it. The tell is flat CPU time against
+climbing wall-clock; confirm with `cdb -p <pid> -c "~0 kn 24; qd"` and look for
+`USER32!MessageBoxA`.
+
+So: **any new modal asks `IsNonInteractive()` first**, and the automated path
+takes the *least destructive* answer — "cancel", "keep what is on disk" — never
+the convenient one. A host that knows it is automated calls
+`SetNonInteractive(true)` at startup (the test binary already does).

@@ -28,6 +28,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "PathTracing/ReferenceSceneFixtures.h"
 
@@ -156,16 +157,15 @@ namespace OloEngine::Tests
         // mean, and resolution buys those nothing but runtime. But a 64x64 PNG
         // is not something a human can actually read, and "evidence you cannot
         // inspect" is not evidence. So: cheap by default, inspectable on
-        // demand. Set OLO_PATHTRACER_EVIDENCE=1 to also write a converged
-        // 192x192 frame. Same env-var-opt-in shape as OLOENGINE_GOLDEN_REBASE.
+        // demand. Pass --olo-pathtracer-evidence to also write a converged
+        // 192x192 frame. Same opt-in shape as --olo-golden-rebase.
         //
         // Run it in a RELEASE build: the tracer is ~40x slower under MSVC Debug
         // (measured on the gate renders), which turns a 10-second evidence
         // frame into a coffee break.
         [[nodiscard]] bool HighResEvidenceRequested()
         {
-            const char* value = std::getenv("OLO_PATHTRACER_EVIDENCE");
-            return value != nullptr && value[0] != '\0' && value[0] != '0';
+            return OloEngine::Tests::Options().PathTracerEvidence;
         }
 
         void WriteHighResEvidenceIfRequested(const Fixtures::CornellBoxScene& fixture, const std::string& name)
@@ -178,7 +178,7 @@ namespace OloEngine::Tests
             settings.SamplesPerPixel = 256;
             settings.MaxBounces = 8;
 
-            std::cout << "[evidence] OLO_PATHTRACER_EVIDENCE set — rendering two angles at " << kSize << "x" << kSize
+            std::cout << "[evidence] --olo-pathtracer-evidence — rendering two angles at " << kSize << "x" << kSize
                       << ", " << settings.SamplesPerPixel << " spp\n";
 
             // TWO angles, per CLAUDE.md's rendering rule. Head-on shows the

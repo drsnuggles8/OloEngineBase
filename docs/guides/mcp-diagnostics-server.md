@@ -111,7 +111,7 @@ Two entry points, both in
   # …then `claude mcp add` with the token from the discovery file (see "Attaching an agent").
   ```
 
-  The session runs for `OLO_MCP_ATTACH_SECONDS` (default 600, capped 7200), or stops early
+  The session runs for `--olo-mcp-attach-seconds=<n>` (default 600, capped 7200), or stops early
   when the sentinel file `<discovery-file>.stop` is created and then removed.
 
 Honesty boundary: the headless host wires the read-only/inspection hooks, plus the two
@@ -189,6 +189,7 @@ and for what to do when adding a tool.
 | Tool | What it returns |
 |---|---|
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
+| `olo_debug_levers` | the engine's debug/diagnostic levers and their current values (`activeOnly` to see just the non-default ones). **Call this first when a session renders or performs unlike a clean one** — a lever left set is otherwise invisible, and explains a whole class of "it only misbehaves on this machine". Each seeds from an environment variable of the same name; `source` says whether the environment or code set it |
 | `olo_events_tail` | unified "what just happened?" timeline — scene load, play/stop, entity spawn/destroy, asset reload, script error — newest last with a monotonic `id`; incremental polling via `sinceId`, plus a `categories` filter |
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_open` | **(consented write)** open / switch the active scene by `path` (a `.olo`/`.scene` file, relative paths resolve against the project asset directory) — the scriptable scene switch. Loads directly, bypassing the auto-save recovery modal a remote agent can't click; stops Play mode first; **cancels any pending auto-save recovery** (an armed recovery modal used to be able to swap the freshly opened scene back out when its button was clicked later, issue #607). Reports the loaded scene name + entity count and settles rendered frames before returning. Gated behind **Agent writes** |
@@ -232,7 +233,7 @@ and for what to do when adding a tool.
 | `olo_render_target_stats` | exact float min/max/mean + a **bit-exact unique-value histogram** over a `rect` of one target at a `mip` — the 1-ULP instrument an 8-bit PNG cannot be (1.0 and 0.99999994 both encode as 255). Per channel: finite/NaN/Inf counts, distinct-bit-pattern count, most frequent values with exact counts. Supports `layer` and `afterPass` |
 | `olo_render_validate` | on-demand render-graph frame validation: the compiled resource-hazard sweep, barrier/build diagnostics, execute-path resolve failures, consumed-but-unbacked resources, and versioned-name physical-id groups; optional `compare` checks two targets **bit-exactly** (channel 0), e.g. `compare:{a:"SceneDepth", b:"HZB", afterPass:"GTAOPass"}` — both sides snapshotted in the SAME frame |
 | `olo_froxel_fog_probe` | sample the volumetric-fog **froxel volume** at one cell (`froxel`:[x,y,z] or `worldPos`:[x,y,z]) — returns the RAW scatter (in-scatter + extinction) **and** the INTEGRATED values (accumulated in-scatter + transmittance) plus the cell's world bounds, so "scatter pass wrong" and "composite tap wrong" separate without a PNG round trip |
-| `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
+| `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `--olo-golden-rebase` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer, the overdraw heatmap, or a virtualized-geometry visualization (`mode`: none/ssao/gtao/ssr/ssgi/overdraw/**vgclusterid/vglod/vgoverdraw**); reports whether the backing pass is actually running, and (for the vg\* modes) the `captureTarget` to read back. No `mode` lists the modes + current state |
 | `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred), `depthprepass` (off/on/auto — the #316 perf lever), `softshadows` (pcf/pcss — THE ScenePass shadow-cost lever) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
@@ -430,7 +431,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 
 | Toolset | Tools |
 |---|---|
-| `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
+| `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_debug_levers`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity`, `olo_scheduler_graph` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_material_get`, `olo_shader_debug_draw` |
@@ -484,7 +485,7 @@ rule — instead of eyeballing a screenshot, an agent gets a deterministic
 an optional fixed `camera`/`orbit` pose, with the same save/restore as
 `olo_screenshot`), then diffs the result against `goldenPath` using the **same
 RMSE→SSIM metric as the `GoldenImageTests` suite**, so the MCP verdict agrees with the
-`OLOENGINE_GOLDEN_REBASE` test workflow.
+`--olo-golden-rebase` test workflow.
 
 - **`goldenPath`** is a PNG under `assets/tests/visual/` (a bare name like
   `water_side.png` lands there; absolute paths and `..` traversal are rejected — the

@@ -62,8 +62,9 @@ namespace OloEngine::Tests
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
         // 40 = the base 33, plus the five #691 Phase 8 compute blocks, plus
-        // ColorBlindParams (#458), plus PrefixSumParams (#713).
-        const std::array<KnownBlock, 40> kKnownBlocks = { {
+        // ColorBlindParams (#458), plus PrefixSumParams (#713) and
+        // TerrainCullParams (#714).
+        const std::array<KnownBlock, 41> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -123,6 +124,10 @@ namespace OloEngine::Tests
             // SKIPPED, so leaving it out is not a neutral omission — it is the
             // block's only GLSL<->C++ size guard silently not existing.
             { "PrefixSumParams", sizeof(UBOStructures::PrefixSumUBO) },
+            // GPU terrain LOD quadtree descent params (issue #714), declared
+            // once in include/TerrainCullParams.glsl and included by all four
+            // Terrain*.comp kernels. Same reason again.
+            { "TerrainCullParams", sizeof(UBOStructures::TerrainCullUBO) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)

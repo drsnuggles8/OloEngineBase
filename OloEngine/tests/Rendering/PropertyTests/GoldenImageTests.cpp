@@ -12,7 +12,7 @@
 //   Missing baselines are treated as failures by CompareOrBootstrap(); they
 //   are NOT auto-bootstrapped. To intentionally create/rebase baselines, run:
 //
-//     OLOENGINE_GOLDEN_REBASE=1 <test binary> --gtest_filter=GoldenImage*
+//     <test binary> --olo-golden-rebase --gtest_filter=GoldenImage*
 //
 //   (from `OloEditor/` so `assets/...` resolves as expected).
 //
@@ -37,6 +37,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RenderPropertyTest.h"
 
@@ -218,31 +219,24 @@ namespace OloEngine::Tests
         };
 
         // Baseline images live next to shader assets so OloEditor's asset
-        // hot-reload is never confused by them. When OLOENGINE_GOLDEN_VENDOR
-        // is set (e.g. "llvmpipe" in cross-vendor CI), baselines are scoped
+        // hot-reload is never confused by them. With --olo-golden-vendor
+        // (e.g. "llvmpipe" in cross-vendor CI), baselines are scoped
         // to a per-vendor subdirectory so software-rasteriser results don't
         // clobber hardware baselines.
         static fs::path GoldenBaselineDir()
         {
             fs::path base = fs::path("assets") / "tests" / "golden";
-            if (const char* vendor = std::getenv("OLOENGINE_GOLDEN_VENDOR"); vendor != nullptr && vendor[0] != '\0')
+            if (const std::string& vendor = OloEngine::Tests::Options().GoldenVendor; !vendor.empty())
             {
                 base /= vendor;
             }
             return base;
         }
 
-        // True if the caller has explicitly requested rebaselining via env var.
-        // Any non-empty value other than "0", "false", or "FALSE" enables.
+        // True if the caller passed --olo-golden-rebase.
         static bool ShouldRebase()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            if (v == nullptr)
-                return false;
-            const std::string s(v);
-            if (s.empty())
-                return false;
-            return !(s == "0" || s == "false" || s == "FALSE");
+            return OloEngine::Tests::Options().GoldenRebase;
         }
 
         // RMSE over RGB channels (alpha ignored), normalised to [0, 1].
@@ -450,8 +444,8 @@ namespace OloEngine::Tests
                 // Fail loudly instead of silently bootstrapping a missing
                 // baseline: a disappeared golden is a regression we want to
                 // catch, not paper over on the next run. To (re)generate a
-                // baseline intentionally, set OLOENGINE_GOLDEN_REBASE=1.
-                result.m_Message = "golden baseline missing at " + baselinePath.string() + " — rerun with OLOENGINE_GOLDEN_REBASE=1 to (re)create it";
+                // baseline intentionally, pass --olo-golden-rebase.
+                result.m_Message = "golden baseline missing at " + baselinePath.string() + " — rerun with --olo-golden-rebase to (re)create it";
                 return result;
             }
 

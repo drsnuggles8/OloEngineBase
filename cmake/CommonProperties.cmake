@@ -219,6 +219,45 @@ function(olo_set_common_include_directories target_name)
     )
 endfunction()
 
+# Bind FILES to a JOB_POOL_COMPILE-bound SOURCES file set on target_name (CMake 4.4+, Ninja
+# only — issue #822). No-op unless OLO_HEAVY_COMPILE_POOL_AVAILABLE (set once in the root
+# CMakeLists.txt, alongside the olo_heavy pool itself and its OLO_HEAVY_COMPILE_JOBS validation).
+#
+# Each FILE must already be REMOVED from target_name's plain source list by the caller — a file
+# added via a FILE_SET SOURCES set is a distinct code path from the ordinary SOURCES target
+# property (CMake's own docs on prop_tgt:SOURCES: it "does not include File Sets"), so leaving
+# the same path in both schedules two build edges for one output file.
+#
+# FILES may be relative to base_dir OR already absolute — resolved explicitly below rather than
+# left to target_sources()'s own relative-path handling, which resolves against the CALLER's
+# CMAKE_CURRENT_SOURCE_DIR (this function's call site), not base_dir. That mismatch is exactly how
+# this function first failed: OloEngine/tests/CMakeLists.txt calling with base_dir pointing at
+# OloEditor/src still had CMake look for the file under OloEngine/tests/, a hard configure error
+# ("must be in one of the file set's base directories") rather than a silent misconfiguration.
+#
+# TYPE SOURCE (not SOURCES) in set_property(FILE_SET ...)'s own example is a documented-but-wrong
+# CMake 4.4 doc snippet — verified against a throwaway project: it errors "set_property required
+# TARGET option is missing". The working form is set_property(FILE_SET <name> TARGET <target> ...).
+function(olo_bind_heavy_compile_pool target_name base_dir)
+    if(NOT OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+        return()
+    endif()
+    set(_olo_heavy_files "")
+    foreach(_olo_heavy_file ${ARGN})
+        if(IS_ABSOLUTE "${_olo_heavy_file}")
+            list(APPEND _olo_heavy_files "${_olo_heavy_file}")
+        else()
+            list(APPEND _olo_heavy_files "${base_dir}/${_olo_heavy_file}")
+        endif()
+    endforeach()
+    target_sources(${target_name} PRIVATE
+        FILE_SET olo_heavy_compile TYPE SOURCES
+        BASE_DIRS ${base_dir}
+        FILES ${_olo_heavy_files}
+    )
+    set_property(FILE_SET olo_heavy_compile TARGET ${target_name} PROPERTY JOB_POOL_COMPILE olo_heavy)
+endfunction()
+
 # Configure C# project properties
 function(olo_configure_csharp_project target_name output_dir)
     # Set output directories for C# assemblies

@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Terrain/TerrainGPUQuadtree.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 
 // Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
@@ -69,25 +71,9 @@
 #include <array>
 #include <atomic>
 #include <cmath>
-#include <cstdlib>
 
 namespace OloEngine
 {
-    namespace
-    {
-        bool IsTruthyEnvironmentVariable(const char* name)
-        {
-            const char* value = std::getenv(name);
-            return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
-        }
-
-        bool IsRenderGraphDiagnosticsEnabled()
-        {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
-            return enabled;
-        }
-    } // namespace
-
     Renderer3D::Renderer3DData Renderer3D::s_Data;
     ShaderLibrary Renderer3D::m_ShaderLibrary;
 
@@ -529,6 +515,11 @@ namespace OloEngine
         // GL is alive.
         ShaderDebugDraw::Shutdown();
 
+        // Release the terrain GPU-LOD patch mesh (#714) while GL is alive — it
+        // is a process-wide static, so its Ref would otherwise run
+        // glDeleteVertexArrays at process exit against a dead context.
+        TerrainGPUQuadtree::ReleaseSharedPatchMesh();
+
         // Release the virtualized-geometry GPU pools (#629) while GL is alive.
         VirtualMeshRegistry::Get().Shutdown();
         VirtualGeometryShadow::Shutdown();
@@ -760,7 +751,7 @@ namespace OloEngine
         // create them now that we have valid dimensions.
         if (s_Data.RGraph && !s_Data.Pipeline->FrameCorePasses.Scene)
         {
-            if (IsRenderGraphDiagnosticsEnabled())
+            if (Levers::RenderGraphDiagnostics())
             {
                 OLO_CORE_TRACE("Renderer3D::OnWindowResize: ScenePass missing - running deferred SetupRenderGraph");
             }

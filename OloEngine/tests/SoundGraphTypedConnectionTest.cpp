@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestOptions.h"
 #include <gtest/gtest.h>
 
 // =============================================================================
@@ -414,7 +415,7 @@ TEST(SoundGraphTypedConnections, DebugBlockProcessingKeepsRealTimeHeadroom)
     // in a small fraction of real time even in Debug (pre-Phase-2 the per-sample
     // node walk took ~5.3 seconds per second of audio). The functional part —
     // the workload runs and produces signal — always asserts; the wall-clock
-    // budget only asserts when OLOENGINE_SOUNDGRAPH_PERF=1 is set (perf opt-in),
+    // budget only asserts when --olo-soundgraph-perf is passed (perf opt-in),
     // because unit runs must not fail on host timing under load. The measured
     // time is always printed so a regression is still visible in CI logs.
     SoundGraphAsset asset;
@@ -463,8 +464,7 @@ TEST(SoundGraphTypedConnections, DebugBlockProcessingKeepsRealTimeHeadroom)
     std::cout << "[SoundGraphPerf] 1 s of audio (100x480 frames) processed in "
               << elapsedMs << " ms\n";
 
-    const char* perfOptIn = std::getenv("OLOENGINE_SOUNDGRAPH_PERF");
-    if (perfOptIn && *perfOptIn && std::string_view(perfOptIn) != "0")
+    if (OloEngine::Tests::Options().SoundGraphPerf)
     {
         EXPECT_LT(elapsedMs, 1000.0)
             << "1 s of audio took " << elapsedMs << " ms — block-rate processing has regressed toward per-sample cost";

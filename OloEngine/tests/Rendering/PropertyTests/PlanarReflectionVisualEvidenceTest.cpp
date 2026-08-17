@@ -24,6 +24,7 @@
 // OLO_TEST_LAYER: L8
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
@@ -63,8 +64,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool GoldenRebaseRequested()
         {
-            const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
-            return v && v[0] != '\0' && v[0] != '0';
+            return OloEngine::Tests::Options().GoldenRebase;
         }
 
         // Mean per-channel value over a rectangular band of an RGBA8 frame

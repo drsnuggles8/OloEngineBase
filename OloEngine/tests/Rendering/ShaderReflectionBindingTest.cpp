@@ -61,11 +61,16 @@ namespace OloEngine::Tests
         /// buffers in 58..68, and its kernels are production shaders that this
         /// test reflects.
         ///
-        /// NOTE it is still NOT simply "the numerically largest SSBO_* constant":
-        /// SSBO_VERTEX_PULL (57) and SSBO_BONE_PULL (63) sit inside this range but
-        /// are declared only inside `#ifdef OLO_VULKAN` branches this harness does
-        /// not compile, so they never reach reflection. This constant tracks the
-        /// highest slot a production shader actually declares.
+        /// Re-pointed to SSBO_VSM_STATS (77) by issue #702: the Virtual Shadow
+        /// Map allocator's ten storage buffers moved to the contiguous 68..77
+        /// range, above #714's terrain-cull block (58..67) — the third VSM
+        /// renumber in one PR, each because a parallel branch landed first.
+        ///
+        /// NOTE it is NOT simply "the numerically largest SSBO_* constant":
+        /// SSBO_VERTEX_PULL (57) and SSBO_BONE_PULL (63) are declared only
+        /// inside `#ifdef OLO_VULKAN` branches this harness does not compile,
+        /// so they never reach reflection. This constant tracks the highest
+        /// slot a production shader actually declares.
         constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_VSM_STATS;
 
         struct BindingFailure

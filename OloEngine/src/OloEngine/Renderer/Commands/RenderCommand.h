@@ -720,6 +720,16 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
         i32 entityID = -1;
 
+        // GPU-driven LOD (issue #714). When both are valid the draw sources its
+        // instance count from `terrainIndirectArgsID` via glDrawElementsIndirect
+        // and the vertex stage reads its per-node rect + seam deltas from
+        // `terrainVisibleNodesID` at SSBO_TERRAIN_VISIBLE_NODES; `indexCount` is
+        // then only a fallback for a backend that cannot honour the indirect
+        // path. Both stay null for the chunk-geometry draws (shadow casters, the
+        // non-tessellated path), which keep drawing exactly as before.
+        RHI::ResourceHandle terrainIndirectArgsID{};
+        RHI::ResourceHandle terrainVisibleNodesID{};
+
         // Terrain UBO data (inlined per-chunk — tess factors vary per chunk)
         ShaderBindingLayout::TerrainUBO terrainUBOData{};
 

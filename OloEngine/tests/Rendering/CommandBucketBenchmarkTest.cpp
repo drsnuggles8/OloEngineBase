@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "../TestOptions.h"
 #include <gtest/gtest.h>
 
 #include "RenderingTestUtils.h"
@@ -18,11 +19,10 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 // Utilities
 // =============================================================================
 
-/// Returns true if the OLOENGINE_BENCH_ASSERT environment variable is set.
+/// Whether --olo-bench-assert was passed.
 static bool BenchAssertEnabled()
 {
-    const char* env = std::getenv("OLOENGINE_BENCH_ASSERT"); // NOLINT(concurrency-mt-unsafe)
-    return env && std::string(env) == "1";
+    return OloEngine::Tests::Options().BenchAssert;
 }
 
 /// Populate a bucket with N random DrawMeshCommands using different shaders/materials.

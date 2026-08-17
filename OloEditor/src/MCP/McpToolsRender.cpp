@@ -1922,7 +1922,7 @@ namespace OloEngine::MCP
         // numeric half of CLAUDE.md's "rendering changes MUST be visually verified"
         // loop. When the golden is missing (or 'rebase' is set) the capture is
         // written as the new golden instead of failing, mirroring the test suite's
-        // OLOENGINE_GOLDEN_REBASE workflow. The diff math itself lives in the pure,
+        // --olo-golden-rebase workflow. The diff math itself lives in the pure,
         // GL-free McpGoldenCompare.h so it is unit-tested headlessly and stays
         // consistent with the GoldenImageTests.cpp suite metric.
         ToolResult Handle_RenderCompareGolden(McpServer& server, const Json& args)
@@ -5929,7 +5929,7 @@ namespace OloEngine::MCP
                 "'orbit' (same shape as olo_screenshot; the user's camera is saved and restored). If the "
                 "golden does not exist (or 'rebase':true), the captured frame is WRITTEN as the new "
                 "golden and the tool reports 'created' instead of failing — mirroring the test suite's "
-                "OLOENGINE_GOLDEN_REBASE workflow. The verdict uses the same RMSE→SSIM metric as the "
+                "--olo-golden-rebase workflow. The verdict uses the same RMSE→SSIM metric as the "
                 "GoldenImageTests suite; pass an explicit 'threshold' (min SSIM similarity in [0,1]) to "
                 "override the default cascade. Use the SAME capture size when creating and comparing "
                 "(set one with olo_viewport_set_size) or the dimensions will mismatch. Returns the "

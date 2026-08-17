@@ -40,6 +40,22 @@ namespace OloEngine
 #if OLO_ASSERT_MESSAGE_BOX
     // Defined in Log.cpp — keeps <Windows.h> out of this header
     void ShowAssertMessageBox(const char* message);
+
+    // A modal assert dialog is correct for a developer at a workstation and
+    // catastrophic anywhere else: with no one to click OK the process blocks in
+    // NtUserWaitMessage forever, burning no CPU, which looks exactly like slow
+    // work rather than a failure. A headless host (the test binary, CI) turns
+    // dialogs off once at startup; the assert still logs and still returns.
+    void SetAssertDialogsEnabled(bool enabled);
+    [[nodiscard]] bool AreAssertDialogsEnabled();
+#else
+    // Non-Windows / Dist: no dialogs exist, so the setter is a no-op that keeps
+    // call sites free of #if.
+    inline void SetAssertDialogsEnabled(bool) {}
+    [[nodiscard]] inline bool AreAssertDialogsEnabled()
+    {
+        return false;
+    }
 #endif
 
     class Log

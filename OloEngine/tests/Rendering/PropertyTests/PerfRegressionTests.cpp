@@ -6,7 +6,7 @@
 // post-process passes on fixed-size synthetic inputs and measure GPU time
 // via GL timestamp queries, then compare against a dev-PC baseline stored
 // in `perf_baselines.txt` (tracked in git, rebased via the
-// `OLOENGINE_PERF_REBASE=1` env var).
+// `--olo-perf-rebase` flag).
 //
 // Regression policy (ratio of measured to baseline):
 //   - <= baseline      : within budget (improvements are welcome)
@@ -21,7 +21,7 @@
 // full-suite run inflates every sample 1.5–3.4x even though the same test
 // passes in isolation (issue #324), so failing on the number eroded trust in
 // the suite without the perf data ever gating CI (they SKIP on GPU-less
-// runners). Set OLOENGINE_PERF_STRICT=1 for a deliberate regression gate on a
+// runners). Pass --olo-perf-strict for a deliberate regression gate on a
 // quiet machine; regressions otherwise stay observable via the recorded
 // history + perf_trend.py. (The SceneDrawBurst draw/bind-count invariants are
 // structural, not timing, and still hard-fail unconditionally.)
@@ -52,9 +52,12 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
+
+#include "OloEngine/Core/Environment.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -116,13 +119,7 @@ namespace OloEngine::Tests
 
         static bool PerfShouldRebase()
         {
-            const char* env = std::getenv("OLOENGINE_PERF_REBASE");
-            if (!env)
-                return false;
-            std::string s(env);
-            for (auto& c : s)
-                c = static_cast<char>(std::tolower(c));
-            return !(s == "0" || s == "false" || s.empty());
+            return OloEngine::Tests::Options().PerfRebase;
         }
 
         // Whether a regression should FAIL the test (strict mode) or merely be
@@ -133,17 +130,11 @@ namespace OloEngine::Tests
         // (issue #324). Defaulting to non-fatal stops that flakiness from eroding
         // trust in the suite while still capturing every measurement (gtest
         // properties + perf_history TSV) so regressions stay observable via the
-        // trend tool. Set OLOENGINE_PERF_STRICT=1 for a deliberate regression
-        // gate on a quiet machine. Same env-var convention as PerfShouldRebase().
+        // trend tool. Pass --olo-perf-strict for a deliberate regression
+        // gate on a quiet machine.
         static bool PerfShouldEnforce()
         {
-            const char* env = std::getenv("OLOENGINE_PERF_STRICT");
-            if (!env)
-                return false;
-            std::string s(env);
-            for (auto& c : s)
-                c = static_cast<char>(std::tolower(c));
-            return !(s == "0" || s == "false" || s.empty());
+            return OloEngine::Tests::Options().PerfStrict;
         }
 
         // Locate the perf_baselines.txt file. We try a small list of
@@ -215,19 +206,17 @@ namespace OloEngine::Tests
                 << "# are authoritative for regression detection on the same hardware; numbers\n"
                 << "# will differ (sometimes by an order of magnitude) on other GPUs.\n"
                 << "#\n"
-                << "# To rebase (after confirming the change is expected):\n"
-                << "#   set OLOENGINE_PERF_REBASE=1\n"
-                << "#   run-tests-debug\n"
-                << "# The test harness will rewrite this file with fresh numbers from the\n"
-                << "# current run and pass unconditionally while the env var is set.\n"
+                << "# To rebase (after confirming the change is expected), run the test\n"
+                << "# binary with --olo-perf-rebase. The harness will rewrite this file with\n"
+                << "# fresh numbers from that run and pass unconditionally.\n"
                 << "#\n"
                 << "# Regression policy (see PerfRegressionTests.cpp). Enforcement is\n"
                 << "# OPT-IN: by default both WARN- and FAIL-level regressions are RECORDED\n"
                 << "# (gtest property + perf_history TSV) and logged via GTEST_LOG_(WARNING),\n"
                 << "# but do NOT fail the test \xe2\x80\x94 these low-microsecond GPU microbenchmarks\n"
-                << "# flake under machine/GPU contention (issue #324). Set\n"
-                << "# OLOENGINE_PERF_STRICT=1 to turn a regression into an ADD_FAILURE\n"
-                << "# failure on a quiet machine.\n"
+                << "# flake under machine/GPU contention (issue #324). Pass\n"
+                << "# --olo-perf-strict to turn a regression into an ADD_FAILURE on a\n"
+                << "# quiet machine.\n"
                 << "#   - Measured >= 2.5x baseline  -> FAIL-level (fails only when STRICT)\n"
                 << "#   - Measured >= 1.5x baseline  -> WARN-level (fails only when STRICT)\n"
                 << "#   - Faster than baseline       -> PASS, never fail on improvements\n"
@@ -255,7 +244,7 @@ namespace OloEngine::Tests
         // perf_baselines.txt.
         //
         // Machine tag resolution order:
-        //   1. OLOENGINE_PERF_MACHINE env var (canonical, set in CI).
+        //   1. --olo-perf-machine=<name> (canonical, passed in CI).
         //   2. COMPUTERNAME / HOSTNAME env var.
         //   3. "unknown"
         //
@@ -277,12 +266,13 @@ namespace OloEngine::Tests
                     s = "unknown";
                 return s;
             };
-            if (const char* env = std::getenv("OLOENGINE_PERF_MACHINE"); env && *env)
-                return sanitize(env);
-            if (const char* env = std::getenv("COMPUTERNAME"); env && *env)
-                return sanitize(env);
-            if (const char* env = std::getenv("HOSTNAME"); env && *env)
-                return sanitize(env);
+            if (const std::string& tag = OloEngine::Tests::Options().PerfMachine; !tag.empty())
+                return sanitize(tag);
+            // Not ours to own: the hostname is the OS's, and only it can answer.
+            if (const auto name = Env::Get("COMPUTERNAME"))
+                return sanitize(*name);
+            if (const auto name = Env::Get("HOSTNAME"))
+                return sanitize(*name);
             return "unknown";
         }
 
@@ -368,7 +358,7 @@ namespace OloEngine::Tests
                     ADD_FAILURE() << detail;
                 else
                     GTEST_LOG_(WARNING) << "[perf, non-strict] " << detail
-                                        << " — set OLOENGINE_PERF_STRICT=1 to fail on this.";
+                                        << " — pass --olo-perf-strict to fail on this.";
             };
 
             // Sanity ceiling: a µs-scale pass taking >100 ms is a catastrophe,
@@ -382,9 +372,9 @@ namespace OloEngine::Tests
             auto it = cache.find(name);
             if (it == cache.end())
             {
-                // Missing baseline = gentle reminder; rebase via OLOENGINE_PERF_REBASE=1.
+                // Missing baseline = gentle reminder; rebase via --olo-perf-rebase.
                 AppendPerfHistory(name, measuredNs, 0, 0.0f);
-                note("No baseline for '" + name + "'. Measured " + std::to_string(measuredNs) + " ns. Rebase via OLOENGINE_PERF_REBASE=1.");
+                note("No baseline for '" + name + "'. Measured " + std::to_string(measuredNs) + " ns. Rebase via --olo-perf-rebase.");
                 return;
             }
 
@@ -684,7 +674,7 @@ namespace OloEngine::Tests
     // isolated passes cannot observe.
     //
     // Baseline ships as `0` (placeholder) so first-run on a new machine does
-    // not fail. Rebase via `OLOENGINE_PERF_REBASE=1` after a confirmed
+    // not fail. Rebase via `--olo-perf-rebase` after a confirmed
     // known-good run on the reference workstation.
     // -------------------------------------------------------------------------
     namespace
@@ -1036,7 +1026,7 @@ namespace OloEngine::Tests
     //
     // No entries are added to perf_baselines.txt here on purpose: a missing
     // baseline RECORDS rather than fails, so the first run on a real GPU is the
-    // rebase (OLOENGINE_PERF_REBASE=1). These SKIP with no GL context, so they
+    // rebase (--olo-perf-rebase). These SKIP with no GL context, so they
     // never run on a free CI runner — that is expected, not a gap.
     // =========================================================================
 

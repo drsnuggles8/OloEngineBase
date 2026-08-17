@@ -41,6 +41,7 @@
 // OLO_TEST_LAYER: integration
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "McpHeadlessHost.h"
 #include "RenderPropertyTest.h"
@@ -48,6 +49,7 @@
 
 #include "MCP/McpServer.h"
 
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -143,12 +145,6 @@ namespace OloEngine::Tests
                     return block["text"].get<std::string>();
             }
             return {};
-        }
-
-        [[nodiscard]] bool EnvFlagSet(const char* name)
-        {
-            const char* v = std::getenv(name);
-            return v != nullptr && v[0] != '\0' && v[0] != '0';
         }
     } // namespace
 
@@ -441,7 +437,7 @@ namespace OloEngine::Tests
     // bound server + discovery file land where `claude mcp add` expects them.
     TEST_F(McpHeadlessAttachTest, HostUntilDetached)
     {
-        if (!EnvFlagSet("OLO_MCP_HEADLESS_ATTACH"))
+        if (!Env::IsTruthy("OLO_MCP_HEADLESS_ATTACH"))
             GTEST_SKIP() << "Set OLO_MCP_HEADLESS_ATTACH=1 to host the offscreen FB over MCP for an external agent "
                             "(interactive headless-attach mode).";
         OLO_ENSURE_GPU_OR_SKIP();
@@ -466,10 +462,9 @@ namespace OloEngine::Tests
         // Honour the per-worktree port the driver picked (OLO_MCP_PORT); the
         // discovery file path comes from OLO_MCP_DISCOVERY_FILE inside Start().
         u16 basePort = 0;
-        if (const char* portEnv = std::getenv("OLO_MCP_PORT"); portEnv != nullptr)
+        if (const auto parsed = Env::GetInt("OLO_MCP_PORT"); parsed && *parsed >= 1024 && *parsed <= 65535)
         {
-            if (const unsigned long parsed = std::strtoul(portEnv, nullptr, 10); parsed >= 1024 && parsed <= 65535)
-                basePort = static_cast<u16>(parsed);
+            basePort = static_cast<u16>(*parsed);
         }
         const u16 port = host.Start(basePort);
         ASSERT_NE(port, 0) << "McpHeadlessHost failed to bind a port for the MCP server";
@@ -477,11 +472,8 @@ namespace OloEngine::Tests
         // How long to stay up (seconds); generous default for an interactive
         // session, capped so a forgotten run can't wedge a CI machine forever.
         int seconds = 600;
-        if (const char* secEnv = std::getenv("OLO_MCP_ATTACH_SECONDS"); secEnv != nullptr)
-        {
-            if (const long parsed = std::strtol(secEnv, nullptr, 10); parsed > 0 && parsed <= 7200)
-                seconds = static_cast<int>(parsed);
-        }
+        if (const i32 requested = OloEngine::Tests::Options().McpAttachSeconds; requested > 0 && requested <= 7200)
+            seconds = requested;
 
         // A stop sentinel: delete this file (or let the timeout fire) to detach.
         const std::string stopFile = MCP::McpServer::DiscoveryFilePath(port) + ".stop";

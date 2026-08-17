@@ -105,29 +105,12 @@ jobs:
       # but "normally" is not "always" — leave headroom so a concurrent build
       # elsewhere on the box doesn't turn into swap thrash or an OOM.
       CMAKE_BUILD_PARALLEL_LEVEL: 6
-      # Goldens are baselined on NVIDIA hardware; GoldenImageTests.cpp reads this
-      # to select a per-vendor golden directory (assets/tests/golden/amd/) so an
-      # AMD run can never clobber the NVIDIA baseline set.
-      OLOENGINE_GOLDEN_VENDOR: amd
-      # Perf history rows are keyed by machine. A dedicated box is far quieter
-      # than a shared hosted VM, so these numbers are actually meaningful — but
-      # they must not land in the same series as hosted or llvmpipe runs.
-      OLOENGINE_PERF_MACHINE: selfhosted-amd-navi10-linux
       # CPM/FetchContent pull vendor sources into OloEngine/vendor/ *inside the
       # workspace*, which the wipe + checkout clears every run. Without a cache
       # outside the workspace every nightly re-downloads and re-builds the whole
       # vendor set. Both dirs live in the runner user's home, not the workspace.
       CPM_SOURCE_CACHE: /home/gh-runner-olo/.cache/cpm
       CCACHE_DIR: /home/gh-runner-olo/.cache/ccache
-      # Rebase opt-ins from the manual-dispatch inputs above. On a scheduled run
-      # `inputs.*` is null, so both resolve to '0'. Emit '0' rather than '' or
-      # 'false': all three readers (GoldenImageTests::ShouldRebase,
-      # AtmosphereVisualEvidenceTest::GoldenRebaseRequested,
-      # PerfRegressionTests::PerfShouldRebase) agree that '0' means off, whereas
-      # they disagree about the string 'false' — one of them tests only the
-      # first character, so 'false' would *enable* a rebase there.
-      OLOENGINE_GOLDEN_REBASE: ${{ inputs.golden_rebase && '1' || '0' }}
-      OLOENGINE_PERF_REBASE: ${{ inputs.perf_rebase && '1' || '0' }}
 
     steps:
       # A self-hosted runner's workspace PERSISTS between jobs. Even with an
@@ -369,11 +352,6 @@ jobs:
         working-directory: OloEditor
         timeout-minutes: 60
         env:
-          # Force the headless EGL surfaceless path: this box has no X server and
-          # no Wayland compositor, so GLFW cannot create a window. Requires the
-          # EGL context fallback in RenderPropertyTest.cpp (see
-          # docs/ops/self-hosted-gpu-runner.md "Prerequisite").
-          OLO_TEST_GL_BACKEND: egl
           # Belt and braces against a silent software fallback mid-run.
           MESA_LOADER_DRIVER_OVERRIDE: radeonsi
         run: |
@@ -384,7 +362,27 @@ jobs:
           # it failed all six cases here for the same reason. Excluding it keeps
           # this job's red/green meaningful; it is not a GPU test and this job
           # has no business gating on it.
+          #
+          # The --olo-* flags are the suite's own knobs (OloEngine/tests/TestOptions.h):
+          #   --olo-gl-backend=egl  force the headless EGL surfaceless path — this box
+          #                         has no X server and no Wayland compositor, so GLFW
+          #                         cannot create a window (docs/ops/self-hosted-gpu-runner.md).
+          #   --olo-golden-vendor   goldens are baselined on NVIDIA hardware; scope this
+          #                         run to assets/tests/golden/amd/ so it can never
+          #                         clobber the NVIDIA baseline set.
+          #   --olo-perf-machine    perf history is keyed by machine. A dedicated box is
+          #                         far quieter than a shared hosted VM, so these numbers
+          #                         mean something — but they must not land in the same
+          #                         series as hosted or llvmpipe runs.
+          # The two rebase flags come from the manual-dispatch inputs above and are
+          # absent entirely on a scheduled run. Absent is unambiguous; the string
+          # values this used to pass were not (see TestOptions.h).
           ../build/OloEngine/tests/OloEngine-Tests \
+            --olo-gl-backend=egl \
+            --olo-golden-vendor=amd \
+            --olo-perf-machine=selfhosted-amd-navi10-linux \
+            ${{ inputs.golden_rebase && '--olo-golden-rebase' || '' }} \
+            ${{ inputs.perf_rebase && '--olo-perf-rebase' || '' }} \
             --gtest_catch_exceptions=1 \
             --gtest_filter=-NetworkIntegrationTest.* \
             --gtest_output=xml:../test_results/gpu_amd.xml

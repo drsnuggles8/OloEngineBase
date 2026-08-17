@@ -238,6 +238,96 @@ if(CMAKE_GENERATOR MATCHES "Ninja")
     set(CMAKE_JOB_POOL_LINK olo_link)
 endif()
 
+# --------------------------------------------------------------------------
+# Heavy-TU compile concurrency (CMake 4.4+, Ninja only — issue #822).
+#
+# The missing middle between the link pool above and the blunt -j width used for
+# everything else. #759's instrumented trace (docs/agent-rules/
+# build-trees-and-windows-asan.md §5) found compilation, not linking, sets this
+# host's build memory ceiling — and it's a HANDFUL of TUs that set it, not the
+# lane count. A fresh trace taken while adding this (issue #822) confirms the
+# same two outliers, both roughly unchanged in identity from #759: LuaScriptGlue.cpp
+# (~198s CPU-time, more than 3x the next-heaviest TU) and McpFieldRegistry.cpp
+# (~67s, compiled separately into both OloEditor and OloEngine-Tests). Both wrap
+# heavy macro-driven binding-glue generation (Sol2 Lua bindings; the generated MCP
+# writable-field registry) the compiler has to instantiate wholesale, unlike
+# ordinary engine TUs.
+#
+# 4.4 lets a SOURCES-type file set carry its own JOB_POOL_COMPILE, which overrides
+# both the target- and source-level setting — so these specific TUs can be
+# throttled without capping compilation for the rest of the tree. Each target that
+# compiles one of the heavy TUs binds it via olo_bind_heavy_compile_pool()
+# (cmake/CommonProperties.cmake) after removing it from its own plain source
+# list — see that function's comment for why the removal is mandatory.
+#
+# Raise -DOLO_HEAVY_COMPILE_JOBS=<N> (or set it to the compile -j width) to
+# loosen the throttle without reverting the file-set wiring.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.4 AND CMAKE_GENERATOR MATCHES "Ninja")
+    set(OLO_HEAVY_COMPILE_JOBS "2" CACHE STRING
+        "Maximum concurrent compiles of the handful of memory-heavy TUs (LuaScriptGlue.cpp, McpFieldRegistry.cpp — issue #822). Ninja generators only.")
+    # Same rule, and the same reason, as OLO_LINK_JOBS above: depth 0 or empty
+    # passes straight through CMake AND Ninja and leaves the pool silently uncapped.
+    if(NOT OLO_HEAVY_COMPILE_JOBS MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR
+            "OLO_HEAVY_COMPILE_JOBS must be a positive integer (got '${OLO_HEAVY_COMPILE_JOBS}'). "
+            "It bounds concurrent compiles of the memory-heavy TU set; 0 or empty "
+            "would leave them effectively uncapped.")
+    endif()
+    # APPEND — the link pool above already set JOB_POOLS; a plain (non-APPEND) set
+    # here would silently clobber olo_link's registration, uncapping links instead
+    # of adding a second pool alongside them.
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS olo_heavy=${OLO_HEAVY_COMPILE_JOBS})
+    set(OLO_HEAVY_COMPILE_POOL_AVAILABLE TRUE)
+else()
+    set(OLO_HEAVY_COMPILE_POOL_AVAILABLE FALSE)
+endif()
+
+# --------------------------------------------------------------------------
+# Build instrumentation (CMake 4.3+, Makefile/Ninja/FASTBuild only — issue #822).
+#
+# Native successor to the recipe issue #759 used by hand
+# (docs/agent-rules/build-trees-and-windows-asan.md §5): the same
+# Instrumentation API existed pre-4.3 but only behind an experimental,
+# UUID-suffixed query directory undocumented outside Help/dev/experimental.rst
+# (not shipped in the binary install). cmake_instrumentation() is the same
+# feature, now stable, invoked from the project itself — no gate UUID, no
+# manually-written query file, repeatable by any future agent.
+#
+# Opt-in, default OFF: the API wraps every compile/link/custom command in a
+# launcher, and profiling every developer build by default is not wanted.
+# Enable with -DOLO_BUILD_INSTRUMENTATION=ON on a Ninja tree (build-clang/, or
+# a Linux preset). The API itself only supports Makefile / Ninja / FASTBuild
+# generators (cmake-instrumentation(7)) — checked as an ALLOW-list below, not a
+# deny-list on just "Visual Studio", so Xcode (and any other generator this
+# repo doesn't currently use) also gets the loud message(WARNING) instead of
+# silently attempting instrumentation and doing nothing.
+#
+# stdout/stderr capture (the `captureOutput` option, 4.4+) is deliberately
+# left off: it inflates snippet volume considerably for data this project
+# doesn't currently consume — timing and host memory before/after (the two
+# questions #759 asked) don't need it.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.3)
+    option(OLO_BUILD_INSTRUMENTATION
+        "Emit CMake Instrumentation API trace data (compile/link/custom timing + host memory before/after) for this build tree. Ninja/Makefile/FASTBuild only; no effect under other generators (Visual Studio, Xcode, ...)."
+        OFF)
+    if(OLO_BUILD_INSTRUMENTATION)
+        if(CMAKE_GENERATOR MATCHES "Makefiles|Ninja|FASTBuild")
+            cmake_instrumentation(
+                API_VERSION 1
+                DATA_VERSION 1
+                HOOKS postGenerate postCMakeBuild
+                OPTIONS staticSystemInformation dynamicSystemInformation trace
+            )
+        else()
+            message(WARNING
+                "OLO_BUILD_INSTRUMENTATION has no effect under the '${CMAKE_GENERATOR}' "
+                "generator - the CMake Instrumentation API is Makefile/Ninja/"
+                "FASTBuild only (cmake-instrumentation(7)). Configure the clangcl "
+                "preset (or a Linux preset) instead.")
+        endif()
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)

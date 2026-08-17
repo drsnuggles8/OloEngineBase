@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestOptions.h"
 
 #include "TestTempDir.h"
 
@@ -162,20 +163,7 @@ namespace OloEngine::Tests
 
         [[nodiscard]] bool KeepTempOnExit()
         {
-#if defined(_WIN32)
-            char* value = nullptr;
-            std::size_t size = 0;
-            if (::_dupenv_s(&value, &size, "OLO_TEST_KEEP_TEMP") != 0 || value == nullptr)
-            {
-                return false;
-            }
-            const bool keep = (value[0] != '\0' && value[0] != '0');
-            std::free(value);
-            return keep;
-#else
-            const char* value = std::getenv("OLO_TEST_KEEP_TEMP");
-            return value != nullptr && value[0] != '\0' && value[0] != '0';
-#endif
+            return OloEngine::Tests::Options().KeepTemp;
         }
 
         // Leaves already emptied during the CURRENT test. Cleared at each test's

@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include <optional>
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #ifdef OLO_PLATFORM_LINUX
@@ -100,11 +102,11 @@ namespace OloEngine
         // ':'-separated $PATH for an executable entry.
         bool IsExecutableInPath(const char* program)
         {
-            const char* pathEnv = ::getenv("PATH");
-            if (pathEnv == nullptr)
+            const std::optional<std::string> pathEnv = Env::Get("PATH");
+            if (!pathEnv)
                 return false;
 
-            std::string_view path(pathEnv);
+            std::string_view path(*pathEnv);
             sizet start = 0;
             while (start <= path.size())
             {
@@ -140,9 +142,9 @@ namespace OloEngine
 
             // Both present — prefer the one that matches the running desktop so the
             // dialog blends in with the rest of the session (KDE/Plasma -> kdialog).
-            if (const char* desktop = ::getenv("XDG_CURRENT_DESKTOP"))
+            if (const std::optional<std::string> desktop = Env::Get("XDG_CURRENT_DESKTOP"))
             {
-                const std::string_view d(desktop);
+                const std::string_view d(*desktop);
                 if (d.find("KDE") != std::string_view::npos || d.find("Plasma") != std::string_view::npos ||
                     d.find("plasma") != std::string_view::npos)
                 {

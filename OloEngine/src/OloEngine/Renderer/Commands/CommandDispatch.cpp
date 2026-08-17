@@ -1952,7 +1952,7 @@ namespace OloEngine
             HeapBinding::FlushOffsets();
             // The VAO is already bound by BindVAOIfNeeded above — draw from it
             // rather than re-binding behind the redundant-bind cache's back.
-            api.DrawBoundElementsIndirect(cmd->cullIndirectBufferID);
+            api.DrawBoundElementsIndirect(cmd->cullIndirectBufferID, RHI::PrimitiveTopology::TriangleList);
 
             // Profiler stats — we DON'T know the surviving instance count
             // without a CPU readback (which would stall the GPU pipeline),
@@ -2382,6 +2382,20 @@ namespace OloEngine
         // Bind VAO (cached) and draw with GL_PATCHES
         BindVAOIfNeeded(cmd->vertexArrayID);
         api.SetPatchVertexCount(cmd->patchVertexCount);
+
+        // GPU-driven LOD (issue #714): one instanced indirect draw over the
+        // shared unit patch grid, its instance count written by
+        // TerrainCullArgs.comp. The visible-node list has to be bound BEFORE the
+        // draw because the vertex stage indexes it by gl_InstanceIndex.
+        if (cmd->terrainIndirectArgsID.IsValid() && cmd->terrainVisibleNodesID.IsValid())
+        {
+            api.BindStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VISIBLE_NODES, cmd->terrainVisibleNodesID);
+            HeapBinding::FlushOffsets();
+            api.DrawBoundElementsIndirect(cmd->terrainIndirectArgsID, RHI::PrimitiveTopology::PatchList);
+            ++s_Data.Stats.DrawCalls;
+            return;
+        }
+
         HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::PatchList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;

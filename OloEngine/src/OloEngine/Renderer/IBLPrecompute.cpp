@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include <optional>
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/EnvironmentMap.h" // For IBLConfiguration
 #include "OloEngine/Renderer/LightProbeBaker.h"
@@ -169,7 +171,7 @@ namespace OloEngine
         stbi_set_flip_vertically_on_load(false); // reset global flag to avoid polluting later stbi calls
 
         // OLO_ENV_BAKE_DUMP diagnostics (#797): CPU-side ground truth of the loaded HDR.
-        if (data != nullptr && std::getenv("OLO_ENV_BAKE_DUMP") != nullptr)
+        if (data != nullptr && Levers::EnvironmentBakeDump())
         {
             // Skip non-finite texels in the mean but COUNT them — a NaN-laden
             // source is itself a finding, and one NaN would otherwise poison
@@ -215,7 +217,7 @@ namespace OloEngine
 
         // OLO_ENV_BAKE_DUMP diagnostics (#797): read the UPLOADED texture back — splits a
         // broken upload from a broken bake.
-        if (std::getenv("OLO_ENV_BAKE_DUMP") != nullptr)
+        if (Levers::EnvironmentBakeDump())
         {
             std::vector<u8> up;
             if (hdrTexture->GetData(up, 0) && !up.empty())
@@ -284,7 +286,7 @@ namespace OloEngine
 
         // OLO_ENV_BAKE_DUMP diagnostics (#797): dump per-face means + face PNGs when
         // OLO_ENV_BAKE_DUMP is set, to localize the GL-white-environment bug.
-        if (const char* dumpDir = std::getenv("OLO_ENV_BAKE_DUMP"); dumpDir != nullptr && *dumpDir != '\0')
+        if (const std::optional<std::string> dumpDir = Levers::EnvironmentBakeDump())
         {
             for (u32 face = 0; face < 6; ++face)
             {
@@ -317,7 +319,7 @@ namespace OloEngine
                     }
                 }
                 const u32 side = cubemap->GetWidth();
-                const std::string path = std::string(dumpDir) + "/face" + std::to_string(face) + ".png";
+                const std::string path = *dumpDir + "/face" + std::to_string(face) + ".png";
                 stbi_write_png(path.c_str(), static_cast<int>(side), static_cast<int>(side), 3, ldr.data(),
                                static_cast<int>(side * 3));
             }

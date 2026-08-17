@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+
+#include <atomic>
 #include "OloEngine/Core/Log.h"
 
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -14,8 +16,32 @@
 namespace OloEngine
 {
 #if OLO_ASSERT_MESSAGE_BOX && defined(OLO_PLATFORM_WINDOWS)
+    namespace
+    {
+        // Default ON: an interactive developer build should still pop the box.
+        // std::atomic because an assert can fire from a worker thread while the
+        // host is still starting up.
+        std::atomic<bool> s_AssertDialogsEnabled{ true };
+    } // namespace
+
+    void SetAssertDialogsEnabled(bool enabled)
+    {
+        s_AssertDialogsEnabled.store(enabled);
+    }
+
+    bool AreAssertDialogsEnabled()
+    {
+        return s_AssertDialogsEnabled.load();
+    }
+
     void ShowAssertMessageBox(const char* message)
     {
+        // The assert has already been written to every log sink by the caller;
+        // suppressing the dialog loses nothing but the block.
+        if (!s_AssertDialogsEnabled.load())
+        {
+            return;
+        }
         MessageBoxA(nullptr, message, "OloEngine Assert", MB_OK | MB_ICONERROR);
     }
 #endif

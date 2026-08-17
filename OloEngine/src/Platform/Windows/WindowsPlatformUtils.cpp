@@ -1,4 +1,7 @@
 #include "OloEnginePCH.h"
+#include <optional>
+#include "OloEngine/Core/Interactivity.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Core/Application.h"
 
@@ -132,9 +135,9 @@ namespace OloEngine
         // prompt: 'save'/'yes', 'discard'/'no', 'cancel'. Unset /
         // unrecognized keeps the interactive dialog, so a human's editor
         // never changes behavior.
-        if (const char* env = std::getenv("OLO_EDITOR_UNSAVED_PROMPT"); env != nullptr && *env != '\0')
+        if (const std::optional<std::string> env = Env::Get("OLO_EDITOR_UNSAVED_PROMPT"))
         {
-            std::string value(env);
+            std::string value(*env);
             std::ranges::transform(value, value.begin(),
                                    [](unsigned char c)
                                    { return static_cast<char>(std::tolower(c)); });

@@ -150,7 +150,13 @@ namespace OloEngine
         // had just run BindVAOIfNeeded, so re-binding inside the draw was both
         // redundant and a bind behind the redundant-bind cache's back. Mirrors
         // the existing DrawBound* family, whose comment gives the same reason.
-        virtual void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer) = 0;
+        // `topology` because the GPU-driven terrain path (issue #714) draws
+        // PatchList through the same entry point the instance cull draws
+        // Triangles through. It is an explicit parameter rather than a default
+        // argument: a default on a virtual is resolved from the STATIC type, so
+        // an override declaring a different one would silently disagree.
+        virtual void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
+                                               RHI::PrimitiveTopology topology) = 0;
         // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629):
         // reads DrawElementsIndirectCommand records from indirectBufferID starting at
         // indirectOffsetBytes and the u32 draw count from parameterBufferID at
@@ -163,6 +169,14 @@ namespace OloEngine
 
         // Compute shader dispatch
         virtual void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) = 0;
+
+        // GPU-sourced dispatch dimensions: reads a uvec3 group count from
+        // `argsBuffer` at `offsetBytes` (which must be 4-byte aligned on both
+        // backends). Added for the terrain LOD descent (issue #714), where each
+        // level's group count is written by the previous level's kernel and must
+        // never round-trip through the CPU. A zero group count is legal and does
+        // nothing — that is how a level with no survivors costs nothing.
+        virtual void DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes) = 0;
         virtual void MemoryBarrier(MemoryBarrierFlags flags) = 0;
 
         // The render graph's pre-pass barrier batch, carrying BOTH barrier

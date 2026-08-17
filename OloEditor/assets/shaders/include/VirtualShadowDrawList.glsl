@@ -24,6 +24,6 @@ struct VSMDrawInstance
     uint _pad2;
 };
 
-layout(std430, binding = 66) buffer VSMDrawInstances { VSMDrawInstance b_DrawInstances[]; };
+layout(std430, binding = 75) buffer VSMDrawInstances { VSMDrawInstance b_DrawInstances[]; };
 
 #endif // OLO_VIRTUAL_SHADOW_DRAWLIST_GLSL

@@ -124,10 +124,39 @@ namespace OloEngine
         // Get command type as human-readable string
         const char* GetCommandTypeString() const;
 
-        // Check if this is a draw command
+        // Check if this is a draw command.
+        //
+        // MUST match CommandBucket's own draw-call tally (CommandBucket.cpp) —
+        // that list is the source of truth for "this packet issues a draw", and
+        // this one silently disagreed with it for four types: DrawTerrainPatch,
+        // DrawVoxelMesh, DrawDecal and DrawFoliageLayer. The consequence was
+        // not cosmetic: MCP frame capture reported every terrain patch as
+        // `isDraw:false` and FrameCaptureStats.DrawCalls undercounted by the
+        // whole terrain/foliage/decal load, so a capture taken to answer "what
+        // is this frame drawing?" answered it wrongly (issue #607, fixed with
+        // #714 — which made it worse by collapsing terrain into ONE indirect
+        // draw that also went uncounted).
         bool IsDrawCommand() const
         {
-            return m_CommandType == CommandType::DrawMesh || m_CommandType == CommandType::DrawMeshInstanced || m_CommandType == CommandType::DrawQuad || m_CommandType == CommandType::DrawIndexed || m_CommandType == CommandType::DrawArrays || m_CommandType == CommandType::DrawLines || m_CommandType == CommandType::DrawSkybox || m_CommandType == CommandType::DrawInfiniteGrid || m_CommandType == CommandType::DrawIndexedInstanced;
+            switch (m_CommandType)
+            {
+                case CommandType::DrawMesh:
+                case CommandType::DrawMeshInstanced:
+                case CommandType::DrawQuad:
+                case CommandType::DrawDecal:
+                case CommandType::DrawFoliageLayer:
+                case CommandType::DrawTerrainPatch:
+                case CommandType::DrawVoxelMesh:
+                case CommandType::DrawSkybox:
+                case CommandType::DrawInfiniteGrid:
+                case CommandType::DrawArrays:
+                case CommandType::DrawIndexed:
+                case CommandType::DrawIndexedInstanced:
+                case CommandType::DrawLines:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         // Check if this is a render-state command (explicit whitelist)

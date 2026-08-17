@@ -8661,7 +8661,7 @@ void main()
                 // this backend, so the handle must be published explicitly or
                 // the draw finds no index buffer and drops.
                 RenderCommand::BindVertexArrayRaw(triangle->GetRHIHandle());
-                RenderCommand::DrawBoundElementsIndirect(chain.Args->GetRHIHandle());
+                RenderCommand::DrawBoundElementsIndirect(chain.Args->GetRHIHandle(), RHI::PrimitiveTopology::TriangleList);
                 RenderCommand::BindVertexArrayRaw(RHI::NullResource);
                 chain.Phase2->Unbind();
 

@@ -2240,12 +2240,13 @@ namespace OloEngine
         }
     }
 
-    void VulkanRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer)
+    void VulkanRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
+                                                      RHI::PrimitiveTopology topology)
     {
         const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawBoundElementsIndirect(unresolvable indirect buffer)");
         if (indirect == VK_NULL_HANDLE)
             return;
-        if (PrepareDraw(m_BoundVertexArray, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(m_BoundVertexArray))
+        if (PrepareDraw(m_BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(m_BoundVertexArray))
         {
             vkCmdDrawIndexedIndirect(m_Cmd, indirect, 0, 1, 0);
         }
@@ -2338,6 +2339,59 @@ namespace OloEngine
             return;
         }
         vkCmdDispatch(m_Cmd, std::max(groupsX, 1u), std::max(groupsY, 1u), std::max(groupsZ, 1u));
+    }
+
+    void VulkanRendererAPI::DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes)
+    {
+        if (m_Cmd == VK_NULL_HANDLE)
+        {
+            Phase6Stub("DispatchComputeIndirect(outside recording bracket)", StubKind::OutsideRecording);
+            return;
+        }
+        auto* shader = VulkanComputeShader::GetCurrentlyBound();
+        if (shader == nullptr || !shader->IsValid())
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[RHI/Vulkan] indirect dispatch with no valid compute shader bound - dropped");
+            }
+            return;
+        }
+
+        // Same buffer-resolution path the indirect DRAWS use. It resolves the
+        // handle and validates its KIND — it does NOT verify the usage bit.
+        // VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT comes from
+        // VulkanStorageBuffer::CreateBuffer setting it on every storage buffer,
+        // which is what makes an SSBO legal as a dispatch-argument source.
+        const VkBuffer args = ResolveIndirectBuffer(argsBuffer, "DispatchComputeIndirect(unresolvable args buffer)");
+        if (args == VK_NULL_HANDLE)
+            return;
+
+        // Dispatches are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        const auto& layout = shader->GetRootDataLayout();
+        const VkPipeline pipeline =
+            VulkanPipelineBuilder::Get().GetOrCreateCompute(shader->GetPipelineIndexKey(), shader->GetModule(), layout);
+        if (pipeline == VK_NULL_HANDLE)
+        {
+            return;
+        }
+
+        vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        if (!m_HeapBoundThisRecording)
+        {
+            VulkanResourceHeap::Get().CmdBind(m_Cmd);
+            m_HeapBoundThisRecording = true;
+        }
+        if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr,
+                                     /*commandOrderedBufferReads=*/false))
+        {
+            return;
+        }
+        vkCmdDispatchIndirect(m_Cmd, args, static_cast<VkDeviceSize>(offsetBytes));
     }
 
     void VulkanRendererAPI::SetFrameBackbuffer(const RHI::ResourceHandle handle, const VkImageView view,

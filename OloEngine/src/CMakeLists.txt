@@ -332,6 +332,15 @@
 		"OloEngine/Core/Application.h"
 		"OloEngine/Core/Assert.h"
 		"OloEngine/Core/Base.h"
+		"OloEngine/Core/DebugLevers.h"
+		"OloEngine/Core/DebugLevers.cpp"
+		# THE list of debug levers. Included several times with different macro
+		# definitions; listed here so it shows up in the IDE next to its consumers.
+		"OloEngine/Core/DebugLevers.inl"
+		"OloEngine/Core/Environment.h"
+		"OloEngine/Core/Environment.cpp"
+		"OloEngine/Core/Interactivity.h"
+		"OloEngine/Core/Interactivity.cpp"
 		"OloEngine/Core/Buffer.h"
 		"OloEngine/Core/CriticalSection.h"
 		"OloEngine/Core/EntryPoint.h"
@@ -1078,6 +1087,8 @@
 		"OloEngine/Terrain/TerrainChunk.cpp"
 		"OloEngine/Terrain/TerrainChunkManager.h"
 		"OloEngine/Terrain/TerrainChunkManager.cpp"
+		"OloEngine/Terrain/TerrainGPUQuadtree.h"
+		"OloEngine/Terrain/TerrainGPUQuadtree.cpp"
 		"OloEngine/Terrain/TerrainQuadtree.h"
 		"OloEngine/Terrain/TerrainQuadtree.cpp"
 		"OloEngine/Terrain/TerrainLayer.h"
@@ -1674,9 +1685,25 @@ elseif(UNIX AND NOT APPLE)
 	)
 endif()
 
+# Heavy-TU compile pool (issue #822): pulled out of the plain SOURCES list and re-added below via
+# a FILE_SET so it can carry its own JOB_POOL_COMPILE. Only when the pool is actually available —
+# on a tree where it is not (MSVC generator, or CMake < 4.4), leaving this unconditional would
+# drop the file from SOURCES with nothing re-adding it, silently removing it from the build.
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	list(REMOVE_ITEM SOURCES
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+	)
+endif()
+
 add_library(OloEngine STATIC
 		${SOURCES}
 )
+
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	olo_bind_heavy_compile_pool(OloEngine "${CMAKE_CURRENT_SOURCE_DIR}"
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+	)
+endif()
 
 # Unity (jumbo) build exclusions. The OloEngine target's UNITY_BUILD property is set in the
 # parent OloEngine/CMakeLists.txt (gated on OLO_ENABLE_UNITY_BUILD); the per-source
@@ -1715,12 +1742,18 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/ImGui/ImGuiBuild.cpp"           # Dear ImGui backend implementation TU
 		"OloEngine/ImGui/ImGuiBuildVulkan.cpp"     # Dear ImGui Vulkan backend TU (volk-first include order)
 		# GROUP 2 — duplicated file-local helper names that collide across a jumbo (de-dup TODO)
-		"OloEngine/Renderer/RenderPipeline.cpp"            # anon IsTruthyEnvironmentVariable / IsRenderGraphDiagnosticsEnabled
-		"OloEngine/Renderer/RenderGraph.cpp"              #   "
-		"OloEngine/Renderer/Renderer3DFrameExecution.cpp" #   "
-		"OloEngine/Renderer/Renderer3DLifecycle.cpp"      #   "
-		"OloEngine/Renderer/Renderer3DRenderGraphSetup.cpp" # "
-		"OloEngine/Renderer/Model.cpp"             # anon FindTextureInDirectory (+ IsTruthyEnvironmentVariable)
+		# The next five no longer HAVE a duplicated helper: IsTruthyEnvironmentVariable
+		# is gone (every caller uses OloEngine::Env now) and IsRenderGraphDiagnosticsEnabled
+		# is now Levers::RenderGraphDiagnostics() in Core/DebugLevers.h. They stay listed only
+		# because OLO_ENABLE_UNITY_BUILD is OFF by default, so nothing here has proven
+		# these five batch cleanly against their new neighbours — drop them in a change
+		# that actually runs a unity build, not on the strength of this comment.
+		"OloEngine/Renderer/RenderPipeline.cpp"
+		"OloEngine/Renderer/RenderGraph.cpp"
+		"OloEngine/Renderer/Renderer3DFrameExecution.cpp"
+		"OloEngine/Renderer/Renderer3DLifecycle.cpp"
+		"OloEngine/Renderer/Renderer3DRenderGraphSetup.cpp"
+		"OloEngine/Renderer/Model.cpp"             # anon FindTextureInDirectory
 		"OloEngine/Renderer/AnimatedModel.cpp"     # anon FindTextureInDirectory
 		"OloEngine/Renderer/Ocean/OceanFFT.cpp"    # anon constant kTwoPi
 		"OloEngine/Renderer/Ocean/OceanFFTGpu.cpp" # anon constant kTwoPi

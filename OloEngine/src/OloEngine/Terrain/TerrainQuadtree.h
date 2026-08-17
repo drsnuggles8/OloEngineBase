@@ -7,6 +7,7 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include <span>
 #include <unordered_set>
 #include <vector>
 
@@ -81,6 +82,15 @@ namespace OloEngine
                    f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                    u32 maxDepth = TerrainLODConfig::MAX_LOD_LEVELS);
 
+        // Build from an already-computed height pyramid — what Build() actually
+        // does once it has one. Exposed because the tree never needed the asset
+        // for anything else, and populating a TerrainData creates a GPU texture:
+        // without this, a CPU-only caller pinning the selection math would need
+        // a live GL context to do arithmetic. `pyramid` must have
+        // BuildHeightPyramid()'s layout for the same depth.
+        void BuildFromPyramid(std::vector<glm::vec2> pyramid,
+                              f32 worldSizeX, f32 worldSizeZ, u32 maxDepth);
+
         // Select visible leaf nodes at appropriate LOD levels for rendering
         // cameraPos: world-space camera position
         // viewProjection: combined VP matrix for screen-space error
@@ -117,10 +127,44 @@ namespace OloEngine
             return static_cast<u32>(m_Nodes.size());
         }
 
+        // World-space height extremes (x = min, y = max) for every node of a
+        // full quadtree of `maxDepth`, level-major: level L occupies 4^L
+        // consecutive entries starting at (4^L - 1) / 3, addressed as
+        // y * 2^L + x. The finest level samples the heightmap; coarser levels
+        // take the min/max of their four children, which is exact rather than
+        // merely conservative because the children's inclusive texel ranges tile
+        // the parent's.
+        //
+        // This is the SAME data the CPU node bounds are built from and the same
+        // buffer the GPU descent uploads (issue #714), which is what lets
+        // TerrainGPUQuadtreeTest assert an identical selected-node set instead
+        // of an approximate one. Callers that want a DEEPER pyramid than the CPU
+        // tree (the GPU descent is not bound by TerrainLODConfig::MAX_LOD_LEVELS)
+        // call this directly with their own depth.
+        [[nodiscard]] static std::vector<glm::vec2> BuildHeightPyramid(const TerrainData& terrainData,
+                                                                       f32 heightScale, u32 maxDepth);
+
+        // Raw-heightfield overload — the actual implementation; the TerrainData
+        // one forwards to it. Separate because populating a TerrainData creates a
+        // GPU heightmap texture, so a CPU-only caller (the L1 tests that pin this
+        // math) would otherwise need a live GL context to exercise pure
+        // arithmetic. `heights` is row-major, resolution x resolution.
+        [[nodiscard]] static std::vector<glm::vec2> BuildHeightPyramid(std::span<const f32> heights,
+                                                                       u32 resolution, f32 heightScale,
+                                                                       u32 maxDepth);
+
+        // The pyramid this tree was built from, at GetMaxDepth(). Empty until
+        // Build() runs.
+        [[nodiscard]] const std::vector<glm::vec2>& GetNodeHeightPyramid() const
+        {
+            return m_NodeHeightPyramid;
+        }
+
       private:
-        // Recursively build quadtree nodes
-        i32 BuildNode(const TerrainData& terrainData,
-                      f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+        // Recursively build quadtree nodes. Takes no TerrainData: since #714 the
+        // node's height extremes come from m_NodeHeightPyramid, which Build()
+        // computes once for the whole tree.
+        i32 BuildNode(f32 worldSizeX, f32 worldSizeZ,
                       f32 minX, f32 minZ, f32 maxX, f32 maxZ,
                       u32 depth);
 
@@ -142,6 +186,7 @@ namespace OloEngine
         // Find the selected leaf node that contains a given terrain-space point
         const TerrainQuadNode* FindLeafAt(f32 normX, f32 normZ) const;
 
+        std::vector<glm::vec2> m_NodeHeightPyramid;
         std::vector<TerrainQuadNode> m_Nodes;
         std::vector<const TerrainQuadNode*> m_SelectedNodes;
         std::unordered_set<const TerrainQuadNode*> m_SelectedNodeSet; // O(1) lookup for FindLeafAt
