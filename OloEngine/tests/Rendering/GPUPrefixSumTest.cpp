@@ -138,17 +138,35 @@ namespace OloEngine::Tests
         // an unattended run (CI, an agent session) blocks the whole process
         // forever rather than failing. Observed, not theorised: the first run of
         // this test sat at 0% CPU behind an "OloEngine Assert" window.
+        // The extension string alone is NOT enough. KHR_shader_subgroup only
+        // guarantees GL_SUBGROUP_FEATURE_BASIC_BIT_KHR; the *arithmetic* feature
+        // the probe needs (`subgroupExclusiveAdd`/`subgroupAdd`) is optional and
+        // has to be read out of GL_SUBGROUP_SUPPORTED_FEATURES_KHR. A driver
+        // with subgroups but no arithmetic would otherwise reach the probe,
+        // fail to compile it, and hit the assert dialog described above.
+        //
+        // The string check still has to come FIRST: querying
+        // GL_SUBGROUP_SUPPORTED_FEATURES_KHR without the extension present
+        // raises GL_INVALID_ENUM, and a leaked GL error fails the process-wide
+        // listener from testing-architecture.md §6.4 in some later, unrelated test.
         bool DriverHasSubgroupOps()
         {
             GLint count = 0;
             ::glGetIntegerv(GL_NUM_EXTENSIONS, &count);
-            for (GLint i = 0; i < count; ++i)
+
+            bool hasExtension = false;
+            for (GLint i = 0; i < count && !hasExtension; ++i)
             {
                 const auto* name = reinterpret_cast<const char*>(::glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(i)));
-                if (name != nullptr && std::strcmp(name, "GL_KHR_shader_subgroup") == 0)
-                    return true;
+                hasExtension = (name != nullptr && std::strcmp(name, "GL_KHR_shader_subgroup") == 0);
             }
-            return false;
+            if (!hasExtension)
+                return false;
+
+            GLint features = 0;
+            ::glGetIntegerv(GL_SUBGROUP_SUPPORTED_FEATURES_KHR, &features);
+            constexpr GLint kNeeded = GL_SUBGROUP_FEATURE_BASIC_BIT_KHR | GL_SUBGROUP_FEATURE_ARITHMETIC_BIT_KHR;
+            return (features & kNeeded) == kNeeded;
         }
 
         // A compile failure is REPORTED, not asserted — but see DriverHasSubgroupOps
@@ -359,8 +377,8 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // Degenerate inputs. `count == 0` must not dispatch anything and must still
-    // leave a defined total, because a caller reading a stale total from a
+    // Degenerate inputs. `count == 0` dispatches one fully masked work group
+    // (every lane out of range) and must still leave a defined total, because a caller reading a stale total from a
     // previous scan is a silent wrong-sized draw.
     // =========================================================================
     TEST(GPUPrefixSumTest, EmptyAndSingleElementScans)

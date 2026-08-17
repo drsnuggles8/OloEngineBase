@@ -106,7 +106,20 @@ namespace OloEngine
         RHI::ResourceHandle AcquireBlockSums(u32 depth, u32 elementCount);
         RHI::ResourceHandle DummyBuffer();
 
-        void UploadParams(u32 count, bool writeBlockSums, bool writeTotal);
+        // What a given dispatch is expected to emit besides the scanned values.
+        // An enum rather than two bools because the three states are mutually
+        // exclusive by construction — a level either stitches into a parent
+        // (BlockSums), is the single-work-group bottom whose group total IS the
+        // grand total (GrandTotal), or is the fold-back pass (Nothing). Two
+        // bools admit a fourth combination that has no meaning.
+        enum class ScanEmit : u8
+        {
+            BlockSums,
+            GrandTotal,
+            Nothing,
+        };
+
+        void UploadParams(u32 count, ScanEmit emit);
 
         // Scan `values[0 .. count)` in place, folding in block offsets via a
         // recursive scan of the per-work-group totals. `totalOut` is threaded

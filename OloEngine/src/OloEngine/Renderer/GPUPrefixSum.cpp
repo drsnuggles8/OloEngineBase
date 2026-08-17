@@ -13,7 +13,7 @@ namespace OloEngine
     namespace
     {
         // Number of work groups needed to cover `count` elements.
-        constexpr u32 GroupCountFor(u32 count)
+        [[nodiscard]] constexpr u32 GroupCountFor(u32 count)
         {
             return (count + GPUPrefixSum::kGroupSize - 1) / GPUPrefixSum::kGroupSize;
         }
@@ -33,7 +33,7 @@ namespace OloEngine
 
         if (!IsAvailable())
         {
-            OLO_CORE_ERROR("GPUPrefixSum: scan shaders failed to load — callers must keep their atomicAdd path");
+            OLO_CORE_ERROR("GPUPrefixSum: scan shaders failed to load — every caller loses its compaction");
         }
     }
 
@@ -75,7 +75,7 @@ namespace OloEngine
         return slot->GetRHIHandle();
     }
 
-    void GPUPrefixSum::UploadParams(u32 count, bool writeBlockSums, bool writeTotal)
+    void GPUPrefixSum::UploadParams(u32 count, ScanEmit emit)
     {
         if (!m_ParamsUBO)
         {
@@ -85,8 +85,8 @@ namespace OloEngine
 
         UBOStructures::PrefixSumUBO params{};
         params.Count = count;
-        params.WriteBlockSums = writeBlockSums ? 1u : 0u;
-        params.WriteTotal = writeTotal ? 1u : 0u;
+        params.WriteBlockSums = (emit == ScanEmit::BlockSums) ? 1u : 0u;
+        params.WriteTotal = (emit == ScanEmit::GrandTotal) ? 1u : 0u;
 
         m_ParamsUBO->SetData(&params, sizeof(params));
         // Upload THEN bind: on the Vulkan route every SetData mints a fresh
@@ -118,7 +118,7 @@ namespace OloEngine
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_PREFIX_SUM_TOTAL, totalOut);
 
         m_ScanShader->Bind();
-        UploadParams(count, !singleGroup, singleGroup);
+        UploadParams(count, singleGroup ? ScanEmit::GrandTotal : ScanEmit::BlockSums);
         RenderCommand::DispatchCompute(groupCount, 1, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
 
@@ -134,7 +134,7 @@ namespace OloEngine
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_PREFIX_SUM_BLOCK_SUMS, blockSums);
 
         m_AddOffsetsShader->Bind();
-        UploadParams(count, false, false);
+        UploadParams(count, ScanEmit::Nothing);
         RenderCommand::DispatchCompute(groupCount, 1, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
     }
@@ -158,6 +158,15 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("GPUPrefixSum: buffer holds {0} B, need {1} B for {2} elements",
                            buffer->GetSize(), requiredBytes, count);
+            return false;
+        }
+
+        // `PrefixSum_Scan.comp` writes total[0] whenever u_WriteTotal is set, so
+        // a totalOut smaller than one u32 is an out-of-range storage-buffer write.
+        if (totalOut && totalOut->GetSize() < sizeof(u32))
+        {
+            OLO_CORE_ERROR("GPUPrefixSum: totalOut holds {0} B, need {1} B for the grand total",
+                           totalOut->GetSize(), sizeof(u32));
             return false;
         }
 

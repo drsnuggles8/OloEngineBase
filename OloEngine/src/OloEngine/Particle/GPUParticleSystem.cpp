@@ -90,6 +90,18 @@ namespace OloEngine
             Shutdown();
         }
 
+        // Refuse a count the compaction cannot scan (issue #713). Past this
+        // bound `ExclusiveScanInPlace` returns false every frame while the
+        // system stays "initialized", so the alive list silently freezes at
+        // whatever the last successful compaction left — a stale draw list is
+        // far worse than a system that says up front it cannot run.
+        if (maxParticles > GPUPrefixSum::kMaxElements)
+        {
+            OLO_CORE_ERROR("GPUParticleSystem: maxParticles {0} exceeds the GPU prefix-sum limit {1}",
+                           maxParticles, GPUPrefixSum::kMaxElements);
+            return;
+        }
+
         m_MaxParticles = maxParticles;
 
         // Allocate SSBOs
@@ -335,8 +347,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Initialized || !m_CompactShader || !m_CompactShader->IsValid() ||
-            !m_CompactScatterShader || !m_CompactScatterShader->IsValid() || !m_PrefixSum)
+        const auto shaderReady = [](const Ref<ComputeShader>& shader)
+        { return shader && shader->IsValid(); };
+
+        if (!m_Initialized || !shaderReady(m_CompactShader) || !shaderReady(m_CompactScatterShader) || !m_PrefixSum)
         {
             return;
         }

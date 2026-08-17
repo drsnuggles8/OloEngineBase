@@ -16,12 +16,11 @@
 // This one may early-return: it contains no barrier.
 // =============================================================================
 
+// One work group per scanned block, dispatched 1:1 with PrefixSum_Scan.comp —
+// so the block an element belongs to IS gl_WorkGroupID.x, and this file needs
+// no second copy of the 256 constant to divide by. Keeping the two group sizes
+// equal is still load-bearing; it is now the only thing that has to agree.
 layout(local_size_x = 256) in;
-
-// Work-group size of PrefixSum_Scan.comp — the block an element belongs to is
-// `idx / this`. The two MUST agree; a mismatch reads the wrong block's offset
-// and produces a scan that is plausible but wrong in the tail of every block.
-const uint kPrefixSumBlockSize = 256u;
 
 // Must match ShaderBindingLayout::SSBO_PREFIX_SUM_*.
 layout(std430, binding = 54) buffer PrefixSumValues { uint values[]; };
@@ -43,5 +42,5 @@ void main()
     if (idx >= u_Count)
         return;
 
-    values[idx] += blockSums[idx / kPrefixSumBlockSize];
+    values[idx] += blockSums[gl_WorkGroupID.x];
 }
