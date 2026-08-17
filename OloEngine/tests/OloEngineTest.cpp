@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/Interactivity.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
@@ -22,11 +23,16 @@ int main(int argc, char** argv)
     // Initialize logging explicitly
     OloEngine::Log::Initialize();
 
-    // No one is here to click OK. Without this, any OLO_CORE_ASSERT in a test
-    // run blocks the process in a modal dialog forever at ~0% CPU — it presents
-    // as a hung/slow test, not a failing one. Cost hours on #714 when a compute
-    // shader failed to compile. The assert still logs; only the box is gone.
-    OloEngine::SetAssertDialogsEnabled(false);
+    // No one is here to click OK. Without this, ANY blocking modal in a test run
+    // parks the process forever at ~0% CPU — it presents as a hung/slow test,
+    // not a failing one. Cost hours on #714 when a compute shader failed to
+    // compile and the assert dialog waited for a click that never came.
+    //
+    // This is the process-wide answer, not the assert-specific one: it also
+    // covers the auto-save recovery and unsaved-changes prompts, and any modal
+    // added later that asks IsNonInteractive() as it should. Everything still
+    // logs; only the blocking is removed.
+    OloEngine::SetNonInteractive(true);
     ::testing::InitGoogleTest(&argc, argv);
     OloEngine::Tests::TestFailureCapture::RegisterFailureListener();
     // Assert a clean glGetError() state after every test so a test that

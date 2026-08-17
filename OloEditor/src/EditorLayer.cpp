@@ -123,13 +123,13 @@ namespace
     // the interactive modal, so this never changes a human's editor.
     [[nodiscard]] AutoSaveRecoveryChoice ResolveAutoSaveRecoveryChoice()
     {
-        const std::optional<std::string> env = Env::Get("OLO_EDITOR_AUTOSAVE_RECOVERY");
+        const std::optional<std::string> env = OloEngine::Env::Get("OLO_EDITOR_AUTOSAVE_RECOVERY");
         if (!env)
         {
             // No explicit answer. A non-interactive process must not block on
             // the modal, so take the least destructive option: keep what is on
             // disk and leave the recovery file alone.
-            if (IsNonInteractive())
+            if (OloEngine::IsNonInteractive())
             {
                 OLO_CORE_WARN("Non-interactive: auto-save recovery prompt answered 'original' "
                               "(set OLO_EDITOR_AUTOSAVE_RECOVERY to choose)");

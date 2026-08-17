@@ -240,3 +240,57 @@ packet can't apply twice. That is the opposite trust model from lockstep.
 
 **Don't "upgrade" the gameplay RNG to a CSPRNG or obscure the seed** — it breaks determinism without
 adding real security.
+
+## 14. Environment variables: one reader, and don't add a modal escape hatch
+
+`Core/Environment.h` is the **only** place the engine calls `getenv`. Use
+`Env::Get` / `IsTruthy` / `IsExactly` / `GetInt`; do not add a private wrapper.
+
+This was consolidated from ~60 scattered call sites, eight of which were private
+near-identical `IsTruthyEnvironmentVariable` copies. They had already drifted:
+some sites tested `strcmp(v, "1") == 0`, others `*v != '0'`, others
+`value[0] != 'f'`. So two variables documented the same way behaved differently,
+and `FOO=true` silently meant *off* at half of them. Pick the accessor that
+matches your intent:
+
+| you want | use | note |
+|---|---|---|
+| an on/off toggle | `IsTruthy` | set, non-empty, not starting `0`/`f`/`F` |
+| "only this exact value acts" | `IsExactly` | a typo must NOT read as on |
+| a number | `GetInt` | `from_chars`; rejects garbage instead of `atoi`'s silent 0 |
+| a path or free string | `Get` | empty is reported as unset |
+
+Two rules that come with it:
+
+- **Read once, at startup, into your own state.** `getenv` hands back a pointer
+  into shared static storage, and the test harness *does* write the environment
+  (`OloEngineTest.cpp`'s `main` calls `_putenv_s`; `McpDispatchTest` sets and
+  restores variables around a case). Reading once during init keeps you clear of
+  that, and it is why the cpp:S990 suppression in `Environment.cpp` is honest
+  rather than hand-waved.
+- **`Env::Get` returns `std::optional<std::string>`, which fmt cannot format.**
+  Log `*value`, not `value` — passing the optional is a wall of
+  `type_is_unformattable_for` template spew that names the *formatter*, not your
+  call site. Cost one build cycle during the consolidation.
+
+### Do not add a fourth way to skip a modal
+
+`Core/Interactivity.h` answers "is anyone at the keyboard?" once, for the
+process. Before it existed the engine had grown three separate escape hatches,
+each added *after* someone lost time to a hang:
+
+* `OLO_EDITOR_AUTOSAVE_RECOVERY` — the auto-save recovery modal (#316 Part 5)
+* `OLO_EDITOR_UNSAVED_PROMPT` — the unsaved-changes modal
+* the assert dialog — `OLO_CORE_ASSERT` called `MessageBoxA` unconditionally (#714)
+
+That is one problem wearing three hats: **a blocking modal in a process nobody
+is watching is a hang, not a prompt** — and it does not look like a failure. The
+process sits in `NtUserWaitMessage` burning ~0% CPU, which reads as "slow" for
+as long as you are willing to believe it. The tell is flat CPU time against
+climbing wall-clock; confirm with `cdb -p <pid> -c "~0 kn 24; qd"` and look for
+`USER32!MessageBoxA`.
+
+So: **any new modal asks `IsNonInteractive()` first**, and the automated path
+takes the *least destructive* answer — "cancel", "keep what is on disk" — never
+the convenient one. A host that knows it is automated calls
+`SetNonInteractive(true)` at startup (the test binary already does).

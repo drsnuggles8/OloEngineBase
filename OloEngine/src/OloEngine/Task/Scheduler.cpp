@@ -148,7 +148,7 @@ namespace OloEngine::LowLevelTasks
             {
                 OLO_CORE_WARN("[TaskGraph] Ignoring invalid OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO='{}' "
                               "(must be finite and within [1, {}]); keeping {}",
-                              EnvOversubscriptionRatio, kMaxOversubscriptionRatio, g_TaskGraphOversubscriptionRatio);
+                              *EnvOversubscriptionRatio, kMaxOversubscriptionRatio, g_TaskGraphOversubscriptionRatio);
             }
         }
     }
