@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include <format>
 #include <optional>
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/EnvironmentMap.h" // For IBLConfiguration
@@ -319,7 +320,7 @@ namespace OloEngine
                     }
                 }
                 const u32 side = cubemap->GetWidth();
-                const std::string path = *dumpDir + "/face" + std::to_string(face) + ".png";
+                const std::string path = std::format("{}/face{}.png", *dumpDir, face);
                 stbi_write_png(path.c_str(), static_cast<int>(side), static_cast<int>(side), 3, ldr.data(),
                                static_cast<int>(side * 3));
             }

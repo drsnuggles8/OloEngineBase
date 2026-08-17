@@ -128,24 +128,29 @@ namespace OloEngine::MCP
         // Before the registry existed there was no way to ask it: the levers
         // were 21 independent environment reads, so an editor launched hours ago
         // with OLO_RG_POISON_TRANSIENTS set looked identical to one without.
-        [[nodiscard]] std::string_view LeverKindName(Levers::LeverKind kind)
+        [[nodiscard("the JSON-serialized lever kind must be used")]] std::string_view LeverKindName(Levers::LeverKind kind)
         {
+            using enum Levers::LeverKind;
             switch (kind)
             {
-                case Levers::LeverKind::Toggle:
+                case Toggle:
                     return "toggle";
-                case Levers::LeverKind::Exact:
+                case Exact:
                     return "exactToggle";
-                case Levers::LeverKind::Tristate:
+                case Tristate:
                     return "tristate";
-                case Levers::LeverKind::Integer:
+                case Integer:
                     return "integer";
-                case Levers::LeverKind::Number:
+                case Number:
                     return "number";
-                case Levers::LeverKind::Text:
+                case Text:
                     return "text";
+                default:
+                    // Not a missing enumerator — every one is handled above.
+                    // This is the "kind holds a value outside the enum's
+                    // defined range" case (e.g. read through a stale/raw cast).
+                    return "unknown";
             }
-            return "unknown";
         }
 
         ToolResult Handle_DebugLevers(McpServer& /*server*/, const Json& args)
@@ -163,6 +168,11 @@ namespace OloEngine::MCP
                 else if (activeOnly)
                 {
                     continue;
+                }
+                else
+                {
+                    // Default AND the caller wants everything — fall through
+                    // and include it below.
                 }
 
                 Json entry;

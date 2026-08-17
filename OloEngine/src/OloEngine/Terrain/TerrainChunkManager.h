@@ -7,6 +7,7 @@
 #include "OloEngine/Terrain/TerrainQuadtree.h"
 
 #include <glm/glm.hpp>
+#include <optional>
 #include <vector>
 
 namespace OloEngine
@@ -111,17 +112,28 @@ namespace OloEngine
         // Enable/disable tessellation (fallback to Phase 1 triangle rendering)
         bool TessellationEnabled = true;
 
-      private:
         // The INCLUSIVE chunk-grid rectangle a quadtree node covers, in chunk
-        // indices. A leaf node yields a single chunk; a node selected above the
-        // leaf level yields the whole 2^k x 2^k block beneath it. Returns false
-        // only when there is no chunk grid yet.
+        // indices along one axis. Returned by value rather than as four
+        // same-typed out-parameters — X0/X1/Z0/Z1 were adjacent u32& and
+        // trivially swappable by a caller mistake (cpp:S5419); nothing here
+        // has more than one caller, so there is no call-site cost to bundling.
+        struct ChunkRange
+        {
+            u32 X0 = 0;
+            u32 X1 = 0;
+            u32 Z0 = 0;
+            u32 Z1 = 0;
+        };
+
+      private:
+        // A leaf node yields a single chunk; a node selected above the leaf
+        // level yields the whole 2^k x 2^k block beneath it. nullopt only when
+        // there is no chunk grid yet.
         //
         // Replaced a FindChunkForNode() that mapped the node's CENTRE to one
         // chunk — correct for leaves, and a hole for everything coarser.
-        bool ChunkRangeForNode(const TerrainQuadNode& node,
-                               u32& outX0, u32& outX1,
-                               u32& outZ0, u32& outZ1) const;
+        [[nodiscard("the chunk range must be used to enumerate the covered chunks")]] std::optional<ChunkRange>
+        RangeForNode(const TerrainQuadNode& node) const;
 
         std::vector<TerrainChunk> m_Chunks;
         u32 m_NumChunksX = 0;

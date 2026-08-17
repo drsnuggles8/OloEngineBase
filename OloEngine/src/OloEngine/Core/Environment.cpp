@@ -6,26 +6,22 @@
 
 namespace OloEngine::Env
 {
-    std::optional<std::string> Get(const char* name)
+    std::optional<std::string> Get(std::string_view name)
     {
-        if (name == nullptr || *name == '\0')
+        if (name.empty())
         {
             return std::nullopt;
         }
 
-        // NOSONAR cpp:S990 — this is the engine's single getenv call site, and
-        // the rule has no portable fix: it flags getenv because the returned
-        // pointer can be invalidated by a concurrent setenv/putenv, and C++ has
-        // no thread-safe alternative (Windows offers GetEnvironmentVariableA;
-        // POSIX offers nothing, so any cross-platform helper bottoms out here).
+        // The engine's single getenv call site — see sonar-project.properties'
+        // env_s990 exclusion for why cpp:S990 doesn't apply here (a code
+        // comment is not a valid suppression channel; that is itself a lesson
+        // this call site's history taught).
         //
-        // Why it is nonetheless safe: the value is copied into a std::string
-        // before this function returns, so no caller ever holds the pointer.
-        // The only writers in the repo are in the test harness
-        // (OloEngineTest.cpp's main, McpDispatchTest's scoped setter), and the
-        // header's contract asks callers to read once at startup, so a read
-        // never overlaps one of those writes.
-        const char* value = std::getenv(name);
+        // string_view isn't guaranteed null-terminated, so a copy is required
+        // before it can reach getenv regardless of the S990 question.
+        const std::string owned(name);
+        const char* value = std::getenv(owned.c_str());
         if (value == nullptr || *value == '\0')
         {
             return std::nullopt;
@@ -33,7 +29,7 @@ namespace OloEngine::Env
         return std::string(value);
     }
 
-    bool IsTruthy(const char* name)
+    bool IsTruthy(std::string_view name)
     {
         const std::optional<std::string> value = Get(name);
         if (!value)
@@ -44,13 +40,13 @@ namespace OloEngine::Env
         return first != '0' && first != 'f' && first != 'F';
     }
 
-    bool IsExactly(const char* name, std::string_view expected)
+    bool IsExactly(std::string_view name, std::string_view expected)
     {
         const std::optional<std::string> value = Get(name);
         return value && *value == expected;
     }
 
-    std::optional<i64> GetInt(const char* name)
+    std::optional<i64> GetInt(std::string_view name)
     {
         const std::optional<std::string> value = Get(name);
         if (!value)
