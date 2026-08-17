@@ -627,6 +627,18 @@ differences, fast-math reordering, driver extension quirks.
 **Where the code lives.**
 
 - [`.github/workflows/cross-vendor.yml`](../.github/workflows/cross-vendor.yml)
+- [`OloEngine/tests/Rendering/PropertyTests/GoldenBaselineAuditTest.cpp`](../OloEngine/tests/Rendering/PropertyTests/GoldenBaselineAuditTest.cpp)
+
+**The baseline audit.** `GoldenBaselineAuditTest` runs #734's property
+guards against the *committed* baseline PNGs — the shared set and every
+`assets/tests/{golden,visual}/<vendor>/` subdirectory — rather than
+against a live render. It needs no GPU, so it gates every CI run.
+The gap it closes: a per-vendor set is baked on hardware the reviewer
+does not have, and if the bake captured a defect the nightly for that
+vendor compares green against the defect forever. Vendor directories are
+discovered, not listed, so a set added later is audited the day it lands.
+See [vendor-golden-baseline-crosscheck.md](agent-rules/vendor-golden-baseline-crosscheck.md)
+for the method and the #735 result.
 
 **How it works.** Nightly at 03:47 UTC + manual dispatch: the workflow
 downloads `pal1000/mesa-dist-win 24.3.4`, drops its `opengl32.dll`
