@@ -665,9 +665,20 @@ Two things follow, and the first one cost this repo ten weeks of red CI.
    sanitizer jobs (`--parallel 2`, where each TU costs ~3 GB).
 
 **When you add a Linux CI job, copy `steam-stub.yml`, not a Windows job.** It
-carries the whole set in one place: the LLVM apt repo + `clang-19 lld-19` (the
-default libstdc++ lacks `std::forward_like`, which `Core/Reflection/MemberList.h`
-uses), `-DCMAKE_{C,CXX}_COMPILER=clang(++)-19`, `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`
+carries the whole set in one place: `uses: ./.github/actions/setup-llvm-apt` plus
+`clang-19 lld-19` in the apt list (the default libstdc++ lacks
+`std::forward_like`, which `Core/Reflection/MemberList.h` uses),
+`-DCMAKE_{C,CXX}_COMPILER=clang(++)-19`, `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`
 (BFD `ld` can exceed a 16 GB runner on this link), `CMAKE_BUILD_TYPE` at configure
 time (`--config` is *silently ignored* by the single-config generator — it will
 happily lie to you about building Release), and an explicit `--parallel N`.
+
+**Never hand-roll the apt.llvm.org step** — use the action. Five jobs had grown
+byte-identical copies of it, and all five shared two defects nobody noticed until
+a review on #827: the key went into `/etc/apt/trusted.gpg.d` (trusted for *every*
+repository on the runner, not just LLVM's) and nothing checked *which* key had
+arrived, because the fetch ran under `bash -e` with no `pipefail` and so reported
+`tee`'s status rather than `wget`'s. The action now scopes the key with
+`signed-by=` and pins its primary-key fingerprint. That is also the reason it is
+an action rather than a fifth corrected copy: one `workflow_dispatch` run that
+exercises it is evidence for every call site.
