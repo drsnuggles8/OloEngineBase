@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
@@ -2182,7 +2182,7 @@ namespace OloEngine
                 gtaoReady != s_PrevGTAOReady ||
                 aoHandleValid != s_PrevAOHandleValid)
             {
-                if (IsRenderGraphDiagnosticsEnabled())
+                if (Levers::RenderGraphDiagnostics())
                 {
                     OLO_CORE_TRACE("Renderer3D: AO output state: graphTechnique={}, requestedTechnique={}, ssaoEnabled={}, gtaoEnabled={}, ssaoReady={}, gtaoReady={}, aoHandleValid={}",
                                    activeTechnique,

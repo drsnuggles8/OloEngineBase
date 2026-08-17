@@ -3,6 +3,7 @@
 // handled by OloEngine::ModelImporter (Scene/ModelImporter.h), the single source of truth shared
 // by the editor import buttons, viewport drag-drop, and scene deserialization.
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 
 #include <algorithm>
 #include <array>
@@ -19,7 +20,6 @@
 #include <vector>
 
 #include "OloEngine/Renderer/Model.h"
-#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
@@ -54,8 +54,7 @@ namespace OloEngine
 
         bool IsModelImportDiagnosticsEnabled()
         {
-            static const bool enabled = Env::IsTruthy("OLO_MODEL_IMPORT_DIAGNOSTICS");
-            return enabled;
+            return Levers::ModelImportDiagnostics();
         }
 
         bool IsObjModelPath(const std::filesystem::path& path)

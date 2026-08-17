@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpSchemaBuilder.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "MCP/McpEventStream.h"
@@ -119,6 +120,67 @@ namespace OloEngine::MCP
             if (ec)
                 return {};
             return cwd / "CrashReports";
+        }
+
+        // ---- olo_debug_levers (lock-free; reads the registry's own atomics) -----
+        //
+        // The question this answers is "why is this session behaving oddly?".
+        // Before the registry existed there was no way to ask it: the levers
+        // were 21 independent environment reads, so an editor launched hours ago
+        // with OLO_RG_POISON_TRANSIENTS set looked identical to one without.
+        [[nodiscard]] std::string_view LeverKindName(Levers::LeverKind kind)
+        {
+            switch (kind)
+            {
+                case Levers::LeverKind::Toggle:
+                    return "toggle";
+                case Levers::LeverKind::Exact:
+                    return "exactToggle";
+                case Levers::LeverKind::Tristate:
+                    return "tristate";
+                case Levers::LeverKind::Integer:
+                    return "integer";
+                case Levers::LeverKind::Number:
+                    return "number";
+                case Levers::LeverKind::Text:
+                    return "text";
+            }
+            return "unknown";
+        }
+
+        ToolResult Handle_DebugLevers(McpServer& /*server*/, const Json& args)
+        {
+            const bool activeOnly = args.value("activeOnly", false);
+
+            Json levers = Json::array();
+            u32 activeCount = 0;
+            for (const Levers::LeverInfo& lever : Levers::Snapshot())
+            {
+                if (!lever.IsDefault)
+                {
+                    ++activeCount;
+                }
+                else if (activeOnly)
+                {
+                    continue;
+                }
+
+                Json entry;
+                entry["name"] = std::string(lever.Name);
+                entry["help"] = std::string(lever.Help);
+                entry["kind"] = std::string(LeverKindName(lever.Kind));
+                entry["value"] = lever.Value;
+                entry["isDefault"] = lever.IsDefault;
+                entry["source"] = lever.FromEnvironment ? "environment" : "code";
+                levers.push_back(std::move(entry));
+            }
+
+            Json out;
+            out["count"] = levers.size();
+            out["activeCount"] = activeCount;
+            out["summary"] = Levers::ActiveSummary();
+            out["levers"] = std::move(levers);
+            return ToolResult::Structured(out);
         }
 
         ToolResult Handle_CrashList(McpServer& /*server*/, const Json& /*args*/)
@@ -275,6 +337,40 @@ namespace OloEngine::MCP
             // No outputSchema: raw spdlog lines are free text, which an outputSchema cannot constrain.
             tool.MainMarshaled = false;
             tool.Handler = Handle_LogTail;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_debug_levers";
+            tool.Toolset = "diagnostics";
+            tool.Title = "List debug levers";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "The engine's debug/diagnostic levers and their current values — transient poisoning, "
+                "aliasing, bindless routing, the threading and terrain-LOD bisection switches, and the "
+                "task-graph tuning knobs. Each seeds from an environment variable of the same name and "
+                "some are settable at runtime (olo_render_debug_set covers the two transient ones). Call "
+                "this FIRST when a session renders or performs unlike a clean one: a lever left on is "
+                "invisible otherwise, and explains a whole class of 'it only misbehaves on this machine'.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("activeOnly", Schema::Bool().Desc("Only return levers that are NOT at their default (default false)."))
+                                   .NoAdditional();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("count", Schema::Int().Min(0).Desc("Number of levers returned (size of levers)."))
+                    .Prop("activeCount", Schema::Int().Min(0).Desc("How many levers are not at their default — counts ALL levers regardless of activeOnly."))
+                    .Prop("summary", Schema::String().Desc("The non-default levers as one line, exactly as the startup log prints it. Empty when everything is default."))
+                    .Prop("levers", Schema::Array(Schema::Object()
+                                                      .Prop("name", Schema::String().Desc("The environment variable that seeds it."))
+                                                      .Prop("help", Schema::String())
+                                                      .Prop("kind", Schema::String().Enum({ "toggle", "exactToggle", "tristate", "integer", "number", "text" }))
+                                                      .Prop("value", Schema::String().Desc("Rendered current value; 'unset' when the lever has none."))
+                                                      .Prop("isDefault", Schema::Bool().Desc("True when the lever is doing nothing."))
+                                                      .Prop("source", Schema::String().Enum({ "environment", "code" }).Desc("'code' means a setter overrode the environment."))))
+                    .Required({ "count", "activeCount", "summary", "levers" });
+            tool.MainMarshaled = false;
+            tool.Handler = Handle_DebugLevers;
             server.RegisterTool(std::move(tool));
         }
 

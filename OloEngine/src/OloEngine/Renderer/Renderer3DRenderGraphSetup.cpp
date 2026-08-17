@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -14,7 +14,7 @@ namespace OloEngine
     void Renderer3D::SetupRenderGraph(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Setting up Renderer3D RenderGraph with dimensions: {}x{}", width, height);
 
         if (width == 0 || height == 0)
@@ -62,7 +62,7 @@ namespace OloEngine
         // per-pass resource declarations, while this helper is responsible for
         // reporting the configured chain, validating the resource contract, and
         // committing the active-path bookkeeping once the rebuild succeeds.
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
         {
             if (deferred)
             {
@@ -87,7 +87,7 @@ namespace OloEngine
             OLO_CORE_ASSERT(topologyValid, "RenderGraph dependency cycle detected. Break the cycle and retry.");
         }
 
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
         {
             const auto hazards = s_Data.RGraph->ValidateResourceHazards();
             if (!hazards.empty())
@@ -108,7 +108,7 @@ namespace OloEngine
     void Renderer3D::ConfigureRenderGraph(RenderingPath path)
     {
         OLO_PROFILE_FUNCTION();
-        if (IsRenderGraphDiagnosticsEnabled())
+        if (Levers::RenderGraphDiagnostics())
         {
             OLO_CORE_TRACE("Renderer3D: Configuring RenderGraph for path = {}",
                            path == RenderingPath::Forward       ? "Forward"

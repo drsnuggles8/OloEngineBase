@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include <optional>
-#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/EnvironmentMap.h" // For IBLConfiguration
 #include "OloEngine/Renderer/LightProbeBaker.h"
@@ -171,7 +171,7 @@ namespace OloEngine
         stbi_set_flip_vertically_on_load(false); // reset global flag to avoid polluting later stbi calls
 
         // OLO_ENV_BAKE_DUMP diagnostics (#797): CPU-side ground truth of the loaded HDR.
-        if (data != nullptr && Env::IsTruthy("OLO_ENV_BAKE_DUMP"))
+        if (data != nullptr && Levers::EnvironmentBakeDump())
         {
             // Skip non-finite texels in the mean but COUNT them — a NaN-laden
             // source is itself a finding, and one NaN would otherwise poison
@@ -217,7 +217,7 @@ namespace OloEngine
 
         // OLO_ENV_BAKE_DUMP diagnostics (#797): read the UPLOADED texture back — splits a
         // broken upload from a broken bake.
-        if (Env::IsTruthy("OLO_ENV_BAKE_DUMP"))
+        if (Levers::EnvironmentBakeDump())
         {
             std::vector<u8> up;
             if (hdrTexture->GetData(up, 0) && !up.empty())
@@ -286,7 +286,7 @@ namespace OloEngine
 
         // OLO_ENV_BAKE_DUMP diagnostics (#797): dump per-face means + face PNGs when
         // OLO_ENV_BAKE_DUMP is set, to localize the GL-white-environment bug.
-        if (const std::optional<std::string> dumpDir = Env::Get("OLO_ENV_BAKE_DUMP"))
+        if (const std::optional<std::string> dumpDir = Levers::EnvironmentBakeDump())
         {
             for (u32 face = 0; face < 6; ++face)
             {

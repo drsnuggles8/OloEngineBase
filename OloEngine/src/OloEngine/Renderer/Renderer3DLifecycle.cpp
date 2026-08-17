@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Terrain/TerrainGPUQuadtree.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
@@ -751,7 +751,7 @@ namespace OloEngine
         // create them now that we have valid dimensions.
         if (s_Data.RGraph && !s_Data.Pipeline->FrameCorePasses.Scene)
         {
-            if (IsRenderGraphDiagnosticsEnabled())
+            if (Levers::RenderGraphDiagnostics())
             {
                 OLO_CORE_TRACE("Renderer3D::OnWindowResize: ScenePass missing - running deferred SetupRenderGraph");
             }

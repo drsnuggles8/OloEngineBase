@@ -2,8 +2,8 @@
 // Ported from UE5.7 Async/ParallelFor.cpp
 
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include <optional>
-#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/HAL/PlatformMisc.h"
 
@@ -43,24 +43,26 @@ namespace OloEngine
         const u32 NumCores = std::thread::hardware_concurrency();
         s_ShouldUseThreadingForPerformance = (NumCores > 1);
 
-        // Startup tuning knobs. Read once, here, through the engine's single
-        // environment accessor — these used to be four hand-rolled strcmp /
-        // atoi parses that disagreed about what counted as "on".
-        if (Env::IsTruthy("OLO_NO_THREADING"))
+        // Startup tuning knobs, from the shared lever registry (Core/DebugLevers.h)
+        // — these were four hand-rolled strcmp / atoi parses that disagreed
+        // about what counted as "on". Order matters: setting both NoThreading
+        // and ForceMultithread leaves threading ON, which the registry's help
+        // text records.
+        if (Levers::NoThreading())
         {
             s_ShouldUseThreadingForPerformance = false;
         }
-        if (Env::IsTruthy("OLO_FORCE_MULTITHREAD"))
+        if (Levers::ForceMultithread())
         {
             s_ShouldUseThreadingForPerformance = true;
         }
-        // Unparseable is ignored rather than silently read as 0, which is what
-        // std::atoi did here.
-        if (const std::optional<i64> yieldMs = Env::GetInt("OLO_PARALLEL_FOR_YIELD_MS"); yieldMs && *yieldMs >= 0)
+        // Already validated (>= 0) by the registry; unparseable arrives as
+        // nullopt rather than silently as 0, which is what std::atoi did here.
+        if (const std::optional<i64> yieldMs = Levers::ParallelForYieldMs())
         {
             GParallelForBackgroundYieldingTimeoutMs = static_cast<i32>(*yieldMs);
         }
-        if (Env::IsTruthy("OLO_DISABLE_OVERSUBSCRIPTION"))
+        if (Levers::DisableOversubscription())
         {
             GParallelForDisableOversubscription = true;
         }

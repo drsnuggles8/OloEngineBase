@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Core/Environment.h"
+#include "OloEngine/Core/DebugLevers.h"
 
 #if OLO_WITH_VULKAN
 
@@ -520,11 +520,7 @@ namespace OloEngine
         // create lines per scene load are noise in a clean session, but when
         // hunting a GPU fault the ranges are the decisive currency (the
         // foliage OOB was named by exactly this pairing).
-        static const bool s_TraceBuffers = []
-        {
-            return Env::IsTruthy("OLO_VK_TRACE_BUFFERS");
-        }();
-        if (s_TraceBuffers)
+        if (Levers::VulkanTraceBuffers())
         {
             OLO_CORE_TRACE("[RHI/Vulkan] vertex buffer {:#x}..{:#x} ({} bytes, {})", m_DeviceAddress,
                            m_DeviceAddress + m_Size, m_Size, m_Mapped != nullptr ? "BAR-mapped" : "staged");

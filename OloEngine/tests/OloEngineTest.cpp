@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Interactivity.h"
-#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
@@ -20,10 +20,18 @@ int main(int argc, char** argv)
     // diagnostic running. It is otherwise seeded from OLO_RENDERGRAPH_DIAGNOSTICS;
     // say so directly instead of writing the environment and hoping nothing has
     // read it yet.
-    OloEngine::SetRenderGraphDiagnosticsEnabled(true);
+    OloEngine::Levers::SetRenderGraphDiagnostics(true);
 
     // Initialize logging explicitly
     OloEngine::Log::Initialize();
+
+    // Most headless tests never construct an Application, so the startup line
+    // it normally prints would never appear here. A suite run with a lever set
+    // — a bisection switch left exported in the shell — must say so, or the
+    // resulting pass/fail is being read out of context. Silent when everything
+    // is at its default. Also flushes any malformed-value warning the lazy seed
+    // above deferred, now that the logger exists.
+    OloEngine::Levers::LogActive();
 
     // No one is here to click OK. Without this, ANY blocking modal in a test run
     // parks the process forever at ~0% CPU — it presents as a hung/slow test,

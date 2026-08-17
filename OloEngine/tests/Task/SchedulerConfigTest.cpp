@@ -2,18 +2,27 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Task/Scheduler.h"
 
 // Hardening for OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO: the value is read from the
 // environment (untrusted config) and feeds the worker-thread budget math, where
 // `ceil(workers * ratio)` is cast to i32. std::strtof("inf") yields +inf, and the
 // old `inf >= 1.0f` guard let it through — non-finite / out-of-range values must
-// be rejected. ParseOversubscriptionRatio is the pure boundary that does that.
+// be rejected. Levers::ParseNumberLever is the pure boundary that does that; it is
+// shared by every OLO_LEVER_NUMBER in the debug-lever registry, so these cases now
+// pin the parse for all of them rather than for this one variable. The bound under
+// test is still kMaxOversubscriptionRatio, which is what the lever table passes.
 
 namespace
 {
     using OloEngine::LowLevelTasks::kMaxOversubscriptionRatio;
-    using OloEngine::LowLevelTasks::ParseOversubscriptionRatio;
+
+    // The registry's generic parse, bound to this lever's accepted range.
+    std::optional<f32> ParseOversubscriptionRatio(const char* envValue)
+    {
+        return OloEngine::Levers::ParseNumberLever(envValue, 1.0f, kMaxOversubscriptionRatio);
+    }
 } // namespace
 
 TEST(SchedulerConfigTest, NullEnvValueRejected)

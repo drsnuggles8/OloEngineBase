@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Core/Environment.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -37,7 +37,7 @@ namespace OloEngine
             // helper into a shared header would reduce the engine's ~32 getenv
             // sites to one — worth doing, but not from a terrain branch while
             // the RHI is being edited elsewhere.)
-            return !Env::IsExactly("OLO_TERRAIN_CPU_LOD", "1");
+            return !Levers::TerrainCpuLod();
         }
 
         // Sequentially consistent by default rather than relaxed. A relaxed

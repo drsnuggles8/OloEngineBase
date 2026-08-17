@@ -272,6 +272,55 @@ Two rules that come with it:
   `type_is_unformattable_for` template spew that names the *formatter*, not your
   call site. Cost one build cycle during the consolidation.
 
+### Debug levers go in the registry, not in a fresh `Env::IsTruthy`
+
+`Core/DebugLevers.h` + `DebugLevers.inl` hold the ~21 switches you flip for one
+run of an already-built binary — transient poisoning, bindless routing, the
+threading and terrain-LOD bisection switches, the task-graph tuning knobs.
+**Add a lever to `DebugLevers.inl` and nowhere else.** The accessors, the
+setters, the environment seeding and the enumeration are all generated from
+that one table, so there is no second list to update.
+
+The environment is still the *input* — that part was never wrong. What was
+missing is everything around it:
+
+- **No list.** Twenty-one independent `Env::IsTruthy(...)` reads across twelve
+  TUs. "Which levers exist?" had no answer but a grep, and "which are on in
+  this session?" had none at all — an editor launched hours ago with
+  `OLO_RG_POISON_TRANSIENTS` set looked identical to a clean one.
+- **Not addressable from code.** A test or tool that wanted one on had to write
+  the environment. That is the `_putenv_s` the test harness carried.
+
+So now: `Levers::LogActive()` prints the non-default levers at startup (silent
+when everything is default), and `olo_debug_levers` answers the same question
+against a running editor. `DebugLeversTest` fails if a new `Env::` read of an
+`OLO_*` variable appears anywhere in `OloEngine/src` — which is exactly how the
+previous 21 accumulated, each one individually reasonable.
+
+Two things to get right when adding one:
+
+- **Pick the right shape.** `TOGGLE` is lenient (`Env::IsTruthy`). `EXACT` only
+  accepts `"1"`, for a lever where a typo silently disabling the fast path
+  would read as a mysterious performance cliff rather than a visible failure.
+  `TRISTATE` exists because two task-graph knobs must distinguish "force off"
+  from "leave the hardware-derived default alone" — flattening that into a
+  toggle would change behaviour. `INT`/`NUMBER` return `optional` so
+  set-to-zero stays distinguishable from unset, which is what `std::atoi`
+  silently destroyed at the old call sites. `TEXT` has no setter, because every
+  text lever is a path consumed once at init.
+- **Seeding is lazy and once.** A setter marks the lever overridden *before*
+  seeding, so a set that happens before any read survives the seed the first
+  read triggers. Get that order backwards and the environment quietly wins.
+  A subsystem that cached the value at init still won't see a later change —
+  check the consumer.
+
+This is deliberately **not** a console-variable system: no name-based lookup, no
+editor console, no persistence, and no runtime change without a restart. It is
+the registry such a system would need underneath it — that layer is issue #821,
+which would also retire `FTaskPriorityCVar` in `Task.h`, a UE port whose own
+constructor says the engine has no console-variable system yet and which has
+zero call sites.
+
 ### An environment variable is the wrong mechanism for a knob you own
 
 Reach for `Env::` when the value comes from **outside the process** — the OS

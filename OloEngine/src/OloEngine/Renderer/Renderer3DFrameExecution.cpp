@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/RenderGraphDiagnostics.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
@@ -237,7 +237,7 @@ namespace OloEngine
 
             if (buildStatsChanged)
             {
-                if (IsRenderGraphDiagnosticsEnabled())
+                if (Levers::RenderGraphDiagnostics())
                 {
                     OLO_CORE_TRACE("RenderGraph BuildFrameGraph stats: passes={}, reads={}, writes={}, derivedEdges={}, orderSensitiveResults={}",
                                    buildStats.PassesVisited,
@@ -251,7 +251,7 @@ namespace OloEngine
             }
         }
 
-        bool validateCompiledHazards = IsRenderGraphDiagnosticsEnabled();
+        bool validateCompiledHazards = Levers::RenderGraphDiagnostics();
 #if !defined(OLO_DIST)
         validateCompiledHazards = validateCompiledHazards || buildStatsChanged;
 #endif
@@ -265,7 +265,7 @@ namespace OloEngine
                                compiledHazards.size());
                 OLO_CORE_ASSERT(compiledHazards.empty(), "Compiled RenderGraph resource hazard detected (see log). Fix the offending setup-time resource declarations or ordering edges.");
             }
-            else if (IsRenderGraphDiagnosticsEnabled() && buildStatsChanged)
+            else if (Levers::RenderGraphDiagnostics() && buildStatsChanged)
             {
                 OLO_CORE_TRACE("Renderer3D::EndScene: compiled RenderGraph validation passed.");
             }

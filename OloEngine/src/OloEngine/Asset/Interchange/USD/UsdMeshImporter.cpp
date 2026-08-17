@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Core/Environment.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Asset/Interchange/USD/UsdMeshImporter.h"
 
 #if defined(OLO_WITH_USD)
@@ -55,7 +55,7 @@ namespace OloEngine
             std::call_once(flag,
                            []()
                            {
-                               if (const std::optional<std::string> env = Env::Get("OLO_USD_PLUGIN_PATH"))
+                               if (const std::optional<std::string> env = Levers::UsdPluginPath())
                                    PlugRegistry::GetInstance().RegisterPlugins(*env);
 
                                namespace fs = std::filesystem;

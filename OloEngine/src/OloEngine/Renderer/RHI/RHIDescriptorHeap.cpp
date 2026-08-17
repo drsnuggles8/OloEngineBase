@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
-#include "OloEngine/Core/Environment.h"
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -193,8 +193,7 @@ namespace OloEngine::RHI
         // The toggle defaults from the environment so an A/B capture needs no
         // rebuild, and defaults OFF so that a machine without the extension —
         // and every headless test — takes the slot-based path it always took.
-        m_Enabled = m_Initialized && backend->IsBindlessSupported() &&
-                    Env::IsTruthy("OLO_RHI_BINDLESS");
+        m_Enabled = m_Initialized && backend->IsBindlessSupported() && Levers::BindlessDescriptorHeap();
 
         if (m_Initialized)
         {

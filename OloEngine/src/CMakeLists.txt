@@ -332,6 +332,11 @@
 		"OloEngine/Core/Application.h"
 		"OloEngine/Core/Assert.h"
 		"OloEngine/Core/Base.h"
+		"OloEngine/Core/DebugLevers.h"
+		"OloEngine/Core/DebugLevers.cpp"
+		# THE list of debug levers. Included several times with different macro
+		# definitions; listed here so it shows up in the IDE next to its consumers.
+		"OloEngine/Core/DebugLevers.inl"
 		"OloEngine/Core/Environment.h"
 		"OloEngine/Core/Environment.cpp"
 		"OloEngine/Core/Interactivity.h"
@@ -657,8 +662,6 @@
 		"OloEngine/Renderer/RenderGraph.h"
 		"OloEngine/Renderer/RenderGraphBarrierPlanner.cpp"
 		"OloEngine/Renderer/RenderGraphBarrierPlanner.h"
-		"OloEngine/Renderer/RenderGraphDiagnostics.cpp"
-		"OloEngine/Renderer/RenderGraphDiagnostics.h"
 		"OloEngine/Renderer/RenderGraphHandleAllocator.h"
 		"OloEngine/Renderer/RenderGraphHazardValidator.cpp"
 		"OloEngine/Renderer/RenderGraphHazardValidator.h"
@@ -1721,7 +1724,7 @@ if(OLO_ENABLE_UNITY_BUILD)
 		# GROUP 2 — duplicated file-local helper names that collide across a jumbo (de-dup TODO)
 		# The next five no longer HAVE a duplicated helper: IsTruthyEnvironmentVariable
 		# is gone (every caller uses OloEngine::Env now) and IsRenderGraphDiagnosticsEnabled
-		# is one real function in RenderGraphDiagnostics.{h,cpp}. They stay listed only
+		# is now Levers::RenderGraphDiagnostics() in Core/DebugLevers.h. They stay listed only
 		# because OLO_ENABLE_UNITY_BUILD is OFF by default, so nothing here has proven
 		# these five batch cleanly against their new neighbours — drop them in a change
 		# that actually runs a unity build, not on the strength of this comment.
