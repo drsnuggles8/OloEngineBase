@@ -18,12 +18,24 @@ namespace OloEngine
         bool GpuDrivenLODDefault()
         {
             // NOSONAR cpp:S990 — the rule flags getenv because the pointer it
-            // returns can be invalidated by a concurrent setenv/putenv. Neither
-            // appears anywhere in this engine, this runs once during static
-            // init, and the value is consumed immediately rather than stored —
-            // so the race the rule guards against cannot arise. Same
-            // justification as IsTruthyEnvironmentVariable in
-            // Renderer/RHI/RHIDescriptorHeap.cpp.
+            // returns can be invalidated by a concurrent setenv/putenv, and
+            // there is no portable thread-safe alternative in standard C++
+            // (Windows has GetEnvironmentVariableA; POSIX has nothing, so any
+            // cross-platform helper still bottoms out here).
+            //
+            // Be precise about why it is safe, because the obvious claim is
+            // wrong: putenv DOES exist in this repo — OloEngineTest.cpp's main
+            // calls _putenv_s/setenv to force a diagnostic on. That call cannot
+            // race this one. This is a static initialiser, so it runs BEFORE
+            // main and before any thread exists, and the value is consumed
+            // immediately rather than stored, so no pointer outlives the call.
+            //
+            // (Renderer/RHI/RHIDescriptorHeap.cpp carries the same suppression
+            // and scopes its claim to OloEngine/src + OloEditor/src, where it
+            // does hold. Promoting that file-local IsTruthyEnvironmentVariable
+            // helper into a shared header would reduce the engine's ~32 getenv
+            // sites to one — worth doing, but not from a terrain branch while
+            // the RHI is being edited elsewhere.)
             const char* env = std::getenv("OLO_TERRAIN_CPU_LOD");
             return !(env && env[0] == '1' && env[1] == '\0');
         }

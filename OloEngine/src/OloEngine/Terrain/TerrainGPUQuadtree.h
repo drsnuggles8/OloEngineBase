@@ -74,6 +74,12 @@ namespace OloEngine
         // pyramid (4^13/3 entries) starts costing real memory; the practical
         // limit is the buffer caps below, not this.
         static constexpr u32 kMaxDepth = 12;
+        // The packed coord (oloTerrainPackNode) gives the level 4 bits and each
+        // of x/y 14 bits, and a node at level L has coords up to 2^L - 1.
+        // Violating either is silent truncation, not a compile error, so assert
+        // it where the constant lives.
+        static_assert(kMaxDepth <= 15, "packed node coord stores the level in 4 bits");
+        static_assert(kMaxDepth <= 14, "packed node coord stores x/y in 14 bits each");
 
         // Per-pass worklist capacity and visible-node capacity. Both are
         // clamped rather than grown per frame — an overflow sets a flag the CPU

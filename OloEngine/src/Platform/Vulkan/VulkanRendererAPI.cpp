@@ -2360,9 +2360,11 @@ namespace OloEngine
             return;
         }
 
-        // Same buffer-resolution path the indirect DRAWS use: the argument
-        // buffer must carry VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, which is what
-        // ResolveIndirectBuffer checks for.
+        // Same buffer-resolution path the indirect DRAWS use. It resolves the
+        // handle and validates its KIND — it does NOT verify the usage bit.
+        // VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT comes from
+        // VulkanStorageBuffer::CreateBuffer setting it on every storage buffer,
+        // which is what makes an SSBO legal as a dispatch-argument source.
         const VkBuffer args = ResolveIndirectBuffer(argsBuffer, "DispatchComputeIndirect(unresolvable args buffer)");
         if (args == VK_NULL_HANDLE)
             return;

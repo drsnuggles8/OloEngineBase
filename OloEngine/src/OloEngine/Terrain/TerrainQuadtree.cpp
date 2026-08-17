@@ -12,6 +12,11 @@ namespace OloEngine
 {
     namespace
     {
+        // Ceiling on BuildHeightPyramid's depth argument. Mirrors
+        // TerrainGPUQuadtree::kMaxDepth; kept as its own constant so the CPU
+        // builder does not depend on the GPU class for a bounds check.
+        constexpr u32 kMaxHeightPyramidDepth = 12;
+
         // Level-major index of node (level, nx, ny) — twin of
         // oloTerrainNodeIndex() in include/TerrainQuadtreeCommon.glsl.
         [[nodiscard]] sizet PyramidIndex(u32 level, u32 nx, u32 ny)
@@ -36,6 +41,14 @@ namespace OloEngine
 
         if (resolution == 0 || heights.size() < static_cast<sizet>(resolution) * resolution)
         {
+            return {};
+        }
+        // Bound BEFORE sizing: the pyramid is 4^(maxDepth+1)/3 entries, so an
+        // unchecked depth allocates gigabytes before any other guard runs.
+        if (maxDepth > kMaxHeightPyramidDepth)
+        {
+            OLO_CORE_ERROR("TerrainQuadtree::BuildHeightPyramid: depth {} exceeds the maximum of {}",
+                           maxDepth, kMaxHeightPyramidDepth);
             return {};
         }
 
@@ -73,10 +86,25 @@ namespace OloEngine
                     for (u32 x = sampleMinX; x <= sampleMaxX; ++x)
                     {
                         const f32 h = heights[row + x] * heightScale;
+                        // A heightmap comes off disk, so a NaN is reachable. It
+                        // would propagate through the whole pyramid, and a NaN
+                        // AABB makes every frustum comparison false — so the
+                        // node tests "visible" at every level and the descent
+                        // splits the entire tree. Skip the sample instead.
+                        if (!std::isfinite(h))
+                            continue;
                         hMin = std::min(hMin, h);
                         hMax = std::max(hMax, h);
                     }
                 }
+                // Every sample was non-finite: fall back to a degenerate but
+                // FINITE range rather than leaving the sentinels in place.
+                if (!std::isfinite(hMin) || !std::isfinite(hMax) || hMin > hMax)
+                {
+                    hMin = 0.0f;
+                    hMax = 0.0f;
+                }
+
                 // A perfectly flat node would produce a zero-thickness AABB,
                 // which the positive-vertex plane test treats as a plane and
                 // can reject at a grazing angle. Same epsilon the pre-#714

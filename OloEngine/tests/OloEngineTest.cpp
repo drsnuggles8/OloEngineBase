@@ -21,6 +21,12 @@ int main(int argc, char** argv)
 
     // Initialize logging explicitly
     OloEngine::Log::Initialize();
+
+    // No one is here to click OK. Without this, any OLO_CORE_ASSERT in a test
+    // run blocks the process in a modal dialog forever at ~0% CPU — it presents
+    // as a hung/slow test, not a failing one. Cost hours on #714 when a compute
+    // shader failed to compile. The assert still logs; only the box is gone.
+    OloEngine::SetAssertDialogsEnabled(false);
     ::testing::InitGoogleTest(&argc, argv);
     OloEngine::Tests::TestFailureCapture::RegisterFailureListener();
     // Assert a clean glGetError() state after every test so a test that

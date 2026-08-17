@@ -564,95 +564,127 @@ namespace OloEngine::Tests
     {
         const std::vector<glm::vec2> pyramid = MakeTestPyramid();
 
-        u32 boundariesChecked = 0;
-        u32 mismatchedLevelBoundaries = 0;
-        for (const auto& [eye, viewProjection] : MakeCameraPoses(kWorldSizeX, kWorldSizeZ))
+        // Both axes. The seam kernel packs +X/-X and +Z/-Z through separate
+        // code paths, and the vertex stage snaps them in two separate branches,
+        // so a sweep over one axis leaves the other's arithmetic unproven.
+        struct Axis
         {
-            for (const f32 target : kTargetTriangleSizes)
+            const char* Name;
+            bool AlongX; // true: walk the +X boundary; false: the +Z boundary
+        };
+        constexpr std::array<Axis, 2> kAxes{ { { "+X", true }, { "+Z", false } } };
+
+        for (const Axis& axis : kAxes)
+        {
+            u32 boundariesChecked = 0;
+            u32 mismatchedLevelBoundaries = 0;
+
+            for (const auto& [eye, viewProjection] : MakeCameraPoses(kWorldSizeX, kWorldSizeZ))
             {
-                const Frustum frustum(viewProjection);
-                const DescentResult gpu = RunDescent_GLSLEquivalent(
-                    pyramid, kTestDepth, kWorldSizeX, kWorldSizeZ, ExtractPlanes(frustum), eye,
-                    viewProjection[1][1] * kViewportHeight * 0.5f, target);
-                const std::vector<u32> lodMap = BuildLODMap_GLSLEquivalent(gpu.SplitMap, kTestDepth);
-
-                std::map<GpuNodeCoord, SeamDeltas> seams;
-                std::map<std::pair<u32, u32>, GpuNodeCoord> owner;
-                for (const GpuNodeCoord& node : gpu.Visible)
+                for (const f32 target : kTargetTriangleSizes)
                 {
-                    seams[node] = ComputeSeams_GLSLEquivalent(node, kTestDepth, lodMap);
-                    const u32 step = 1u << (kTestDepth - node.Level);
-                    for (u32 dy = 0; dy < step; ++dy)
-                        for (u32 dx = 0; dx < step; ++dx)
-                            owner[{ node.X * step + dx, node.Y * step + dy }] = node;
-                }
+                    const Frustum frustum(viewProjection);
+                    const DescentResult gpu = RunDescent_GLSLEquivalent(
+                        pyramid, kTestDepth, kWorldSizeX, kWorldSizeZ, ExtractPlanes(frustum), eye,
+                        viewProjection[1][1] * kViewportHeight * 0.5f, target);
+                    const std::vector<u32> lodMap = BuildLODMap_GLSLEquivalent(gpu.SplitMap, kTestDepth);
 
-                const u32 resolution = 1u << kTestDepth;
-                for (const GpuNodeCoord& node : gpu.Visible)
-                {
-                    const u32 step = 1u << (kTestDepth - node.Level);
-
-                    // Walk every finest texel along the +X edge so a coarse node
-                    // bordering several finer ones is covered once per neighbour.
-                    std::set<GpuNodeCoord> neighbours;
-                    for (u32 d = 0; d < step; ++d)
+                    std::map<GpuNodeCoord, SeamDeltas> seams;
+                    std::map<std::pair<u32, u32>, GpuNodeCoord> owner;
+                    for (const GpuNodeCoord& node : gpu.Visible)
                     {
-                        const u32 tx = node.X * step + step;
-                        const u32 ty = node.Y * step + d;
-                        if (tx >= resolution)
-                            continue;
-                        if (auto it = owner.find({ tx, ty }); it != owner.end())
-                            neighbours.insert(it->second);
+                        seams[node] = ComputeSeams_GLSLEquivalent(node, kTestDepth, lodMap);
+                        const u32 step = 1u << (kTestDepth - node.Level);
+                        for (u32 dy = 0; dy < step; ++dy)
+                            for (u32 dx = 0; dx < step; ++dx)
+                                owner[{ node.X * step + dx, node.Y * step + dy }] = node;
                     }
 
-                    for (const GpuNodeCoord& neighbour : neighbours)
+                    const u32 resolution = 1u << kTestDepth;
+                    for (const GpuNodeCoord& node : gpu.Visible)
                     {
-                        ++boundariesChecked;
-                        if (neighbour.Level != node.Level)
-                            ++mismatchedLevelBoundaries;
+                        const u32 step = 1u << (kTestDepth - node.Level);
 
-                        std::set<f64> mine;
-                        for (u32 g = 0; g <= kK; ++g)
-                            mine.insert(PatchVertexUV_GLSLEquivalent(node, seams[node], static_cast<i32>(kK), static_cast<i32>(g)).y);
+                        // Walk every finest texel along the edge so a coarse node
+                        // bordering several finer ones is covered once per neighbour.
+                        std::set<GpuNodeCoord> neighbours;
+                        for (u32 d = 0; d < step; ++d)
+                        {
+                            const u32 tx = axis.AlongX ? node.X * step + step : node.X * step + d;
+                            const u32 ty = axis.AlongX ? node.Y * step + d : node.Y * step + step;
+                            if (tx >= resolution || ty >= resolution)
+                                continue;
+                            if (auto it = owner.find({ tx, ty }); it != owner.end())
+                                neighbours.insert(it->second);
+                        }
 
-                        std::set<f64> theirs;
-                        for (u32 g = 0; g <= kK; ++g)
-                            theirs.insert(PatchVertexUV_GLSLEquivalent(neighbour, seams[neighbour], 0, static_cast<i32>(g)).y);
+                        for (const GpuNodeCoord& neighbour : neighbours)
+                        {
+                            ++boundariesChecked;
+                            if (neighbour.Level != node.Level)
+                                ++mismatchedLevelBoundaries;
 
-                        // The shared span is the overlap of the two extents.
-                        const f64 mySpan = 1.0 / static_cast<f64>(1u << node.Level);
-                        const f64 theirSpan = 1.0 / static_cast<f64>(1u << neighbour.Level);
-                        const f64 lo = std::max(static_cast<f64>(node.Y) * mySpan, static_cast<f64>(neighbour.Y) * theirSpan);
-                        const f64 hi = std::min(static_cast<f64>(node.Y + 1) * mySpan, static_cast<f64>(neighbour.Y + 1) * theirSpan);
+                            // My far edge, and the neighbour's near edge facing it.
+                            // The coordinate that VARIES along the edge is the one
+                            // compared; the other is the shared boundary itself.
+                            const auto edgeValues = [&](const GpuNodeCoord& n, bool farSide)
+                            {
+                                std::set<f64> out;
+                                for (u32 g = 0; g <= kK; ++g)
+                                {
+                                    const i32 fixed = farSide ? static_cast<i32>(kK) : 0;
+                                    const glm::dvec2 uv =
+                                        axis.AlongX
+                                            ? PatchVertexUV_GLSLEquivalent(n, seams[n], fixed, static_cast<i32>(g))
+                                            : PatchVertexUV_GLSLEquivalent(n, seams[n], static_cast<i32>(g), fixed);
+                                    out.insert(axis.AlongX ? uv.y : uv.x);
+                                }
+                                return out;
+                            };
 
-                        std::set<f64> mineInSpan;
-                        std::ranges::copy_if(mine, std::inserter(mineInSpan, mineInSpan.end()),
-                                             [&](f64 v)
-                                             { return v >= lo - 1e-12 && v <= hi + 1e-12; });
-                        std::set<f64> theirsInSpan;
-                        std::ranges::copy_if(theirs, std::inserter(theirsInSpan, theirsInSpan.end()),
-                                             [&](f64 v)
-                                             { return v >= lo - 1e-12 && v <= hi + 1e-12; });
+                            const std::set<f64> mine = edgeValues(node, true);
+                            const std::set<f64> theirs = edgeValues(neighbour, false);
 
-                        // Exact equality, not a tolerance: both sides are integer
-                        // multiples of the same dyadic step, so any difference at
-                        // all is a real crack, not a rounding artefact.
-                        ASSERT_EQ(mineInSpan, theirsInSpan)
-                            << "+X edge of node (L" << node.Level << "," << node.X << "," << node.Y
-                            << ") does not match -X edge of node (L" << neighbour.Level << ","
-                            << neighbour.X << "," << neighbour.Y << ") at target=" << target << " — this is a crack";
+                            // The shared span is the overlap of the two extents
+                            // along the edge's varying axis.
+                            const f64 mySpan = 1.0 / static_cast<f64>(1u << node.Level);
+                            const f64 theirSpan = 1.0 / static_cast<f64>(1u << neighbour.Level);
+                            const u32 myIdx = axis.AlongX ? node.Y : node.X;
+                            const u32 theirIdx = axis.AlongX ? neighbour.Y : neighbour.X;
+                            const f64 lo = std::max(static_cast<f64>(myIdx) * mySpan, static_cast<f64>(theirIdx) * theirSpan);
+                            const f64 hi = std::min(static_cast<f64>(myIdx + 1) * mySpan, static_cast<f64>(theirIdx + 1) * theirSpan);
+
+                            std::set<f64> mineInSpan;
+                            std::ranges::copy_if(mine, std::inserter(mineInSpan, mineInSpan.end()),
+                                                 [&](f64 v)
+                                                 { return v >= lo - 1e-12 && v <= hi + 1e-12; });
+                            std::set<f64> theirsInSpan;
+                            std::ranges::copy_if(theirs, std::inserter(theirsInSpan, theirsInSpan.end()),
+                                                 [&](f64 v)
+                                                 { return v >= lo - 1e-12 && v <= hi + 1e-12; });
+
+                            // Exact equality, not a tolerance: both sides are integer
+                            // multiples of the same dyadic step, so any difference at
+                            // all is a real crack, not a rounding artefact.
+                            ASSERT_EQ(mineInSpan, theirsInSpan)
+                                << axis.Name << " edge of node (L" << node.Level << "," << node.X << "," << node.Y
+                                << ") does not match the facing edge of node (L" << neighbour.Level << ","
+                                << neighbour.X << "," << neighbour.Y << ") at target=" << target << " — this is a crack";
+                        }
                     }
                 }
             }
-        }
 
-        EXPECT_GT(boundariesChecked, 0u) << "no +X boundaries were examined";
-        // The load-bearing guard: if every boundary joined two nodes at the SAME
-        // level the snapping was never exercised and the equality above is
-        // trivially true. This fired for real on the first run, when every pose
-        // used the shipped 8 px target and the descent always reached leaves.
-        EXPECT_GT(mismatchedLevelBoundaries, 0u)
-            << "every boundary joined two nodes at the same level — the seam snapping was never exercised";
+            EXPECT_GT(boundariesChecked, 0u) << "no " << axis.Name << " boundaries were examined";
+            // The load-bearing guard: if every boundary joined two nodes at the
+            // SAME level the snapping was never exercised and the equality above
+            // is trivially true. This fired for real on the first run, when every
+            // pose used the shipped 8 px target and the descent always reached
+            // leaves.
+            EXPECT_GT(mismatchedLevelBoundaries, 0u)
+                << "every " << axis.Name << " boundary joined two nodes at the same level — "
+                << "the seam snapping was never exercised";
+        }
     }
 
     TEST(TerrainGPUQuadtree, EdgeSnappingLeavesCornersAndTheUnsnappedInteriorAlone)

@@ -213,6 +213,11 @@ namespace OloEngine::Tests
         // MCP tool's — kept slightly off vertical for the top-down case because a
         // perfectly vertical look direction is parallel to the camera's up axis
         // and yields a degenerate view matrix.
+        // Callers MUST wrap this in ASSERT_NO_FATAL_FAILURE: the ASSERT_ below
+        // returns from this helper, not from the test, so a failed readback
+        // would otherwise leave `outPixels` empty and let the assertions run on
+        // nothing. With both captures empty the A/B comparison still fails, but
+        // with only ONE empty it passes — a false green.
         void Capture(const glm::vec3& eye, f32 yaw, f32 pitch, std::vector<u8>& outPixels)
         {
             EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.5f, 6000.0f);
@@ -242,7 +247,7 @@ namespace OloEngine::Tests
         TerrainChunkManager::SetGpuDrivenLODEnabled(true);
 
         std::vector<u8> gpuTopDown;
-        Capture(glm::vec3(512.0f, 400.0f, 512.0f), 0.0f, 1.50f, gpuTopDown);
+        ASSERT_NO_FATAL_FAILURE(Capture(glm::vec3(512.0f, 400.0f, 512.0f), 0.0f, 1.50f, gpuTopDown));
         MaybeWritePng("gpu_topdown", gpuTopDown);
 
         const f32 background = CentreBackgroundFraction(gpuTopDown);
@@ -258,7 +263,7 @@ namespace OloEngine::Tests
         TerrainChunkManager::SetGpuDrivenLODEnabled(true);
 
         std::vector<u8> gpuGround;
-        Capture(glm::vec3(512.0f, 160.0f, 980.0f), 0.0f, 0.14f, gpuGround);
+        ASSERT_NO_FATAL_FAILURE(Capture(glm::vec3(512.0f, 160.0f, 980.0f), 0.0f, 0.14f, gpuGround));
         MaybeWritePng("gpu_ground", gpuGround);
 
         // A ground-level view is half sky by construction, so this is a
@@ -277,13 +282,13 @@ namespace OloEngine::Tests
 
         TerrainChunkManager::SetGpuDrivenLODEnabled(false);
         std::vector<u8> cpuTopDown;
-        Capture(eye, 0.0f, 1.50f, cpuTopDown);
+        ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 1.50f, cpuTopDown));
         MaybeWritePng("cpu_topdown", cpuTopDown);
         const f32 cpuBackground = CentreBackgroundFraction(cpuTopDown);
 
         TerrainChunkManager::SetGpuDrivenLODEnabled(true);
         std::vector<u8> gpuTopDown;
-        Capture(eye, 0.0f, 1.50f, gpuTopDown);
+        ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 1.50f, gpuTopDown));
         const f32 gpuBackground = CentreBackgroundFraction(gpuTopDown);
 
         // Not "<=": at this target size the CPU descent selects level-1 nodes,

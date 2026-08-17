@@ -7651,9 +7651,18 @@ namespace OloEngine
                         // the GPU tree is unusable (compute shaders unavailable,
                         // or OLO_TERRAIN_CPU_LOD=1), and only then does the CPU
                         // descent run.
+                        // The split threshold is user-editable and round-trips
+                        // through YAML, so it can arrive non-finite or zero. Every
+                        // comparison against NaN is false, which would stop the
+                        // descent splitting at all — one root-sized patch, silently.
+                        const f32 targetTriangleSize =
+                            (std::isfinite(terrain.m_TargetTriangleSize) && terrain.m_TargetTriangleSize > 0.0f)
+                                ? terrain.m_TargetTriangleSize
+                                : TerrainLODConfig{}.TargetTriangleSize;
+
                         if (!terrain.m_ChunkManager->DispatchGPULOD(
                                 local.ViewFrustum, local.CameraPos, local.ViewProjection,
-                                static_cast<f32>(m_ViewportHeight), terrain.m_TargetTriangleSize))
+                                static_cast<f32>(m_ViewportHeight), targetTriangleSize))
                         {
                             terrain.m_ChunkManager->SelectVisibleChunks(
                                 local.ViewFrustum,
