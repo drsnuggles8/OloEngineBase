@@ -399,7 +399,49 @@ none does — nothing else in the suite throws through it — so the honest note
 that the file-path throw is uncovered under Windows ASan while the
 non-throwing branches of the same test stay active everywhere.
 
-## 5. Instrumenting a build with the CMake Instrumentation API (issue #759)
+## 5. Instrumenting a build, and a per-file-set compile job pool (issues #759, #822)
+
+### 5a. Use the native recipe (CMake 4.3+), not the manual gate below
+
+As of #822 this machine is on CMake 4.4.2. The repo's own `cmake_minimum_required` floor
+is unchanged (still `3.25` in the root `CMakeLists.txt`, and the presets' `cmakeMinimumRequired`
+is `4.2.0` — see the hard constraints in issue #822, not raised by this work); the
+instrumentation and heavy-compile-pool blocks below are purely additive, each behind its own
+`if(CMAKE_VERSION VERSION_GREATER_EQUAL ...)` guard, and no-op cleanly on an older CMake.
+`cmake_instrumentation()` — the API described in §5b below, now stable — is wired
+directly into the root `CMakeLists.txt`, gated `if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.3)`.
+No UUID gate, no manually-written query file:
+
+```powershell
+cmake --preset clangcl -DOLO_BUILD_INSTRUMENTATION=ON
+pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
+  'cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6'
+```
+
+`OLO_BUILD_INSTRUMENTATION` defaults `OFF` (the launcher wraps every compile/link/custom
+command, and profiling every developer build by default is not wanted). It has no effect
+under the Visual Studio generator (`build/`, the primary `msvc` preset) — that case prints
+a `message(WARNING)` rather than silently doing nothing, since the API itself doesn't
+support that generator (§5b point 1 still applies).
+
+**Verify it wired** the same way as before trusting a build: `build-clang/CMakeFiles/rules.ninja`
+compile/link rules must carry the `"…/ctest.exe" --instrument --command-type compile …`
+prefix, and `build-clang/.cmake/instrumentation/v1/query/generated/query-0.json` must exist
+after configure — no UUID suffix on the directory name this time, that was only ever an
+experimental-gate artifact (§5b). The trace lands at
+`build-clang/.cmake/instrumentation/v1/data/trace/trace-<timestamp>.json` after the build
+completes (the `postCMakeBuild` hook). **Only the most recent trace file is kept** — a second
+build's indexing deletes the first trace, so copy out anything you want to keep before
+re-running.
+
+A minimal analysis script (per-TU compile time ranked descending, peak host memory, role
+totals) is the fastest way to read a multi-MB trace; see the `#822` PR for one, or write
+~40 lines against the JSON directly — each event's `args.role` is `compile`/`link`/`custom`/
+`cmakeBuild`, `args.source` is the TU path for compile events, `dur` is microseconds, and
+`args.dynamicSystemInformation.afterHostMemoryUsed` is **system-wide** host memory in KiB
+(not the command's own RSS) sampled at that command's completion.
+
+### 5b. Historical: the pre-4.3 experimental gate (only relevant on CMake < 4.3)
 
 CMake 4.x ships an experimental Instrumentation API that emits a Google Trace
 Event file with per-command timing, target attribution and per-command
@@ -447,7 +489,7 @@ is **system-wide** host memory in KiB, not the command's RSS; the top-level
 `build.ninja` is useless here — the worktree path itself
 (`OloEngine-build-instrumentation-759`) contains the substring.
 
-### What it measured (clean Debug build, `build-clang/`, clang-cl, this host)
+### 5c. What #759 measured (clean Debug build, `build-clang/`, clang-cl, this host)
 
 Host was an i7-14700KF (20 cores / 28 threads, 64 GB), CI runners idle — **not**
 the 16c/31GB CLAUDE.md assumes; confirm your host before reusing these numbers.
@@ -484,3 +526,98 @@ these are OloEngine + small in-tree vendor + FFmpeg only:
   It roughly halved link CPU-time (89→44 s, plausibly pruned transitive link
   libs) but that is fully hidden under the compile-bound critical path — no
   wall-clock benefit for this graph. `INSTALL_PARALLEL` is N/A (we never install).
+
+### 5d. The heavy-compile file-set pool (CMake 4.4, issue #822)
+
+A fresh trace taken five days after #759, on the same host, confirms the same two
+outliers **by identity** (only their size grew with the intervening work):
+`LuaScriptGlue.cpp` (145–198 s across repeated runs) and `McpFieldRegistry.cpp`
+(40–67 s, compiled separately into both `OloEditor` and `OloEngine-Tests` — see
+`docs/agent-rules/component-serializer-codegen.md`-adjacent MCP field-registry
+context). Peak host memory at `-j6` (narrow scope, `OloEngine-Tests` only) came in
+at **41.4 GiB**, within noise of #759's 41.6 GiB — a solid corroboration that
+nothing structural drifted between the two measurements.
+
+CMake 4.4's `SOURCES`-type file set can carry its own `JOB_POOL_COMPILE`, which
+overrides the target/source-level setting. #822 pulls the two heavy TUs (three
+compile sites: `OloEngine`'s `LuaScriptGlue.cpp`, `OloEditor`'s and
+`OloEngine-Tests`'s independent copies of `McpFieldRegistry.cpp`) out of their
+targets' plain source lists and rebinds them via a file set into a new
+Ninja-only `olo_heavy` pool, default depth 2 (`-DOLO_HEAVY_COMPILE_JOBS=<N>` to
+change it), validated with the same "reject 0/empty" rigor as `OLO_LINK_JOBS`.
+`cmake/CommonProperties.cmake`'s `olo_bind_heavy_compile_pool()` centralizes the
+file-set + pool-property binding so each of the three call sites is one line.
+
+**Two real bugs found while wiring this — both would have been silent
+misconfigurations, not build failures, without the verification the plan
+demanded:**
+
+1. **The `JOB_POOL_COMPILE` file-set property's own CMake 4.4 doc example is
+   wrong.** `set_property(FILE_SET my_fileset TYPE SOURCE PROPERTY
+   JOB_POOL_COMPILE two_jobs)` — copied verbatim from `Help/prop_fs/JOB_POOL_COMPILE.rst`
+   — errors `set_property required TARGET option is missing`, because
+   `set_property()`'s actual `FILE_SET` scope signature (`Help/command/set_property.rst`)
+   is `FILE_SET <file_set>... TARGET <target>`, no `TYPE` keyword at all. Caught
+   by testing the exact snippet in a throwaway two-source scratch project against
+   a real generated `build.ninja` *before* touching the 1300-TU tree — cheap
+   insurance that would have cost a full reconfigure-and-grep cycle on the real
+   tree to catch otherwise.
+2. **`target_sources(... FILE_SET ...)`'s relative `FILES` resolve against the
+   *caller's* `CMAKE_CURRENT_SOURCE_DIR`, not the function's `base_dir`
+   argument.** `olo_bind_heavy_compile_pool()`'s first version passed relative
+   paths straight through to `target_sources()`; called from
+   `OloEngine/tests/CMakeLists.txt` with `base_dir` pointing at `OloEditor/src`,
+   CMake looked for the file under `OloEngine/tests/` instead — a **hard
+   configure error** ("must be in one of the file set's base directories"), not
+   a silent drop, but only because the file happened to not exist at the wrong
+   location; a same-named collision could have resolved to the wrong file
+   instead of erroring. Fixed by resolving `FILES` against `base_dir` explicitly
+   inside the function (`IS_ABSOLUTE` check, then join) rather than trusting
+   `target_sources()`'s own relative-path handling.
+
+**Measurement methodology note, also load-bearing:** the plan's literal
+instruction ("clean Debug build of `OloEngine-Tests`") under-scopes the
+experiment. `OloEngine-Tests` does not link against `OloEditor` — it recompiles
+`OloEditor`'s `.cpp` files directly as its own sources (see
+`OloEngine/tests/CMakeLists.txt`'s comment on this) — so `--target OloEngine-Tests`
+alone never builds `OloEditor.exe`, and therefore never compiles *`OloEditor`'s own
+copy* of `McpFieldRegistry.cpp`. At that narrow scope only two heavy compiles
+exist at all (`LuaScriptGlue.cpp` + one `McpFieldRegistry.cpp`), so a depth-2 pool
+and a depth-6 (~unthrottled) pool are behaviorally indistinguishable — both
+already allow every heavy TU that scope can produce to run unblocked. The
+comparison that actually exercises the pool needs `--target OloEditor --target
+OloEngine-Tests` together, which is where the three-heavy-TU-instance scenario
+the pool is meant to arbitrate genuinely exists.
+
+**Results, `OloEditor` + `OloEngine-Tests` together, `-j6`, clean, clang-cl,
+idle host, `OLO_BUILD_INSTRUMENTATION=ON`:**
+
+| pool depth | wall time | peak host memory |
+|---|---|---|
+| 2 (real default) — run 1 | 583.4 s | 38.42 GiB |
+| 2 (real default) — run 2 | 576.8 s | 38.79 GiB |
+| 6 (~unthrottled) — run 1 | 624.8 s | 40.48 GiB |
+
+Depth 2 is **~7 % faster** and uses **~4–5 % less peak memory** than depth 6,
+fairly consistently across the two repeated depth-2 runs (within 1.2 % of each
+other). **Honest caveat, stated plainly rather than oversold:** a direct overlap
+check of the three heavy TUs' `[timeStart, timeStart+dur]` windows in both traces
+found they almost never directly overlap **with each other** regardless of pool
+depth (max concurrent 1–2 either way) — so the improvement is *not* cleanly
+attributable to "the pool stopped two heavy TUs racing each other," the
+mechanism's most intuitive story. Total system-wide concurrent build-step count
+never exceeded 6 in either configuration (confirms a named Ninja pool is a
+subsidiary cap *within* the `-j` budget, not additional capacity on top of it —
+worth confirming empirically once, since it is easy to reason about backwards).
+The likely explanation is a second-order scheduling effect — constraining the
+heavy pool changes *when* those TUs start relative to the rest of the 1300+-TU
+graph, which shifts what else is running concurrently at the moment each heavy
+TU peaks. Sample size is small (n=2 vs n=1); do not read more precision into the
+percentages than that supports.
+
+**Decision:** ship the pool at its structurally-conservative default (depth 2),
+same framing #759 used for `OLO_LINK_JOBS` itself — cheap, verified-real
+insurance against the documented worst case, not a headline win. The `-j6`
+compile-width guidance in `CLAUDE.md` is **not** revisited by this data; the
+measured deltas here are too modest and the sample too small to move that
+needle in either direction.

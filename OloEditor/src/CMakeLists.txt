@@ -29,7 +29,8 @@
 		"MCP/McpToolsScene.cpp"
 		# The generated writable-field registry in its own TU (see the file's
 		# header comment: keeping it inline in McpGenericFieldWrite.h OOM'd
-		# clang-cl Release+ASan compiling McpToolsScene.cpp).
+		# clang-cl Release+ASan compiling McpToolsScene.cpp). Conditionally pulled
+		# back out below (issue #822) so it can join the heavy-compile file set.
 		"MCP/McpFieldRegistry.cpp"
 		"MCP/McpToolsScripting.cpp"
 		"MCP/McpToolsShader.cpp"
@@ -131,6 +132,12 @@ if(WIN32)
 	list(APPEND EDITOR_RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../Resources/OloEditor.rc")
 endif()
 
+# Heavy-TU compile pool (issue #822): see the matching block in OloEngine/src/CMakeLists.txt for
+# why the removal must stay conditional on the pool actually being available.
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	list(REMOVE_ITEM EDITOR_SOURCES "MCP/McpFieldRegistry.cpp")
+endif()
+
 add_executable(OloEditor
 		${EDITOR_SOURCES}
 		${GLSL_SOURCE_FILES}
@@ -140,6 +147,12 @@ add_executable(OloEditor
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
 			FILES ${EDITOR_SOURCES}
 )
+
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	olo_bind_heavy_compile_pool(OloEditor "${CMAKE_CURRENT_SOURCE_DIR}"
+		"MCP/McpFieldRegistry.cpp"
+	)
+endif()
 
 # Deploy the FFmpeg runtime libs next to the exe (no-op when OLO_VIDEO_FFMPEG=OFF).
 # Must live in the same directory scope as add_executable — see the note on

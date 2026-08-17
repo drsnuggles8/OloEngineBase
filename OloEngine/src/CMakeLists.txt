@@ -1670,9 +1670,25 @@ elseif(UNIX AND NOT APPLE)
 	)
 endif()
 
+# Heavy-TU compile pool (issue #822): pulled out of the plain SOURCES list and re-added below via
+# a FILE_SET so it can carry its own JOB_POOL_COMPILE. Only when the pool is actually available —
+# on a tree where it is not (MSVC generator, or CMake < 4.4), leaving this unconditional would
+# drop the file from SOURCES with nothing re-adding it, silently removing it from the build.
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	list(REMOVE_ITEM SOURCES
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+	)
+endif()
+
 add_library(OloEngine STATIC
 		${SOURCES}
 )
+
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	olo_bind_heavy_compile_pool(OloEngine "${CMAKE_CURRENT_SOURCE_DIR}"
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+	)
+endif()
 
 # Unity (jumbo) build exclusions. The OloEngine target's UNITY_BUILD property is set in the
 # parent OloEngine/CMakeLists.txt (gated on OLO_ENABLE_UNITY_BUILD); the per-source
