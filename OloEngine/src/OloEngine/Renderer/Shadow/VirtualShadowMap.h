@@ -58,17 +58,45 @@ namespace OloEngine
     //   [shadow pass, start of frame N]   consuming frame N-1's marks
     //     1. FreeWrappedPages   — slots whose world page scrolled out of a clip
     //                             frustum, plus a full flush on light/origin change
+    //                             (and, for local layers, on a light that moved)
     //     2. InvalidatePages    — dynamic casters re-dirty the pages they touch
     //     3. FindFreePages      — build the free list (unallocated, then LRU)
     //     4. AllocatePages      — back each request, mark it dirty
     //     5. ClearDirtyPages    — reset the physical texels of every dirty page
     //     6. BuildHPB           — 2x2 MAX reduction of the DIRTY flag, 7 mips
-    //     7. CullCasters + raster — indirect draws into the dirty pages only
+    //                             (then again per local layer, 6 mips)
+    //     7. CullCasters + raster — indirect draws into the dirty pages only,
+    //                             directional first, then the local layers
     //     8. EndFrame           — clear DIRTY / VISITED / REQUESTS for the marker
     //
     //   [mark pass, end of frame N]
     //     9. MarkRequiredPages  — project every depth texel into its clip level,
-    //                             request unallocated pages, VISIT allocated ones
+    //                             AND into every local light whose range reaches
+    //                             it; request unallocated pages, VISIT allocated
+    //                             ones
+    //
+    // ---- Local lights (issue #703) -------------------------------------------
+    //
+    // Point and spot lights read the SAME page table, SAME physical pool, SAME
+    // allocator and SAME eviction policy as the clip levels. They differ in three
+    // places and nowhere else:
+    //
+    //   * a LAYER instead of a clip level (six per point light, one per spot,
+    //     from one flat 256-deep pool), assigned per light identity so a light
+    //     keeps its cached pages while it stands still;
+    //   * a MIP instead of a level — the layer is the face, the mip is how finely
+    //     it is being resolved this frame, chosen per texel from the camera and
+    //     light distances. This is the mechanism behind "detail scales with
+    //     screen footprint": a distant light resolves to mip 5 and spends ONE
+    //     page on a whole cube face;
+    //   * a PERSPECTIVE projection instead of an ortho one, so the depth bias is
+    //     a metre-to-NDC conversion rather than a constant.
+    //
+    // What it replaces is ShadowAtlas' priority ranking: there is no score, no
+    // rank and no tile tier, because a layer costs nothing until a page under it
+    // is actually on screen. `AtlasCasterRecord::Allocated` — the flag that
+    // recorded a starved caster — is still filled, and it is what shows the
+    // starvation case is gone.
     //
     // Step 8 must precede step 9 and step 3 of frame N+1 must follow it: VISITED
     // is what keeps a page off the LRU eviction list, so clearing it after the
@@ -93,9 +121,34 @@ namespace OloEngine
         inline constexpr u32 kClipLevels = 16;
         inline constexpr u32 kTotalVirtualPages = kPagesPerClipLevel * kClipLevels;
 
+        // --- Local lights (issue #703) ---------------------------------------
+        //
+        // A point light owns six consecutive LAYERS (its cube faces, in the same
+        // +X,-X,+Y,-Y,+Z,-Z order the atlas path uses), a spot light owns one,
+        // and both come from ONE flat pool — so a scene spends its layers on the
+        // mix of lights it actually has rather than on a fixed point/spot split.
+        //
+        // Unlike a clip level, a layer is MIPPED: mip m halves the resolution,
+        // and the mip is chosen per texel from the light and camera distances
+        // (VirtualShadowMap::SelectLocalMip). That is what makes a light's
+        // detail follow its screen footprint instead of an authored rank — the
+        // issue's second acceptance criterion.
+        inline constexpr u32 kLocalVirtualResolution = 2048;
+        inline constexpr u32 kLocalPageTableResolution = kLocalVirtualResolution / kPageSize; // 32
+        inline constexpr u32 kLocalMipCount = 6;                                              // 32..1
+        inline constexpr u32 kLocalPagesPerLayer = 1365;                                      // sum of (32 >> m)² for m in [0,6)
+        inline constexpr u32 kMaxLocalLayers = 256;                                           // 6 x 32 point faces + 64 spots, as one pool
+        inline constexpr u32 kTotalLocalPages = kLocalPagesPerLayer * kMaxLocalLayers;
+        // The page table holds the clip levels first, then the layers, in one
+        // buffer sharing one physical pool and one allocator.
+        inline constexpr u32 kTotalPageTableEntries = kTotalVirtualPages + kTotalLocalPages;
+
         inline constexpr u32 kHPBMipCount = 7;
         inline constexpr u32 kHPBEntriesPerLevel = 5461; // sum of (64 >> m)² for m in [0,7)
         inline constexpr u32 kHPBTotalEntries = kHPBEntriesPerLevel * kClipLevels;
+        inline constexpr u32 kLocalHPBEntriesPerLayer = kLocalPagesPerLayer;
+        inline constexpr u32 kLocalHPBTotalEntries = kLocalHPBEntriesPerLayer * kMaxLocalLayers;
+        inline constexpr u32 kTotalHPBEntries = kHPBTotalEntries + kLocalHPBTotalEntries;
 
         // Page-state bits — the C++ half of the encoding documented in the GLSL.
         inline constexpr u32 kPageAllocatedBit = 1u << 31;
@@ -106,6 +159,12 @@ namespace OloEngine
 
         inline constexpr u32 kMetaAllocatedBit = 1u << 31;
         inline constexpr u32 kMetaVisitedBit = 1u << 30;
+        inline constexpr u32 kMetaLocalBit = 1u << 29;
+
+        // An allocation request's `.w`. Directional requests write zero, which is
+        // what the pre-#703 marker produced, so the fork is a set bit rather than
+        // a value the old encoding could reach.
+        inline constexpr u32 kRequestLocalBit = 1u << 31;
 
         // Allocation-request ring capacity. Mirrors VSM_MAX_REQUESTS.
         inline constexpr u32 kMaxRequests = 16384;
@@ -117,8 +176,19 @@ namespace OloEngine
         //   kMaxDrawInstances — (caster x clip level) pairs the cull may emit,
         //                       plus the CPU-scheduled skinned records at the tail
         inline constexpr u32 kMaxCasters = 8192;
+        // Halved in EFFECT by issue #703, not in value: the local cull writes a
+        // second command per batch, at index `batchCount + b`, so a frame with
+        // local lights uses two commands per batch out of this one budget.
+        // RenderCasters caps the batch count at half of it when local lights are
+        // active rather than growing the buffer, because a batch is a distinct
+        // submesh and 512 of them is already an unusual scene.
         inline constexpr u32 kMaxBatches = 1024;
         inline constexpr u32 kMaxDrawInstances = 131072;
+        // How many LAYERS one caster may be submitted to per frame. The local
+        // twin of kClipLevels for run sizing: a caster inside three point lights
+        // at once needs 18, and the cap costs it the surplus — counted in
+        // Statistics::CullOverflows, never silently.
+        inline constexpr u32 kLocalLayersPerCaster = 16;
 
         // One clip level's projection, as the GPU sees it (std140).
         //
@@ -173,6 +243,15 @@ namespace OloEngine
             glm::ivec4 Params2{ 0 }; // 2688
             // x = depth width, y = depth height, z = marking stride, w = unused
             glm::ivec4 Params3{ 0 }; // 2704
+            // Local lights (issue #703). LayerCount is the layer pool's
+            // high-water mark — what the cull and the HPB build dispatch over;
+            // LightCount is how many b_LocalLightHead entries are valid — what
+            // the MARKER walks. They differ because one point light spends six
+            // layers, and conflating them either over-dispatches the cull or
+            // makes the marker miss five faces out of six.
+            glm::ivec4 Params4{ 0 }; // 2720
+            // x = local detail bias, y = local depth bias (metres)
+            glm::vec4 Params5{ 0.0f }; // 2736
 
             static constexpr u32 GetSize()
             {
@@ -180,7 +259,29 @@ namespace OloEngine
             }
         };
         static_assert(sizeof(GlobalsUBO) % 16 == 0, "VSM::GlobalsUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(GlobalsUBO) == 2720, "VSM::GlobalsUBO std140 size drifted from GLSL expectation (2720 B)");
+        static_assert(sizeof(GlobalsUBO) == 2752, "VSM::GlobalsUBO std140 size drifted from GLSL expectation (2752 B)");
+
+        // One local-light LAYER, as the GPU sees it (std430). C++ twin of
+        // VSMLocalLight in include/VirtualShadowResources.glsl.
+        struct LocalLight
+        {
+            // Same two flavours, same split, as ClipProjection: the raw matrix
+            // for anything that projects and then interprets the result (the
+            // marker, the cull, the sampler), the adjusted one for gl_Position.
+            glm::mat4 ViewProjection{ 1.0f };       // 0
+            glm::mat4 ViewProjectionRaster{ 1.0f }; // 64
+            glm::vec4 PositionRange{ 0.0f };        // 128 — xyz render-relative position, w range
+            // x = near, y = far (= range), z = face index (0..5; 0 for a spot),
+            // w = kind: 0 unused, 1 spot, 2 point.
+            glm::vec4 Params{ 0.0f }; // 144
+        };
+        static_assert(sizeof(LocalLight) == 160, "VSM::LocalLight std430 size drifted (160 B)");
+
+        // Kind codes for LocalLight::Params.w. Spelled as constants because the
+        // marker's walk and the cull's skip both compare against them.
+        inline constexpr f32 kLocalKindUnused = 0.0f;
+        inline constexpr f32 kLocalKindSpot = 1.0f;
+        inline constexpr f32 kLocalKindPoint = 2.0f;
 
         // UBO_VIRTUAL_SHADOW_DRAW — per-dispatch / per-draw scratch, refilled
         // immediately before each use (the #691 Phase 7 pattern). Two disjoint
@@ -213,15 +314,24 @@ namespace OloEngine
             // z = the batch's instance-run capacity, w = 1 when bounds are absent
             // (an unbounded caster skips the frustum/HPB tests and always draws)
             glm::uvec4 Batch{ 0u }; // 96
+            // The same three numbers for the LOCAL cull, which runs over the same
+            // caster array but writes a disjoint command range and a disjoint
+            // instance run (issue #703). Carried per caster rather than derived
+            // in the kernel because the CPU is what sizes both runs, and a
+            // kernel-side derivation would be a second copy of that arithmetic.
+            // x = command index, y = run base, z = run capacity, w = unused.
+            glm::uvec4 LocalBatch{ 0u }; // 112
         };
-        static_assert(sizeof(CullInstance) == 112, "VSM::CullInstance std430 size drifted (112 B)");
+        static_assert(sizeof(CullInstance) == 128, "VSM::CullInstance std430 size drifted (128 B)");
 
-        // Cull output: one entry per surviving (caster, clip level) pair (std430).
+        // Cull output: one entry per surviving (caster, clip level) pair, or per
+        // surviving (caster, local layer) pair (std430). The two rasters read
+        // different fields of the same record and never share a run.
         struct DrawInstance
         {
             glm::mat4 Transform{ 1.0f };
             u32 ClipLevel = 0;
-            u32 _pad0 = 0;
+            u32 LocalLayer = 0;
             u32 _pad1 = 0;
             u32 _pad2 = 0;
         };
@@ -251,6 +361,12 @@ namespace OloEngine
             u32 PagesFreed = 0;     // pages released by wraparound / invalidation
             u32 DrawInstances = 0;  // (caster x clip level) pairs that survived the cull
             u32 CullOverflows = 0;  // pairs dropped because a batch run was full
+            // The local-light subsets of Resident / Drawn (issue #703). Split
+            // out rather than inferred, because the whole claim of this feature
+            // is that local shadows now cost pages in proportion to what is on
+            // screen — and a total that mixes them with the sun's cannot show it.
+            u32 LocalPagesResident = 0;
+            u32 LocalPagesDrawn = 0;
         };
     } // namespace VSM
 
@@ -301,6 +417,48 @@ namespace OloEngine
         f32 DepthBiasMeters = 0.05f;
         f32 NormalBias = 0.02f;
 
+        // Point / spot lights read the same page table instead of the budgeted
+        // atlas (issue #703). ON by default under Enabled, deliberately: a
+        // sub-toggle nobody sets is a feature with zero coverage, and the whole
+        // point of the layer pool is that it does not need a per-scene budget
+        // decision the way the atlas' 16-light / 32-entry cap did.
+        //
+        // Turning this off leaves the local-light atlas exactly as it was, so
+        // "VSM for the sun, atlas for the lamps" stays a supported combination.
+        bool LocalLights = true;
+
+        // Scales the mip a local light's texels resolve to. > 1 pushes toward
+        // coarser (cheaper, blurrier) mips, < 1 toward finer. The local twin of
+        // ClipSelectionBias, and like it, changing it invalidates every cached
+        // page because the producer and the consumer must agree on the choice.
+        //
+        // DEFAULT 2.0, i.e. ONE MIP COARSER than directional-matched, and the
+        // number is measured rather than taste. vsmLocalMipForDistances is
+        // calibrated to give a local face the same world texel size a clip level
+        // gives at the same camera distance — which is right for ONE light and
+        // profligate for twenty, because every light that reaches a pixel needs
+        // its own page for it while the sun needs one for all of them. At 1.0 a
+        // point light standing near the camera measured 1033 resident pages of a
+        // 4096-page pool; four such lights fill it.
+        //
+        // One mip coarser is 4x fewer pages (~260) and is exactly the trade the
+        // ATLAS already made explicitly — ShadowAtlas::TileSizeForRank gives a
+        // point light HALF its tier resolution per face, for the same reason
+        // ("six full-tier faces would exhaust the atlas area"), and notes a cube
+        // face covers a 90° slice so half resolution is comparable texel density
+        // to a spot cone anyway. This lands a near light at roughly the atlas'
+        // top-tier face resolution and lets distance take everything else down
+        // from there.
+        f32 LocalDetailBias = 2.0f;
+
+        // Depth bias for local lights, in METRES, converted per sample to the
+        // [0,1] depth the light's perspective projection produces at that
+        // distance (vsmLocalDepthBias). Metres rather than NDC because a
+        // perspective depth's metre-per-unit scale falls off as 1/d²: one NDC
+        // constant is either useless near the light or a peter-pan at its range,
+        // over a range that differs per light.
+        f32 LocalDepthBiasMeters = 0.02f;
+
         // 0 = off, 1 = clip level tint, 2 = page address, 3 = pages drawn this
         // frame. Consumed by the lit pass through GlobalsUBO::Params2.y.
         i32 DebugMode = 0;
@@ -336,7 +494,28 @@ namespace OloEngine
         // shader load degrades to CSM instead of rendering nothing.
         [[nodiscard]] bool IsActive() const
         {
-            return m_Settings.Enabled && m_Initialized;
+            return m_Settings.Enabled && m_Initialized && !m_Suppressed;
+        }
+
+        // The shadow system as a whole was switched off (ShadowSettings::Enabled).
+        //
+        // A separate flag rather than clearing Settings.Enabled, because that one
+        // means "the user chose VSM over CSM" and SetSettings RECREATES the whole
+        // resource set when it changes — so routing a per-frame global toggle
+        // through it would destroy and rebuild the physical pool every time
+        // somebody ticked the shadows checkbox.
+        //
+        // This gap was real and predates local lights: with shadows disabled,
+        // ShadowRenderPass early-outs but VirtualShadowMapMarkPass does NOT (it
+        // asks IsActive(), which knew nothing about ShadowSettings), so marking
+        // continued, BindForSampling kept publishing an ENABLED globals block, and
+        // the lit pass kept sampling a page table nothing was rasterizing into.
+        // Local lights are what made it visible — a test that disabled shadows to
+        // get a no-shadow control still got shadows, from a previous scene's
+        // layers.
+        void SetSuppressed(bool suppressed)
+        {
+            m_Suppressed = suppressed;
         }
 
         // --- Step 0: per-frame setup (CPU) -----------------------------------
@@ -348,7 +527,136 @@ namespace OloEngine
         // (issue #429): a change to it re-anchors light space and therefore
         // invalidates every cached page, which this detects.
         void BeginFrame(const glm::vec3& lightDirection, const glm::vec3& cameraPositionRelative,
-                        const glm::vec3& renderOrigin);
+                        const glm::vec3& renderOrigin, bool directionalEnabled = true);
+
+        // --- Local lights (issue #703) ----------------------------------------
+        //
+        // Called from the scene's shadow setup INSTEAD OF ShadowAtlas::Allocate
+        // when local VSM is active, and in the same place, because both need the
+        // same inputs and both patch the same per-light shadow index.
+        //
+        //   BeginLocalLights();
+        //   for each shadow-casting local light: base = RegisterLocalLight(...)
+        //   EndLocalLights();
+        //
+        // There is no scoring and no ranking. A light either gets its layers or
+        // the 256-layer pool is full — and a layer costs no memory of its own,
+        // only the pages its on-screen footprint actually asks for. That is the
+        // starvation case going away, not being re-prioritised.
+        struct LocalLightDesc
+        {
+            // Stable identity, so a light keeps its LAYERS across frames and
+            // therefore keeps its cached pages. Zero means "no identity", which
+            // forces a fresh layer every frame — correct, but it redraws
+            // everything, so callers should pass the light entity's UUID.
+            u64 LightId = 0;
+            glm::vec3 PositionRelative{ 0.0f };
+            glm::vec3 Direction{ 0.0f, 0.0f, -1.0f }; // spot only
+            f32 Range = 0.0f;
+            f32 OuterCutoffDegrees = 0.0f; // spot only
+            bool IsPoint = true;           // point / sphere-area (6 layers) vs spot (1)
+        };
+
+        static constexpr u32 kNoLocalSlot = ~0u;
+
+        // The layer pool, as a self-contained unit with no GPU dependency.
+        //
+        // Extracted rather than inlined into VirtualShadowMap for one reason: its
+        // behaviour is what decides whether the local cache works at all, and
+        // every way it can be wrong is invisible on screen. A pool that reassigns
+        // layers every frame is CORRECT and redraws everything; one that evicts a
+        // slot without flushing its pages leaves the next owner reading a
+        // fully-cached layer that is never redrawn; one that resizes a run in
+        // place runs over its neighbour. None of those raise an error, and none
+        // of them can be reached from a headless test through VirtualShadowMap
+        // itself, whose every entry point requires a live GL context.
+        //
+        // Driven by VirtualShadowMapLocalTest.
+        struct LocalLayerPool
+        {
+            struct Slot
+            {
+                u64 LightId = 0;
+                u32 Base = 0;  // first layer
+                u32 Count = 0; // 6 for a point light, 1 for a spot; 0 = free entry
+                u64 LastUsedFrame = 0;
+                // The pose the layers' projections were built from. A change to
+                // any of it re-anchors the light's frusta, so every cached page
+                // under this slot is stale — the local analogue of the
+                // directional path's light-direction / render-origin check.
+                glm::vec3 Position{ 0.0f };
+                glm::vec3 Direction{ 0.0f, 0.0f, -1.0f };
+                f32 Range = 0.0f;
+                f32 Cutoff = 0.0f;
+                bool IsPoint = true;
+                bool InUse = false;
+            };
+
+            // Slots are never ERASED — Owner and ByLight both store indices into
+            // this vector, and erasing would silently repoint every index past
+            // the hole. Count == 0 is the free marker.
+            std::vector<Slot> Slots;
+            std::unordered_map<u64, u32> ByLight;               // light id -> index into Slots
+            std::array<u16, VSM::kMaxLocalLayers> Owner{};      // layer -> slot index + 1 (0 = free)
+            std::array<u32, VSM::kMaxLocalLayers> Invalidate{}; // 1 = flush this layer's pages this frame
+            u64 FrameCounter = 0;
+
+            void BeginFrame();
+            // Returns a slot index, or kNoLocalSlot when the pool is full of
+            // slots that are all in use this frame. `outMoved` reports whether
+            // the projections must be rebuilt — true for a fresh slot and for a
+            // pose change, false for a light that stood still (which is what
+            // keeps its pages cached).
+            [[nodiscard]] u32 Acquire(const LocalLightDesc& desc, bool& outMoved);
+            void Release(u32 slotIndex);
+            void InvalidateSlot(u32 slotIndex);
+            // Highest layer + 1 over every ALLOCATED slot, in use or not: an idle
+            // slot still owns allocated pages until the LRU takes them, and a
+            // shorter bound would leave them out of the HPB — which makes them
+            // look permanently clean and never redrawn if the light comes back.
+            [[nodiscard]] u32 LayerHighWater() const;
+            void Clear();
+
+          private:
+            // Takes a contiguous run of `count` layers for a light with no slot
+            // yet, evicting one least-recently-used idle slot if the pool is
+            // full. Private because Acquire is the only correct entry point:
+            // calling this for a light that already HAS a slot would strand its
+            // old run.
+            [[nodiscard]] u32 AcquireFreshSlot(u64 lightId, u32 count);
+        };
+
+        void BeginLocalLights();
+        // Layer base, or -1 when the pool is exhausted (counted, and warned once).
+        i32 RegisterLocalLight(const LocalLightDesc& desc);
+        // Builds the per-layer projections and uploads the layer buffer. MUST be
+        // called every frame local lights are active, including the frame the
+        // count drops to zero — it is what retires the layers of lights that
+        // stopped casting, and a skipped call leaves their pages resident and
+        // their stale shadows on screen.
+        void EndLocalLights();
+
+        [[nodiscard]] bool AreLocalLightsActive() const
+        {
+            return IsActive() && m_Settings.LocalLights;
+        }
+        // How many LIGHTS got layers this frame (a point light counts once).
+        [[nodiscard]] u32 GetLocalLightCount() const
+        {
+            return static_cast<u32>(m_LocalHeads.size());
+        }
+        // Layers in use — 6 per point light, 1 per spot. The number the cull and
+        // the HPB build dispatch over.
+        [[nodiscard]] u32 GetLocalLayerCount() const
+        {
+            return m_LocalLayerHighWater;
+        }
+        // Lights this frame that asked for layers and got none. Acceptance
+        // criterion #1 is that this stays zero in a scene that starved the atlas.
+        [[nodiscard]] u32 GetLocalLightsStarved() const
+        {
+            return m_LocalLightsStarved;
+        }
 
         // --- Steps 1-6: page management (GPU) ---------------------------------
         void UpdatePages();
@@ -471,6 +779,34 @@ namespace OloEngine
         // the range the page-entry encoding can address.
         [[nodiscard]] static u32 SanitizeResolution(u32 requested);
 
+        // The local-light mip heuristic. Same contract as SelectClipLevel: THE
+        // producer (VSM_MarkRequiredPages) and THE consumer (the lit pass) must
+        // agree, so both go through the one GLSL twin
+        // (vsmLocalMipForDistances in include/VirtualShadowCommon.glsl) and this
+        // is its C++ mirror. A one-mip disagreement makes the sample land on an
+        // unbacked page and the surface read fully LIT.
+        [[nodiscard]] static i32 SelectLocalMip(f32 distanceToCamera, f32 distanceToLight, f32 bias);
+
+        // Dominant-axis cube face in the layer order a point light's six layers
+        // are built in: +X,-X,+Y,-Y,+Z,-Z. Mirrors vsmCubeFace / atlasCubeFace.
+        [[nodiscard]] static u32 SelectCubeFace(const glm::vec3& direction);
+
+        // Flat page-table index of a local page. The C++ twin of
+        // vsmLocalPageIndex — the tests drive this, and a drift between the two
+        // silently addresses another layer's pages.
+        [[nodiscard]] static u32 LocalPageIndex(u32 layer, u32 mip, glm::uvec2 page);
+        // Offset of a mip inside one layer's 1365-entry pyramid.
+        [[nodiscard]] static u32 LocalMipOffset(u32 mip);
+
+        // The six face view-projections of a point light, and the single one of a
+        // spot, both in RENDER-RELATIVE space. Shared with the atlas path's
+        // builders on purpose (light-path-photometric-parity.md): the two shadow
+        // techniques must place a light's frustum identically, or switching
+        // between them moves the shadow.
+        static void BuildLocalLightProjections(const LocalLightDesc& desc,
+                                               std::array<glm::mat4, 6>& outViewProjections,
+                                               f32& outNear, f32& outFar);
+
       private:
         // One (VAO, index range, cull mode) group of static casters — the same key
         // ShadowRenderPass's CSM path batches on, so a scene batches identically
@@ -483,6 +819,12 @@ namespace OloEngine
             bool TwoSided = false;
             u32 CasterCount = 0;
             u32 RunBase = 0; // start of this batch's compacted instance run
+            // The same, for the LOCAL cull's disjoint run (issue #703). Sized
+            // casterCount * kLocalLayersPerCaster, so unlike the directional run
+            // it is a CAP rather than an exact fit — a caster can genuinely reach
+            // more layers than that, and the surplus is counted as an overflow.
+            u32 LocalRunBase = 0;
+            u32 LocalRunCapacity = 0;
         };
 
         // The batch identity, as a hashable key. RenderCasters used to find a
@@ -533,6 +875,17 @@ namespace OloEngine
         // consuming VSM shader already bound — see the definition.
         void BindPhysicalPoolImage() const;
 
+        // Step 7b — the local-light half of the cull + raster. Split out rather
+        // than folded into RenderCasters so the two rasters' GL state changes stay
+        // readable: they share a framebuffer and a pool image but not a viewport,
+        // not a shader and not a projection source.
+        u32 RenderLocalCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+                               const glm::vec3& renderOrigin, u32 instanceBase,
+                               const BoneUploader& uploadBones);
+        // Uploads the layer header + projections. Also what resets the GPU-written
+        // per-layer raster mip, so it must run before UpdatePages' HPB build.
+        void UploadLocalLights();
+
         // Dispatch helper: binds `shader`, dispatches ceil(count / groupSize)
         // groups on X, and issues the SSBO/image barrier the next stage needs.
         // (Deliberately does NOT touch the pool image — the callers that need it
@@ -541,6 +894,7 @@ namespace OloEngine
 
         VirtualShadowMapSettings m_Settings{};
         bool m_Initialized = false;
+        bool m_Suppressed = false;
 
         // Rounded, validated copy of Settings::PhysicalResolution.
         u32 m_PhysicalResolution = 0;
@@ -592,9 +946,17 @@ namespace OloEngine
         Ref<ComputeShader> m_ClearPagesShader;
         Ref<ComputeShader> m_BuildHPBShader;
         Ref<ComputeShader> m_CullShader;
+        Ref<ComputeShader> m_CullLocalShader;
         Ref<ComputeShader> m_EndFrameShader;
         Ref<Shader> m_DepthShader;
         Ref<Shader> m_DepthSkinnedShader;
+        Ref<Shader> m_DepthLocalShader;
+        Ref<Shader> m_DepthLocalSkinnedShader;
+
+        // The local-light layer buffer (SSBO 78): a CPU-written header of
+        // per-layer raster mips / light heads / invalidate flags, followed by the
+        // per-layer projections.
+        Ref<StorageBuffer> m_LocalLights;
 
         VSM::GlobalsUBO m_Globals{};
         // Previous frame's per-level page offsets, in ABSOLUTE page units (not
@@ -631,6 +993,22 @@ namespace OloEngine
         std::vector<VSM::CullInstance> m_CullInput;
         std::vector<VSM::DrawCommand> m_DrawCommandStaging;
         std::vector<VSM::DrawInstance> m_SkinnedInstanceStaging;
+
+        // --- Local-light layer state (issue #703) -----------------------------
+        LocalLayerPool m_LocalPool;
+        std::array<VSM::LocalLight, VSM::kMaxLocalLayers> m_LocalLayers{};
+        // (layerBase << 1) | isPoint, compacted — what the marker walks.
+        std::vector<u32> m_LocalHeads;
+        u32 m_LocalLayerHighWater = 0;
+        u32 m_LocalLightsStarved = 0;
+        bool m_LoggedLocalPoolExhausted = false;
+        bool m_LoggedLocalDrawBudgetExhausted = false;
+        // Base of the local raster's region of m_DrawInstances, and how much of
+        // it is left. Computed in RenderCasters (the directional runs come
+        // first) and consumed by RenderLocalCasters.
+        u32 m_LocalInstanceBase = 0;
+        u32 m_LocalInstanceCapacity = 0;
+        std::vector<VSM::DrawInstance> m_LocalSkinnedStaging;
 
         u32 m_StatsWriteIndex = 0;
         VSM::Statistics m_Statistics{};

@@ -66,6 +66,10 @@ struct VSMCullInstance
     vec4 BoundsMin;
     vec4 BoundsMax;
     uvec4 Batch; // x = batch index, y = run base, z = run capacity, w = unbounded flag
+    // The same three numbers for the LOCAL cull (issue #703), which runs over the
+    // same caster array into a disjoint command range and a disjoint instance
+    // run. x = command index, y = run base, z = run capacity, w = unused.
+    uvec4 LocalBatch;
 };
 layout(std430, binding = 74) readonly buffer VSMCullInstances { VSMCullInstance b_CullInstances[]; };
 
@@ -98,6 +102,12 @@ layout(std430, binding = 77) coherent buffer VSMStatistics
     uint b_PagesFreed;
     uint b_StatDrawInstances; // NOT b_DrawInstances — that name is the cull's output buffer
     uint b_CullOverflows;
+    // The local-light subsets of Resident / Drawn (issue #703). Counted
+    // separately because the claim being made is that local shadows now cost
+    // pages in proportion to what is on screen, and a total that mixes them with
+    // the directional pages cannot show it.
+    uint b_LocalPagesResident;
+    uint b_LocalPagesDrawn;
 };
 
 int vsmPhysicalPageCount()

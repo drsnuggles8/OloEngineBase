@@ -259,6 +259,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualShadowMapMarkPassTest.cpp
 		Rendering/VirtualShadowMapVulkanShaderTest.cpp
 		Rendering/VirtualShadowMapTest.cpp
+		Rendering/VirtualShadowMapLocalTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
 		Rendering/DeccerCubesLoadingTest.cpp
@@ -324,6 +325,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/OverdrawVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualShadowMapVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VirtualShadowMapLocalVisualEvidenceTest.cpp
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp

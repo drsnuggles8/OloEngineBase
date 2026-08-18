@@ -1966,6 +1966,28 @@ namespace OloEngine
         static constexpr u32 SSBO_VSM_DRAW_COMMANDS = 76;  // DrawElementsIndirectCommand per caster batch
         static constexpr u32 SSBO_VSM_STATS = 77;          // page counters, read back one frame late
 
+        // The ONE binding issue #703 (local-light virtual shadow pages) had to
+        // add, and it is called out here because the space is nearly gone: the
+        // UBO namespace has ONE slot left under the GL 4.6 minimum of 84
+        // (UBO_BINDING_LIMIT is 83), and two separate PRs already collided in
+        // this SSBO range mid-flight, once SILENTLY (#818's overlap compiled
+        // side by side and only the runtime would have noticed).
+        //
+        // Everything else #703 needed rode an existing buffer — the local pages
+        // are appended to SSBO_VSM_PAGE_TABLE, the local pyramids to
+        // SSBO_VSM_HPB, the local requests share SSBO_VSM_REQUESTS with a bit in
+        // the record, and the local draws share SSBO_VSM_DRAW_INSTANCES /
+        // _COMMANDS with disjoint ranges. This one could not: the per-layer
+        // projections are ~40 KB, past the GL 4.6 minimum UBO size (16 KB), so
+        // they cannot live in a uniform block, and no existing SSBO holds
+        // anything with a compatible lifetime.
+        //
+        // Layout note for the next reader: the block has a FIXED header (three
+        // uint[256] arrays) before its unsized tail, because std430 allows only
+        // the last member to be unsized. GLSL twin: the VSMLocalLights block in
+        // include/VirtualShadowResources.glsl.
+        static constexpr u32 SSBO_VSM_LOCAL_LIGHTS = 78; // per-layer projections + per-layer frame state
+
         // GPU prefix-sum / parallel scan (issue #713). Bound by
         // `GPUPrefixSum::ExclusiveScanInPlace` immediately before each of its
         // dispatches and never left bound — the scan is a leaf utility with no

@@ -168,9 +168,17 @@ vec3 ComputeDeferredLit(
         else if (lightType == SPOT_LIGHT)
         {
             // Spot light shadows come from the light's shadow-atlas entry
-            // (issue #435); direction.w carries the entry index (-1 = none).
+            // (issue #435), or from its VSM layer (issue #703); direction.w
+            // carries whichever index is live (-1 = none), and vsmLocalShadow is
+            // what decides which — see its comment for why the caller must not
+            // fall through to the atlas arrays on the VSM branch.
             int atlasEntry = int(u_Lights[i].direction.w);
-            if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(worldPos, N, atlasEntry, false, localShadow))
+            {
+                lightContrib *= localShadow;
+            }
+            else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
                 float shadow = calculateAtlasEntryShadow(
                     worldPos,
@@ -191,7 +199,12 @@ vec3 ComputeDeferredLit(
             // point), so both types share the point path: direction.w carries
             // the BASE atlas entry of the 6 cube-face tiles (issue #435).
             int baseEntry = int(u_Lights[i].direction.w);
-            if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(worldPos, N, baseEntry, true, localShadow))
+            {
+                lightContrib *= localShadow;
+            }
+            else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
                 vec3 lightPos = u_Lights[i].position.xyz;
                 int entry = baseEntry + atlasCubeFace(worldPos - lightPos);

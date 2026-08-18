@@ -195,13 +195,20 @@ namespace OloEngine::Tests
                            .Message = module.GetErrorMessage() };
         }
 
-        constexpr std::array<std::string_view, 11> kVsmShaders{ {
+        constexpr std::array<std::string_view, 14> kVsmShaders{ {
             "VSM_Depth.glsl",
             "VSM_DepthSkinned.glsl",
+            // The LOCAL-light rasters (issue #703). Their OLO_VULKAN branches are
+            // as unparsed as the directional ones were before this file existed —
+            // and they carry a SECOND y-flip composition, against the layer's
+            // raster mip rather than the global virtual resolution.
+            "VSM_DepthLocal.glsl",
+            "VSM_DepthLocalSkinned.glsl",
             "compute/VSM_AllocatePages.comp",
             "compute/VSM_BuildHPB.comp",
             "compute/VSM_ClearDirtyPages.comp",
             "compute/VSM_CullCasters.comp",
+            "compute/VSM_CullLocalCasters.comp",
             "compute/VSM_EndFrame.comp",
             "compute/VSM_FindFreePages.comp",
             "compute/VSM_FreeWrappedPages.comp",
@@ -293,7 +300,7 @@ void main() {}
         // each. A >= floor would let a broken #type splitter silently drop a
         // fragment stage — which is precisely the stage carrying the y-flip this
         // file exists to keep parsed.
-        constexpr u32 kExpectedStages = 9u + 2u * 2u;
+        constexpr u32 kExpectedStages = 10u + 4u * 2u;
         EXPECT_EQ(stagesCompiled, kExpectedStages)
             << "compiled " << stagesCompiled << " stages from " << kVsmShaders.size()
             << " shaders (expected " << kExpectedStages
@@ -317,5 +324,26 @@ void main() {}
         EXPECT_NE(src.find("(VSM_VIRTUAL_RESOLUTION - 1) - virtualTexel.y"), std::string::npos)
             << "the y-flip compensation changed shape — if that is deliberate, update this test and say "
                "in the commit what the new composition is";
+    }
+
+    // The LOCAL raster stage carries the SAME fork against a DIFFERENT constant
+    // (issue #703), and the difference is the whole point: its viewport footprint
+    // is the layer's raster-mip resolution, not the global virtual one, so
+    // flipping about VSM_LOCAL_VIRTUAL_RESOLUTION would be correct only at mip 0
+    // and would mirror every coarser layer about a line outside its own footprint
+    // — writing nothing at all, on Vulkan only.
+    TEST(VirtualShadowMapVulkanShaders, TheLocalRasterStageFlipsAboutItsOwnMipResolution)
+    {
+        const std::string src = ReadWholeFile(ShaderRoot() / "include" / "VirtualShadowLocalRasterStage.glsl");
+        ASSERT_FALSE(src.empty());
+
+        EXPECT_NE(src.find("#ifdef OLO_VULKAN"), std::string::npos)
+            << "VirtualShadowLocalRasterStage.glsl no longer has an OLO_VULKAN branch";
+        EXPECT_NE(src.find("(rasterRes - 1) - texel.y"), std::string::npos)
+            << "the local y-flip compensation changed shape — if that is deliberate, update this test and "
+               "say in the commit what the new composition is";
+        EXPECT_EQ(src.find("VSM_LOCAL_VIRTUAL_RESOLUTION - 1) - texel.y"), std::string::npos)
+            << "the local flip is against the global local resolution, not the instance's raster mip — "
+               "correct at mip 0 and silently writing nothing at every coarser mip, on Vulkan only";
     }
 } // namespace OloEngine::Tests

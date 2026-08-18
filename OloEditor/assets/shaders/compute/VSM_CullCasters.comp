@@ -157,7 +157,7 @@ void main()
     VSMDrawInstance record;
     record.Transform = caster.Transform;
     record.ClipLevel = uint(clipLevel);
-    record._pad0 = 0u;
+    record.LocalLayer = 0u; // unused on the directional path (issue #703)
     record._pad1 = 0u;
     record._pad2 = 0u;
     b_DrawInstances[runBase + slot] = record;

@@ -52,7 +52,13 @@ void main()
         b_FreeConsumed = 0u;
     }
 
-    if (idx >= uint(VSM_TOTAL_VIRTUAL_PAGES))
+    // The WHOLE table, directional and local alike (issue #703). The per-frame
+    // bits mean the same thing in both domains and the residue — ALLOCATED plus
+    // the physical binding — is the cache in both, so there is nothing here to
+    // fork on. Leaving the local range out would leave every local page
+    // permanently DIRTY, which redraws the whole local pool every frame and
+    // looks like the raster being slow rather than the cache being off.
+    if (idx >= uint(VSM_TOTAL_PAGE_TABLE_ENTRIES))
         return;
 
     uint entry = b_PageTable[idx];

@@ -1,0 +1,205 @@
+#version 460 core
+
+// =============================================================================
+// VSM_CullLocalCasters.comp — step 7b of the VSM frame (issue #703)
+//
+// The local-light twin of VSM_CullCasters: one invocation per (caster, LAYER)
+// pair, survivors compacted into the caster's batch run so one indirect draw per
+// batch covers every layer.
+//
+// It is a separate kernel rather than a branch inside the directional cull for
+// two reasons that are not stylistic:
+//
+//   1. THE DISPATCH SHAPE DIFFERS. The directional one is (casters x 16 clip
+//      levels), fixed; this one is (casters x active layers), which is a runtime
+//      number between 0 and 256.
+//   2. THE FRUSTUM TEST DIFFERS, and this is the one that bites. A clip level is
+//      ORTHOGRAPHIC, so projecting an AABB's eight corners and comparing the NDC
+//      extent against the unit cube is exact. A layer is a PERSPECTIVE, and a
+//      corner behind the near plane has w <= 0 — dividing by it mirrors the point
+//      through the origin and produces a confidently wrong NDC. The classic
+//      symptom is a caster that vanishes only when it gets close to the light,
+//      which reads as a range or an attenuation bug.
+//
+//      So the test here is done in CLIP SPACE against the six frustum planes,
+//      with no divide: a caster is rejected only when all eight corners are
+//      outside the SAME plane. That is conservative (it keeps some casters a
+//      tighter test would drop) and it never divides by a negative w.
+//
+// Overflow IS a real path here, unlike in the directional cull: a batch's run is
+// sized casterCount * VSM_LOCAL_LAYERS_PER_CASTER, which is a cap rather than an
+// exact fit, and a caster standing inside three point lights genuinely wants 18.
+// The surplus is counted in b_CullOverflows — dropped, but never silently.
+// =============================================================================
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/VirtualShadowBuffers.glsl"
+
+// x = caster count, z = active layer count. Same pass block as every other VSM
+// dispatch, refilled immediately before this one.
+#define VSM_CULL_INSTANCE_COUNT (u_VSMPassParams.x)
+#define VSM_CULL_LAYER_COUNT    (u_VSMPassParams.z)
+
+// True when the layer's flattened dirty pyramid says something under this
+// caster's page footprint is being redrawn. The footprint comes in as mip-0
+// pages, which is the space the local HPB was flattened into — see
+// VSM_BuildHPB.comp's local half.
+bool vsmLocalFootprintHasDirtyPage(int layer, ivec2 pageMin, ivec2 pageMax)
+{
+    pageMin = clamp(pageMin, ivec2(0), ivec2(VSM_LOCAL_PAGE_TABLE_MASK));
+    pageMax = clamp(pageMax, ivec2(0), ivec2(VSM_LOCAL_PAGE_TABLE_MASK));
+
+    // Coarsest mip at which the footprint spans at most 2x2 texels — the same
+    // walk the directional cull does, minus the wrap translation, because a local
+    // layer is not toroidally addressed.
+    int mip = 0;
+    while (mip < VSM_LOCAL_HPB_MIP_COUNT - 1 &&
+           (((pageMax.x >> mip) - (pageMin.x >> mip) > 1) ||
+            ((pageMax.y >> mip) - (pageMin.y >> mip) > 1)))
+    {
+        ++mip;
+    }
+
+    ivec2 lo = pageMin >> mip;
+    ivec2 hi = pageMax >> mip;
+    for (int y = lo.y; y <= hi.y; ++y)
+    {
+        for (int x = lo.x; x <= hi.x; ++x)
+        {
+            if (b_HPB[vsmLocalHPBIndex(layer, mip, ivec2(x, y))] != 0u)
+                return true;
+        }
+    }
+    return false;
+}
+
+void main()
+{
+    uint layerCount = min(VSM_CULL_LAYER_COUNT, uint(VSM_MAX_LOCAL_LAYERS));
+    if (layerCount == 0u)
+        return;
+
+    uint pair = gl_GlobalInvocationID.x;
+    uint casterCount = VSM_CULL_INSTANCE_COUNT;
+    if (pair >= casterCount * layerCount)
+        return;
+
+    uint casterIdx = pair / layerCount;
+    int layer = int(pair % layerCount);
+
+    VSMLocalLight light = b_LocalLights[layer];
+    if (light.Params.w < 0.5)
+        return; // layer not serving a light this frame
+
+    VSMCullInstance caster = b_CullInstances[casterIdx];
+    bool unbounded = caster.Batch.w != 0u;
+
+    ivec2 pageMin = ivec2(0);
+    ivec2 pageMax = ivec2(VSM_LOCAL_PAGE_TABLE_MASK);
+
+    if (!unbounded)
+    {
+        vec3 boundsMin = caster.BoundsMin.xyz;
+        vec3 boundsMax = caster.BoundsMax.xyz;
+
+        // Cheap reject first: closest point of the AABB to the light centre,
+        // against the light's range. It kills the overwhelming majority of pairs
+        // before any matrix work, which is what makes a 256-layer dispatch
+        // affordable at all.
+        vec3 lightPos = light.PositionRange.xyz;
+        vec3 closest = clamp(lightPos, boundsMin, boundsMax);
+        vec3 delta = closest - lightPos;
+        if (dot(delta, delta) > light.PositionRange.w * light.PositionRange.w)
+            return;
+
+        mat4 viewProj = light.ViewProjection;
+
+        // Clip-space plane test — see the header. `outside` accumulates, per
+        // plane, whether EVERY corner failed it.
+        bvec4 outsideXY = bvec4(true);
+        bool outsideNear = true;
+        bool outsideFar = true;
+        bool anyInFront = false;
+        vec2 uvMin = vec2(1.0);
+        vec2 uvMax = vec2(0.0);
+
+        for (int corner = 0; corner < 8; ++corner)
+        {
+            vec3 p = vec3((corner & 1) != 0 ? boundsMax.x : boundsMin.x,
+                          (corner & 2) != 0 ? boundsMax.y : boundsMin.y,
+                          (corner & 4) != 0 ? boundsMax.z : boundsMin.z);
+            vec4 c = viewProj * vec4(p, 1.0);
+
+            outsideXY = bvec4(outsideXY.x && (c.x < -c.w), outsideXY.y && (c.x > c.w),
+                              outsideXY.z && (c.y < -c.w), outsideXY.w && (c.y > c.w));
+            outsideNear = outsideNear && (c.z < -c.w);
+            outsideFar = outsideFar && (c.z > c.w);
+
+            if (c.w > 0.0)
+            {
+                anyInFront = true;
+                vec2 uv = (c.xy / c.w) * 0.5 + 0.5;
+                uvMin = min(uvMin, uv);
+                uvMax = max(uvMax, uv);
+            }
+        }
+
+        if (any(outsideXY) || outsideNear || outsideFar)
+            return;
+
+        // The footprint needs the divide, so it is only meaningful for corners in
+        // front of the light. A caster straddling the near plane keeps the FULL
+        // page grid — conservative, and rare enough (the caster has to contain the
+        // light's near plane) that a tighter answer is not worth the risk of
+        // getting the sign wrong.
+        if (anyInFront)
+        {
+            uvMin = clamp(uvMin, vec2(0.0), vec2(0.99999));
+            uvMax = clamp(uvMax, vec2(0.0), vec2(0.99999));
+            pageMin = ivec2(floor(uvMin * float(VSM_LOCAL_PAGE_TABLE_RESOLUTION)));
+            pageMax = ivec2(floor(uvMax * float(VSM_LOCAL_PAGE_TABLE_RESOLUTION)));
+        }
+
+        if (!vsmLocalFootprintHasDirtyPage(layer, pageMin, pageMax))
+            return;
+    }
+    else if (!vsmLocalFootprintHasDirtyPage(layer, pageMin, pageMax))
+    {
+        return;
+    }
+
+    uint command = caster.LocalBatch.x;
+    uint runBase = caster.LocalBatch.y;
+    uint runCapacity = caster.LocalBatch.z;
+
+    if (runCapacity == 0u)
+        return; // the CPU skipped the local raster this frame
+
+    // Same tripwire as the directional cull: CPU-supplied indices validated
+    // before they reach a buffer, with the capacity check spelled as a
+    // subtraction so runBase + runCapacity cannot wrap in uint.
+    if (command >= uint(VSM_MAX_BATCHES) || runBase >= uint(VSM_MAX_DRAW_INSTANCES) ||
+        runCapacity > uint(VSM_MAX_DRAW_INSTANCES) - runBase)
+    {
+        atomicAdd(b_CullOverflows, 1u);
+        return;
+    }
+
+    uint slot = atomicAdd(b_DrawCommands[command].InstanceCount, 1u);
+    if (slot >= runCapacity)
+    {
+        atomicAdd(b_CullOverflows, 1u);
+        atomicMin(b_DrawCommands[command].InstanceCount, runCapacity);
+        return;
+    }
+
+    VSMDrawInstance record;
+    record.Transform = caster.Transform;
+    record.ClipLevel = 0u;
+    record.LocalLayer = uint(layer);
+    record._pad1 = 0u;
+    record._pad2 = 0u;
+    b_DrawInstances[runBase + slot] = record;
+    atomicAdd(b_StatDrawInstances, 1u);
+}
