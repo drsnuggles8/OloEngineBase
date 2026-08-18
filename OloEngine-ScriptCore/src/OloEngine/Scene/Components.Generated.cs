@@ -949,6 +949,12 @@ namespace OloEngine
 			get => InternalCalls.CloudscapeComponent_GetCastCloudShadows(Entity.ID);
 			set => InternalCalls.CloudscapeComponent_SetCastCloudShadows(Entity.ID, value);
 		}
+
+		public bool VolumetricSelfShadow
+		{
+			get => InternalCalls.CloudscapeComponent_GetVolumetricSelfShadow(Entity.ID);
+			set => InternalCalls.CloudscapeComponent_SetVolumetricSelfShadow(Entity.ID, value);
+		}
 	}
 
 	public partial class DestructibleComponent : Component

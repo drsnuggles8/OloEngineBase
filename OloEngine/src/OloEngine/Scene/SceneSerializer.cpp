@@ -444,6 +444,9 @@ namespace OloEngine
         out << YAML::Key << "NoiseIntensity" << YAML::Value << fog.NoiseIntensity;
         out << YAML::Key << "EnableLightShafts" << YAML::Value << fog.EnableLightShafts;
         out << YAML::Key << "LightShaftIntensity" << YAML::Value << fog.LightShaftIntensity;
+        out << YAML::Key << "EnableVolumetricSelfShadow" << YAML::Value << fog.EnableVolumetricSelfShadow;
+        out << YAML::Key << "VolumetricSelfShadowStrength" << YAML::Value << fog.VolumetricSelfShadowStrength;
+        out << YAML::Key << "VolumetricSelfShadowExtent" << YAML::Value << fog.VolumetricSelfShadowExtent;
         out << YAML::EndMap;
     }
 
@@ -480,6 +483,9 @@ namespace OloEngine
             TrySet(fog.NoiseIntensity, fogNode["NoiseIntensity"]);
             TrySet(fog.EnableLightShafts, fogNode["EnableLightShafts"]);
             TrySet(fog.LightShaftIntensity, fogNode["LightShaftIntensity"]);
+            TrySet(fog.EnableVolumetricSelfShadow, fogNode["EnableVolumetricSelfShadow"]);
+            TrySet(fog.VolumetricSelfShadowStrength, fogNode["VolumetricSelfShadowStrength"]);
+            TrySet(fog.VolumetricSelfShadowExtent, fogNode["VolumetricSelfShadowExtent"]);
 
             // Validate and sanitize deserialized fog parameters
             SanitizeFloat(fog.Density, 0.0f, 10.0f, 0.02f);
@@ -501,6 +507,8 @@ namespace OloEngine
             SanitizeFloat(fog.NoiseSpeed, 0.0f, 100.0f, 0.1f);
             SanitizeFloat(fog.NoiseIntensity, 0.0f, 10.0f, 0.3f);
             SanitizeFloat(fog.LightShaftIntensity, 0.0f, 100.0f, 1.0f);
+            SanitizeFloat(fog.VolumetricSelfShadowStrength, 0.0f, 1.0f, 1.0f);
+            SanitizeFloat(fog.VolumetricSelfShadowExtent, 4.0f, 20000.0f, 300.0f);
             fog.VolumetricSamples = std::clamp(fog.VolumetricSamples, 4, 128);
             SanitizeVec3(fog.Color, glm::vec3(0.5f, 0.6f, 0.7f));
             SanitizeVec3(fog.RayleighColor, glm::vec3(0.27f, 0.51f, 0.83f));

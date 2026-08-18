@@ -1075,17 +1075,53 @@ namespace OloEngine
         static_assert(sizeof(CloudscapeUBO) % 16 == 0, "CloudscapeUBO must be 16-byte aligned for std140");
         static_assert(sizeof(CloudscapeUBO) == 144, "CloudscapeUBO std140 size drifted from GLSL expectation (144 B)");
 
-        // @brief Surface weather response parameters (issue #633): the weather
-        // director's global wetness signal plus the cloud-shadow map transform,
-        // consumed by the PBR surface shaders (forward, deferred, terrain) and
-        // uploaded once per frame at UBO_ATMOSPHERE_SHADING. A zeroed upload
-        // (default construction) disables both effects.
+        // @brief The shared MEDIA-OCCLUSION block (issues #633, #723), uploaded
+        // once per frame at UBO_ATMOSPHERE_SHADING and consumed by the PBR
+        // surface shaders (forward, deferred, terrain), the froxel fog scatter
+        // compute, the cloud raymarch, and the volumetric-shadow generator.
+        // GLSL twin: the AtmosphereShadingData block in
+        // include/AtmosphereShading.glsl. A zeroed upload (default
+        // construction) disables every effect it gates.
+        //
+        // It started as "surface weather response" (#633: wetness + the
+        // top-down cloud-shadow transform). #723 widened it rather than taking
+        // the last free UBO binding (83) — see the pressure note at
+        // SSBO_VSM_LOCAL_LIGHTS: this block was ALREADY read by both volumetric
+        // consumers, and it was already carrying a dead 64-byte
+        // `CloudShadowViewProj` mat4 (declared "reserved", never written, never
+        // read) that the two volumetric-shadow transforms reclaimed.
+        //
+        // ⚠ TWO SPACES IN ONE BLOCK, ON PURPOSE. `RelWorldToVsmTex` and
+        // `Params1` are RENDER-RELATIVE (issue #429) because every consumer
+        // hands them the space its fragments already carry; `VsmTexToAbsWorld`
+        // is ABSOLUTE because it feeds the generator, which evaluates cloud /
+        // fog density fields that are defined in absolute world space. The
+        // pair is therefore NOT a matrix inverse — the names say which is which.
         struct AtmosphereShadingUBO
         {
-            glm::mat4 CloudShadowViewProj = glm::mat4(1.0f); // ABSOLUTE world -> cloud shadow map clip (top-down ortho)
-            glm::vec4 Params0 = glm::vec4(0.0f);             // x = wetness [0,1], y = cloud shadow strength [0,1],
-                                                             // z = cloud shadow enabled (0/1), w = unused
-            glm::vec4 Params1 = glm::vec4(0.0f);             // xy = shadow map center (world xz), z = world size, w = 1/world size
+            static constexpr u32 kVsmCascades = 2; // 0 = cloud layer, 1 = fog — mirrors VSM_CASCADE_* in the GLSL
+
+            // Volumetric shadow map (issue #723). Cascade c occupies the
+            // z-slice range [c * slicesPerCascade, (c+1) * slicesPerCascade) of
+            // the shared R32F volume at TEX_VOLUMETRIC_SHADOW; these transforms
+            // map into the cascade's OWN unit cube, and the sampler folds the
+            // cascade offset in (see VolumetricShadowCommon.glsl).
+            glm::mat4 RelWorldToVsmTex[kVsmCascades] = { glm::mat4(1.0f), glm::mat4(1.0f) }; // render-relative world -> cascade [0,1]^3
+            glm::mat4 VsmTexToAbsWorld[kVsmCascades] = { glm::mat4(1.0f), glm::mat4(1.0f) }; // cascade [0,1]^3 -> ABSOLUTE world (generator)
+
+            glm::vec4 Params0 = glm::vec4(0.0f); // x = wetness [0,1], y = cloud shadow strength [0,1],
+                                                 // z = cloud shadow enabled (0/1), w = unused
+            glm::vec4 Params1 = glm::vec4(0.0f); // xy = shadow map center (render-relative xz), z = world size, w = 1/world size
+
+            // Per-cascade: x = enabled (0/1), y = strength [0,1],
+            // z = march step length along the light ray (metres, = cascade
+            // depth / slicesPerCascade), w = unused.
+            glm::vec4 VsmParams[kVsmCascades] = { glm::vec4(0.0f), glm::vec4(0.0f) };
+            // x = slices per cascade, y = cascade count, z = 1 / (slices * cascades),
+            // w = XY texels per cascade (the generator's own bounds check — an
+            // imageSize() on a writeonly image is legal but needlessly couples
+            // the kernel to the descriptor).
+            glm::vec4 VsmVolume = glm::vec4(0.0f);
 
             static constexpr u32 GetSize()
             {
@@ -1094,7 +1130,7 @@ namespace OloEngine
         };
 
         static_assert(sizeof(AtmosphereShadingUBO) % 16 == 0, "AtmosphereShadingUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(AtmosphereShadingUBO) == 96, "AtmosphereShadingUBO std140 size drifted from GLSL expectation (96 B)");
+        static_assert(sizeof(AtmosphereShadingUBO) == 336, "AtmosphereShadingUBO std140 size drifted from GLSL expectation (336 B)");
 
         // @brief GPU fluid solver parameters UBO (Position-Based Fluids, issue #630).
         //
@@ -1496,11 +1532,24 @@ namespace OloEngine
         static constexpr u32 UBO_WIND_GENERATE = 62; // Wind volume GENERATION params (WindGenerateUBO) — the producer side; UBO_WIND (15) is what consumers sample
         // 63, 64 and 65 are deliberately skipped in the UNIFORM-BUFFER
         // namespace: they are SSBO_BONE_PULL (63), TEX_DDGI_VISIBILITY (64) and
-        // TEX_SHADER_GRAPH_0 (65). The backend maps each resource kind with its
-        // own VK_SPIRV_RESOURCE_TYPE_* mask (VulkanPipelineBuilder::
+        // TEX_VSM_PHYSICAL (65 since #702; this comment used to say
+        // TEX_SHADER_GRAPH_0, which has since moved twice and now sits at 67).
+        // The backend maps each resource kind with its own
+        // VK_SPIRV_RESOURCE_TYPE_* mask (VulkanPipelineBuilder::
         // BuildBindingMappings), so a cross-namespace reuse is legal — but the
         // A2 note above earned the habit of keeping engine slots numerically
-        // unique across namespaces, and there is no shortage of numbers.
+        // unique across namespaces where there is room.
+        //
+        // THAT ROOM IS GONE ABOVE ~62, and pretending otherwise would be worse
+        // than saying so: UBOs now run to 82 and textures must stay under 80
+        // (the GL 4.6 combined-unit minimum), so EVERY remaining texture number
+        // collides with some UBO or SSBO. TEX_VSM_PHYSICAL (65) already shares
+        // its number with SSBO_TERRAIN_NODE_BOUNDS, and #723's
+        // TEX_VOLUMETRIC_SHADOW (66) shares its with UBO_SNOW_COMPUTE. The rule
+        // that still holds — and the only one A2 was ever really about — is the
+        // WITHIN-SHADER one: no single shader may use the same number in two
+        // namespaces, because Vulkan's single-set model collapses them. Check
+        // the include tree, not the table.
         static constexpr u32 UBO_SNOW_COMPUTE = 66;         // Snow accumulate/deform clipmap params (SnowComputeUBO)
         static constexpr u32 UBO_TERRAIN_EROSION = 67;      // Hydraulic-erosion droplet params (TerrainErosionUBO)
         static constexpr u32 UBO_LIGHT_CULLING = 68;        // Forward+/clustered light-cull dispatch params (LightCullingUBO) — the CULLER's view/counts; UBO_FORWARD_PLUS (25) is the shading side
@@ -1760,8 +1809,17 @@ namespace OloEngine
         // which is exactly the within-shader collision the A2 renumber above
         // exists to prevent.
         static constexpr u32 TEX_VSM_PHYSICAL = 65; // usampler2D R32UI — raw float depth bits, point-sampled
-        // Moved 65 -> 66 for TEX_VSM_PHYSICAL, per the established shift procedure.
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 66; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // The shared volumetric shadow volume (issue #723): a light-space
+        // sampler3D R32F holding the optical depth accumulated FROM the light
+        // through the participating media, as two stacked cascades — cloud
+        // layer (slices [0, kSlices)) and fog (slices [kSlices, 2*kSlices)).
+        // Written by compute/VolumetricShadow_Generate.comp, read by the cloud
+        // raymarch and the froxel fog scatter through
+        // include/VolumetricShadowCommon.glsl. GLSL twin: u_VolumetricShadowVolume.
+        static constexpr u32 TEX_VOLUMETRIC_SHADOW = 66; // sampler3D R32F — optical depth from the light (2 stacked cascades)
+        // Moved 65 -> 66 for TEX_VSM_PHYSICAL, then 66 -> 67 for
+        // TEX_VOLUMETRIC_SHADOW, per the established shift procedure.
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 67; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -1812,12 +1870,15 @@ namespace OloEngine
         static constexpr u32 MAX_ENGINE_IMAGE_SLOTS = 8;
 
         // Total entries in the shared heap-offset table: every texture slot, then
-        // every image slot, rounded UP to a whole uvec4 group (67 + 8 = 75 used
+        // every image slot, rounded UP to a whole uvec4 group (68 + 8 = 76 used
         // entries → 76 declared; the A2 renumber moved the base off a multiple
         // of four). The round-up is why #702's extra texture slot did NOT change
         // this number — 74 and 75 both round to 76 — which is exactly why the
         // image-base drift it caused went unnoticed: the shader's array size, the
-        // more obvious of the two mirrors, still matched. The trailing pad entries are never indexed — image units
+        // more obvious of the two mirrors, still matched. #723's TEX_VOLUMETRIC_SHADOW
+        // is the third slot to land in that same blind spot (75 → 76 still rounds
+        // to 76), so the OLO_HEAP_IMAGE_BASE edit below is again the only visible
+        // half of the change. The trailing pad entries are never indexed — image units
         // stay < MAX_ENGINE_IMAGE_SLOTS — they only keep the std140 block a
         // whole number of uvec4s. include/BindlessHeap.glsl declares
         // `uvec4 g_OloHeapOffsets[HEAP_OFFSET_TABLE_VEC4S]` and must match.
@@ -2445,6 +2506,9 @@ namespace OloEngine
                 case TEX_VSM_PHYSICAL:
                     // Virtual Shadow Map physical page pool (issue #702).
                     return name == "u_VSMPhysicalPool";
+                case TEX_VOLUMETRIC_SHADOW:
+                    // Shared volumetric shadow volume (issue #723).
+                    return name == "u_VolumetricShadowVolume";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

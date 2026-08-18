@@ -1062,6 +1062,8 @@
 		"OloEngine/Renderer/CloudNoise.cpp"
 		"OloEngine/Renderer/CloudShadowMap.h"
 		"OloEngine/Renderer/CloudShadowMap.cpp"
+		"OloEngine/Renderer/VolumetricShadowMap.h"
+		"OloEngine/Renderer/VolumetricShadowMap.cpp"
 
 		"OloEngine/Wind/WindSystem.h"
 		"OloEngine/Wind/WindSystem.cpp"

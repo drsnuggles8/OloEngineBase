@@ -187,6 +187,9 @@ if (entity.HasComponent<CloudscapeComponent>())
     SceneBinIO::Write(out, comp.m_CastCloudShadows);
     SceneBinIO::Write(out, comp.m_ShadowStrength);
     SceneBinIO::Write(out, comp.m_ShadowMapWorldSize);
+    SceneBinIO::Write(out, comp.m_VolumetricSelfShadow);
+    SceneBinIO::Write(out, comp.m_VolumetricSelfShadowStrength);
+    SceneBinIO::Write(out, comp.m_VolumetricSelfShadowExtent);
     SceneBinIO::Write(out, comp.m_TemporalBlend);
     SceneBinIO::Write(out, comp.m_AffectIBL);
 }

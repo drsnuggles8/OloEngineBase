@@ -1,24 +1,51 @@
 // =============================================================================
-// AtmosphereShading.glsl — surface weather response (issue #633)
+// AtmosphereShading.glsl — the shared MEDIA-OCCLUSION block (issues #633, #723)
 //
-// The weather director's global wetness signal and the cloudscape's ground
-// shadow, shared by every surface-lighting consumer (PBR forward/deferred,
-// terrain, and — because this include is deliberately self-contained, no
-// PBRCommon dependency — the froxel fog scatter compute).
+// The weather director's global wetness signal, the cloudscape's ground
+// shadow, and the two volumetric-shadow cascade transforms — shared by every
+// surface-lighting consumer (PBR forward/deferred, terrain, and — because this
+// include is deliberately self-contained, no PBRCommon dependency — the froxel
+// fog scatter compute, the cloud raymarch, and the volumetric-shadow
+// generator).
 //
 // CPU twin: UBOStructures::AtmosphereShadingUBO (ShaderBindingLayout.h),
-// uploaded once per frame at UBO_ATMOSPHERE_SHADING (53); a zeroed upload
-// disables both effects. Cloud shadow map: TEX_CLOUD_SHADOW (62), R8,
+// uploaded once per frame at UBO_ATMOSPHERE_SHADING (54); a zeroed upload
+// disables every effect it gates. Cloud shadow map: TEX_CLOUD_SHADOW (62), R8,
 // 1 = unshadowed transmittance (see CloudShadow_Generate.comp).
+//
+// #723 widened this block rather than taking the engine's LAST free UBO
+// binding (83): both volumetric consumers already read it, and it was already
+// carrying a dead 64-byte `u_CloudShadowViewProj` mat4 — declared "reserved",
+// never written by the CPU, never read by any shader — which the two cascade
+// transforms reclaimed. The volumetric SAMPLER and its helpers live in
+// include/VolumetricShadowCommon.glsl, which includes this file; only the
+// transforms are here, so a surface shader that wants wetness does not also
+// acquire a sampler3D it never reads.
 // =============================================================================
 
 #ifndef ATMOSPHERE_SHADING_GLSL
 #define ATMOSPHERE_SHADING_GLSL
 
+// Cascade indices into the arrays below (and into the z-stacked volume at
+// TEX_VOLUMETRIC_SHADOW). Mirrors AtmosphereShadingUBO::kVsmCascades == 2.
+#define VSM_CASCADE_CLOUD 0
+#define VSM_CASCADE_FOG   1
+#define VSM_CASCADE_COUNT 2
+
 layout(std140, binding = 54) uniform AtmosphereShadingData {
-    mat4 u_CloudShadowViewProj; // reserved (world -> shadow clip); sampling uses Params1
-    vec4 u_AtmoParams0;         // x = wetness [0,1], y = cloud shadow strength, z = cloud shadow enabled, w = unused
-    vec4 u_AtmoParams1;         // xy = shadow map center (world xz), z = world size, w = 1/world size
+    // ⚠ TWO SPACES IN ONE BLOCK, ON PURPOSE, AND THEY ARE NOT INVERSES.
+    // RelWorldToVsmTex takes RENDER-RELATIVE world (issue #429 — the space
+    // every consumer's fragments already carry, same as u_AtmoParams1 below).
+    // VsmTexToAbsWorld produces ABSOLUTE world because its only consumer is the
+    // generator, which evaluates cloud/fog density fields defined in absolute
+    // world space. Each maps the cascade's OWN unit cube; the z-stacking of the
+    // cascades inside the shared volume is folded in by the sampler.
+    mat4 u_RelWorldToVsmTex[VSM_CASCADE_COUNT]; // render-relative world -> cascade [0,1]^3
+    mat4 u_VsmTexToAbsWorld[VSM_CASCADE_COUNT]; // cascade [0,1]^3 -> ABSOLUTE world (generator only)
+    vec4 u_AtmoParams0;                         // x = wetness [0,1], y = cloud shadow strength, z = cloud shadow enabled, w = unused
+    vec4 u_AtmoParams1;                         // xy = shadow map center (world xz), z = world size, w = 1/world size
+    vec4 u_VsmParams[VSM_CASCADE_COUNT];        // x = enabled, y = strength, z = march step length (m), w = unused
+    vec4 u_VsmVolume;                           // x = slices per cascade, y = cascade count, z = 1/(slices*cascades), w = XY texels
 };
 
 layout(binding = 62) uniform sampler2D u_CloudShadowMap;

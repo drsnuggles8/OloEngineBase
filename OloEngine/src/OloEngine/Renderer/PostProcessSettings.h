@@ -868,6 +868,20 @@ namespace OloEngine
         bool EnableLightShafts = false;
         f32 LightShaftIntensity = 1.0f; // In-scattering boost for lit volume samples
 
+        // Volumetric SELF-shadowing (issue #723) — the fog cascade of the
+        // shared volumetric shadow map: the medium's own density attenuates
+        // the light path, not just the view ray. Rides the FROXEL path
+        // (EnableVolumetric); the analytic fallback has no per-sample march to
+        // attach a transmittance to.
+        bool EnableVolumetricSelfShadow = true;
+        f32 VolumetricSelfShadowStrength = 1.0f;
+        // World extent of the cascade's camera-centred window — a FLOOR, not
+        // the final size. The window always reaches at least the froxel
+        // volume's far plane (clamp(End, 20, 500)), because any froxel outside
+        // it reads back unshadowed and the boundary shows up as a lighting
+        // seam. Fog volumes reaching further still widen it, up to 4x.
+        f32 VolumetricSelfShadowExtent = 300.0f;
+
         bool operator==(const FogSettings&) const = default;
     };
 
@@ -1215,6 +1229,17 @@ namespace OloEngine
         bool CastShadows = true;
         f32 ShadowStrength = 0.8f;
         f32 ShadowWorldSize = 8000.0f;
+
+        // Volumetric SELF-shadowing (issue #723) — the cloud cascade of the
+        // shared volumetric shadow map. Distinct from the ground shadow above:
+        // that one darkens the SCENE under the clouds, this one darkens the
+        // clouds' own undersides.
+        bool VolumetricSelfShadow = true;
+        f32 VolumetricShadowStrength = 1.0f;
+        // World extent of the cascade's camera-centred window. Bigger than the
+        // visible layer patch on purpose: at a low sun the light path into a
+        // sample leaves the window sideways long before it leaves vertically.
+        f32 VolumetricShadowExtent = 12000.0f;
 
         // Lighting inputs mirrored from the active directional body + sky
         glm::vec3 SunDirection = glm::vec3(0.0f, 1.0f, 0.0f); // toward sun/moon

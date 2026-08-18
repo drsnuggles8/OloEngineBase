@@ -10,7 +10,13 @@ namespace OloEngine
     {
         RGBA8,
         RGBA16F,
-        RGBA32F
+        RGBA32F,
+        // Single-channel float. The volumetric shadow volume (issue #723)
+        // stores one scalar per texel — optical depth — and R32F is the
+        // narrowest format that says so without adding an RHI::Format value:
+        // RHI::Format::R32Float already exists, which is what the storage-image
+        // descriptor needs.
+        R32F
     };
 
     struct Texture3DSpecification

@@ -7370,6 +7370,9 @@ namespace OloEngine
                     cloudState.CastShadows = clouds.m_CastCloudShadows;
                     cloudState.ShadowStrength = clouds.m_ShadowStrength;
                     cloudState.ShadowWorldSize = clouds.m_ShadowMapWorldSize;
+                    cloudState.VolumetricSelfShadow = clouds.m_VolumetricSelfShadow;
+                    cloudState.VolumetricShadowStrength = clouds.m_VolumetricSelfShadowStrength;
+                    cloudState.VolumetricShadowExtent = clouds.m_VolumetricSelfShadowExtent;
 
                     // The weather director owns coverage/type/wetness while active.
                     if (weather)
@@ -7393,7 +7396,31 @@ namespace OloEngine
                     // clouds are lit by the same body as every surface.
                     if (directionalLightCount > 0)
                     {
-                        cloudState.SunDirection = -directionalLightDir;
+                        // NORMALIZED here, at the single source, and that is
+                        // load-bearing rather than tidiness:
+                        // DirectionalLightComponent::m_Direction is whatever the
+                        // author typed — `(-1, -1, 0)` has length 1.414 and
+                        // nothing on this path normalized it. Every consumer of
+                        // u_CloudSunDir then disagrees about what one metre
+                        // means: the raymarch's cone steps `pos + dir * t` and
+                        // integrates `density * dt`, so it under-counts optical
+                        // depth by 1/|dir|; the phase function's
+                        // `dot(rayDir, dir)` leaves the [-1,1] range; and
+                        // #723's cone/shadow-map handoff lands at
+                        // `pos + dir * nearRange`, which is |dir| times further
+                        // than where the cone actually stopped while the CPU
+                        // cascade axis IS normalized (BuildLightFrame) — a
+                        // near/far seam in the light path that no single
+                        // consumer could be blamed for.
+                        // CloudShadow_Generate.comp already normalized
+                        // defensively; doing it once here makes all four agree.
+                        glm::vec3 towardSun(0.0f, 1.0f, 0.0f);
+                        if (const f32 dirLen2 = glm::dot(directionalLightDir, directionalLightDir);
+                            std::isfinite(dirLen2) && dirLen2 > 1.0e-8f)
+                        {
+                            towardSun = -directionalLightDir / std::sqrt(dirLen2);
+                        }
+                        cloudState.SunDirection = towardSun;
                         const auto& primary = multiLightData.Lights[0];
                         cloudState.SunColor = glm::vec3(primary.Color) * primary.Color.w;
                     }

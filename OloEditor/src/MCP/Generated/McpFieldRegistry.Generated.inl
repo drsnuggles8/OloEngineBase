@@ -226,6 +226,9 @@ registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "PowderStrength", m_
 registry.push_back(OLO_GFW_FIELD(CloudscapeComponent, "CastCloudShadows", m_CastCloudShadows));
 registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "ShadowStrength", m_ShadowStrength, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "ShadowMapWorldSize", m_ShadowMapWorldSize, OLO_GFW_BOUND(500.0f), OLO_GFW_BOUND(50000.0f)));
+registry.push_back(OLO_GFW_FIELD(CloudscapeComponent, "VolumetricSelfShadow", m_VolumetricSelfShadow));
+registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "VolumetricSelfShadowStrength", m_VolumetricSelfShadowStrength, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "VolumetricSelfShadowExtent", m_VolumetricSelfShadowExtent, OLO_GFW_BOUND(1000.0f), OLO_GFW_BOUND(60000.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "TemporalBlend", m_TemporalBlend, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(0.98f)));
 registry.push_back(OLO_GFW_FIELD(CloudscapeComponent, "AffectIBL", m_AffectIBL));
 

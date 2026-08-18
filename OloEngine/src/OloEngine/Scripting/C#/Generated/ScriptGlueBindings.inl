@@ -3197,6 +3197,26 @@ static void CloudscapeComponent_SetCastCloudShadows(UUID entityID, bool value)
     comp.m_CastCloudShadows = value;
 }
 
+static bool CloudscapeComponent_GetVolumetricSelfShadow(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    return comp.m_VolumetricSelfShadow;
+}
+
+static void CloudscapeComponent_SetVolumetricSelfShadow(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    comp.m_VolumetricSelfShadow = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // DestructibleComponent                                                          //
 ///////////////////////////////////////////////////////////////////////////////////////////

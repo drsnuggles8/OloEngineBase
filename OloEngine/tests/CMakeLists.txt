@@ -161,6 +161,7 @@ add_executable(OloEngine-Tests
 		Atmosphere/CloudDensityMathTest.cpp
 		Atmosphere/AtmosphereSkyMathTest.cpp
 		Rendering/PropertyTests/AtmosphereVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VolumetricShadowVisualEvidenceTest.cpp
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
@@ -176,6 +177,7 @@ add_executable(OloEngine-Tests
 		Rendering/ClusteredLightingMathTest.cpp
 		Rendering/ShadowAtlasPackingTest.cpp
 		Rendering/VolumetricFogMathTest.cpp
+		Rendering/VolumetricShadowMapMathTest.cpp
 		Rendering/MotionVectorMathTest.cpp
 		Rendering/DDGI/DDGIMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp

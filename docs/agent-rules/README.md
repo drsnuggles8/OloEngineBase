@@ -99,7 +99,7 @@ Read before trusting any measurement.
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | the flagship: a self-consistency crop check that a mirrored (wrong) position scored *better* on — and read-tools that answer 200 with a stale frame from an iconified window |
 | [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) | a red that recurs every run gets normalised, blinding the whole suite |
 | [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) | a `glXxx(` grep is wrong three different ways; three published counts, none right |
-| [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | capture targets show the *editor* camera; include-only shader edits don't hot-reload |
+| [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | capture targets show the *editor* camera; include-only shader edits don't hot-reload; "the medium got darker" passes for real self-shadowing *and* for every uniform veil — only "darker on the side away from the light" separates them |
 | [timed-wait-test-assertions.md](timed-wait-test-assertions.md) | `duration_cast<milliseconds>` truncates toward zero — the "flaky test" may not be test-side at all |
 | [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | a CI comment asserted a safety property nobody had measured; and the issue's own repro had been fixed two months earlier |
 | [reference-path-tracer.md](reference-path-tracer.md) | a golden answers "did it change?", never "is it correct?" |

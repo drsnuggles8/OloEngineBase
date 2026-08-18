@@ -1,0 +1,150 @@
+// =============================================================================
+// VolumetricShadow_Generate.comp — shared volumetric shadow map (issue #723)
+//
+// ONE THREAD PER (x, y, cascade): a light-space column. Each thread marches
+// straight down its cascade's light ray, evaluating the SAME density field its
+// consumer evaluates (CloudscapeCommon for the cloud cascade, FogCommon +
+// FogVolumeCommon for the fog cascade), and stores the RUNNING optical depth
+// into every slice as it passes.
+//
+// That shape is the whole point. An independent per-cell march would cost
+// slices x steps density taps per column and still undersample; walking the
+// column once makes the accumulation free and makes every slice exact to the
+// same midpoint quadrature.
+//
+// Output (image unit 0, r32f): optical depth from the light — NOT a
+// transmittance. The cloud consumer still owes it a Beer-powder term and a
+// reduced-extinction multi-scatter octave, and neither survives being handed
+// exp(-od). Cascade c occupies z-slices [c * slices, (c+1) * slices).
+//
+// DETERMINISTIC BY CONSTRUCTION: no jitter, no frame index, no history. The
+// output is a pure function of this frame's media settings and light direction.
+// That is what keeps it out of the golden-flicker business (issue #723's third
+// acceptance criterion) — but read it precisely: the MAP adds no time
+// dependence of its own, it does not remove the medium's. The fog extinction
+// below samples fogFBM at an offset built from u_FogNoiseParams.w, the
+// accumulated wall clock, so with animated fog noise on the shadow follows the
+// fog as it moves, which is correct and is also why a golden capturing fog
+// noise has to freeze the clock (Time::SetMockTime) exactly as it already does
+// for the fog itself. Banding is handled by the volume's trilinear filter and
+// by shadows being low-frequency, not by dithering.
+//
+// CALLER CONTRACT (VolumetricShadowMap::Dispatch): the cascade transforms
+// (UBO 54), the cloud field (UBO 53 + samplers 59/60/61) and the fog fields
+// (UBOs 17/20) must all be uploaded and bound BEFORE the dispatch.
+// =============================================================================
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declaration moves into main() as a local built from the heap descriptor at
+// this image unit; the body below is unchanged either way.
+// NOT `u_VolumetricShadowVolume`: that name belongs to the sampler3D in
+// include/VolumetricShadowCommon.glsl, and this stage deliberately includes
+// AtmosphereShading.glsl (the transforms) rather than that file — a generator
+// has no business declaring a sampler for the volume it is writing.
+#ifndef OLO_BINDLESS
+layout(r32f, binding = 0) uniform writeonly image3D u_VolumetricShadowOut;
+#endif
+
+#include "../include/NoiseCommon.glsl"
+#include "../include/CloudscapeCommon.glsl"
+#include "../include/FogCommon.glsl"
+#include "../include/FogVolumeCommon.glsl"
+#include "../include/AtmosphereShading.glsl"
+
+// Extinction coefficient (per metre) of the medium at an ABSOLUTE world
+// position, for one cascade. This is the ONE place the two media meet, and
+// each side must agree with what its own consumer integrates:
+//
+//   Cloud — cloudDensity() x kCloudExtinction, cheap taps (no detail erosion),
+//           exactly what PostProcess_Cloudscape.glsl's own light march uses.
+//   Fog   — the froxel scatter's `combinedDensity` (height fog x FBM noise +
+//           local volumes) and NOTHING ELSE. In particular NOT
+//           u_FogVolumetricParams.y, the global absorption floor: it is a
+//           spatial CONSTANT, so integrating it along a light path adds
+//           exp(-absorption * pathLength) — a darkening that carries no shadow
+//           information and varies only with the cascade box's geometry. That
+//           is a uniform veil dressed as occlusion
+//           (docs/agent-rules/volumetric-cloud-debugging.md), and it would move
+//           when the box was refitted.
+float vsmMediumExtinction(vec3 absWorldPos, int cascade)
+{
+    if (cascade == VSM_CASCADE_CLOUD)
+    {
+        return cloudDensity(absWorldPos, true) * kCloudExtinction;
+    }
+
+    float density = fogDensityAtPoint(absWorldPos, u_FogColorAndDensity.a, u_FogDistanceParams.z,
+                                      u_FogDistanceParams.w);
+
+    float noiseIntensity = u_FogNoiseParams.z;
+    if (noiseIntensity > 0.001 && density > 0.0001)
+    {
+        float noiseScale = u_FogNoiseParams.x;
+        float noiseSpeed = u_FogNoiseParams.y;
+        float time = u_FogNoiseParams.w;
+        vec3 noisePos = absWorldPos * noiseScale +
+                        vec3(time * noiseSpeed * 0.6, time * noiseSpeed * 0.15, time * noiseSpeed * 0.4);
+        float noiseFactor = fogFBM(noisePos);
+        density *= mix(1.0, clamp(noiseFactor * 2.0, 0.0, 2.5), noiseIntensity);
+    }
+
+    FogVolumeResult volumeResult = evaluateFogVolumesAtPoint(absWorldPos);
+    return max(density, 0.0) + volumeResult.density;
+}
+
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, writeonly, image3D, u_VolumetricShadowOut, 0);
+#endif
+
+    ivec2 cell = ivec2(gl_GlobalInvocationID.xy);
+    int cascade = int(gl_GlobalInvocationID.z);
+    int slices = int(u_VsmVolume.x + 0.5);
+    int resolution = int(u_VsmVolume.w + 0.5);
+
+    if (cell.x >= resolution || cell.y >= resolution || cascade >= int(u_VsmVolume.y + 0.5))
+        return;
+
+    int sliceBase = cascade * slices;
+
+    // A disabled cascade still has to be CLEARED, not skipped: the volume is
+    // persistent, so leaving last frame's optical depth in place would keep
+    // shadowing a medium that is no longer there — and the sampler's own
+    // enable gate is the only other guard, which a future consumer could
+    // forget. Zero is "fully lit".
+    if (u_VsmParams[cascade].x < 0.5)
+    {
+        for (int i = 0; i < slices; ++i)
+            imageStore(u_VolumetricShadowOut, ivec3(cell, sliceBase + i), vec4(0.0));
+        return;
+    }
+
+    vec2 uv = (vec2(cell) + 0.5) / float(resolution);
+    float stepLength = u_VsmParams[cascade].z;
+    float invSlices = 1.0 / float(slices);
+
+    // Midpoint quadrature. Slice i's stored value is the optical depth at the
+    // slice CENTRE — which is where vsmCascadeW() samples it — so it is the
+    // running total through slices [0, i) plus HALF of slice i's own
+    // contribution. Storing the total through the slice's far edge instead
+    // would bias every tap by half a step toward the dark side, a bias that
+    // grows with the cascade depth and reads as "the shadow starts too early".
+    float accumulated = 0.0;
+    for (int i = 0; i < slices; ++i)
+    {
+        float w = (float(i) + 0.5) * invSlices;
+        vec3 absWorldPos = (u_VsmTexToAbsWorld[cascade] * vec4(uv, w, 1.0)).xyz;
+        float extinction = max(vsmMediumExtinction(absWorldPos, cascade), 0.0);
+        float sliceOpticalDepth = extinction * stepLength;
+
+        imageStore(u_VolumetricShadowOut, ivec3(cell, sliceBase + i),
+                   vec4(accumulated + sliceOpticalDepth * 0.5));
+        accumulated += sliceOpticalDepth;
+    }
+}

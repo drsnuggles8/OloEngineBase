@@ -32,6 +32,12 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 // light (parity: media under a cloud must darken like the ground under it).
 // Self-contained (UBO 53 + sampler 59), so a compute stage can include it.
 #include "../include/AtmosphereShading.glsl"
+// Volumetric shadow map (issue #723) — the fog's SELF-occlusion. Before this,
+// the medium's own density attenuated the view ray but never the light path:
+// a dense fog volume was lit identically at its sunward face and fifty metres
+// inside it. VolumetricShadowCommon includes AtmosphereShading, so the two
+// includes above/below are the same UBO, guarded.
+#include "../include/VolumetricShadowCommon.glsl"
 
 // Froxel fog parameters (binding 46) — mirrors UBOStructures::FroxelFogUBO
 layout(std140, binding = 46) uniform FroxelFogData
@@ -457,6 +463,15 @@ void main()
         // surface shaders attenuate the directional light (issue #633).
         // relPos is render-relative — atmosphereCloudShadow's contract.
         scatter *= atmosphereCloudShadow(relPos);
+        // ...and the fog now shadows ITSELF along the light direction (issue
+        // #723), which is the cue that gives a volume depth. Same space
+        // contract, same render-relative position. Deliberately applied to the
+        // SUN term only: the ambient term below is the fog's own colour, and
+        // attenuating that too would just darken the whole volume uniformly —
+        // the "uniform veil" failure, not occlusion. The CLOUD cascade is not
+        // sampled here on purpose: atmosphereCloudShadow already carries
+        // cloud-over-fog occlusion, and adding both would double-count it.
+        scatter *= volumetricShadowTransmittance(relPos, VSM_CASCADE_FOG);
         inscatter += multiScatterApprox(scatter, combinedDensity);
     }
 

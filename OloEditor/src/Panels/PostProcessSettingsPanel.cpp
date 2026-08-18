@@ -1221,6 +1221,26 @@ namespace OloEngine
                 {
                     ImGui::SliderFloat("Light Shaft Intensity", &fog.LightShaftIntensity, 0.0f, 5.0f, "%.2f");
                 }
+
+                ImGui::Separator();
+                ImGui::Checkbox("Enable Self-Shadowing", &fog.EnableVolumetricSelfShadow);
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("The fog occludes light along its OWN depth (issue #723).\n"
+                                      "Light shafts above are occlusion by SCENE geometry;\n"
+                                      "this is the medium shadowing itself, which is what gives a\n"
+                                      "dense fog volume a lit face and a dark interior.");
+                }
+                if (fog.EnableVolumetricSelfShadow)
+                {
+                    ImGui::SliderFloat("Self-Shadow Strength", &fog.VolumetricSelfShadowStrength, 0.0f, 1.0f, "%.2f");
+                    ImGui::DragFloat("Self-Shadow Extent", &fog.VolumetricSelfShadowExtent, 5.0f, 4.0f, 20000.0f, "%.0f m");
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("World extent of the shadow volume's camera-centered window.\n"
+                                          "Fog volumes reaching outside it still widen the volume, up to 4x this.");
+                    }
+                }
             }
 
             ImGui::TreePop();

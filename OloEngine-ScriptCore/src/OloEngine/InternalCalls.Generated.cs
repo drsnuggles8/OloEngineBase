@@ -627,6 +627,10 @@ namespace OloEngine
 		internal static extern bool CloudscapeComponent_GetCastCloudShadows(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void CloudscapeComponent_SetCastCloudShadows(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool CloudscapeComponent_GetVolumetricSelfShadow(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CloudscapeComponent_SetVolumetricSelfShadow(ulong entityID, bool value);
 		#endregion
 
 		#region DestructibleComponent

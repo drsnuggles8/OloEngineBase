@@ -60,8 +60,21 @@ namespace OloEngine
     namespace OSceneFormat
     {
         constexpr u32 MagicNumber = 0x424E4353; // "SCNB" in little-endian
-        constexpr u32 CurrentVersion = 1;
-        constexpr u32 MinSupportedVersion = 1;
+        // v2 (issue #723): CloudscapeComponent gained three volumetric
+        // self-shadow fields, which the GENERATED binary block appends to its
+        // payload. Component payloads are not length-prefixed — the reader
+        // consumes exactly what the writer wrote — so a v1 sidecar's shorter
+        // Cloudscape block would be read as if it had the new fields and every
+        // subsequent read in that entity would slide. The bounds and finiteness
+        // checks would probably catch it, and "probably" is the wrong bar for a
+        // cache that is invisible when it works.
+        //
+        // MinSupportedVersion moves WITH CurrentVersion, on purpose and unlike a
+        // save game: a sidecar is a derived cache, so rejecting the old one
+        // costs one YAML load and a rewrite, where migrating it would mean
+        // keeping every past component layout compilable forever.
+        constexpr u32 CurrentVersion = 2;
+        constexpr u32 MinSupportedVersion = 2;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8
