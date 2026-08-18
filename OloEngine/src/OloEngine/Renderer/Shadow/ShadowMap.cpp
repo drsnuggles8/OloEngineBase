@@ -134,6 +134,13 @@ namespace OloEngine
 
     void ShadowMap::BeginFrame()
     {
+        // Propagate the global shadow switch into the VSM every frame.
+        // BeginFrame, not UploadUBO: Scene calls this BEFORE registering
+        // local lights, so the toggle lands on the same frame instead of
+        // one late — and a frame that registers layers the pass will not
+        // render is a frame whose stale layers keep being sampled.
+        m_VirtualShadowMap.SetSuppressed(!m_Settings.Enabled);
+
         OLO_PROFILE_FUNCTION();
 
         // Reset per-frame state
@@ -406,11 +413,22 @@ namespace OloEngine
         // carries the render origin — and the origin matters twice over: the clip
         // projections live in render-relative space, and a CHANGE to it re-anchors
         // light space and therefore invalidates every cached page.
-        if (m_VirtualShadowMap.IsActive() && m_UBOData.DirectionalShadowEnabled != 0)
+        // NOT gated on DirectionalShadowEnabled any more (issue #703): the clip
+        // projections are the sun's, but this same call publishes the globals
+        // block the LOCAL light path reads — its enable flag, its biases and the
+        // camera position its mip heuristic shares with the marker. A scene lit
+        // only by lamps has no directional shadow and would otherwise get a
+        // globals block that never leaves its initial state, which reads as VSM
+        // being off rather than as a missing update.
+        //
+        // The sun's own work is gated INSIDE, by the flag passed here: with no
+        // directional shadow the marker skips the clip levels entirely.
+        if (m_VirtualShadowMap.IsActive())
         {
             m_VirtualShadowMap.BeginFrame(m_DirectionalLightDirection,
                                           m_CameraWorldPosition - renderOrigin,
-                                          renderOrigin);
+                                          renderOrigin,
+                                          m_UBOData.DirectionalShadowEnabled != 0);
             m_VirtualShadowMap.SetSamplingParams(m_Settings.Softness, m_Settings.MaxShadowDistance);
         }
     }

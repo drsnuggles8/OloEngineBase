@@ -284,8 +284,15 @@ namespace OloEngine
         // re-submission) when no light casts shadows — see issue #522.
         [[nodiscard]] bool AnyShadowsRequested() const
         {
+            // The VSM local-light count is the THIRD source (issue #703), and it
+            // is not optional: with local lights on the page table, the atlas
+            // entry count is zero by construction, so a lamp-lit scene with no
+            // sun would answer "no shadows requested", ShadowRenderPass would be
+            // skipped whole, and no page would ever be allocated or rasterized —
+            // an unshadowed frame with nothing in the log.
             return m_UBOData.DirectionalShadowEnabled != 0 ||
-                   m_UBOData.AtlasEntryCount > 0;
+                   m_UBOData.AtlasEntryCount > 0 ||
+                   m_VirtualShadowMap.GetLocalLightCount() > 0;
         }
 
         [[nodiscard]] u32 GetResolution() const

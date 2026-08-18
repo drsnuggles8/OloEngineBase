@@ -16,12 +16,110 @@
 // of metres in total.
 // =============================================================================
 
+// LOCAL LIGHTS (issue #703) run the same idea over a layer's mip chain, in a
+// second dispatch selected by u_VSMPassParams.y. Leaving them out was not an
+// option and it is not a nice-to-have: the cache keeps a lamp's pages until
+// something dirties them, so a character walking under a lamp would drag its
+// shadow along behind it — visibly wrong, and attributable to animation or to
+// the transform sync long before anyone suspects the shadow cache.
+//
+//   .y = domain (0 = clip levels, 1 = local layers)
+//   .z = active local layer count
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 #include "../include/VirtualShadowBuffers.glsl"
 
+void vsmDirtyPage(int idx)
+{
+    // Only a RESIDENT page can be stale; an unallocated one will be drawn dirty
+    // by the allocator anyway.
+    uint entry = b_PageTable[idx];
+    if (vsmPageIsAllocated(entry) && !vsmPageIsDirty(entry))
+        atomicOr(b_PageTable[idx], VSM_PAGE_DIRTY_BIT);
+}
+
+void vsmInvalidateLocal(uint invalidation, int layer)
+{
+    VSMLocalLight light = b_LocalLights[layer];
+    if (light.Params.w < 0.5)
+        return; // layer not serving a light this frame
+
+    vec3 boundsMin = b_InvalidationBounds[invalidation * 2u].xyz;
+    vec3 boundsMax = b_InvalidationBounds[invalidation * 2u + 1u].xyz;
+
+    // Cheap reject: closest point of the AABB to the light centre, against range.
+    vec3 lightPos = light.PositionRange.xyz;
+    vec3 closest = clamp(lightPos, boundsMin, boundsMax);
+    vec3 delta = closest - lightPos;
+    if (dot(delta, delta) > light.PositionRange.w * light.PositionRange.w)
+        return;
+
+    // A layer is a PERSPECTIVE, so the divide is only valid for corners in front
+    // of the near plane — same trap, same handling, as VSM_CullLocalCasters: a
+    // caster straddling the plane widens to the whole face rather than trusting a
+    // negative w. Conservative here costs a few redrawn pages; wrong here leaves
+    // a stale shadow, which is the artefact this kernel exists to remove.
+    vec2 uvMin = vec2(0.0);
+    vec2 uvMax = vec2(0.99999);
+    bool allInFront = true;
+    vec2 projMin = vec2(1e30);
+    vec2 projMax = vec2(-1e30);
+    for (int corner = 0; corner < 8; ++corner)
+    {
+        vec3 p = vec3((corner & 1) != 0 ? boundsMax.x : boundsMin.x,
+                      (corner & 2) != 0 ? boundsMax.y : boundsMin.y,
+                      (corner & 4) != 0 ? boundsMax.z : boundsMin.z);
+        vec4 clipPos = light.ViewProjection * vec4(p, 1.0);
+        if (clipPos.w <= 0.0)
+        {
+            allInFront = false;
+            continue;
+        }
+        vec2 uv = (clipPos.xy / clipPos.w) * 0.5 + 0.5;
+        projMin = min(projMin, uv);
+        projMax = max(projMax, uv);
+    }
+    if (allInFront)
+    {
+        if (any(greaterThan(projMin, vec2(1.0))) || any(lessThan(projMax, vec2(0.0))))
+            return;
+        uvMin = clamp(projMin, vec2(0.0), vec2(0.99999));
+        uvMax = clamp(projMax, vec2(0.0), vec2(0.99999));
+    }
+
+    int row = int(gl_LocalInvocationID.x);
+    for (int mip = 0; mip < VSM_LOCAL_MIP_COUNT; ++mip)
+    {
+        int mipRes = VSM_LOCAL_PAGE_TABLE_RESOLUTION >> mip;
+        ivec2 pageMin = ivec2(floor(uvMin * float(mipRes)));
+        ivec2 pageMax = ivec2(floor(uvMax * float(mipRes)));
+        pageMin = clamp(pageMin, ivec2(0), ivec2(mipRes - 1));
+        pageMax = clamp(pageMax, ivec2(0), ivec2(mipRes - 1));
+
+        for (int y = pageMin.y + row; y <= pageMax.y; y += int(gl_WorkGroupSize.x))
+        {
+            for (int x = pageMin.x; x <= pageMax.x; ++x)
+                vsmDirtyPage(vsmLocalPageIndex(layer, mip, ivec2(x, y)));
+        }
+    }
+}
+
 void main()
 {
+    if (u_VSMPassParams.y != 0u)
+    {
+        // gl_WorkGroupID.X is the invalidation, .Y is the layer — a 2D dispatch,
+        // because the flattened product reaches 262,144 groups and the guaranteed
+        // per-dimension maximum is 65,535 (see the dispatch site).
+        uint layerCount = min(u_VSMPassParams.z, uint(VSM_MAX_LOCAL_LAYERS));
+        uint invalidation = gl_WorkGroupID.x;
+        uint layer = gl_WorkGroupID.y;
+        if (invalidation >= b_InvalidationCount || layer >= layerCount)
+            return;
+        vsmInvalidateLocal(invalidation, int(layer));
+        return;
+    }
+
     uint pair = gl_WorkGroupID.x;
     uint invalidation = pair / uint(VSM_CLIP_LEVELS);
     int clipLevel = int(pair % uint(VSM_CLIP_LEVELS));
@@ -61,12 +159,7 @@ void main()
         for (int x = pageMin.x; x <= pageMax.x; ++x)
         {
             ivec2 wrapped = vsmWrapPage(ivec2(x, y), u_VSMClips[clipLevel].PageOffset);
-            int idx = vsmPageIndex(clipLevel, wrapped);
-            // Only a RESIDENT page can be stale; an unallocated one will be drawn
-            // dirty by the allocator anyway.
-            uint entry = b_PageTable[idx];
-            if (vsmPageIsAllocated(entry) && !vsmPageIsDirty(entry))
-                atomicOr(b_PageTable[idx], VSM_PAGE_DIRTY_BIT);
+            vsmDirtyPage(vsmPageIndex(clipLevel, wrapped));
         }
     }
 }

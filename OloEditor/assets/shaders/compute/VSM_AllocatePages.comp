@@ -33,9 +33,17 @@ void main()
         return;
 
     uvec4 record = b_Requests[request];
-    int clipLevel = int(record.x);
+    // Issue #703: the same ring carries directional and local requests. `.x` is a
+    // clip level or a layer depending on the flag word, and everything after the
+    // index resolution is domain-agnostic — one allocator, one free list, one
+    // eviction policy for both light classes, which is the sharing the issue
+    // asked for.
+    bool isLocal = (record.w & VSM_REQUEST_LOCAL_BIT) != 0u;
+    int mip = int(record.w & VSM_REQUEST_MIP_MASK);
+    int levelOrLayer = int(record.x);
     ivec2 wrappedPage = ivec2(int(record.y), int(record.z));
-    int pageIdx = vsmPageIndex(clipLevel, wrappedPage);
+    int pageIdx = isLocal ? vsmLocalPageIndex(levelOrLayer, mip, wrappedPage)
+                          : vsmPageIndex(levelOrLayer, wrappedPage);
 
     uint entry = b_PageTable[pageIdx];
     if (!vsmPageRequestsAlloc(entry) || vsmPageIsAllocated(entry))
@@ -58,8 +66,12 @@ void main()
         uint oldMeta = b_MetaTable[physicalIdx];
         if (vsmMetaIsAllocated(oldMeta))
         {
-            int oldIdx = vsmPageIndex(vsmUnpackMetaOwnerLevel(oldMeta), vsmUnpackMetaOwnerPage(oldMeta));
-            b_PageTable[oldIdx] = 0u;
+            // vsmMetaOwnerPageIndex, not vsmPageIndex: the evicted page may belong
+            // to a local layer, and resolving it as a clip level would zero an
+            // unrelated directional page while leaving the real owner pointing at
+            // a physical page somebody else now holds — two wrong shadows for one
+            // mistake.
+            b_PageTable[vsmMetaOwnerPageIndex(oldMeta)] = 0u;
             atomicAdd(b_PagesFreed, 1u);
         }
     }
@@ -79,6 +91,7 @@ void main()
     b_PageTable[pageIdx] = VSM_PAGE_ALLOCATED_BIT | VSM_PAGE_VISITED_BIT | VSM_PAGE_DIRTY_BIT |
                            vsmPackPhysicalPage(physicalPage);
     b_MetaTable[physicalIdx] = VSM_META_ALLOCATED_BIT | VSM_META_VISITED_BIT |
-                               vsmPackMetaOwner(wrappedPage, clipLevel);
+                               (isLocal ? vsmPackMetaLocalOwner(wrappedPage, mip, levelOrLayer)
+                                        : vsmPackMetaOwner(wrappedPage, levelOrLayer));
     atomicAdd(b_PagesAllocated, 1u);
 }

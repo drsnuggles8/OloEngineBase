@@ -28,6 +28,7 @@
 // =============================================================================
 
 #define VSM_PAGE_TABLE_READONLY 1
+#define VSM_LOCAL_LIGHTS_READONLY 1
 #include "VirtualShadowResources.glsl"
 
 // TEX_VSM_PHYSICAL. usampler2D, not sampler2D: the pool stores raw float bits so
@@ -110,6 +111,149 @@ float vsmShadowFactor(vec3 worldPosRelative, vec3 normalRelative)
     // Nothing resident at any level. Unshadowed is the right failure: a hole in
     // the page table must not read as a black patch on the ground.
     return 1.0;
+}
+
+// =============================================================================
+// LOCAL LIGHTS (issue #703)
+//
+// The same two properties hold, for the same reasons, with one substitution:
+// where the directional sampler walks CLIP LEVELS, this walks MIPS of one layer.
+//
+//   * NO SEAM BETWEEN MIPS. Every mip of a layer shares ONE projection — only
+//     the page grid's resolution changes — so a world position's stored depth is
+//     the same number at every mip, and a fragment that switches mip compares
+//     against the same value. (The directional path gets this from a shared
+//     depth range; here it is free, which is why a layer has no DepthRange knob.)
+//
+//   * A MISSING PAGE DEGRADES. Marking still runs a frame behind, so the walk to
+//     coarser mips is the same anti-pop-in mechanism, not an error path.
+//
+// The producer/consumer agreement that matters most is the MIP: the marker calls
+// vsmLocalMipForDistances with the same two distances this does, from the same
+// u_VSMCameraPosition. A one-mip disagreement puts the sample on an unbacked page
+// and the surface reads fully lit — the local restatement of page-cache doc §1.
+// =============================================================================
+
+// One mip's visibility, PCF-filtered. Returns [0,1], or -1.0 when no tap found a
+// resident page (the caller's cue to try a coarser mip).
+//
+// Every tap resolves its OWN page, exactly as the directional sampler does: a tap
+// crossing a page boundary lands in a different region of the physical pool, so
+// resolving once for the kernel centre would read a neighbouring page's texels
+// and draw a hard line along every page edge.
+float vsmSampleLocalMip(vec3 worldPosRelative, int layer, int mip)
+{
+    vec2 centreUV;
+    float receiverDepth;
+    float viewDistance;
+    if (!vsmProjectIntoLocal(worldPosRelative, layer, centreUV, receiverDepth, viewDistance))
+        return -1.0;
+
+    float depthBias = vsmLocalDepthBias(layer, viewDistance);
+
+    // The filter width follows the MIP, not a constant: a mip-5 texel is 32x a
+    // mip-0 one, so a fixed UV radius would be a 32-texel blur at one end and a
+    // sub-texel no-op at the other.
+    float texelUV = 1.0 / float(VSM_LOCAL_VIRTUAL_RESOLUTION >> mip);
+    float filterUV = texelUV * max(VSM_SOFTNESS, 0.25);
+
+    float sum = 0.0;
+    int taps = 0;
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            vec2 tapUV = centreUV + vec2(float(x), float(y)) * filterUV;
+            // A tap past the face edge is DROPPED, not wrapped onto the
+            // neighbouring cube face. Wrapping would need that face's projection
+            // and its own page lookup for one tap in nine; dropping shrinks the
+            // kernel within a texel of the seam, which is the same thing the
+            // atlas path's tile clamp does and is invisible next to the 3x3
+            // kernel's own softness.
+            if (any(lessThan(tapUV, vec2(0.0))) || any(greaterThanEqual(tapUV, vec2(1.0))))
+                continue;
+
+            uint entry = b_PageTable[vsmLocalPageIndex(layer, mip, vsmLocalUVToPage(tapUV, mip))];
+            if (!vsmPageIsAllocated(entry))
+                continue;
+
+            float stored = vsmDecodeDepth(
+                texelFetch(u_VSMPhysicalPool, vsmLocalPhysicalTexel(tapUV, mip, entry), 0).r);
+            sum += (receiverDepth - depthBias > stored) ? 0.0 : 1.0;
+            ++taps;
+        }
+    }
+
+    return (taps == 0) ? -1.0 : (sum / float(taps));
+}
+
+// Local-light visibility at a render-relative world position. 1 = lit.
+// `layerBase` is the light's first layer (its RegisterLocalLight result, carried
+// in the same per-light field the atlas base entry used to occupy), and
+// `isPoint` selects between the six-face cube walk and a single spot layer.
+float vsmLocalShadowFactor(vec3 worldPosRelative, vec3 normalRelative, int layerBase, bool isPoint)
+{
+    if (VSM_LOCAL_ENABLED == 0 || layerBase < 0 || layerBase >= VSM_MAX_LOCAL_LAYERS)
+        return 1.0;
+
+    vec4 positionRange = b_LocalLights[layerBase].PositionRange;
+    vec3 toPoint = worldPosRelative - positionRange.xyz;
+    float distanceToLight = length(toPoint);
+    if (distanceToLight > positionRange.w)
+        return 1.0; // outside the light's range — the caller's falloff is already zero
+
+    int layer = isPoint ? (layerBase + vsmCubeFace(toPoint)) : layerBase;
+    if (layer >= VSM_MAX_LOCAL_LAYERS)
+        return 1.0;
+
+    float distanceToCamera = length(worldPosRelative - u_VSMCameraPosition.xyz);
+    int baseMip = vsmLocalMipForDistances(distanceToCamera, distanceToLight, VSM_LOCAL_DETAIL_BIAS);
+
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        int mip = min(baseMip + attempt, VSM_LOCAL_MIP_COUNT - 1);
+
+        // Normal offset scaled by THIS mip's texel size — the same cure for
+        // grazing-surface acne the directional sampler applies per clip level,
+        // and it has to follow the mip for the same reason.
+        vec3 offsetPos = worldPosRelative +
+                         normalRelative * (VSM_NORMAL_BIAS + vsmLocalTexelWorldSize(distanceToLight, mip) * 1.5);
+
+        float visibility = vsmSampleLocalMip(offsetPos, layer, mip);
+        if (visibility >= 0.0)
+            return visibility;
+
+        if (mip == VSM_LOCAL_MIP_COUNT - 1)
+            break;
+    }
+
+    // Nothing resident at any mip. Unshadowed is the right failure for the same
+    // reason it is directionally: a hole in the page table must not read as a
+    // black patch under a lamp.
+    return 1.0;
+}
+
+// The dispatcher every lit shader calls at a local light's shadow site.
+//
+// It returns a BOOL rather than just a factor because the two techniques are not
+// interchangeable at the call site: with VSM local lights on, the per-light
+// shadow index is a LAYER (0..255), not an atlas entry (0..47), and letting the
+// caller fall through to `u_AtlasEntryMatrices[layer]` would read past the end of
+// a 48-element UBO array. So "the page table answered this" has to be a fact the
+// caller can branch on, not something it infers from the value.
+//
+// Keeping the enabled test HERE and not at the eleven call sites is the point:
+// the same three lines copied eleven times is exactly how one of them ends up
+// still indexing the atlas.
+bool vsmLocalShadow(vec3 worldPosRelative, vec3 normalRelative, int shadowIndex, bool isPoint,
+                    out float outShadow)
+{
+    outShadow = 1.0;
+    if (VSM_LOCAL_ENABLED == 0)
+        return false;
+    if (shadowIndex >= 0)
+        outShadow = vsmLocalShadowFactor(worldPosRelative, normalRelative, shadowIndex, isPoint);
+    return true;
 }
 
 // The internals of ONE sampling decision, for the debug views below. It walks

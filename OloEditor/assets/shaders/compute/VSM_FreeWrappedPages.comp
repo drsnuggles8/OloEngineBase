@@ -23,11 +23,56 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 #include "../include/VirtualShadowBuffers.glsl"
 
+// Releases a page and its physical backing. Shared by both domains so the meta
+// release cannot be implemented once and forgotten in the other — a page-table
+// entry zeroed without its meta entry leaks a physical page permanently.
+void vsmReleasePage(uint idx, uint entry)
+{
+    if (vsmPageIsAllocated(entry))
+    {
+        // Each physical page has exactly one owner, so no other invocation can be
+        // writing this meta entry.
+        b_MetaTable[vsmPhysicalPageIndex(vsmUnpackPhysicalPage(entry))] = 0u;
+        atomicAdd(b_PagesFreed, 1u);
+    }
+    b_PageTable[idx] = 0u;
+}
+
+// Local layers (issue #703) do NOT wrap. A light's face either stands still — in
+// which case every page under it stays valid — or the light moved, changed range
+// or cone, or lost its layers to another light, and the CPU raised that layer's
+// invalidate flag. So the whole toroidal argument below does not apply, and the
+// test is a flag lookup.
+//
+// Getting this wrong is the quiet kind: a moved light whose layers are NOT
+// flushed keeps rendering the shadows it cast from its old position, and they
+// look like a lighting bug rather than a cache one.
+void vsmFreeLocalPage(uint idx)
+{
+    uint entry = b_PageTable[idx];
+    if (entry == 0u)
+        return;
+
+    uint inLocal = idx - uint(VSM_TOTAL_VIRTUAL_PAGES);
+    int layer = int(inLocal / uint(VSM_LOCAL_PAGES_PER_LAYER));
+
+    if (VSM_FULL_INVALIDATE == 0 && b_LocalLayerInvalidate[layer] == 0u)
+        return;
+
+    vsmReleasePage(idx, entry);
+}
+
 void main()
 {
     uint idx = gl_GlobalInvocationID.x;
-    if (idx >= uint(VSM_TOTAL_VIRTUAL_PAGES))
+    if (idx >= uint(VSM_TOTAL_PAGE_TABLE_ENTRIES))
         return;
+
+    if (idx >= uint(VSM_TOTAL_VIRTUAL_PAGES))
+    {
+        vsmFreeLocalPage(idx);
+        return;
+    }
 
     uint entry = b_PageTable[idx];
     if (entry == 0u)
@@ -53,12 +98,5 @@ void main()
     if (!freeIt)
         return;
 
-    if (vsmPageIsAllocated(entry))
-    {
-        // Release the backing page. Each physical page has exactly one owner, so
-        // no other invocation can be writing this meta entry.
-        b_MetaTable[vsmPhysicalPageIndex(vsmUnpackPhysicalPage(entry))] = 0u;
-        atomicAdd(b_PagesFreed, 1u);
-    }
-    b_PageTable[idx] = 0u;
+    vsmReleasePage(idx, entry);
 }

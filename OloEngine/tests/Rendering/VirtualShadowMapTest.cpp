@@ -260,17 +260,25 @@ TEST(VirtualShadowMap, GPUStructLayoutsMatchTheirShaderTwins)
 {
     // std140/std430 sizes. A drift here does not fail to compile; it shifts every
     // subsequent member and produces plausible-looking garbage.
+    //
+    // Three of these grew for local lights (issue #703), and the numbers are
+    // restated rather than derived on purpose — the whole value of this test is
+    // that changing a struct forces someone to change its GLSL twin in the same
+    // commit. What must NOT drift silently is the DIRECTIONAL layout: ClipProjection
+    // and DrawInstance are byte-identical to their pre-#703 selves, which is what
+    // says the local work took pad words and appended blocks rather than moving
+    // anything the clip levels address.
     EXPECT_EQ(160u, sizeof(VSM::ClipProjection));
-    EXPECT_EQ(2720u, sizeof(VSM::GlobalsUBO));
+    EXPECT_EQ(2752u, sizeof(VSM::GlobalsUBO)); // 2720 + Params4 + Params5 (#703)
     EXPECT_EQ(16u, sizeof(VSM::PassUBO));
-    EXPECT_EQ(112u, sizeof(VSM::CullInstance));
-    EXPECT_EQ(80u, sizeof(VSM::DrawInstance));
+    EXPECT_EQ(128u, sizeof(VSM::CullInstance)); // 112 + LocalBatch (#703)
+    EXPECT_EQ(80u, sizeof(VSM::DrawInstance));  // unchanged — LocalLayer took a pad word
     // Must match GL's DrawElementsIndirectCommand exactly — the driver reads it.
     EXPECT_EQ(20u, sizeof(VSM::DrawCommand));
-    EXPECT_EQ(32u, sizeof(VSM::Statistics));
+    EXPECT_EQ(40u, sizeof(VSM::Statistics)); // 32 + the two local page counters (#703)
 
     EXPECT_EQ(0u, sizeof(VSM::GlobalsUBO) % 16u);
-    EXPECT_EQ(sizeof(VSM::ClipProjection) * VSM::kClipLevels + 64u + 6u * 16u, sizeof(VSM::GlobalsUBO));
+    EXPECT_EQ(sizeof(VSM::ClipProjection) * VSM::kClipLevels + 64u + 8u * 16u, sizeof(VSM::GlobalsUBO));
 }
 
 TEST(VirtualShadowMap, BindingSlotsDoNotCollideWithTheReservedVertexPullStreams)

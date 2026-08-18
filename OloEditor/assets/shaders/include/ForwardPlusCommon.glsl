@@ -14,6 +14,22 @@
 #ifndef FORWARD_PLUS_COMMON_GLSL
 #define FORWARD_PLUS_COMMON_GLSL
 
+#ifdef FPLUS_ATLAS_SHADOWS
+// Pulled in HERE rather than left to each includer (issue #703). The shadow
+// sites below call vsmLocalShadow, and a GLSL include cannot see a declaration
+// that comes after it — so every shader defining FPLUS_ATLAS_SHADOWS would
+// otherwise need this line, in the right order, forever.
+//
+// It was left to the includers for exactly one round, and Terrain_PBR.glsl —
+// the one clustered-shadow consumer that is not a "lighting" shader by name and
+// so was not in the set anyone thought to check — failed to compile at RUNTIME,
+// which on this engine means a warning in the log and a scene that renders
+// without terrain rather than a build error. Self-contained (UBO 81/82, SSBOs
+// 68/78, sampler 65) and header-guarded, so the includers that already have it
+// are unaffected.
+#include "VirtualShadowSampling.glsl"
+#endif
+
 // ---------------------------------------------------------------------------
 // GPU light structures (must match C++ GPUPointLight / GPUSpotLight / GPUSphereAreaLight)
 // ---------------------------------------------------------------------------
@@ -164,8 +180,18 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
             vec3 radiance = lightColor * atten * NdotL;
 
 #ifdef FPLUS_ATLAS_SHADOWS
+            // The shadow field is an atlas BASE ENTRY or a VSM LAYER BASE
+            // depending on which technique is live (issue #703) — the same
+            // number, two meanings, decided by vsmLocalShadow. Never index the
+            // atlas arrays on the VSM branch: a layer runs to 255 and those
+            // arrays are 48 long.
             int baseEntry = int(pl.ShadowAndAttenuation.x);
-            if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(worldPos, N, baseEntry, true, localShadow))
+            {
+                radiance *= localShadow;
+            }
+            else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
                 int entry = baseEntry + atlasCubeFace(worldPos - lightPos);
                 radiance *= calculateAtlasEntryShadow(
@@ -191,8 +217,15 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                                                                      albedo, metallic, roughness, worldPos);
 
 #ifdef FPLUS_ATLAS_SHADOWS
+            // Sphere-area lights shadow from their centre through the point path
+            // (a six-face cube), in both techniques — see the point branch above.
             int baseEntry = int(sl.RangeAndPadding.y);
-            if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(worldPos, N, baseEntry, true, localShadow))
+            {
+                contribution *= localShadow;
+            }
+            else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
                 int entry = baseEntry + atlasCubeFace(worldPos - lightPos);
                 contribution *= calculateAtlasEntryShadow(
@@ -236,7 +269,12 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
 
 #ifdef FPLUS_ATLAS_SHADOWS
             int atlasEntry = int(sl.SpotParams.z);
-            if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(worldPos, N, atlasEntry, false, localShadow))
+            {
+                radiance *= localShadow;
+            }
+            else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
                 radiance *= calculateAtlasEntryShadow(
                     worldPos, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],

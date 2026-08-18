@@ -121,7 +121,8 @@ before the physics kick, camera last) ·
 [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) (pass order decides who still sees
 previous-frame depth) ·
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) (clearing the LRU bit one step
-early evicts the whole cache every frame) · [render-pass-published-state.md](render-pass-published-state.md) (publish
+early evicts the whole cache every frame; §8 — a perspective light face cannot be culled by
+projecting AABB corners and dividing by w, and the caster vanishes only when it gets close) · [render-pass-published-state.md](render-pass-published-state.md) (publish
 last, restore deliberately) · [cluster-lod-simplification.md](cluster-lod-simplification.md) (a lock
 that must outlive the level that created it) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) (a read from a pooled

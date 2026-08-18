@@ -1,0 +1,665 @@
+Scene: VirtualShadowMapLocalLights.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Virtual shadow pages for POINT and SPOT lights (issue #703).
+#
+# 22 shadow-casting local lights — 16 point + 6 spot — over a colonnade of props
+# that stand BETWEEN the lights and the floor, so every light has something to
+# cast. That count is the whole point: the budgeted atlas (issue #435) caps out
+# at 16 LIGHTS and 32 ENTRIES, and a point light costs six entries, so this scene
+# starves it by construction. Under the atlas most of these lights get
+# `AtlasCasterRecord::Allocated == false` and simply have no shadow.
+#
+# HOW TO USE IT:
+#   1. Renderer Settings -> Active Path -> Deferred
+#   2. Renderer Settings -> Shadows -> Virtual Shadow Maps -> Enable VSM
+#      ("Local Lights (point / spot)" is on by default underneath it)
+#   Toggle VSM off and on and watch the props' shadows: with it OFF only the
+#   highest-scoring handful of lamps cast at all, and the rest light the props
+#   with no shadow under them. With it ON every lamp casts.
+#
+#   The panel prints the numbers the issue asks for, underneath the directional
+#   ones: "local lights N  layers L/256" and "local pages drawn / resident". The
+#   two things to read:
+#     * "local starved" must not appear at all — that is acceptance criterion 1;
+#     * with the camera held still, "local pages drawn" should settle to ~0,
+#       which is the page cache doing its job for local lights the same way it
+#       already does for the sun.
+#
+#   Over MCP the same switch is
+#   olo_renderer_settings_set {"setting":"virtualshadowmaps","value":"on"}.
+#
+# WHY THE LIGHTS ARE AT TWO SCALES OF DISTANCE. The near ring sits inside ~12 m
+# of the default camera and the far ring at 60-140 m. That spread is what makes
+# acceptance criterion 2 visible: a far lamp's pages resolve to a coarse mip and
+# cost a handful of pages for a whole cube face, while a near lamp of IDENTICAL
+# authored range and intensity resolves to mip 0. Under the atlas the two would
+# differ only by their priority RANK, and a far lamp that happened to rank high
+# would still be handed a 1024 px tile.
+#
+# ATTENUATION IS 0.03, NOT THE COMPONENT DEFAULT OF 2.0, on every lamp here. The
+# shading path uses it as the QUADRATIC coefficient, so the default is 1/(1+2d^2)
+# — half a percent of the light at 10 m — and a scene built on it is lit by
+# ambient alone. A scene like that shows no shadows whichever technique is
+# running, which makes it worthless as a demo AND indistinguishable from the
+# feature being broken. Do not "tidy" these back to the default.
+#
+# NO DIRECTIONAL LIGHT, deliberately. It keeps the frame's shadows attributable
+# to the local path alone, and it exercises the case that used to skip the whole
+# shadow pass: with no sun and an empty atlas, `AnyShadowsRequested()` had no
+# third source and ShadowRenderPass was culled entirely.
+# ─────────────────────────────────────────────────────────────────────────────
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 0.9
+  Gamma: 2.2
+  BloomEnabled: false
+  ColorGradingEnabled: false
+  FXAAEnabled: true
+  SSAOEnabled: false
+  GTAOEnabled: false
+  SSREnabled: false
+  SSGIEnabled: false
+  ContactShadowEnabled: false
+Entities:
+  # ── Camera: high enough to see the floor between the props, angled down the
+  #    colonnade so both light rings are on screen at once. ──
+  - Entity: 703000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 9, 26]
+      Rotation: [-0.28, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.05
+        PerspectiveFar: 2000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Very dim IBL. Low on purpose: the local lamps have to be what lights the
+  #    scene, or a missing shadow is hidden by ambient. ──
+  - Entity: 703000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 0.15
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.05
+      Tint: [1, 1, 1]
+  # ── The receiver. ──
+  - Entity: 703000000000003
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [400, 1, 400]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.7, 0.72]
+      Metallic: 0
+      Roughness: 1
+  # ── NEAR colonnade: eight posts in two rows, each with a lamp above and
+  #    between them so the post casts a long shadow across the floor. A thin post
+  #    is the classic caster a coarse shadow map loses entirely, which makes it
+  #    the clearest read on per-light texel density. ──
+  - Entity: 703000000000010
+    TagComponent:
+      Tag: NearPostL0
+    TransformComponent:
+      Translation: [-6, 2, 8]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 4, 0.35]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.88, 0.9]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000011
+    TagComponent:
+      Tag: NearPostL1
+    TransformComponent:
+      Translation: [-6, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 4, 0.35]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.88, 0.9]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000012
+    TagComponent:
+      Tag: NearPostL2
+    TransformComponent:
+      Translation: [-6, 2, -8]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 4, 0.35]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.88, 0.9]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000013
+    TagComponent:
+      Tag: NearPostR0
+    TransformComponent:
+      Translation: [6, 2, 8]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 4, 0.35]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.88, 0.9]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000014
+    TagComponent:
+      Tag: NearPostR1
+    TransformComponent:
+      Translation: [6, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 4, 0.35]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.88, 0.9]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000015
+    TagComponent:
+      Tag: NearPostR2
+    TransformComponent:
+      Translation: [6, 2, -8]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 4, 0.35]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.88, 0.9]
+      Metallic: 0
+      Roughness: 1
+  # ── Boxes and spheres in the aisle: geometry on SEVERAL SIDES of the lamps, so
+  #    all six cube faces of a point light are exercised rather than just the
+  #    downward one. A seam between two faces shows up here as a straight edge
+  #    running through a shadow that has no geometry to explain it. ──
+  - Entity: 703000000000020
+    TagComponent:
+      Tag: AisleBoxA
+    TransformComponent:
+      Translation: [0, 1, 6]
+      Rotation: [0, 0.5, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.78, 0.74]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000021
+    TagComponent:
+      Tag: AisleSphereA
+    TransformComponent:
+      Translation: [-2.5, 1.2, 2]
+      Rotation: [0, 0, 0]
+      Scale: [2.4, 2.4, 2.4]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 0.6, 0.55]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 703000000000022
+    TagComponent:
+      Tag: AisleBoxB
+    TransformComponent:
+      Translation: [2.5, 1.4, -4]
+      Rotation: [0, -0.4, 0]
+      Scale: [2.8, 2.8, 2.8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.75, 0.82]
+      Metallic: 0
+      Roughness: 1
+  # ── A CEILING SLAB over the near aisle. Its whole job is to be ABOVE the
+  #    lamps: without it the +Y cube faces of every point light see nothing, and
+  #    a bug in one face out of six is invisible. ──
+  - Entity: 703000000000023
+    TagComponent:
+      Tag: CeilingSlab
+    TransformComponent:
+      Translation: [0, 8, 0]
+      Rotation: [0, 0, 0]
+      Scale: [16, 0.4, 26]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.55, 0.58]
+      Metallic: 0
+      Roughness: 1
+  # ── NEAR point lamps: eight of them, all CastShadows. Under the atlas these
+  #    alone are 48 entries against a 32-entry budget. ──
+  - Entity: 703000000000100
+    TagComponent:
+      Tag: NearLamp0
+    TransformComponent:
+      Translation: [-3, 5, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.88, 0.7]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000101
+    TagComponent:
+      Tag: NearLamp1
+    TransformComponent:
+      Translation: [3, 5, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.85, 1]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000102
+    TagComponent:
+      Tag: NearLamp2
+    TransformComponent:
+      Translation: [-3, 5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.7, 0.65]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000103
+    TagComponent:
+      Tag: NearLamp3
+    TransformComponent:
+      Translation: [3, 5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.75, 1, 0.78]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000104
+    TagComponent:
+      Tag: NearLamp4
+    TransformComponent:
+      Translation: [-3, 5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.95, 0.85]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000105
+    TagComponent:
+      Tag: NearLamp5
+    TransformComponent:
+      Translation: [3, 5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.85, 0.8, 1]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000106
+    TagComponent:
+      Tag: NearLamp6
+    TransformComponent:
+      Translation: [-3, 5, -11]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.82, 0.6]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000107
+    TagComponent:
+      Tag: NearLamp7
+    TransformComponent:
+      Translation: [3, 5, -11]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.65, 0.9, 1]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── FAR pylons + FAR lamps: identical authored Range and Intensity to the near
+  #    ring, 60-140 m out. Acceptance criterion 2 is exactly the difference this
+  #    pair makes: same authored priority, wildly different page cost. ──
+  - Entity: 703000000000030
+    TagComponent:
+      Tag: FarPylonA
+    TransformComponent:
+      Translation: [-22, 5, -60]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 10, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.84]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000031
+    TagComponent:
+      Tag: FarPylonB
+    TransformComponent:
+      Translation: [18, 5, -85]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 10, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.84]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000032
+    TagComponent:
+      Tag: FarPylonC
+    TransformComponent:
+      Translation: [-14, 5, -120]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 10, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.84]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000033
+    TagComponent:
+      Tag: FarPylonD
+    TransformComponent:
+      Translation: [24, 5, -140]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 10, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.84]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 703000000000110
+    TagComponent:
+      Tag: FarLamp0
+    TransformComponent:
+      Translation: [-18, 6, -58]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.85, 0.65]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000111
+    TagComponent:
+      Tag: FarLamp1
+    TransformComponent:
+      Translation: [22, 6, -83]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.88, 1]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000112
+    TagComponent:
+      Tag: FarLamp2
+    TransformComponent:
+      Translation: [-10, 6, -118]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.75, 0.7]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000113
+    TagComponent:
+      Tag: FarLamp3
+    TransformComponent:
+      Translation: [28, 6, -138]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.8, 1, 0.82]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000114
+    TagComponent:
+      Tag: FarLamp4
+    TransformComponent:
+      Translation: [-26, 6, -95]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.75]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000115
+    TagComponent:
+      Tag: FarLamp5
+    TransformComponent:
+      Translation: [6, 6, -105]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.72, 0.82, 1]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000116
+    TagComponent:
+      Tag: FarLamp6
+    TransformComponent:
+      Translation: [-30, 6, -130]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.78, 0.62]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000117
+    TagComponent:
+      Tag: FarLamp7
+    TransformComponent:
+      Translation: [12, 6, -66]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.85, 1, 0.9]
+      Intensity: 6
+      Range: 16
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Six shadow-casting SPOT lights aimed down the aisle. Spots are one layer
+  #    each, so they are also the cheap half of the "flat pool" claim: the same
+  #    256 layers that hold 42 point lights hold 256 spots. ──
+  - Entity: 703000000000200
+    TagComponent:
+      Tag: Spot0
+    TransformComponent:
+      Translation: [-9, 7, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.4, -1, -0.3]
+      Color: [1, 0.95, 0.9]
+      Intensity: 12
+      Range: 30
+      InnerCutoff: 14
+      OuterCutoff: 24
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000201
+    TagComponent:
+      Tag: Spot1
+    TransformComponent:
+      Translation: [9, 7, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.4, -1, -0.3]
+      Color: [0.9, 0.95, 1]
+      Intensity: 12
+      Range: 30
+      InnerCutoff: 14
+      OuterCutoff: 24
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000202
+    TagComponent:
+      Tag: Spot2
+    TransformComponent:
+      Translation: [-9, 7, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.4, -1, 0.1]
+      Color: [1, 0.88, 0.8]
+      Intensity: 12
+      Range: 30
+      InnerCutoff: 14
+      OuterCutoff: 24
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000203
+    TagComponent:
+      Tag: Spot3
+    TransformComponent:
+      Translation: [9, 7, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.4, -1, 0.1]
+      Color: [0.85, 1, 0.9]
+      Intensity: 12
+      Range: 30
+      InnerCutoff: 14
+      OuterCutoff: 24
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000204
+    TagComponent:
+      Tag: Spot4
+    TransformComponent:
+      Translation: [-9, 7, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.4, -1, 0.4]
+      Color: [1, 0.8, 0.75]
+      Intensity: 12
+      Range: 30
+      InnerCutoff: 14
+      OuterCutoff: 24
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 703000000000205
+    TagComponent:
+      Tag: Spot5
+    TransformComponent:
+      Translation: [9, 7, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.4, -1, 0.4]
+      Color: [0.8, 0.9, 1]
+      Intensity: 12
+      Range: 30
+      InnerCutoff: 14
+      OuterCutoff: 24
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
