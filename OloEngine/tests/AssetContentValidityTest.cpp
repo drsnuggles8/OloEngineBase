@@ -1430,6 +1430,28 @@ namespace OloEngine::Tests
             { "animation",
               std::regex(R"([0-9A-F]{16}\.oanim)"),
               "<path-hash>.oanim" },
+            // Cooked-texture cache (MeshCache::GetEmbeddedTextureCacheDirectory).
+            // Textures the importer SYNTHESISES rather than reads off disk, written
+            // out as real .png files so they have a path and can therefore survive
+            // the .omesh cache and the asset pack (issue #791 — before that a
+            // synthesised texture had no identity and the warm load silently lost
+            // the map). Two producers, one directory:
+            //   `emb_` — a bitmap embedded in a glTF/GLB/FBX (Model::CookEmbeddedTexture)
+            //   `mr_`  — the legacy/specular workflow's separate metallic + roughness
+            //            files packed into one map (Model::CookPackedMetallicRoughnessTexture)
+            // The name is `<prefix><identity-hash><colour-space>.png`: 16 LOWERCASE hex
+            // digits (std::hex), then the colour-space intent, which is part of the
+            // filename because the packed-runtime loader and the pack cook both decide
+            // sRGB from the name (TextureCompression::IsLikelyColorTexture).
+            //
+            // No orphan detection: unlike a shader, whose source file is the obvious
+            // referent, deciding whether one of these is still reachable means
+            // re-importing every model and re-deriving its texture hashes. They are
+            // small, content-addressed and stable across re-imports, so a stale one is
+            // dead weight rather than a hazard.
+            { "embedded",
+              std::regex(R"((emb|mr)_[0-9a-f]{16}_(basecolor|linear)\.png)"),
+              "{emb|mr}_<identity-hash>_{basecolor|linear}.png" },
             // physics/ and shapes/ are reserved for future caches. Until they
             // grow content with a stable filename pattern, any file appearing
             // there is unclassified and fails the test below.

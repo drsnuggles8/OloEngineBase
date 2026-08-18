@@ -40,11 +40,15 @@
 
 #include "PropertyTests/RenderPropertyTest.h"
 
+#include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/Texture.h"
 
+#include <glad/gl.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -146,6 +150,143 @@ namespace OloEngine::Tests
                                                           "feeding '*N' URIs to the filesystem texture loader instead "
                                                           "of resolving them via aiScene::GetEmbeddedTexture.";
             }
+        }
+
+        // The texture's ACTUAL contents off the GPU (level 0, RGBA8). Reading the GPU
+        // rather than a file compares what the renderer will sample, whichever route
+        // the material resolved through — cooked file, registry handle or in-memory
+        // decode. A warm load that produced SOME texture but the wrong one would
+        // satisfy a bare "has an albedo map" assertion; this does not.
+        std::vector<u8> ReadTexturePixels(const Ref<Texture2D>& texture)
+        {
+            if (!texture || texture->GetWidth() == 0 || texture->GetHeight() == 0)
+            {
+                return {};
+            }
+            std::vector<u8> pixels(static_cast<sizet>(texture->GetWidth()) * texture->GetHeight() * 4u);
+            ::glGetTextureImage(texture->GetRendererID(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                static_cast<GLsizei>(pixels.size()), pixels.data());
+            return pixels;
+        }
+
+        // The first albedo map any material in the model carries, or null.
+        Ref<Texture2D> FirstAlbedoMap(const Model& model)
+        {
+            for (sizet i = 0; i < model.GetMaterialCount(); ++i)
+            {
+                if (auto material = model.GetMaterial(i); material && material->GetAlbedoMap())
+                {
+                    return material->GetAlbedoMap();
+                }
+            }
+            return nullptr;
+        }
+
+        // =====================================================================
+        // The WARM half of the loader contract (issue #791).
+        //
+        // Everything above loads each variant exactly once, which only ever
+        // exercises the COLD path: a fresh checkout has no
+        // OloEditor/assets/cache/mesh/. That is precisely why CI could never
+        // see this bug — a runner is cold by construction and always passes.
+        // It bit a developer or an agent running the suite twice on one
+        // machine, where the second run reads back the .omesh the first run
+        // wrote, and it presented as a FLAKY test because the first run of the
+        // day was green.
+        //
+        // What broke: an embedded texture (TexturedComplex and TexturedEmbedded
+        // store their images in glTF bufferViews rather than as sidecar URIs)
+        // has no file and no asset handle, so Model cooks it into a real .png
+        // to give it an identity. That cook used to require an active project.
+        // With no project — which is every load in this fixture — there was no
+        // cook, so ImportedMaterialCodec recorded an EMPTY texture reference
+        // into the .omesh and the warm load resolved a material with no albedo
+        // map at all. No error, no warning: just fewer textures on run 2.
+        //
+        // So this case loads twice on purpose. Run 2 is a different experiment
+        // than run 1, not a repeat of it.
+        // =====================================================================
+        TEST_P(DeccerCubesLoaderFixture, SurvivesAWarmMeshCacheRoundTrip)
+        {
+            OLO_ENSURE_GPU_OR_SKIP();
+
+            const auto param = GetParam();
+            const auto absolutePath = EditorRoot() / param.RelativePath;
+
+            ASSERT_TRUE(std::filesystem::exists(absolutePath))
+                << "Fixture file missing: " << absolutePath.string();
+
+            // Start cold whatever the machine's cache state is, so the two halves below
+            // are genuinely cold-then-warm rather than warm-then-warm. Both prefixes:
+            // "static_uvflip_v1" is the default-flipped-UV namespace OBJ takes, and a
+            // stale entry in the one we are not about to write would go unnoticed.
+            MeshCache::InvalidateCache(absolutePath);
+            MeshCache::InvalidateCache(absolutePath, "static_uvflip_v1");
+
+            // -- Cold: straight from the source file via Assimp. Ground truth. --
+            sizet coldMeshCount = 0;
+            glm::vec3 coldExtent{ 0.0f };
+            std::vector<u8> coldAlbedoPixels;
+            {
+                Model cold{ absolutePath.string() };
+                coldMeshCount = cold.GetMeshCount();
+                ASSERT_GT(coldMeshCount, 0u) << "the cold load produced no meshes for " << param.Name;
+                coldExtent = cold.GetBoundingBox().GetSize();
+
+                if (param.ExpectsAlbedoTexture)
+                {
+                    Ref<Texture2D> const albedo = FirstAlbedoMap(cold);
+                    ASSERT_TRUE(albedo)
+                        << "the COLD load of " << param.Name << " already has no albedo map, so the warm "
+                                                                "comparison below would be vacuous — fix the importer before reading anything "
+                                                                "into the cache half of this test";
+                    coldAlbedoPixels = ReadTexturePixels(albedo);
+                    ASSERT_FALSE(coldAlbedoPixels.empty());
+                    ASSERT_TRUE(std::ranges::any_of(coldAlbedoPixels,
+                                                    [&](u8 b)
+                                                    { return b != coldAlbedoPixels[0]; }))
+                        << "the cold albedo is a uniform block — comparing it to anything proves nothing";
+                }
+            }
+
+            // A .gltf/.glb is not an OBJ, so it takes the un-prefixed cache namespace.
+            ASSERT_TRUE(MeshCache::IsMeshCacheValid(absolutePath))
+                << "the cold load wrote no .omesh for " << param.Name
+                << ", so the warm half below would silently re-run the cold path and prove nothing";
+
+            // -- Warm: geometry and materials come back out of the .omesh. --
+            Model warm{ absolutePath.string() };
+
+            EXPECT_EQ(warm.GetMeshCount(), coldMeshCount)
+                << "the warm load produced a different number of meshes for " << param.Name;
+
+            const glm::vec3 warmExtent = warm.GetBoundingBox().GetSize();
+            EXPECT_TRUE(std::isfinite(warmExtent.x) && std::isfinite(warmExtent.y) && std::isfinite(warmExtent.z))
+                << "the warm bounding box contains NaN/Inf for " << param.Name;
+            EXPECT_NEAR(warmExtent.x, coldExtent.x, 1e-3f) << "warm bounds drifted for " << param.Name;
+            EXPECT_NEAR(warmExtent.y, coldExtent.y, 1e-3f) << "warm bounds drifted for " << param.Name;
+            EXPECT_NEAR(warmExtent.z, coldExtent.z, 1e-3f) << "warm bounds drifted for " << param.Name;
+
+            if (!param.ExpectsAlbedoTexture)
+            {
+                return;
+            }
+
+            Ref<Texture2D> const warmAlbedo = FirstAlbedoMap(warm);
+            ASSERT_TRUE(warmAlbedo)
+                << "No material in " << param.Name << " carries an albedo map after a WARM cache load, "
+                                                      "though the cold load a moment ago did. The .omesh is storing a texture reference "
+                                                      "nothing can resolve — for an *Embedded/*Complex variant that means the embedded "
+                                                      "bitmap was never cooked to a real file, so ImportedMaterialCodec had neither an "
+                                                      "asset handle nor a path to write.";
+
+            // Not merely SOME texture: the same pixels. A material holding a handle to the
+            // wrong texture would pass the assertion above.
+            const std::vector<u8> warmAlbedoPixels = ReadTexturePixels(warmAlbedo);
+            EXPECT_EQ(warmAlbedoPixels, coldAlbedoPixels)
+                << "the albedo survived the .omesh for " << param.Name << " but its CONTENT differs from "
+                                                                          "the cold import — the cache round-trip must reproduce the exact pixels, orientation "
+                                                                          "included, not merely produce a texture";
         }
 
         // Every shipped .gltf/.glb under OloEditor/assets/models/DeccerCubes/.

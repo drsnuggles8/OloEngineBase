@@ -48,14 +48,25 @@ namespace OloEngine
     // embeds them, which is most GLB files.
     //
     // The fix is in the IMPORTER, not here: Model::LoadMaterialTextures now COOKS an embedded
-    // bitmap into a real .png asset under <AssetDir>/cache/embedded/ and ImportAsset()s it, so
-    // it gains a stable, deterministic path AND a registry handle like any other texture — after
-    // which the handle-plus-path scheme below already works, unchanged. The cooked name is
-    // derived from FNV-1a-64(model path | Assimp texture ref) plus the colour-space intent, so
-    // it is stable across re-imports (the pack does not churn and scene references do not rot),
-    // and the intent is spelled into the filename because the packed-runtime loader and the pack
-    // cook both decide sRGB from the FILENAME.
-    // Pinned by ImportedMaterialPackTest.EmbeddedTextureSurvivesThe{OmeshCache,AssetPack}.
+    // bitmap into a real .png asset under <AssetRoot>/cache/embedded/ and (where an editor
+    // asset manager exists) ImportAsset()s it, so it gains a stable, deterministic path AND a
+    // registry handle like any other texture — after which the handle-plus-path scheme below
+    // already works, unchanged. The cooked name is derived from FNV-1a-64(model path | Assimp
+    // texture ref) plus the colour-space intent, so it is stable across re-imports (the pack
+    // does not churn and scene references do not rot), and the intent is spelled into the
+    // filename because the packed-runtime loader and the pack cook both decide sRGB from the
+    // FILENAME.
+    //
+    // The cook is NOT conditional on a project (issue #791). It was, and that made the gap
+    // above reappear for every load with no project mounted: no cook, so no path and no
+    // handle, so an empty TextureRef in the .omesh, so a warm load with no albedo map. The
+    // asset ROOT falls back to a CWD-relative "assets" (MeshCache owns that rule, so the
+    // texture lands beside the .omesh that references it) and only the registry half needs an
+    // editor asset manager. Realize() resolves the path before the handle, so the path alone
+    // carries the .omesh round-trip.
+    // Pinned by ImportedMaterialPackTest.EmbeddedTextureSurvivesThe{OmeshCache,AssetPack} and,
+    // for the project-less path this codec is most often driven from, by
+    // DeccerCubesLoaderFixture.SurvivesAWarmMeshCacheRoundTrip.
     //
     // STILL OPEN: AnimatedModel::LoadMaterialTextures (the rigged/skinned importer) never had
     // embedded-texture support at all — it does not take the aiScene and never calls
@@ -126,6 +137,23 @@ namespace OloEngine
         // is unknown but the file exists. A slot that resolves to nothing is simply
         // left unset (the consumer's own default applies), never a hard failure.
         [[nodiscard]] std::vector<Ref<Material>> Realize(const std::vector<MaterialDesc>& descs);
+
+        // True when every texture slot that is actually SET on `materials` describes to a
+        // reference a reader could resolve — an asset handle, a source path, or both.
+        //
+        // Describe() cannot fail: a texture with neither identity yields an empty TextureRef
+        // and the encoded material simply comes back mapless. That is the correct behaviour
+        // for a slot that was always empty, and silent data loss for one that was not. A
+        // caller writing a PERSISTENT cache must tell the two apart, because a cache entry
+        // that resolves to fewer textures than a fresh import is worse than no cache entry
+        // at all: the fresh import is merely slow, the cache entry is wrong, and it is wrong
+        // only on the second run — which is what made issue #791 read as a flaky test.
+        //
+        // Call this before persisting a material table and omit the table when it returns
+        // false; the reader then re-imports the materials from source, which is slower and
+        // correct. This is a backstop, not the fix: the importer's job is to give every
+        // texture an identity in the first place (Model::CookEmbeddedTexture).
+        [[nodiscard]] bool CanPersistEveryTexture(const std::vector<Ref<Material>>& materials);
 
         // Wire format (self-describing; own magic + version).
         [[nodiscard]] std::vector<u8> Encode(const std::vector<MaterialDesc>& descs);

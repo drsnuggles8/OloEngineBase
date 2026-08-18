@@ -17,6 +17,7 @@ namespace OloEngine
     {
         constexpr const char* kMeshCacheSubdir = "cache/mesh";
         constexpr const char* kAnimationCacheSubdir = "cache/animation";
+        constexpr const char* kEmbeddedTextureCacheSubdir = "cache/embedded";
 
         // Returns the project asset directory if a project is active, or falls back
         // to the CWD-relative "assets/" for headless / test scenarios.
@@ -89,6 +90,13 @@ namespace OloEngine
         std::filesystem::path GetAnimationCacheDirectory()
         {
             auto dir = GetAssetRoot() / kAnimationCacheSubdir;
+            EnsureDirectoryExists(dir);
+            return dir;
+        }
+
+        std::filesystem::path GetEmbeddedTextureCacheDirectory()
+        {
+            auto dir = GetAssetRoot() / kEmbeddedTextureCacheSubdir;
             EnsureDirectoryExists(dir);
             return dir;
         }

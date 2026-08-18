@@ -8,6 +8,7 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Texture.h"
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -365,6 +366,41 @@ namespace OloEngine::ImportedMaterialCodec
         }
 
         return materials;
+    }
+
+    bool CanPersistEveryTexture(const std::vector<Ref<Material>>& materials)
+    {
+        for (const auto& material : materials)
+        {
+            if (!material)
+            {
+                continue;
+            }
+
+            const std::array<Ref<Texture2D>, 5> slots = {
+                material->GetAlbedoMap(),
+                material->GetMetallicRoughnessMap(),
+                material->GetNormalMap(),
+                material->GetAOMap(),
+                material->GetEmissiveMap(),
+            };
+
+            for (const auto& texture : slots)
+            {
+                // An UNSET slot is nothing to lose. A SET slot whose description is empty is
+                // a texture the reader has no way of finding again — neither a handle nor a
+                // path — so persisting this table would quietly drop it.
+                if (texture && DescribeTexture(texture).IsEmpty())
+                {
+                    OLO_CORE_WARN("ImportedMaterialCodec: material '{}' carries a texture with neither an asset "
+                                  "handle nor a source path, so it cannot be persisted",
+                                  material->GetName());
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     std::vector<u8> Encode(const std::vector<MaterialDesc>& descs)

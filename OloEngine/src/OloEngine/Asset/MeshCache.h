@@ -23,6 +23,18 @@ namespace OloEngine
         // Returns the animation cache directory path (assets/cache/animation/).
         std::filesystem::path GetAnimationCacheDirectory();
 
+        // Returns the embedded-texture cache directory path (assets/cache/embedded/),
+        // where Model cooks a glTF/FBX embedded bitmap into a real .png so it gains a
+        // path (and, when a project is mounted, a registry handle).
+        //
+        // It lives here — next to the mesh cache rather than in Model — because the two
+        // must resolve the SAME asset root. A .omesh written under this root references
+        // a cooked texture by path; if the texture root were derived differently (say,
+        // only from an active project) the two would disagree the moment there is no
+        // project, and the warm load would read a cache whose texture paths point
+        // nowhere. That divergence was issue #791.
+        std::filesystem::path GetEmbeddedTextureCacheDirectory();
+
         // Compute cache file path from source file path.
         // e.g. "models/fox.gltf" → "assets/cache/mesh/<hash>.omesh"
         // Optional prefix differentiates cache namespaces (e.g. "anim_" for animated models).
