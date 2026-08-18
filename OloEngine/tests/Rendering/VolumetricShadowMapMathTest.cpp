@@ -532,6 +532,66 @@ namespace OloEngine::Tests
         EXPECT_FALSE(VolumetricShadowMap::AnyCascadeEnabled());
     }
 
+    TEST(VolumetricShadowMapMath, FogCascadeHoldsStillUnderSubTexelCameraMotion)
+    {
+        // The end-to-end version of TexelSnappingAbsorbsSubTexelCameraMotion,
+        // through the REAL domain builder — because the snap can be perfect and
+        // still useless.
+        //
+        // FitCascade snaps the light-space origin to a grid whose cell size is
+        // derived from the domain's EXTENT. That is stable only while the extent
+        // is. The fog domain's vertical extent used to follow the camera
+        // continuously (`bottom = min(cameraY, HeightOffset) - ...`), so once the
+        // camera sat below HeightOffset every frame produced a slightly
+        // different cell size, the floor() landed on a different grid, and every
+        // sample slid sub-texel — straight into the froxel scatter's
+        // 0.9-weight history, which is where it would have shown up as shimmer
+        // rather than as anything pointing at this code.
+        CloudscapeRenderState clouds; // disabled: fog cascade only
+        FogSettings fog;
+        fog.Enabled = true;
+        fog.EnableVolumetric = true;
+        fog.EnableVolumetricSelfShadow = true;
+        const FogVolumesUBOData volumes{};
+        const glm::vec3 renderOrigin(0.0f);
+        const glm::vec3 towardLight = glm::normalize(glm::vec3(0.4f, 0.3f, 0.1f));
+
+        // Below HeightOffset (0), which is the regime that used to slide.
+        const glm::vec3 cameraBase(11.0f, -18.0f, -7.0f);
+        VolumetricShadowMap::PrepareFrame(clouds, fog, volumes, cameraBase, renderOrigin, towardLight, false);
+        const VolumetricShadowMap::CascadeState base =
+            VolumetricShadowMap::GetCascade(VolumetricShadowMap::Cascade::Fog);
+        ASSERT_TRUE(base.Enabled);
+
+        // A camera drifting by centimetres, including vertically.
+        for (const glm::vec3& nudge : { glm::vec3(0.03f, 0.02f, 0.01f), glm::vec3(-0.05f, 0.04f, 0.02f),
+                                        glm::vec3(0.11f, -0.09f, 0.07f) })
+        {
+            VolumetricShadowMap::PrepareFrame(clouds, fog, volumes, cameraBase + nudge, renderOrigin,
+                                              towardLight, false);
+            const VolumetricShadowMap::CascadeState moved =
+                VolumetricShadowMap::GetCascade(VolumetricShadowMap::Cascade::Fog);
+            ASSERT_TRUE(moved.Enabled);
+
+            // Identical transform means identical sampling: nothing slid.
+            EXPECT_FLOAT_EQ(moved.StepLength, base.StepLength);
+            for (u32 column = 0; column < 4u; ++column)
+            {
+                for (u32 row = 0; row < 4u; ++row)
+                {
+                    EXPECT_FLOAT_EQ(moved.RelWorldToTex[column][row], base.RelWorldToTex[column][row])
+                        << "RelWorldToTex[" << column << "][" << row << "] moved under a sub-texel nudge";
+                    EXPECT_FLOAT_EQ(moved.TexToAbsWorld[column][row], base.TexToAbsWorld[column][row])
+                        << "TexToAbsWorld[" << column << "][" << row << "] moved under a sub-texel nudge";
+                }
+            }
+        }
+
+        // Leave the process-global snapshot clean.
+        VolumetricShadowMap::PrepareFrame(CloudscapeRenderState{}, FogSettings{}, volumes, cameraBase,
+                                          renderOrigin, towardLight, false);
+    }
+
     TEST(VolumetricShadowMapMath, BoundsUnionAndWindowClampBehave)
     {
         const Bounds a = MakeBounds(glm::vec3(0.0f), glm::vec3(5.0f));

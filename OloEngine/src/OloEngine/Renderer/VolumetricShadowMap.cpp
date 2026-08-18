@@ -282,6 +282,33 @@ namespace OloEngine
             const f32 froxelFar = std::clamp(fog.End, 20.0f, 500.0f) * kFrustumCornerReach;
             const f32 halfExtent = std::max(std::max(fog.VolumetricSelfShadowExtent, 4.0f) * 0.5f, froxelFar);
 
+            // QUANTIZE THE CAMERA before deriving anything from it, or the
+            // domain's EXTENT becomes a continuous function of camera position
+            // and defeats FitCascade's snap entirely.
+            //
+            // The snap keeps the light-space ORIGIN on a grid whose cell size is
+            // `raw / (cells - 1)` — derived from the extent. That is stable only
+            // while the extent is. The XZ extent is fixed (+/- halfExtent) and a
+            // box's projected width does not depend on where the box is, so XZ
+            // was always fine. The Y extent is NOT: `bottom` follows
+            // min(cameraY, HeightOffset), so once the camera drops below
+            // HeightOffset every frame gets a slightly different cell size, the
+            // floor() lands on a different grid, and samples slide sub-texel —
+            // the exact shimmer the z-snap exists to prevent, fed straight into
+            // the froxel scatter's 0.9-weight history. Clipping a partially
+            // overlapping fog volume against a continuously moving window does
+            // the same thing.
+            //
+            // One texel of the cascade's own XZ footprint is the natural
+            // quantum: the window then moves in whole texels, exactly as
+            // CloudShadowMap snaps its centre.
+            const f32 quantum = std::max(2.0f * halfExtent / static_cast<f32>(VolumetricShadowMap::kResolution),
+                                         1.0e-3f);
+            const auto quantize = [quantum](f32 v)
+            { return std::floor(v / quantum) * quantum; };
+            const glm::vec3 cameraSnapped(quantize(cameraPosAbsolute.x), quantize(cameraPosAbsolute.y),
+                                          quantize(cameraPosAbsolute.z));
+
             Bounds domain;
             if (fog.Density > 0.0f)
             {
@@ -290,18 +317,18 @@ namespace OloEngine
                 // to fit — the window bounds that side.
                 const f32 scaleHeights = (fog.HeightFalloff > 1.0e-4f) ? (5.0f / fog.HeightFalloff)
                                                                        : (halfExtent * 2.0f);
-                const f32 top = fog.HeightOffset + std::clamp(scaleHeights, 5.0f, halfExtent * 2.0f);
+                const f32 top = quantize(fog.HeightOffset + std::clamp(scaleHeights, 5.0f, halfExtent * 2.0f));
                 // A QUARTER of the window below, not a whole one. Fog under the
                 // camera has to be in the box — the light path to a low froxel
                 // passes through it — but the box's extent along the light is
                 // divided by kSlicesPerCascade, so every metre of empty depth
                 // below the ground is paid for in march resolution everywhere
                 // else. A quarter keeps the slices near the medium.
-                const f32 bottom = std::min(cameraPosAbsolute.y, fog.HeightOffset) - halfExtent * 0.25f;
+                const f32 bottom = quantize(std::min(cameraSnapped.y, fog.HeightOffset) - halfExtent * 0.25f);
 
-                domain.Min = glm::vec3(cameraPosAbsolute.x - halfExtent, bottom, cameraPosAbsolute.z - halfExtent);
-                domain.Max = glm::vec3(cameraPosAbsolute.x + halfExtent, std::max(top, bottom + 1.0f),
-                                       cameraPosAbsolute.z + halfExtent);
+                domain.Min = glm::vec3(cameraSnapped.x - halfExtent, bottom, cameraSnapped.z - halfExtent);
+                domain.Max = glm::vec3(cameraSnapped.x + halfExtent, std::max(top, bottom + quantum),
+                                       cameraSnapped.z + halfExtent);
             }
 
             // A distant volume may widen the cascade, but only so far: past
@@ -319,7 +346,7 @@ namespace OloEngine
                 const Bounds volumeBounds =
                     FogVolumeWorldBounds(volume.WorldToLocal, static_cast<i32>(volume.ShapeAndFalloff.x + 0.5f),
                                          glm::vec3(volume.Extents));
-                const Bounds clipped = ClampBoundsToWindow(volumeBounds, cameraPosAbsolute, volumeWindowHalf);
+                const Bounds clipped = ClampBoundsToWindow(volumeBounds, cameraSnapped, volumeWindowHalf);
                 domain = UnionBounds(domain, clipped);
             }
 
@@ -360,6 +387,21 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         s_Data.m_Cascades = {};
+
+        // A latched creation failure disables both cascades AT THE SOURCE.
+        // Without this the enable lane the caller uploads says "available"
+        // while Dispatch() returns before it can ever publish the sampler, so
+        // both consumers pass their `u_VsmParams[c].x < 0.5` gate and sample an
+        // unbound texture unit — which reads (0,0,0,1) and therefore *happens*
+        // to mean "no shadowing", but only by accident of what an incomplete GL
+        // texture returns. The failure is sticky, so one frame can still slip
+        // through (the one during which creation failed); everything after it
+        // is honestly off. CloudShadowMap's `IsReady()` gate three lines below
+        // the upload is the same idea.
+        if (s_Data.m_CreationFailed)
+        {
+            return;
+        }
 
         if (clouds.Enabled && clouds.VolumetricSelfShadow && cloudFieldReady)
         {
@@ -520,6 +562,11 @@ namespace OloEngine
     bool VolumetricShadowMap::IsReady()
     {
         return s_Data.m_Ready;
+    }
+
+    bool VolumetricShadowMap::HasFailed()
+    {
+        return s_Data.m_CreationFailed;
     }
 
     RHI::ResourceHandle VolumetricShadowMap::GetTextureHandle()

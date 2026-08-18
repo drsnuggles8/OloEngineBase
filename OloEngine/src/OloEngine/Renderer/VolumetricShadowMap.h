@@ -258,6 +258,13 @@ namespace OloEngine
         /// @return true after the first successful Dispatch().
         [[nodiscard]] static bool IsReady();
 
+        /// @return true once resource creation has failed and latched. The
+        /// failure is sticky, so this is the honest input to "should the
+        /// consumers be told a cascade is available?" — unlike IsReady(), which
+        /// is false on the first frame purely because Dispatch() has not run
+        /// yet (PrepareFrame precedes it by contract).
+        [[nodiscard]] static bool HasFailed();
+
         /// @return Identity of the R32F volume; RHI::NullResource when not ready.
         [[nodiscard]] static RHI::ResourceHandle GetTextureHandle();
 
