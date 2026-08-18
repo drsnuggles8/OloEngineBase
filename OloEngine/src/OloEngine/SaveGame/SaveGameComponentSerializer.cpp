@@ -1668,9 +1668,10 @@ namespace OloEngine
         ar << c.m_PhaseG << c.m_PowderStrength;
         ar << c.m_CastCloudShadows << c.m_ShadowStrength << c.m_ShadowMapWorldSize;
         ar << c.m_TemporalBlend << c.m_AffectIBL;
-        // Appended in v15 (issue #723). Gated, or every field a future slice
-        // appends after it desyncs when a v14 save is read.
-        if (HasFieldsSince(ar, 15))
+        // Appended in v16 (issue #723 — v15 went to #727's voxel mesher, which
+        // landed on master while this was in flight). Gated, or every field a
+        // future slice appends after it desyncs when a v15 save is read.
+        if (HasFieldsSince(ar, 16))
         {
             ar << c.m_VolumetricSelfShadow << c.m_VolumetricSelfShadowStrength;
             ar << c.m_VolumetricSelfShadowExtent;
@@ -2066,6 +2067,15 @@ namespace OloEngine
             ar << c.m_CollisionEnabled;
         }
 
+        // ── Format v15: voxel mesher selector (issue #727) ──
+        // Appended at the end when kSaveGameFormatVersion was bumped 14→15. A
+        // save written before v15 omits it and keeps the MarchingCubes default,
+        // which reproduces the pre-#727 behaviour exactly.
+        if (HasFieldsSince(ar, 15))
+        {
+            ar << c.m_VoxelMesher;
+        }
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
@@ -2084,6 +2094,13 @@ namespace OloEngine
             c.m_HeightShaping.TerraceSteps = std::min(c.m_HeightShaping.TerraceSteps, 256u);
             c.m_SplatmapGenResolution = std::clamp(c.m_SplatmapGenResolution, 16u, 4096u);
             c.m_ProceduralErosionIterations = std::clamp(c.m_ProceduralErosionIterations, 0, 64);
+            // Discriminated mode: an out-of-range value falls back to the
+            // default mesher rather than saturating to the other valid one —
+            // the same reasoning that made VehicleComponent::m_DriveMode need
+            // Reject over Clamp. A pre-v15 save never read the field, so this
+            // is a no-op for it.
+            if (c.m_VoxelMesher != VoxelMesherKind::GreedyCubic)
+                c.m_VoxelMesher = VoxelMesherKind::MarchingCubes;
             for (TerrainLayerRule& r : c.m_LayerRules)
             {
                 if (r.LayerIndex >= MAX_TERRAIN_LAYERS)

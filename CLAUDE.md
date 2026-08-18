@@ -81,6 +81,7 @@ you are in.
 
 - [rhi-abstraction-boundary.md](docs/agent-rules/rhi-abstraction-boundary.md) — where the OpenGL boundary actually leaks: the include graph, not a `glXxx(` grep; plus the Vulkan epic's per-phase lessons (§9–§13, incl. the one-row-order-per-backend contract).
 - [vulkan-command-ordered-buffer-writes.md](docs/agent-rules/vulkan-command-ordered-buffer-writes.md) — a CPU buffer write between two recorded draws is GL command order; a life-stable Vulkan address silently makes it last-write-wins, and the failure is scene-shaped.
+- [lazy-static-release-ownership.md](docs/agent-rules/lazy-static-release-ownership.md) — a shared lazy static released from `Renderer3D::Shutdown` leaks in every session that never inits 3D; GL is silent about it, Vulkan is not.
 - [gpu-debug-draws.md](docs/agent-rules/gpu-debug-draws.md) — **the instrument for GPU-driven work**: any shader can draw a primitive into the viewport the same frame. Read the two-counter overflow protocol before concluding "it drew nothing".
 - [gpu-scan-compaction.md](docs/agent-rules/gpu-scan-compaction.md) — the `if (idx >= count) return;` habit is a hang in front of a work-group scan, and a compaction test that compares *sets* passes on the bug it is meant to catch.
 - [gl-clear-program-revalidation.md](docs/agent-rules/gl-clear-program-revalidation.md) — NVIDIA recompiles the *bound* program at `glClear`; wrap any new clear site in `GLClearProgramGuard` (unbind **and restore**).
@@ -91,6 +92,7 @@ you are in.
 - [virtual-shadow-map-page-cache.md](docs/agent-rules/virtual-shadow-map-page-cache.md) — four page-cache invariants; break one and the frame still renders, wrong, as a different bug. §5 is general: a render-graph `Setup()` that branches on a runtime toggle is frozen by the frame-graph fingerprint cache. §8 covers the local-light (point/spot) domain, where a perspective face cannot be culled the way an ortho clip level can.
 - [cluster-lod-simplification.md](docs/agent-rules/cluster-lod-simplification.md) — a terminal group's boundary lock must outlive the level that created it; plus how to A/B a builder change the editor never runs.
 - [terrain-gpu-lod-quadtree.md](docs/agent-rules/terrain-gpu-lod-quadtree.md) — the GPU terrain descent: crack-freedom is a vertex-set property, and a gating flag no scene sets is a feature with zero coverage.
+- [binary-greedy-voxel-meshing.md](docs/agent-rules/binary-greedy-voxel-meshing.md) — the cubic voxel mesher: a packed-quad encoding mirrored in GLSL, and six ways a merged quad renders plausibly and wrong.
 - [camera-relative-rendering.md](docs/agent-rules/camera-relative-rendering.md) — every world-space GPU upload is a site; large-coordinate f32 cancellation shows up as vertex jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](docs/agent-rules/distance-impostor-reflection-probes.md) — one encoding contract mirrored in three places, and the miss-sentinel that shades from stale sky.
 - [foliage-impostor-card-rendering.md](docs/agent-rules/foliage-impostor-card-rendering.md) — three ways impostor cards go missing, separable only by reading the PNG from several azimuths.

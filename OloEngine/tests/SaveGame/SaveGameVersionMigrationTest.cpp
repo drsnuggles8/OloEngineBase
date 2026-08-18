@@ -274,13 +274,47 @@ namespace OloEngine::Tests
         EXPECT_EQ(loaded.m_ProceduralSeed, 7);
         EXPECT_EQ(loaded.m_TileFilePattern, "chunk_%d_%d.raw");
 
-        // Fields introduced in v3/v5/v6 must stay at their constructor defaults.
+        // Fields introduced in v3/v5/v6/v15 must stay at their constructor defaults.
         TerrainComponent freshDefault;
         EXPECT_TRUE(loaded.m_LayerRules.empty());
         EXPECT_EQ(loaded.m_AutoMaterial, freshDefault.m_AutoMaterial);
         EXPECT_EQ(loaded.m_SplatmapGenResolution, freshDefault.m_SplatmapGenResolution);
         EXPECT_EQ(loaded.m_ProceduralErosionIterations, freshDefault.m_ProceduralErosionIterations);
         EXPECT_EQ(loaded.m_CollisionEnabled, freshDefault.m_CollisionEnabled);
+        // v15 (issue #727): an old save must keep marching cubes, which is the
+        // mesher it was actually authored and rendered with.
+        EXPECT_EQ(loaded.m_VoxelMesher, VoxelMesherKind::MarchingCubes);
+        EXPECT_EQ(loaded.m_VoxelMesher, freshDefault.m_VoxelMesher);
+    }
+
+    TEST(SaveGameVersionMigration, CurrentVersionTerrainPayloadRoundTripsTheVoxelMesher)
+    {
+        // The other half of the v15 gate: at the current version the field must
+        // actually survive the round trip, so the pre-v15 test above cannot pass
+        // simply because nothing writes it.
+        TerrainComponent seed;
+        seed.m_VoxelEnabled = true;
+        seed.m_VoxelMesher = VoxelMesherKind::GreedyCubic;
+
+        std::vector<u8> buffer;
+        {
+            FMemoryWriter writer(buffer);
+            writer.ArIsSaveGame = true;
+            writer.SetArchiveVersion(kSaveGameFormatVersion);
+            SaveGameComponentSerializer::Serialize(writer, seed);
+            ASSERT_FALSE(writer.IsError());
+        }
+
+        TerrainComponent loaded;
+        FMemoryReader reader(buffer);
+        reader.ArIsSaveGame = true;
+        reader.SetArchiveVersion(kSaveGameFormatVersion);
+        SaveGameComponentSerializer::Serialize(reader, loaded);
+
+        EXPECT_FALSE(reader.IsError());
+        EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the payload -- desync";
+        EXPECT_EQ(loaded.m_VoxelEnabled, true);
+        EXPECT_EQ(loaded.m_VoxelMesher, VoxelMesherKind::GreedyCubic);
     }
 
     TEST(SaveGameVersionMigration, PreV4IKTargetPayloadDefaultsChainIKNoDesync)

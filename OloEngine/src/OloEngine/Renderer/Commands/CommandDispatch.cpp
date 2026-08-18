@@ -2465,7 +2465,31 @@ namespace OloEngine
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
-        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
+        if (cmd->instanceCount > 0)
+        {
+            // Packed-quad path (issue #727): indexCount is the shared unit
+            // quad's 6, and each instance is one merged greedy quad.
+            api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
+                                          RHI::IndexType::UInt32, 0, cmd->instanceCount);
+
+            // Same shape as DrawMeshInstanced / DrawFoliageLayer: one draw call
+            // standing for many instances. Without these the profiler's
+            // "Instanced Draws" tab and its triangle/vertex totals cannot show
+            // the geometry reduction that is this path's whole point.
+            auto& profiler = RendererProfiler::GetInstance();
+            profiler.IncrementCounter(RendererProfiler::MetricType::InstancedDrawCalls, 1);
+            profiler.IncrementCounter(RendererProfiler::MetricType::InstancesRendered, cmd->instanceCount);
+            if (cmd->instanceCount > 1)
+                profiler.IncrementCounter(RendererProfiler::MetricType::InstancesBatched, cmd->instanceCount - 1);
+            profiler.IncrementCounter(RendererProfiler::MetricType::TrianglesRendered,
+                                      (cmd->indexCount / 3u) * cmd->instanceCount);
+            profiler.IncrementCounter(RendererProfiler::MetricType::VerticesRendered,
+                                      cmd->indexCount * cmd->instanceCount);
+        }
+        else
+        {
+            api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
+        }
         ++s_Data.Stats.DrawCalls;
     }
 

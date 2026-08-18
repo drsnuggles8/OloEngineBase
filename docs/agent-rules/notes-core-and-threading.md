@@ -380,3 +380,45 @@ So: **any new modal asks `IsNonInteractive()` first**, and the automated path
 takes the *least destructive* answer — "cancel", "keep what is on disk" — never
 the convenient one. A host that knows it is automated calls
 `SetNonInteractive(true)` at startup (the test binary already does).
+
+## 15. A "benign" data race you documented is still a failed TSan job
+
+Issue #704's `GPUHashMap` shipped its first round with this in the class comment:
+
+> concurrent writes to the SAME key are last-writer-wins with no value-tearing
+> guarantee (the value store is not atomic — the reference has the same contract).
+
+That is a data race described in prose. The keys were claimed with a CAS through
+`std::atomic_ref`, but the *value* store next to it was a plain write, so two
+threads inserting one key wrote the same bytes unsynchronized. Writing the
+consequence down does not make it defined: C++ has no "benign race", and the
+gating `tsan-linux` job failed on exactly the two tests that exercised it — while
+the full 6100-test suite passed clean on Windows, where **no TSan exists**
+(neither MSVC nor clang-cl ships it).
+
+Two things generalise:
+
+**Narrow the contract instead of documenting the race.** The fix was not to make
+the value atomic — `V` is caller-supplied and `ObjectAllocation` is 16 bytes, so
+`atomic_ref<V>` would take a lock and tax the single-writer path every engine
+consumer actually uses. It was to state what is genuinely supported and true:
+concurrent `Insert`/`Erase`/`Find` of **distinct** keys is lock-free-safe
+(including keys colliding on one slot), and same-key mutation is unsupported.
+Ask what concurrency the consumers need before paying for concurrency nobody
+asked for.
+
+**Then make the tests contend the thing you actually claim.** The old test had 16
+threads hammering one key — which only exercised the race. The replacement gives
+each thread its own keys, all chosen (by brute force over the real hash) to land
+in the **same start slot**: maximal contention on the claim CAS, zero shared
+value writes. That tests the guarantee the class now makes, and it is a stronger
+test than the one it replaced, not a weaker one. The general trap: when a
+sanitizer flags a test, check whether the test is asserting a property the code
+should not have been offering — deleting or muting it is the wrong repair, and so
+is loosening the code to match a bad test.
+
+Corollary for planning: any change adding atomics or a multithreaded test should
+assume a CI round is spent on TSan alone, because it cannot be reproduced on this
+platform. Get the report from `gh api repos/<o>/<r>/actions/jobs/<id>/logs` and
+grep `WARNING: ThreadSanitizer` — the `SUMMARY:` line names both conflicting
+accesses by file:line, which is usually enough to fix without reproducing.

@@ -38,6 +38,7 @@ run is **not** evidence.
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | every glyph in the engine invisible on AMD, with the font loaded, 189 glyphs packed and 852 quads submitted — bake that and the nightly defends a blank UI forever |
+| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | a merged quad with U and V swapped, or width and height transposed, still merges and still draws — five of the six face directions look right |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -58,6 +59,7 @@ the drift is silent because each side is individually self-consistent.
 | [audio-voice-budget.md](audio-voice-budget.md) | adding one config field costs four edits, one of them silent |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | two build trees writing the same generated files |
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | four subsystems holding world-space state outside the set that gets rebased |
+| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | the packed-quad bit layout, face numbering and U/V basis live in `VoxelQuad.h` **and** `include/VoxelQuadUnpack.glsl`; nothing links them and a mismatch compiles |
 | [destructible-debris.md](destructible-debris.md) | two unrelated physics "layer" numberings — `SetCollisionLayer(Debris /*7*/)` never reaches Jolt's `ObjectLayers::DEBRIS /*4*/`, so debris silently shoves the player |
 | `ShaderBindingLayout.h` ↔ `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is *derived* (`= MAX_ENGINE_TEXTURE_SLOTS`) but its GLSL twin `OLO_HEAP_IMAGE_BASE` is a hand-written literal — so **adding any `TEX_*` slot is also a shader edit**. #702 added one, the base moved 66→67, and every bindless storage image read a sampler descriptor through an image declaration (undefined, not blank). The comment there had claimed the two "cannot disagree". Now pinned by `BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout` |
 
@@ -68,6 +70,8 @@ side derived. A comment saying "keep these in sync" is not a mechanism.
 
 No crash, no error, no log line. Work or data disappears and the system keeps running.
 
+[binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) (a stale wall between two chunks,
+when a carve does not rebuild the neighbours it uncovered) ·
 [component-serializer-codegen.md](component-serializer-codegen.md) (a field, from every save) ·
 [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) (a
 settings struct, on entering Play) ·
@@ -106,6 +110,7 @@ Read before trusting any measurement.
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | a per-vendor baseline set is the instrument validating itself — and a small cross-vendor RMSE measures portability, never correctness |
 | [gpu-debug-draws.md](gpu-debug-draws.md) | read the two-counter overflow protocol before concluding "it drew nothing" |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e | the CI job that said `--config Release` was building no config at all, and grepping for `--parallel` finds four sites of which only one is a runaway — the generator, not the flag, decides |
+| [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close is not evidence of a clean teardown — the same leak was silent there for the backend's whole life |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument *must*
 fail on before trusting a case it passes.
@@ -138,7 +143,9 @@ when you clear) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) (a CPU write
 between two recorded draws is GL command order; a life-stable Vulkan address makes it
 last-write-wins) · [gpu-scan-compaction.md](gpu-scan-compaction.md) (a `barrier()` only some
-invocations reach — the early-return habit in front of a work-group scan)
+invocations reach — the early-return habit in front of a work-group scan) ·
+[lazy-static-release-ownership.md](lazy-static-release-ownership.md) (a shared lazy static released
+from a *conditional* teardown — fine until a session creates it without running that teardown)
 
 ## 6. It was never actually called
 
@@ -203,6 +210,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) ·
+[lazy-static-release-ownership.md](lazy-static-release-ownership.md) ·
 [gpu-debug-draws.md](gpu-debug-draws.md) ·
 [gpu-scan-compaction.md](gpu-scan-compaction.md) ·
 [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) ·

@@ -2798,6 +2798,12 @@ namespace OloEngine
 			get => InternalCalls.TerrainComponent_GetSplatmapGenResolution(Entity.ID);
 			set => InternalCalls.TerrainComponent_SetSplatmapGenResolution(Entity.ID, value);
 		}
+
+		public int VoxelMesher
+		{
+			get => InternalCalls.TerrainComponent_GetVoxelMesher(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVoxelMesher(Entity.ID, value);
+		}
 	}
 
 	public partial class TextComponent : Component
