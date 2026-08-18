@@ -1,30 +1,43 @@
 // OLO_NORMAL_MAP_TBN_EXEMPT: terrain is not an imported-mesh material. Its normals come from a
-// splat/triplanar blend of a sampler2DArray over a heightfield whose tangent frame is ANALYTIC
-// (derived from the height gradient / the triplanar axis), not from screen-space UV derivatives.
-// PBRCommon's derivative TBN neither applies nor is shared with it. See RenderPathDrift.
+// splat/triplanar blend of a sampler2DArray over an ANALYTIC tangent frame (here: the exact
+// axis-aligned face normal of a cubic voxel), not from screen-space UV derivatives. PBRCommon's
+// derivative TBN neither applies nor is shared with it. See RenderPathDrift.
 // =============================================================================
-// Terrain_Voxel.glsl - Voxel Override PBR Shader with Triplanar Mapping
-// Part of OloEngine Terrain System (Phase 6)
-// VS → FS pipeline (no tessellation — MC generates dense triangle meshes)
+// Terrain_VoxelGreedy.glsl - Packed-quad voxel PBR shader (issue #727)
+//
+// Instanced sibling of Terrain_Voxel.glsl. Where that shader draws a marching-
+// cubes triangle soup, this one draws ONE shared unit quad instanced once per
+// merged greedy quad and rebuilds the corners here from an 8-byte per-instance
+// record. Geometry decode lives in include/VoxelQuadUnpack.glsl, which mirrors
+// Terrain/Voxel/VoxelQuad.h.
 // =============================================================================
 
 #type vertex
 #version 460 core
 
+#include "include/VoxelQuadUnpack.glsl"
+
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
-// binding 57. Draw site is the marching-cubes chunk VBO
-// (Terrain/Voxel/MarchingCubes.cpp VoxelVertex — 24 B: vec3 Position @0,
-// vec3 Normal @12), so the stride is 6 floats, NOT the 8-float engine
-// Vertex. The GL attribute branch below is untouched.
+// #691 Phase 8 (ADR 0011 §5, amendment (76)): two-stream vertex pull, same
+// shape as Foliage_Instance.glsl. Stream 0 on binding 57 is the 8-byte shared
+// unit quad {vec2 corner}; stream 1 on binding 63 is the per-chunk 8-byte
+// instance VB {uint geometry, uint material}, indexed by gl_InstanceIndex.
+// Declared as uint[] rather than float[] because the instance stream is
+// integer data — the pull binding only carries a device address, so the
+// element type is the shader's to choose. The GL attribute branch is untouched.
 layout(std430, binding = 57) readonly buffer OloVertexPull
 {
     float v[];
 } b_Vertices;
+layout(std430, binding = 63) readonly buffer OloInstancePull
+{
+    uint v[];
+} b_Instances;
 #define OLO_PULLED_VERTEX 1
 #else
-layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec3 a_Normal;
+layout(location = 0) in vec2 a_Corner;       // shared unit quad, (u, v) in [0,1]
+layout(location = 1) in int  a_QuadGeometry; // packed geometry word (28 bits used, always >= 0)
+layout(location = 2) in int  a_QuadMaterial; // packed material word
 #endif
 
 // Camera UBO (binding 0)
@@ -34,29 +47,46 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
-    // Previous-frame VP for scene FB RT3 velocity.
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
     float _padding1;
 };
 
-// Model UBO (binding 3)
+// Model UBO (binding 3 → InstanceBuffer SSBO). gl_InstanceIndex here is the
+// QUAD index, not an InstanceData index — the chunk uploads exactly one
+// InstanceData entry (its terrain transform * chunk placement), so indexing
+// InstanceData by it would read past a 224-byte upload. Same contract, and the
+// same past device-loss, as foliage.
+#define OLO_INSTANCE_SINGLE 1
 #include "include/InstanceBlock_Vertex.glsl"
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
+layout(location = 2) flat out uint v_Material;
 
 void main()
 {
 #ifdef OLO_PULLED_VERTEX
-    int vertBase = gl_VertexIndex * 6;
-    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
-    vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
+    int cornerBase = gl_VertexIndex * 2;
+    vec2 a_Corner = vec2(b_Vertices.v[cornerBase + 0], b_Vertices.v[cornerBase + 1]);
+    int instanceBase = gl_InstanceIndex * 2;
+    uint geometryWord = b_Instances.v[instanceBase + 0];
+    uint materialWord = b_Instances.v[instanceBase + 1];
+#else
+    uint geometryWord = uint(a_QuadGeometry);
+    uint materialWord = uint(a_QuadMaterial);
 #endif
     OLO_INSTANCE_FORWARD();
-    vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+
+    OloVoxelQuad quad = oloUnpackVoxelQuad(geometryWord, materialWord);
+    // Chunk-local VOXEL units — the chunk origin and voxel size ride u_Model,
+    // which is what keeps the per-quad record down to 32 bits.
+    vec3 localPos = oloVoxelQuadCorner(quad, a_Corner);
+
+    vec4 worldPos = u_Model * vec4(localPos, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_Normal = normalize(mat3(u_Normal) * a_Normal);
+    v_Normal = normalize(mat3(u_Normal) * quad.Normal);
+    v_Material = quad.Material;
     gl_Position = u_ViewProjection * worldPos;
 }
 
@@ -65,6 +95,7 @@ void main()
 
 #include "include/PBRCommon.glsl"
 #include "include/AtmosphereShading.glsl"
+#include "include/VoxelQuadUnpack.glsl"
 
 // Camera UBO (binding 0)
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -92,14 +123,14 @@ layout(std140, binding = 6) uniform ShadowData {
     mat4 u_DirectionalLightSpaceMatrices[4];
     vec4 u_CascadePlaneDistances;
     vec4 u_ShadowParams;
-    mat4 u_AtlasEntryMatrices[48];    // light VP per shadow-atlas entry (spot = 1 entry, point = 6 face entries)
-    vec4 u_AtlasEntryScaleOffset[48]; // xy = UV scale, zw = UV offset of the entry's atlas tile
+    mat4 u_AtlasEntryMatrices[48];
+    vec4 u_AtlasEntryScaleOffset[48];
     int u_DirectionalShadowEnabled;
     int u_AtlasEntryCount;
     int u_ShadowMapResolution;
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
-    int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
+    int u_SoftShadowMode;
     int _shadowPad1;
     int _shadowPad2;
 };
@@ -107,7 +138,7 @@ layout(std140, binding = 6) uniform ShadowData {
 // Model UBO (binding 3)
 #include "include/InstanceBlock.glsl"
 
-// Terrain UBO (binding 10) — reuse terrain layer tiling/sharpness for texture arrays
+// Terrain UBO (binding 10)
 layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
     vec4 u_TerrainParams;
@@ -123,13 +154,7 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_LayerBlendSharpness1;
 };
 
-// Shadow maps — CSM array + the budgeted local-light shadow atlas (issue #435)
 #include "include/BindlessHeap.glsl"
-// Virtual Shadow Maps (issue #703): local lights read the page table instead
-// of the atlas when it is on. Without this include the branches below gate on
-// u_AtlasEntryCount, which is ZERO under VSM local lights — so this surface
-// would silently stop receiving point and spot shadows altogether.
-#include "include/VirtualShadowSampling.glsl"
 #ifdef OLO_BINDLESS
 #define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)  // TEX_SHADOW
 #define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)  // TEX_SHADOW_ATLAS
@@ -137,7 +162,6 @@ layout(std140, binding = 10) uniform TerrainParams {
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;
 layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;
 #endif
-// Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
 #ifdef OLO_BINDLESS
 #define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)  // TEX_SHADOW_CSM_RAW
 #define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)  // TEX_SHADOW_ATLAS_RAW
@@ -146,7 +170,6 @@ layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;
 layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 #endif
 
-// IBL textures
 #ifdef OLO_BINDLESS
 #define u_IrradianceMap OLO_HEAP_TEX_CUBE(10)  // TEX_USER_0
 #define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)  // TEX_USER_1
@@ -157,7 +180,6 @@ layout(binding = 11) uniform samplerCube u_PrefilterMap;
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;
 #endif
 
-// Terrain texture arrays (same as heightmap terrain — reuses splatmap layer 0)
 #ifdef OLO_BINDLESS
 #define u_TerrainAlbedoArray OLO_HEAP_TEX_2D_ARRAY(25)  // TEX_TERRAIN_ALBEDO_ARRAY
 #define u_TerrainNormalArray OLO_HEAP_TEX_2D_ARRAY(26)  // TEX_TERRAIN_NORMAL_ARRAY
@@ -170,11 +192,11 @@ layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
+layout(location = 2) flat in uint v_Material;
 
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
-// Scene FB RT3 velocity — world-static voxel terrain.
 layout(location = 3) out vec2 o_Velocity;
 
 vec2 octEncode(vec3 n)
@@ -185,80 +207,91 @@ vec2 octEncode(vec3 n)
     return n.xy;
 }
 
-// =============================================================================
-// TRIPLANAR MAPPING — always used for voxel meshes (arbitrary orientations)
-// =============================================================================
+// The material index doubles as the terrain texture-array layer. Clamped to the
+// 8 layers the TerrainParams tiling vectors describe, so a material index a
+// scene invented cannot sample outside the array.
+float voxelLayerIndex()
+{
+    return float(min(v_Material, 7u));
+}
+
+float voxelLayerTiling()
+{
+    uint layer = min(v_Material, 7u);
+    float tiling = (layer < 4u) ? u_LayerTilingScales0[layer] : u_LayerTilingScales1[layer - 4u];
+    return (tiling < 0.001) ? 0.1 : tiling;
+}
 
 void main()
 {
     vec3 N = normalize(v_Normal);
     float triplanarSharpness = max(u_TerrainParams.w, 4.0);
 
-    // Triplanar blend weights from world-space normal
     vec3 absNormal = abs(N);
     vec3 triWeights = pow(absNormal, vec3(triplanarSharpness));
     triWeights /= (triWeights.x + triWeights.y + triWeights.z + 0.0001);
 
-    // Use layer 0 tiling scale for voxel triplanar sampling
-    float tiling = u_LayerTilingScales0[0];
-    if (tiling < 0.001)
-        tiling = 0.1; // Sensible default
+    float tiling = voxelLayerTiling();
+    float layer = voxelLayerIndex();
 
-    // Camera-relative (issue #429): triplanar tiling is world-anchored, so
-    // rebuild the absolute world position from the render-relative v_WorldPos.
+    // Camera-relative (issue #429): triplanar tiling is world-anchored.
     vec3 wpTri = v_WorldPos + u_RenderOrigin;
-    // Sample albedo with triplanar projection
-    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(wpTri.yz * tiling, 0.0));
-    vec4 albedoY = texture(u_TerrainAlbedoArray, vec3(wpTri.xz * tiling, 0.0));
-    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(wpTri.xy * tiling, 0.0));
+    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(wpTri.yz * tiling, layer));
+    vec4 albedoY = texture(u_TerrainAlbedoArray, vec3(wpTri.xz * tiling, layer));
+    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(wpTri.xy * tiling, layer));
     vec3 albedo = (albedoX.rgb * triWeights.x + albedoY.rgb * triWeights.y + albedoZ.rgb * triWeights.z);
 
-    // Sample ARM with triplanar projection
-    vec4 armX = texture(u_TerrainARMArray, vec3(wpTri.yz * tiling, 0.0));
-    vec4 armY = texture(u_TerrainARMArray, vec3(wpTri.xz * tiling, 0.0));
-    vec4 armZ = texture(u_TerrainARMArray, vec3(wpTri.xy * tiling, 0.0));
+    vec4 armX = texture(u_TerrainARMArray, vec3(wpTri.yz * tiling, layer));
+    vec4 armY = texture(u_TerrainARMArray, vec3(wpTri.xz * tiling, layer));
+    vec4 armZ = texture(u_TerrainARMArray, vec3(wpTri.xy * tiling, layer));
     vec4 arm = armX * triWeights.x + armY * triWeights.y + armZ * triWeights.z;
 
     float ao = arm.r;
     float roughness = arm.g;
     float metallic = arm.b;
 
-    // Sample normal map with triplanar projection
     // Blend the normal map in 0..1 texel space and decode AFTERWARDS, so an
-    // unbound / empty terrain normal array is detectable (issue #727).
+    // unbound / empty terrain normal array is detectable.
     //
     // Decoding first is a trap: an unbound sampler reads solid black, and
-    // `black * 2 - 1` is (-1,-1,-1) — a UNIT-LENGTH vector indistinguishable
-    // from a legitimate perturbation. Fed through the TBN it rotates the
-    // surface normal ~55 degrees off true, so most of the mesh ends up facing
-    // away from the sun and renders black while the geometry, the materials and
-    // the lighting are all provably fine. A voxel scene with no terrain layer
-    // textures bound hits this on every fragment.
-    vec3 packedNormal = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling, 0.0)).rgb * triWeights.x
-                      + texture(u_TerrainNormalArray, vec3(wpTri.xz * tiling, 0.0)).rgb * triWeights.y
-                      + texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling, 0.0)).rgb * triWeights.z;
-    bool hasNormalMap = dot(packedNormal, packedNormal) > 1e-5;
-    vec3 triNormal = hasNormalMap ? normalize(packedNormal * 2.0 - 1.0) : vec3(0.0, 0.0, 1.0);
+    // `black * 2 - 1` is (-1,-1,-1) — a unit-length vector indistinguishable
+    // from a legitimate perturbation. Feeding that through the TBN rotates the
+    // face normal ~55 degrees off true, so most faces end up pointing away from
+    // the sun and the whole mesh renders black while the geometry, the
+    // materials and the lighting are all provably fine. A cubic voxel face
+    // normal is EXACT and analytic; perturbing it with garbage is strictly
+    // worse than leaving it alone.
+    vec3 packedNormal = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling, layer)).rgb * triWeights.x
+                      + texture(u_TerrainNormalArray, vec3(wpTri.xz * tiling, layer)).rgb * triWeights.y
+                      + texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling, layer)).rgb * triWeights.z;
 
-    // Build TBN from world normal and apply tangent-space normal map
-    // Pick the reference axis BEFORE crossing rather than crossing and testing
-    // the result: cross(N, (0,0,1)) is the ZERO vector for an exactly +/-Z
-    // normal and normalize(0) is NaN, which `length(T) < 0.001` can never
-    // catch because every comparison against NaN is false. Rare on a marching-
-    // cubes isosurface, but not impossible (a perfectly flat region), and free
-    // to rule out.
-    if (hasNormalMap)
+    if (dot(packedNormal, packedNormal) > 1e-5)
     {
+        vec3 triNormal = normalize(packedNormal * 2.0 - 1.0);
+
+        // Pick the reference axis BEFORE crossing, rather than crossing and
+        // testing the result.
+        //
+        // N here is an EXACT axis-aligned face normal, so cross(N, (0,0,1)) is
+        // the zero vector for every +/-Z quad - a third of the mesh - and
+        // normalize(0) is NaN. The usual `if (length(T) < 0.001)` rescue cannot
+        // fire on that, because every comparison against NaN is false, so the
+        // fallback axis is dead code and the NaN propagates into the lit normal
+        // (and, in the deferred variant, into the G-Buffer). Terrain_Voxel.glsl
+        // gets away with the same lines only because an exactly-axis-aligned
+        // normal is measure-zero on a marching-cubes isosurface; on cubic
+        // voxels it is the common case.
         vec3 reference = (abs(N.z) < 0.99) ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
         vec3 T = normalize(cross(N, reference));
         vec3 B = cross(N, T);
         N = normalize(mat3(T, B, N) * triNormal);
     }
 
-    // If no texture arrays are bound, use procedural cave material
+    // No texture arrays bound → the per-material fallback palette, so a scene
+    // with no terrain layer textures still shows its strata.
     if (albedo == vec3(0.0))
     {
-        albedo = vec3(0.35, 0.32, 0.28); // Stone color
+        albedo = oloVoxelFallbackAlbedo(v_Material);
         roughness = 0.9;
         metallic = 0.0;
         ao = 1.0;
@@ -266,13 +299,9 @@ void main()
 
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
-    // Weather response + cloud shadow (issue #633) — same order as
-    // PBR_MultiLight.glsl (voxel terrain is exposed cave/overhang rock, so
-    // both effects still apply where it faces the sky).
     atmosphereApplyWetness(albedo, roughness, N);
     float cloudShadow = atmosphereCloudShadow(v_WorldPos);
 
-    // Direct lighting with shadows
     vec3 Lo = vec3(0.0);
     for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
     {
@@ -303,15 +332,8 @@ void main()
         }
         else if (lightType == SPOT_LIGHT)
         {
-            // Spot shadows come from the light's shadow-atlas entry (issue
-            // #435); direction.w carries the entry index (-1 = none).
             int atlasEntry = int(u_Lights[i].direction.w);
-            float localShadow;
-            if (vsmLocalShadow(v_WorldPos, N, atlasEntry, false, localShadow))
-            {
-                lightContrib *= localShadow;
-            }
-            else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
+            if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
                 float shadow = calculateAtlasEntryShadow(
                     v_WorldPos,
@@ -329,16 +351,8 @@ void main()
         }
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
         {
-            // Sphere area lights shadow from the emitter centre (the
-            // representative point), so both types share the point path:
-            // direction.w carries the BASE atlas entry of the 6 face tiles.
             int baseEntry = int(u_Lights[i].direction.w);
-            float localShadow;
-            if (vsmLocalShadow(v_WorldPos, N, baseEntry, true, localShadow))
-            {
-                lightContrib *= localShadow;
-            }
-            else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
+            if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
                 vec3 lightPos = u_Lights[i].position.xyz;
                 int entry = baseEntry + atlasCubeFace(v_WorldPos - lightPos);
@@ -350,7 +364,7 @@ void main()
                     u_ShadowAtlasRaw,
                     u_ShadowParams.x,
                     u_AtlasResolution,
-                    0, // PCF only on cube faces (matches the old cubemap path)
+                    0,
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;
@@ -360,7 +374,6 @@ void main()
         Lo += lightContrib;
     }
 
-    // Ambient
     vec3 ambient = calculateSimpleAmbient(albedo, metallic, ao);
     vec3 color = ambient + Lo;
     color = mix(color, color * ao, 0.5);

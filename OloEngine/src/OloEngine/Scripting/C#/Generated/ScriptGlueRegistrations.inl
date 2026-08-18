@@ -917,6 +917,8 @@ OLO_ADD_INTERNAL_CALL(TerrainComponent_GetAutoMaterial);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_SetAutoMaterial);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_GetSplatmapGenResolution);
 OLO_ADD_INTERNAL_CALL(TerrainComponent_SetSplatmapGenResolution);
+OLO_ADD_INTERNAL_CALL(TerrainComponent_GetVoxelMesher);
+OLO_ADD_INTERNAL_CALL(TerrainComponent_SetVoxelMesher);
 
 // TextComponent
 OLO_ADD_INTERNAL_CALL(TextComponent_GetText);

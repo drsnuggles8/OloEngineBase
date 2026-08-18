@@ -294,7 +294,11 @@ namespace OloEngine
             const Ref<Shader>& shader,
             RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
             const glm::mat4& transform,
-            i32 entityID = -1);
+            i32 entityID = -1,
+            // Binary greedy meshing (issue #727). Non-zero draws `indexCount`
+            // indices of the shared unit quad once per merged packed quad;
+            // zero keeps the marching-cubes indexed triangle-soup draw.
+            u32 instanceCount = 0);
 
         // Skeleton visualization
         static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,
@@ -928,7 +932,10 @@ namespace OloEngine
                                            const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
                                            const ShaderBindingLayout::TerrainUBO& terrainUBO);
 
-        static void AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform);
+        // instanceCount > 0 selects the packed-quad depth shader + instanced
+        // draw (issue #727); 0 keeps the marching-cubes triangle-soup path.
+        static void AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
+                                         u32 instanceCount = 0);
 
         static void AddFoliageShadowCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
@@ -1120,6 +1127,15 @@ namespace OloEngine
         static Ref<Shader> GetVoxelDepthShader()
         {
             return s_Data.VoxelDepthShader;
+        }
+        // Packed-quad (binary greedy meshing) siblings — issue #727.
+        static Ref<Shader> GetVoxelGreedyPBRShader()
+        {
+            return s_Data.VoxelGreedyPBRShader;
+        }
+        static Ref<Shader> GetVoxelGreedyDepthShader()
+        {
+            return s_Data.VoxelGreedyDepthShader;
         }
         static Ref<Shader> GetFoliageShader()
         {
@@ -1780,6 +1796,11 @@ namespace OloEngine
             Ref<Shader> VoxelPBRShader;
             Ref<Shader> VoxelGBufferShader; // Deferred: Terrain_Voxel_GBuffer.glsl
             Ref<Shader> VoxelDepthShader;
+            // Packed-quad greedy meshing siblings (issue #727) — same three
+            // roles, instanced unit-quad vertex stage.
+            Ref<Shader> VoxelGreedyPBRShader;
+            Ref<Shader> VoxelGreedyGBufferShader;
+            Ref<Shader> VoxelGreedyDepthShader;
             Ref<Shader> FoliageShader;
             Ref<Shader> FoliageGBufferShader; // Deferred: Foliage_Instance_GBuffer.glsl
             Ref<Shader> FoliageDepthShader;

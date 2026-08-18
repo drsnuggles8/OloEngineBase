@@ -15,7 +15,14 @@ namespace OloEngine
         m_WorldSizeX = worldSizeX;
         m_WorldSizeZ = worldSizeZ;
         m_HeightScale = heightScale;
-        if (voxelSize <= 0.0f)
+        // NaN must be rejected explicitly: `NaN <= 0.0f` is FALSE, so a
+        // non-finite size sails through a sign check and poisons every derived
+        // quantity - chunkWorldSize, GetChunkBounds, and the per-chunk model
+        // matrix in VoxelGreedyMeshBuilder::UploadMesh - which renders as the
+        // whole volume silently vanishing. Reachable: TerrainComponent's
+        // m_VoxelSize round-trips through save-games, and that loader's
+        // sanitize block does not cover it (the scene YAML path does).
+        if (!std::isfinite(voxelSize) || voxelSize <= 0.0f)
         {
             OLO_CORE_WARN("VoxelOverride::Initialize: Invalid voxelSize {}, clamping to 0.5", voxelSize);
             voxelSize = 0.5f;
@@ -112,6 +119,96 @@ namespace OloEngine
         chunk.Dirty = true;
     }
 
+    void VoxelOverride::SeedFromHeightmap(const TerrainData& terrainData, f32 worldSizeX, f32 worldSizeZ,
+                                          f32 heightScale, u32 maxChunks)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (worldSizeX <= 0.0f || worldSizeZ <= 0.0f || heightScale <= 0.0f)
+        {
+            OLO_CORE_WARN("VoxelOverride::SeedFromHeightmap: invalid extent ({}, {}, {})",
+                          worldSizeX, worldSizeZ, heightScale);
+            return;
+        }
+
+        const f32 chunkWorldSize = static_cast<f32>(VoxelChunk::CHUNK_SIZE) * m_VoxelSize;
+        auto chunkSpan = [chunkWorldSize](f32 extent)
+        {
+            return std::max(1, static_cast<i32>(std::ceil(extent / chunkWorldSize)));
+        };
+
+        const i32 spanX = chunkSpan(worldSizeX);
+        const i32 spanY = chunkSpan(heightScale);
+        const i32 spanZ = chunkSpan(worldSizeZ);
+
+        const u64 requested = static_cast<u64>(spanX) * static_cast<u64>(spanY) * static_cast<u64>(spanZ);
+        if (requested > maxChunks)
+        {
+            OLO_CORE_WARN("VoxelOverride::SeedFromHeightmap: {} chunks requested, capping at {}. "
+                          "Raise VoxelSize or shrink the terrain extent for a full fill.",
+                          requested, maxChunks);
+        }
+
+        u32 filled = 0;
+        for (i32 cy = 0; cy < spanY && filled < maxChunks; ++cy)
+        {
+            for (i32 cz = 0; cz < spanZ && filled < maxChunks; ++cz)
+            {
+                for (i32 cx = 0; cx < spanX && filled < maxChunks; ++cx)
+                {
+                    const VoxelCoord coord{ cx, cy, cz };
+                    InitializeChunkFromHeightmap(coord, terrainData, worldSizeX, worldSizeZ, heightScale);
+                    PaintDepthStrata(coord);
+                    ++filled;
+                }
+            }
+        }
+    }
+
+    void VoxelOverride::PaintDepthStrata(const VoxelCoord& coord)
+    {
+        // Classic surface / subsoil / bedrock banding. Material indices match
+        // the terrain layer array order (and the shader's fallback palette):
+        // 0 stone, 1 dirt, 2 grass.
+        //
+        // Depth comes from the SDF value, not from walking the column: right
+        // after InitializeChunkFromHeightmap the stored value IS
+        // `worldY - terrainHeight`, so -value is the world-space depth below
+        // the surface. Walking the column instead would paint the top voxel of
+        // every chunk as grass, including chunks buried entirely underground.
+        auto it = m_Chunks.find(coord);
+        if (it == m_Chunks.end())
+        {
+            return;
+        }
+
+        VoxelChunk& chunk = it->second;
+        constexpr u32 S = VoxelChunk::CHUNK_SIZE;
+
+        const f32 surfaceBand = m_VoxelSize * 1.5f;
+        const f32 subsoilBand = m_VoxelSize * 5.0f;
+
+        for (u32 z = 0; z < S; ++z)
+        {
+            for (u32 y = 0; y < S; ++y)
+            {
+                for (u32 x = 0; x < S; ++x)
+                {
+                    const f32 signedDistance = chunk.At(x, y, z);
+                    if (signedDistance >= 0.0f)
+                    {
+                        continue; // empty
+                    }
+
+                    const f32 depth = -signedDistance;
+                    const u8 material = (depth <= surfaceBand) ? u8{ 2 } : (depth <= subsoilBand ? u8{ 1 } : u8{ 0 });
+                    chunk.SetMaterialAt(x, y, z, material);
+                }
+            }
+        }
+        chunk.Dirty = true;
+    }
+
     VoxelChunk& VoxelOverride::GetOrCreateChunk(const VoxelCoord& coord)
     {
         auto [it, inserted] = m_Chunks.try_emplace(coord, VoxelChunk{});
@@ -197,6 +294,15 @@ namespace OloEngine
     }
 
     // ── RLE Serialization ────────────────────────────────────────────────
+    //
+    // NOTE (issue #727): this persists SDF only — `VoxelChunk::MaterialData` is
+    // deliberately not written. Both are currently true: the pair has no callers
+    // anywhere in the engine, and the only producer of material data
+    // (SeedFromHeightmap) derives it from the height field, so a round-trip
+    // through here followed by a reseed loses nothing. Anything that starts
+    // PAINTING materials — a sculpt brush, an authored palette — must extend
+    // this format (with a version tag) or the paint is silently dropped.
+    //
     // Format:
     //   [4 bytes: chunk count]
     //   Per chunk:

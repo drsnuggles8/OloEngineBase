@@ -748,6 +748,15 @@ namespace OloEngine
         RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
 
+        // Packed-quad (binary greedy meshing, issue #727) instance count. Zero
+        // means the marching-cubes path: a plain indexed draw of a triangle
+        // soup. Non-zero routes the same command through
+        // DrawBoundIndexedInstanced with the shared 6-index unit quad, one
+        // instance per merged quad. One command type covers both because the
+        // two paths differ only in the draw verb — same shader slot, same
+        // texture bindings, same sort key.
+        u32 instanceCount = 0;
+
         // Shader
         RHI::ResourceHandle shaderRendererID{};
 
