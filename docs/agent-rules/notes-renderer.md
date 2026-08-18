@@ -399,3 +399,27 @@ own stage and every differential assertion passes vacuously against itself.
 > **Rule of thumb:** grep `ResolveFrameGraphFramebuffer(ResourceNames::` before
 > adding anything to the tail of the post chain. Every hit is a consumer that
 > has hard-coded "the last stage" by name.
+
+## 18. The RHI's persistent mapping is WRITE-only — a GPU-visible CPU structure needs host authority, not mapped reads
+
+`RenderCommand::AllocatePersistentUploadStorage` maps with
+`GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT` and **no read
+bit** (`OpenGLRendererAPI.cpp`), so a CPU read through the returned pointer is
+undefined behaviour — and would be a WC-memory perf trap even where it happens
+to work. This matters the moment a CPU-maintained structure must also be
+readable by shaders: a hash table or link table the CPU probes cannot live *in*
+the mapping.
+
+The `Renderer/GPUCache/` substrate (#704) is the worked example of the correct
+shape: `GPUCacheStorage`'s `HostMirrored` backing keeps the heap copy as the
+single authority for every CPU read/write and write-through-mirrors each
+committed mutation into the mapping for shader-side lookup. Two dividends
+beyond correctness: CPU probes hit cacheable heap memory instead of uncached
+WC pages, and the identical logic runs with `HostOnly` backing — which is what
+lets the allocate/evict/split-chain/collision tests run **headless** instead of
+skipping without a GL context. Bulk payloads that the CPU only ever writes
+(`DeviceMapped` backing) are the one case the raw mapping serves directly.
+
+If you find yourself wanting a READ|WRITE persistent mapping instead, that is a
+new RHI entry point across both backends — weigh it against the mirror pattern
+first.
