@@ -20,10 +20,10 @@
 //      direction rendered inside-out, collapses coverage from that angle while
 //      leaving the others intact — which is exactly why one angle is not enough.
 //
-//   3. The two paths agree on where the terrain IS: coverage masks from the same
-//      pose are compared and the overlap reported. Both render the same volume,
-//      so a wholesale offset (a chunk transform applied twice, a quad origin off
-//      by one voxel) shows up here even though every CPU test still passes.
+//   3. The cubic world sits where the height field it was seeded from says it
+//      does: coverage masks from the same pose are compared and the overlap
+//      reported. A wholesale offset (a chunk transform applied twice, a wrong
+//      chunk origin) shows up here even though every CPU test still passes.
 //
 // Screenshots land in OloEditor/assets/tests/visual/ under --olo-golden-rebase,
 // following the FoliageGenerationEvidenceTest convention (CI stays clean; a
@@ -469,17 +469,22 @@ namespace OloEngine::Tests
             masks.push_back(std::move(mask));
         }
 
-        // ── The two meshers agree on where the terrain is ──
-        // Switch the same entity to marching cubes and re-shoot the grazing pose.
+        // -- The cubic world sits where the height field says it does --
         //
-        // Note what the reference mask contains: with the cubic mesher off, the
-        // smooth heightmap surface starts drawing again alongside the marching-
-        // cubes isosurface. Both are the SAME terrain shape, so the union is the
-        // terrain's silhouette either way; the effect is that the reference mask
-        // is, if anything, slightly more generous. That is fine for what this
-        // check is for — a greedy chunk placed at the wrong origin or scaled
-        // twice moves the GREEDY mask off the terrain entirely, and no amount of
-        // generosity in the reference rescues the overlap.
+        // The reference here is the HEIGHTMAP SURFACE, not a marching-cubes
+        // isosurface, and the name says so deliberately.
+        //
+        // Switching the mesher back drops the auto-seeded volume (Scene.cpp:
+        // leaving it would z-fight the returning heightmap surface), so
+        // MarchingCubes has no chunks left to mesh and the reference leg draws
+        // the height field alone. That is asserted below rather than assumed,
+        // because the earlier version of this block was NAMED after marching
+        // cubes while rendering exactly this - a label nothing checked.
+        //
+        // It is also the better reference: the voxels were seeded FROM this
+        // height field, so it is the ground truth for "is the blocky world in
+        // the same place". The marching-cubes COST comparison above is genuine
+        // marching cubes, measured on its own volume.
         {
             terrain.m_VoxelMesher = VoxelMesherKind::MarchingCubes;
             for (auto& [coord, chunk] : terrain.m_VoxelOverride->GetChunks())
@@ -488,21 +493,23 @@ namespace OloEngine::Tests
             }
 
             // The OVERVIEW pose, deliberately, not a grazing one. Seen from
-            // above both meshers cover the same terrain footprint; seen from the
-            // side the cubic volume is a solid SLAB with vertical outer walls
-            // while the marching-cubes leg draws a thin surface, so a big chunk
-            // of the frame differs for a reason that has nothing to do with
-            // correctness. Measured at the grazing pose this same comparison
-            // reads 0.71 with everything working.
+            // above both cover the same terrain footprint; seen from the side
+            // the cubic volume is a solid SLAB with vertical outer walls while
+            // the reference is a thin surface, so a big chunk of the frame
+            // differs for a reason that has nothing to do with correctness.
             EditorCamera camera = MakeCamera(kPoses[0]);
             RunEditorFrames(camera, 3);
+
+            EXPECT_TRUE(terrain.m_VoxelMeshes.empty())
+                << "the reference leg is supposed to render the bare height field: the auto-seeded "
+                   "volume should have been dropped on the mesher switch, leaving marching cubes nothing to mesh";
 
             std::vector<u8> frame;
             std::vector<u8> mcMask;
             CaptureSceneColor(frame, mcMask);
             if (GoldenRebaseRequested())
             {
-                WritePng("VoxelGreedy_marchingcubes_reference.png", frame);
+                WritePng("VoxelGreedy_heightfield_reference.png", frame);
             }
             const f32 iou = IntersectionOverUnion(masks[0], mcMask);
             std::printf("[#727] silhouette overlap greedy vs marching cubes: %.3f IoU\n", static_cast<double>(iou));
@@ -522,7 +529,7 @@ namespace OloEngine::Tests
             // twice, or a wrong chunk origin, drops the overlap to near zero.
             // It is not sensitive enough to catch a sub-voxel offset; the CPU
             // contract tests own that.
-            EXPECT_GT(iou, 0.70f) << "the two meshers disagree about where the terrain is (IoU " << iou << ")";
+            EXPECT_GT(iou, 0.70f) << "the cubic world is not where the height field it was seeded from says it is (IoU " << iou << ")";
         }
     }
 } // namespace OloEngine::Tests

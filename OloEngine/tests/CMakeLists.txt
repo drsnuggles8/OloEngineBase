@@ -339,6 +339,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGPUQuadtreeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelGreedyMeshVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VoxelMarchingCubesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp

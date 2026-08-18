@@ -49,15 +49,23 @@ namespace OloEngine
 
     void VoxelGreedyMeshBuilder::Clear()
     {
-        // Waiting here is a choice, not a correctness requirement: a running job
-        // touches nothing but its own shared_ptr-owned snapshot, so abandoning it
-        // would be safe (DispatchDirty does exactly that). We wait at teardown
-        // anyway so a discarded builder leaves no background CPU burning on a
-        // result nobody will read.
-        for (auto& pending : m_Pending)
-        {
-            pending.Task.Wait();
-        }
+        // Retire WITHOUT waiting: dropping this builder must never stall the
+        // game thread on a worker.
+        //
+        // It is safe by construction rather than by luck. The task body
+        // (DispatchDirty) captures exactly one thing — a shared_ptr to its own
+        // MeshJob — and never `this`, so a job in flight holds no reference to
+        // the builder, its mesh map, or its GPU buffers. Abandoning the handle
+        // lets the job finish into memory nobody reads and free itself; the
+        // scheduler holds its own reference for as long as it needs one.
+        // DispatchDirty already relies on exactly this when it abandons a
+        // snapshot that an edit has invalidated.
+        //
+        // The earlier version waited here purely to avoid "wasted" background
+        // CPU, which bought a few microseconds of worker time at the cost of a
+        // synchronous stall on the thread that renders — the wrong trade, and
+        // one paid on every mesher switch, terrain regenerate and scene copy.
+        // Tests that need determinism use FlushPending, which still waits.
         m_Pending.clear();
         m_Meshes.clear();
     }

@@ -57,11 +57,11 @@ namespace OloEngine
     {
       public:
         VoxelGreedyMeshBuilder() = default;
-        // Waits out any in-flight mesh job. Dropping the builder while a worker
-        // is still meshing would leave the scheduler holding a task whose owner
-        // is gone — the jobs themselves are shared_ptr-owned, but the handles
-        // are not, and this is the one place the lifetime can end abruptly
-        // (switching the mesher back to marching cubes nulls the Ref).
+        // Retires without blocking: an in-flight mesh job holds only its own
+        // shared_ptr'd snapshot and never a reference to this builder, so the
+        // handles are simply abandoned. Dropping the Ref (mesher switch,
+        // terrain regenerate, scene copy) therefore never stalls the game
+        // thread on a worker. See Clear().
         ~VoxelGreedyMeshBuilder() override;
 
         // Game thread. Dispatches meshing for chunks that changed and uploads
@@ -89,6 +89,7 @@ namespace OloEngine
             return GetQuadCount() * 2;
         }
 
+        // Drops every mesh and abandons any in-flight job. Non-blocking.
         void Clear();
 
       private:
