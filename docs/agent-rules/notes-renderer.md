@@ -399,3 +399,32 @@ own stage and every differential assertion passes vacuously against itself.
 > **Rule of thumb:** grep `ResolveFrameGraphFramebuffer(ResourceNames::` before
 > adding anything to the tail of the post chain. Every hit is a consumer that
 > has hard-coded "the last stage" by name.
+
+## 18. A/B a shader-side renderer change against the live editor without rebuilding
+
+Shaders load from `OloEditor/assets/shaders` at runtime and `OpenGLShader::IsCacheStale` checks
+every transitively included file's mtime, so a `.glsl` edit costs an editor restart, not a build.
+That turns "did this actually change the frame, and by how much?" from an hour of build-mutex queue
+into about two minutes:
+
+1. Launch with the MCP diagnostics server and capture a **fixed pose set**
+   (`olo_screenshot` takes the pose itself and restores it, so one call per pose).
+2. Neutralise the change at its narrowest point — one constant, one function's return — rather than
+   reverting the file. For #751 that was `ddgiBounceMargin()` returning `vec3(0.0)`, which is exactly
+   the pre-fix behaviour.
+3. Restart, capture the *same* poses, restore the shader **from a copy you made first**.
+   Never `git checkout --` it (see [shader-ab-restore-pitfall] in the session memory: it wipes your
+   uncommitted work).
+4. Compare region means in approximate linear luminance (`display^2.2`), not display units — a 4×
+   linear change reads as only 1.9× after the gamma encode.
+
+**Include a pose the change cannot possibly affect, and you get the noise floor for free.** For a
+DDGI volume that is any surface outside its bounds: the lit-pass sampler still hard-rejects those,
+so that pose must reproduce exactly. It came back at ×1.000/×1.001 across two independent editor
+launches — which is what licensed reading the ×1.04–1.09 elsewhere as real rather than as jitter.
+Without such a control you are guessing, and
+[live-verification-noise-floor.md](live-verification-noise-floor.md) is the longer version of why
+that guess is usually wrong.
+
+The same trick has a headless twin: a shader-only fix can be re-measured by re-running the test
+binary, with no relink at all. Only C++ changes need the mutex.
