@@ -27,6 +27,9 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+// For kMaxBufferBindings — the 84 this file used to spell as a literal. Including
+// a Platform header from a renderer test follows VulkanDrawPathTest.cpp.
+#include "Platform/Vulkan/VulkanBindingState.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -38,6 +41,7 @@
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <map>
 #include <set>
 #include <sstream>
 #include <string>
@@ -167,8 +171,10 @@ TEST(VirtualShadowMapLocal, ConstantsMirrorTheShaderContract)
     // streams and the GL 4.6 minimum, the same two checks #702's bindings got.
     EXPECT_NE(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, ShaderBindingLayout::SSBO_VERTEX_PULL);
     EXPECT_NE(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, ShaderBindingLayout::SSBO_BONE_PULL);
-    EXPECT_LT(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, 84u)
-        << "past the GL 4.6 minimum for shader storage buffer bindings";
+    EXPECT_LT(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, VulkanBindingState::kMaxBufferBindings)
+        << "past the GL_MAX_UNIFORM_BUFFER_BINDINGS minimum guarantee (84), which is the bound the "
+           "Vulkan backend sizes its binding tables to — not a shader-storage limit, which is where "
+           "the previous message pointed";
 
     const std::string resources = ReadShaderText("include/VirtualShadowResources.glsl");
     ASSERT_FALSE(resources.empty());
@@ -311,11 +317,22 @@ TEST(VirtualShadowMapLocal, MetaLocalOwnerRoundTripsAndCannotAliasADirectionalOw
         }
     }
 
-    // The request flag word lives in a different buffer but has the same job, and
-    // its zero value must remain what a DIRECTIONAL request writes — otherwise a
-    // directional request would be replayed as a local one against a layer index
-    // that is really a clip level.
-    EXPECT_EQ(0u, 0u & VSM::kRequestLocalBit);
+    // The request flag word lives in a different buffer but has the same job: `.w`
+    // carries the LOCAL bit and, beneath it, the page-table mip. The two must not
+    // overlap — a mip that reached the flag bit would make the allocator replay a
+    // local request as a directional one against a layer index that is really a
+    // clip level, and vice versa.
+    //
+    // (The previous version of this asserted `0u & bit == 0u`, which is true of
+    // every possible bit and therefore said nothing.)
+    EXPECT_EQ(0u, VSM::kRequestLocalBit & VSM::kRequestMipMask)
+        << "the local flag overlaps the mip field — a request cannot carry both";
+    EXPECT_GE(VSM::kRequestMipMask, VSM::kLocalMipCount - 1u)
+        << "the mip field is too narrow to hold the coarsest mip, so a request for it "
+           "would decode as a different mip entirely";
+    // And the flag must be a real bit, so a DIRECTIONAL request's zero `.w` stays
+    // distinguishable from a local one — that is what lets the pre-#703 encoding
+    // keep working unchanged.
     EXPECT_NE(0u, VSM::kRequestLocalBit);
 }
 
@@ -671,9 +688,16 @@ TEST(VirtualShadowMapLocal, PointFacesMatchTheAtlasBuildersAxesAndUpVectors)
                                                                       : 0.0f);
         // Off-axis on purpose: an on-axis probe lands at the face centre and
         // would pass even if the up vectors were rotated.
-        const glm::vec3 probe = lightPosition + axis * 6.0f +
-                                glm::vec3(axis.x == 0.0f ? 1.3f : 0.0f, axis.y == 0.0f ? 0.9f : 0.0f,
-                                          axis.z == 0.0f ? 0.0f : 0.0f);
+        //
+        // Driven by the FACE INDEX, not by comparing the axis components against
+        // 0.0f — floating-point equality is forbidden here (cpp-coding-quality.md
+        // par.2) and the old spelling additionally had a dead `? 0.0f : 0.0f`
+        // ternary on z. Both offsets stay well under the axis' own 6.0, so the
+        // dominant component is unchanged and SelectCubeFace still answers `face`.
+        const bool xDominant = (face < 2);
+        const bool yDominant = (face >= 2 && face < 4);
+        const glm::vec3 offAxis(xDominant ? 0.0f : 1.3f, yDominant ? 0.0f : 0.9f, 0.0f);
+        const glm::vec3 probe = lightPosition + axis * 6.0f + offAxis;
 
         ASSERT_EQ(face, VirtualShadowMap::SelectCubeFace(probe - lightPosition));
 
@@ -792,14 +816,35 @@ TEST(VirtualShadowMapLocal, PointAndSpotTakeContiguousRunsOfTheRightLength)
     for (u32 i = 0; i < 6; ++i)
         EXPECT_EQ(point + 1, pool.Owner[pointBase + i]) << "face " << i << " is not owned by the point light";
 
-    // Every allocated layer has exactly one owner.
-    std::set<u32> owned;
+    // Every allocated layer names a LIVE slot, and every slot owns exactly as
+    // many layers as its Count says. That is what catches two slots overlapping a
+    // layer, or a slot whose run was resized without its ownership following.
+    //
+    // (The previous version inserted the LOOP VARIABLE into a set and asserted the
+    // insert succeeded — unique by construction, so it could not fail.)
+    std::map<u32, u32> layersPerSlot;
+    u32 ownedLayers = 0;
     for (u32 layer = 0; layer < VSM::kMaxLocalLayers; ++layer)
     {
-        if (pool.Owner[layer] != 0)
-            EXPECT_TRUE(owned.insert(layer).second);
+        const u16 owner = pool.Owner[layer];
+        if (owner == 0)
+            continue;
+        ++ownedLayers;
+        const u32 slotIndex = static_cast<u32>(owner) - 1u;
+        ASSERT_LT(slotIndex, pool.Slots.size()) << "layer " << layer << " names a slot that does not exist";
+        EXPECT_NE(0u, pool.Slots[slotIndex].Count)
+            << "layer " << layer << " is owned by a FREED slot — the run was released without its "
+                                    "ownership entries";
+        ++layersPerSlot[slotIndex];
     }
-    EXPECT_EQ(8u, owned.size());
+    for (const auto& [slotIndex, layerCount] : layersPerSlot)
+    {
+        EXPECT_EQ(pool.Slots[slotIndex].Count, layerCount)
+            << "slot " << slotIndex << " claims " << pool.Slots[slotIndex].Count << " layers but owns "
+            << layerCount << " — the runs overlap";
+    }
+    EXPECT_EQ(3u, layersPerSlot.size()) << "expected exactly the three lights allocated above";
+    EXPECT_EQ(8u, ownedLayers);
     EXPECT_EQ(8u, pool.LayerHighWater());
 }
 

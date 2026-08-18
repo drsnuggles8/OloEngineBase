@@ -161,13 +161,14 @@ void main()
             pageMax = ivec2(floor(uvMax * float(VSM_LOCAL_PAGE_TABLE_RESOLUTION)));
         }
 
-        if (!vsmLocalFootprintHasDirtyPage(layer, pageMin, pageMax))
-            return;
     }
-    else if (!vsmLocalFootprintHasDirtyPage(layer, pageMin, pageMax))
-    {
+
+    // ONE test, both paths. The unbounded case keeps the full-grid defaults above
+    // and the bounded case narrows them, so the two branches differed only in the
+    // footprint they had already computed -- duplicating the call just gave the
+    // HPB lookup two places to drift apart.
+    if (!vsmLocalFootprintHasDirtyPage(layer, pageMin, pageMax))
         return;
-    }
 
     uint command = caster.LocalBatch.x;
     uint runBase = caster.LocalBatch.y;

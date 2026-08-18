@@ -17,8 +17,10 @@
 // every frame and nothing is ever cached — visible only as a page-draw count
 // that never settles.
 //
-// Dispatched over VSM_TOTAL_VIRTUAL_PAGES, which is always >= the physical page
-// count, so the meta sweep rides along in the same dispatch.
+// Dispatched over VSM_TOTAL_PAGE_TABLE_ENTRIES -- the directional pages AND the
+// local-light ones (issue #703), since the per-frame bits mean the same thing in
+// both domains. That total is always >= the physical page count, so the meta
+// sweep rides along in the same dispatch.
 // =============================================================================
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;

@@ -165,6 +165,10 @@ namespace OloEngine
         // what the pre-#703 marker produced, so the fork is a set bit rather than
         // a value the old encoding could reach.
         inline constexpr u32 kRequestLocalBit = 1u << 31;
+        // The mip rides the same word, beneath the flag. Mirrors
+        // VSM_REQUEST_MIP_MASK; pinned disjoint from the flag by
+        // VirtualShadowMapLocal.MetaLocalOwnerRoundTripsAndCannotAliasADirectionalOwner.
+        inline constexpr u32 kRequestMipMask = 0x7u;
 
         // Allocation-request ring capacity. Mirrors VSM_MAX_REQUESTS.
         inline constexpr u32 kMaxRequests = 16384;
@@ -641,9 +645,17 @@ namespace OloEngine
             return IsActive() && m_Settings.LocalLights;
         }
         // How many LIGHTS got layers this frame (a point light counts once).
+        //
+        // Gated on AreLocalLightsActive(), because the head list is only rebuilt
+        // while the system is on: with it off the scene never calls
+        // BeginLocalLights, so an ungated read reports whatever the last active
+        // frame left behind. That is not a cosmetic difference — this is the
+        // third source ShadowMap::AnyShadowsRequested() consults, and a stale
+        // non-zero there would hold the whole shadow pass open for lights that
+        // are no longer registered.
         [[nodiscard]] u32 GetLocalLightCount() const
         {
-            return static_cast<u32>(m_LocalHeads.size());
+            return AreLocalLightsActive() ? static_cast<u32>(m_LocalHeads.size()) : 0u;
         }
         // Layers in use — 6 per point light, 1 per spot. The number the cull and
         // the HPB build dispatch over.

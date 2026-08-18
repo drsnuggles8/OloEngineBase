@@ -346,6 +346,16 @@ namespace OloEngine
         m_DepthSkinnedShader.Reset();
         m_DepthLocalShader.Reset();
         m_DepthLocalSkinnedShader.Reset();
+
+        // The layer pool addresses page-table entries that have just ceased to
+        // exist, so it goes with them — the same pairing ResetPageState makes, and
+        // for the same reason: a slot that outlives its pages hands the next owner
+        // a layer that reads as fully cached and is never redrawn.
+        m_LocalPool.Clear();
+        m_LocalLayers.fill(VSM::LocalLight{});
+        m_LocalHeads.clear();
+        m_LocalLayerHighWater = 0;
+        m_LocalLightsStarved = 0;
     }
 
     void VirtualShadowMap::Shutdown()
@@ -910,6 +920,21 @@ namespace OloEngine
     {
         if (!AreLocalLightsActive() || desc.Range <= 0.0f)
             return -1;
+
+        // A NaN slips through `Range <= 0.0f` — every comparison against NaN is
+        // false — and then poisons this light PERMANENTLY, not just for a frame:
+        // the projections go non-finite, so every page the layer caches is
+        // garbage, and the pose comparison in LocalLayerPool::Acquire can never
+        // match again (NaN != NaN), so the slot re-invalidates itself every frame
+        // forever. Cheaper to refuse the light (CLAUDE.md -> Conventions: validate
+        // any float that can arrive from outside).
+        const auto allFinite = [](const glm::vec3& v)
+        { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+        if (!std::isfinite(desc.Range) || !std::isfinite(desc.OuterCutoffDegrees) ||
+            !allFinite(desc.PositionRelative) || !allFinite(desc.Direction))
+        {
+            return -1;
+        }
 
         const u32 count = desc.IsPoint ? 6u : 1u;
 

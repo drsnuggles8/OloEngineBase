@@ -295,11 +295,12 @@ void main() {}
             }
         }
 
-        // The harness must have compiled EXACTLY the expected stage set: the nine
-        // compute kernels are one stage each and the two graphics shaders are two
-        // each. A >= floor would let a broken #type splitter silently drop a
-        // fragment stage — which is precisely the stage carrying the y-flip this
-        // file exists to keep parsed.
+        // The harness must have compiled EXACTLY the expected stage set: the TEN
+        // compute kernels are one stage each and the FOUR graphics shaders are two
+        // each (issue #703 added VSM_CullLocalCasters and the two local rasters).
+        // A >= floor would let a broken #type splitter silently drop a fragment
+        // stage — which is precisely the stage carrying the y-flip this file
+        // exists to keep parsed.
         constexpr u32 kExpectedStages = 10u + 4u * 2u;
         EXPECT_EQ(stagesCompiled, kExpectedStages)
             << "compiled " << stagesCompiled << " stages from " << kVsmShaders.size()

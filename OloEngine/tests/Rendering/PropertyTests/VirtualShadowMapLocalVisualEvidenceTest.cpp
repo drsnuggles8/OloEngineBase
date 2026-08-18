@@ -818,9 +818,11 @@ namespace OloEngine::Tests
             << " — the two techniques are not drawing the same shadow. Compare "
                "assets/tests/visual/VirtualShadowMapLocalSingle_{Atlas,Pages}.png";
 
-        // 3. And it is not merely a DARKER frame — the shadow has to be in the
-        //    same place, which a whole-frame mean cannot see. The band right of
-        //    the box is where a lamp at -X throws it.
+        // 3. And it is not merely a DARKER frame — a technique that dimmed
+        //    everything uniformly would satisfy both checks above. The band
+        //    sampled here is screen-LEFT of centre: the lamp sits at the ORIGIN
+        //    inside the ring of boxes, so that band is lit floor between two of
+        //    them, and it must survive the switch intact.
         const f64 atlasLit = MeanLuma(atlasPixels, 0.05f, 0.35f, 0.45f, 0.75f);
         const f64 vsmLit = MeanLuma(vsmPixels, 0.05f, 0.35f, 0.45f, 0.75f);
         ASSERT_GT(atlasLit, 20.0) << "the lit pool beside the lamp is dark in the atlas frame";
