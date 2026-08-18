@@ -7,7 +7,7 @@
 // distances into a directional (mean, mean^2) estimate and EMA-blends against
 // the PREVIOUS atlas texel with the plain volume hysteresis — visibility gets
 // NO threshold adjust (distances pop only on recapture/relocation, which the
-// EMA smooths; ADR 0006: visibility updates at capture time, not per frame).
+// EMA smooths; ADR 0007: visibility updates at capture time, not per frame).
 // Border texels copy their interior source, same gutter scheme as irradiance.
 // =============================================================================
 

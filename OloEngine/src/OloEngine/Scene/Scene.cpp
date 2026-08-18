@@ -6766,7 +6766,7 @@ namespace OloEngine
     //
     // DDGI capture caster submission (issue #632). Static opaque geometry
     // only — skinned meshes are deliberately absent (receive-only dynamics,
-    // ADR 0006). Gated on the material's alpha mode (the capture
+    // ADR 0007). Gated on the material's alpha mode (the capture
     // mini-G-buffer has no alpha sampling, so a masked banner would occlude
     // as a solid sheet) but NOT on the shadow-enable toggle or the
     // DisableShadowCasting flag: geometry must occlude and bounce GI even in

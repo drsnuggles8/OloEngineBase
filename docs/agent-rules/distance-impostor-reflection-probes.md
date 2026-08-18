@@ -94,7 +94,7 @@ CPU-frustum-culled, so one render sees every caster). Two rules:
   traversal.
 
 Skinned meshes are absent from the caster list — probes receive but never
-contain dynamic geometry, same receive-only rule as DDGI (ADR 0006).
+contain dynamic geometry, same receive-only rule as DDGI (ADR 0007).
 
 ## 5. Cube arrays: one resolution to rule them all
 
