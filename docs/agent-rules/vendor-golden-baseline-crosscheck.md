@@ -309,8 +309,12 @@ one set is rebaked and the other isn't. The pixel backstop stays deliberately lo
 sized against the Atmosphere test's own threshold, to catch a structural divergence (a dead
 star field, fog swallowing the frame, a UI that vanished) rather than bake-date skew.
 
-Both bars are expressed as *"the vendor set would pass the shared set's own gate"* rather
-than as invented constants, so they move if and only if those gates move.
+The two RMSE bars are *chosen to equal* the gates the golden tests apply to themselves
+(`kRmsePassBelow`, `kGoldenRmseThreshold`), so the check reads as "the vendor set would pass
+the shared set's own gate" rather than as an invented constant. They are **copies, not
+references** — both originals are function-local / TU-local `constexpr`s, and hoisting them
+into a shared header would restructure two test files for no other reason. So the link is a
+convention: **if either gate moves, move it here too.**
 
 **Still worth doing separately:** rebake the shared Atmosphere set at HEAD. It carries
 0.87–2.60 of accumulated drift. Nothing is red because of it — the compare threshold is 8.0 —

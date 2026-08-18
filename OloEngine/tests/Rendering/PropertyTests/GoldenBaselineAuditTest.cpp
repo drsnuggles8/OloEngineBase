@@ -140,6 +140,33 @@ namespace OloEngine::Tests
             return image;
         }
 
+        // The files every baseline set is expected to hold. Defined ONCE, at
+        // namespace scope, because three things consume them — the coverage
+        // guard, the cross-vendor parity check, and (for the goldens) the
+        // per-file audits. Two copies of these lists drifting apart would mean
+        // a baseline silently policed by one of them and not the others.
+        constexpr std::array<const char*, 4> kRendererGoldenFiles{
+            "fxaa_hard_edge.png",
+            "scene_shadow_integration.png",
+            "scene_splatmap_integration.png",
+            "tonemap_reinhard_hdr_ramp.png",
+        };
+        constexpr std::array<const char*, 13> kAtmosphereFiles{
+            "Atmosphere_DawnClear.png",
+            "Atmosphere_DawnOvercast.png",
+            "Atmosphere_DawnStorm.png",
+            "Atmosphere_NoonClear.png",
+            "Atmosphere_NoonOvercast.png",
+            "Atmosphere_NoonStorm.png",
+            "Atmosphere_NoonClearAerial.png",
+            "Atmosphere_DuskClear.png",
+            "Atmosphere_DuskOvercast.png",
+            "Atmosphere_DuskStorm.png",
+            "Atmosphere_NightClear.png",
+            "Atmosphere_NightOvercast.png",
+            "Atmosphere_NightStorm.png",
+        };
+
         // One baseline set: the shared root, or a per-vendor subdirectory.
         struct BaselineSet
         {
@@ -148,9 +175,37 @@ namespace OloEngine::Tests
             fs::path m_VisualDir;
         };
 
+        // True when a directory holds at least one .png, readable or not.
+        // "Holds a PNG" rather than "holds a READABLE PNG" on purpose: a
+        // truncated or mis-encoded baseline must still count as a set, so the
+        // coverage guard can report it, instead of vanishing from discovery
+        // and being silently policed by nobody.
+        [[nodiscard]] bool HoldsAnyPng(const fs::path& dir)
+        {
+            std::error_code ec;
+            if (!fs::is_directory(dir, ec))
+                return false;
+            for (const fs::directory_entry& entry : fs::directory_iterator(dir, ec))
+            {
+                if (entry.is_regular_file() && entry.path().extension() == ".png")
+                    return true;
+            }
+            return false;
+        }
+
         // Discovered rather than hard-coded, so a vendor set added later
         // (intel/, llvmpipe/, ...) is audited the day it lands without anyone
         // remembering to edit this file.
+        //
+        // A vendor directory holding NO PNG is not a baseline set and is
+        // excluded here: CompareOrBootstrap (GoldenImageTests.cpp) calls
+        // fs::create_directories on the composed path UNCONDITIONALLY, before
+        // it checks whether the baseline exists, so every run passing
+        // --olo-golden-vendor=<v> leaves an empty golden/<v>/ behind even when
+        // it then fails. cross-vendor.yml does exactly that with llvmpipe.
+        // Counting those would make the parity check below fail with "nothing
+        // was cross-compared" for a reason that has nothing to do with
+        // baselines — reproduced before this filter existed.
         [[nodiscard]] std::vector<BaselineSet> DiscoverBaselineSets()
         {
             const fs::path root = BaselineRoot();
@@ -174,7 +229,11 @@ namespace OloEngine::Tests
             }
             std::sort(vendors.begin(), vendors.end());
             for (const std::string& vendor : vendors)
-                sets.push_back(BaselineSet{ vendor, root / "golden" / vendor, root / "visual" / vendor });
+            {
+                BaselineSet set{ vendor, root / "golden" / vendor, root / "visual" / vendor };
+                if (HoldsAnyPng(set.m_GoldenDir) || HoldsAnyPng(set.m_VisualDir))
+                    sets.push_back(std::move(set));
+            }
             return sets;
         }
 
@@ -789,36 +848,22 @@ namespace OloEngine::Tests
             GTEST_SKIP() << "no per-vendor baseline set on disk — nothing to cross-compare";
         }
 
-        // Both bars are stated as "the vendor set would pass the shared set's
-        // OWN gate" rather than as invented numbers, so they move if and only
-        // if those gates move: kRmsePassBelow (GoldenImageTests) and
-        // kGoldenRmseThreshold (AtmosphereVisualEvidenceTest).
+        // The two RMSE bars are CHOSEN to equal the gates the golden tests
+        // apply to themselves — kRmsePassBelow (GoldenImageTests.cpp, an
+        // inclusive `m_Rmse <= …`, matched by EXPECT_LE below) and
+        // kGoldenRmseThreshold (AtmosphereVisualEvidenceTest.cpp) — so this
+        // check reads as "the vendor set would pass the shared set's own gate".
+        //
+        // They are COPIES, not references: both originals are function-local /
+        // TU-local constexprs, and hoisting them into a shared header would
+        // restructure two test files this change has no other reason to touch.
+        // So the link is a convention, not a compile-time fact — if either gate
+        // moves, move it here too. The other two bars are this test's own.
         constexpr f32 kGoldenRmseUnit = 0.004f;
         constexpr u32 kGoldenMaxDelta = 2;
         constexpr f64 kBandLumaDelta = 2.0;
         constexpr f64 kAtmosphereRmse255 = 8.0;
 
-        static constexpr std::array<const char*, 4> kRendererGoldens{
-            "fxaa_hard_edge.png",
-            "scene_shadow_integration.png",
-            "scene_splatmap_integration.png",
-            "tonemap_reinhard_hdr_ramp.png",
-        };
-        static constexpr std::array<const char*, 13> kAtmosphereCells{
-            "Atmosphere_DawnClear.png",
-            "Atmosphere_DawnOvercast.png",
-            "Atmosphere_DawnStorm.png",
-            "Atmosphere_NoonClear.png",
-            "Atmosphere_NoonOvercast.png",
-            "Atmosphere_NoonStorm.png",
-            "Atmosphere_NoonClearAerial.png",
-            "Atmosphere_DuskClear.png",
-            "Atmosphere_DuskOvercast.png",
-            "Atmosphere_DuskStorm.png",
-            "Atmosphere_NightClear.png",
-            "Atmosphere_NightOvercast.png",
-            "Atmosphere_NightStorm.png",
-        };
         struct Band
         {
             const char* m_Name;
@@ -838,7 +883,7 @@ namespace OloEngine::Tests
             SCOPED_TRACE("cross-vendor: " + vendor.m_Label + " vs shared");
 
             // ---- Tier 1: renderer goldens, tight pixel parity ----
-            for (const char* name : kRendererGoldens)
+            for (const char* name : kRendererGoldenFiles)
             {
                 Image lhs;
                 Image rhs;
@@ -859,7 +904,7 @@ namespace OloEngine::Tests
 
                 const f32 rmse = ComputeRgbRmseUnit(lhs, rhs);
                 const u32 maxDelta = MaxChannelDelta(lhs, rhs);
-                EXPECT_LT(rmse, kGoldenRmseUnit)
+                EXPECT_LE(rmse, kGoldenRmseUnit)
                     << name << ": '" << vendor.m_Label << "' differs from the shared baseline by RMSE "
                     << rmse << ", above GoldenImageTests' kRmsePassBelow — so this vendor's recording "
                                "would not pass the shared comparison. These frames are procedural and "
@@ -870,7 +915,7 @@ namespace OloEngine::Tests
             }
 
             // ---- Tier 2: Atmosphere, derived band parity + pixel backstop ----
-            for (const char* cell : kAtmosphereCells)
+            for (const char* cell : kAtmosphereFiles)
             {
                 Image lhs;
                 Image rhs;
@@ -935,19 +980,15 @@ namespace OloEngine::Tests
         const std::vector<BaselineSet> sets = DiscoverBaselineSets();
         ASSERT_FALSE(sets.empty());
 
-        const std::array<const char*, 4> requiredGoldens{
-            "fxaa_hard_edge.png",
-            "scene_shadow_integration.png",
-            "scene_splatmap_integration.png",
-            "tonemap_reinhard_hdr_ramp.png",
-        };
-
-        // The shared set is the one the whole suite compares against, so it
-        // must be complete. A missing file here is the "wrong working
-        // directory" failure the per-test floors can only hint at.
+        // The shared set is the one the whole suite compares against — and the
+        // one every vendor set is compared AGAINST by the parity check — so it
+        // must be complete in BOTH halves. A missing file here is the "wrong
+        // working directory" failure the per-test floors can only hint at; and
+        // requiring the Atmosphere captures closes a partial-loss gap, since
+        // the per-cell audits skip whatever they cannot load.
         const BaselineSet& shared = sets.front();
         ASSERT_EQ(shared.m_Label, "shared");
-        for (const char* name : requiredGoldens)
+        for (const char* name : kRendererGoldenFiles)
         {
             Image image;
             EXPECT_TRUE(LoadForAudit(shared.m_GoldenDir / name, image))
@@ -955,23 +996,22 @@ namespace OloEngine::Tests
                 << " — if this is the only failure, the test binary's working directory is wrong "
                    "(expected <repo>/OloEditor)";
         }
+        for (const char* name : kAtmosphereFiles)
+        {
+            Image image;
+            EXPECT_TRUE(LoadForAudit(shared.m_VisualDir / name, image))
+                << "shared baseline missing or unreadable: " << (shared.m_VisualDir / name).string();
+        }
 
         // A vendor directory that holds PNGs must hold at least one this audit
         // can actually read. A PNG that is present but unreadable (truncated,
         // wrong format, renamed) is the silent-skip shape: the nightly for that
         // vendor sees a baseline, this audit sees nothing, and neither says so.
         //
-        // An EMPTY vendor directory is explicitly NOT a failure, because the
-        // golden machinery creates one as a side effect:
-        // CompareOrBootstrap (GoldenImageTests.cpp) calls fs::create_directories
-        // on the composed path UNCONDITIONALLY, before it checks whether the
-        // baseline exists. So any run passing --olo-golden-vendor=<v> leaves
-        // an empty golden/<v>/ behind even when it then fails for a missing
-        // baseline — cross-vendor.yml does exactly that with llvmpipe, and so
-        // does the scratch-directory workflow in
-        // docs/agent-rules/vendor-golden-baseline-crosscheck.md. Failing on an
-        // empty directory would turn this audit red for a reason that has
-        // nothing to do with baseline quality.
+        // A directory holding NO PNG never reaches here — DiscoverBaselineSets
+        // drops it, because the golden machinery creates empty vendor
+        // directories as a side effect (see the note there). This loop is
+        // therefore about CONTENT, not existence.
         for (std::size_t i = 1; i < sets.size(); ++i)
         {
             const BaselineSet& set = sets[i];
