@@ -15,7 +15,14 @@ namespace OloEngine
         m_WorldSizeX = worldSizeX;
         m_WorldSizeZ = worldSizeZ;
         m_HeightScale = heightScale;
-        if (voxelSize <= 0.0f)
+        // NaN must be rejected explicitly: `NaN <= 0.0f` is FALSE, so a
+        // non-finite size sails through a sign check and poisons every derived
+        // quantity - chunkWorldSize, GetChunkBounds, and the per-chunk model
+        // matrix in VoxelGreedyMeshBuilder::UploadMesh - which renders as the
+        // whole volume silently vanishing. Reachable: TerrainComponent's
+        // m_VoxelSize round-trips through save-games, and that loader's
+        // sanitize block does not cover it (the scene YAML path does).
+        if (!std::isfinite(voxelSize) || voxelSize <= 0.0f)
         {
             OLO_CORE_WARN("VoxelOverride::Initialize: Invalid voxelSize {}, clamping to 0.5", voxelSize);
             voxelSize = 0.5f;

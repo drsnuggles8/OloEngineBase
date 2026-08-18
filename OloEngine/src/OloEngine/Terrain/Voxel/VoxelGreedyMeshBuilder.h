@@ -101,9 +101,10 @@ namespace OloEngine
             std::vector<PackedQuad> Quads;
         };
 
+        // Keyed by chunk coordinate in m_Pending, so the coord is the map key
+        // rather than a field here.
         struct PendingMesh
         {
-            VoxelCoord Coord;
             Tasks::TTask<bool> Task;
             std::shared_ptr<MeshJob> Job;
         };
@@ -115,7 +116,10 @@ namespace OloEngine
         void EnsureSharedGeometry();
 
         std::unordered_map<VoxelCoord, VoxelQuadMesh, VoxelCoordHash> m_Meshes;
-        std::vector<PendingMesh> m_Pending;
+        // Keyed, not a vector: DispatchDirty looks up "is this chunk already
+        // meshing?" once per chunk in the rebuild set, and a linear scan there
+        // makes a big edit quadratic in the number of dirty chunks.
+        std::unordered_map<VoxelCoord, PendingMesh, VoxelCoordHash> m_Pending;
 
         // The unit quad every chunk instances. Shared by every VAO — only the
         // per-chunk instance stream differs.

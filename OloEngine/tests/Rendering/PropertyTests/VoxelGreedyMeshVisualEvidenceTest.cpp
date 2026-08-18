@@ -366,7 +366,11 @@ namespace OloEngine::Tests
         ASSERT_GT(marchingCubesTriangles, 0u) << "marching cubes produced nothing for the same volume - "
                                                  "the comparison would be vacuous";
 
+        // Denominators, asserted here rather than inferred from the quad-count
+        // assert above: both ratios divide by these.
+        ASSERT_GT(greedyTriangles, 0u);
         const u64 packedBytes = static_cast<u64>(greedyQuads) * sizeof(PackedQuad);
+        ASSERT_GT(packedBytes, 0u);
         const f32 triangleRatio = static_cast<f32>(marchingCubesTriangles) / static_cast<f32>(greedyTriangles);
         const f32 byteRatio = static_cast<f32>(marchingCubesBytes) / static_cast<f32>(packedBytes);
 

@@ -8,6 +8,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -93,7 +94,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         DispatchDirty(voxels);
-        for (auto& pending : m_Pending)
+        for (auto& [coord, pending] : m_Pending)
         {
             pending.Task.Wait();
         }
@@ -115,7 +116,13 @@ namespace OloEngine
         // one chunk invalidates the meshes of the six that touch it. Rebuilding
         // them here — rather than setting their Dirty flag — keeps this a single
         // ring around the edit instead of a cascade across the whole volume.
+        // The vector fixes the dispatch ORDER (deterministic across runs); the
+        // set answers membership in O(1). A plain linear find here is quadratic
+        // in the dirty-chunk count, which a large carve or the initial seed of a
+        // big volume hits directly.
         std::vector<VoxelCoord> rebuild = dirtyCoords;
+        std::unordered_set<VoxelCoord, VoxelCoordHash> rebuildSet(dirtyCoords.begin(), dirtyCoords.end());
+
         constexpr i32 kNeighbourOffsets[6][3] = {
             { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
         };
@@ -128,7 +135,7 @@ namespace OloEngine
                 {
                     continue;
                 }
-                if (std::ranges::find(rebuild, neighbour) == rebuild.end())
+                if (rebuildSet.insert(neighbour).second)
                 {
                     rebuild.push_back(neighbour);
                 }
@@ -144,12 +151,7 @@ namespace OloEngine
             // whole point of dispatching. Dropping the handle is safe because
             // the job is owned by a shared_ptr the running task also holds — it
             // finishes into memory nobody reads and frees itself.
-            auto inFlight = std::ranges::find_if(m_Pending, [&coord](const PendingMesh& p)
-                                                 { return p.Coord == coord; });
-            if (inFlight != m_Pending.end())
-            {
-                m_Pending.erase(inFlight);
-            }
+            m_Pending.erase(coord);
 
             auto job = std::make_shared<MeshJob>();
             VoxelGreedyMesher::Gather(voxels, coord, job->Neighbourhood);
@@ -164,7 +166,7 @@ namespace OloEngine
                     mesher.Mesh(job->Neighbourhood, job->Quads);
                     return true; }, Tasks::ETaskPriority::BackgroundNormal);
 
-            m_Pending.push_back({ coord, std::move(task), std::move(job) });
+            m_Pending.emplace(coord, PendingMesh{ std::move(task), std::move(job) });
         }
 
         for (const auto& coord : dirtyCoords)
@@ -180,19 +182,19 @@ namespace OloEngine
         auto it = m_Pending.begin();
         while (it != m_Pending.end())
         {
-            if (!it->Task.IsCompleted())
+            if (!it->second.Task.IsCompleted())
             {
                 ++it;
                 continue;
             }
 
-            if (it->Job->Quads.empty())
+            if (it->second.Job->Quads.empty())
             {
-                m_Meshes.erase(it->Coord);
+                m_Meshes.erase(it->first);
             }
             else
             {
-                UploadMesh(it->Coord, it->Job->Quads, voxelSize, voxels);
+                UploadMesh(it->first, it->second.Job->Quads, voxelSize, voxels);
             }
 
             it = m_Pending.erase(it);
