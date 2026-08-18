@@ -258,6 +258,80 @@ function(olo_bind_heavy_compile_pool target_name base_dir)
     set_property(FILE_SET olo_heavy_compile TARGET ${target_name} PROPERTY JOB_POOL_COMPILE olo_heavy)
 endfunction()
 
+# Exclude specific translation units from whole-program optimization / LTO (issue #762).
+#
+# olo_enable_lto() turns INTERPROCEDURAL_OPTIMIZATION on for Release and Dist, which makes MSVC
+# compile every TU with /GL: the object then holds the compiler's intermediate representation
+# instead of machine code, and codegen is deferred to the /LTCG link. For ordinary engine code
+# that costs a few extra MB. For a TU that is one enormous wall of template instantiation it is
+# catastrophic — OloEngine's Sol2 binding glue produced a 348 MiB object this way. A single
+# OloEngine.lib would have had to hold 4.98 GB of members, making a ~5.10 GB archive: 119% of the
+# COFF format's hard 4 GiB ceiling, and every Dist link failed with LNK1248 (see
+# cmake/CheckArchiveSize.cmake).
+#
+# Excluding TUs is NOT what fixed that, and the arithmetic is worth keeping in view: the six
+# heaviest objects come to only ~14% of the mass, which does not close a 19% overshoot, let alone
+# leave headroom — and one of those six (Scene.cpp) is hot, so it is not a candidate here at all.
+# The engine is split across three archives (OloEngine/src/CMakeLists.txt); this function is the
+# cheap extra margin on top, worth a measured ~449 MiB across the five TUs it is applied to.
+#
+# The trade is only worth making where whole-program optimization has nothing to optimize: these
+# are one-shot registration and (de)serialization TUs that run at startup or at scene load, never
+# in a per-frame loop. Do NOT add a hot TU here to buy headroom — split the archive instead.
+#
+# Directory-scoped, like every source-file property: call it from the CMakeLists.txt that adds
+# the sources to the target. FILES are relative to that directory (or absolute).
+function(olo_exclude_from_whole_program_optimization)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        # cl.exe takes the LAST of /GL and /GL-, and source-level COMPILE_OPTIONS land after the
+        # target's flags on the command line (MSBuild appends them via AdditionalOptions), so
+        # this reliably wins over the /GL that INTERPROCEDURAL_OPTIMIZATION adds.
+        set(_olo_no_wpo "/GL-")
+    else()
+        # clang-cl, clang and GCC all spell it the same way, and all three ignore it harmlessly
+        # in a build that never enabled LTO in the first place (Debug, or -DOLO_ENABLE_LTO=OFF).
+        set(_olo_no_wpo "-fno-lto")
+    endif()
+
+    foreach(_olo_wpo_file ${ARGN})
+        if(IS_ABSOLUTE "${_olo_wpo_file}")
+            set(_olo_wpo_path "${_olo_wpo_file}")
+        else()
+            set(_olo_wpo_path "${CMAKE_CURRENT_SOURCE_DIR}/${_olo_wpo_file}")
+        endif()
+        if(NOT EXISTS "${_olo_wpo_path}")
+            # A renamed or deleted TU must not silently stop being excluded — that would put the
+            # archive back on course for the 4 GiB ceiling with nothing in the log to say so.
+            message(FATAL_ERROR
+                "olo_exclude_from_whole_program_optimization: no such source file "
+                "'${_olo_wpo_path}'. Update the list in the caller, or drop the entry.")
+        endif()
+        # Absolute paths deliberately: a file moved into a FILE_SET (olo_bind_heavy_compile_pool)
+        # is stored absolute, and matching the property key to it keeps the exclusion attached
+        # under every generator rather than only the ones without the heavy-compile pool.
+        set_source_files_properties("${_olo_wpo_path}" PROPERTIES COMPILE_OPTIONS "${_olo_no_wpo}")
+    endforeach()
+endfunction()
+
+# Report how close a static archive is to the 4 GiB COFF ceiling after every build, and fail
+# before lib.exe would (issue #762). No-op off MSVC — the limit is a property of the .lib format,
+# and ELF/Mach-O archives have no comparable ceiling within reach.
+#
+# Must be called from the directory that created the target: add_custom_command(TARGET ...).
+function(olo_check_archive_size target_name)
+    if(NOT MSVC)
+        return()
+    endif()
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                -DOLO_ARCHIVE=$<TARGET_FILE:${target_name}>
+                -DOLO_ARCHIVE_WARN_BYTES=${OLO_ARCHIVE_WARN_BYTES}
+                -DOLO_ARCHIVE_FAIL_BYTES=${OLO_ARCHIVE_FAIL_BYTES}
+                -P ${CMAKE_SOURCE_DIR}/cmake/CheckArchiveSize.cmake
+        COMMENT "Checking ${target_name} archive size against the 4 GiB COFF limit"
+        VERBATIM)
+endfunction()
+
 # Configure C# project properties
 function(olo_configure_csharp_project target_name output_dir)
     # Set output directories for C# assemblies

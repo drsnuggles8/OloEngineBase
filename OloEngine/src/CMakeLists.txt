@@ -1695,20 +1695,136 @@ if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	)
 endif()
 
-add_library(OloEngine STATIC
-		${SOURCES}
-)
+# --------------------------------------------------------------------------
+# The engine ships as THREE static libraries, not one (issue #762).
+#
+# A COFF archive stores its member offsets as 32-bit values and has no 64-bit variant, so a .lib
+# can never exceed 4 GiB. In the Dist configuration — where /GL makes every object carry compiler
+# IL rather than machine code — a single OloEngine.lib measured 4.98 GB of members, which lib.exe
+# turns into a ~5.10 GB archive: 119% of the ceiling. Every app target failed to link with
+# LNK1248 and had done for an unknown length of time, because no CI workflow builds Dist and the
+# ones that build Release pass -DOLO_ENABLE_LTO=OFF, so nothing had ever produced a /GL object.
+#
+# Note the failure mode when reading that error: LNK1248 reports the offset at which the running
+# total crossed 4 GiB, NOT the archive's final size. Both this measurement and the one in #762
+# therefore *looked* like they were a few hundred KB over the line when the real overshoot was
+# ~1.1 GB. Excluding even the worst translation units from /GL cannot close a gap that size — the
+# archive has to stop being one archive.
+#
+# THE PARTITION IS COMPUTED, NOT LISTED. The regexes below select from the single ${SOURCES} list
+# above by directory prefix, which is deliberate on two counts: adding a source file needs no edit
+# here (it lands in the part its directory implies), and a branch that adds files to ${SOURCES}
+# merges cleanly against this one instead of conflicting over a hand-split list. Measured archive
+# sizes after the split (Dist, /GL, USD+FFmpeg on), as a share of the 4 GiB limit:
+#
+#     OloEngine (core)      2,053,474,988 B   47.8%
+#     OloEngineRenderer     1,593,328,912 B   37.1%
+#     OloEngineContent        994,144,118 B   23.2%   (after the /GL- exclusions below)
+#
+# The single archive they replace measured ~5.10 GB, i.e. 119% of the limit.
+#
+# If a part ever approaches the ceiling again, cut it further along the same lines rather than
+# raising OLO_ARCHIVE_*_PERCENT — cmake/CheckArchiveSize.cmake will say which part and how close.
+# Background: docs/agent-rules/static-archive-4gib-ceiling.md
+set(OLO_RENDERER_SOURCES ${SOURCES})
+list(FILTER OLO_RENDERER_SOURCES INCLUDE REGEX "^(OloEngine/Renderer/|Platform/OpenGL/|Platform/Vulkan/)")
 
+set(OLO_CONTENT_SOURCES ${SOURCES})
+list(FILTER OLO_CONTENT_SOURCES INCLUDE REGEX "^OloEngine/(Asset|Scene|Scripting|SaveGame|Serialization|Project|Localization)/")
+
+set(OLO_CORE_SOURCES ${SOURCES})
+list(REMOVE_ITEM OLO_CORE_SOURCES ${OLO_RENDERER_SOURCES} ${OLO_CONTENT_SOURCES})
+
+# The regexes are the only thing holding the partition together, so assert the three properties a
+# future edit could break — every one of these failures would otherwise be silent. An empty part
+# builds an empty archive and takes its sources down with it; an overlapping part compiles the
+# same TU into two archives, which /FORCE:MULTIPLE (on for the USD build) would paper over at link
+# time rather than report; and a source in no part at all is simply never built.
+foreach(_olo_part_list OLO_CORE_SOURCES OLO_RENDERER_SOURCES OLO_CONTENT_SOURCES)
+	list(LENGTH ${_olo_part_list} _olo_part_len)
+	if(_olo_part_len EQUAL 0)
+		message(FATAL_ERROR
+			"${_olo_part_list} is empty — a directory the engine-library partition selects on has "
+			"been renamed or removed. Fix the regex in OloEngine/src/CMakeLists.txt; leaving it "
+			"would move those sources into another archive without anyone noticing.")
+	endif()
+endforeach()
+
+set(_olo_partition_all ${OLO_CORE_SOURCES} ${OLO_RENDERER_SOURCES} ${OLO_CONTENT_SOURCES})
+list(LENGTH _olo_partition_all _olo_partition_len)
+list(REMOVE_DUPLICATES _olo_partition_all)
+list(LENGTH _olo_partition_all _olo_partition_unique)
+if(NOT _olo_partition_len EQUAL _olo_partition_unique)
+	message(FATAL_ERROR
+		"The engine-library partition is not disjoint: ${_olo_partition_len} entries across the "
+		"three parts, but only ${_olo_partition_unique} distinct ones. Two selection regexes in "
+		"OloEngine/src/CMakeLists.txt now match the same path, which would compile those "
+		"translation units into two archives.")
+endif()
+list(LENGTH SOURCES _olo_sources_len)
+if(NOT _olo_partition_len EQUAL _olo_sources_len)
+	message(FATAL_ERROR
+		"The engine-library partition covers ${_olo_partition_len} of ${_olo_sources_len} entries "
+		"in SOURCES. Every source must land in exactly one part; a file in none of them is simply "
+		"not built.")
+endif()
+
+add_library(OloEngine STATIC
+		${OLO_CORE_SOURCES}
+)
+add_library(OloEngineRenderer STATIC ${OLO_RENDERER_SOURCES})
+add_library(OloEngineContent  STATIC ${OLO_CONTENT_SOURCES})
+
+# Consumed by the parent CMakeLists.txt, which applies the shared build settings to each part.
+# OloEngine leads: it is the target everything outside the engine links, and the one that carries
+# the PUBLIC usage requirements the other two inherit.
+set(OLO_ENGINE_LIBRARY_PARTS OloEngine OloEngineRenderer OloEngineContent PARENT_SCOPE)
+
+# LuaScriptGlue.cpp lives under OloEngine/Scripting/, so its heavy-compile file set now belongs to
+# OloEngineContent. Binding it to OloEngine instead would add the file to a target that no longer
+# compiles it — a second build edge for an output the other target already owns.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	olo_bind_heavy_compile_pool(OloEngine "${CMAKE_CURRENT_SOURCE_DIR}"
+	olo_bind_heavy_compile_pool(OloEngineContent "${CMAKE_CURRENT_SOURCE_DIR}"
 		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
 	)
 endif()
 
-# Unity (jumbo) build exclusions. The OloEngine target's UNITY_BUILD property is set in the
-# parent OloEngine/CMakeLists.txt (gated on OLO_ENABLE_UNITY_BUILD); the per-source
+# Whole-program optimization is what made these objects enormous, and it buys nothing here: every
+# one is one-shot registration or (de)serialization that runs at startup or at scene load, never
+# in a frame loop. Measured IL sizes in Dist, and what the exclusion recovers:
+#
+#     TU                        /GL       /GL-   residual
+#     LuaScriptGlue.cpp     348.4 MiB   94.0 MiB    27.0%
+#     ScriptGlue.cpp         84.6 MiB   18.8 MiB    22.3%
+#     SceneSerializer.cpp    63.3 MiB   15.3 MiB    24.2%
+#     SaveGameSerializer.cpp 58.2 MiB   11.6 MiB    19.8%
+#     Prefab.cpp             41.3 MiB    7.0 MiB    17.1%
+#     --------------------------------------------------
+#     total                 595.8 MiB  146.7 MiB    ~449 MiB recovered
+#
+# This is NOT what fixes the link — the split above is; 449 MiB does not close a ~1.1 GB gap. It is
+# here because it takes OloEngineContent from ~33% of the ceiling to 23%, and because it removes
+# the single heaviest TU in the tree (issue #822) from the /LTCG link's input.
+#
+# Do not add a hot TU to this list to buy headroom. Cut the archive further instead.
+olo_exclude_from_whole_program_optimization(
+	"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+	"OloEngine/Scripting/C#/ScriptGlue.cpp"
+	"OloEngine/Scene/SceneSerializer.cpp"
+	"OloEngine/Scene/Prefab.cpp"
+	"OloEngine/SaveGame/SaveGameSerializer.cpp"
+)
+
+# Report each archive's headroom against the 4 GiB ceiling after every build (issue #762).
+foreach(_olo_part IN ITEMS OloEngine OloEngineRenderer OloEngineContent)
+	olo_check_archive_size(${_olo_part})
+endforeach()
+
+# Unity (jumbo) build exclusions. The UNITY_BUILD property is set on all three engine libraries
+# in the parent OloEngine/CMakeLists.txt (gated on OLO_ENABLE_UNITY_BUILD); the per-source
 # SKIP_UNITY_BUILD_INCLUSION below must live here, in the directory scope where the sources
-# are added to the target. See docs/ops/build.md "Unity (jumbo) builds for faster cold builds".
+# are added to the target. Source-file properties are directory-scoped, not target-scoped, so this
+# one list keeps covering every entry regardless of which part now owns it. See docs/ops/build.md "Unity (jumbo) builds for faster cold builds".
 #
 # Two groups, each empirically required (a unity ON build fails to compile without them):
 #
