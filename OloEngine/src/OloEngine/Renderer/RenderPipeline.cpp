@@ -1279,6 +1279,31 @@ namespace OloEngine
         data.SceneEffectsGPU.FogVolumes->SetData(&data.SceneEffectsGPU.FogVolumesData, FogVolumesUBOData::GetSize());
         data.SceneEffectsGPU.FogVolumes->Bind();
 
+        // Invalidate the froxel fog's temporal history whenever the chain is
+        // OFF — here, where the enable is decided, not downstream.
+        //
+        // The history is PASS state (VolumetricFogPass's scatter ping-pong) and
+        // therefore outlives the scene. Its only invalidation site was
+        // FogRenderPass::Execute's `else` branch, which is unreachable when fog
+        // is off ENTIRELY: that pass does not run, so nothing clears the flag
+        // and a valid history from the previous scene survives. The next frame
+        // that turns fog back on then reprojects against another scene's fog
+        // and blends toward the truth at the history weight (0.9), so several
+        // frames read visibly wrong — thinner or thicker fog than the scene
+        // actually has, converging slowly enough to look like a lighting bug
+        // rather than a stale buffer.
+        //
+        // Found via issue #723: a new fog test left a valid history behind and
+        // VolumetricFogVisualEvidenceTest's coloured glow dropped below its
+        // threshold, while its fog-DISABLED baseline stayed bit-identical —
+        // which is the signature of history, not of settings. The same defect
+        // is reachable in a shipped game through a runtime scene switch
+        // (docs/agent-rules/runtime-scene-switching.md).
+        if (PostProcessPasses.VolumetricFog && !(data.Fog.Enabled && data.Fog.EnableVolumetric))
+        {
+            PostProcessPasses.VolumetricFog->UploadDisabledUBO();
+        }
+
         // Update wind system (regenerate 3D wind field, upload wind UBO)
         {
             // TODO(olbu): Pass actual frame dt once Timestep is threaded through BeginScene
