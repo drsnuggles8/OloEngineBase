@@ -41,6 +41,8 @@ void main()
     }
 
     atomicAdd(b_PagesResident, 1u);
+    if (vsmMetaIsLocal(meta))
+        atomicAdd(b_LocalPagesResident, 1u);
 
     if (!vsmMetaIsVisited(meta))
     {

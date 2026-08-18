@@ -44,6 +44,51 @@ namespace OloEngine
         constexpr u32 kRequestHeaderUints = 4;
         constexpr u32 kInvalidationHeaderVec4s = 1;
         constexpr u32 kMaxInvalidations = 1024;
+
+        // The local-light buffer's std430 layout, mirrored from the VSMLocalLights
+        // block in include/VirtualShadowResources.glsl. Three uint[kMaxLocalLayers]
+        // header arrays, then the unsized LocalLight tail — that order is forced,
+        // because std430 allows only the LAST member to be unsized.
+        constexpr u32 kLocalRasterMipOffset = 0;
+        constexpr u32 kLocalHeadOffset = VSM::kMaxLocalLayers * sizeof(u32);
+        constexpr u32 kLocalInvalidateOffset = kLocalHeadOffset + VSM::kMaxLocalLayers * sizeof(u32);
+        constexpr u32 kLocalLayersOffset = kLocalInvalidateOffset + VSM::kMaxLocalLayers * sizeof(u32);
+        constexpr u32 kLocalBufferBytes = kLocalLayersOffset + VSM::kMaxLocalLayers * sizeof(VSM::LocalLight);
+        static_assert(kLocalLayersOffset % 16 == 0,
+                      "the LocalLight tail must start 16-byte aligned or std430 pads the header");
+
+        // Face basis for a point light's six layers, in the +X,-X,+Y,-Y,+Z,-Z
+        // order vsmCubeFace / atlasCubeFace select by dominant axis. Copied from
+        // ShadowMap::BuildPointLightFaceMatrices rather than shared through it,
+        // because these are built in RENDER-RELATIVE space — but the axes and the
+        // up vectors must stay identical, which VirtualShadowMapLocalTest pins.
+        constexpr std::array<glm::vec3, 6> kCubeFaceForward{ {
+            { 1.0f, 0.0f, 0.0f },
+            { -1.0f, 0.0f, 0.0f },
+            { 0.0f, 1.0f, 0.0f },
+            { 0.0f, -1.0f, 0.0f },
+            { 0.0f, 0.0f, 1.0f },
+            { 0.0f, 0.0f, -1.0f },
+        } };
+        constexpr std::array<glm::vec3, 6> kCubeFaceUp{ {
+            { 0.0f, -1.0f, 0.0f },
+            { 0.0f, -1.0f, 0.0f },
+            { 0.0f, 0.0f, 1.0f },
+            { 0.0f, 0.0f, -1.0f },
+            { 0.0f, -1.0f, 0.0f },
+            { 0.0f, -1.0f, 0.0f },
+        } };
+
+        // The near plane every local face uses. Matches the atlas path's
+        // hard-coded 0.1 so the two techniques clip the same geometry, but
+        // additionally floored against the range: a 0.5 m range light with a
+        // 0.1 m near plane has a depth distribution the bias conversion cannot
+        // rescue.
+        [[nodiscard]] constexpr f32 LocalNearPlane(f32 range)
+        {
+            const f32 fromRange = range * 0.01f;
+            return (fromRange < 0.1f) ? std::max(fromRange, 1.0e-3f) : 0.1f;
+        }
     } // namespace
 
     VirtualShadowMap::~VirtualShadowMap()
@@ -96,9 +141,12 @@ namespace OloEngine
         m_ClearPagesShader = ComputeShader::Create("assets/shaders/compute/VSM_ClearDirtyPages.comp");
         m_BuildHPBShader = ComputeShader::Create("assets/shaders/compute/VSM_BuildHPB.comp");
         m_CullShader = ComputeShader::Create("assets/shaders/compute/VSM_CullCasters.comp");
+        m_CullLocalShader = ComputeShader::Create("assets/shaders/compute/VSM_CullLocalCasters.comp");
         m_EndFrameShader = ComputeShader::Create("assets/shaders/compute/VSM_EndFrame.comp");
         m_DepthShader = Shader::Create("assets/shaders/VSM_Depth.glsl");
         m_DepthSkinnedShader = Shader::Create("assets/shaders/VSM_DepthSkinned.glsl");
+        m_DepthLocalShader = Shader::Create("assets/shaders/VSM_DepthLocal.glsl");
+        m_DepthLocalSkinnedShader = Shader::Create("assets/shaders/VSM_DepthLocalSkinned.glsl");
 
         const bool computeOk = m_FreeWrappedShader && m_FreeWrappedShader->IsValid() &&
                                m_MarkShader && m_MarkShader->IsValid() &&
@@ -108,13 +156,22 @@ namespace OloEngine
                                m_ClearPagesShader && m_ClearPagesShader->IsValid() &&
                                m_BuildHPBShader && m_BuildHPBShader->IsValid() &&
                                m_CullShader && m_CullShader->IsValid() &&
+                               m_CullLocalShader && m_CullLocalShader->IsValid() &&
                                m_EndFrameShader && m_EndFrameShader->IsValid();
         // IsReady(), not just non-null: Shader::Create can return a live object
         // whose compilation FAILED, and VSM staying "active" with a dead depth
         // raster is precisely the unshadowed-frame-with-no-error state this
         // whole function exists to refuse (the caller falls back to CSM).
+        //
+        // The two LOCAL rasters are in the same conjunction as the directional
+        // pair, not treated as optional: a failed local raster would leave the
+        // local lights' pages allocated, dirty and never written, which reads as
+        // fully-lit local lights rather than as a missing feature. Degrading the
+        // whole system to CSM + atlas is the honest failure.
         return computeOk && m_DepthShader && m_DepthShader->IsReady() &&
-               m_DepthSkinnedShader && m_DepthSkinnedShader->IsReady();
+               m_DepthSkinnedShader && m_DepthSkinnedShader->IsReady() &&
+               m_DepthLocalShader && m_DepthLocalShader->IsReady() &&
+               m_DepthLocalSkinnedShader && m_DepthLocalSkinnedShader->IsReady();
     }
 
     void VirtualShadowMap::CreateResources()
@@ -168,11 +225,16 @@ namespace OloEngine
         const u32 oneDraw = 1u;
         m_DrawCountBuffer->SetData(&oneDraw, sizeof(u32));
 
-        m_PageTable = SB::Create(VSM::kTotalVirtualPages * sizeof(u32),
+        // The directional clip levels and the local layers share ONE table (and
+        // therefore one allocator, one free list and one eviction policy) — the
+        // sharing issue #703 asked for. The directional region keeps indices
+        // [0, kTotalVirtualPages) so nothing about the clip-level addressing
+        // moved.
+        m_PageTable = SB::Create(VSM::kTotalPageTableEntries * sizeof(u32),
                                  ShaderBindingLayout::SSBO_VSM_PAGE_TABLE, kGPUWritten);
         m_MetaTable = SB::Create(physicalPageCount * sizeof(u32),
                                  ShaderBindingLayout::SSBO_VSM_META_TABLE, kGPUWritten);
-        m_HPB = SB::Create(VSM::kHPBTotalEntries * sizeof(u32),
+        m_HPB = SB::Create(VSM::kTotalHPBEntries * sizeof(u32),
                            ShaderBindingLayout::SSBO_VSM_HPB, kGPUWritten);
         m_Requests = SB::Create((kRequestHeaderUints + 4 * VSM::kMaxRequests) * sizeof(u32),
                                 ShaderBindingLayout::SSBO_VSM_REQUESTS, kGPUWritten);
@@ -188,6 +250,14 @@ namespace OloEngine
                                     ShaderBindingLayout::SSBO_VSM_DRAW_COMMANDS, kGPUWritten);
         for (auto& stats : m_StatsBuffers)
             stats = SB::Create(sizeof(VSM::Statistics), ShaderBindingLayout::SSBO_VSM_STATS, kGPUWritten);
+
+        // The one NEW binding issue #703 takes (SSBO 78). It could not ride an
+        // existing buffer: the per-layer projections are 40 KB, which is past the
+        // GL 4.6 minimum UBO size (16 KB), and every VSM SSBO already holds a
+        // structurally different thing. DynamicCopy rather than the CPU default
+        // because the header's raster-mip array is GPU-written (atomicMin from
+        // the local HPB build) even though the rest of the buffer is uploaded.
+        m_LocalLights = SB::Create(kLocalBufferBytes, ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, kGPUWritten);
 
         m_GlobalsUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
         m_PassUBO = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
@@ -207,12 +277,24 @@ namespace OloEngine
             m_Requests->ClearData();
         if (m_FreePages)
             m_FreePages->ClearData();
+        if (m_LocalLights)
+            m_LocalLights->ClearData();
         for (auto& stats : m_StatsBuffers)
         {
             if (stats)
                 stats->ClearData();
         }
         m_Statistics = {};
+
+        // The layer pool goes with the pages it addresses. Keeping the slot map
+        // across a reset would hand a light back a layer whose page-table entries
+        // have just been zeroed — the layer would read as cached and never be
+        // redrawn, which is a permanently blank shadow for that light.
+        m_LocalPool.Clear();
+        m_LocalLayers.fill(VSM::LocalLight{});
+        m_LocalHeads.clear();
+        m_LocalLayerHighWater = 0;
+        m_LocalLightsStarved = 0;
     }
 
     void VirtualShadowMap::DestroyResources()
@@ -243,6 +325,7 @@ namespace OloEngine
         m_DrawInstances.Reset();
         m_DrawCommands.Reset();
         m_DrawCountBuffer.Reset();
+        m_LocalLights.Reset();
         for (auto& stats : m_StatsBuffers)
             stats.Reset();
 
@@ -257,9 +340,22 @@ namespace OloEngine
         m_ClearPagesShader.Reset();
         m_BuildHPBShader.Reset();
         m_CullShader.Reset();
+        m_CullLocalShader.Reset();
         m_EndFrameShader.Reset();
         m_DepthShader.Reset();
         m_DepthSkinnedShader.Reset();
+        m_DepthLocalShader.Reset();
+        m_DepthLocalSkinnedShader.Reset();
+
+        // The layer pool addresses page-table entries that have just ceased to
+        // exist, so it goes with them — the same pairing ResetPageState makes, and
+        // for the same reason: a slot that outlives its pages hands the next owner
+        // a layer that reads as fully cached and is never redrawn.
+        m_LocalPool.Clear();
+        m_LocalLayers.fill(VSM::LocalLight{});
+        m_LocalHeads.clear();
+        m_LocalLayerHighWater = 0;
+        m_LocalLightsStarved = 0;
     }
 
     void VirtualShadowMap::Shutdown()
@@ -289,7 +385,15 @@ namespace OloEngine
         { return std::fabs(a - b) > 1.0e-6f; };
         const bool invalidates = differs(settings.Clip0HalfExtent, m_Settings.Clip0HalfExtent) ||
                                  differs(settings.DepthRange, m_Settings.DepthRange) ||
-                                 differs(settings.ClipSelectionBias, m_Settings.ClipSelectionBias);
+                                 differs(settings.ClipSelectionBias, m_Settings.ClipSelectionBias) ||
+                                 // LocalDetailBias is in the SAME class as
+                                 // ClipSelectionBias, not a quality dial: it is an
+                                 // input to the mip heuristic BOTH the marker and
+                                 // the sampler run, so a cached page produced under
+                                 // the old value is addressed by a mip the new one
+                                 // no longer picks (page-cache doc §1).
+                                 differs(settings.LocalDetailBias, m_Settings.LocalDetailBias) ||
+                                 settings.LocalLights != m_Settings.LocalLights;
 
         m_Settings = settings;
 
@@ -314,13 +418,14 @@ namespace OloEngine
         u64 bytes = 0;
         bytes += static_cast<u64>(m_PhysicalResolution) * m_PhysicalResolution * sizeof(u32); // R32UI pool
         bytes += static_cast<u64>(VSM::kVirtualResolution) * VSM::kVirtualResolution;         // R8UI raster scope
-        bytes += static_cast<u64>(VSM::kTotalVirtualPages) * sizeof(u32);                     // page table
+        bytes += static_cast<u64>(VSM::kTotalPageTableEntries) * sizeof(u32);                 // page table
         bytes += physicalPageCount * sizeof(u32);                                             // meta table
-        bytes += static_cast<u64>(VSM::kHPBTotalEntries) * sizeof(u32);                       // HPB
+        bytes += static_cast<u64>(VSM::kTotalHPBEntries) * sizeof(u32);                       // HPB
         bytes += static_cast<u64>(kRequestHeaderUints + 4 * VSM::kMaxRequests) * sizeof(u32);
         bytes += (kFreeListHeaderUints + 2 * physicalPageCount) * sizeof(u32);
         bytes += static_cast<u64>(VSM::kMaxCasters) * sizeof(VSM::CullInstance);
         bytes += static_cast<u64>(VSM::kMaxDrawInstances) * sizeof(VSM::DrawInstance);
+        bytes += kLocalBufferBytes; // local-light layer buffer (issue #703)
         return bytes;
     }
 
@@ -432,14 +537,21 @@ namespace OloEngine
     }
 
     void VirtualShadowMap::BeginFrame(const glm::vec3& lightDirection, const glm::vec3& cameraPositionRelative,
-                                      const glm::vec3& renderOrigin)
+                                      const glm::vec3& renderOrigin, bool directionalEnabled)
     {
         OLO_PROFILE_FUNCTION();
 
         if (!IsActive())
             return;
 
-        const glm::vec3 forward = glm::normalize(lightDirection);
+        // Normalizing a zero vector yields NaN, and a NaN light direction poisons
+        // every clip projection and therefore every page the marker requests.
+        // A scene with local lights but NO directional one reaches here now
+        // (issue #703 relaxed the caller's gate so the layers still get built),
+        // so the degenerate input is a real path rather than a defensive branch.
+        const f32 directionLength = glm::length(lightDirection);
+        const glm::vec3 forward = (directionLength > 1.0e-6f) ? (lightDirection / directionLength)
+                                                              : glm::vec3(0.0f, -1.0f, 0.0f);
 
         // A change to either re-anchors light space, so every cached page is stale.
         constexpr f32 kDirectionEpsilon = 0.99999f;
@@ -476,6 +588,13 @@ namespace OloEngine
                                       static_cast<f32>(m_PhysicalPageTableResolution));
         m_Globals.Params2 = glm::ivec4(1, m_Settings.DebugMode, m_FullInvalidate ? 1 : 0,
                                        m_Globals.Params2.w + 1);
+        // Local-light counts are published by EndLocalLights (which runs earlier
+        // in the frame, during shadow setup); only the two flags and the biases
+        // belong to this frame's globals rebuild.
+        m_Globals.Params4 = glm::ivec4(AreLocalLightsActive() ? 1 : 0, m_Globals.Params4.y,
+                                       m_Globals.Params4.z, directionalEnabled ? 1 : 0);
+        m_Globals.Params5 = glm::vec4(std::max(m_Settings.LocalDetailBias, 0.01f),
+                                      std::max(m_Settings.LocalDepthBiasMeters, 0.0f), 0.0f, 0.0f);
 
         m_PrevLightDirection = forward;
         m_PrevRenderOrigin = renderOrigin;
@@ -485,6 +604,440 @@ namespace OloEngine
     {
         m_Globals.Params1.x = softness;
         m_Globals.Params1.y = maxShadowDistance;
+    }
+
+    // -------------------------------------------------------------------------
+    // Local lights — the layer pool (issue #703)
+    // -------------------------------------------------------------------------
+
+    i32 VirtualShadowMap::SelectLocalMip(f32 distanceToCamera, f32 distanceToLight, f32 bias)
+    {
+        // GLSL twin: vsmLocalMipForDistances in include/VirtualShadowCommon.glsl.
+        // The derivation is written out there; the short version is that it makes
+        // a local face's texel the same world size as a directional texel at the
+        // same distance from the camera, so the two techniques' sharpness matches
+        // and neither needs to know the screen resolution.
+        // The bias MULTIPLIES the numerator, matching SelectClipLevel's direction:
+        // > 1 is coarser and cheaper. See the GLSL twin for why that is worth
+        // spelling out.
+        const f32 ratio = (static_cast<f32>(VSM::kLocalVirtualResolution) *
+                           std::max(distanceToCamera, 1.0e-4f) * std::max(bias, 1.0e-4f)) /
+                          (static_cast<f32>(VSM::kVirtualResolution) * std::max(distanceToLight, 1.0e-4f));
+        const auto mip = static_cast<i32>(std::ceil(std::log2(std::max(ratio, 1.0e-4f))));
+        return std::clamp(mip, 0, static_cast<i32>(VSM::kLocalMipCount) - 1);
+    }
+
+    u32 VirtualShadowMap::SelectCubeFace(const glm::vec3& direction)
+    {
+        // Mirrors vsmCubeFace / PBRCommon's atlasCubeFace. All three must agree:
+        // the marker picks the face to request, the sampler picks the face to
+        // read, and a disagreement puts the sample on a face nobody backed —
+        // which reads as an unshadowed quadrant, not as an error.
+        const glm::vec3 a = glm::abs(direction);
+        if (a.x >= a.y && a.x >= a.z)
+            return (direction.x > 0.0f) ? 0u : 1u;
+        if (a.y >= a.z)
+            return (direction.y > 0.0f) ? 2u : 3u;
+        return (direction.z > 0.0f) ? 4u : 5u;
+    }
+
+    u32 VirtualShadowMap::LocalMipOffset(u32 mip)
+    {
+        // GLSL twin: vsmLocalMipOffset. Same loop-free table treatment as the
+        // directional HPB offsets, and for the same reason.
+        constexpr std::array<u32, VSM::kLocalMipCount> kOffsets{ 0u, 1024u, 1280u, 1344u, 1360u, 1364u };
+        return kOffsets[std::min(mip, VSM::kLocalMipCount - 1u)];
+    }
+
+    u32 VirtualShadowMap::LocalPageIndex(u32 layer, u32 mip, glm::uvec2 page)
+    {
+        const u32 clampedMip = std::min(mip, VSM::kLocalMipCount - 1u);
+        const u32 mipRes = VSM::kLocalPageTableResolution >> clampedMip;
+        return VSM::kTotalVirtualPages + layer * VSM::kLocalPagesPerLayer + LocalMipOffset(clampedMip) +
+               page.y * mipRes + page.x;
+    }
+
+    void VirtualShadowMap::BuildLocalLightProjections(const LocalLightDesc& desc,
+                                                      std::array<glm::mat4, 6>& outViewProjections,
+                                                      f32& outNear, f32& outFar)
+    {
+        const f32 range = std::max(desc.Range, 0.01f);
+        const f32 nearPlane = LocalNearPlane(range);
+        outNear = nearPlane;
+        outFar = range;
+
+        if (desc.IsPoint)
+        {
+            // 90° cube faces, same axes and same up vectors as
+            // ShadowMap::BuildPointLightFaceMatrices — so a light's shadow lands
+            // in the same place whichever technique draws it
+            // (light-path-photometric-parity.md). Built here in RENDER-RELATIVE
+            // space rather than shifted afterwards: the VSM works entirely
+            // relative, and a shift applied to a perspective view-projection is
+            // not the same operation as building it from a shifted eye.
+            const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, nearPlane, range);
+            for (u32 face = 0; face < 6; ++face)
+            {
+                outViewProjections[face] =
+                    proj * glm::lookAt(desc.PositionRelative, desc.PositionRelative + kCubeFaceForward[face],
+                                       kCubeFaceUp[face]);
+            }
+            return;
+        }
+
+        glm::vec3 direction = desc.Direction;
+        const f32 length = glm::length(direction);
+        direction = (length > 1.0e-6f) ? (direction / length) : glm::vec3(0.0f, 0.0f, -1.0f);
+
+        glm::vec3 up(0.0f, 1.0f, 0.0f);
+        if (std::abs(glm::dot(direction, up)) > 0.99f)
+            up = glm::vec3(1.0f, 0.0f, 0.0f);
+
+        // Clamped, unlike the atlas builder: a cutoff at or past 90° asks for a
+        // >=180° field of view, and glm::perspective answers that with a matrix
+        // whose x/y scale is zero or negative. The atlas path produces a garbage
+        // tile for the same input; here it would poison a layer's cached pages,
+        // so the clamp is worth the one-degree difference at the extreme.
+        const f32 fov = glm::radians(std::clamp(desc.OuterCutoffDegrees, 1.0f, 89.0f) * 2.0f);
+        outViewProjections[0] = glm::perspective(fov, 1.0f, nearPlane, range) *
+                                glm::lookAt(desc.PositionRelative, desc.PositionRelative + direction, up);
+        for (u32 face = 1; face < 6; ++face)
+            outViewProjections[face] = glm::mat4(1.0f);
+    }
+
+    void VirtualShadowMap::LocalLayerPool::BeginFrame()
+    {
+        ++FrameCounter;
+        // Cleared HERE, not at the end of the frame: registration is what sets
+        // these, and the GPU consumer (VSM_FreeWrappedPages, via UpdatePages)
+        // runs between registration and the next BeginFrame.
+        Invalidate.fill(0);
+        for (auto& slot : Slots)
+            slot.InUse = false;
+    }
+
+    void VirtualShadowMap::LocalLayerPool::InvalidateSlot(u32 slotIndex)
+    {
+        if (slotIndex >= Slots.size())
+            return;
+        const Slot& slot = Slots[slotIndex];
+        for (u32 i = 0; i < slot.Count && (slot.Base + i) < VSM::kMaxLocalLayers; ++i)
+            Invalidate[slot.Base + i] = 1u;
+    }
+
+    void VirtualShadowMap::LocalLayerPool::Release(u32 slotIndex)
+    {
+        if (slotIndex >= Slots.size())
+            return;
+
+        // Flag the pages BEFORE the layers stop pointing at the slot — the flush
+        // is what stops the next owner inheriting a table full of allocated,
+        // clean, WRONG pages, which reads as a light whose shadow never updates.
+        InvalidateSlot(slotIndex);
+
+        Slot& slot = Slots[slotIndex];
+        for (u32 i = 0; i < slot.Count && (slot.Base + i) < VSM::kMaxLocalLayers; ++i)
+            Owner[slot.Base + i] = 0;
+        if (slot.LightId != 0)
+            ByLight.erase(slot.LightId);
+
+        // Not erased from the vector — see the declaration.
+        slot = Slot{};
+    }
+
+    u32 VirtualShadowMap::LocalLayerPool::Acquire(const LocalLightDesc& desc, bool& outMoved)
+    {
+        const u32 count = desc.IsPoint ? 6u : 1u;
+
+        u32 slotIndex = kNoLocalSlot;
+        if (desc.LightId != 0)
+        {
+            if (const auto found = ByLight.find(desc.LightId); found != ByLight.end())
+            {
+                // A light that changed CLASS (spot <-> point) needs a different
+                // number of layers, so its run is released and re-taken rather
+                // than resized in place — a resized run would overlap whatever
+                // sits after it.
+                if (Slots[found->second].Count == count)
+                    slotIndex = found->second;
+                else
+                    Release(found->second);
+            }
+        }
+
+        if (slotIndex == kNoLocalSlot)
+        {
+            slotIndex = AcquireFreshSlot(desc.LightId, count);
+            if (slotIndex == kNoLocalSlot)
+            {
+                outMoved = false;
+                return kNoLocalSlot;
+            }
+        }
+
+        Slot& slot = Slots[slotIndex];
+
+        // A pose change re-anchors the light's frusta, so every cached page under
+        // this slot now means a different world position — the local twin of the
+        // directional path's light-direction / render-origin check. Epsilon
+        // compares, not ==: these arrive from a transform recomputed every frame,
+        // and a last-bit difference must not flush a light's whole cache
+        // (cpp-coding-quality.md §2).
+        constexpr f32 kPoseEpsilon = 1.0e-4f;
+        outMoved = glm::any(glm::greaterThan(glm::abs(slot.Position - desc.PositionRelative),
+                                             glm::vec3(kPoseEpsilon))) ||
+                   glm::any(glm::greaterThan(glm::abs(slot.Direction - desc.Direction),
+                                             glm::vec3(kPoseEpsilon))) ||
+                   std::fabs(slot.Range - desc.Range) > kPoseEpsilon ||
+                   std::fabs(slot.Cutoff - desc.OuterCutoffDegrees) > kPoseEpsilon ||
+                   slot.IsPoint != desc.IsPoint;
+
+        if (outMoved)
+        {
+            InvalidateSlot(slotIndex);
+            slot.Position = desc.PositionRelative;
+            slot.Direction = desc.Direction;
+            slot.Range = desc.Range;
+            slot.Cutoff = desc.OuterCutoffDegrees;
+            slot.IsPoint = desc.IsPoint;
+        }
+
+        slot.InUse = true;
+        slot.LastUsedFrame = FrameCounter;
+        return slotIndex;
+    }
+
+    u32 VirtualShadowMap::LocalLayerPool::LayerHighWater() const
+    {
+        u32 highWater = 0;
+        for (const auto& slot : Slots)
+        {
+            if (slot.Count != 0)
+                highWater = std::max(highWater, slot.Base + slot.Count);
+        }
+        return highWater;
+    }
+
+    void VirtualShadowMap::LocalLayerPool::Clear()
+    {
+        Slots.clear();
+        ByLight.clear();
+        Owner.fill(0);
+        Invalidate.fill(0);
+    }
+
+    u32 VirtualShadowMap::LocalLayerPool::AcquireFreshSlot(u64 lightId, u32 count)
+    {
+        const auto findRun = [this, count]() -> u32
+        {
+            u32 run = 0;
+            for (u32 layer = 0; layer < VSM::kMaxLocalLayers; ++layer)
+            {
+                run = (Owner[layer] == 0) ? (run + 1) : 0u;
+                if (run >= count)
+                    return layer + 1 - count;
+            }
+            return kNoLocalSlot;
+        };
+
+        u32 base = findRun();
+        if (base == kNoLocalSlot)
+        {
+            // Evict the least-recently-used slot that is NOT serving a light this
+            // frame, then retry once. Only one: evicting a batch would be a
+            // bigger hammer than the pressure justifies, and a caller that still
+            // cannot fit gets a reportable failure rather than a silently
+            // reshuffled pool.
+            u32 victim = kNoLocalSlot;
+            u64 oldest = ~0ull;
+            for (u32 i = 0; i < Slots.size(); ++i)
+            {
+                const Slot& slot = Slots[i];
+                if (slot.Count == 0 || slot.InUse)
+                    continue;
+                if (slot.LastUsedFrame < oldest)
+                {
+                    oldest = slot.LastUsedFrame;
+                    victim = i;
+                }
+            }
+            if (victim == kNoLocalSlot)
+                return kNoLocalSlot;
+            Release(victim);
+            base = findRun();
+            if (base == kNoLocalSlot)
+                return kNoLocalSlot; // the freed run was too short and not adjacent
+        }
+
+        u32 slotIndex = kNoLocalSlot;
+        for (u32 i = 0; i < Slots.size(); ++i)
+        {
+            if (Slots[i].Count == 0)
+            {
+                slotIndex = i;
+                break;
+            }
+        }
+        if (slotIndex == kNoLocalSlot)
+        {
+            slotIndex = static_cast<u32>(Slots.size());
+            Slots.emplace_back();
+        }
+
+        Slot& slot = Slots[slotIndex];
+        slot = Slot{};
+        slot.LightId = lightId;
+        slot.Base = base;
+        slot.Count = count;
+        // Deliberately NOT the caller's pose: Acquire compares against this to
+        // decide whether the light moved, and a FRESH slot must compare as moved
+        // so its projections get written and its recycled pages get flushed.
+        slot.Range = -1.0f;
+
+        for (u32 i = 0; i < count; ++i)
+            Owner[base + i] = static_cast<u16>(slotIndex + 1);
+        if (lightId != 0)
+            ByLight[lightId] = slotIndex;
+
+        // A recycled run may still hold the previous owner's allocated pages.
+        for (u32 i = 0; i < count; ++i)
+            Invalidate[base + i] = 1u;
+
+        return slotIndex;
+    }
+
+    void VirtualShadowMap::BeginLocalLights()
+    {
+        if (!IsActive())
+            return;
+
+        m_LocalPool.BeginFrame();
+        m_LocalHeads.clear();
+        m_LocalLightsStarved = 0;
+    }
+
+    i32 VirtualShadowMap::RegisterLocalLight(const LocalLightDesc& desc)
+    {
+        if (!AreLocalLightsActive() || desc.Range <= 0.0f)
+            return -1;
+
+        // A NaN slips through `Range <= 0.0f` — every comparison against NaN is
+        // false — and then poisons this light PERMANENTLY, not just for a frame:
+        // the projections go non-finite, so every page the layer caches is
+        // garbage, and the pose comparison in LocalLayerPool::Acquire can never
+        // match again (NaN != NaN), so the slot re-invalidates itself every frame
+        // forever. Cheaper to refuse the light (CLAUDE.md -> Conventions: validate
+        // any float that can arrive from outside).
+        const auto allFinite = [](const glm::vec3& v)
+        { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+        if (!std::isfinite(desc.Range) || !std::isfinite(desc.OuterCutoffDegrees) ||
+            !allFinite(desc.PositionRelative) || !allFinite(desc.Direction))
+        {
+            return -1;
+        }
+
+        const u32 count = desc.IsPoint ? 6u : 1u;
+
+        bool moved = false;
+        const u32 slotIndex = m_LocalPool.Acquire(desc, moved);
+        if (slotIndex == kNoLocalSlot)
+        {
+            ++m_LocalLightsStarved;
+            if (!m_LoggedLocalPoolExhausted)
+            {
+                OLO_CORE_WARN("VirtualShadowMap: local layer pool exhausted ({} layers) — a light this frame "
+                              "gets no shadow. Raise VSM::kMaxLocalLayers or reduce shadow-casting local lights",
+                              VSM::kMaxLocalLayers);
+                m_LoggedLocalPoolExhausted = true;
+            }
+            return -1;
+        }
+
+        const LocalLayerPool::Slot& slot = m_LocalPool.Slots[slotIndex];
+
+        if (moved)
+        {
+            std::array<glm::mat4, 6> viewProjections{};
+            f32 nearPlane = 0.0f;
+            f32 farPlane = 0.0f;
+            BuildLocalLightProjections(desc, viewProjections, nearPlane, farPlane);
+
+            for (u32 i = 0; i < count; ++i)
+            {
+                VSM::LocalLight& layer = m_LocalLayers[slot.Base + i];
+                layer.ViewProjection = viewProjections[i];
+                // Derived here and not inside BuildLocalLightProjections for the
+                // same reason the clip projections are: that function is what the
+                // contract tests drive, and reaching into the backend seam from it
+                // would make its output depend on which RHI happens to be up.
+                layer.ViewProjectionRaster = RHI::AdjustProjectionForBackend(viewProjections[i]);
+                layer.PositionRange = glm::vec4(desc.PositionRelative, desc.Range);
+                layer.Params = glm::vec4(nearPlane, farPlane, static_cast<f32>(i),
+                                         desc.IsPoint ? VSM::kLocalKindPoint : VSM::kLocalKindSpot);
+            }
+        }
+
+        m_LocalHeads.push_back((slot.Base << 1) | (desc.IsPoint ? 1u : 0u));
+        return static_cast<i32>(slot.Base);
+    }
+
+    void VirtualShadowMap::EndLocalLights()
+    {
+        if (!IsActive())
+            return;
+
+        // A light that stopped casting keeps its slot (so it keeps its cached
+        // pages if it starts again) but must stop being marked, culled and
+        // rasterized. Zeroing the layer's KIND is what takes it out of all three:
+        // the marker walks b_LocalLightHead, which no longer names it, and the
+        // cull skips a layer whose kind is unused.
+        for (const auto& slot : m_LocalPool.Slots)
+        {
+            if (slot.Count == 0)
+                continue;
+            const f32 kind = !slot.InUse    ? VSM::kLocalKindUnused
+                             : slot.IsPoint ? VSM::kLocalKindPoint
+                                            : VSM::kLocalKindSpot;
+            for (u32 i = 0; i < slot.Count && (slot.Base + i) < VSM::kMaxLocalLayers; ++i)
+                m_LocalLayers[slot.Base + i].Params.w = kind;
+        }
+
+        m_LocalLayerHighWater = m_LocalPool.LayerHighWater();
+        m_Globals.Params4.y = static_cast<i32>(m_LocalHeads.size());
+        m_Globals.Params4.z = static_cast<i32>(m_LocalLayerHighWater);
+
+        UploadLocalLights();
+    }
+
+    void VirtualShadowMap::UploadLocalLights()
+    {
+        if (!m_LocalLights)
+            return;
+
+        // The raster mip is GPU-written (atomicMin from the local HPB build) and
+        // must start at "coarser than any real mip" for the min to mean anything.
+        // Resetting it here — in the upload that runs during shadow SETUP — is
+        // what puts it before UpdatePages' HPB build in the frame, which is the
+        // only ordering that works: reset it after and every layer rasterizes at
+        // mip 0, reset it never and a layer's raster mip decays to whatever the
+        // first frame chose.
+        std::array<u32, VSM::kMaxLocalLayers> rasterMip{};
+        rasterMip.fill(VSM::kLocalMipCount);
+        m_LocalLights->SetData(rasterMip.data(), static_cast<u32>(rasterMip.size() * sizeof(u32)),
+                               kLocalRasterMipOffset);
+
+        std::array<u32, VSM::kMaxLocalLayers> heads{};
+        const auto headCount = static_cast<u32>(std::min<sizet>(m_LocalHeads.size(), VSM::kMaxLocalLayers));
+        std::copy_n(m_LocalHeads.begin(), headCount, heads.begin());
+        m_LocalLights->SetData(heads.data(), static_cast<u32>(heads.size() * sizeof(u32)), kLocalHeadOffset);
+
+        m_LocalLights->SetData(m_LocalPool.Invalidate.data(),
+                               static_cast<u32>(m_LocalPool.Invalidate.size() * sizeof(u32)),
+                               kLocalInvalidateOffset);
+
+        m_LocalLights->SetData(m_LocalLayers.data(),
+                               static_cast<u32>(m_LocalLayers.size() * sizeof(VSM::LocalLight)),
+                               kLocalLayersOffset);
     }
 
     void VirtualShadowMap::AddDynamicInvalidation(const glm::vec3& boundsMin, const glm::vec3& boundsMax)
@@ -577,6 +1130,7 @@ namespace OloEngine
         m_CullInstances->Bind();
         m_DrawInstances->Bind();
         m_DrawCommands->Bind();
+        m_LocalLights->Bind();
         m_StatsBuffers[m_StatsWriteIndex]->Bind();
     }
 
@@ -640,15 +1194,59 @@ namespace OloEngine
 
         BindWorkingSet();
 
-        // 1. Release the slots the clip frusta scrolled onto.
-        DispatchKernel(m_FreeWrappedShader, VSM::kTotalVirtualPages, 64);
+        // 1. Release the slots the clip frusta scrolled onto, plus every layer a
+        //    light moved out from under. One dispatch over the WHOLE table:
+        //    the kernel forks on the index, so local pages cannot be forgotten
+        //    here the way a second dispatch could be.
+        DispatchKernel(m_FreeWrappedShader, VSM::kTotalPageTableEntries, 64);
 
         // 2. Re-dirty resident pages a dynamic caster moved through.
+        //
+        // The pass block is filled EXPLICITLY here, unlike before issue #703.
+        // This dispatch runs before the HPB loop, so whatever the block held was
+        // left by the PREVIOUS frame's cull or raster — which was harmless while
+        // the kernel read nothing from it, and is a garbage domain selector now
+        // that it does.
         if (invalidationCount > 0 && m_InvalidateShader)
         {
+            VSM::PassUBO pass{};
+            pass.Params.y = 0u; // directional domain
+            m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
+            m_PassUBO->Bind();
+
             m_InvalidateShader->Bind();
             RenderCommand::DispatchCompute(invalidationCount * VSM::kClipLevels, 1, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+            // 2b. The same, over the local layers a mover passed through. Without
+            //     it a lamp's cached pages keep the object's OLD silhouette and
+            //     its shadow trails behind it — the "shadow stayed behind"
+            //     artefact, which reads as an animation or transform-sync bug.
+            if (AreLocalLightsActive() && m_LocalLayerHighWater > 0)
+            {
+                pass.Params.y = 1u; // local domain
+                pass.Params.z = m_LocalLayerHighWater;
+                m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
+                m_PassUBO->Bind();
+
+                m_InvalidateShader->Bind();
+                // TWO DIMENSIONS, not one flattened count. The product is up to
+                // kMaxInvalidations x kMaxLocalLayers = 262,144 work groups, and
+                // the GL 4.6 / Vulkan guaranteed minimum for a single dimension of
+                // GL_MAX_COMPUTE_WORK_GROUP_COUNT is 65,535. Flattened, a
+                // conforming implementation at the minimum REJECTS the dispatch —
+                // and the failure is silent in the frame: every local invalidation
+                // that frame is dropped, so movers trail their shadows again, on
+                // that hardware only. This box (NVIDIA, ~2^31 per axis) would
+                // never have shown it.
+                //
+                // Split, each axis is bounded by its own budget (1024 and 256) and
+                // both are two orders of magnitude inside the guarantee. The
+                // directional twin above needs no such care: it is bounded by
+                // kClipLevels = 16.
+                RenderCommand::DispatchCompute(invalidationCount, m_LocalLayerHighWater, 1);
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+            }
         }
 
         const u32 physicalPageCount = m_PhysicalPageTableResolution * m_PhysicalPageTableResolution;
@@ -679,11 +1277,34 @@ namespace OloEngine
         {
             VSM::PassUBO pass{};
             pass.Params.x = mip;
+            pass.Params.y = 0u; // directional domain
             m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
             m_PassUBO->Bind();
 
             const u32 mipRes = VSM::kPageTableResolution >> mip;
             DispatchKernel(m_BuildHPBShader, mipRes * mipRes * VSM::kClipLevels, 64);
+        }
+
+        // 6b. The same pyramid per local layer (issue #703). Its mip 0 does more
+        //     than the directional one — it GATHERS across the layer's six
+        //     page-table mips and, in the same pass, atomicMins the layer's raster
+        //     mip. Both products come out of the one sweep because both are
+        //     answers to "what is dirty in this layer", and computing them apart
+        //     would be two reads of the same 1365 entries.
+        if (AreLocalLightsActive() && m_LocalLayerHighWater > 0)
+        {
+            for (u32 mip = 0; mip < VSM::kLocalMipCount; ++mip)
+            {
+                VSM::PassUBO pass{};
+                pass.Params.x = mip;
+                pass.Params.y = 1u; // local domain
+                pass.Params.z = m_LocalLayerHighWater;
+                m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
+                m_PassUBO->Bind();
+
+                const u32 mipRes = VSM::kLocalPageTableResolution >> mip;
+                DispatchKernel(m_BuildHPBShader, mipRes * mipRes * m_LocalLayerHighWater, 64);
+            }
         }
     }
 
@@ -716,6 +1337,14 @@ namespace OloEngine
                              caster.indexCount, caster.baseIndex, caster.twoSided };
         };
 
+        // With local lights on, each batch needs TWO indirect commands out of the
+        // one kMaxBatches-long command buffer — the directional one at index b
+        // and the local one at batchCount + b. Halving the batch cap is what
+        // keeps that in bounds without growing the buffer for the far commoner
+        // directional-only case.
+        const bool localActive = AreLocalLightsActive() && m_LocalLayerHighWater > 0;
+        const u32 batchCap = localActive ? (VSM::kMaxBatches / 2) : VSM::kMaxBatches;
+
         for (const auto& caster : meshCasters)
         {
             const RHI::ResourceHandle drawVao = caster.shadowVaoID.IsValid() ? caster.shadowVaoID : caster.vaoID;
@@ -726,7 +1355,7 @@ namespace OloEngine
                 m_BatchLookup.try_emplace(batchKeyOf(caster, drawVao), static_cast<u32>(m_Batches.size()));
             if (inserted)
             {
-                if (m_Batches.size() >= VSM::kMaxBatches)
+                if (m_Batches.size() >= batchCap)
                 {
                     // Over budget: forget the tentative mapping so the second
                     // pass skips this caster, exactly as the old scan did.
@@ -767,17 +1396,75 @@ namespace OloEngine
             return false;
         }
         const u32 skinnedBase = runCursor;
+        runCursor += skinnedReserve;
+
+        // ---- Local-light runs, after the directional ones ---------------------
+        //
+        // The two rasters share m_DrawInstances, and the directional half is laid
+        // out first because it is the one that must never be dropped: it replaces
+        // the CSM outright, whereas dropping the local half costs an unshadowed
+        // lamp. When the rest of the buffer cannot hold the local runs the local
+        // raster is skipped for the frame and says so — the same "a budget may
+        // drop work, but it says so" contract the three budgets above keep.
+        bool localFits = localActive;
+        if (localActive)
+        {
+            u32 localCursor = runCursor;
+            for (auto& batch : m_Batches)
+            {
+                batch.LocalRunBase = localCursor;
+                batch.LocalRunCapacity = batch.CasterCount * VSM::kLocalLayersPerCaster;
+                localCursor += batch.LocalRunCapacity;
+            }
+            const u32 localSkinnedReserve =
+                static_cast<u32>(skinnedCasters.size()) * VSM::kLocalLayersPerCaster;
+            if (localCursor + localSkinnedReserve > VSM::kMaxDrawInstances)
+            {
+                if (!m_LoggedLocalDrawBudgetExhausted)
+                {
+                    OLO_CORE_WARN("VirtualShadowMap: local draw-instance budget exhausted ({} needed, {} "
+                                  "available) — local-light shadows are skipped this frame. Raise "
+                                  "VSM::kMaxDrawInstances or lower VSM::kLocalLayersPerCaster",
+                                  localCursor + localSkinnedReserve, VSM::kMaxDrawInstances);
+                    m_LoggedLocalDrawBudgetExhausted = true;
+                }
+                localFits = false;
+            }
+            else
+            {
+                m_LocalInstanceBase = localCursor;
+                m_LocalInstanceCapacity = localSkinnedReserve;
+            }
+        }
+        if (!localFits)
+        {
+            m_LocalInstanceBase = 0;
+            m_LocalInstanceCapacity = 0;
+            for (auto& batch : m_Batches)
+            {
+                batch.LocalRunBase = 0;
+                batch.LocalRunCapacity = 0;
+            }
+        }
 
         // ---- Cull input + indirect commands ---------------------------------
+        //
+        // Two commands per batch when local lights are on: [0, batchCount) are
+        // the directional draws and [batchCount, 2*batchCount) the local ones.
+        // One buffer, disjoint ranges — the cull kernels never write each other's.
+        const auto batchCount = static_cast<u32>(m_Batches.size());
+        const u32 commandCount = localFits ? (batchCount * 2u) : batchCount;
         m_CullInput.reserve(meshCasters.size());
-        m_DrawCommandStaging.assign(m_Batches.size(), VSM::DrawCommand{});
-        for (sizet i = 0; i < m_Batches.size(); ++i)
+        m_DrawCommandStaging.assign(commandCount, VSM::DrawCommand{});
+        for (u32 i = 0; i < batchCount; ++i)
         {
             m_DrawCommandStaging[i].IndexCount = m_Batches[i].IndexCount;
             m_DrawCommandStaging[i].InstanceCount = 0; // the cull writes this
             m_DrawCommandStaging[i].FirstIndex = m_Batches[i].BaseIndex;
             m_DrawCommandStaging[i].BaseVertex = 0;
             m_DrawCommandStaging[i].BaseInstance = 0;
+            if (localFits)
+                m_DrawCommandStaging[batchCount + i] = m_DrawCommandStaging[i];
         }
 
         for (const auto& caster : meshCasters)
@@ -803,6 +1490,10 @@ namespace OloEngine
             }
             entry.Batch = glm::uvec4(batchIndex, batch.RunBase, batch.CasterCount * VSM::kClipLevels,
                                      unbounded ? 1u : 0u);
+            // The local cull's command index is the batch's, shifted past the
+            // directional block — see the two-commands-per-batch note above.
+            entry.LocalBatch = glm::uvec4(batchCount + batchIndex, batch.LocalRunBase,
+                                          batch.LocalRunCapacity, 0u);
             m_CullInput.push_back(entry);
         }
 
@@ -845,6 +1536,23 @@ namespace OloEngine
             m_CullShader->Bind();
             RenderCommand::DispatchCompute(
                 DivideRoundUp(static_cast<u32>(m_CullInput.size()) * VSM::kClipLevels, 64), 1, 1);
+            // The two culls write disjoint commands and disjoint instance runs,
+            // so they only need to be ordered against the DRAWS, not against each
+            // other — but they do share b_CullInstances and b_DrawCommands, so
+            // the local one is dispatched here rather than after the directional
+            // raster, where it would race the draw reading those commands.
+            if (localFits && m_CullLocalShader)
+            {
+                VSM::PassUBO localPass{};
+                localPass.Params.x = static_cast<u32>(m_CullInput.size());
+                localPass.Params.z = m_LocalLayerHighWater;
+                m_PassUBO->SetData(&localPass, VSM::PassUBO::GetSize());
+                m_PassUBO->Bind();
+
+                m_CullLocalShader->Bind();
+                RenderCommand::DispatchCompute(
+                    DivideRoundUp(static_cast<u32>(m_CullInput.size()) * m_LocalLayerHighWater, 64), 1, 1);
+            }
             // The indirect commands the cull just wrote are consumed by the draw
             // path, so the barrier has to cover Command as well as ShaderStorage —
             // dropping Command is the classic "the draw used last frame's counts"
@@ -912,6 +1620,17 @@ namespace OloEngine
         }
 
         drawnBatches += RenderSkinnedCasters(skinnedCasters, renderOrigin, skinnedBase, uploadBones);
+
+        // ---- Local-light raster (issue #703) ---------------------------------
+        //
+        // A second pass over the same casters into the same pool, at the LOCAL
+        // virtual resolution. It cannot share the directional draws: a different
+        // projection source, a different viewport and a per-instance mip scale.
+        if (localFits)
+        {
+            RenderCommand::SetViewport(0, 0, VSM::kLocalVirtualResolution, VSM::kLocalVirtualResolution);
+            drawnBatches += RenderLocalCasters(skinnedCasters, renderOrigin, m_LocalInstanceBase, uploadBones);
+        }
 
         // Restore. The physical pool is read by the lit pass as a texture, so the
         // image writes above must be visible to a texture fetch, not just to
@@ -1030,6 +1749,134 @@ namespace OloEngine
         return drawn;
     }
 
+    u32 VirtualShadowMap::RenderLocalCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
+                                             const glm::vec3& renderOrigin, u32 instanceBase,
+                                             const BoneUploader& uploadBones)
+    {
+        u32 drawn = 0;
+        const auto batchCount = static_cast<u32>(m_Batches.size());
+
+        if (m_DepthLocalShader && batchCount > 0)
+        {
+            m_DepthLocalShader->Bind();
+            // After the shader bind, not before — see BindPhysicalPoolImage().
+            BindPhysicalPoolImage();
+
+            bool cullingDisabled = false;
+            for (u32 i = 0; i < batchCount; ++i)
+            {
+                const auto& batch = m_Batches[i];
+                if (batch.LocalRunCapacity == 0)
+                    continue;
+
+                if (batch.TwoSided != cullingDisabled)
+                {
+                    if (batch.TwoSided)
+                        RenderCommand::DisableCulling();
+                    else
+                    {
+                        RenderCommand::EnableCulling();
+                        RenderCommand::FrontCull();
+                    }
+                    cullingDisabled = batch.TwoSided;
+                }
+
+                VSM::PassUBO pass{};
+                pass.Params.x = batch.LocalRunBase;
+                m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
+                m_PassUBO->Bind();
+
+                RenderCommand::MultiDrawElementsIndirectCountRaw(
+                    batch.Vao, m_DrawCommands->GetRHIHandle(),
+                    static_cast<u32>((batchCount + i) * sizeof(VSM::DrawCommand)),
+                    m_DrawCountBuffer->GetRHIHandle(), 0, 1, sizeof(VSM::DrawCommand));
+                ++drawn;
+            }
+            if (cullingDisabled)
+            {
+                RenderCommand::EnableCulling();
+                RenderCommand::FrontCull();
+            }
+        }
+
+        // Skinned casters, CPU-scheduled exactly as in RenderSkinnedCasters: a
+        // per-caster bone palette cannot share an instanced batch. The CPU test
+        // is a sphere overlap rather than the directional path's eight-corner
+        // NDC reject, because a local layer's frustum is a perspective and
+        // projecting an AABB corner behind the near plane divides by a negative w
+        // — the classic wrong-side-of-the-camera false reject, which here would
+        // drop a character's shadow only when it stood close to the lamp.
+        if (m_DepthLocalSkinnedShader && !skinnedCasters.empty() && m_LocalInstanceCapacity > 0)
+        {
+            m_DepthLocalSkinnedShader->Bind();
+            BindPhysicalPoolImage();
+
+            u32 cursor = instanceBase;
+            for (const auto& caster : skinnedCasters)
+            {
+                if (!caster.vaoID.IsValid() || caster.indexCount == 0)
+                    continue;
+
+                const glm::mat4 transform = MakeModelRelative(caster.transform, renderOrigin);
+                const bool unbounded = caster.WorldBounds.Min.x >= std::numeric_limits<f32>::max();
+                const glm::vec3 boundsMin = caster.WorldBounds.Min - renderOrigin;
+                const glm::vec3 boundsMax = caster.WorldBounds.Max - renderOrigin;
+
+                m_LocalSkinnedStaging.clear();
+                for (u32 layer = 0; layer < m_LocalLayerHighWater; ++layer)
+                {
+                    const VSM::LocalLight& light = m_LocalLayers[layer];
+                    if (light.Params.w < 0.5f)
+                        continue; // layer not serving a light this frame
+
+                    if (!unbounded)
+                    {
+                        // Closest point of the AABB to the light centre, against
+                        // the light's range.
+                        const glm::vec3 lightPos(light.PositionRange);
+                        const glm::vec3 closest = glm::clamp(lightPos, boundsMin, boundsMax);
+                        const glm::vec3 delta = closest - lightPos;
+                        if (glm::dot(delta, delta) > light.PositionRange.w * light.PositionRange.w)
+                            continue;
+                    }
+
+                    VSM::DrawInstance record{};
+                    record.Transform = transform;
+                    record.LocalLayer = layer;
+                    m_LocalSkinnedStaging.push_back(record);
+                    if (m_LocalSkinnedStaging.size() >= VSM::kLocalLayersPerCaster)
+                        break;
+                }
+
+                if (m_LocalSkinnedStaging.empty())
+                    continue;
+
+                const auto instanceCount = static_cast<u32>(m_LocalSkinnedStaging.size());
+                if (cursor + instanceCount > instanceBase + m_LocalInstanceCapacity)
+                    break;
+
+                m_DrawInstances->SetData(m_LocalSkinnedStaging.data(),
+                                         instanceCount * static_cast<u32>(sizeof(VSM::DrawInstance)),
+                                         cursor * static_cast<u32>(sizeof(VSM::DrawInstance)));
+
+                VSM::PassUBO pass{};
+                pass.Params.x = cursor;
+                m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
+                m_PassUBO->Bind();
+
+                if (uploadBones)
+                    uploadBones(caster);
+
+                RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, caster.baseIndex,
+                                                       instanceCount);
+                cursor += instanceCount;
+                ++drawn;
+            }
+        }
+
+        return drawn;
+    }
+
     // -------------------------------------------------------------------------
     // Step 8 — end of the shadow pass
     // -------------------------------------------------------------------------
@@ -1042,7 +1889,7 @@ namespace OloEngine
             return;
 
         BindWorkingSet();
-        DispatchKernel(m_EndFrameShader, VSM::kTotalVirtualPages, 64);
+        DispatchKernel(m_EndFrameShader, VSM::kTotalPageTableEntries, 64);
 
         m_PrevOrigins = m_CurrOrigins;
         m_FullInvalidate = false;
@@ -1107,10 +1954,17 @@ namespace OloEngine
         // disabled block rather than relying on every consumer remembering to ask.
         auto globals = m_Globals;
         globals.Params2.x = IsActive() ? 1 : 0;
+        globals.Params4.x = (IsActive() && m_Settings.LocalLights) ? 1 : 0;
         m_GlobalsUBO->SetData(&globals, VSM::GlobalsUBO::GetSize());
         m_GlobalsUBO->Bind();
 
         m_PageTable->Bind();
+        // The lit pass needs the layer projections to sample a local light, so
+        // this rides the same publish as the page table. Bound even when local
+        // lights are off: Params4.x is what the shader branches on, and a shader
+        // that declares the block still needs SOMETHING bound at 78 or the
+        // read is undefined rather than merely unused.
+        m_LocalLights->Bind();
 
         // PUBLISH AND BIND, not one or the other. VirtualShadowSampling.glsl is a
         // shared header, so converting its declaration would drag every includer

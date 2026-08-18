@@ -312,3 +312,178 @@ If you ever collapse the two matrices into one because "they're the same": they
 are the same **on GL**, and the test that catches you is
 `VirtualShadowMap.GPUStructLayoutsMatchTheirShaderTwins`, which asserts they sit
 at different offsets.
+
+---
+
+## 8. Local lights are a second addressing domain, and four invariants change shape
+
+Issue #703 put point and spot lights on the same page table, the same physical
+pool, the same allocator and the same eviction policy. The sharing is the whole
+point, and it is also why the invariants above still apply — but four of them
+apply *differently*, and each difference has already produced a wrong frame.
+
+A local light owns **layers** (six for a point light's cube faces, one for a
+spot) instead of a clip level, and a layer is **mipped**: mip m halves the face's
+resolution, chosen per texel from the camera and light distances. So the mip is
+to a layer what the clip level is to the directional map — with one extra
+property that keeps §2 free: every mip of a layer shares ONE projection, so a
+world point's stored depth is the same number at every mip and a fallback between
+mips cannot draw a seam. There is deliberately no local `DepthRange` knob.
+
+**§1 restated: the marker and the sampler must agree on the MIP.** Same failure,
+same symptom — the sample lands on a page nobody backed, `vsmPageIsAllocated`
+returns false, and the surface reads fully *lit*, which looks like the light's
+settings rather than the shadow system. Both sides call
+`vsmLocalMipForDistances`, both from the same `u_VSMCameraPosition`, and
+`VirtualShadowMapLocal.TheMarkerAndTheSamplerCallOneMipHeuristic` asserts neither
+side grew a copy. The marker marks the selected mip **and the next coarser one**,
+for exactly the reason it marks two clip levels.
+
+**§3 does NOT apply: layers do not wrap.** A clip frustum scrolls under its
+cached pages; a light's face does not. It either stands still — and every page
+stays valid — or the light moved, and the CPU raises that layer's invalidate
+flag. Do not reach for toroidal addressing here; the whole `PrevPageOffset` /
+`PageDelta` apparatus has no local counterpart.
+
+**A perspective face cannot be culled the way an ortho level can.** The
+directional cull projects an AABB's eight corners, divides by w and compares the
+NDC extent against the unit cube — exact, because an ortho projection is affine.
+A layer is a perspective, and a corner behind the near plane has `w <= 0`;
+dividing by it mirrors the point through the origin and produces a confidently
+wrong NDC. `VSM_CullLocalCasters.comp` therefore tests in **clip space against
+the six frustum planes, with no divide**, and falls back to the full page grid
+for the footprint when any corner is behind the plane. The symptom of getting
+this wrong is a caster that vanishes *only when it gets close to the light*,
+which reads as a range or attenuation bug. The same trap, with the same fix,
+lives in `VSM_InvalidatePages.comp`'s local half.
+
+**The face-UV test is neither a plain test nor a plain clamp,** and both simpler
+versions are wrong somewhere:
+
+- a plain range test breaks the **cube seams** — the face is picked by dominant
+  axis, so a point on the boundary has a uv that floating point rounds to either
+  side of 1.0, and rejecting it means no page, which means *lit*: a one-texel
+  unshadowed line along all twelve cube edges;
+- a plain clamp breaks **spot cones** — a spot has no face selection, so a point
+  inside its range but outside its cone clamps onto the cone edge and marks
+  pages for a whole sphere of radius `range`.
+
+`vsmProjectIntoLocal` rejects anything outside by more than 1e-3 of a face and
+clamps the rest. Both the marker and the sampler call it, which is what keeps
+their answers identical.
+
+### Three touch-points outside the page table that a local light needs
+
+Each of these was missing at first and each produced a silent wrong frame:
+
+- **`ShadowMap::AnyShadowsRequested()` needs the local light count.** With local
+  lights on the page table, the atlas entry count is zero by construction — so a
+  lamp-lit scene with no sun answered "no shadows requested", `ShadowRenderPass`
+  was skipped whole, and nothing was ever allocated or rasterized. An unshadowed
+  frame with nothing in the log.
+- **`VSM_InvalidatePages.comp` needs a local half.** The cache keeps a lamp's
+  pages until something dirties them, so without it a character walking under a
+  lamp drags its shadow behind it — and that reads as an animation or
+  transform-sync bug long before anyone suspects the shadow cache.
+- **The meta table's owner fork must be in ONE function.** A meta entry now
+  decodes as a clip-level owner or a layer owner, and three places turn one back
+  into a page-table index (the allocator's eviction, the dirty clear, and any
+  future consumer). `vsmMetaOwnerPageIndex` is that function. Applying the fork
+  in one site and not another releases an unrelated page while leaving the real
+  owner pointing at a physical page somebody else now holds — two wrong shadows
+  from one mistake.
+
+### Who still reads the atlas, and why that is not a bug list
+
+With local lights on the page table, `u_AtlasEntryCount` is **zero by
+construction** — so every remaining `if (entry < u_AtlasEntryCount)` is a dead
+branch and its surface silently stops receiving local-light shadows. That makes
+"which shaders consume local-light shadows" a question with a real answer, and it
+is longer than it looks: the lit paths, the clustered evaluator, BOTH terrain
+shaders (the voxel one has no Forward+ path at all, so it needs its own include),
+DDGI probe relighting and the froxel fog scatter.
+
+The lit and terrain paths are converted. Two are deliberately NOT:
+
+- `DDGI_Relight.glsl` — probe irradiance receives local light unshadowed;
+- `compute/FroxelFogScatter.comp` — light shafts lose local-light occlusion.
+
+Both are compute passes that never call `VirtualShadowMap::BindForSampling` (its
+only call sites are the forward draw path and `DeferredLightingPass`), so reading
+the page table from them would rely on the VSM buffers happening to still be bound
+from the shadow pass — true today, unverified, and precisely the ordering
+dependency that breaks silently when someone reorders a frame. Give the pass its
+own publish; do not assume the binding survived. Both sites carry the note in the
+shader.
+
+### A compute dispatch over (something x layers) can exceed the work-group limit
+
+`GL_MAX_COMPUTE_WORK_GROUP_COUNT` is only guaranteed to be **65,535** per
+dimension, and this is the first VSM dispatch whose bounds multiply: the local
+invalidation runs over (dynamic casters x active layers), which at the documented
+budgets is 1024 x 256 = 262,144. Flattened into X that is four times the
+guarantee, and a conforming implementation REJECTS it — silently, in the sense
+that the frame still renders and only that frame's local invalidations are lost,
+so movers trail their shadows again on that hardware and nowhere else. The
+development box (NVIDIA, ~2^31 per axis) cannot show it.
+
+Dispatch it as 2D — one axis per budget — rather than flattening. The directional
+kernels need no such care because their second factor is `kClipLevels` (16).
+
+### The Vulkan y-flip is per-instance when the raster is mipped
+
+§7's one-line fork becomes two, and the second one is easy to get wrong by
+copying the first. The local raster puts each instance in a
+`(LOCAL_RES >> mip)²` corner of a fixed mip-0 viewport, so the composition is
+`fragCoord.y_vulkan = rasterRes - fragCoord.y_gl` against **that instance's**
+resolution. Flipping about `VSM_LOCAL_VIRTUAL_RESOLUTION` instead is correct at
+mip 0 and mirrors every coarser layer about a line outside its own footprint —
+writing nothing at all, on Vulkan only.
+`VirtualShadowMapVulkanShaders.TheLocalRasterStageFlipsAboutItsOwnMipResolution`
+pins both halves.
+
+### The known cost, so it is not rediscovered as a bug
+
+The sub-rect trick bounds the *useful* area, not the *rasterized* one: a caster
+projecting outside its face — a ground plane under a lamp is the everyday case,
+since the plane runs to the face's horizon — still generates fragments across the
+full mip-0 viewport, and they are killed by a bounds test in the fragment stage
+rather than by the clipper. That is discarded-fragment cost, not memory traffic,
+and it is paid only on frames where the layer actually has dirty pages. Bounding
+it properly means one draw per (batch, mip) with a real viewport per mip, which
+costs six indirect commands per batch — worth doing if a profile ever says so,
+and not before.
+
+### A bias that reads naturally either way will be inverted half the time
+
+`LocalDetailBias` is documented — in the settings struct, in the GLSL, and in the
+editor tooltip — as "> 1 pushes toward coarser (cheaper, blurrier) mips", exactly
+like `ClipSelectionBias`. It shipped its first draft **dividing** by the bias
+instead of multiplying, which inverted it: the slider sharpened where three
+comments said it blurred, at a cost nobody would go looking for.
+
+Nothing about the frame reveals it. The default is 1.0, where the two spellings
+agree exactly, so every screenshot, every golden and every page counter is
+identical. It only bites the person who later drags the slider to make a scene
+cheaper and watches it get more expensive.
+
+Two things worth copying for any similar knob:
+
+- **Assert the DIRECTION, not just monotonicity.** `>=` held for the inverted
+  formula because the high-bias probe saturated at mip 5.
+- **Pick an operating point where nothing clamps**, and assert that too — the
+  test now fails if its own coarse probe reaches the top of the range, because at
+  that point it can no longer tell an inversion from a clamp.
+
+### Two GLSL habits this issue punished
+
+- **Do not spell one buffer block as two `#ifdef`'d copies.** The `VSMLocalLights`
+  block was declared twice — a readonly flavour for the sampler and a coherent
+  one for the kernels — and the two drifted by a member within the hour, which is
+  a silent std430 layout change for whichever consumer took the shorter branch.
+  Macro the qualifier and declare the members once.
+- **`glslc` is the fast oracle.** Every shader in this system compiles in
+  milliseconds through `glslc -fshader-stage=... -I include`, on both routes
+  (`-DOLO_VULKAN=1`), including the `#type`-split graphics ones once you split
+  them. It caught four real errors here before a single 30-minute build ran. See
+  the memory note *validate-shaders-with-glslc-first*.

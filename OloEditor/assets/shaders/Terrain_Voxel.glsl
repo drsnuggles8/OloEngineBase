@@ -125,6 +125,11 @@ layout(std140, binding = 10) uniform TerrainParams {
 
 // Shadow maps — CSM array + the budgeted local-light shadow atlas (issue #435)
 #include "include/BindlessHeap.glsl"
+// Virtual Shadow Maps (issue #703): local lights read the page table instead
+// of the atlas when it is on. Without this include the branches below gate on
+// u_AtlasEntryCount, which is ZERO under VSM local lights — so this surface
+// would silently stop receiving point and spot shadows altogether.
+#include "include/VirtualShadowSampling.glsl"
 #ifdef OLO_BINDLESS
 #define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)  // TEX_SHADOW
 #define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)  // TEX_SHADOW_ATLAS
@@ -301,7 +306,12 @@ void main()
             // Spot shadows come from the light's shadow-atlas entry (issue
             // #435); direction.w carries the entry index (-1 = none).
             int atlasEntry = int(u_Lights[i].direction.w);
-            if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(v_WorldPos, N, atlasEntry, false, localShadow))
+            {
+                lightContrib *= localShadow;
+            }
+            else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
                 float shadow = calculateAtlasEntryShadow(
                     v_WorldPos,
@@ -323,7 +333,12 @@ void main()
             // representative point), so both types share the point path:
             // direction.w carries the BASE atlas entry of the 6 face tiles.
             int baseEntry = int(u_Lights[i].direction.w);
-            if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(v_WorldPos, N, baseEntry, true, localShadow))
+            {
+                lightContrib *= localShadow;
+            }
+            else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
                 vec3 lightPos = u_Lights[i].position.xyz;
                 int entry = baseEntry + atlasCubeFace(v_WorldPos - lightPos);

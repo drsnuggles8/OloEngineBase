@@ -324,6 +324,22 @@ vec3 evaluateClusterLightsFog(vec3 relPos, vec3 viewDir, float viewDepth, vec2 s
         // sun's travel direction).
         float phase = dualLobeHGPhase(dot(viewDir, L), mieG);
 
+        // KNOWN LIMITATION (issue #703): local-light occlusion here still comes
+        // from the shadow ATLAS. With VSM local lights on, u_AtlasEntryCount is
+        // zero by construction, so this branch does not run and light shafts lose
+        // their local-light occlusion — the fog stays lit where a lamp is blocked.
+        // The surfaces themselves are shadowed correctly either way; this is the
+        // volumetric term only.
+        //
+        // Not wired here on purpose rather than by oversight, and for the same
+        // reason as DDGI_Relight.glsl: this pass never calls
+        // VirtualShadowMap::BindForSampling (its two call sites are the forward
+        // draw path and DeferredLightingPass), so reading the page table from here
+        // would rely on the VSM buffers happening to still be bound from the
+        // shadow pass — true today, unverified, and exactly the ordering
+        // dependency that breaks silently when someone reorders a frame. Wire it
+        // by giving this pass its own publish, not by assuming the binding
+        // survived.
         float shadow = 1.0;
         if (baseEntry >= 0)
         {

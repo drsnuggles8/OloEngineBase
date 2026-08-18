@@ -7125,7 +7125,101 @@ namespace OloEngine
                     cameraFarClip);
             }
 
-            if (shadowMap.IsEnabled() && !shadowCandidates.empty())
+            // ---------------------------------------------------------------
+            // Local-light shadows, take TWO (issue #703). When the VSM owns them
+            // the atlas is not packed at all: every casting light gets its own
+            // page-table LAYERS, and pages are backed on demand from what is
+            // actually on screen. There is no score, no rank and no tile tier,
+            // which is the starvation case going away rather than being
+            // re-prioritised.
+            //
+            // The per-light shadow field (MultiLightData::Direction.w and the
+            // Forward+ structs' shadow slots) carries a LAYER BASE here instead
+            // of an atlas base entry — same field, two meanings, and the shaders
+            // fork on VSM_LOCAL_ENABLED (see vsmLocalShadow).
+            //
+            // Deliberately NOT inside the `!shadowCandidates.empty()` guard: the
+            // Begin/End pair must run every frame the system is active, because
+            // End is what retires the layers of lights that stopped casting. Skip
+            // it on an empty frame and their pages stay resident and their
+            // shadows stay on screen.
+            auto& virtualShadowMap = shadowMap.GetVirtualShadowMap();
+            const bool useVirtualLocalLights = shadowMap.IsEnabled() && virtualShadowMap.AreLocalLightsActive();
+            if (useVirtualLocalLights)
+            {
+                const Frustum cameraFrustum(viewProjection);
+                const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+
+                virtualShadowMap.BeginLocalLights();
+
+                std::vector<ShadowMap::AtlasCasterRecord> layout;
+                layout.reserve(shadowCandidates.size());
+                u32 rank = 0;
+
+                for (const auto& candidate : shadowCandidates)
+                {
+                    const bool isSpot = candidate.SourceKind == LocalShadowCandidate::Kind::Spot;
+
+                    ShadowMap::AtlasCasterRecord record;
+                    record.LightEntity = candidate.LightEntity;
+                    record.Type = isSpot ? ShadowAtlas::CasterType::Spot : ShadowAtlas::CasterType::Point;
+                    record.SourceKind = isSpot                                                      ? "SpotLight"
+                                        : candidate.SourceKind == LocalShadowCandidate::Kind::Point ? "PointLight"
+                                                                                                    : "SphereAreaLight";
+                    // Still scored, and still recorded, even though nothing ranks
+                    // by it: olo_shadow_atlas_layout reports it, and a score of 0
+                    // is the one filter kept from the atlas path — a light whose
+                    // range sphere is outside the camera frustum cannot touch a
+                    // visible fragment, so spending layers on it would shrink the
+                    // pool for lights that can.
+                    record.Score = ShadowAtlas::ComputeScore(candidate.Position, candidate.Range,
+                                                             candidate.Intensity, cameraPosition,
+                                                             cameraFrustum);
+
+                    if (record.Score > 0.0f)
+                    {
+                        VirtualShadowMap::LocalLightDesc desc;
+                        desc.LightId = candidate.LightEntity;
+                        desc.PositionRelative = candidate.Position - renderOrigin;
+                        desc.Direction = candidate.Direction;
+                        desc.Range = candidate.Range;
+                        desc.OuterCutoffDegrees = candidate.OuterCutoff;
+                        desc.IsPoint = !isSpot;
+
+                        if (const i32 layerBase = virtualShadowMap.RegisterLocalLight(desc); layerBase >= 0)
+                        {
+                            const auto layerBaseF = static_cast<f32>(layerBase);
+                            if (isSpot)
+                                fpSpotLights[candidate.FpIndex].SpotParams.z = layerBaseF;
+                            else if (candidate.SourceKind == LocalShadowCandidate::Kind::Point)
+                                fpPointLights[candidate.FpIndex].ShadowAndAttenuation.x = layerBaseF;
+                            else
+                                fpSphereAreaLights[candidate.FpIndex].RangeAndPadding.y = layerBaseF;
+
+                            if (candidate.UboLightIndex >= 0)
+                                multiLightData.Lights[candidate.UboLightIndex].Direction.w = layerBaseF;
+
+                            record.Allocated = true;
+                            record.Rank = rank++;
+                            record.BaseEntry = static_cast<u32>(layerBase);
+                            record.EntryCount = isSpot ? 1u : 6u;
+                        }
+                    }
+
+                    layout.push_back(record);
+                }
+
+                virtualShadowMap.EndLocalLights();
+
+                // The atlas texture is not rendered at all on this path, so its
+                // entry count has to read zero — a stale non-zero count would send
+                // ShadowRenderPass into the atlas block to clear and rasterize
+                // tiles nothing samples.
+                shadowMap.SetAtlasEntryCount(0);
+                shadowMap.SetAtlasLayout(std::move(layout));
+            }
+
+            if (!useVirtualLocalLights && shadowMap.IsEnabled() && !shadowCandidates.empty())
             {
                 const Frustum cameraFrustum(viewProjection);
 

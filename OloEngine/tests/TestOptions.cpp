@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "TestOptions.h"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
@@ -56,6 +57,46 @@ namespace OloEngine::Tests
             }
             return rest.substr(1);
         }
+
+        // `--olo-golden-vendor` and `--olo-perf-machine` both become a PATH
+        // COMPONENT at their use sites — `assets/tests/{golden,visual}/<vendor>/`
+        // (GoldenImageTests.cpp, AtmosphereVisualEvidenceTest.cpp) and
+        // `perf_history/<machine>.tsv` (PerfRegressionTests.cpp) — and two of
+        // those three sites concatenate the value with no checking at all. That
+        // matters because `--olo-golden-rebase` WRITES to the composed path, so
+        // a value containing a separator would create directories and drop PNGs
+        // outside the asset tree.
+        //
+        // Only AtmosphereVisualEvidenceTest validated, and its comment claims to
+        // "mirror GoldenImageTests::GoldenBaselineDir" — which is precisely the
+        // hardening that never made it back to the mirror it names. Validating
+        // the VALUE once, here, is what stops that drift recurring: a third
+        // consumer added later is covered without knowing this rule exists.
+        //
+        // A whitelist rather than a separator blacklist, because the blacklist
+        // has to enumerate every way a platform can spell "rooted" — on Windows
+        // a drive-relative `C:vendor` contains no separator at all yet
+        // fs::path treats it as rooted, so `base /= value` silently discards
+        // `base`. Vendor and machine tags are short identifiers (`amd`,
+        // `llvmpipe`, `ci-llvmpipe-windows`), so the whitelist costs nothing.
+        void RequirePlainPathComponent(std::string_view value, std::string_view arg)
+        {
+            const bool plain = !value.empty() && value != "." && value != ".." &&
+                               std::ranges::all_of(value,
+                                                   [](char c)
+                                                   {
+                                                       return (c >= 'a' && c <= 'z') ||
+                                                              (c >= 'A' && c <= 'Z') ||
+                                                              (c >= '0' && c <= '9') ||
+                                                              c == '-' || c == '_' || c == '.';
+                                                   });
+            if (!plain)
+            {
+                Fail("value must be a single plain path component "
+                     "(letters, digits, '-', '_', '.'; not '.' or '..')",
+                     arg);
+            }
+        }
     } // namespace
 
     void ParseTestOptions(int& argc, char** argv)
@@ -109,10 +150,12 @@ namespace OloEngine::Tests
             }
             else if (const auto v = ValueOf(arg, "--olo-golden-vendor"))
             {
+                RequirePlainPathComponent(*v, arg);
                 s_Options.GoldenVendor = *v;
             }
             else if (const auto v = ValueOf(arg, "--olo-perf-machine"))
             {
+                RequirePlainPathComponent(*v, arg);
                 s_Options.PerfMachine = *v;
             }
             else if (const auto v = ValueOf(arg, "--olo-gl-backend"))

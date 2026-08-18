@@ -71,7 +71,12 @@ namespace OloEngine::Tests
         /// inside `#ifdef OLO_VULKAN` branches this harness does not compile,
         /// so they never reach reflection. This constant tracks the highest
         /// slot a production shader actually declares.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_VSM_STATS;
+        // Bumped from SSBO_VSM_STATS (77) by issue #703, which added the one new
+        // SSBO the local-light work needed. This is the guard that makes such an
+        // addition deliberate rather than incidental -- see the note at
+        // SSBO_VSM_LOCAL_LIGHTS for why that binding could not ride an existing
+        // buffer, and how little space is left in this namespace.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS;
 
         struct BindingFailure
         {

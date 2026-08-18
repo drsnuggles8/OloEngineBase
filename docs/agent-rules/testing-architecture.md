@@ -35,7 +35,7 @@ Every new test belongs to exactly one renderer Layer **or** carries the `"Functi
 | L6 Performance regression | per-pass timing vs. pinned baseline with anti-flake | `OloEngine/tests/Rendering/PropertyTests/PerfRegressionTests.cpp` + `perf_baselines.txt` |
 | L7 Smoke / sanity readback | NaN / Inf detection, empty / clean framebuffers | `OloEngine/tests/Rendering/PropertyTests/RendererValidateTest.cpp` |
 | L8 Golden image | SSIM cascade over scene fixtures | `OloEngine/tests/Rendering/PropertyTests/GoldenImageTests.cpp` + `OloEditor/assets/tests/golden/` |
-| L9 Cross-vendor | llvmpipe conformance in CI (workflow only, no code) | `.github/workflows/cross-vendor.yml` |
+| L9 Cross-vendor | llvmpipe conformance in CI, plus a CPU-only audit of the committed per-vendor baselines | `.github/workflows/cross-vendor.yml` + `OloEngine/tests/Rendering/PropertyTests/GoldenBaselineAuditTest.cpp` |
 | L10 Diagnostic escalation | auto-capture framebuffer + metadata on `ASSERT_` failure | `TestFailureCapture.{h,cpp}` (consumed automatically) |
 | L11 Sanitizers & fuzzing | libFuzzer harnesses + ASan / UBSan in CI | `OloEngine/tests/Fuzzing/Fuzz*.cpp` + `.github/workflows/fuzz.yml` |
 

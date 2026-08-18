@@ -22,9 +22,70 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 #include "../include/VirtualShadowBuffers.glsl"
 
+// The LOCAL domain (issue #703). Same pyramid, one per layer, with one
+// structural difference at mip 0: a local layer's pages live at SIX page-table
+// mips at once, so mip 0 here is a GATHER rather than a copy — cell c is dirty
+// if any page covering c is dirty at any page-table mip.
+//
+// That flattening is what lets a single HPB serve a mipped page table, and doing
+// it here rather than in the cull is what keeps the cull's per-(caster, layer)
+// cost a single lookup instead of six.
+//
+// The same sweep also produces the layer's RASTER MIP — the finest mip that has
+// any dirty page — by atomicMin. Both are answers to "what is dirty in this
+// layer", read from the same 1365 entries, so computing them apart would be two
+// passes over the same data. The raster mip is what the local depth raster
+// scales its viewport footprint by, and getting it too FINE only wastes fill,
+// while too COARSE would drop the fine pages' texels entirely — so a min is the
+// safe direction.
+void vsmBuildLocalHPB(int mip, int mipRes, int layerCount)
+{
+    uint perLayer = uint(mipRes * mipRes);
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= perLayer * uint(layerCount))
+        return;
+
+    int layer = int(idx / perLayer);
+    uint inLayer = idx % perLayer;
+    ivec2 coord = ivec2(int(inLayer % uint(mipRes)), int(inLayer / uint(mipRes)));
+
+    uint value;
+    if (mip == 0)
+    {
+        value = 0u;
+        for (int pageMip = 0; pageMip < VSM_LOCAL_MIP_COUNT; ++pageMip)
+        {
+            ivec2 page = coord >> pageMip;
+            if (vsmPageIsDirty(b_PageTable[vsmLocalPageIndex(layer, pageMip, page)]))
+            {
+                value = 1u;
+                atomicMin(b_LocalRasterMip[layer], uint(pageMip));
+                break; // the finest dirty mip is the only one the min needs
+            }
+        }
+    }
+    else
+    {
+        ivec2 parent = coord * 2;
+        value = max(max(b_HPB[vsmLocalHPBIndex(layer, mip - 1, parent)],
+                        b_HPB[vsmLocalHPBIndex(layer, mip - 1, parent + ivec2(1, 0))]),
+                    max(b_HPB[vsmLocalHPBIndex(layer, mip - 1, parent + ivec2(0, 1))],
+                        b_HPB[vsmLocalHPBIndex(layer, mip - 1, parent + ivec2(1, 1))]));
+    }
+
+    b_HPB[vsmLocalHPBIndex(layer, mip, coord)] = value;
+}
+
 void main()
 {
     int mip = int(u_VSMPassParams.x);
+
+    if (u_VSMPassParams.y != 0u)
+    {
+        vsmBuildLocalHPB(mip, VSM_LOCAL_PAGE_TABLE_RESOLUTION >> mip, int(u_VSMPassParams.z));
+        return;
+    }
+
     int mipRes = VSM_PAGE_TABLE_RESOLUTION >> mip;
     uint perLevel = uint(mipRes * mipRes);
 
