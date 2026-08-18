@@ -53,17 +53,43 @@ jobs:
       - name: Install nasm (Windows)
         if: matrix.os == 'Windows'
         run: choco install nasm -y --no-progress
+
+      # The hosted image ships ~14 GB free, which asan.yml records as enough to hit
+      # "No space left on device" during the OloEngine-Tests link. This leg is heavier
+      # than those: on top of the engine + test suite it unpacks a vcpkg tree AND, on a
+      # cache miss, a full FFmpeg source checkout and build. Reclaim ~20 GB of
+      # preinstalled toolchains this job never uses. `|| true` keeps a missing path from
+      # failing the job; the df lines bracket it for diagnostics.
+      - name: Free disk space (Linux)
+        if: matrix.os == 'Linux'
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h /
+
+      # The engine needs a C++23 STANDARD LIBRARY, not just a C++23 compiler:
+      # Core/Reflection/MemberList.h uses std::forward_like, which ubuntu-24.04's default
+      # GCC/libstdc++ does not provide ("error: 'forward_like' is not a member of 'std'").
+      # Every other Linux job in this repo pins clang-19 from apt.llvm.org for the same
+      # reason — see asan.yml and steam-stub.yml. Without this, fixing the OOM below only
+      # moves the failure (issue #796, root cause 2).
+      - name: Add LLVM apt repository (Linux)
+        if: matrix.os == 'Linux'
+        uses: ./.github/actions/setup-llvm-apt
+
       - name: Install Linux deps
         if: matrix.os == 'Linux'
         run: |
           # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that
-          # periodically return 403 Forbidden; we never use them, and `apt-get update`
-          # fails hard on any single repo error. Drop any Microsoft source so a
-          # Microsoft-side outage can't break our update.
+          # periodically return 403 Forbidden; we never use them (Clang comes from
+          # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
+          # Drop any Microsoft source so a Microsoft-side outage can't break our update.
           sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
           sudo apt-get update
           sudo apt-get install -y \
             nasm \
+            clang-19 lld-19 \
             libgl-dev libglu1-mesa-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev \
@@ -96,20 +122,88 @@ jobs:
           if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
             PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
           fi
+
+          # Linux-only toolchain pins. Windows keeps its defaults: the VS generator is
+          # multi-config (build type comes from --config at build time) and MSVC is
+          # already the right compiler there.
+          #
+          # -DCMAKE_{C,CXX}_COMPILER=clang-19/clang++-19: see the LLVM apt step above —
+          #   the default GCC/libstdc++ lacks std::forward_like.
+          # -DCMAKE_BUILD_TYPE=Release: Unix Makefiles is SINGLE-config, so the build
+          #   type must be set here. The build step's `--config Release` was silently
+          #   ignored on this leg, which is why the job's stated Release build was a
+          #   fiction on Linux (issue #796).
+          # -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld: the default GNU BFD ld holds the whole
+          #   static-engine link in memory and can exceed a hosted runner's 16 GB — the
+          #   OOM reaper then kills the runner agent mid-link. Same pin as asan.yml.
+          # -DOLO_ENABLE_LTO=OFF: LTO defaults ON in Release, and CMake's IPO for Clang
+          #   is full (not thin) LTO — a single-threaded whole-program link of the entire
+          #   static engine, the most memory-hungry step there is, on the leg we are
+          #   trying to stop OOM-killing. CI binaries are for testing, not shipping, so
+          #   the codegen is irrelevant; Windows.yml, asan.yml, fuzz.yml and
+          #   flaky-repro-281.yml all drop LTO for the same reason.
+          TOOLCHAIN_ARGS=()
+          if [ "${{ matrix.os }}" = "Linux" ]; then
+            TOOLCHAIN_ARGS=(
+              -DCMAKE_C_COMPILER=clang-19
+              -DCMAKE_CXX_COMPILER=clang++-19
+              -DCMAKE_BUILD_TYPE=Release
+              -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+              -DOLO_ENABLE_LTO=OFF
+            )
+          fi
+
           cmake -S . -B build -DOLO_VIDEO_FFMPEG=ON $PREFIX_ARG \
             -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+            "${TOOLCHAIN_ARGS[@]}" \
             ${{ steps.vcpkg.outputs.toolchain-args }} \
             -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
 
-      - name: Build tests (builds FFmpeg on cache miss)
-        # Release, matching the main Windows.yml CI (BUILD_TYPE: Release). The
-        # shader libs (shaderc / spirv-cross-{core,glsl}) come from the headless
-        # Vulkan SDK installed above, which ships only release (/MD) import libs —
-        # no debug (…d.lib) variants. A Debug (/MDd) build of OloEngine-Tests then
-        # links release spirv-cross objects and dies with LNK2038 (_ITERATOR_DEBUG_LEVEL
-        # 0 vs 2 / MD_DynamicRelease vs MDd_DynamicDebug) → LNK1319. Release keeps the
-        # CRT consistent. The FFmpeg decode path under test is config-independent.
-        run: cmake --build build --target OloEngine-Tests --config Release --parallel
+      # Both legs build Release, matching the main Windows.yml CI (BUILD_TYPE: Release).
+      # The shader libs (shaderc / spirv-cross-{core,glsl}) come from the headless Vulkan
+      # SDK installed above, which ships only release (/MD) import libs — no debug (…d.lib)
+      # variants. A Debug (/MDd) build of OloEngine-Tests then links release spirv-cross
+      # objects and dies with LNK2038 (_ITERATOR_DEBUG_LEVEL 0 vs 2 / MD_DynamicRelease vs
+      # MDd_DynamicDebug) → LNK1319. Release keeps the CRT consistent. The FFmpeg decode
+      # path under test is config-independent.
+      #
+      # Split per-OS because the two generators disagree about where the build type lives
+      # and about what a bare `--parallel` means. Both are capped explicitly per CLAUDE.md.
+      - name: Build tests (builds FFmpeg on cache miss) — Windows
+        if: matrix.os == 'Windows'
+        # --config Release: the VS generator is multi-config, so the build type is
+        # selected here rather than at configure time.
+        # --parallel 4: windows-latest has 4 cores, so this matches what MSBuild's bare
+        # `/m` already resolved to — no behaviour change, it just stops the workflow from
+        # relying on a tool default, per CLAUDE.md ("never acceptable is a bare
+        # --parallel"). This leg is not the broken one and is deliberately left otherwise
+        # untouched (issue #796).
+        run: cmake --build build --target OloEngine-Tests --config Release --parallel 4
+
+      - name: Build tests (builds FFmpeg on cache miss) — Linux
+        if: matrix.os == 'Linux'
+        # No --config: this is the single-config Unix Makefiles generator, so the build
+        # type came from CMAKE_BUILD_TYPE at configure time and --config is silently
+        # ignored here.
+        #
+        # --parallel 4, NOT a bare --parallel. CMake forwards an argument-less --parallel
+        # to the native tool, which for Unix Makefiles becomes `make -j` with no number —
+        # UNLIMITED, one job per ready target. That exhausted the 16 GB runner at ~29%,
+        # still inside the vendor deps (abseil), before reaching a single engine source
+        # file, and the OOM reaper killed the runner agent ("The runner has received a
+        # shutdown signal", exit 143). This was root cause 1 of issue #796 and had failed
+        # every weekly run for 10+ weeks.
+        #
+        # Why 4 and not 2: this is the SAME runner, generator and target as steam-stub.yml,
+        # which has built OloEngine-Tests at --parallel 4 on every master push since #795
+        # without OOM — including the two memory-heavy TUs (LuaScriptGlue.cpp,
+        # McpFieldRegistry.cpp). Worth knowing that root CMakeLists.txt's memory job pools
+        # (OLO_LINK_JOBS, OLO_HEAVY_COMPILE_JOBS) are both gated on `CMAKE_GENERATOR MATCHES
+        # "Ninja"` and are therefore INERT here — but so are they in steam-stub, and this
+        # target links exactly one executable, so the link pool has nothing to serialise
+        # anyway. If a future run does OOM in engine sources, drop to `--parallel 2` (what
+        # asan.yml's Linux jobs use) before reaching for a generator change.
+        run: cmake --build build --target OloEngine-Tests --parallel 4
 
       # Fetch a small H.264 MP4 so the FFmpeg decode path runs end-to-end. -f fails on HTTP
       # errors and --retry rides out transient flakes; the existence check surfaces a genuine
