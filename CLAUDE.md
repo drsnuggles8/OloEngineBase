@@ -105,6 +105,7 @@ you are in.
 - [component-serializer-codegen.md](docs/agent-rules/component-serializer-codegen.md) — when a component round-trips for free, when to annotate a field, and when to hand-write *and* exclude.
 - [scene-binary-sidecar.md](docs/agent-rules/scene-binary-sidecar.md) — the `.scenebin` fast path: generated, hybrid-covered, and how it gets invalidated.
 - [binary-format-versioning.md](docs/agent-rules/binary-format-versioning.md) — versioning a fixed-order binary archive: gate each new field, don't trust the header check to exclude old data.
+- [cache-stored-unresolvable-reference.md](docs/agent-rules/cache-stored-unresolvable-reference.md) — a cache that stores a *name* (handle, path) must refuse to store one nothing can resolve; the failure only shows on the second load, so CI never sees it.
 - [scene-copy-must-carry-scene-level-settings.md](docs/agent-rules/scene-copy-must-carry-scene-level-settings.md) — `Scene::Copy()` drops scene-level settings structs the instant Play starts, invisibly to headless tests.
 - [floating-origin-rebase-subsystems.md](docs/agent-rules/floating-origin-rebase-subsystems.md) — the four subsystems holding world-space state outside the rebased set, each needing a different fix.
 - [asset-degradation-and-constructor-preconditions.md](docs/agent-rules/asset-degradation-and-constructor-preconditions.md) — a precondition asserted in a constructor delegates safety to ~30 call sites, and they will disagree.
