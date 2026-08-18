@@ -46,12 +46,31 @@ process never exits — a shipped Debug runtime that fails to find its start sce
 sits there forever. 80 bytes of leaked buffer is trivial; the exit behaviour is
 not.
 
-To reproduce it, the working directory has to satisfy two conditions at once:
-`assets/shaders` and `assets/fonts` must resolve (or the runtime dies earlier on
-a shader/font load), and there must be **no** `Scenes/` directory or
-`game.manifest`. `OloEditor/` is exactly that combination — run
-`bin/Debug/OloRuntime/OloRuntime.exe --rhi=vulkan` with
-`-WorkingDirectory OloEditor`.
+To reproduce it, the runtime's **working directory** has to satisfy two
+conditions at once: `assets/shaders` and `assets/fonts` must resolve (or the
+runtime dies earlier on a shader or font load), and there must be **no**
+`Scenes/` directory and no `game.manifest` (or it finds a start scene, initialises
+Renderer3D, and the leak does not occur). `OloEditor/` is exactly that
+combination. From the repo root:
+
+```powershell
+$p = Start-Process -FilePath .\bin\Debug\OloRuntime\OloRuntime.exe `
+                   -WorkingDirectory .\OloEditor `
+                   -ArgumentList '--rhi=vulkan' -PassThru -NoNewWindow
+# Pre-fix this never exits (the assert dialog above) — bound the wait and kill it.
+if (-not $p.WaitForExit(60000)) { $p.Kill(); $p.WaitForExit() }
+"$($p.ExitCode)"   # 0 once fixed
+```
+
+`-WorkingDirectory` there is a `Start-Process` parameter, **not** an OloRuntime
+flag — the runtime has no such argument, and passing it to the exe does nothing.
+Prefer this over `cd`/`Set-Location`/`Push-Location` into `OloEditor`: an agent
+session shares one tracked working directory with its `PreToolUse` hooks, and
+leaving it parked in a subdirectory wedges the build-lock guard for every
+subsequent command. `Start-Process -WorkingDirectory` never touches it.
+
+Read the result in `OloEditor/OloEngine.log`, which the runtime truncates on each
+launch.
 
 ## The shape, stated generally
 
