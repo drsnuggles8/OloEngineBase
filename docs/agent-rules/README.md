@@ -103,6 +103,7 @@ Read before trusting any measurement.
 | [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | a CI comment asserted a safety property nobody had measured; and the issue's own repro had been fixed two months earlier |
 | [reference-path-tracer.md](reference-path-tracer.md) | a golden answers "did it change?", never "is it correct?" |
 | [gpu-debug-draws.md](gpu-debug-draws.md) | read the two-counter overflow protocol before concluding "it drew nothing" |
+| [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close is not evidence of a clean teardown — the same leak was silent there for the backend's whole life |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument *must*
 fail on before trusting a case it passes.
@@ -134,7 +135,9 @@ when you clear) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) (a CPU write
 between two recorded draws is GL command order; a life-stable Vulkan address makes it
 last-write-wins) · [gpu-scan-compaction.md](gpu-scan-compaction.md) (a `barrier()` only some
-invocations reach — the early-return habit in front of a work-group scan)
+invocations reach — the early-return habit in front of a work-group scan) ·
+[lazy-static-release-ownership.md](lazy-static-release-ownership.md) (a shared lazy static released
+from a *conditional* teardown — fine until a session creates it without running that teardown)
 
 ## 6. It was never actually called
 
@@ -198,6 +201,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) ·
+[lazy-static-release-ownership.md](lazy-static-release-ownership.md) ·
 [gpu-debug-draws.md](gpu-debug-draws.md) ·
 [gpu-scan-compaction.md](gpu-scan-compaction.md) ·
 [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) ·

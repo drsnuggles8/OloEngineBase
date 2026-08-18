@@ -680,7 +680,14 @@ namespace OloEngine
 
         IBLPrecompute::Shutdown();
         ImpostorBaker::Shutdown();
-        MeshPrimitives::Shutdown();
+        // MeshPrimitives is deliberately NOT released here — it is not a 3D-only
+        // facility. Its fullscreen-triangle cache is first created from the 2D /
+        // warmup path (Renderer2D::Init -> ShaderWarmup::RenderProgressFrame ->
+        // GetFullscreenTriangle), so releasing it from a teardown that only runs
+        // `if (Renderer3D::HasInitialized())` leaked it in every session that never
+        // brought 3D up — the OloRuntime start-scene-missing path is exactly that
+        // (#814). Renderer::Shutdown owns it now: the one teardown that always runs.
+        // See docs/agent-rules/lazy-static-release-ownership.md.
 
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
