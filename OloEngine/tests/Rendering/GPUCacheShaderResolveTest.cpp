@@ -151,9 +151,11 @@ TEST(GPUCacheShaderResolveTest, ComputeShaderResolvesAllocationsWithNoCpuRoundTr
         << "HostMirrored backing failed on a live device";
 
     // A population with every directory state the shader can meet: single- and
-    // multi-page objects, an out-of-address-order chain (eviction transfer), a
-    // cleared-but-resident object, tombstones from explicit erases, and a
-    // policy eviction.
+    // multi-page objects, an out-of-address-order chain (built below by reusing
+    // freed pages), a cleared-but-present object, and a tombstone from an
+    // explicit erase. Note this deliberately stays well inside the 32-page
+    // capacity, so no policy eviction occurs — eviction's effect on the
+    // directory is covered headless by GPUPagedCacheTest.
     const std::vector<u32> small = { 1, 2, 3 };
     const std::vector<u32> large(11, 7); // 3 pages
     ASSERT_TRUE(cache.AllocateObject(100, small.data(), small.size()));
@@ -161,7 +163,7 @@ TEST(GPUCacheShaderResolveTest, ComputeShaderResolvesAllocationsWithNoCpuRoundTr
     ASSERT_TRUE(cache.AllocateObject(300, small.data(), small.size()));
     ASSERT_TRUE(cache.AllocateObject(400, large.data(), large.size()));
     cache.ClearObject(300);      // present, zero elements, chain kept
-    cache.DeallocateObject(100); // tombstone
+    cache.DeallocateObject(100); // tombstone + frees a page for the reuse below
     // Reuse the freed pages out of order so at least one chain is not
     // address-ascending — the order-sensitive checksum has to prove the GPU
     // walks CHAIN order, not index order.

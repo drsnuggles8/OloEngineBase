@@ -138,7 +138,10 @@ namespace OloEngine
                     {
                         break;
                     }
-                    const int bit = std::countr_zero(old);
+                    // Unsigned shift count: countr_zero returns int, and shifting
+                    // by a signed operand is a defect class in its own right
+                    // (cpp:S874) even when the value is provably in range.
+                    const auto bit = static_cast<u32>(std::countr_zero(old));
                     const u64 mask = 1ull << bit;
                     const u64 desired = old & ~mask;
                     if (word.compare_exchange_weak(old, desired, std::memory_order_acq_rel,

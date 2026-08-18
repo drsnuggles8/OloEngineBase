@@ -37,6 +37,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -45,6 +46,26 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 namespace
 {
     using Map = GPUHashMap<u64, u32>;
+
+    // `count` distinct keys whose probe sequences all START in the same slot of
+    // a `capacity`-entry table, found by brute force over the real hash. Maximal
+    // claim-CAS contention without any two threads touching the same key — the
+    // shape the threading contract supports (see GPUHashMap.h).
+    std::vector<u64> FindKeysInSameSlot(u32 capacity, sizet count)
+    {
+        const u64 mask = capacity - 1;
+        std::unordered_map<u64, std::vector<u64>> bySlot;
+        for (u64 key = 1; key < 4'000'000; ++key)
+        {
+            auto& keys = bySlot[Map::HashKey(key) & mask];
+            keys.push_back(key);
+            if (keys.size() == count)
+            {
+                return keys;
+            }
+        }
+        return {};
+    }
 } // namespace
 
 TEST(GPUHashMapTest, CreateRoundsCapacityToPowerOfTwo)
@@ -300,29 +321,44 @@ TEST(GPUHashMapTest, MultiThreadedInsertDistinctKeys)
     }
 }
 
-// All threads hammer the SAME key. The claim CAS must produce exactly one
-// live entry (any thread's value) — the reference could produce a duplicate
-// entry when the claiming CAS lost the race to another thread inserting the
-// same key. Verified by erasing once: a duplicate would still be findable.
-TEST(GPUHashMapTest, MultiThreadedDuplicateInsertLeavesOneEntry)
+// Maximal claim-CAS contention: every thread inserts DISTINCT keys that all
+// hash to the SAME start slot, so the threads fight over the same entries
+// while never writing the same key — exactly what the threading contract
+// supports. Each key must end up present exactly once with its own value; a
+// claim that dropped an insert or duplicated an entry fails this.
+//
+// (This replaced a version where 16 threads hammered one shared key. That
+// raced on the non-atomic value store — a real data race TSan caught in CI,
+// not a test artefact — and the contract now says so explicitly.)
+TEST(GPUHashMapTest, MultiThreadedCollidingClaimsKeepEveryKey)
 {
     Map map;
     ASSERT_TRUE(map.Create(512));
 
     constexpr int kThreadCount = 16;
+    constexpr sizet kKeysPerThread = 8;
+    const std::vector<u64> keys = FindKeysInSameSlot(map.GetCapacity(), kThreadCount * kKeysPerThread);
+    ASSERT_EQ(keys.size(), static_cast<sizet>(kThreadCount) * kKeysPerThread);
+
     std::atomic<int> workerFailures{ 0 };
     std::vector<std::thread> threads;
     threads.reserve(kThreadCount);
     for (int t = 0; t < kThreadCount; ++t)
     {
         threads.emplace_back(
-            [&map, &workerFailures, t]()
+            [&map, &keys, &workerFailures, t]()
             {
-                for (int i = 0; i < 100; ++i)
+                for (sizet i = 0; i < kKeysPerThread; ++i)
                 {
-                    if (!map.Insert(42, static_cast<u32>(t)))
+                    const u64 key = keys[static_cast<sizet>(t) * kKeysPerThread + i];
+                    // Insert repeatedly: re-inserting a key this thread alone
+                    // owns keeps re-running the probe across the contended run.
+                    for (int repeat = 0; repeat < 8; ++repeat)
                     {
-                        workerFailures.fetch_add(1, std::memory_order_relaxed);
+                        if (!map.Insert(key, static_cast<u32>(key)))
+                        {
+                            workerFailures.fetch_add(1, std::memory_order_relaxed);
+                        }
                     }
                 }
             });
@@ -333,14 +369,26 @@ TEST(GPUHashMapTest, MultiThreadedDuplicateInsertLeavesOneEntry)
     }
     EXPECT_EQ(workerFailures.load(), 0);
 
-    u32 value = 0;
-    EXPECT_TRUE(map.Find(42, value));
-    EXPECT_LT(value, static_cast<u32>(kThreadCount));
-
-    EXPECT_TRUE(map.Erase(42));
-    EXPECT_FALSE(map.Contains(42)) << "duplicate entry for the contended key survived one erase";
+    for (const u64 key : keys)
+    {
+        u32 value = 0;
+        EXPECT_TRUE(map.Find(key, value)) << "key " << key << " lost under claim contention";
+        EXPECT_EQ(value, static_cast<u32>(key));
+    }
+    // One erase must remove each key completely — a duplicate entry created by
+    // a lost claim would still be findable afterwards.
+    for (const u64 key : keys)
+    {
+        EXPECT_TRUE(map.Erase(key));
+        EXPECT_FALSE(map.Contains(key)) << "duplicate entry for key " << key << " survived one erase";
+    }
 }
 
+// Insert / find / erase churn from every core at once. The key space is
+// PARTITIONED per thread (thread t owns keys where key % threadCount == t), so
+// threads share the table and collide on probe runs without ever mutating the
+// same key — the concurrency the contract supports. A shared key space here
+// was the second data race TSan caught.
 TEST(GPUHashMapTest, MultiThreadedStressWithErases)
 {
     Map map;
@@ -348,7 +396,7 @@ TEST(GPUHashMapTest, MultiThreadedStressWithErases)
 
     const int threadCount = static_cast<int>(std::max(2u, std::thread::hardware_concurrency()));
     constexpr int kOperations = 20000;
-    constexpr int kKeySpace = 2000;
+    constexpr int kKeysPerThread = 250;
     std::atomic<int> workerFailures{ 0 };
 
     std::vector<std::thread> threads;
@@ -356,13 +404,15 @@ TEST(GPUHashMapTest, MultiThreadedStressWithErases)
     for (int t = 0; t < threadCount; ++t)
     {
         threads.emplace_back(
-            [&map, &workerFailures, t]()
+            [&map, &workerFailures, t, threadCount]()
             {
                 std::mt19937 rng(static_cast<u32>(t));
-                std::uniform_int_distribution<int> dist(0, kKeySpace);
+                std::uniform_int_distribution<int> dist(0, kKeysPerThread - 1);
                 for (int i = 0; i < kOperations; ++i)
                 {
-                    const auto key = static_cast<u64>(dist(rng));
+                    // Owned exclusively by this thread: no other thread ever
+                    // writes or erases it.
+                    const auto key = static_cast<u64>(dist(rng) * threadCount + t);
                     (void)map.Insert(key, static_cast<u32>(key * 2));
                     if (u32 value = 0; map.Find(key, value) && value != static_cast<u32>(key * 2))
                     {
@@ -382,7 +432,7 @@ TEST(GPUHashMapTest, MultiThreadedStressWithErases)
     EXPECT_EQ(workerFailures.load(), 0);
 
     // Final consistency: every surviving key still maps to its derived value.
-    for (u64 key = 0; key <= kKeySpace; ++key)
+    for (u64 key = 0; key < static_cast<u64>(kKeysPerThread) * threadCount; ++key)
     {
         if (u32 value = 0; map.Find(key, value))
         {
@@ -398,32 +448,15 @@ TEST(GPUHashMapTest, MultiThreadedStressWithErases)
 // removed only the first copy, resurrecting the stale one).
 // =============================================================================
 
-namespace
-{
-    // Two distinct keys whose probe sequences START in the same slot of a
-    // `capacity`-entry table, found by brute force over the real hash — the
-    // scenario needs a genuine collision, not an assumed one.
-    std::pair<u64, u64> FindCollidingKeys(u32 capacity)
-    {
-        const u64 mask = capacity - 1;
-        std::vector<u64> firstKeyForSlot(capacity, 0);
-        for (u64 key = 1;; ++key)
-        {
-            const auto slot = static_cast<sizet>(Map::HashKey(key) & mask);
-            if (firstKeyForSlot[slot] != 0)
-            {
-                return { firstKeyForSlot[slot], key };
-            }
-            firstKeyForSlot[slot] = key;
-        }
-    }
-} // namespace
-
 TEST(GPUHashMapTest, UpdateInsertAcrossTombstoneDoesNotDuplicate)
 {
     Map map;
     ASSERT_TRUE(map.Create(8));
-    const auto [k1, k2] = FindCollidingKeys(map.GetCapacity());
+    // Two keys that genuinely collide under the real hash, not an assumed pair.
+    const std::vector<u64> colliding = FindKeysInSameSlot(map.GetCapacity(), 2);
+    ASSERT_EQ(colliding.size(), 2u);
+    const u64 k1 = colliding[0];
+    const u64 k2 = colliding[1];
 
     ASSERT_TRUE(map.Insert(k1, 1)); // lands at the shared start slot
     ASSERT_TRUE(map.Insert(k2, 2)); // probes past k1
@@ -506,11 +539,24 @@ TEST(GPUHashMapTest, CompactTombstonesPreservesLiveEntries)
 TEST(GPUHashMapTest, GlslResolveContractMatchesCppConstants)
 {
     namespace fs = std::filesystem;
-    fs::path candidate = fs::current_path();
     fs::path includePath;
-    for (int depth = 0; depth < 6; ++depth)
+
+    // The repo's idiom for "a source-tree path, independent of the binary's
+    // cwd" (ADR 0003). The cwd walk below stays only as a fallback, because
+    // the GPU fixtures chdir into OloEditor/ and a standalone harness may not
+    // define the macro at all.
+#ifdef OLO_TEST_EDITOR_ROOT
+    if (const fs::path fromRoot =
+            fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / "include" / "GPUCacheResolve.glsl";
+        fs::exists(fromRoot))
     {
-        // The GPU fixtures chdir into OloEditor/, so probe both spellings.
+        includePath = fromRoot;
+    }
+#endif
+
+    fs::path candidate = fs::current_path();
+    for (int depth = 0; includePath.empty() && depth < 6; ++depth)
+    {
         for (const char* relative : { "assets/shaders/include/GPUCacheResolve.glsl",
                                       "OloEditor/assets/shaders/include/GPUCacheResolve.glsl" })
         {

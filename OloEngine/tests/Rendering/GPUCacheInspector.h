@@ -8,6 +8,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/GPUCache/GPUPagedCache.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace OloEngine

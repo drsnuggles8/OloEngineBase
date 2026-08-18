@@ -25,12 +25,23 @@ namespace OloEngine
     // The table is one flat array of { key, value } entries, linear-probed,
     // power-of-two capacity, with two reserved key sentinels — which is exactly
     // the layout a compute shader can probe in ~25 lines of GLSL (see
-    // assets/shaders/include/GPUCacheResolve.glsl). Keys are claimed with a CAS
-    // through std::atomic_ref, so concurrent CPU inserts of DISTINCT keys are
-    // lock-free-safe; concurrent writes to the SAME key are last-writer-wins
-    // with no value-tearing guarantee (the value store is not atomic — the
-    // reference has the same contract). CompactTombstones is the one
-    // SINGLE-WRITER-only operation, and says so.
+    // assets/shaders/include/GPUCacheResolve.glsl).
+    //
+    // THREADING CONTRACT. Keys are claimed with a CAS through std::atomic_ref,
+    // so concurrent Insert / Erase / Find of **distinct** keys is safe and
+    // lock-free — including keys that collide on the same slot, which is the
+    // interesting case and the one the tests hammer.
+    //
+    // Concurrent mutation of the **same** key from multiple threads is NOT
+    // supported: the value store is a plain write (V is caller-supplied and can
+    // be wider than any lock-free atomic), so two threads writing one key is a
+    // data race — undefined behaviour, and TSan reports it as one. The
+    // reference's "last-writer-wins" wording claimed otherwise; it was wrong,
+    // and it cost a red TSan job to find out. Serialize externally if you need
+    // it. Every engine consumer is single-writer, so nothing pays for this.
+    //
+    // Mutate, CompactTombstones and the HostMirrored device mirror are all
+    // single-writer-only for the same reason.
     //
     // Divergence from the reference: Insert is tombstone-aware. The reference
     // claimed the first empty-or-tombstone slot it probed, so updating a key
@@ -178,8 +189,11 @@ namespace OloEngine
                 }
                 if (expected == key)
                 {
-                    // Another thread claimed the slot with OUR key first —
-                    // last-writer-wins on the value, per the class contract.
+                    // Another thread claimed the slot with OUR key first. Only
+                    // reachable when two threads insert the SAME key, which the
+                    // threading contract above excludes — so this write is not
+                    // a supported concurrent path, it just keeps the
+                    // single-threaded semantics (insert-or-update) intact.
                     claimed.m_Value = value;
                     m_Table.MirrorWrite(static_cast<u32>(claimIndex), 1);
                     return true;
@@ -233,7 +247,15 @@ namespace OloEngine
             for (sizet probe = 0; probe < capacity; ++probe)
             {
                 const Entry& entry = table[(start + probe) & (capacity - 1)];
-                const std::atomic_ref<const K> atomicKey(entry.m_Key);
+                // atomic_ref over a CV-QUALIFIED type is a later addition
+                // (P3323R1) than the C++23 this repo targets, so whether
+                // atomic_ref<const K> compiles depends on the standard library
+                // — and this builds under both MSVC's STL and libstdc++ in CI.
+                // Take the portable non-const form. The const_cast is sound:
+                // only the ACCESS path is const here — the table storage itself
+                // is mutable heap/mapped memory owned by GPUCacheStorage — and
+                // this reference is only ever loaded from, never stored to.
+                const std::atomic_ref<K> atomicKey(const_cast<K&>(entry.m_Key));
                 const K current = atomicKey.load(std::memory_order_acquire);
                 if (current == kEmptyKey)
                 {

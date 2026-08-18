@@ -52,6 +52,7 @@ namespace OloEngine
             }
             m_SizeBytes = sizeBytes;
             m_Head = 0;
+            m_ReservedBytes = 0;
             return true;
         }
 
@@ -78,12 +79,16 @@ namespace OloEngine
             }
             m_SizeBytes = 0;
             m_Head = 0;
+            m_ReservedBytes = 0;
         }
 
         // Returns a write pointer for `bytes` contiguous bytes and the ring
         // offset it corresponds to, waiting out any fence still covering that
         // range. Wraps to offset 0 when the tail cannot fit. nullptr when
         // `bytes` exceeds the ring (or the ring was never created).
+        //
+        // An uncommitted reservation is simply superseded by the next Reserve —
+        // the head has not moved, so nothing is lost.
         [[nodiscard]] u8* Reserve(u64 bytes, u64& outOffset)
         {
             if (m_MappedPtr == nullptr || bytes == 0 || bytes > m_SizeBytes)
@@ -96,16 +101,32 @@ namespace OloEngine
             }
             m_LockManager.WaitForLockedRange(m_Head, bytes);
             outOffset = m_Head;
+            m_ReservedBytes = bytes;
             return m_MappedPtr + m_Head;
         }
 
         // Fences the range handed out by the matching Reserve and advances the
         // head past it. Call AFTER enqueueing the GPU command that consumes it.
+        //
+        // `bytes` must equal the outstanding reservation: the fence and the head
+        // advance both cover the range Reserve handed out, so committing a
+        // SHORTER length would leave the tail of that range unfenced and
+        // re-handable while the GPU is still reading it. The reservation length
+        // is therefore authoritative and `bytes` is the cross-check.
         void Commit(u64 bytes)
         {
-            OLO_CORE_ASSERT(m_Head + bytes <= m_SizeBytes, "GPUCircularBuffer::Commit past the reserved range");
-            m_LockManager.LockRange(m_Head, bytes);
-            m_Head += bytes;
+            OLO_CORE_ASSERT(m_ReservedBytes != 0, "GPUCircularBuffer::Commit without a matching Reserve");
+            OLO_CORE_ASSERT(bytes == m_ReservedBytes,
+                            "GPUCircularBuffer::Commit length differs from the reserved length");
+            if (m_ReservedBytes == 0)
+            {
+                return;
+            }
+            OLO_CORE_ASSERT(m_Head + m_ReservedBytes <= m_SizeBytes,
+                            "GPUCircularBuffer::Commit past the end of the ring");
+            m_LockManager.LockRange(m_Head, m_ReservedBytes);
+            m_Head += m_ReservedBytes;
+            m_ReservedBytes = 0;
             if (m_Head == m_SizeBytes)
             {
                 m_Head = 0;
@@ -135,5 +156,6 @@ namespace OloEngine
         u8* m_MappedPtr = nullptr;
         u64 m_SizeBytes = 0;
         u64 m_Head = 0;
+        u64 m_ReservedBytes = 0; // outstanding Reserve, cleared by Commit
     };
 } // namespace OloEngine
