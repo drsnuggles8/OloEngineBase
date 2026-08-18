@@ -171,35 +171,30 @@ namespace OloEngine
         }
     }
 
-    bool VirtualMeshRegistry::CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
+    void VirtualMeshRegistry::CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
                                               const void* payload, u64 bytes)
     {
         if (bytes == 0)
         {
-            return true;
+            return;
         }
-        if (m_RingPtr == nullptr || bytes > m_RingSize)
+
+        // Reserve waits out only the fences still covering the reused range
+        // (GPUCircularBuffer, #704) — the old hand-rolled ring stalled the
+        // whole device on wrap. nullptr means the payload exceeds the ring (or
+        // the ring never mapped): direct upload.
+        u64 ringOffset = 0;
+        u8* dst = m_UploadRing.IsCreated() ? m_UploadRing.Reserve(bytes, ringOffset) : nullptr;
+        if (dst == nullptr)
         {
-            // Payload larger than the ring (pathological page size): direct upload.
             RenderCommand::UploadBufferSubData(targetBuffer, targetOffset, bytes, payload);
-            return true;
+            return;
         }
 
-        if (m_RingHead + bytes > m_RingSize)
-        {
-            // Wrap. The ring is written strictly before the GPU consumes the
-            // copies this frame (copies are enqueued immediately after the
-            // memcpy), so a wrap only conflicts with copies still in flight
-            // from EARLIER offsets this frame — wait them out. Rare at the
-            // 8 MB ring size vs the per-frame upload cap.
-            RenderCommand::WaitForDeviceIdle();
-            m_RingHead = 0;
-        }
-
-        std::memcpy(m_RingPtr + m_RingHead, payload, bytes);
-        RenderCommand::CopyBufferSubData(m_RingBuffer, targetBuffer, m_RingHead, targetOffset, bytes);
-        m_RingHead += bytes;
-        return true;
+        std::memcpy(dst, payload, bytes);
+        RenderCommand::CopyBufferSubData(m_UploadRing.GetDeviceHandle(), targetBuffer, ringOffset, targetOffset,
+                                         bytes);
+        m_UploadRing.Commit(bytes);
     }
 
     bool VirtualMeshRegistry::LoadPage(u32 pageIndex)
@@ -210,34 +205,18 @@ namespace OloEngine
             return true;
         }
 
-        // Allocate a slot: free list first, then LRU eviction of a non-pinned
-        // resident page that was not touched this frame.
-        if (m_FreeSlots.empty())
+        // Allocate a slot through the shared paged-cache substrate (#704):
+        // free slot first, else the policy delegates back to
+        // SelectResidencyVictim (the exact pre-#704 LRU scan) and the victim's
+        // slot transfers to this page — OnResidencyEvicted does the victim's
+        // bookkeeping via the eviction listener. Failure means the budget is
+        // exhausted by pinned/in-use pages; the coarser cut keeps rendering.
+        SlotCache::ObjectAllocation slotAlloc;
+        if (!m_SlotCache.AllocatePages(static_cast<u64>(pageIndex), 1, slotAlloc))
         {
-            u32 victim = kNoSlot;
-            u64 oldestUse = ~0ull;
-            for (u32 p = 0; p < m_Pages.size(); ++p)
-            {
-                const PageRuntime& candidate = m_Pages[p];
-                if (!candidate.Resident || candidate.Pinned || candidate.LastUsedFrame >= m_FrameCounter)
-                {
-                    continue;
-                }
-                if (candidate.LastUsedFrame < oldestUse)
-                {
-                    oldestUse = candidate.LastUsedFrame;
-                    victim = p;
-                }
-            }
-            if (victim == kNoSlot)
-            {
-                return false; // budget exhausted by pinned/in-use pages — the coarser cut keeps rendering
-            }
-            EvictPage(victim);
+            return false;
         }
-
-        u32 const slot = m_FreeSlots.back();
-        m_FreeSlots.pop_back();
+        u32 const slot = slotAlloc.m_StartPage;
 
         const MeshEntry& entry = m_Entries[page.MeshEntryIndex];
         const VirtualMeshGpuData& packed = entry.Packed;
@@ -275,19 +254,47 @@ namespace OloEngine
         return true;
     }
 
-    void VirtualMeshRegistry::EvictPage(u32 pageIndex)
+    void VirtualMeshRegistry::OnResidencyEvicted(u32 pageIndex)
     {
+        // The slot itself has already been reclaimed by the cache (transferred
+        // to the requesting page); this is only the registry-side bookkeeping.
         PageRuntime& page = m_Pages[pageIndex];
         if (!page.Resident)
         {
             return;
         }
-        m_FreeSlots.push_back(page.SlotIndex);
         page.SlotIndex = kNoSlot;
         page.Resident = false;
         m_GroupStatesCpu[page.PooledGroup] &= ~kStateResident;
         ++m_ResidencyStats.PageEvictions;
         --m_ResidencyStats.ResidentPages;
+    }
+
+    bool VirtualMeshRegistry::SelectResidencyVictim(u64 excludePage, u64& outPage) const
+    {
+        u32 victim = kNoSlot;
+        u64 oldestUse = ~0ull;
+        auto const pageCount = static_cast<u32>(m_Pages.size());
+        for (u32 p = 0; p < pageCount; ++p)
+        {
+            const PageRuntime& candidate = m_Pages[p];
+            if (p == excludePage || !candidate.Resident || candidate.Pinned ||
+                candidate.LastUsedFrame >= m_FrameCounter)
+            {
+                continue;
+            }
+            if (candidate.LastUsedFrame < oldestUse)
+            {
+                oldestUse = candidate.LastUsedFrame;
+                victim = p;
+            }
+        }
+        if (victim == kNoSlot)
+        {
+            return false;
+        }
+        outPage = victim;
+        return true;
     }
 
     void VirtualMeshRegistry::RebuildPools()
@@ -298,7 +305,7 @@ namespace OloEngine
         m_PooledClusters.clear();
         m_Pages.clear();
         m_PageOfPooledGroup.clear();
-        m_FreeSlots.clear();
+        m_SlotCache.Destroy();
         m_ResidencyStats = {};
 
         u32 maxPageVertices = 0;
@@ -373,10 +380,20 @@ namespace OloEngine
         m_ResidencyStats.PinnedPages = pinnedPages;
         m_ResidencyStats.BudgetSlots = slotCount;
 
-        m_FreeSlots.resize(slotCount);
-        for (u32 s = 0; s < slotCount; ++s)
+        // The slot arena's residency directory (#704). Directory-only (no atom
+        // storage — the payload arenas are below) and HostOnly (no shader reads
+        // it). The substrate hands out free slots lowest-index-first, matching
+        // the ascending order the old hand-rolled free list produced. A zero
+        // page count (a registered mesh set with no streamable pages) leaves
+        // the cache uncreated — LoadPage is unreachable then.
+        if (slotCount > 0)
         {
-            m_FreeSlots[s] = slotCount - 1 - s; // pop from the back -> ascending slot order
+            bool const cacheCreated = m_SlotCache.Create(0, slotCount, GPUCacheBacking::HostOnly);
+            OLO_CORE_ASSERT(cacheCreated, "VirtualMeshRegistry: slot cache creation cannot fail host-side");
+            m_SlotCache.GetPolicy().SetVictimSelector([this](u64 excludePage, u64& outPage)
+                                                      { return SelectResidencyVictim(excludePage, outPage); });
+            m_SlotCache.SetEvictionListener([this](const u64& victimPage)
+                                            { OnResidencyEvicted(static_cast<u32>(victimPage)); });
         }
 
         auto uploadPool = [](Ref<StorageBuffer>& buffer, u32 binding, const void* dataPtr, sizet bytes)
@@ -424,14 +441,12 @@ namespace OloEngine
         }
         RenderCommand::SetVertexArrayIndexBuffer(m_Vao, m_IndexBuffer);
 
-        // Persistent-mapped upload ring
-        if (!m_RingBuffer.IsValid())
+        // Persistent-mapped upload ring (fence-locked, #704). A failed create
+        // (no device / mapping failure) degrades to direct uploads inside
+        // CopyThroughRing, exactly as the old null-m_RingPtr path did.
+        if (!m_UploadRing.IsCreated())
         {
-            m_RingBuffer = RenderCommand::CreateBufferHandle();
-            m_RingPtr = static_cast<u8*>(
-                RenderCommand::AllocatePersistentUploadStorage(m_RingBuffer, kUploadRingBytes));
-            m_RingSize = (m_RingPtr != nullptr) ? kUploadRingBytes : 0;
-            m_RingHead = 0;
+            [[maybe_unused]] bool const ringCreated = m_UploadRing.Create(kUploadRingBytes);
         }
 
         // Residency reset: nothing resident, then load pinned pages (always) and
@@ -909,18 +924,7 @@ namespace OloEngine
             m_ArgsReadback = RHI::NullResource;
             m_ArgsReadbackBytes = 0;
         }
-        if (m_RingBuffer.IsValid())
-        {
-            if (m_RingPtr != nullptr)
-            {
-                RenderCommand::UnmapBuffer(m_RingBuffer);
-                m_RingPtr = nullptr;
-            }
-            RenderCommand::DeleteBuffer(m_RingBuffer);
-            m_RingBuffer = RHI::NullResource;
-            m_RingSize = 0;
-            m_RingHead = 0;
-        }
+        m_UploadRing.Destroy();
         if (m_Vao.IsValid())
         {
             RenderCommand::DeleteVertexArray(m_Vao);
@@ -952,7 +956,7 @@ namespace OloEngine
         m_PageOfPooledGroup.clear();
         m_PooledClusters.clear();
         m_GroupStatesCpu.clear();
-        m_FreeSlots.clear();
+        m_SlotCache.Destroy();
         m_ResidencyStats = {};
         m_FrameCounter = 0;
         m_PoolsDirty = false;
