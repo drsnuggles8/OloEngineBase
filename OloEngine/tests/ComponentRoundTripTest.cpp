@@ -4260,4 +4260,69 @@ Entities:
         EXPECT_NEAR(rig.m_WalkSpeed, PlayerRigComponent{}.m_WalkSpeed, kFloatEpsilon);
     }
 
+    // -------------------------------------------------------------------------
+    // TerrainComponent — the voxel mesher selector (issue #727)
+    // -------------------------------------------------------------------------
+    //
+    // TerrainComponent's serializer is hand-written (it is in the generator's
+    // kComponentsCustomSerialize set), so nothing derives its YAML from the
+    // struct and a new field is exactly the silent-scene-data-loss case this
+    // file exists for.
+    TEST(ComponentRoundTrip, TerrainVoxelMesherSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& terrain = entity.AddComponent<TerrainComponent>();
+            terrain.m_VoxelEnabled = true;
+            terrain.m_VoxelSize = 2.0f;
+            terrain.m_VoxelMesher = VoxelMesherKind::GreedyCubic;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<TerrainComponent>());
+
+        const auto& terrain = restored.GetComponent<TerrainComponent>();
+        EXPECT_TRUE(terrain.m_VoxelEnabled);
+        EXPECT_NEAR(terrain.m_VoxelSize, 2.0f, kFloatEpsilon);
+        EXPECT_EQ(terrain.m_VoxelMesher, VoxelMesherKind::GreedyCubic);
+    }
+
+    TEST(ComponentRoundTrip, TerrainVoxelMesherRejectsAnOutOfRangeValue)
+    {
+        // Reject, not clamp: a corrupt index must fall back to the DEFAULT
+        // mesher, not saturate to the other valid one. Saturating would give a
+        // corrupt scene a different, plausible, wrong silhouette — the same
+        // reasoning behind VehicleComponent::m_DriveMode.
+        auto scene = Scene::Create();
+        const std::string yaml = std::string("Scene: Untitled\n") +
+                                 "Entities:\n" +
+                                 "  - Entity: 424242\n" +
+                                 "    TagComponent:\n" +
+                                 "      Tag: " + std::string(kTestTag) + "\n" +
+                                 "    TransformComponent:\n" +
+                                 "      Translation: [0, 0, 0]\n" +
+                                 "      Rotation: [0, 0, 0]\n" +
+                                 "      Scale: [1, 1, 1]\n" +
+                                 "    TerrainComponent:\n" +
+                                 "      VoxelEnabled: true\n" +
+                                 "      VoxelMesher: 99\n";
+
+        ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(yaml));
+        Entity restored = FindByTag(*scene, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<TerrainComponent>());
+
+        EXPECT_EQ(restored.GetComponent<TerrainComponent>().m_VoxelMesher, VoxelMesherKind::MarchingCubes);
+    }
+
 } // namespace OloEngine::Tests

@@ -1790,6 +1790,10 @@ namespace OloEngine
 		internal static extern uint TerrainComponent_GetSplatmapGenResolution(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetSplatmapGenResolution(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int TerrainComponent_GetVoxelMesher(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVoxelMesher(ulong entityID, int value);
 		#endregion
 
 		#region TextComponent

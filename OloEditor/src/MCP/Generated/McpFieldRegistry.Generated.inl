@@ -936,6 +936,7 @@ registry.push_back(OLO_GFW_FIELD(TerrainComponent, "StreamingLoadRadius", m_Stre
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "StreamingMaxTiles", m_StreamingMaxTiles));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VoxelEnabled", m_VoxelEnabled));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VoxelSize", m_VoxelSize));
+registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VoxelMesher", m_VoxelMesher, OLO_GFW_BOUND(0), OLO_GFW_BOUND(1)));
 
 }
 

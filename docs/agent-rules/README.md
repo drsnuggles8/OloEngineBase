@@ -37,6 +37,7 @@ run is **not** evidence.
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | adding `server/discover` alone keeps every test green — and converts a *working* legacy fallback into a broken modern conversation, because answering it is a client's proof the server is modern |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
+| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | a merged quad with U and V swapped, or width and height transposed, still merges and still draws — five of the six face directions look right |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -57,6 +58,7 @@ the drift is silent because each side is individually self-consistent.
 | [audio-voice-budget.md](audio-voice-budget.md) | adding one config field costs four edits, one of them silent |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | two build trees writing the same generated files |
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | four subsystems holding world-space state outside the set that gets rebased |
+| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | the packed-quad bit layout, face numbering and U/V basis live in `VoxelQuad.h` **and** `include/VoxelQuadUnpack.glsl`; nothing links them and a mismatch compiles |
 | [destructible-debris.md](destructible-debris.md) | two unrelated physics "layer" numberings — `SetCollisionLayer(Debris /*7*/)` never reaches Jolt's `ObjectLayers::DEBRIS /*4*/`, so debris silently shoves the player |
 | `ShaderBindingLayout.h` ↔ `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is *derived* (`= MAX_ENGINE_TEXTURE_SLOTS`) but its GLSL twin `OLO_HEAP_IMAGE_BASE` is a hand-written literal — so **adding any `TEX_*` slot is also a shader edit**. #702 added one, the base moved 66→67, and every bindless storage image read a sampler descriptor through an image declaration (undefined, not blank). The comment there had claimed the two "cannot disagree". Now pinned by `BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout` |
 
@@ -67,6 +69,8 @@ side derived. A comment saying "keep these in sync" is not a mechanism.
 
 No crash, no error, no log line. Work or data disappears and the system keeps running.
 
+[binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) (a stale wall between two chunks,
+when a carve does not rebuild the neighbours it uncovered) ·
 [component-serializer-codegen.md](component-serializer-codegen.md) (a field, from every save) ·
 [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) (a
 settings struct, on entering Play) ·

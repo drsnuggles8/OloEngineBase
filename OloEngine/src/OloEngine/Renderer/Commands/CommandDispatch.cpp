@@ -2465,7 +2465,17 @@ namespace OloEngine
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
-        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
+        if (cmd->instanceCount > 0)
+        {
+            // Packed-quad path (issue #727): indexCount is the shared unit
+            // quad's 6, and each instance is one merged greedy quad.
+            api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
+                                          RHI::IndexType::UInt32, 0, cmd->instanceCount);
+        }
+        else
+        {
+            api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
+        }
         ++s_Data.Stats.DrawCalls;
     }
 

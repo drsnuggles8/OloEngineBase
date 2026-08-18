@@ -101,6 +101,7 @@
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
 #include "OloEngine/Terrain/Voxel/MarchingCubes.h"
+#include "OloEngine/Terrain/Voxel/VoxelGreedyMeshBuilder.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Navigation/NavMeshGenerator.h"
@@ -7697,8 +7698,55 @@ namespace OloEngine
                             terrain.m_HeightScale, terrain.m_VoxelSize);
                     }
 
-                    // Rebuild dirty voxel meshes on main thread
-                    MarchingCubes::RebuildDirtyMeshes(*terrain.m_VoxelOverride, terrain.m_VoxelMeshes);
+                    if (terrain.m_VoxelMesher == VoxelMesherKind::GreedyCubic)
+                    {
+                        // Blocky path (issue #727): the game thread only
+                        // snapshots changed neighbourhoods and uploads finished
+                        // quad buffers; the merge itself runs on a worker.
+                        if (!terrain.m_VoxelQuadMeshes)
+                        {
+                            terrain.m_VoxelQuadMeshes = Ref<VoxelGreedyMeshBuilder>::Create();
+
+                            // A cubic world's voxels ARE the terrain, so seed
+                            // them from the height field. The marching-cubes
+                            // path deliberately does NOT do this: there the
+                            // volume is a sparse carve-only override, and
+                            // filling it would turn every heightmap terrain
+                            // into a duplicated isosurface.
+                            if (terrain.m_TerrainData && terrain.m_VoxelOverride->GetChunkCount() == 0)
+                            {
+                                terrain.m_VoxelOverride->SeedFromHeightmap(
+                                    *terrain.m_TerrainData,
+                                    terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                                terrain.m_VoxelAutoSeeded = true;
+                            }
+                        }
+                        terrain.m_VoxelQuadMeshes->Update(*terrain.m_VoxelOverride);
+                        // Marching-cubes meshes from a previous selection would
+                        // otherwise keep drawing underneath the cubic ones.
+                        terrain.m_VoxelMeshes.clear();
+                    }
+                    else
+                    {
+                        // Switching back: an AUTO-SEEDED volume is a dense copy of
+                        // the height field. Left in place, marching cubes would
+                        // re-derive that same surface as an isosurface while the
+                        // heightmap surface starts drawing again - two coincident
+                        // surfaces z-fighting, which is exactly the duplication the
+                        // seed comment above says the MC path avoids. A volume the
+                        // USER carved is theirs and is never dropped; only the one
+                        // this code seeded is.
+                        if (terrain.m_VoxelAutoSeeded)
+                        {
+                            terrain.m_VoxelOverride->GetChunks().clear();
+                            terrain.m_VoxelAutoSeeded = false;
+                            terrain.m_VoxelMeshes.clear();
+                        }
+
+                        // Rebuild dirty voxel meshes on main thread
+                        MarchingCubes::RebuildDirtyMeshes(*terrain.m_VoxelOverride, terrain.m_VoxelMeshes);
+                        terrain.m_VoxelQuadMeshes = nullptr;
+                    }
                 }
             }
 
@@ -7742,6 +7790,7 @@ namespace OloEngine
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
+                auto voxelQuadShader = Renderer3D::GetVoxelGreedyPBRShader();
                 // Gate on AnyShadowsRequested() so caster lists stay empty when no
                 // light casts shadows this frame — the ShadowRenderPass then early-outs
                 // instead of re-submitting every caster ×N cascades/faces against stale
@@ -7799,7 +7848,24 @@ namespace OloEngine
                             m_JoltScene->DestroyTerrainTilesForEntity(terrainEnt.GetUUID());
                     }
 
-                    if (terrainShader)
+                    // In cubic-voxel mode the voxels ARE the terrain (they are
+                    // seeded from this same height field), so the smooth
+                    // heightmap surface must not also draw: the two occupy the
+                    // same space and would z-fight along every slope. The
+                    // marching-cubes path keeps drawing it — there the voxel
+                    // volume is a sparse carve-only override on top.
+                    // Gated on cubic geometry EXISTING, not merely on the mesher
+                    // being selected. Selection alone is not enough: the seed
+                    // needs terrain.m_TerrainData, which the STREAMING branch
+                    // never creates, so a streamed + voxel + greedy terrain would
+                    // hide its tiles and draw nothing at all. It also covers the
+                    // first few frames, where meshing is still on a worker and
+                    // hiding early would flash an empty world.
+                    const bool heightfieldSurfaceHidden =
+                        terrain.m_VoxelEnabled && terrain.m_VoxelMesher == VoxelMesherKind::GreedyCubic &&
+                        terrain.m_VoxelQuadMeshes && !terrain.m_VoxelQuadMeshes->GetMeshes().empty();
+
+                    if (terrainShader && !heightfieldSurfaceHidden)
                     {
                         bool useTess = terrain.m_TessellationEnabled;
 
@@ -8090,6 +8156,37 @@ namespace OloEngine
                                         mesh.VAO->GetRHIHandle(), mesh.IndexCount,
                                         transform.GetTransform());
                                 }
+                            }
+                        }
+                    }
+
+                    // Submit packed-quad (greedy) voxel chunks — issue #727.
+                    // One instanced draw per chunk; the chunk's origin and voxel
+                    // size ride the model matrix, which is why the per-quad
+                    // record can stay 8 bytes.
+                    if (terrain.m_VoxelEnabled && terrain.m_VoxelQuadMeshes && voxelQuadShader)
+                    {
+                        for (const auto& [coord, mesh] : terrain.m_VoxelQuadMeshes->GetMeshes())
+                        {
+                            if (!mesh.VAO || mesh.QuadCount == 0)
+                            {
+                                continue;
+                            }
+
+                            const glm::mat4 chunkTransform = transform.GetTransform() * mesh.ChunkTransform;
+                            auto* packet = Renderer3D::DrawVoxelMesh(
+                                mesh.VAO->GetRHIHandle(), VoxelQuadMesh::kIndexCount,
+                                voxelQuadShader,
+                                albedoArrayID, normalArrayID, armArrayID,
+                                chunkTransform, entityID, mesh.QuadCount);
+                            if (packet)
+                                Renderer3D::SubmitPacket(packet);
+
+                            if (hasActiveShadows)
+                            {
+                                Renderer3D::AddVoxelShadowCaster(
+                                    mesh.VAO->GetRHIHandle(), VoxelQuadMesh::kIndexCount,
+                                    chunkTransform, mesh.QuadCount);
                             }
                         }
                     }

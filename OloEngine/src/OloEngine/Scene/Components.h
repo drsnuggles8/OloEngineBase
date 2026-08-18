@@ -35,6 +35,7 @@
 #include "OloEngine/Terrain/TerrainStreamer.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
 #include "OloEngine/Terrain/Voxel/MarchingCubes.h"
+#include "OloEngine/Terrain/Voxel/VoxelGreedyMeshBuilder.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Renderer/LOD.h"
@@ -3978,6 +3979,19 @@ namespace OloEngine
         bool m_VoxelEnabled = false;
         f32 m_VoxelSize = 1.0f;
 
+        // Which mesher turns the voxel SDF into geometry (issue #727). The two
+        // are not interchangeable quality settings: marching cubes produces a
+        // smooth isosurface and is the right tool for caves and overhangs;
+        // greedy cubic produces axis-aligned merged quads and is the right tool
+        // for a blocky world. Selected per voxel volume, not globally.
+        //
+        // Reject, not Clamp: this is a discriminated mode, so saturating an
+        // out-of-range value would silently pick the OTHER mesher rather than
+        // fall back to the constructor default.
+        OLO_PROPERTY(Name = "VoxelMesher", Type = "int", Get = "static_cast<int>(comp.m_VoxelMesher)", Set = "comp.m_VoxelMesher = static_cast<VoxelMesherKind>({v})")
+        OLO_SERIALIZE(Reject, Min = 0, Max = 1)
+        VoxelMesherKind m_VoxelMesher = VoxelMesherKind::MarchingCubes;
+
         // Runtime state — not serialized
         OLO_SERIALIZE(Skip)
         Ref<TerrainData> m_TerrainData;
@@ -3991,6 +4005,15 @@ namespace OloEngine
         Ref<VoxelOverride> m_VoxelOverride;
         OLO_SERIALIZE(Skip)
         std::unordered_map<VoxelCoord, VoxelMesh, VoxelCoordHash> m_VoxelMeshes;
+        // Packed-quad greedy meshes + their in-flight task state (issue #727).
+        // Only created when m_VoxelMesher == GreedyCubic.
+        OLO_SERIALIZE(Skip)
+        Ref<VoxelGreedyMeshBuilder> m_VoxelQuadMeshes;
+        // True when the voxel volume was filled from the height field by the
+        // cubic path rather than authored/carved. Only an auto-seeded volume is
+        // dropped when the mesher switches back - see Scene.cpp.
+        OLO_SERIALIZE(Skip)
+        bool m_VoxelAutoSeeded = false;
         OLO_SERIALIZE(Skip)
         bool m_NeedsRebuild = true;
         OLO_SERIALIZE(Skip)
@@ -4005,7 +4028,7 @@ namespace OloEngine
 
         TerrainComponent() = default;
         TerrainComponent(const TerrainComponent& other)
-            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize)
+            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher)
         {
             // Runtime state intentionally NOT copied — force rebuild
         }
@@ -4042,6 +4065,7 @@ namespace OloEngine
                 m_StreamingMaxTiles = other.m_StreamingMaxTiles;
                 m_VoxelEnabled = other.m_VoxelEnabled;
                 m_VoxelSize = other.m_VoxelSize;
+                m_VoxelMesher = other.m_VoxelMesher;
                 // Runtime state reset — force rebuild
                 m_TerrainData = nullptr;
                 m_ChunkManager = nullptr;
@@ -4049,6 +4073,8 @@ namespace OloEngine
                 m_Streamer = nullptr;
                 m_VoxelOverride = nullptr;
                 m_VoxelMeshes.clear();
+                m_VoxelQuadMeshes = nullptr;
+                m_VoxelAutoSeeded = false;
                 m_NeedsRebuild = true;
                 m_MaterialNeedsRebuild = true;
                 m_AutoSplatNeedsRebuild = true;
@@ -4084,7 +4110,7 @@ namespace OloEngine
         // so it's intentionally not considered for undo equality.
         auto operator==(const TerrainComponent& other) const -> bool
         {
-            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_CollisionEnabled == other.m_CollisionEnabled && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_ProceduralErosionIterations == other.m_ProceduralErosionIterations && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize);
+            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_CollisionEnabled == other.m_CollisionEnabled && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_ProceduralErosionIterations == other.m_ProceduralErosionIterations && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize) && m_VoxelMesher == other.m_VoxelMesher;
         }
     };
 

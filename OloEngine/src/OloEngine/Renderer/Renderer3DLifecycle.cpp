@@ -197,7 +197,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 49;
+        constexpr u32 totalShaders3D = 52;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -246,6 +246,9 @@ namespace OloEngine
             "assets/shaders/Terrain_Voxel.glsl",
             "assets/shaders/Terrain_Voxel_GBuffer.glsl",
             "assets/shaders/Terrain_VoxelDepth.glsl",
+            "assets/shaders/Terrain_VoxelGreedy.glsl",
+            "assets/shaders/Terrain_VoxelGreedy_GBuffer.glsl",
+            "assets/shaders/Terrain_VoxelGreedyDepth.glsl",
             "assets/shaders/Foliage_Instance.glsl",
             "assets/shaders/Foliage_Instance_GBuffer.glsl",
             "assets/shaders/Foliage_Depth.glsl",
@@ -314,6 +317,9 @@ namespace OloEngine
         s_Data.VoxelPBRShader = m_ShaderLibrary.Get("Terrain_Voxel");
         s_Data.VoxelGBufferShader = m_ShaderLibrary.Get("Terrain_Voxel_GBuffer");
         s_Data.VoxelDepthShader = m_ShaderLibrary.Get("Terrain_VoxelDepth");
+        s_Data.VoxelGreedyPBRShader = m_ShaderLibrary.Get("Terrain_VoxelGreedy");
+        s_Data.VoxelGreedyGBufferShader = m_ShaderLibrary.Get("Terrain_VoxelGreedy_GBuffer");
+        s_Data.VoxelGreedyDepthShader = m_ShaderLibrary.Get("Terrain_VoxelGreedyDepth");
         s_Data.FoliageShader = m_ShaderLibrary.Get("Foliage_Instance");
         s_Data.FoliageGBufferShader = m_ShaderLibrary.Get("Foliage_Instance_GBuffer");
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
@@ -659,6 +665,9 @@ namespace OloEngine
         s_Data.VoxelPBRShader.Reset();
         s_Data.VoxelGBufferShader.Reset();
         s_Data.VoxelDepthShader.Reset();
+        s_Data.VoxelGreedyPBRShader.Reset();
+        s_Data.VoxelGreedyGBufferShader.Reset();
+        s_Data.VoxelGreedyDepthShader.Reset();
         s_Data.FoliageShader.Reset();
         s_Data.FoliageGBufferShader.Reset();
         s_Data.FoliageDepthShader.Reset();

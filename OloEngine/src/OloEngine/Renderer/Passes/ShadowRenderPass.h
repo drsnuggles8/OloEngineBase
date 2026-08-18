@@ -67,6 +67,11 @@ namespace OloEngine
     {
         RHI::ResourceHandle vaoID{};
         u32 indexCount = 0;
+        // Non-zero selects the packed-quad depth shader and an instanced draw
+        // (issue #727). Zero is the marching-cubes triangle soup. The shadow
+        // silhouette MUST be rebuilt by the same code as the lit one, which is
+        // why the two paths carry different depth shaders rather than sharing.
+        u32 instanceCount = 0;
         glm::mat4 transform = glm::mat4(1.0f);
     };
 
@@ -118,7 +123,8 @@ namespace OloEngine
         void AddTerrainCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
                               const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
                               const ShaderBindingLayout::TerrainUBO& terrainUBO);
-        void AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform);
+        void AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
+                            u32 instanceCount = 0);
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
       private:

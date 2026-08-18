@@ -12,6 +12,18 @@ namespace OloEngine
 {
     class TerrainData;
 
+    // Which mesher a voxel volume uses (issue #727). These are different tools,
+    // not quality levels: marching cubes reads the SDF as a smooth isosurface
+    // (caves, overhangs), greedy cubic reads it as solid/empty and merges
+    // co-planar faces into maximal axis-aligned quads (blocky worlds).
+    //
+    // The numbering is serialized into scenes — append, never reorder.
+    enum class VoxelMesherKind : u8
+    {
+        MarchingCubes = 0,
+        GreedyCubic = 1
+    };
+
     // A single voxel chunk: a dense 3D grid of SDF values.
     // Negative = solid (inside), positive = empty (outside).
     // Only allocated when modifications exist in this region.
@@ -21,7 +33,15 @@ namespace OloEngine
         static constexpr u32 TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
         std::vector<f32> SDFData; // Row-major [x + y*SIZE + z*SIZE*SIZE]
-        bool Dirty = true;        // Needs mesh rebuild
+
+        // Optional per-voxel material index, same row-major indexing as SDFData.
+        // Left EMPTY for chunks that only ever use material 0 (the marching-cubes
+        // path never writes it), so the 32 KiB is paid only where a cubic chunk
+        // actually paints strata. The greedy mesher takes a fully bitwise fast
+        // path when this is empty — see VoxelGreedyMesher.
+        std::vector<u8> MaterialData;
+
+        bool Dirty = true; // Needs mesh rebuild
 
         VoxelChunk()
         {
@@ -38,6 +58,35 @@ namespace OloEngine
         {
             OLO_CORE_ASSERT(x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE, "VoxelChunk::At out of bounds");
             return SDFData[static_cast<sizet>(x) + static_cast<sizet>(y) * CHUNK_SIZE + static_cast<sizet>(z) * CHUNK_SIZE * CHUNK_SIZE];
+        }
+
+        [[nodiscard]] static sizet Index(u32 x, u32 y, u32 z)
+        {
+            return static_cast<sizet>(x) + static_cast<sizet>(y) * CHUNK_SIZE + static_cast<sizet>(z) * CHUNK_SIZE * CHUNK_SIZE;
+        }
+
+        // Material index of a voxel. Returns 0 for a chunk that never had one
+        // written, which is exactly the "single material" case the mesher fast
+        // path assumes.
+        [[nodiscard]] u8 MaterialAt(u32 x, u32 y, u32 z) const
+        {
+            OLO_CORE_ASSERT(x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE, "VoxelChunk::MaterialAt out of bounds");
+            return MaterialData.empty() ? u8{ 0 } : MaterialData[Index(x, y, z)];
+        }
+
+        // Writing any non-zero material allocates the array on first use.
+        void SetMaterialAt(u32 x, u32 y, u32 z, u8 material)
+        {
+            OLO_CORE_ASSERT(x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE, "VoxelChunk::SetMaterialAt out of bounds");
+            if (MaterialData.empty())
+            {
+                if (material == 0)
+                {
+                    return; // Still uniformly material 0 — stay unallocated.
+                }
+                MaterialData.assign(TOTAL_VOXELS, u8{ 0 });
+            }
+            MaterialData[Index(x, y, z)] = material;
         }
     };
 
@@ -87,6 +136,21 @@ namespace OloEngine
         void InitializeChunkFromHeightmap(const VoxelCoord& coord, const TerrainData& terrainData,
                                           f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
+        // Fill the whole terrain extent with heightmap-derived voxels and paint
+        // depth-based material strata (issue #727).
+        //
+        // The marching-cubes path deliberately leaves this volume SPARSE — it is
+        // an override for carved caves and overhangs on top of a heightmap
+        // terrain, so an empty map is the correct starting state. A cubic voxel
+        // world is the opposite: the voxels ARE the terrain, so there has to be
+        // a way to say "fill this extent from the height field". Callers gate
+        // this on the greedy mesher being selected.
+        //
+        // Chunk count is capped; a request past the cap fills what it can and
+        // warns rather than allocating unbounded memory from a scene file.
+        void SeedFromHeightmap(const TerrainData& terrainData, f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                               u32 maxChunks = 1024);
+
         // Get or create the chunk at the given coordinate
         VoxelChunk& GetOrCreateChunk(const VoxelCoord& coord);
 
@@ -134,6 +198,9 @@ namespace OloEngine
       private:
         // Get all chunks overlapping a sphere region
         void GetChunksInSphere(const glm::vec3& center, f32 radius, std::vector<VoxelCoord>& outCoords) const;
+
+        // Paint surface/subsoil/bedrock material bands into one seeded chunk.
+        void PaintDepthStrata(const VoxelCoord& coord);
 
         std::unordered_map<VoxelCoord, VoxelChunk, VoxelCoordHash> m_Chunks;
         f32 m_VoxelSize = 1.0f;
