@@ -409,7 +409,9 @@ namespace OloEngine::Tests
             // zero-filled buffer, which reads as peak 0 / all-finite / success
             // — and a peak of 0 makes the growth ratio 0, so every divergence
             // assertion below would pass on a readback that never happened.
-            while (::glGetError() != GL_NO_ERROR)
+            // Bounded, per notes-renderer.md section 2 — an unbounded drain
+            // never terminates on a context that keeps reporting an error.
+            for (i32 drain = 0; drain < 64 && ::glGetError() != GL_NO_ERROR; ++drain)
             {
             }
             std::vector<f32> texels(static_cast<sizet>(width) * static_cast<sizet>(height) * 4u,
