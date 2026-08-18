@@ -23,9 +23,10 @@
 // fixed alongside the first.
 //
 // The load-bearing assertion is NOT "did it draw". Geometry was never the
-// problem. It is "is what drew actually SHADED" — the fraction of surface
-// pixels meaningfully brighter than the background. A black render passes every
-// coverage check ever written and fails this one.
+// problem. It is "is what drew actually SHADED": the brightest point on the
+// surface must clear the background, and the surface must show a luminance
+// GRADIENT. A black render passes every coverage check ever written and fails
+// both of these.
 //
 // Shot twice: once with no terrain layers (the arrays are unbound — the case
 // that was broken), then again with the default layer set bound, which is the
@@ -55,6 +56,7 @@
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -95,24 +97,40 @@ namespace OloEngine::Tests
 
         struct SurfaceSample
         {
-            f32 Coverage = 0.0f;    // fraction of the frame that is the terrain entity
-            f32 LitFraction = 0.0f; // of THAT, the fraction visibly brighter than the background
+            f32 Coverage = 0.0f; // fraction of the frame that is the terrain entity
+            int Background = 0;  // luma of the empty frame
+            int PeakLuma = 0;    // brightest sample ON the surface
+            int Spread = 0;      // p90 - p10 across the surface
         };
 
         // Coverage comes from the entity-ID attachment (shading-independent, so
         // it answers "is this pixel the subject" and nothing else); brightness
-        // comes from the colour attachment at the same grid points. Keeping the
-        // two separate is the whole point: it lets the test say "the geometry is
-        // there AND it is black", which is exactly the bug this file guards.
+        // comes from the colour attachment at the same grid points.
+        //
+        // The shading question is answered by PEAK and SPREAD rather than by a
+        // "fraction of pixels brighter than the background", which was the first
+        // thing tried here and measured the wrong property: this blob falls back
+        // to a stone albedo of (0.35, 0.32, 0.28), so a perfectly correct render
+        // is simply DIM and most of its pixels sit near the background. Measured
+        // on a known-good frame: peak 83 against a background of 25, and
+        // p90 - p10 = 42.
+        //
+        // What the bug actually destroyed was the shading GRADIENT - every
+        // normal rotated the same way, so the surface went uniformly dark. That
+        // collapses both of these numbers (peak toward background, spread toward
+        // zero) while a dim-but-correct render keeps them.
         [[nodiscard]] SurfaceSample SampleSurface(Framebuffer& framebuffer, const std::vector<u8>& rgba, i32 entityId)
         {
             // GL readback is bottom-up; the top-left pixel is the last row's first.
             const sizet cornerIndex = (static_cast<sizet>(kHeight - 1) * kWidth) * 4;
-            const int backgroundLuma =
+
+            SurfaceSample out;
+            out.Background =
                 rgba.empty() ? 0 : (rgba[cornerIndex + 0] + rgba[cornerIndex + 1] + rgba[cornerIndex + 2]) / 3;
 
-            sizet covered = 0;
-            sizet lit = 0;
+            std::vector<int> surfaceLuma;
+            surfaceLuma.reserve(static_cast<sizet>(kMaskCols) * kMaskRows);
+
             for (u32 row = 0; row < kMaskRows; ++row)
             {
                 const u32 y = (row * kHeight) / kMaskRows;
@@ -123,25 +141,29 @@ namespace OloEngine::Tests
                     {
                         continue;
                     }
-                    ++covered;
 
                     const sizet i = (static_cast<sizet>(y) * kWidth + x) * 4;
-                    if (i + 2 >= rgba.size())
+                    if (i + 2 < rgba.size())
                     {
-                        continue;
-                    }
-                    const int luma = (rgba[i + 0] + rgba[i + 1] + rgba[i + 2]) / 3;
-                    if (luma > backgroundLuma + 12)
-                    {
-                        ++lit;
+                        surfaceLuma.push_back((rgba[i + 0] + rgba[i + 1] + rgba[i + 2]) / 3);
                     }
                 }
             }
 
-            SurfaceSample out;
-            const auto total = static_cast<f32>(kMaskCols * kMaskRows);
-            out.Coverage = static_cast<f32>(covered) / total;
-            out.LitFraction = (covered == 0) ? 0.0f : static_cast<f32>(lit) / static_cast<f32>(covered);
+            out.Coverage = static_cast<f32>(surfaceLuma.size()) / static_cast<f32>(kMaskCols * kMaskRows);
+            if (surfaceLuma.empty())
+            {
+                return out;
+            }
+
+            std::ranges::sort(surfaceLuma);
+            const auto at = [&surfaceLuma](f32 q)
+            {
+                const auto idx = static_cast<sizet>(q * static_cast<f32>(surfaceLuma.size() - 1));
+                return surfaceLuma[idx];
+            };
+            out.PeakLuma = surfaceLuma.back();
+            out.Spread = at(0.90f) - at(0.10f);
             return out;
         }
 
@@ -217,13 +239,23 @@ namespace OloEngine::Tests
             }
         }
 
-        // Frames the blob head-on. The terrain surface is ~56 units below and
-        // outside this framing, so every covered sample is the voxel blob.
+        // Looks UP at the blob from below and in front of it, against open sky.
+        //
+        // Two conventions matter here and both are easy to get backwards
+        // (EditorCamera::GetOrientation): yaw 0 looks along -Z, and POSITIVE
+        // pitch tilts DOWN. So the camera sits at greater z than the blob and
+        // tilts up with a negative pitch.
+        //
+        // The upward tilt is not cosmetic: at 60 degrees FOV the lower edge of
+        // the frustum then points slightly ABOVE horizontal, so the heightmap
+        // surface - which shares this entity ID and would otherwise count as
+        // covered - cannot enter the frame at any distance. Every covered
+        // sample is the voxel blob.
         [[nodiscard]] static EditorCamera BlobCamera()
         {
             EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.5f, 2000.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-            camera.SetPose(glm::vec3(kBlobCentre.x, kBlobCentre.y, 40.0f), 0.0f, 0.0f);
+            camera.SetPose(glm::vec3(kBlobCentre.x, 60.0f, 150.0f), 0.0f, -0.60f);
             return camera;
         }
 
@@ -276,15 +308,19 @@ namespace OloEngine::Tests
             {
                 WritePng("VoxelMarchingCubes_blob_untextured.png", frame);
             }
-            std::printf("[#727] marching-cubes blob (no layers): %u tris, coverage %.3f, lit %.3f\n",
-                        mcTriangles, static_cast<double>(sample.Coverage), static_cast<double>(sample.LitFraction));
+            std::printf("[#727] marching-cubes blob (no layers): %u tris, coverage %.3f, bg %d, peak %d, spread %d\n",
+                        mcTriangles, static_cast<double>(sample.Coverage), sample.Background, sample.PeakLuma,
+                        sample.Spread);
 
             EXPECT_GT(sample.Coverage, 0.03f) << "the blob did not render";
-            EXPECT_GT(sample.LitFraction, 0.80f)
-                << "the blob rendered but is BLACK (" << sample.LitFraction
-                << " of its pixels are brighter than the background). Geometry is not the problem — this is the "
-                   "unbound-normal-array decode: black * 2 - 1 is a unit-length (-1,-1,-1) that rotates every "
-                   "normal away from the light.";
+            EXPECT_GT(sample.PeakLuma, sample.Background + 30)
+                << "the blob rendered but nothing on it is lit (peak " << sample.PeakLuma << " vs background "
+                << sample.Background << "). Geometry is not the problem - this is the unbound-normal-array decode: "
+                                        "black * 2 - 1 is a unit-length (-1,-1,-1) that rotates every normal away from the light.";
+            EXPECT_GT(sample.Spread, 20)
+                << "the blob has no shading gradient (p90-p10 = " << sample.Spread
+                << "): its shading is not varying across the surface, which is what a uniformly-rotated normal "
+                   "looks like.";
         }
 
         // (3) Bound terrain arrays. This is the only configuration that reaches
@@ -307,13 +343,16 @@ namespace OloEngine::Tests
             {
                 WritePng("VoxelMarchingCubes_blob_textured.png", frame);
             }
-            std::printf("[#727] marching-cubes blob (layers bound): coverage %.3f, lit %.3f\n",
-                        static_cast<double>(sample.Coverage), static_cast<double>(sample.LitFraction));
+            std::printf("[#727] marching-cubes blob (layers bound): coverage %.3f, bg %d, peak %d, spread %d\n",
+                        static_cast<double>(sample.Coverage), sample.Background, sample.PeakLuma, sample.Spread);
 
             EXPECT_GT(sample.Coverage, 0.03f) << "the blob stopped rendering once terrain layers were bound";
-            EXPECT_GT(sample.LitFraction, 0.80f)
-                << "the blob went dark with the normal array bound (" << sample.LitFraction
-                << " lit) — the tangent frame is producing NaN or an inverted normal";
+            EXPECT_GT(sample.PeakLuma, sample.Background + 30)
+                << "the blob went dark with the normal array bound (peak " << sample.PeakLuma << " vs background "
+                << sample.Background << ") - the tangent frame is producing NaN or an inverted normal";
+            EXPECT_GT(sample.Spread, 20)
+                << "the blob lost its shading gradient with the normal array bound (p90-p10 = " << sample.Spread
+                << ") - the tangent frame is collapsing the perturbed normals";
         }
     }
 } // namespace OloEngine::Tests

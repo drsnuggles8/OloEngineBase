@@ -512,7 +512,7 @@ namespace OloEngine::Tests
                 WritePng("VoxelGreedy_heightfield_reference.png", frame);
             }
             const f32 iou = IntersectionOverUnion(masks[0], mcMask);
-            std::printf("[#727] silhouette overlap greedy vs marching cubes: %.3f IoU\n", static_cast<double>(iou));
+            std::printf("[#727] silhouette overlap greedy vs source height field: %.3f IoU\n", static_cast<double>(iou));
 
             // Blocky and smooth differ along every stair-step, so this is not a
             // pixel-identity claim - it is "the same terrain, in the same place".
