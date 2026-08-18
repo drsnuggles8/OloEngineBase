@@ -158,8 +158,13 @@ namespace OloEngine::Tests
         // understate physical contrast: a 4x linear contrast reads as only
         // 4^(1/2.2) ≈ 1.9x in display units. Every ratio contract below is
         // therefore evaluated in approximate linear luminance, display^2.2.
-        // Calibration run (enclosed rig, RTX 4090): lit=60.27 dark=32.82
-        // display => 1.84x display == 3.81x linear.
+        // Calibration run (enclosed rig, RTX 4090): lit=68.44 dark=36.85
+        // display => 1.86x display == 3.90x linear. (Pre-#751, with the
+        // infinite-bounce term dead: lit=60.27 dark=32.82 => 3.81x linear.
+        // Both halves gained ~13% display when the bounce came alive and the
+        // CONTRAST barely moved, which is the reassuring result: this room's
+        // 0.9-albedo walls interreflect hard, so a fix that leaked light past
+        // the divider would have shown up here as the ratio collapsing.)
         [[nodiscard]] inline f64 DisplayMeanToLinear(f64 displayMean0To255)
         {
             return std::pow(std::max(displayMean0To255, 0.0) / 255.0, 2.2);
@@ -179,21 +184,30 @@ namespace OloEngine::Tests
         // illumination must be color-neutral (white sun / white-wall bounce).
         // A Chebyshev-less leak tints the dark half red — red channel well
         // above green/blue. Contract: dark-side (R - max(G,B)) stays under 5
-        // display grey levels (measured +2.2 neutral noise on the calibration
-        // run), while the lit side must show a strong red excess (> 15;
-        // measured +33.7) as the positive control that the instrument can
-        // actually see redness.
+        // display grey levels (measured +2.9 neutral noise on the calibration
+        // run; +2.2 pre-#751), while the lit side must show a strong red
+        // excess (> 15; measured +43.5, was +33.7) as the positive control
+        // that the instrument can actually see redness.
+        //
+        // These two are the numbers to watch when the GI gets brighter:
+        // turning the infinite-bounce term on (#751) raised the dark side's
+        // red excess by 0.7 grey levels while nearly tripling the margin on
+        // the lit side, so the leak contract got RELATIVELY stronger, not
+        // weaker. Neither threshold was touched.
         constexpr f64 kDarkRedExcessCeiling = 5.0;
         constexpr f64 kLitRedExcessFloor = 15.0;
 
         // --- Test 3 thresholds ----------------------------------------------
         // After the light moves to (+5,3,0), the formerly dark half is
         // directly lit (same intensity-8 light, mirrored geometry) — at least
-        // 3x its old LINEAR mean (measured 3.67x: the pre-move mean already
+        // 3x its old LINEAR mean (measured 3.68x: the pre-move mean already
         // contains the neutral GI pedestal, which survives the swap). The
         // formerly lit half keeps only the sun + pedestal: at most 0.5x its
-        // old LINEAR mean (measured 0.27x). Stale (un-relit) probe irradiance
-        // would keep its red glow alive and fail the drop.
+        // old LINEAR mean (measured 0.25x). Stale (un-relit) probe irradiance
+        // would keep its red glow alive and fail the drop. Both figures are
+        // post-#751 and moved by under 2% from the dead-bounce measurements
+        // (3.67x / 0.27x) — relight latency is a property of the pass, not of
+        // how much light is in the room.
         constexpr f64 kRelightRiseFactorLinear = 3.0;
         constexpr f64 kRelightDropFactorLinear = 0.5;
 

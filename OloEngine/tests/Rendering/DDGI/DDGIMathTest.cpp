@@ -27,6 +27,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include <cmath>
+#include <limits>
 #include <random>
 #include <set>
 #include <utility>
@@ -931,4 +932,221 @@ TEST(DDGIMath, IrradianceEstimatorCosineField)
     f32 const estimate = glm::pi<f32>() * sumWL / sumW;
     f32 const analytic = 2.0f * glm::pi<f32>() / 3.0f;
     EXPECT_NEAR(estimate, analytic, 0.05f * analytic);
+}
+
+// --- 21. Volume weight: the bounce path's margined membership test ------------
+//
+// Issue #751. `VolumeWeight` is the one function both DDGI sample paths go
+// through, and the whole fix rests on two properties of it:
+//
+//   * margin == 0 is EXACTLY the old hard inside-test, so the lit path did not
+//     change; and
+//   * with a margin it is continuous — no step at the bounds, no step at the
+//     margin surface — because a discontinuity in the feedback term would show
+//     up as a hard edge in the GI wherever geometry crossed it.
+
+TEST(DDGIMath, VolumeWeightZeroMarginIsTheHardInsideTest)
+{
+    glm::vec3 const boundsMin(-3.0f, 0.8f, -3.0f);
+    glm::vec3 const boundsMax(3.0f, 3.2f, 3.0f);
+
+    std::mt19937 rng(0x751u);
+    std::uniform_real_distribution<f32> dist(-6.0f, 6.0f);
+    for (i32 i = 0; i < 4000; ++i)
+    {
+        glm::vec3 const p(dist(rng), dist(rng), dist(rng));
+        f32 const weight = DDGI::VolumeWeight(p, boundsMin, boundsMax, glm::vec3(0.0f));
+        bool const inside = DDGI::IsInsideVolume(p, boundsMin, boundsMax);
+        EXPECT_FLOAT_EQ(weight, inside ? 1.0f : 0.0f)
+            << "margin 0 must reproduce the hard test exactly at (" << p.x << ", " << p.y << ", " << p.z << ")";
+    }
+
+    // The boundary itself is INCLUSIVE in both, corners included.
+    for (i32 corner = 0; corner < 8; ++corner)
+    {
+        glm::vec3 const p((corner & 1) ? boundsMax.x : boundsMin.x, (corner & 2) ? boundsMax.y : boundsMin.y,
+                          (corner & 4) ? boundsMax.z : boundsMin.z);
+        EXPECT_FLOAT_EQ(DDGI::VolumeWeight(p, boundsMin, boundsMax, glm::vec3(0.0f)), 1.0f);
+        EXPECT_TRUE(DDGI::IsInsideVolume(p, boundsMin, boundsMax));
+    }
+}
+
+TEST(DDGIMath, VolumeWeightFadesOverTheMarginAndStopsThere)
+{
+    glm::vec3 const boundsMin(-3.0f, 0.8f, -3.0f);
+    glm::vec3 const boundsMax(3.0f, 3.2f, 3.0f);
+    glm::vec3 const spacing = DDGI::ProbeSpacing(boundsMin, boundsMax, glm::ivec3(3, 2, 3));
+    glm::vec3 const margin = DDGI::BounceMargin(spacing);
+    ASSERT_GT(margin.x, 0.0f);
+
+    // Inside is still exactly 1 — a margin must not dim the interior.
+    EXPECT_FLOAT_EQ(DDGI::VolumeWeight(glm::vec3(0.0f, 2.0f, 0.0f), boundsMin, boundsMax, margin), 1.0f);
+    EXPECT_FLOAT_EQ(DDGI::VolumeWeight(boundsMax, boundsMin, boundsMax, margin), 1.0f);
+
+    // Walking straight out along +x: monotonically decreasing, 1 at the face,
+    // 0 at exactly one margin out, 0 beyond.
+    f32 previous = 1.0f;
+    for (i32 step = 0; step <= 20; ++step)
+    {
+        f32 const t = static_cast<f32>(step) / 20.0f;
+        glm::vec3 const p(boundsMax.x + t * margin.x, 2.0f, 0.0f);
+        f32 const weight = DDGI::VolumeWeight(p, boundsMin, boundsMax, margin);
+        EXPECT_LE(weight, previous + 1e-6f) << "weight must not increase as the point leaves the volume (t = " << t << ")";
+        EXPECT_GE(weight, 0.0f);
+        EXPECT_LE(weight, 1.0f);
+        previous = weight;
+    }
+    EXPECT_NEAR(DDGI::VolumeWeight(glm::vec3(boundsMax.x + margin.x, 2.0f, 0.0f), boundsMin, boundsMax, margin), 0.0f,
+                1e-6f);
+    EXPECT_FLOAT_EQ(DDGI::VolumeWeight(glm::vec3(boundsMax.x + 1.001f * margin.x, 2.0f, 0.0f), boundsMin, boundsMax, margin),
+                    0.0f);
+
+    // Half a margin out is the smoothstep midpoint by construction.
+    EXPECT_NEAR(DDGI::VolumeWeight(glm::vec3(boundsMax.x + 0.5f * margin.x, 2.0f, 0.0f), boundsMin, boundsMax, margin),
+                0.5f, 1e-5f);
+}
+
+TEST(DDGIMath, VolumeWeightIsContinuousEverywhere)
+{
+    // A step anywhere in this function is a step in the bounce term, which
+    // draws a hard edge in the GI wherever geometry crosses it. Sample dense
+    // pairs across both interfaces (bounds face and margin surface) and across
+    // an edge and a corner, where the per-axis distances combine.
+    glm::vec3 const boundsMin(-3.0f, 0.8f, -3.0f);
+    glm::vec3 const boundsMax(3.0f, 3.2f, 3.0f);
+    glm::vec3 const margin(3.0f, 2.4f, 3.0f);
+    constexpr f32 kStep = 1e-3f;
+
+    auto const walk = [&](const glm::vec3& from, const glm::vec3& to)
+    {
+        i32 const steps = 4000;
+        f32 previousWeight = DDGI::VolumeWeight(from, boundsMin, boundsMax, margin);
+        for (i32 i = 1; i <= steps; ++i)
+        {
+            glm::vec3 const p = glm::mix(from, to, static_cast<f32>(i) / static_cast<f32>(steps));
+            f32 const weight = DDGI::VolumeWeight(p, boundsMin, boundsMax, margin);
+            // The smoothstep's Lipschitz constant is 1.5 per margin; the walk
+            // step is far smaller than that, so any real discontinuity dwarfs
+            // this bound.
+            f32 const walkLength = glm::length(to - from) / static_cast<f32>(steps);
+            EXPECT_LT(std::abs(weight - previousWeight), 2.0f * walkLength / glm::min(margin.x, glm::min(margin.y, margin.z)) + kStep)
+                << "discontinuity at (" << p.x << ", " << p.y << ", " << p.z << ")";
+            previousWeight = weight;
+        }
+    };
+
+    walk(glm::vec3(0.0f, 2.0f, 0.0f), glm::vec3(9.0f, 2.0f, 0.0f));    // through a face
+    walk(glm::vec3(0.0f, 2.0f, 0.0f), glm::vec3(9.0f, 2.0f, 9.0f));    // through an edge
+    walk(glm::vec3(0.0f, 2.0f, 0.0f), glm::vec3(9.0f, 8.0f, 9.0f));    // through a corner
+    walk(glm::vec3(-9.0f, -6.0f, -9.0f), glm::vec3(9.0f, 8.0f, 9.0f)); // corner to corner
+}
+
+TEST(DDGIMath, VolumeWeightCoversAnAirFittedRoomButNotAnArbitrarySurface)
+{
+    // The concrete case from issue #751 and DDGIReferenceParityTest: a 3x2x3
+    // volume fitted to the AIR of a room whose wall inner faces are 0.9 out in
+    // x/z and whose floor/ceiling are 0.7 out in y. Every one of those
+    // surfaces must now carry real bounce weight — that is the entire bug —
+    // while a surface a long way outside must still contribute nothing, which
+    // is what keeps the extrapolation bounded.
+    glm::vec3 const boundsMin(-3.0f, 0.8f, -3.0f);
+    glm::vec3 const boundsMax(3.0f, 3.2f, 3.0f);
+    glm::vec3 const margin = DDGI::BounceMargin(DDGI::ProbeSpacing(boundsMin, boundsMax, glm::ivec3(3, 2, 3)));
+
+    struct Surface
+    {
+        const char* Name;
+        glm::vec3 Point;
+    };
+    const Surface roomSurfaces[] = {
+        { "left wall", { -3.9f, 2.0f, 0.0f } },
+        { "right wall", { 3.9f, 2.0f, 0.0f } },
+        { "back wall", { 0.0f, 2.0f, -3.9f } },
+        { "front wall", { 0.0f, 2.0f, 3.9f } },
+        { "floor", { 0.0f, 0.1f, 0.0f } },
+        { "ceiling", { 0.0f, 3.9f, 0.0f } },
+        { "floor/wall corner", { -3.9f, 0.1f, 0.0f } },
+    };
+    for (const Surface& surface : roomSurfaces)
+    {
+        f32 const weight = DDGI::VolumeWeight(surface.Point, boundsMin, boundsMax, margin);
+        EXPECT_GT(weight, 0.4f) << surface.Name << " contributes almost no bounce light — this is the #751 bug";
+        EXPECT_EQ(DDGI::VolumeWeight(surface.Point, boundsMin, boundsMax, glm::vec3(0.0f)), 0.0f)
+            << surface.Name << " was expected to be OUTSIDE the volume (otherwise the fixture is wrong, "
+                               "not the code)";
+    }
+
+    // Bounded extrapolation: one spacing is the reach, not "anywhere outside".
+    EXPECT_FLOAT_EQ(DDGI::VolumeWeight({ 40.0f, 2.0f, 0.0f }, boundsMin, boundsMax, margin), 0.0f);
+    EXPECT_FLOAT_EQ(DDGI::VolumeWeight({ 0.0f, -30.0f, 0.0f }, boundsMin, boundsMax, margin), 0.0f);
+}
+
+// --- 22. Volume weight: a non-finite position reads as OUTSIDE -----------------
+//
+// The predicate this replaced got this for free — `all(greaterThanEqual(NaN,
+// ...))` is false, so a NaN shading point simply fell out of the volume and
+// the caller dropped to the baked-SH ladder. A smoothstep does not: every
+// comparison against NaN is false, so without an explicit positive test the
+// weight comes out NaN, the caller's `weight <= 0` guard does not fire, and
+// NaN irradiance reaches the lit passes — where their `dot(ddgi, ddgi) <= 0`
+// fallback does not catch it either.
+
+TEST(DDGIMath, VolumeWeightRejectsNonFinitePositions)
+{
+    glm::vec3 const boundsMin(-3.0f, 0.8f, -3.0f);
+    glm::vec3 const boundsMax(3.0f, 3.2f, 3.0f);
+    glm::vec3 const margin(3.0f, 2.4f, 3.0f);
+
+    f32 const nan = std::numeric_limits<f32>::quiet_NaN();
+    f32 const inf = std::numeric_limits<f32>::infinity();
+
+    for (i32 axis = 0; axis < 3; ++axis)
+    {
+        for (f32 bad : { nan, inf, -inf })
+        {
+            glm::vec3 p(0.0f, 2.0f, 0.0f);
+            p[axis] = bad;
+            EXPECT_EQ(DDGI::VolumeWeight(p, boundsMin, boundsMax, margin), 0.0f)
+                << "a non-finite component on axis " << axis << " must read as outside, not poison the gather";
+            EXPECT_EQ(DDGI::VolumeWeight(p, boundsMin, boundsMax, glm::vec3(0.0f)), 0.0f)
+                << "...and likewise on the lit path's zero-margin lookup";
+        }
+    }
+
+    EXPECT_EQ(DDGI::VolumeWeight(glm::vec3(nan), boundsMin, boundsMax, margin), 0.0f);
+    // The old hard test agrees, which is the property being preserved.
+    EXPECT_FALSE(DDGI::IsInsideVolume(glm::vec3(nan), boundsMin, boundsMax));
+}
+
+// --- 23. Bounce margin on a single-probe axis ---------------------------------
+//
+// ProbeSpacing divides by max(dims - 1, 1), so a resolution-1 axis reports the
+// whole extent as its spacing and the bounce margin inherits it. That is the
+// one-spacing rule applied consistently — with a single probe layer the
+// volume's interior is ALREADY constant-extrapolated across the whole extent —
+// but it means a deliberately flat volume reaches a full extent past its
+// bounds, so it is pinned here rather than left to be discovered.
+
+TEST(DDGIMath, BounceMarginOnASingleProbeAxisIsTheWholeExtent)
+{
+    glm::vec3 const boundsMin(-10.0f, 0.0f, -10.0f);
+    glm::vec3 const boundsMax(10.0f, 4.0f, 10.0f);
+
+    glm::ivec3 const flat(5, 1, 5);
+    glm::vec3 const flatMargin = DDGI::BounceMargin(DDGI::ProbeSpacing(boundsMin, boundsMax, flat));
+    EXPECT_FLOAT_EQ(flatMargin.x, 5.0f); // 20 extent / 4 cells
+    EXPECT_FLOAT_EQ(flatMargin.y, 4.0f); // one probe layer -> the whole extent
+    EXPECT_FLOAT_EQ(flatMargin.z, 5.0f);
+
+    // A point one full extent above the volume therefore still gathers...
+    EXPECT_GT(DDGI::VolumeWeight({ 0.0f, 4.0f + 0.25f * flatMargin.y, 0.0f }, boundsMin, boundsMax, flatMargin), 0.0f);
+    // ...but the reach is still bounded, which is the property that matters.
+    EXPECT_FLOAT_EQ(
+        DDGI::VolumeWeight({ 0.0f, 4.0f + 1.01f * flatMargin.y, 0.0f }, boundsMin, boundsMax, flatMargin), 0.0f);
+
+    // With two probe layers the same volume gets the ordinary cell-sized margin.
+    glm::vec3 const normalMargin = DDGI::BounceMargin(DDGI::ProbeSpacing(boundsMin, boundsMax, glm::ivec3(5, 2, 5)));
+    EXPECT_FLOAT_EQ(normalMargin.y, 4.0f);
+    glm::vec3 const denseMargin = DDGI::BounceMargin(DDGI::ProbeSpacing(boundsMin, boundsMax, glm::ivec3(5, 5, 5)));
+    EXPECT_FLOAT_EQ(denseMargin.y, 1.0f);
 }

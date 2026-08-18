@@ -147,6 +147,24 @@ namespace OloEngine
         [[nodiscard]] bool RanThisFrame() const;
         [[nodiscard]] f32 GetCapturedFraction() const; // captured probes / total
 
+        // Issue #751. Fraction of the infinite-bounce term the volume's
+        // BOUNDS let through, over every cached hit point of every ACTIVE
+        // probe: 1.0 when they all lie inside the volume (or within its bounce
+        // margin), falling toward 0 as the surfaces the probes bounce from
+        // drift past it.
+        //
+        // Returns **-1.0** when there is nothing to measure — no active probe,
+        // or no probe has a cached surface hit yet. That is deliberately not
+        // 1.0: "we cannot tell" and "everything is fine" must not look alike
+        // in a diagnostic whose whole job is to stop a dead feature reading as
+        // healthy. Callers show the number only when it is >= 0.
+        //
+        // This is what makes the #751 failure visible instead of silent — a
+        // volume fitted to a room's air used to report a perfectly healthy
+        // capture fraction while contributing zero multi-bounce light. The
+        // editor's Light Probe Volume inspector warns on it.
+        [[nodiscard]] f32 GetBounceCoverage() const;
+
         // Uploads an Enabled=0 DDGI UBO and binds the 1x1 black placeholder to
         // slots 56/57/58 so lit-pass samplers stay valid while DDGI is off.
         void UploadDisabledUBO();
@@ -160,6 +178,14 @@ namespace OloEngine
             glm::vec3 OffsetN{ 0.0f }; // relocation offset, normalized by spacing
             DDGI::ProbeState State = DDGI::ProbeState::Uncaptured;
             u32 LastCaptureFrame = 0;
+            // Issue #751. Sum of DDGI::VolumeWeight over this probe's cached
+            // FRONTFACE hit points, and how many there were. Kept as a sum +
+            // count rather than a mean so GetBounceCoverage can weight by hit
+            // points: a probe that sees one wall and a probe that sees six are
+            // not equal evidence, and a probe that sees only sky is no
+            // evidence at all (count 0) rather than a free 100%.
+            f32 BounceWeightSum = 0.0f;
+            i32 BounceHitCount = 0;
             u8 RelocationIteration = 0;
             bool PendingRelocationRecapture = false;
         };

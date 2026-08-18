@@ -485,7 +485,7 @@ namespace OloEngine
             f32 HybridBlend;           // 0 = baked SH only .. 1 = DDGI only (Hybrid coverage ramp)
             f32 EnergyConservation;    // bounce-feedback albedo clamp, default 0.9
             f32 MaxRayDistance;        // visibility distance clamp = 1.5 * |ProbeSpacing.xyz|
-            f32 _pad0 = 0.0f;
+            f32 BounceMarginScale;     // infinite-bounce gather margin, in probe spacings (#751)
             f32 _pad1 = 0.0f;
             f32 _pad2 = 0.0f;
 

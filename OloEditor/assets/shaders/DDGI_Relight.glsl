@@ -1,7 +1,7 @@
 // =============================================================================
 // DDGI_Relight.glsl — per-frame relight of the DDGI hit-point cache (#632)
 //
-// The Lumen-FinalLighting analog of ADR 0006: every frame, every ACTIVE
+// The Lumen-FinalLighting analog of ADR 0007: every frame, every ACTIVE
 // probe's cached hit points are re-shaded with CURRENT shadowed direct
 // lighting plus the PREVIOUS frame's probe irradiance at the hit point
 // (infinite bounce), writing the radiance cache the irradiance blend then
@@ -327,11 +327,28 @@ void main()
     // Pass-local samplers on purpose (NOT the global 56-58 slots): the bounce
     // must read the PREVIOUS atlas while the current one is being built.
     // viewDir = -texelDir: the "viewer" at a hit point is the probe itself.
-    vec3 bounceE = ddgiSampleIrradiance(u_PrevIrradiance, u_CurrVisibility, u_ProbeData,
-                                        hitPos, N, -texelDir);
+    //
+    // ddgiGatherIrradiance, NOT ddgiSampleIrradiance, and that difference IS
+    // issue #751. Every hit point here is ON A SURFACE, so a volume fitted to
+    // a room's interior air excludes every wall, floor and ceiling — i.e.
+    // every surface the bounce light was supposed to come from — and the lit
+    // pass's hard inside-test returned vec3(0) for all of them, on every
+    // probe, every frame. The bounce path therefore gathers with a margin of
+    // one probe spacing (ddgiBounceMargin), which is exactly the distance over
+    // which the gather's implicit clamp to the boundary probe layer is
+    // justified by the field's own sample density, and with intensity 1 so an
+    // authored gain cannot multiply the feedback loop's spectral radius.
+    // Rationale, contractiveness proof and measurements:
+    // docs/adr/0007-ddgi-hit-point-cache-gather.md.
+    vec3 bounceE = ddgiGatherIrradiance(u_PrevIrradiance, u_CurrVisibility, u_ProbeData,
+                                        hitPos, N, -texelDir,
+                                        ddgiBounceMargin(), 1.0);
 
-    // Diffuse exitance with the energy-conservation albedo clamp (ADR 0006:
-    // keeps the infinite-bounce feedback contractive).
+    // Diffuse exitance with the energy-conservation albedo clamp. THIS is
+    // what keeps the infinite-bounce feedback contractive (ADR 0007): the
+    // blend pass's ratio estimator E = PI * sum(w L) / sum(w) is a convex
+    // average, and ddgiGatherIrradiance normalizes by its own weight sum, so
+    // the whole loop's gain in the sup norm is exactly this clamp.
     vec3 radiance = (min(albedo, vec3(u_DDGIEnergyConservation)) / PI) * (directE + bounceE);
     o_Radiance = vec4(radiance, 1.0);
 }

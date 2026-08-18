@@ -35,6 +35,7 @@
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
@@ -6952,6 +6953,46 @@ namespace OloEngine
                     if (ImGui::DragFloat("Self Shadow Bias", &component.m_SelfShadowBias, 0.01f, 0.0f, 1.0f, "%.2f"))
                     {
                         component.m_Dirty = true;
+                    }
+
+                    // Bounce coverage (issue #751). A volume fitted to a
+                    // room's AIR excludes every wall, floor and ceiling — i.e.
+                    // every surface the infinite-bounce term gathers from —
+                    // and used to kill that term outright with no visual
+                    // signature beyond "the GI looks a bit dim". The bounce
+                    // gather now reaches one probe spacing past the bounds,
+                    // which covers the natural authoring; this readout is what
+                    // catches the volumes it does NOT cover.
+                    //
+                    // Gated on m_Active and on the pass having run this frame:
+                    // the pass is a process-wide singleton and the engine
+                    // submits ONE volume at a time (ADR 0007), so an inactive
+                    // component would otherwise display — and be warned about
+                    // for — a different volume's coverage.
+                    const DDGIProbeUpdatePass* ddgi = Renderer3D::GetDDGIPass();
+                    f32 const coverage = (ddgi != nullptr && component.m_Active && ddgi->RanThisFrame())
+                                             ? ddgi->GetBounceCoverage()
+                                             : -1.0f;
+                    if (coverage >= 0.0f) // < 0 = nothing captured to measure yet
+                    {
+                        if (coverage < 0.5f)
+                        {
+                            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.15f, 1.0f), "Bounce coverage: %.0f%%",
+                                               static_cast<f64>(coverage) * 100.0);
+                            if (ImGui::IsItemHovered())
+                            {
+                                ImGui::SetTooltip(
+                                    "Most of the surfaces these probes see fall outside the volume, so they "
+                                    "contribute little or no bounce light.\n\n"
+                                    "Grow the bounds to ENCLOSE the walls, floor and ceiling you want bounce "
+                                    "light from — not just the space the camera moves through. The bounce "
+                                    "gather already reaches one probe spacing past the bounds.");
+                            }
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("Bounce coverage: %.0f%%", static_cast<f64>(coverage) * 100.0);
+                        }
                     }
                 }
 

@@ -33,7 +33,7 @@ layout(std140, binding = 51) uniform DDGIVolume {
     float u_DDGIHybridBlend;        // 0 = baked SH only .. 1 = DDGI only
     float u_DDGIEnergyConservation; // bounce-feedback albedo clamp
     float u_DDGIMaxRayDistance;     // visibility clamp = 1.5 * |spacing|
-    float _ddgiPad0;
+    float u_DDGIBounceMarginScale;  // bounce-path margin, in probe spacings (#751)
     float _ddgiPad1;
     float _ddgiPad2;
 };
@@ -192,6 +192,48 @@ bool ddgiIsInsideVolume(vec3 worldPos)
            all(lessThanEqual(worldPos, u_DDGIBoundsMax.xyz));
 }
 
+// Mirrors DDGI::VolumeWeight. Smooth membership of `worldPos` in the volume
+// grown by a per-axis `margin`: exactly 1 inside the bounds, smoothstep down
+// to 0 across the margin band, exactly 0 beyond it.
+//
+// margin == 0 reproduces ddgiIsInsideVolume EXACTLY (1 inside, 0 outside,
+// boundary inclusive) — which is what keeps the lit-pass sampler unchanged
+// while the bounce path (issue #751) passes a real margin.
+float ddgiVolumeWeight(vec3 worldPos, vec3 margin)
+{
+    vec3 outside = max(max(u_DDGIBoundsMin.xyz - worldPos, worldPos - u_DDGIBoundsMax.xyz), vec3(0.0));
+    if (dot(outside, outside) <= 0.0)
+    {
+        return 1.0;
+    }
+    vec3 safeMargin = max(margin, vec3(0.0));
+    // Beyond the margin on ANY axis -> no contribution. This also covers
+    // margin == 0, so the division below never divides a positive distance by
+    // zero.
+    if (any(greaterThan(outside, safeMargin)))
+    {
+        return 0.0;
+    }
+    float t = clamp(length(outside / max(safeMargin, vec3(1e-20))), 0.0, 1.0);
+    float w = 1.0 - t * t * (3.0 - 2.0 * t);
+    // Returned through a POSITIVE test so a non-finite worldPos reads as
+    // "outside": every comparison above is false for NaN, so it reaches here
+    // with w = NaN, and `w > 0.0` is false. The old hard inside-test had that
+    // property for free (`all(greaterThanEqual(NaN, ...))` is false); losing
+    // it would push NaN irradiance through the lit passes, which their
+    // `dot(ddgi, ddgi) <= 0.0` fallback does not catch either.
+    return (w > 0.0) ? w : 0.0;
+}
+
+// Mirrors DDGI::BounceMargin. The margin the INFINITE-BOUNCE feedback path
+// samples with: one probe spacing per axis, because that is exactly the
+// distance over which the probe field's own sample density justifies the
+// constant extrapolation ddgiGatherIrradiance performs outside the bounds.
+vec3 ddgiBounceMargin()
+{
+    return u_DDGIProbeSpacing.xyz * u_DDGIBounceMarginScale;
+}
+
 // -----------------------------------------------------------------------------
 // Sampler weights (the wall-leak fix).
 // -----------------------------------------------------------------------------
@@ -239,20 +281,41 @@ vec3 ddgiSelfShadowBias(vec3 normal, vec3 viewDir)
 // Returns irradiance (linear, full E — the blend pass stores pi-normalized
 // ratio estimates, so no 2*pi restore factor exists in this pipeline; see
 // DDGIProbeBlend.comp). Callers convert to diffuse exitance with albedo/PI.
-// Returns vec3(0) outside the volume or when every corner probe is rejected —
-// callers fall back to the existing ambient ladder (baked SH / IBL).
+// Returns vec3(0) outside the volume (grown by `volumeMargin`) or when every
+// corner probe is rejected — callers fall back to the existing ambient ladder
+// (baked SH / IBL).
 //
 // worldPos/normal in (render-origin-relative) world space; viewDir points
 // FROM the surface TOWARD the camera.
+//
+// TWO PARAMETERS THE LIT PATH DOES NOT USE (issue #751):
+//
+//   volumeMargin — per-axis distance past the bounds over which the gather
+//     still answers, fading smoothly to zero. Zero for the lit pass (a
+//     surface outside the volume must fall through to the ambient ladder, not
+//     be shaded from a clamped boundary probe). One probe spacing for the
+//     infinite-bounce feedback path, whose sample points are hit points ON
+//     SURFACES and therefore sit just OUTSIDE any volume fitted to a room's
+//     air. The trilinear lookup below already clamps to the boundary probe
+//     layer for such a position, so the margin only decides how far that
+//     constant extrapolation is allowed to reach.
+//
+//   intensity — the artist gain. u_DDGIIntensity for the lit pass; 1.0 for
+//     the feedback path, because a gain inside a feedback loop multiplies the
+//     loop's spectral radius (albedo clamp x intensity) and would let an
+//     authored value above ~1.11 turn a contraction into a divergence. Kept
+//     out, `intensity` scales the converged field linearly instead.
 // -----------------------------------------------------------------------------
-vec3 ddgiSampleIrradiance(sampler2D irradianceAtlas, sampler2D visibilityAtlas, sampler2D probeData,
-                          vec3 worldPos, vec3 normal, vec3 viewDir)
+vec3 ddgiGatherIrradiance(sampler2D irradianceAtlas, sampler2D visibilityAtlas, sampler2D probeData,
+                          vec3 worldPos, vec3 normal, vec3 viewDir,
+                          vec3 volumeMargin, float intensity)
 {
     if (u_DDGIEnabled == 0)
     {
         return vec3(0.0);
     }
-    if (!ddgiIsInsideVolume(worldPos))
+    float volumeWeight = ddgiVolumeWeight(worldPos, volumeMargin);
+    if (volumeWeight <= 0.0)
     {
         return vec3(0.0);
     }
@@ -327,7 +390,17 @@ vec3 ddgiSampleIrradiance(sampler2D irradianceAtlas, sampler2D visibilityAtlas, 
         return vec3(0.0);
     }
 
-    return (sumIrradiance / sumWeight) * u_DDGIIntensity;
+    return (sumIrradiance / sumWeight) * (intensity * volumeWeight);
+}
+
+// The lit passes' entry point — unchanged behaviour: no margin (hard volume
+// test, so a surface outside the volume still falls through to the ambient
+// ladder) and the authored intensity.
+vec3 ddgiSampleIrradiance(sampler2D irradianceAtlas, sampler2D visibilityAtlas, sampler2D probeData,
+                          vec3 worldPos, vec3 normal, vec3 viewDir)
+{
+    return ddgiGatherIrradiance(irradianceAtlas, visibilityAtlas, probeData, worldPos, normal, viewDir,
+                                vec3(0.0), u_DDGIIntensity);
 }
 
 // -----------------------------------------------------------------------------

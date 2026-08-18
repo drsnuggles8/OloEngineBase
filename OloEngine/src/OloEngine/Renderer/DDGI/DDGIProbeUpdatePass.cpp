@@ -44,7 +44,7 @@ namespace OloEngine
             { 0.0f, -1.0f, 0.0f },
         };
 
-        // Bounce-feedback albedo clamp (ADR 0006: albedo <= 0.9 in the bounce
+        // Bounce-feedback albedo clamp (ADR 0007: albedo <= 0.9 in the bounce
         // term keeps the infinite-bounce feedback loop contractive).
         constexpr f32 kEnergyConservation = 0.9f;
 
@@ -373,6 +373,27 @@ namespace OloEngine
         return static_cast<f32>(captured) / static_cast<f32>(m_Records.size());
     }
 
+    f32 DDGIProbeUpdatePass::GetBounceCoverage() const
+    {
+        f64 sum = 0.0;
+        i64 hits = 0;
+        for (const ProbeRecord& r : m_Records)
+        {
+            // Uncaptured probes have no hit cache yet, and Inactive ones are
+            // inside geometry and never relight — neither says anything about
+            // the volume's authoring.
+            if (r.State != DDGI::ProbeState::Active)
+            {
+                continue;
+            }
+            sum += static_cast<f64>(r.BounceWeightSum);
+            hits += static_cast<i64>(r.BounceHitCount);
+        }
+        // -1 = nothing to measure. See the header: a diagnostic that reports
+        // "fine" when it means "unknown" is the failure mode it exists to fix.
+        return (hits > 0) ? static_cast<f32>(sum / static_cast<f64>(hits)) : -1.0f;
+    }
+
     void DDGIProbeUpdatePass::UploadDisabledUBO()
     {
         if (m_DDGIUBO)
@@ -530,6 +551,10 @@ namespace OloEngine
         ubo.HybridBlend = (m_Desc.Mode == 2 && m_Desc.BakedAvailable) ? ComputeCapturedFraction() : 1.0f;
         ubo.EnergyConservation = kEnergyConservation;
         ubo.MaxRayDistance = m_MaxRayDistance;
+        // Issue #751: the infinite-bounce gather reaches this far past the
+        // bounds. Not authored — it is a property of the probe field's own
+        // sample density, see DDGI::kBounceMarginSpacingScale.
+        ubo.BounceMarginScale = DDGI::kBounceMarginSpacingScale;
         m_DDGIUBO->SetData(&ubo, sizeof(ubo));
         m_DDGIUBO->Bind();
     }
@@ -835,6 +860,49 @@ namespace OloEngine
         rec.OffsetN = newOffset;
         rec.State = newState;
         rec.LastCaptureFrame = m_FrameIndex;
+
+        // Issue #751 diagnostic: how much of this probe's bounce light the
+        // volume's bounds actually deliver. Every cached frontface hit is a
+        // surface the relight pass gathers previous-frame irradiance from, and
+        // DDGI::VolumeWeight is EXACTLY the factor ddgiGatherIrradiance
+        // applies there, so summing it over the tile measures the fraction of
+        // the infinite-bounce term that survives. That is the authoring
+        // mistake this issue is about, and the number the editor warns on.
+        //
+        // Computed here, AFTER relocation, and from `newOffset`: the relight
+        // shader reconstructs each hit point as
+        // ddgiProbeWorldPosition(coord, pdata.xyz) + texelDir * dist, reading
+        // the probe-data texture this call has just written. Measuring at the
+        // pre-relocation capture position would score points the gather never
+        // evaluates. (The cached DISTANCES still come from the old position —
+        // that mismatch is the pass's own, healed by the recapture relocation
+        // schedules, and is not something the diagnostic should paper over.)
+        const glm::vec3 relitProbePos = DDGI::ProbeWorldPosition(DDGI::ProbeGridCoord(probeIdx, m_Desc.Resolution),
+                                                                 m_Desc.BoundsMin, m_Desc.BoundsMax,
+                                                                 m_Desc.Resolution, newOffset);
+        const glm::vec3 bounceMargin = DDGI::BounceMargin(m_Spacing);
+        f64 bounceWeightSum = 0.0;
+        i32 bounceHitCount = 0;
+        for (i32 y = 0; y < t; ++y)
+        {
+            for (i32 x = 0; x < t; ++x)
+            {
+                const glm::vec4& v = texels[static_cast<sizet>(y) * static_cast<sizet>(t) + static_cast<sizet>(x)];
+                // Frontface hits only — sky misses carry environment radiance
+                // rather than a bounce, and backfaces are zeroed by the
+                // relight pass before the gather is ever reached.
+                if (v.z < 0.0f || v.w < 0.75f)
+                {
+                    continue;
+                }
+                const glm::vec3 hitPos = relitProbePos + DDGI::TexelDirection({ x, y }, t) * v.z;
+                bounceWeightSum +=
+                    static_cast<f64>(DDGI::VolumeWeight(hitPos, m_Desc.BoundsMin, m_Desc.BoundsMax, bounceMargin));
+                ++bounceHitCount;
+            }
+        }
+        rec.BounceWeightSum = static_cast<f32>(bounceWeightSum);
+        rec.BounceHitCount = bounceHitCount;
 
         const f32 texel[4] = { newOffset.x, newOffset.y, newOffset.z,
                                static_cast<f32>(std::to_underlying(newState)) };
