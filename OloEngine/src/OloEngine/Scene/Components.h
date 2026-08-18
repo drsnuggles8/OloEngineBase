@@ -4104,6 +4104,20 @@ namespace OloEngine
             m_Streamer = nullptr;     // streaming mode: re-init the streamer
             m_NeedsRebuild = true;
             m_AutoSplatNeedsRebuild = true; // re-derive auto-material splat from new heights
+            // An AUTO-SEEDED cubic voxel volume is a dense copy of the OLD
+            // height field, and in cubic mode the heightmap surface is hidden
+            // (Scene.cpp), so leaving it here would keep rendering the
+            // pre-regenerate terrain forever with no visible fallback - the
+            // reseed condition only runs when the builder is absent. Dropping
+            // both makes the next tick re-seed from the fresh height field.
+            // A volume the USER carved is theirs and is never discarded.
+            if (m_VoxelAutoSeeded)
+            {
+                m_VoxelOverride = nullptr;
+                m_VoxelQuadMeshes = nullptr;
+                m_VoxelMeshes.clear();
+                m_VoxelAutoSeeded = false;
+            }
         }
 
         // Compares the serialized fields only — runtime state is rebuild-on-load

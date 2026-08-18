@@ -148,6 +148,13 @@ namespace OloEngine
         //
         // Chunk count is capped; a request past the cap fills what it can and
         // warns rather than allocating unbounded memory from a scene file.
+        //
+        // Budget the default deliberately: a chunk is 32^3 voxels = 128 KiB of
+        // SDFData, plus 32 KiB of MaterialData once PaintDepthStrata runs. At
+        // the 1024 cap that is ~160 MiB resident. Typical scenes are nowhere
+        // near it (a 256-unit world at VoxelSize 2 seeds 16 chunks = ~2.5 MiB);
+        // the cap exists to stop a hand-edited scene file from asking for
+        // gigabytes, not as a target.
         void SeedFromHeightmap(const TerrainData& terrainData, f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                                u32 maxChunks = 1024);
 

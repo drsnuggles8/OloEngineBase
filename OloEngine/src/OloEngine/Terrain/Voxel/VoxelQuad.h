@@ -4,6 +4,7 @@
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
 
 #include <bit>
+#include <type_traits>
 
 namespace OloEngine
 {

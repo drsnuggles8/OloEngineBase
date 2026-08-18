@@ -344,9 +344,24 @@ namespace OloEngine::Tests
             }
         };
 
+        // Measured on an INDEPENDENT volume seeded from the same height field,
+        // never on the live one. measureMarchingCubes marks every chunk dirty,
+        // and the live volume is still being rendered by the pose loop below:
+        // dirtying it there would hand VoxelGreedyMeshBuilder::Update a pile of
+        // async re-mesh jobs that the loop's fixed 2 frames per pose have no
+        // reason to have finished. That is exactly the fixed-frame-count flake
+        // SettleVoxelMeshes exists to avoid, reintroduced from the other end.
         u32 marchingCubesTriangles = 0;
         u64 marchingCubesBytes = 0;
-        measureMarchingCubes(*terrain.m_VoxelOverride, marchingCubesTriangles, marchingCubesBytes);
+        {
+            auto reference = Ref<VoxelOverride>::Create();
+            reference->Initialize(kTerrainExtent, kTerrainExtent, kHeightScale, kVoxelSize);
+            ASSERT_TRUE(terrain.m_TerrainData);
+            reference->SeedFromHeightmap(*terrain.m_TerrainData, kTerrainExtent, kTerrainExtent, kHeightScale);
+            ASSERT_EQ(reference->GetChunkCount(), terrain.m_VoxelOverride->GetChunkCount())
+                << "the reference volume must be the same seed as the live one for the comparison to mean anything";
+            measureMarchingCubes(*reference, marchingCubesTriangles, marchingCubesBytes);
+        }
 
         ASSERT_GT(marchingCubesTriangles, 0u) << "marching cubes produced nothing for the same volume - "
                                                  "the comparison would be vacuous";
