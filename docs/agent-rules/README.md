@@ -37,6 +37,7 @@ run is **not** evidence.
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | adding `server/discover` alone keeps every test green — and converts a *working* legacy fallback into a broken modern conversation, because answering it is a client's proof the server is modern |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
+| [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | every glyph in the engine invisible on AMD, with the font loaded, 189 glyphs packed and 852 quads submitted — bake that and the nightly defends a blank UI forever |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -102,6 +103,7 @@ Read before trusting any measurement.
 | [timed-wait-test-assertions.md](timed-wait-test-assertions.md) | `duration_cast<milliseconds>` truncates toward zero — the "flaky test" may not be test-side at all |
 | [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | a CI comment asserted a safety property nobody had measured; and the issue's own repro had been fixed two months earlier |
 | [reference-path-tracer.md](reference-path-tracer.md) | a golden answers "did it change?", never "is it correct?" |
+| [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | a per-vendor baseline set is the instrument validating itself — and a small cross-vendor RMSE measures portability, never correctness |
 | [gpu-debug-draws.md](gpu-debug-draws.md) | read the two-counter overflow protocol before concluding "it drew nothing" |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e | the CI job that said `--config Release` was building no config at all, and grepping for `--parallel` finds four sites of which only one is a runaway — the generator, not the flag, decides |
 
@@ -188,6 +190,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Testing** — [testing-architecture.md](testing-architecture.md) ·
 [reference-path-tracer.md](reference-path-tracer.md) ·
+[vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) ·
 [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md) ·
 [live-verification-noise-floor.md](live-verification-noise-floor.md) ·
 [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) ·

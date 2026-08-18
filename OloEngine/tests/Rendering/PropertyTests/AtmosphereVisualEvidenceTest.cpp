@@ -177,6 +177,14 @@ namespace OloEngine::Tests
             fs::path base = fs::path("assets") / "tests" / "visual";
             if (const std::string& vendor = OloEngine::Tests::Options().GoldenVendor; !vendor.empty())
             {
+                // Belt-and-braces since #735: the value is now ALSO whitelisted
+                // at parse time (TestOptions.cpp, RequirePlainPathComponent), so
+                // an unsafe vendor never reaches any consumer. That gate is the
+                // one that matters — this check lived only here while the
+                // GoldenImageTests::GoldenBaselineDir it claims to mirror
+                // concatenated the value unchecked, which is the drift the
+                // parse-time whitelist exists to stop recurring.
+                //
                 // The vendor must name ONE directory below the baseline root,
                 // nothing else. `base /= vendor` is not safe on its own: an
                 // absolute value REPLACES base outright (fs::path semantics),
