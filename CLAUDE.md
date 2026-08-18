@@ -64,6 +64,7 @@ you are in.
 - [testing-architecture.md](docs/agent-rules/testing-architecture.md) — which of the renderer's 11 layers or the Functional axis a new test belongs to, and the registration contract.
 - [docs/testing.md](docs/testing.md) — *why* we test what we test: value heuristic, named anti-patterns, retirement criteria.
 - [reference-path-tracer.md](docs/agent-rules/reference-path-tracer.md) — the ground-truth oracle: how to ask "is it *correct*?" when a golden can only answer "did it change?".
+- [vendor-golden-baseline-crosscheck.md](docs/agent-rules/vendor-golden-baseline-crosscheck.md) — a per-vendor baseline set validates itself; measure the noise floor, split vendor from drift, and audit the recording's properties.
 - [single-mesh-visual-test-lighting.md](docs/agent-rules/single-mesh-visual-test-lighting.md) — a sparse visual-test scene renders the subject near-black; add a ground plane, then look at the PNG.
 - [live-verification-noise-floor.md](docs/agent-rules/live-verification-noise-floor.md) — measure the frame-to-frame noise floor before attributing any pixel difference to your change, and confirm the editor is drawing frames at all.
 - [procedural-generator-golden-coupling.md](docs/agent-rules/procedural-generator-golden-coupling.md) — a determinism/quality fix to a generator invalidates every golden that captured it; fix and rebake must ship in the same PR.
@@ -72,7 +73,7 @@ you are in.
 
 **Build & dependencies**
 
-- [build-trees-and-windows-asan.md](docs/agent-rules/build-trees-and-windows-asan.md) — never build the msvc and clangcl trees concurrently; plus per-user `mspdbsrv` stalls, the codegen build-graph wiring, and the local ASan recipe.
+- [build-trees-and-windows-asan.md](docs/agent-rules/build-trees-and-windows-asan.md) — never build the msvc and clangcl trees concurrently; plus per-user `mspdbsrv` stalls, the codegen build-graph wiring, the local ASan recipe, and (§5e) why both memory job pools vanish on Linux CI so a bare `--parallel` is a runaway there and nowhere else.
 - [vcpkg-dependency-management.md](docs/agent-rules/vcpkg-dependency-management.md) — read before adding, bumping or removing a dep: the CRT triplet mismatch is heap corruption, and three of the five traps are silent.
 - [asset-import-usd-alembic.md](docs/agent-rules/asset-import-usd-alembic.md) — the importer/exporter registry seam, and vendoring OpenUSD / Alembic / MaterialX into a static-everything build.
 
@@ -88,7 +89,7 @@ you are in.
 - [render-graph-transient-aliasing.md](docs/agent-rules/render-graph-transient-aliasing.md) — `WriteNewVersion` renames a physical resource; the stale-pool-read archetype, and the poison/disable levers that find it.
 - [render-pipeline-caches.md](docs/agent-rules/render-pipeline-caches.md) — process-wide render caches must invalidate on every topology reset, not just on a fingerprint change.
 - [two-phase-occlusion-culling.md](docs/agent-rules/two-phase-occlusion-culling.md) — phase 1 must test the previous frame's FINAL pyramid; pass order decides who still sees previous-frame depth.
-- [virtual-shadow-map-page-cache.md](docs/agent-rules/virtual-shadow-map-page-cache.md) — four page-cache invariants; break one and the frame still renders, wrong, as a different bug. §5 is general: a render-graph `Setup()` that branches on a runtime toggle is frozen by the frame-graph fingerprint cache.
+- [virtual-shadow-map-page-cache.md](docs/agent-rules/virtual-shadow-map-page-cache.md) — four page-cache invariants; break one and the frame still renders, wrong, as a different bug. §5 is general: a render-graph `Setup()` that branches on a runtime toggle is frozen by the frame-graph fingerprint cache. §8 covers the local-light (point/spot) domain, where a perspective face cannot be culled the way an ortho clip level can.
 - [cluster-lod-simplification.md](docs/agent-rules/cluster-lod-simplification.md) — a terminal group's boundary lock must outlive the level that created it; plus how to A/B a builder change the editor never runs.
 - [terrain-gpu-lod-quadtree.md](docs/agent-rules/terrain-gpu-lod-quadtree.md) — the GPU terrain descent: crack-freedom is a vertex-set property, and a gating flag no scene sets is a feature with zero coverage.
 - [camera-relative-rendering.md](docs/agent-rules/camera-relative-rendering.md) — every world-space GPU upload is a site; large-coordinate f32 cancellation shows up as vertex jitter and shadow swim.

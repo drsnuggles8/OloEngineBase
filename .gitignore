@@ -71,6 +71,15 @@ OloEditor/assets/tests/captures/
 # ARE committed — those are rewritten by every test run.
 OloEditor/assets/tests/visual/PathTracer_*_HiRes_*.png
 
+# L10 diagnostic-escalation artefacts: CompareOrBootstrap writes <name>.actual.png
+# (the frame that was rendered) and <name>.diff.png (the delta heatmap) next to a
+# baseline whenever a golden compare FAILS. They are outputs, not references, and
+# cross-vendor.yml already uploads them as CI artefacts. Eight were committed once
+# by accident -- byte-identical to the baselines beside them, so they read as a
+# second set of goldens while being pure noise (#735).
+OloEditor/assets/tests/golden/**/*.actual.png
+OloEditor/assets/tests/golden/**/*.diff.png
+
 # Functional test capture artefacts (scene snapshots on assertion failure)
 OloEngine/tests/Functional/captures/
 

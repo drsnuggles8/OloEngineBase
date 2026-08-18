@@ -33,12 +33,21 @@ void main()
     if (!vsmMetaIsAllocated(meta))
         return;
 
-    uint entry = b_PageTable[vsmPageIndex(vsmUnpackMetaOwnerLevel(meta), vsmUnpackMetaOwnerPage(meta))];
+    // vsmMetaOwnerPageIndex forks on the meta entry's LOCAL bit (issue #703).
+    // Resolving a local owner as a clip level here would read some directional
+    // page's dirty flag instead — so a local page would be cleared when an
+    // unrelated page was dirty, and skipped when it was not. The visible result
+    // is a light whose shadow flickers with the sun's page churn.
+    uint entry = b_PageTable[vsmMetaOwnerPageIndex(meta)];
     if (!vsmPageIsDirty(entry))
         return; // cached — its texels are still valid, which is the whole point
 
     if (gl_LocalInvocationIndex == 0u)
+    {
         atomicAdd(b_PagesDrawn, 1u);
+        if (vsmMetaIsLocal(meta))
+            atomicAdd(b_LocalPagesDrawn, 1u);
+    }
 
     int tableRes = VSM_PHYSICAL_PAGE_TABLE_RES;
     ivec2 physicalPage = ivec2(int(physicalIdx % uint(tableRes)), int(physicalIdx / uint(tableRes)));

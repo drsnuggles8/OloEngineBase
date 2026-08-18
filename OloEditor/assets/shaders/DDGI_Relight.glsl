@@ -270,6 +270,20 @@ void main()
                 u_ShadowMapResolution,
                 u_SoftShadowMode);
         }
+        // KNOWN LIMITATION (issue #703): the local-light branches below stay on
+        // the shadow ATLAS. With VSM local lights on, `u_AtlasEntryCount` is zero
+        // by construction, so these branches do not run and probe irradiance
+        // receives local light UNSHADOWED — a slightly over-bright indirect term,
+        // not a visible artefact, and the direct lighting in the lit passes is
+        // shadowed correctly either way.
+        //
+        // Not wired here on purpose rather than by oversight: this pass never
+        // calls VirtualShadowMap::BindForSampling (the two call sites are the
+        // forward draw path and DeferredLightingPass), so it would be relying on
+        // the VSM buffers happening to still be bound from the shadow pass — true
+        // today, unverified, and exactly the kind of ordering dependency that
+        // breaks silently when someone reorders a frame. Wire it by giving this
+        // pass its own publish, not by assuming the binding survived.
         else if (lightType == SPOT_LIGHT)
         {
             int atlasEntry = int(u_Lights[i].direction.w);

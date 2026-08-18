@@ -312,6 +312,37 @@ namespace OloEngine
             if (ImGui::SliderFloat("Normal Bias (m)##vsm", &vsm.NormalBias, 0.0f, 0.5f, "%.4f"))
                 vsmChanged = true;
 
+            ImGui::Spacing();
+            if (ImGui::Checkbox("Local Lights (point / spot)##vsm", &vsm.LocalLights))
+                vsmChanged = true;
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Point and spot lights read the same page table instead of the\n"
+                                  "budgeted 4096^2 atlas (issue #703). No 16-light / 32-entry cap and\n"
+                                  "no priority rank: a light costs the pages its on-screen footprint\n"
+                                  "asks for.\n\n"
+                                  "Off keeps the atlas, so 'VSM for the sun, atlas for the lamps'\n"
+                                  "stays available.");
+            }
+
+            if (vsm.LocalLights)
+            {
+                if (ImGui::SliderFloat("Local Detail Bias##vsm", &vsm.LocalDetailBias, 0.25f, 4.0f, "%.2f"))
+                    vsmChanged = true;
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Scales the mip a local light resolves to. >1 is coarser and\n"
+                                      "cheaper, <1 sharper. Changing it invalidates every cached page —\n"
+                                      "the page MARKER and the SAMPLER both run this heuristic and must\n"
+                                      "agree on it.");
+                }
+                if (ImGui::SliderFloat("Local Depth Bias (m)##vsm", &vsm.LocalDepthBiasMeters, 0.0f, 0.25f,
+                                       "%.4f"))
+                {
+                    vsmChanged = true;
+                }
+            }
+
             // 4-7 are the bring-up views: they take the sampler apart so a wrong
             // frame says WHICH half is wrong. "Shadow factor" is the important
             // one — it renders the number the lit pass receives, so a shadow that
@@ -341,6 +372,24 @@ namespace OloEngine
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "cull overflow %u", stats.CullOverflows);
             ImGui::Text("draw instances %u  VRAM %.1f MB", stats.DrawInstances,
                         static_cast<f64>(shadowMap.GetVirtualShadowMap().GetVRAMBytes()) / (1024.0 * 1024.0));
+
+            // Issue #703's two acceptance criteria, as numbers you can read off a
+            // running scene: "lights" against the atlas' 16-light / 32-entry cap,
+            // and "starved" — the flag AtlasCasterRecord::Allocated used to
+            // record — which is the one that has to stay at zero.
+            if (vsm.LocalLights)
+            {
+                const auto& virtualShadowMap = shadowMap.GetVirtualShadowMap();
+                ImGui::Text("local lights %u  layers %u/%u", virtualShadowMap.GetLocalLightCount(),
+                            virtualShadowMap.GetLocalLayerCount(), VSM::kMaxLocalLayers);
+                ImGui::Text("local pages drawn %u / resident %u", stats.LocalPagesDrawn,
+                            stats.LocalPagesResident);
+                if (const u32 starved = virtualShadowMap.GetLocalLightsStarved(); starved > 0)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                       "local starved %u — layer pool exhausted", starved);
+                }
+            }
         }
 
         if (vsmChanged)

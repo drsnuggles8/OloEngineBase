@@ -15,11 +15,16 @@
 // C++ twin: VSM::DrawInstance.
 // =============================================================================
 
+// The DIRECTIONAL raster reads ClipLevel; the LOCAL one reads LocalLayer
+// (issue #703). One record type rather than two because the two rasters are
+// otherwise identical consumers — same transform, same buffer, same
+// run-base-in-a-uniform trick — and they write disjoint runs, so a record is
+// only ever read by the raster that produced it.
 struct VSMDrawInstance
 {
     mat4 Transform; // render-relative model matrix
     uint ClipLevel;
-    uint _pad0;
+    uint LocalLayer;
     uint _pad1;
     uint _pad2;
 };

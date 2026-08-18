@@ -30,10 +30,12 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 // TEX_POSTPROCESS_DEPTH — this frame's scene depth, bound by the mark pass.
 layout(binding = 19) uniform sampler2D u_VSMSceneDepth;
 
-void vsmMarkPage(int clipLevel, ivec2 wrappedPage)
+// `record` is the request payload the allocator will replay: (level-or-layer,
+// pageX, pageY, flags). Shared by both domains so the VISITED / REQUESTS
+// bookkeeping — which is what the LRU and the one-request-per-page collapse rest
+// on — cannot be implemented twice and drift.
+void vsmMarkPageAt(int idx, uvec4 record)
 {
-    int idx = vsmPageIndex(clipLevel, wrappedPage);
-
     uint prev = atomicOr(b_PageTable[idx], VSM_PAGE_VISITED_BIT);
     if (vsmPageIsAllocated(prev))
     {
@@ -51,7 +53,74 @@ void vsmMarkPage(int clipLevel, ivec2 wrappedPage)
     atomicAdd(b_PagesRequested, 1u);
     uint slot = atomicAdd(b_RequestCount, 1u);
     if (slot < uint(VSM_MAX_REQUESTS))
-        b_Requests[slot] = uvec4(uint(clipLevel), uint(wrappedPage.x), uint(wrappedPage.y), 0u);
+        b_Requests[slot] = record;
+}
+
+void vsmMarkPage(int clipLevel, ivec2 wrappedPage)
+{
+    vsmMarkPageAt(vsmPageIndex(clipLevel, wrappedPage),
+                  uvec4(uint(clipLevel), uint(wrappedPage.x), uint(wrappedPage.y), 0u));
+}
+
+void vsmMarkLocalPage(int layer, int mip, ivec2 page)
+{
+    vsmMarkPageAt(vsmLocalPageIndex(layer, mip, page),
+                  uvec4(uint(layer), uint(page.x), uint(page.y), VSM_REQUEST_LOCAL_BIT | uint(mip)));
+}
+
+// The local half of the marking pass (issue #703).
+//
+// It walks LIGHTS, not layers, and that is a performance decision with a
+// correctness consequence worth stating: a point light's six faces are six
+// consecutive layers, and only ONE of them can contain a given world point, so
+// the face is picked by dominant axis and only that layer is projected. Looping
+// over layers instead would cost six matrix multiplies per light per texel — at
+// a 960x540 sample grid and 64 lights, ~130M of them a frame.
+//
+// The cheap reject is the light's RANGE, tested before any matrix work, which is
+// what keeps a scene with many lights affordable: a texel is inside a handful of
+// light spheres, not all of them.
+void vsmMarkLocalLights(vec3 worldPos, float distanceToCamera)
+{
+    int lightCount = min(VSM_LOCAL_LIGHT_COUNT, VSM_MAX_LOCAL_LAYERS);
+    for (int i = 0; i < lightCount; ++i)
+    {
+        uint head = b_LocalLightHead[i];
+        int base = VSM_LOCAL_HEAD_LAYER(head);
+        if (base < 0 || base >= VSM_MAX_LOCAL_LAYERS)
+            continue;
+
+        vec4 positionRange = b_LocalLights[base].PositionRange;
+        vec3 toPoint = worldPos - positionRange.xyz;
+        float distanceToLight = length(toPoint);
+        if (distanceToLight > positionRange.w)
+            continue;
+
+        int layer = VSM_LOCAL_HEAD_IS_POINT(head) ? (base + vsmCubeFace(toPoint)) : base;
+        if (layer >= VSM_MAX_LOCAL_LAYERS)
+            continue;
+
+        vec2 uv;
+        float depth;
+        float viewDistance;
+        if (!vsmProjectIntoLocal(worldPos, layer, uv, depth, viewDistance))
+            continue;
+
+        int selected = vsmLocalMipForDistances(distanceToCamera, distanceToLight, VSM_LOCAL_DETAIL_BIAS);
+
+        // The selected mip AND the next coarser one, for exactly the reason the
+        // directional marker marks two clip levels: the sampler falls back to
+        // coarser mips when the fine page is missing (marking runs a frame
+        // behind), and an unmarked fallback is evicted — which turns a graceful
+        // blur into a hole.
+        for (int step = 0; step < 2; ++step)
+        {
+            int mip = min(selected + step, VSM_LOCAL_MIP_COUNT - 1);
+            vsmMarkLocalPage(layer, mip, vsmLocalUVToPage(uv, mip));
+            if (mip == VSM_LOCAL_MIP_COUNT - 1)
+                break; // clamped — the second iteration would mark the same page
+        }
+    }
 }
 
 void main()
@@ -70,19 +139,29 @@ void main()
     vec4 unprojected = u_VSMInverseViewProjection * ndc;
     vec3 worldPos = unprojected.xyz / unprojected.w;
 
-    if (length(worldPos - u_VSMCameraPosition.xyz) > VSM_MAX_SHADOW_DISTANCE)
+    float distanceToCamera = length(worldPos - u_VSMCameraPosition.xyz);
+    if (distanceToCamera > VSM_MAX_SHADOW_DISTANCE)
         return;
 
-    int selected = vsmSelectClipLevel(worldPos);
-    for (int i = 0; i < 2; ++i)
+    // The DIRECTIONAL gate, not a global one: a local light's own range is what
+    // bounds its marking, and gating local lights on VSM_DIRECTIONAL_ENABLED too
+    // would leave every lamp in a sunless scene unshadowed.
+    if (VSM_DIRECTIONAL_ENABLED != 0)
     {
-        int level = min(selected + i, VSM_CLIP_LEVELS - 1);
-        vec2 clipUV;
-        float clipDepth;
-        if (!vsmProjectIntoClip(worldPos, level, clipUV, clipDepth))
-            continue;
-        vsmMarkPage(level, vsmUVToWrappedPage(clipUV, level));
-        if (level == VSM_CLIP_LEVELS - 1)
-            break; // clamped — the second iteration would mark the same page
+        int selected = vsmSelectClipLevel(worldPos);
+        for (int i = 0; i < 2; ++i)
+        {
+            int level = min(selected + i, VSM_CLIP_LEVELS - 1);
+            vec2 clipUV;
+            float clipDepth;
+            if (!vsmProjectIntoClip(worldPos, level, clipUV, clipDepth))
+                continue;
+            vsmMarkPage(level, vsmUVToWrappedPage(clipUV, level));
+            if (level == VSM_CLIP_LEVELS - 1)
+                break; // clamped — the second iteration would mark the same page
+        }
     }
+
+    if (VSM_LOCAL_ENABLED != 0)
+        vsmMarkLocalLights(worldPos, distanceToCamera);
 }

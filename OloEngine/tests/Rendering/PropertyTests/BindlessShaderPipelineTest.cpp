@@ -811,6 +811,10 @@ void main()
               "the fallback because this declaration is slot-based — converting the declaration "
               "without converting every VSM raster/clear entry point would stage an offset and bind "
               "nothing" },
+            { "include/VirtualShadowLocalRasterStage.glsl",
+              "shared header, STORAGE IMAGE (issue #703): the LOCAL-light half of the same pool and "
+              "the same slot-based declaration as VirtualShadowRasterStage above, bound through the "
+              "seam's fallback in VirtualShadowMap::BindPhysicalPoolImage" },
             { "compute/VSM_ClearDirtyPages.comp",
               "STORAGE IMAGE (issue #702): same pool, same slot-based declaration, bound through the "
               "seam's fallback in VirtualShadowMap::BindPhysicalPoolImage" },
