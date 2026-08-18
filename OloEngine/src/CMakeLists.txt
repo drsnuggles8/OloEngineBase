@@ -842,6 +842,15 @@
 		"OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 		"OloEngine/Renderer/LightCulling/TiledForwardPlus.cpp"
 
+		"OloEngine/Renderer/GPUCache/GPUBufferLock.h"
+		"OloEngine/Renderer/GPUCache/GPUBufferLock.cpp"
+		"OloEngine/Renderer/GPUCache/GPUCachePolicy.h"
+		"OloEngine/Renderer/GPUCache/GPUCacheStorage.h"
+		"OloEngine/Renderer/GPUCache/GPUCircularBuffer.h"
+		"OloEngine/Renderer/GPUCache/GPUHashMap.h"
+		"OloEngine/Renderer/GPUCache/GPUPagedBuffer.h"
+		"OloEngine/Renderer/GPUCache/GPUPagedCache.h"
+
 		"OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMesh.cpp"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"

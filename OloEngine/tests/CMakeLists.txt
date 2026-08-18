@@ -147,6 +147,9 @@ add_executable(OloEngine-Tests
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/GPUPrefixSumTest.cpp
 		Rendering/GPUPrefixSumPerfProbe.cpp
+		Rendering/GPUHashMapTest.cpp
+		Rendering/GPUPagedCacheTest.cpp
+		Rendering/GPUCacheShaderResolveTest.cpp
 		Rendering/GPUParticleCompactionTest.cpp
 		Rendering/ShaderDebugDrawContractTest.cpp
 		Rendering/ShaderDebugDrawExpansionTest.cpp

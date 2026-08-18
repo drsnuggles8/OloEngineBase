@@ -4,6 +4,8 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/GPUCache/GPUCircularBuffer.h"
+#include "OloEngine/Renderer/GPUCache/GPUPagedCache.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 
@@ -12,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -20,6 +23,49 @@ namespace OloEngine
 {
     class MeshSource;
     class StorageBuffer;
+
+    // @brief Eviction policy adapter that lets VirtualMeshRegistry keep its
+    // exact residency semantics (pinning, touched-this-frame protection,
+    // frame-stamped LRU with lowest-page-index tie-break) while the slot
+    // arena itself is managed by the shared GPUPagedCache substrate (#704).
+    // The registry owns the page metadata the decision needs, so victim
+    // selection is delegated back to it through m_SelectVictim; the per-object
+    // bookkeeping hooks are no-ops because the registry stamps LastUsedFrame
+    // itself in LoadPage/ProcessResidency.
+    template<typename ObjectID>
+    class VirtualPageEvictionPolicy
+    {
+      public:
+        struct Handle
+        {
+        };
+
+        explicit VirtualPageEvictionPolicy(u32 /*capacity*/) {}
+
+        void SetVictimSelector(std::function<bool(ObjectID, ObjectID&)> selector)
+        {
+            m_SelectVictim = std::move(selector);
+        }
+
+        void OnAccess(Handle&) noexcept {}
+        [[nodiscard]] Handle OnInsert(const ObjectID&) noexcept
+        {
+            return {};
+        }
+        void OnRemove(Handle&) noexcept {}
+
+        [[nodiscard]] bool TrySelectVictim(const ObjectID& exclude, ObjectID& outVictim) noexcept
+        {
+            // An unwired selector would silently pin the cache at its current
+            // contents (every allocation under pressure fails, geometry stays
+            // at the coarse cut with no error anywhere) — fail loudly instead.
+            OLO_CORE_ASSERT(m_SelectVictim, "VirtualPageEvictionPolicy used before SetVictimSelector");
+            return m_SelectVictim && m_SelectVictim(exclude, outVictim);
+        }
+
+      private:
+        std::function<bool(ObjectID, ObjectID&)> m_SelectVictim;
+    };
 
     // Debug / test routing control for the compute software rasterizer.
     enum class VirtualSwRasterMode : u8
@@ -366,6 +412,12 @@ namespace OloEngine
 
         static constexpr u32 kNoSlot = 0xFFFFFFFFu;
 
+        // The slot-arena residency directory type (#704): objects are pooled
+        // page indices, each holding exactly one substrate page (= one slot of
+        // the uniform vertex/index arenas). The Atom type is irrelevant — the
+        // cache runs directory-only; payloads live in the arenas.
+        using SlotCache = GPUPagedCache<u64, u8, VirtualPageEvictionPolicy>;
+
         // Runtime state of one streamable page (pooled numbering).
         struct PageRuntime
         {
@@ -382,9 +434,19 @@ namespace OloEngine
         void RebuildPools();
         void EnsureFrameBuffers();
         bool LoadPage(u32 pageIndex);
-        void EvictPage(u32 pageIndex);
-        [[nodiscard]] bool CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
-                                           const void* payload, u64 bytes);
+        // Bookkeeping when the slot cache's policy reclaims a page's slot under
+        // budget pressure (the GPUPagedCache eviction listener — issue #704).
+        void OnResidencyEvicted(u32 pageIndex);
+        // The exact pre-#704 LRU victim scan, now invoked THROUGH the slot
+        // cache's policy: resident, not pinned, not touched this frame (or
+        // loaded this frame), oldest LastUsedFrame wins, lowest page index
+        // breaks ties.
+        [[nodiscard]] bool SelectResidencyVictim(u64 excludePage, u64& outPage) const;
+        // Stages `payload` through the fence-locked upload ring into the target
+        // buffer, degrading to a direct upload when the ring is unavailable or
+        // too small — every path succeeds, hence no result.
+        void CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
+                             const void* payload, u64 bytes);
 
         std::unordered_map<AssetHandle, MeshParts> m_EntryLookup;
         std::vector<MeshEntry> m_Entries; // stable order => deterministic pool layout
@@ -414,7 +476,13 @@ namespace OloEngine
         std::vector<u32> m_PageOfPooledGroup;                  // pooled group -> page index
         std::vector<VirtualClusterGpuRecord> m_PooledClusters; // CPU mirror, mesh-local bases
         std::vector<u32> m_GroupStatesCpu;
-        std::vector<u32> m_FreeSlots;
+        // Slot-arena residency directory (#704): one GPUPagedCache "page" per
+        // slot, one single-page object per RESIDENT VirtualMeshRegistry page
+        // (keyed by pooled page index). Directory-only + HostOnly: the payload
+        // stays in the device-local vertex/index arenas below, and no shader
+        // consults this map (the cull reads SSBO_VIRTUAL_GROUP_STATES), so no
+        // GPU mirror is paid for.
+        SlotCache m_SlotCache;
         u32 m_SlotVertexCapacity = 0;
         u32 m_SlotIndexCapacity = 0;
         u32 m_SlotCount = 0;
@@ -423,11 +491,11 @@ namespace OloEngine
         u64 m_FrameCounter = 0;
         VirtualResidencyStats m_ResidencyStats;
 
-        // Persistent-mapped upload ring (CPU staging -> arena copies)
-        RHI::ResourceHandle m_RingBuffer{};
-        u8* m_RingPtr = nullptr;
-        u64 m_RingSize = 0;
-        u64 m_RingHead = 0;
+        // Persistent-mapped upload ring (CPU staging -> arena copies). The
+        // substrate's fence-locked ring (#704): a wrap now waits only on the
+        // fences still covering the reused range, where the old hand-rolled
+        // ring stalled the whole device (WaitForDeviceIdle).
+        GPUCircularBuffer m_UploadRing;
 
         // Per-frame buffers (grow-only)
         Ref<StorageBuffer> m_InstanceBuffer; // SSBO_VIRTUAL_INSTANCES
