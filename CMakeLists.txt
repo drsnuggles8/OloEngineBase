@@ -308,16 +308,25 @@ set(OLO_ARCHIVE_FAIL_PERCENT "90" CACHE STRING
 foreach(_olo_archive_var OLO_ARCHIVE_WARN_PERCENT OLO_ARCHIVE_FAIL_PERCENT)
     # Same rule and reason as OLO_LINK_JOBS above: a value CMake would accept but that silently
     # disables the check (empty, 0, or past the format limit) is worse than one that fails here.
-    if(NOT ${_olo_archive_var} MATCHES "^[1-9][0-9]?$|^100$")
+    #
+    # 100 is rejected along with 0, and for the same reason rather than as an off-by-one: an
+    # archive can never REACH 100% of 4 GiB, because lib.exe refuses to write one at or past the
+    # limit — that refusal is the whole premise of this check. A threshold of 100 is therefore a
+    # threshold that can never fire, which is exactly the silently-disabled case above.
+    if(NOT ${_olo_archive_var} MATCHES "^[1-9][0-9]?$")
         message(FATAL_ERROR
-            "${_olo_archive_var} must be an integer percentage in 1..100 (got "
+            "${_olo_archive_var} must be an integer percentage in 1..99 (got "
             "'${${_olo_archive_var}}'). It bounds how close a static archive may get to the "
-            "4 GiB COFF limit; an out-of-range value would leave the archive unguarded.")
+            "4 GiB COFF limit; an out-of-range value would leave the archive unguarded, and 100 "
+            "is unreachable because lib.exe never writes an archive that large.")
     endif()
 endforeach()
-if(OLO_ARCHIVE_WARN_PERCENT GREATER OLO_ARCHIVE_FAIL_PERCENT)
+# GREATER_EQUAL, not GREATER: cmake/CheckArchiveSize.cmake tests the fail threshold first and the
+# warn threshold in an elseif, so equal thresholds do not merely make the warning redundant — they
+# make it unreachable, which is the same defect this message already describes.
+if(OLO_ARCHIVE_WARN_PERCENT GREATER_EQUAL OLO_ARCHIVE_FAIL_PERCENT)
     message(FATAL_ERROR
-        "OLO_ARCHIVE_WARN_PERCENT (${OLO_ARCHIVE_WARN_PERCENT}) must not exceed "
+        "OLO_ARCHIVE_WARN_PERCENT (${OLO_ARCHIVE_WARN_PERCENT}) must be strictly less than "
         "OLO_ARCHIVE_FAIL_PERCENT (${OLO_ARCHIVE_FAIL_PERCENT}) — the build would fail before "
         "ever emitting the warning that is supposed to precede it.")
 endif()
