@@ -104,6 +104,13 @@ run rather than only the nightly that owns that hardware.
 **A guard failing on a vendor baseline is far stronger evidence than any RMSE delta**: it
 means that recording froze a defect, and the fix is a rebake plus a bug, not a threshold.
 
+The same file also cross-compares the sets against each other
+(`VendorSetsAgreeWithTheSharedSet`), which is the check that catches a divergence both sets
+would otherwise keep to themselves — see §8. Property audit and parity answer different
+questions: the audit asks "is this recording of a correct frame?", parity asks "do the
+vendors still agree?", and a defect in shared vendor-neutral code passes the second while
+failing the first.
+
 The audit deliberately does **not** mirror the splatmap's first guard, which compares the
 blended RGBA16F intermediate against a CPU-authored `Σ wᵢ·layerᵢ`. A recorded 8-bit PNG does
 not carry that intermediate. What survives the tone map is the per-edge layer signature, and
@@ -190,10 +197,11 @@ Run 2026-08-17 on the RTX 4090 dev box, against the AMD/Mesa set committed in `5
 are images of the same scene, and `AtmosphereSky.glsl`'s GL path is untouched (the changes
 since are a Vulkan-only `#ifdef` branch and comments).
 
-**Verdict: all 17 AMD baselines stand — no rebake, no defect, and the AMD/NVIDIA agreement is
-tight enough that per-vendor scoping is no longer buying anything.** The one thing that did
-turn up needing a rebake is the *shared* Atmosphere set, which has drifted from HEAD; see
-"What to do about it" below.
+**Verdict: all 17 AMD baselines stand — no rebake, no defect.** The two vendors agree far
+inside every threshold the suite applies. What that does *not* justify is deleting the
+per-vendor sets; see "What to do about it" below for why the answer is to keep them **and**
+cross-compare them. The one thing that did turn up needing a rebake is the *shared*
+Atmosphere set, which has drifted from HEAD.
 
 ### The four renderer goldens
 
@@ -270,21 +278,44 @@ being trusted — a saturated ramp, an unblended FXAA edge, a hard-thresholded s
 swizzled splatmap — and each fired with the diagnostic naming that defect class, while the
 real sets passed in the same run.
 
-### What to do about it
+### What to do about it — keep scoping, and cross-compare
 
-1. **The four renderer goldens: vendor scoping is unnecessary.** Fresh NVIDIA@HEAD is
-   byte-identical to the shared set and AMD differs by 1 LSB — 2.5× inside `kRmsePassBelow`
-   and 12× inside `kRmseFailAbove`. `assets/tests/golden/amd/` can go.
-2. **The thirteen Atmosphere captures: vendor scoping is also unnecessary** — vendor ≤0.72 on
-   a noise floor of ≤0.30 against a threshold of 8.0. **But rebake the shared set at HEAD
-   first**, because it currently carries 0.87–2.60 of accumulated drift that would otherwise
-   be charged against AMD's budget for no reason.
-3. Dropping the scoping is **not** just deleting the directories — `gpu-conformance-amd.yml`
-   passes `--olo-golden-vendor=amd`, and with no `amd/` directory every golden-backed test on
-   that runner fails with "baseline missing". The flag has to come out in the same change.
+The tempting conclusion from these numbers is "the vendors agree, so drop per-vendor scoping
+and let AMD compare against the shared baselines". That is **not** the right move, because it
+trades one property for another:
 
-That change is **deliberately not made in this PR**: it can only be validated on the AMD
-runner, which this cross-check could not reach. The evidence for making it is above.
+- a per-vendor baseline gives a **tight self-comparison** — a regression on that vendor shows
+  up with full sensitivity, because no cross-vendor difference is eating the threshold;
+- a shared baseline gives **cross-vendor conformance** — but every comparison now carries the
+  vendor term, and the budget for a real regression shrinks by that much.
+
+You can have both, because **both baseline sets are committed**: keep each vendor checking
+against itself, *and* compare the sets against each other. That second check needs no GPU and
+no access to the other vendor's hardware — it is a file-to-file comparison of artefacts
+already in the repo, so it gates every CI run.
+
+That is what `GoldenBaselineAudit.VendorSetsAgreeWithTheSharedSet` does, in two tiers,
+because the two available metrics fail in opposite directions:
+
+| tier | frames | gate | why |
+|---|---|---|---|
+| 1 | the 4 renderer goldens | **pixel** — RMSE < `kRmsePassBelow`, max delta ≤ 2 | procedural and drift-free, so a pixel gate means what it says (measured: 1 LSB) |
+| 2 | the 13 Atmosphere captures | **derived** — per-band luma delta < 2.0, plus a loose RMSE ≤ 8.0 backstop | pixels here measure the calendar more than the silicon (measured: 2.60 apart, only 0.72 of it vendor) |
+
+Tier 2 is the whole lesson of §3 turned into a gate. Band luminances are **vendor-sensitive
+but drift-insensitive** — across a month of bake-date skew they agreed to 0.43/255 while
+pixel RMSE ranged to 2.60 — so they can be gated tightly without the check firing every time
+one set is rebaked and the other isn't. The pixel backstop stays deliberately loose: it is
+sized against the Atmosphere test's own threshold, to catch a structural divergence (a dead
+star field, fog swallowing the frame, a UI that vanished) rather than bake-date skew.
+
+Both bars are expressed as *"the vendor set would pass the shared set's own gate"* rather
+than as invented constants, so they move if and only if those gates move.
+
+**Still worth doing separately:** rebake the shared Atmosphere set at HEAD. It carries
+0.87–2.60 of accumulated drift. Nothing is red because of it — the compare threshold is 8.0 —
+but that drift is the reason tier 2 cannot be tightened further, and it is the same
+normalised-drift pattern #754 was about.
 
 ### The one thing this cross-check could not do
 

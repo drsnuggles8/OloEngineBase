@@ -63,6 +63,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <iterator>
@@ -284,6 +285,92 @@ namespace OloEngine::Tests
                 return false;
             return true;
         }
+
+        // ── cross-vendor comparison (§ VendorSetsAgreeWithTheSharedSet) ──
+        //
+        // Two metrics, because they fail in opposite directions and the whole
+        // point of the cross-vendor check is to not confuse them:
+        //
+        //   * PIXEL metrics are vendor-sensitive AND drift-sensitive. Two sets
+        //     baked a month apart differ far more from calendar than from
+        //     silicon (#735 measured 2.60 of drift against 0.72 of vendor), so
+        //     a tight pixel gate across vendors reports bake-date skew as a
+        //     conformance bug.
+        //   * DERIVED band quantities are vendor-sensitive but drift-INsensitive
+        //     — across that same month of skew the worst band-luminance
+        //     disagreement was 0.43/255, while pixel RMSE ranged to 2.60.
+        //
+        // So the frames that are procedural and drift-free (the four renderer
+        // goldens) get the tight pixel gate, and the scene captures get the
+        // derived gate plus a loose pixel backstop.
+
+        // GoldenImageTests::ComputeRgbRmse — RGB RMSE normalised to [0, 1].
+        [[nodiscard]] f32 ComputeRgbRmseUnit(const Image& a, const Image& b)
+        {
+            const std::size_t pixels = a.m_Rgba.size() / 4;
+            f64 sumSq = 0.0;
+            for (std::size_t i = 0; i < pixels; ++i)
+            {
+                for (u32 c = 0; c < 3; ++c)
+                {
+                    const f64 d = (static_cast<f64>(a.m_Rgba[i * 4 + c]) -
+                                   static_cast<f64>(b.m_Rgba[i * 4 + c])) /
+                                  255.0;
+                    sumSq += d * d;
+                }
+            }
+            return static_cast<f32>(std::sqrt(sumSq / static_cast<f64>(pixels * 3)));
+        }
+
+        // AtmosphereVisualEvidenceTest::Rgba8Rmse — RGB RMSE in 0..255 units.
+        [[nodiscard]] f64 ComputeRgbRmse255(const Image& a, const Image& b)
+        {
+            f64 sumSq = 0.0;
+            std::size_t count = 0;
+            for (std::size_t i = 0; i + 3 < a.m_Rgba.size(); i += 4)
+            {
+                for (u32 c = 0; c < 3; ++c)
+                {
+                    const f64 d = static_cast<f64>(a.m_Rgba[i + c]) - static_cast<f64>(b.m_Rgba[i + c]);
+                    sumSq += d * d;
+                    ++count;
+                }
+            }
+            return count ? std::sqrt(sumSq / static_cast<f64>(count)) : 0.0;
+        }
+
+        [[nodiscard]] u32 MaxChannelDelta(const Image& a, const Image& b)
+        {
+            u32 worst = 0;
+            for (std::size_t i = 0; i + 3 < a.m_Rgba.size(); i += 4)
+            {
+                for (u32 c = 0; c < 3; ++c)
+                {
+                    const i32 d = static_cast<i32>(a.m_Rgba[i + c]) - static_cast<i32>(b.m_Rgba[i + c]);
+                    worst = std::max(worst, static_cast<u32>(d < 0 ? -d : d));
+                }
+            }
+            return worst;
+        }
+
+        // True when both images loaded AND have identical dimensions. A size
+        // mismatch is reported by the caller as its own failure rather than
+        // silently skipped: it means one side was baked at a different
+        // resolution, which no threshold should paper over.
+        [[nodiscard]] bool LoadPairForCompare(const fs::path& lhs, const fs::path& rhs,
+                                              Image& outLhs, Image& outRhs, bool& outSizeMismatch)
+        {
+            outSizeMismatch = false;
+            if (!LoadForAudit(lhs, outLhs) || !LoadForAudit(rhs, outRhs))
+                return false;
+            if (outLhs.m_Width != outRhs.m_Width || outLhs.m_Height != outRhs.m_Height)
+            {
+                outSizeMismatch = true;
+                return false;
+            }
+            return true;
+        }
+
     } // namespace
 
     // =========================================================================
@@ -652,6 +739,184 @@ namespace OloEngine::Tests
                 << noonWarmth << ")";
         }
         EXPECT_GT(audited, 0u) << "no Atmosphere baseline set was audited — the audit cannot pass vacuously";
+    }
+
+    // =========================================================================
+    // Cross-vendor parity — each vendor set against the shared set.
+    //
+    // The per-vendor audits above answer "did THIS vendor change?" with full
+    // sensitivity, because each set is only ever compared against itself. What
+    // that structurally cannot answer is "do the two vendors still agree?" —
+    // and a conformance divergence lives exactly in that blind spot: the bake
+    // records it, that vendor's nightly then compares green against its own
+    // recording forever, and nothing contrasts the two sets. This test is that
+    // contrast, and it needs no GPU and no second machine because BOTH sets are
+    // committed.
+    //
+    // Two tiers, because the two metrics fail in opposite directions:
+    //
+    //   Tier 1 — the four renderer goldens: TIGHT PIXEL parity. These frames
+    //   are procedural (no scene load, no assets, nothing accumulating across
+    //   frames) and drift-free, so a pixel gate here means what it says. The
+    //   bar is GoldenImageTests' own kRmsePassBelow: the vendor golden must sit
+    //   close enough to the shared one that it would PASS that test's compare.
+    //   #735 measured max |delta| = 1 LSB, RMSE <= 0.0016.
+    //
+    //   Tier 2 — the Atmosphere captures: DERIVED band parity plus a loose
+    //   pixel backstop. A tight pixel gate would be actively wrong here, and
+    //   this is the trap the whole #735 cross-check had to untangle: the two
+    //   sets are NOT required to be baked at the same commit, and when they are
+    //   not, pixel distance measures the calendar more than the silicon. The
+    //   AMD and shared sets sat 2.60 apart in RMSE — of which only 0.72 was
+    //   vendor, the rest a month of drift. Band luminances do not have that
+    //   problem: across that same month they agreed to 0.43/255. So the physics
+    //   gets the tight gate, and the pixels get a backstop sized to catch
+    //   structural divergence (a dead star field, fog swallowing the frame, a
+    //   UI that vanished) rather than bake-date skew.
+    // =========================================================================
+    TEST(GoldenBaselineAudit, VendorSetsAgreeWithTheSharedSet)
+    {
+        const std::vector<BaselineSet> sets = DiscoverBaselineSets();
+        ASSERT_FALSE(sets.empty());
+        const BaselineSet& shared = sets.front();
+        ASSERT_EQ(shared.m_Label, "shared");
+
+        // Not a failure: a repo with no per-vendor set is exactly the end state
+        // if vendor scoping is ever dropped, and this test simply has nothing
+        // to do then. It must not become the reason that change cannot land.
+        if (sets.size() == 1)
+        {
+            GTEST_SKIP() << "no per-vendor baseline set on disk — nothing to cross-compare";
+        }
+
+        // Both bars are stated as "the vendor set would pass the shared set's
+        // OWN gate" rather than as invented numbers, so they move if and only
+        // if those gates move: kRmsePassBelow (GoldenImageTests) and
+        // kGoldenRmseThreshold (AtmosphereVisualEvidenceTest).
+        constexpr f32 kGoldenRmseUnit = 0.004f;
+        constexpr u32 kGoldenMaxDelta = 2;
+        constexpr f64 kBandLumaDelta = 2.0;
+        constexpr f64 kAtmosphereRmse255 = 8.0;
+
+        static constexpr std::array<const char*, 4> kRendererGoldens{
+            "fxaa_hard_edge.png",
+            "scene_shadow_integration.png",
+            "scene_splatmap_integration.png",
+            "tonemap_reinhard_hdr_ramp.png",
+        };
+        static constexpr std::array<const char*, 13> kAtmosphereCells{
+            "Atmosphere_DawnClear.png",
+            "Atmosphere_DawnOvercast.png",
+            "Atmosphere_DawnStorm.png",
+            "Atmosphere_NoonClear.png",
+            "Atmosphere_NoonOvercast.png",
+            "Atmosphere_NoonStorm.png",
+            "Atmosphere_NoonClearAerial.png",
+            "Atmosphere_DuskClear.png",
+            "Atmosphere_DuskOvercast.png",
+            "Atmosphere_DuskStorm.png",
+            "Atmosphere_NightClear.png",
+            "Atmosphere_NightOvercast.png",
+            "Atmosphere_NightStorm.png",
+        };
+        struct Band
+        {
+            const char* m_Name;
+            u32 m_Lo;
+            u32 m_Hi;
+        };
+        static constexpr std::array<Band, 3> kBands{
+            Band{ "sky", 0u, 18u },
+            Band{ "horizon", 38u, 46u },
+            Band{ "ground", 75u, 100u },
+        };
+
+        u32 comparisons = 0;
+        for (std::size_t i = 1; i < sets.size(); ++i)
+        {
+            const BaselineSet& vendor = sets[i];
+            SCOPED_TRACE("cross-vendor: " + vendor.m_Label + " vs shared");
+
+            // ---- Tier 1: renderer goldens, tight pixel parity ----
+            for (const char* name : kRendererGoldens)
+            {
+                Image lhs;
+                Image rhs;
+                bool sizeMismatch = false;
+                if (!LoadPairForCompare(vendor.m_GoldenDir / name, shared.m_GoldenDir / name,
+                                        lhs, rhs, sizeMismatch))
+                {
+                    // Absent on either side is fine — a vendor set may cover
+                    // only part of the matrix. Differing DIMENSIONS is not:
+                    // no threshold covers a resolution change.
+                    EXPECT_FALSE(sizeMismatch)
+                        << name << " is " << lhs.m_Width << "x" << lhs.m_Height << " in '"
+                        << vendor.m_Label << "' but " << rhs.m_Width << "x" << rhs.m_Height
+                        << " in the shared set — one was baked at a different resolution";
+                    continue;
+                }
+                ++comparisons;
+
+                const f32 rmse = ComputeRgbRmseUnit(lhs, rhs);
+                const u32 maxDelta = MaxChannelDelta(lhs, rhs);
+                EXPECT_LT(rmse, kGoldenRmseUnit)
+                    << name << ": '" << vendor.m_Label << "' differs from the shared baseline by RMSE "
+                    << rmse << ", above GoldenImageTests' kRmsePassBelow — so this vendor's recording "
+                               "would not pass the shared comparison. These frames are procedural and "
+                               "drift-free, which makes this a conformance difference, not bake-date skew";
+                EXPECT_LE(maxDelta, kGoldenMaxDelta)
+                    << name << ": worst channel delta " << maxDelta << " between '" << vendor.m_Label
+                    << "' and the shared baseline — last-bit rounding is <= " << kGoldenMaxDelta;
+            }
+
+            // ---- Tier 2: Atmosphere, derived band parity + pixel backstop ----
+            for (const char* cell : kAtmosphereCells)
+            {
+                Image lhs;
+                Image rhs;
+                bool sizeMismatch = false;
+                if (!LoadPairForCompare(vendor.m_VisualDir / cell, shared.m_VisualDir / cell,
+                                        lhs, rhs, sizeMismatch))
+                {
+                    EXPECT_FALSE(sizeMismatch)
+                        << cell << " differs in resolution between '" << vendor.m_Label
+                        << "' and the shared set";
+                    continue;
+                }
+                ++comparisons;
+
+                // The physics. Drift-insensitive, vendor-sensitive: a divergence
+                // that changes what the frame depicts moves these by tens, while
+                // a month of bake-date skew moved them by 0.43.
+                for (const Band& band : kBands)
+                {
+                    const f64 vendorLuma = MeanBandPercent(lhs, band.m_Lo, band.m_Hi).Luma();
+                    const f64 sharedLuma = MeanBandPercent(rhs, band.m_Lo, band.m_Hi).Luma();
+                    const f64 delta = std::abs(vendorLuma - sharedLuma);
+                    EXPECT_LT(delta, kBandLumaDelta)
+                        << cell << ", " << band.m_Name << " band: '" << vendor.m_Label
+                        << "' reads luma " << vendorLuma << " but the shared baseline reads "
+                        << sharedLuma << " (delta " << delta
+                        << ") — band means are insensitive to bake-date drift, so this is the two "
+                           "vendors depicting different scenes";
+                }
+
+                // Backstop for a structural divergence that somehow left the
+                // band means intact. Deliberately loose: sized against the
+                // Atmosphere test's own threshold, NOT against the vendor
+                // difference, precisely so bake-date skew cannot trip it.
+                const f64 rmse255 = ComputeRgbRmse255(lhs, rhs);
+                EXPECT_LE(rmse255, kAtmosphereRmse255)
+                    << cell << ": '" << vendor.m_Label << "' vs the shared baseline is RMSE " << rmse255
+                    << ", past the threshold that test applies to its own goldens. Before calling this "
+                       "a vendor bug, check whether the two sets were baked at different commits — see "
+                       "docs/agent-rules/vendor-golden-baseline-crosscheck.md";
+            }
+        }
+
+        EXPECT_GT(comparisons, 0u)
+            << "a vendor directory exists but nothing was cross-compared — the parity check cannot "
+               "pass vacuously";
     }
 
     // =========================================================================

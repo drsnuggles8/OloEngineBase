@@ -629,14 +629,25 @@ differences, fast-math reordering, driver extension quirks.
 - [`.github/workflows/cross-vendor.yml`](../.github/workflows/cross-vendor.yml)
 - [`OloEngine/tests/Rendering/PropertyTests/GoldenBaselineAuditTest.cpp`](../OloEngine/tests/Rendering/PropertyTests/GoldenBaselineAuditTest.cpp)
 
-**The baseline audit.** `GoldenBaselineAuditTest` runs #734's property
-guards against the *committed* baseline PNGs — the shared set and every
-`assets/tests/{golden,visual}/<vendor>/` subdirectory — rather than
-against a live render. It needs no GPU, so it gates every CI run.
-The gap it closes: a per-vendor set is baked on hardware the reviewer
-does not have, and if the bake captured a defect the nightly for that
-vendor compares green against the defect forever. Vendor directories are
-discovered, not listed, so a set added later is audited the day it lands.
+**The baseline audit.** `GoldenBaselineAuditTest` works on the *committed*
+baseline PNGs rather than a live render — the shared set and every
+`assets/tests/{golden,visual}/<vendor>/` subdirectory, discovered rather
+than listed. It needs no GPU, so it gates every CI run. Two jobs:
+
+- **Property audit** — runs #734's guards against each recorded set.
+  Closes the gap that a per-vendor set is baked on hardware the reviewer
+  does not have, so a bake that captured a defect would otherwise have
+  that vendor's nightly comparing green against the defect forever.
+- **Cross-vendor parity** (`VendorSetsAgreeWithTheSharedSet`) — compares
+  each vendor set against the shared one, which is the check per-vendor
+  scoping structurally cannot make: each set is otherwise only ever
+  compared against itself. Two tiers, because the metrics fail in
+  opposite directions — a tight *pixel* gate on the four procedural,
+  drift-free renderer goldens, and a *derived* band-luminance gate plus a
+  loose pixel backstop on the Atmosphere captures, whose pixel distance
+  tracks bake-date skew more than vendor (#735 measured 2.60 apart, only
+  0.72 of it vendor).
+
 See [vendor-golden-baseline-crosscheck.md](agent-rules/vendor-golden-baseline-crosscheck.md)
 for the method and the #735 result.
 
