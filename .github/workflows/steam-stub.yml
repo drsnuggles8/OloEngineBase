@@ -167,9 +167,7 @@ jobs:
       # ("error: 'forward_like' is not a member of 'std'"). Every other Linux job in this repo
       # pins clang-19 from apt.llvm.org for the same reason — see asan.yml.
       - name: Add LLVM apt repository
-        run: |
-          wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-          echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-19.list
+        uses: ./.github/actions/setup-llvm-apt
 
       - name: Install Linux deps
         run: |

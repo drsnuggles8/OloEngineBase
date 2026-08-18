@@ -1,0 +1,68 @@
+name: 'Add the apt.llvm.org repository'
+description: 'Register apt.llvm.org as a signed, scoped apt source so a Linux job can install a pinned clang/lld.'
+
+# WHY THIS IS AN ACTION AND NOT FIVE COPIES
+# ----------------------------------------
+# ubuntu-24.04's default GCC/libstdc++ does not provide std::forward_like, which
+# Core/Reflection/MemberList.h uses — so every Linux job in this repo has to install a
+# pinned clang from apt.llvm.org, and every one of them had grown its own byte-identical
+# copy of the two lines that do it (asan.yml x3, steam-stub.yml, video-ffmpeg.yml).
+#
+# Those copies shared a defect, found in review on #827: the key went into
+# /etc/apt/trusted.gpg.d, which trusts it for EVERY repository on the runner, and nothing
+# checked WHICH key had been fetched — any body served from that URL would have been
+# accepted and then trusted repo-wide. Fixing that in five places would have left five
+# things to drift. One action means the fix has one home, and the workflow_dispatch run on
+# #827 that exercises it is evidence for all five call sites rather than just one.
+
+inputs:
+  version:
+    description: 'LLVM major version to register (the apt component and the sources.list filename).'
+    required: false
+    default: '19'
+  distro:
+    description: 'Ubuntu codename of the apt.llvm.org tree to use. Must match the runner image.'
+    required: false
+    default: 'noble'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Add LLVM apt repository
+      # `shell: bash` is mandatory in a composite action, and here it also buys the
+      # pipefail we need: the default Linux shell is `bash -e` WITHOUT pipefail, so
+      # `wget … | sudo tee` reports *tee's* status. A 403, a DNS blip, or the redirect
+      # `--max-redirect=0` deliberately rejects would all leave an EMPTY keyring, pass the
+      # step, and resurface later as an opaque apt signature error.
+      shell: bash
+      env:
+        # The apt.llvm.org archive signing key, published at https://apt.llvm.org/.
+        # If LLVM rotates it, every Linux job fails LOUDLY at the check below — which is
+        # the point. The alternative is silently trusting whatever we were handed.
+        LLVM_KEY_FPR: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
+        LLVM_VERSION: ${{ inputs.version }}
+        LLVM_DISTRO: ${{ inputs.distro }}
+      run: |
+        KEYRING=/etc/apt/keyrings/apt.llvm.org.asc
+
+        # /etc/apt/keyrings + `signed-by=`, NOT /etc/apt/trusted.gpg.d. A key dropped in
+        # trusted.gpg.d can vouch for packages from ANY repository on the box; signed-by
+        # scopes it to the single source written below.  apt on noble reads armored
+        # (.asc) keys directly, so no --dearmor step is needed.
+        sudo install -d -m 0755 /etc/apt/keyrings
+        wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee "$KEYRING" > /dev/null
+        test -s "$KEYRING" || { echo "::error::Fetched an empty LLVM signing key from apt.llvm.org."; exit 1; }
+
+        # Non-empty is not an identity check — pin the fingerprint. Collect the PRIMARY
+        # key fingerprints only (the `fpr` record right after each `pub`, ignoring
+        # subkeys) and require the set to be exactly the expected one, so a key file with
+        # an extra primary key appended fails rather than passing on a substring match.
+        FPRS=$(gpg --show-keys --with-colons "$KEYRING" | awk -F: '$1=="pub"{p=1;next} $1=="fpr"&&p{print $10;p=0}')
+        if [ "$FPRS" != "$LLVM_KEY_FPR" ]; then
+          echo "::error::Unexpected apt.llvm.org signing key. Expected exactly ${LLVM_KEY_FPR}, got: ${FPRS:-<none>}"
+          exit 1
+        fi
+
+        echo "deb [signed-by=${KEYRING}] https://apt.llvm.org/${LLVM_DISTRO}/ llvm-toolchain-${LLVM_DISTRO}-${LLVM_VERSION} main" \
+          | sudo tee "/etc/apt/sources.list.d/llvm-${LLVM_VERSION}.list"
+        echo "OK: apt.llvm.org/${LLVM_DISTRO} (llvm-${LLVM_VERSION}) pinned to ${LLVM_KEY_FPR}, scoped via signed-by."
