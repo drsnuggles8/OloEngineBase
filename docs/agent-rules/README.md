@@ -105,6 +105,7 @@ Read before trusting any measurement.
 | [reference-path-tracer.md](reference-path-tracer.md) | a golden answers "did it change?", never "is it correct?" |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | a per-vendor baseline set is the instrument validating itself — and a small cross-vendor RMSE measures portability, never correctness |
 | [gpu-debug-draws.md](gpu-debug-draws.md) | read the two-counter overflow protocol before concluding "it drew nothing" |
+| [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e | the CI job that said `--config Release` was building no config at all, and grepping for `--parallel` finds four sites of which only one is a runaway — the generator, not the flag, decides |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument *must*
 fail on before trusting a case it passes.

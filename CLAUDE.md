@@ -73,7 +73,7 @@ you are in.
 
 **Build & dependencies**
 
-- [build-trees-and-windows-asan.md](docs/agent-rules/build-trees-and-windows-asan.md) — never build the msvc and clangcl trees concurrently; plus per-user `mspdbsrv` stalls, the codegen build-graph wiring, and the local ASan recipe.
+- [build-trees-and-windows-asan.md](docs/agent-rules/build-trees-and-windows-asan.md) — never build the msvc and clangcl trees concurrently; plus per-user `mspdbsrv` stalls, the codegen build-graph wiring, the local ASan recipe, and (§5e) why both memory job pools vanish on Linux CI so a bare `--parallel` is a runaway there and nowhere else.
 - [vcpkg-dependency-management.md](docs/agent-rules/vcpkg-dependency-management.md) — read before adding, bumping or removing a dep: the CRT triplet mismatch is heap corruption, and three of the five traps are silent.
 - [asset-import-usd-alembic.md](docs/agent-rules/asset-import-usd-alembic.md) — the importer/exporter registry seam, and vendoring OpenUSD / Alembic / MaterialX into a static-everything build.
 

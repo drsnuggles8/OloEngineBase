@@ -624,3 +624,61 @@ insurance against the documented worst case, not a headline win. The `-j6`
 compile-width guidance in `CLAUDE.md` is **not** revisited by this data; the
 measured deltas here are too modest and the sample too small to move that
 needle in either direction.
+
+### 5e. Both memory pools are Ninja-only — so on Linux CI, `--parallel N` is the *only* cap (issue #796)
+
+`OLO_LINK_JOBS` (§5c) and `olo_heavy` / `OLO_HEAVY_COMPILE_JOBS` (§5d) are Ninja
+job pools, and the root `CMakeLists.txt` guards both with
+`if(CMAKE_GENERATOR MATCHES "Ninja")`. §5b already notes this for the local **VS**
+tree. The consequence nobody had written down is about **CI**: every Linux job in
+this repo configures with no `-G`, so it gets **Unix Makefiles**, so *both* pools
+are silently inert there. Nothing warns — the pools simply do not exist in the
+generated makefiles.
+
+Two things follow, and the first one cost this repo ten weeks of red CI.
+
+1. **A bare `--parallel` means the opposite thing per generator, and only the
+   Makefiles case is unbounded.** CMake does not pick a number for an
+   argument-less `--parallel`; it forwards the *omission* to the native tool and
+   takes that tool's default:
+
+   | generator | native tool | bare `--parallel` resolves to |
+   |---|---|---|
+   | Unix Makefiles | `make` | `-j` with **no number — unlimited** |
+   | Visual Studio | MSBuild | `/m` = core count (4 on a hosted runner) |
+   | Ninja | `ninja` | cores + 2 |
+
+   Only the first is a runaway. That is why `video-ffmpeg.yml`'s Linux leg
+   OOM-killed the runner at ~29 % — still inside vendor deps, before a single
+   engine source file — on every weekly run for 10+ weeks (#796), while the three
+   *other* bare-`--parallel` sites in `.github/workflows/` sat green the whole
+   time: all three are `windows-latest`, where the tool default is bounded.
+   **Auditing for the string `--parallel` is therefore not the check — the check
+   is `--parallel` *plus* the job's generator.**
+
+2. **On a Linux runner, the `-jN` you pass is the entire memory story.** There is
+   no link pool serialising the static-engine link and no `olo_heavy` pool
+   throttling `LuaScriptGlue.cpp` / `McpFieldRegistry.cpp`. Pick the number
+   against evidence rather than against the pools you think are protecting you.
+   The proven-green reference points on `ubuntu-24.04` are `steam-stub.yml`
+   (`--parallel 4`, `OloEngine-Tests`, Debug, clang-19 + lld) and `asan.yml`'s
+   sanitizer jobs (`--parallel 2`, where each TU costs ~3 GB).
+
+**When you add a Linux CI job, copy `steam-stub.yml`, not a Windows job.** It
+carries the whole set in one place: `uses: ./.github/actions/setup-llvm-apt` plus
+`clang-19 lld-19` in the apt list (the default libstdc++ lacks
+`std::forward_like`, which `Core/Reflection/MemberList.h` uses),
+`-DCMAKE_{C,CXX}_COMPILER=clang(++)-19`, `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`
+(BFD `ld` can exceed a 16 GB runner on this link), `CMAKE_BUILD_TYPE` at configure
+time (`--config` is *silently ignored* by the single-config generator — it will
+happily lie to you about building Release), and an explicit `--parallel N`.
+
+**Never hand-roll the apt.llvm.org step** — use the action. Five jobs had grown
+byte-identical copies of it, and all five shared two defects nobody noticed until
+a review on #827: the key went into `/etc/apt/trusted.gpg.d` (trusted for *every*
+repository on the runner, not just LLVM's) and nothing checked *which* key had
+arrived, because the fetch ran under `bash -e` with no `pipefail` and so reported
+`tee`'s status rather than `wget`'s. The action now scopes the key with
+`signed-by=` and pins its primary-key fingerprint. That is also the reason it is
+an action rather than a fifth corrected copy: one `workflow_dispatch` run that
+exercises it is evidence for every call site.
