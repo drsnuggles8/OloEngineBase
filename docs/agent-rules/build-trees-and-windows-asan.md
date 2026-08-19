@@ -205,6 +205,10 @@ because of three non-obvious choices you must replicate locally:
   is NOT interchangeable — standalone-LLVM-built binaries fail against it
   with `0xC0000139` (entry point not found). Match the runtime to the
   compiler in `build-clang/CMakeCache.txt` (`CMAKE_CXX_COMPILER`).
+  (`0xC0000135` has a second, unrelated cause on this repo: a missing
+  `steam_api64.dll` next to the executable — see
+  [configure-time-variable-visibility.md](configure-time-variable-visibility.md).
+  Tell them apart with `dumpbin /DEPENDENTS` on the exe.)
 - **To see an ASan crash report instead of gtest's opaque
   `SEH exception with code 0xc0000005 thrown in the test body`**, run the
   failing test with `--gtest_catch_exceptions=0`. gtest's SEH catcher
