@@ -44,22 +44,14 @@ namespace OloEngine::Levers
             return std::format("{}", value);
         }
 
-        // Outer whitespace only. The other lever kinds get this for free from
-        // the CVars:: text helpers; OLO_LEVER_NUMBER goes through
-        // ParseNumberLever instead, which must stay strict for the environment.
+        // The whitespace rule lives in CVars::TrimText; OLO_LEVER_NUMBER needs
+        // it explicitly because it parses through ParseNumberLever rather than
+        // the CVars:: text helpers, and that one must stay strict for the
+        // environment. Aliased, not copied — the rule decides which console
+        // input is accepted, so two copies could disagree about it.
         [[nodiscard]] std::string_view TrimForParse(std::string_view text)
         {
-            const auto isSpace = [](char c)
-            { return std::isspace(static_cast<unsigned char>(c)) != 0; };
-            while (!text.empty() && isSpace(text.front()))
-            {
-                text.remove_prefix(1);
-            }
-            while (!text.empty() && isSpace(text.back()))
-            {
-                text.remove_suffix(1);
-            }
-            return text;
+            return CVars::TrimText(text);
         }
 
         // Storage. One member per lever, generated from the same table as the
@@ -560,17 +552,17 @@ namespace OloEngine::Levers
         // Read-only, exactly as in the lever table: every text lever is consumed
         // once at init, so a runtime write would be accepted and then ignored —
         // which is worse than refusing it.
-#define OLO_LEVER_TEXT(id, env, help)                                               \
-    {                                                                               \
-        CVars::CVarBinding binding;                                                 \
-        binding.Name = env;                                                         \
-        binding.Help = help;                                                        \
-        binding.Type = CVars::CVarType::String;                                     \
-        binding.ReadOnly = true;                                                    \
-        binding.Render = [](void*) { return id().value_or(std::string("unset")); }; \
-        binding.IsDefault = [](void*) { return !id().has_value(); };                \
-        binding.Parse = nullptr;                                                    \
-        s_Handles.id.store(CVars::Register(binding), std::memory_order_relaxed);    \
+#define OLO_LEVER_TEXT(id, env, help)                                                                                                                                                                                                                                                   \
+    {                                                                                                                                                                                                                                                                                   \
+        CVars::CVarBinding binding;                                                                                                                                                                                                                                                     \
+        binding.Name = env;                                                                                                                                                                                                                                                             \
+        binding.Help = help;                                                                                                                                                                                                                                                            \
+        binding.Type = CVars::CVarType::String;                                                                                                                                                                                                                                         \
+        binding.ReadOnly = true;                                                                                                                                                                                                                                                        \
+        binding.Render = [](void*) { /* Render must never be empty (CVar.h). Unreachable today - Env::Get maps an */ /* empty variable to absent - but the contract is enforced here rather than  */ /* relying on a guarantee made two headers away.                             */             const std::optional<std::string> v = id();                                               return v && !v->empty() ? *v : std::string("unset"); }; \
+        binding.IsDefault = [](void*) { return !id().has_value(); };                                                                                                                                                                                                                    \
+        binding.Parse = nullptr;                                                                                                                                                                                                                                                        \
+        s_Handles.id.store(CVars::Register(binding), std::memory_order_relaxed);                                                                                                                                                                                                        \
     }
 
 #include "OloEngine/Core/DebugLevers.inl"

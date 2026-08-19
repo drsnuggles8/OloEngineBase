@@ -68,6 +68,49 @@ namespace OloEngine::Tests
             bool m_Saved;
         };
 
+        // Same job as ToggleGuard for the optional-valued levers.
+        template<typename T>
+        class ValueGuard
+        {
+          public:
+            ValueGuard(std::optional<T> (*get)(), void (*set)(std::optional<T>)) : m_Set(set), m_Saved(get()) {}
+            ~ValueGuard()
+            {
+                m_Set(m_Saved);
+            }
+            ValueGuard(const ValueGuard&) = delete;
+            ValueGuard& operator=(const ValueGuard&) = delete;
+            ValueGuard(ValueGuard&&) = delete;
+            ValueGuard& operator=(ValueGuard&&) = delete;
+
+          private:
+            void (*m_Set)(std::optional<T>);
+            std::optional<T> m_Saved;
+        };
+
+        // Removes a change callback however the test exits. Without this a fatal
+        // ASSERT_* leaves the callback registered against a captured local that
+        // is about to die, and the NEXT test's dispatch calls it.
+        class CallbackGuard
+        {
+          public:
+            explicit CallbackGuard(CVars::CallbackHandle handle) : m_Handle(handle) {}
+            ~CallbackGuard()
+            {
+                if (m_Handle.IsValid())
+                {
+                    CVars::RemoveChangeCallback(m_Handle);
+                }
+            }
+            CallbackGuard(const CallbackGuard&) = delete;
+            CallbackGuard& operator=(const CallbackGuard&) = delete;
+            CallbackGuard(CallbackGuard&&) = delete;
+            CallbackGuard& operator=(CallbackGuard&&) = delete;
+
+          private:
+            CVars::CallbackHandle m_Handle;
+        };
+
         // The registry does not fire callbacks at the write; it fires them when
         // the frame loop drains. A test has no frame loop, so it drains itself.
         void PumpFrame()
@@ -199,8 +242,12 @@ namespace OloEngine::Tests
 
     TEST(CVarRegistry, NumericLeversKeepTheirBoundsAndTheirUnsetState)
     {
-        const std::optional<f32> savedRatio = Levers::TaskGraphOversubscriptionRatio();
-        const std::optional<i64> savedWorkers = Levers::TaskGraphNumWorkers();
+        // Guards, not trailing restores: this test has ASSERT_* between the
+        // mutation and the restore, and a fatal assertion would leak the
+        // modified value into every later test in the process.
+        const ValueGuard<f32> ratioGuard(&Levers::TaskGraphOversubscriptionRatio,
+                                         &Levers::SetTaskGraphOversubscriptionRatio);
+        const ValueGuard<i64> workersGuard(&Levers::TaskGraphNumWorkers, &Levers::SetTaskGraphNumWorkers);
 
         EXPECT_TRUE(CVars::SetFromString("OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO", "2.5").Ok);
         ASSERT_TRUE(Levers::TaskGraphOversubscriptionRatio().has_value());
@@ -233,9 +280,6 @@ namespace OloEngine::Tests
         EXPECT_TRUE(CVars::SetFromString("OLO_TASK_GRAPH_NUM_WORKERS", "2").Ok);
         ASSERT_TRUE(Levers::TaskGraphNumWorkers().has_value());
         EXPECT_EQ(*Levers::TaskGraphNumWorkers(), 2);
-
-        Levers::SetTaskGraphOversubscriptionRatio(savedRatio);
-        Levers::SetTaskGraphNumWorkers(savedWorkers);
     }
 
     TEST(CVarRegistry, TextLeversAreReadOnlyAndSayWhy)
@@ -359,6 +403,7 @@ namespace OloEngine::Tests
                                          lastSeen = info.Value; },
                                      /*invokeNow*/ false);
         ASSERT_TRUE(handle.IsValid());
+        const CallbackGuard handleGuard(handle);
 
         EXPECT_EQ(calls, 0u) << "a write is not a notification — the frame drain is";
 
@@ -373,8 +418,6 @@ namespace OloEngine::Tests
         // reaction is usually expensive.
         PumpFrame();
         EXPECT_EQ(calls, 1u);
-
-        EXPECT_TRUE(CVars::RemoveChangeCallback(handle));
     }
 
     TEST(CVarChangeNotification, ANoOpWriteAndACancellingPairNotifyNobody)
@@ -388,6 +431,7 @@ namespace OloEngine::Tests
             "OLO_RG_BLACKSQUARE_HUNT", [&](const CVars::CVarInfo&)
             { ++calls; }, /*invokeNow*/ false);
         ASSERT_TRUE(handle.IsValid());
+        const CallbackGuard handleGuard(handle);
 
         // Set to the value it already had.
         EXPECT_TRUE(CVars::SetFromString("OLO_RG_BLACKSQUARE_HUNT", "off").Ok);
@@ -400,8 +444,6 @@ namespace OloEngine::Tests
         Levers::SetBlackSquareHunt(false);
         PumpFrame();
         EXPECT_EQ(calls, 0u);
-
-        EXPECT_TRUE(CVars::RemoveChangeCallback(handle));
     }
 
     TEST(CVarChangeNotification, SeveralChangesInOneFrameCoalesceIntoOneCall)
@@ -415,14 +457,13 @@ namespace OloEngine::Tests
             "OLO_RG_BLACKSQUARE_HUNT", [&](const CVars::CVarInfo&)
             { ++calls; }, /*invokeNow*/ false);
         ASSERT_TRUE(handle.IsValid());
+        const CallbackGuard handleGuard(handle);
 
         Levers::SetBlackSquareHunt(true);
         Levers::SetBlackSquareHunt(false);
         Levers::SetBlackSquareHunt(true);
         PumpFrame();
         EXPECT_EQ(calls, 1u) << "the observer applies the CURRENT value, so intermediate states are not events";
-
-        EXPECT_TRUE(CVars::RemoveChangeCallback(handle));
     }
 
     TEST(CVarChangeNotification, RegisteringAfterTheValueChangedStillSynchronises)
@@ -446,10 +487,9 @@ namespace OloEngine::Tests
                                                                           seen = info.Value;
                                                                       });
         ASSERT_TRUE(handle.IsValid());
+        const CallbackGuard handleGuard(handle);
         EXPECT_EQ(calls, 1u) << "registration itself must deliver the current value";
         EXPECT_EQ(seen, "on");
-
-        EXPECT_TRUE(CVars::RemoveChangeCallback(handle));
     }
 
     TEST(CVarChangeNotification, ATypedSetterNotifiesJustLikeANameBasedOne)
@@ -467,12 +507,11 @@ namespace OloEngine::Tests
             "OLO_RG_DISABLE_ALIASING", [&](const CVars::CVarInfo&)
             { ++calls; }, /*invokeNow*/ false);
         ASSERT_TRUE(handle.IsValid());
+        const CallbackGuard handleGuard(handle);
 
         Levers::SetDisableTransientAliasing(true);
         PumpFrame();
         EXPECT_EQ(calls, 1u);
-
-        EXPECT_TRUE(CVars::RemoveChangeCallback(handle));
     }
 
     TEST(CVarChangeNotification, ASmallFloatChangeStillNotifies)
@@ -483,7 +522,8 @@ namespace OloEngine::Tests
         // observer keeps a stale value while the typed accessor already returns
         // the new one — a silent failure of the whole mechanism, in exactly the
         // case a human would never spot by eye.
-        const std::optional<f32> saved = Levers::TaskGraphOversubscriptionRatio();
+        const ValueGuard<f32> ratioGuard(&Levers::TaskGraphOversubscriptionRatio,
+                                         &Levers::SetTaskGraphOversubscriptionRatio);
 
         Levers::SetTaskGraphOversubscriptionRatio(1.0f);
         PumpFrame();
@@ -493,13 +533,11 @@ namespace OloEngine::Tests
             "OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO", [&](const CVars::CVarInfo&)
             { ++calls; }, /*invokeNow*/ false);
         ASSERT_TRUE(handle.IsValid());
+        const CallbackGuard handleGuard(handle);
 
         Levers::SetTaskGraphOversubscriptionRatio(1.0000004f);
         PumpFrame();
         EXPECT_EQ(calls, 1u) << "a real change below six decimal places must still notify";
-
-        EXPECT_TRUE(CVars::RemoveChangeCallback(handle));
-        Levers::SetTaskGraphOversubscriptionRatio(saved);
     }
 
     TEST(CVarChangeNotification, InvokeNowIsAnExtraCallOutsideTheOncePerChangeAccounting)
@@ -519,6 +557,7 @@ namespace OloEngine::Tests
             "OLO_RG_BLACKSQUARE_HUNT", [&](const CVars::CVarInfo&)
             { ++early; }, /*invokeNow*/ false);
         ASSERT_TRUE(first.IsValid());
+        const CallbackGuard firstGuard(first);
 
         Levers::SetBlackSquareHunt(true); // marked, not yet dispatched
 
@@ -527,14 +566,12 @@ namespace OloEngine::Tests
             "OLO_RG_BLACKSQUARE_HUNT", [&](const CVars::CVarInfo&)
             { ++late; }, /*invokeNow*/ true);
         ASSERT_TRUE(second.IsValid());
+        const CallbackGuard secondGuard(second);
         EXPECT_EQ(late, 1u) << "invokeNow delivers immediately";
 
         PumpFrame();
         EXPECT_EQ(early, 1u) << "the already-registered callback must NOT lose the pending change";
         EXPECT_EQ(late, 2u) << "the late registrant sees it twice — harmless, because callbacks are idempotent";
-
-        EXPECT_TRUE(CVars::RemoveChangeCallback(first));
-        EXPECT_TRUE(CVars::RemoveChangeCallback(second));
     }
 
     TEST(CVarChangeNotification, AnUnknownNameRegistersNothing)

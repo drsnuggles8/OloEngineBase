@@ -52,6 +52,9 @@ namespace OloEngine
         void OnHistory(ImGuiInputTextCallbackData* data);
 
         char m_CommandBuffer[512] = {};
+        // Bounded: an editor session runs for hours, and an unbounded history is
+        // a slow leak for no benefit — nobody arrows back past a few dozen.
+        static constexpr sizet s_MaxHistory = 100;
         std::vector<std::string> m_History;
         // -1 = not browsing history; otherwise an index into m_History.
         int m_HistoryPos = -1;

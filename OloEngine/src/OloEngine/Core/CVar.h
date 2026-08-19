@@ -297,6 +297,18 @@ namespace OloEngine::CVars
     // "what exactly does the console accept for a boolean?" is worth being able
     // to test directly.
 
+    // Outer whitespace only. Exported for the same reason the parsers below
+    // are: this rule decides which console input is accepted, and a second copy
+    // of it somewhere else is free to drift from this one.
+    [[nodiscard]] std::string_view TrimText(std::string_view text);
+
+    // The wire/display name of a cvar type. Exported because the MCP tool's
+    // schema `enum` and the editor console's display must use the same
+    // vocabulary — two local copies would let a new type name be added to one
+    // and not the other, and the disagreement would only surface as a confused
+    // reader.
+    [[nodiscard]] std::string_view CVarTypeName(CVarType type);
+
     // Console truthiness, deliberately STRICTER than `Env::IsTruthy`: exactly
     // 1/true/yes/on and 0/false/no/off, case-insensitive, and anything else is
     // an error. The environment's lenient rule exists so `FOO=true` is not

@@ -113,38 +113,15 @@ namespace OloEngine
 
     namespace
     {
+        // Both the whitespace rule and the type vocabulary come from CVars::,
+        // so the console cannot accept different input, or name a type
+        // differently, from --set and olo_cvar_set.
+        using CVars::CVarTypeName;
+        using CVars::TrimText;
+
         [[nodiscard]] std::string_view Trim(std::string_view text)
         {
-            const auto isSpace = [](char c)
-            { return std::isspace(static_cast<unsigned char>(c)) != 0; };
-            while (!text.empty() && isSpace(text.front()))
-            {
-                text.remove_prefix(1);
-            }
-            while (!text.empty() && isSpace(text.back()))
-            {
-                text.remove_suffix(1);
-            }
-            return text;
-        }
-
-        [[nodiscard]] std::string_view CVarTypeName(CVars::CVarType type)
-        {
-            switch (type)
-            {
-                case CVars::CVarType::Bool:
-                    return "bool";
-                case CVars::CVarType::Tristate:
-                    return "tristate";
-                case CVars::CVarType::Int:
-                    return "int";
-                case CVars::CVarType::Float:
-                    return "float";
-                case CVars::CVarType::String:
-                    return "string";
-                default:
-                    return "unknown";
-            }
+            return TrimText(text);
         }
     } // namespace
 
@@ -310,9 +287,19 @@ namespace OloEngine
         const std::string completion = CVars::LongestCompletion(text);
         if (completion.size() > text.size() || matches.size() == 1)
         {
-            data->DeleteChars(0, data->BufTextLen);
+            // Replace the FIRST TOKEN only, not the whole buffer. With the caret
+            // inside the name of `OLO_NAME value`, deleting BufTextLen would
+            // silently eat the ` value` the user had already typed.
+            const std::string_view whole(data->Buf, static_cast<sizet>(data->BufTextLen));
+            const sizet tokenEnd = whole.find_first_of(" \t=");
+            const int replaceLen =
+                tokenEnd == std::string_view::npos ? data->BufTextLen : static_cast<int>(tokenEnd);
+
+            data->DeleteChars(0, replaceLen);
             data->InsertChars(0, completion.c_str());
-            if (matches.size() == 1)
+            // A trailing space only when there is nothing after the name yet —
+            // otherwise it would be inserted in front of the existing value.
+            if (matches.size() == 1 && tokenEnd == std::string_view::npos)
             {
                 data->InsertChars(data->CursorPos, " ");
             }
@@ -505,6 +492,12 @@ namespace OloEngine
                 // Consecutive duplicates are noise when walking back through it.
                 if (m_History.empty() || m_History.back() != command)
                 {
+                    // Capped: an editor session runs for hours and this vector
+                    // would otherwise only ever grow.
+                    if (m_History.size() >= s_MaxHistory)
+                    {
+                        m_History.erase(m_History.begin());
+                    }
                     m_History.push_back(command);
                 }
                 ExecuteCommand(command);

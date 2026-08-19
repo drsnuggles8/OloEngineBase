@@ -202,24 +202,8 @@ namespace OloEngine::MCP
         // value — it hands back the poison colour map and settles two frames —
         // but the transient-pool eviction it used to own is now a change
         // callback, so this tool flips the aliasing lever just as correctly.
-        [[nodiscard]] std::string_view CVarTypeName(CVars::CVarType type)
-        {
-            switch (type)
-            {
-                case CVars::CVarType::Bool:
-                    return "bool";
-                case CVars::CVarType::Tristate:
-                    return "tristate";
-                case CVars::CVarType::Int:
-                    return "int";
-                case CVars::CVarType::Float:
-                    return "float";
-                case CVars::CVarType::String:
-                    return "string";
-                default:
-                    return "unknown";
-            }
-        }
+        // Type names come from CVars::CVarTypeName, not a local copy: this
+        // tool's schema `enum` and the editor console must not be free to drift.
 
         ToolResult Handle_CVarSet(McpServer& server, const Json& args)
         {
@@ -247,13 +231,20 @@ namespace OloEngine::MCP
                     { "previous", set.OldValue },
                     { "changed", set.Changed },
                     { "restoreWith", set.OldValue },
-                    { "note", "Observers run at the top of the next frame; a value read back "
-                              "immediately is already the new one, but the frame you are looking "
-                              "at was rendered under the old one." },
+                    // The note has to match what actually happened. A no-op
+                    // write schedules no notification at all, so promising one
+                    // would send a caller looking for an effect that is not
+                    // coming.
+                    { "note", set.Changed
+                                  ? "Observers run at the top of the next frame; a value read back "
+                                    "immediately is already the new one, but the frame you are looking "
+                                    "at was rendered under the old one."
+                                  : "No change: the variable already held this value, so no observer "
+                                    "runs and nothing about the rendered frame will differ." },
                 };
                 if (info)
                 {
-                    out["type"] = std::string(CVarTypeName(info->Type));
+                    out["type"] = std::string(CVars::CVarTypeName(info->Type));
                     out["isDefault"] = info->IsDefault;
                     out["help"] = std::string(info->Help);
                 }

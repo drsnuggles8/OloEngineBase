@@ -97,19 +97,11 @@ namespace OloEngine::CVars
             return false;
         }
 
+        // Thin alias: the definition is the public CVars::TrimText below, so
+        // there is exactly one whitespace rule in the engine.
         [[nodiscard]] std::string_view Trim(std::string_view text)
         {
-            const auto isSpace = [](char c)
-            { return std::isspace(static_cast<unsigned char>(c)) != 0; };
-            while (!text.empty() && isSpace(text.front()))
-            {
-                text.remove_prefix(1);
-            }
-            while (!text.empty() && isSpace(text.back()))
-            {
-                text.remove_suffix(1);
-            }
-            return text;
+            return TrimText(text);
         }
 
         // The lever rows are not registered from a static initializer — they
@@ -162,6 +154,42 @@ namespace OloEngine::CVars
     } // namespace
 
     // --- Parse helpers ------------------------------------------------------
+
+    std::string_view TrimText(std::string_view text)
+    {
+        const auto isSpace = [](char c)
+        { return std::isspace(static_cast<unsigned char>(c)) != 0; };
+        while (!text.empty() && isSpace(text.front()))
+        {
+            text.remove_prefix(1);
+        }
+        while (!text.empty() && isSpace(text.back()))
+        {
+            text.remove_suffix(1);
+        }
+        return text;
+    }
+
+    std::string_view CVarTypeName(CVarType type)
+    {
+        switch (type)
+        {
+            case CVarType::Bool:
+                return "bool";
+            case CVarType::Tristate:
+                return "tristate";
+            case CVarType::Int:
+                return "int";
+            case CVarType::Float:
+                return "float";
+            case CVarType::String:
+                return "string";
+            default:
+                // Not a missing enumerator - every one is handled above. This is
+                // the "read through a stale/raw cast" case.
+                return "unknown";
+        }
+    }
 
     std::optional<bool> ParseBoolText(std::string_view raw)
     {
@@ -265,13 +293,18 @@ namespace OloEngine::CVars
     std::optional<CVarInfo> Find(std::string_view name)
     {
         EnsureBuiltinsRegistered();
+        // Trimmed, exactly as SetFromString trims. They must agree: a caller
+        // that passes the same padded name to both — which olo_cvar_set does,
+        // straight off a JSON string — would otherwise get a successful write
+        // and then no metadata for it, which reads as the write not landing.
+        const std::string_view trimmedName = Trim(name);
         Registry& registry = Reg();
         const std::lock_guard lock(registry.Mutex);
 
         for (u32 i = 0; i < static_cast<u32>(registry.Entries.size()); ++i)
         {
             const Entry& entry = registry.Entries[i];
-            if (EqualsIgnoreCase(entry.Binding.Name, name))
+            if (EqualsIgnoreCase(entry.Binding.Name, trimmedName))
             {
                 return MakeInfo(entry, i, entry.Binding.Render(entry.Binding.Context));
             }
