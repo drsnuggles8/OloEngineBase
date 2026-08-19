@@ -1665,8 +1665,11 @@ namespace OloEngine
                           UBO_VIRTUAL_SHADOW_DRAW < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         // GL 4.6's MINIMUM guarantee for GL_MAX_UNIFORM_BUFFER_BINDINGS — the floor every
-        // conforming implementation must meet, so it is the largest binding number the engine
-        // may hand out and still be portable. Backend-neutral on purpose: it is a GL-derived
+        // conforming implementation must meet. It is a COUNT, so it is an EXCLUSIVE upper bound:
+        // the portable binding indices are 0..83, and 84 itself must never be handed out. Compare
+        // against it with `<` (an array sized by it, like the bind-state mirror's, makes that
+        // automatic); `<=` is only correct for a value that is itself a count, which is why the
+        // UBO_BINDING_LIMIT assert above uses one. Backend-neutral on purpose: it is a GL-derived
         // bound that the Vulkan bind-state mirror also sizes its arrays to
         // (VulkanBindingState::kMaxBufferBindings aliases this), and it used to be spelled as a
         // bare 84 in both places. Naming it here rather than there is what lets a GL-only test

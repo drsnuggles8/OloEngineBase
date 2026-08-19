@@ -19,12 +19,17 @@
 # gpu-conformance-amd nightly are for. This job answers exactly one question: does the GL-only
 # configuration still compile, link and skip cleanly?
 #
-# NOTE the SDK is still required. `OLO_WITH_VULKAN=OFF` is NOT "build without a Vulkan SDK":
-# `find_package(Vulkan REQUIRED ...)` in OloEngine/CMakeLists.txt is deliberately ungated because
-# the SDK is also where the SHADER toolchain lives (shaderc / glslang / SPIRV-Tools /
-# SPIRV-Cross), which every build needs regardless of backend. See ADR 0011 amendment (86). The
-# option is about link weight and port count, not about the SDK — so this job installs the SDK
-# like every other build job here.
+# NOTE Vulkan dev packages are still required. `OLO_WITH_VULKAN=OFF` is NOT "build without
+# Vulkan installed": `find_package(Vulkan REQUIRED ...)` in OloEngine/CMakeLists.txt is
+# deliberately ungated because the SHADER toolchain (shaderc / glslang / SPIRV-Tools /
+# SPIRV-Cross) is needed by every build regardless of backend. See ADR 0011 amendment (86). The
+# option is about link weight and port count, not about Vulkan discovery.
+#
+# On MSVC that means the LunarG SDK specifically (the COMPONENTS branch). This job is Linux, which
+# takes the plain `find_package(Vulkan REQUIRED)` branch and could likely be satisfied by the apt
+# packages installed below alone — but it runs setup-vulkan anyway, matching every other build job
+# here. Dropping that step is a plausible minute or two of savings; it is untested, so it is left
+# in rather than traded for a red nightly.
 name: Vulkan OFF (GL-only build)
 
 # TRIGGER RATIONALE — a full engine build is not cheap, so the cadence is deliberately mixed
@@ -61,6 +66,19 @@ on:
       - 'OloEngine/src/OloEngine/Renderer/RHI/**'
       - 'OloEngine/tests/Rendering/Vulkan*'
       - 'OloEngine/tests/Rendering/BackendSelectionTest.cpp'
+      # The two files that carry the ON/OFF *contract* rather than the option. The break #811
+      # actually found was in VirtualShadowMapLocalTest.cpp — a GL-path test that had reached into
+      # a Platform/Vulkan header — and none of the patterns above would have caught the PR that
+      # introduced it. ShaderBindingLayout.h is the other half: it now defines
+      # MIN_GUARANTEED_BUFFER_BINDINGS, which VulkanBindingState::kMaxBufferBindings aliases, so a
+      # change there lands on both sides of the guard at once.
+      #
+      # Naming two files is narrow, and deliberately so — but it is also the weakest link here:
+      # any OTHER GL-only TU could acquire the same dependency and slip past. The durable guard
+      # for that class is a cheap grep job (the shape steam-stub.yml's single-valve-tu uses),
+      # which would run on every PR in seconds. Worth adding if this ever recurs.
+      - 'OloEngine/src/OloEngine/Renderer/ShaderBindingLayout.h'
+      - 'OloEngine/tests/Rendering/VirtualShadowMapLocalTest.cpp'
   schedule:
     - cron: '0 5 * * 4' # weekly, Thursday 05:00 UTC (off steam-stub's Wednesday and video-ffmpeg's Monday slots)
   workflow_dispatch:

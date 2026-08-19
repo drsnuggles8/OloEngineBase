@@ -392,11 +392,19 @@ binary ships the OpenGL backend only.
 
 Two things it is **not**, both of which the docs claimed until #811:
 
-- **It is not "build without a Vulkan SDK."** `find_package(Vulkan REQUIRED ...)`
-  in `OloEngine/CMakeLists.txt` is ungated on purpose — the SDK is where the
-  *shader* toolchain lives (shaderc, glslang, SPIRV-Tools, SPIRV-Cross) and every
-  build needs it. Configuring without `VULKAN_SDK` fails at `find_package`
-  whichever way this option is set.
+- **It is not "build without Vulkan development packages."**
+  `find_package(Vulkan REQUIRED ...)` in `OloEngine/CMakeLists.txt` is ungated on
+  purpose, because the *shader* toolchain (shaderc, glslang, SPIRV-Tools,
+  SPIRV-Cross) is needed by every build regardless of backend. Turning the option
+  off does not relax that, but what satisfies it differs by platform:
+  - **MSVC** takes the `COMPONENTS glslc glslang SPIRV-Tools` branch, which in
+    practice means the LunarG SDK — configuring without `VULKAN_SDK` fails at
+    `find_package`, whichever way this option is set.
+  - **Everywhere else** takes a plain `find_package(Vulkan REQUIRED)`, so any
+    discoverable Vulkan installation will do and the shader tooling can come from
+    system packages instead (`glslang-dev`, `libshaderc-dev`,
+    `libspirv-cross-c-shared-dev`, `spirv-tools` on Debian/Ubuntu — the same set
+    the Linux CI jobs install). No LunarG SDK is strictly required there.
 - **It is not per-target.** `OloServer`, `OloEditor` and `OloRuntime` come out of
   one configure, so there is no "OFF for the server, ON for the editor". A lean,
   SDK-free server build was considered in #811 and explicitly **rejected**: the

@@ -2194,10 +2194,22 @@ rather than built.
 `.github/workflows/vulkan-off.yml` configures and builds the GL-only
 configuration on Linux and asserts the seven Vulkan suites SKIP while
 `BackendSelection`'s `#else` arms pass. It runs on every PR that touches the
-paths where OFF-only breakage can live (CMake, `Platform/Vulkan/`,
-`Renderer/RHI/`, the Vulkan tests), and unfiltered on master and weekly. Before
+paths where OFF-only breakage can live — the option plumbing (the root /
+`OloEngine/` / `OloEngine/vendor/` `CMakeLists.txt`, `cmake/`,
+`CMakePresets.json`, `vcpkg.json`), `Platform/Vulkan/`, `Renderer/RHI/`, the
+Vulkan tests, and the two ON/OFF *contract* files (`ShaderBindingLayout.h` and
+`VirtualShadowMapLocalTest.cpp`) — and unfiltered on master and weekly. Before
 #811 nothing set the option anywhere in CI, and the guards had gone
 uncompiled — and the SKIP branches unexecuted — for the whole epic.
+
+**The filter is a heuristic, and here is its known hole:** it names two contract
+files because those are the ones that broke, but *any* GL-only TU that acquires
+an include of a `Platform/Vulkan` header inherits the same failure and would
+slip past on the PR that introduced it (master/weekly still catch it, one merge
+later). If that recurs, the right answer is not a longer path list but a cheap
+grep job in the shape of `steam-stub.yml`'s `single-valve-tu` — assert that no
+TU outside `Platform/Vulkan/` and the Vulkan tests includes a
+`Platform/Vulkan/` header — which runs on every PR in seconds.
 
 ---
 
