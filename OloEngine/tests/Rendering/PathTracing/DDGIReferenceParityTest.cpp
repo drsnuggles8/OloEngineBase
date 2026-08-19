@@ -83,6 +83,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -384,6 +385,60 @@ namespace OloEngine::Tests
             outIrradiance.Mean = glm::vec3(sum / static_cast<f64>(kInner * kInner));
             return true;
         }
+
+        // Largest channel anywhere in the irradiance atlas. A probe-by-probe
+        // convergence check can only speak for the probes it samples; a
+        // feedback loop that goes unstable does so somewhere, not everywhere,
+        // so the stability contract is stated over the WHOLE field.
+        [[nodiscard]] bool ReadAtlasPeak(f32& outPeak, bool& outAllFinite)
+        {
+            auto* pass = Renderer3D::GetDDGIPass();
+            if (pass == nullptr)
+                return false;
+            const RHI::ResourceHandle atlas = pass->GetIrradianceAtlasID();
+            if (!atlas.IsValid())
+                return false;
+
+            const glm::ivec3 dims = VolumeResolution();
+            const glm::ivec2 tiles = DDGI::AtlasTileDimensions(dims);
+            const i32 width = tiles.x * DDGI::kIrradianceTileTexels;
+            const i32 height = tiles.y * DDGI::kIrradianceTileTexels;
+
+            // Poisoned, and the GL error state drained first: a
+            // glGetTextureSubImage that does nothing would otherwise leave a
+            // zero-filled buffer, which reads as peak 0 / all-finite / success
+            // — and a peak of 0 makes the growth ratio 0, so every divergence
+            // assertion below would pass on a readback that never happened.
+            // Bounded, per notes-renderer.md section 2 — an unbounded drain
+            // never terminates on a context that keeps reporting an error.
+            for (i32 drain = 0; drain < 64 && ::glGetError() != GL_NO_ERROR; ++drain)
+            {
+            }
+            std::vector<f32> texels(static_cast<sizet>(width) * static_cast<sizet>(height) * 4u,
+                                    std::numeric_limits<f32>::quiet_NaN());
+            ::glGetTextureSubImage(Debug::NativeTextureIdForDiagnostics(atlas), 0, 0, 0, 0, width, height, 1,
+                                   GL_RGBA, GL_FLOAT, static_cast<GLsizei>(texels.size() * sizeof(f32)),
+                                   texels.data());
+            if (::glGetError() != GL_NO_ERROR)
+            {
+                return false;
+            }
+
+            outPeak = 0.0f;
+            outAllFinite = true;
+            for (sizet i = 0; i < texels.size(); i += 4)
+            {
+                for (sizet c = 0; c < 3; ++c)
+                {
+                    const f32 v = texels[i + c];
+                    if (!std::isfinite(v))
+                        outAllFinite = false;
+                    else
+                        outPeak = std::max(outPeak, v);
+                }
+            }
+            return true;
+        }
     };
 
     // =========================================================================
@@ -399,6 +454,13 @@ namespace OloEngine::Tests
         ASSERT_NE(pass, nullptr) << "the DDGI pass never ran";
         ASSERT_GT(pass->GetCapturedFraction(), 0.99f)
             << "probe capture did not cover the grid — comparing an unconverged field";
+
+        // The pass's own #751 diagnostic, printed beside the probe table so
+        // the evidence is self-describing: the mean fraction of the bounce
+        // term this volume's bounds let through. It read 0 before the fix (an
+        // air-fitted volume contains none of its own hit points) and is what
+        // the editor inspector warns on.
+        std::cout << "[ddgi-parity] bounce coverage (air-fitted volume): " << pass->GetBounceCoverage() << "\n";
 
         // The reference twin, in DDGI's own (Lambertian) shading model.
         ReferenceScene reference;
@@ -463,28 +525,45 @@ namespace OloEngine::Tests
             referenceMeans.push_back(referenceMean);
             referenceDirectMeans.push_back(referenceDirectMean);
 
-            // MAGNITUDE, against the DIRECT-ONLY ground truth.
+            // MAGNITUDE, against the FULL (multi-bounce) ground truth.
             //
-            // Asserting against the FULL (multi-bounce) reference would be the
-            // obvious choice, and it fails: DDGI lands at 0.41-0.61x of it.
-            // That is not noise and not an approximation quality issue — it is
-            // the finding this test produced. With this probe volume DDGI's
-            // infinite-bounce feedback term is contributing EXACTLY NOTHING,
-            // and what remains agrees with the direct term to within 1%. See
-            // BounceTermIsDeadWhenTheVolumeExcludesTheWalls below for the
-            // mechanism, and docs/agent-rules/reference-path-tracer.md for the
-            // write-up.
+            // This assertion used to be made against the DIRECT-ONLY reference
+            // at a 10% tolerance, because direct transport was all DDGI
+            // computed: with a volume fitted to the room's air its
+            // infinite-bounce term contributed EXACTLY NOTHING (issue #751),
+            // and it landed at 0.41-0.61x of the full reference. Now that the
+            // bounce path gathers with a one-spacing margin, the full
+            // reference is the right target, and the direct-only one becomes
+            // the FLOOR that proves the bounce is alive.
             //
-            // So this assertion pins what DDGI ACTUALLY computes here — its
-            // direct transport, which is correct — at a tolerance tight enough
-            // (10%) to catch a regression in it. The missing bounce is pinned
-            // separately, as its own explicit contract, rather than hidden
-            // inside a band wide enough to swallow it.
-            const f32 ratio = ddgiMean / referenceDirectMean;
-            EXPECT_GT(ratio, 0.9f) << "probe (" << probeCoord.x << "," << probeCoord.y << "," << probeCoord.z
-                                   << "): DDGI is " << ratio << "x the DIRECT reference irradiance — too dark";
-            EXPECT_LT(ratio, 1.1f) << "probe (" << probeCoord.x << "," << probeCoord.y << "," << probeCoord.z
-                                   << "): DDGI is " << ratio << "x the DIRECT reference irradiance — too bright";
+            // The band is wider than the old direct-only one on purpose:
+            // multi-bounce is where a real-time probe field spends its
+            // approximation budget (6x6 octahedral irradiance, FP16 atlases,
+            // 256 fixed capture directions, Chebyshev visibility, and a
+            // constant extrapolation faded out across the boundary margin),
+            // whereas direct transport is nearly exact. The wall-enclosing
+            // fixture below — which has always had a live bounce term —
+            // measured 1.12x, which is the honest scale of that budget.
+            const f32 ratio = ddgiMean / referenceMean;
+            EXPECT_GT(ratio, 0.75f) << "probe (" << probeCoord.x << "," << probeCoord.y << "," << probeCoord.z
+                                    << "): DDGI is " << ratio << "x the FULL reference irradiance — too dark";
+            EXPECT_LT(ratio, 1.25f) << "probe (" << probeCoord.x << "," << probeCoord.y << "," << probeCoord.z
+                                    << "): DDGI is " << ratio << "x the FULL reference irradiance — too bright";
+
+            // THE #751 ANTI-REGRESSION, stated as its own contract rather than
+            // left to the band above: the bounce term must carry real energy
+            // on an AIR-FITTED volume. Every cached hit point is on a surface,
+            // so every one of them sits OUTSIDE this volume; if the gather
+            // ever goes back to refusing them, this ratio snaps to 1.00 (it
+            // measured 0.93-1.005 across these four probes) while the
+            // magnitude band above merely goes soft.
+            const f32 bounceRatio = ddgiMean / referenceDirectMean;
+            EXPECT_GT(bounceRatio, 1.15f)
+                << "probe (" << probeCoord.x << "," << probeCoord.y << "," << probeCoord.z << "): DDGI is "
+                << bounceRatio
+                << "x the DIRECT-ONLY reference — the infinite-bounce term is carrying little or nothing. "
+                   "That is issue #751: every cached hit point is on a surface, so a volume fitted to the "
+                   "room's air excludes all of them.";
         }
 
         // FIELD SHAPE. Magnitude can be off by a constant and still be useful;
@@ -493,13 +572,13 @@ namespace OloEngine::Tests
         // global scale error cannot pass and that a broken visibility term
         // cannot pass either.
         //
-        // Ranked against the DIRECT-ONLY reference, matching the magnitude
-        // assertion above. Ranking against the full multi-bounce reference
-        // would be comparing DDGI's field shape to a field it is not currently
-        // computing — the bounce term contributes nothing here (see
-        // BounceTermIsDeadWhenTheVolumeExcludesTheWalls), and indirect light
-        // does not distribute the same way direct light does, so the two
-        // orderings need not agree even when DDGI is behaving perfectly.
+        // Ranked against the FULL reference, matching the magnitude assertion
+        // above. Before #751 this had to rank against the direct-only
+        // reference: the bounce term contributed nothing, and indirect light
+        // does not distribute the way direct light does, so comparing DDGI's
+        // field shape against a field it was not computing would have been a
+        // coin flip. Now that it computes multi-bounce, the multi-bounce field
+        // is the one whose shape it has to reproduce.
         for (sizet a = 0; a < probes.size(); ++a)
         {
             for (sizet b = a + 1; b < probes.size(); ++b)
@@ -507,48 +586,53 @@ namespace OloEngine::Tests
                 // Skip pairs the reference itself considers a tie (within 15%):
                 // ordering is not a meaningful claim there, and asserting it
                 // would make the test a coin flip.
-                const f32 relativeGap = std::abs(referenceDirectMeans[a] - referenceDirectMeans[b]) / std::max(referenceDirectMeans[a], referenceDirectMeans[b]);
+                const f32 relativeGap = std::abs(referenceMeans[a] - referenceMeans[b]) / std::max(referenceMeans[a], referenceMeans[b]);
                 if (relativeGap < 0.15f)
                     continue;
 
-                const bool referenceOrder = referenceDirectMeans[a] > referenceDirectMeans[b];
+                const bool referenceOrder = referenceMeans[a] > referenceMeans[b];
                 const bool ddgiOrder = ddgiMeans[a] > ddgiMeans[b];
                 EXPECT_EQ(referenceOrder, ddgiOrder)
-                    << "probes " << a << " and " << b << " rank differently: reference "
-                    << referenceDirectMeans[a] << " vs " << referenceDirectMeans[b] << ", DDGI " << ddgiMeans[a]
-                    << " vs " << ddgiMeans[b]
+                    << "probes " << a << " and " << b << " rank differently: reference " << referenceMeans[a]
+                    << " vs " << referenceMeans[b] << ", DDGI " << ddgiMeans[a] << " vs " << ddgiMeans[b]
                     << " — the probe field's spatial structure does not match ground truth";
             }
         }
     }
 
     // =========================================================================
-    // THE FINDING (issue #709 acceptance criterion 2 — "fixed or documented").
+    // THE OTHER SIDE OF THE #751 PIN.
     //
-    // With the probe volume covering only the room's AIR — the natural
-    // authoring, and what the DDGI bring-up rig
+    // The finding this fixture was built for (issue #709 acceptance criterion
+    // 2, filed as #751): with the probe volume covering only the room's AIR —
+    // the natural authoring, and what the DDGI bring-up rig
     // (OloEditor/SandboxProject/Assets/Scenes/DDGITest.olo) and
     // DDGIVisualEvidenceTest both do — DDGI's infinite-bounce feedback term
-    // contributes EXACTLY NOTHING, and probe irradiance comes out at roughly
-    // half of ground truth.
+    // contributed EXACTLY NOTHING, and probe irradiance came out at roughly
+    // half of ground truth (0.41-0.61x). The mechanism was a two-line chain,
+    // invisible from either end:
     //
-    // The mechanism is a two-line chain, invisible from either end:
-    //
-    //   * DDGI_Relight.glsl computes the bounce term as
-    //     `ddgiSampleIrradiance(u_PrevIrradiance, ..., hitPos, ...)` — the
-    //     previous frame's irradiance AT THE CACHED HIT POINT.
-    //   * `ddgiSampleIrradiance` opens with `if (!ddgiIsInsideVolume(worldPos))
+    //   * DDGI_Relight.glsl computes the bounce term as the previous frame's
+    //     irradiance AT THE CACHED HIT POINT.
+    //   * the gather opened with `if (!ddgiIsInsideVolume(worldPos))
     //     return vec3(0.0);`.
     //
-    // Every cached hit point is ON A SURFACE. A volume fitted to the interior
-    // air therefore excludes every wall, floor and ceiling in the room — which
-    // is to say, every surface the bounce light was supposed to come from. The
-    // feedback term returns zero for all of them, silently, on every probe.
+    // Every cached hit point is ON A SURFACE, so a volume fitted to the
+    // interior air excluded every wall, floor and ceiling — every surface the
+    // bounce light was supposed to come from — on every probe, silently.
     //
-    // This test pins the mechanism from both sides: the same room, the same
-    // lights, the same reference — only the volume's bounds change. If DDGI is
-    // ever given a bounce term that survives a tightly-fitted volume, THIS test
-    // fails and the one above starts passing against the full reference.
+    // This fixture is the CONTROL that made the diagnosis unambiguous: the
+    // same room, the same lights, the same reference, only the bounds change
+    // so the wall slabs fall inside. Its bounce term was alive throughout
+    // (DDGI/direct 1.74, DDGI/full 1.12), which is what proved the machinery
+    // worked and was only ever being handed hit points it refused to answer
+    // for.
+    //
+    // It stays, and it is still load-bearing. The fix widened the bounce
+    // gather by one probe spacing; this fixture is the case that needs NO
+    // margin at all, so it pins that the change did not disturb a volume that
+    // was already authored correctly — the two authorings must now agree with
+    // ground truth, not just with each other.
     // =========================================================================
     class DDGIReferenceParityWideVolumeTest : public DDGIReferenceParityTest
     {
@@ -572,7 +656,7 @@ namespace OloEngine::Tests
         }
     };
 
-    TEST_F(DDGIReferenceParityWideVolumeTest, EnclosingTheWallsRestoresTheBounceTerm)
+    TEST_F(DDGIReferenceParityWideVolumeTest, EnclosingTheWallsAlsoMatchesTheReference)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
@@ -608,15 +692,32 @@ namespace OloEngine::Tests
             << "the reference says multi-bounce adds almost nothing here; the fixture cannot detect a "
                "dead feedback term";
 
-        // The contract: with the walls inside the volume, DDGI must carry more
-        // than the direct term alone. This is deliberately a WEAK lower bound
-        // (any real bounce contribution passes) because the point is the
-        // qualitative difference against the tight-volume case, where the ratio
-        // is 1.00 to three decimals.
+        // The bounce term is alive — the assertion this fixture has always
+        // made, kept as the floor.
         EXPECT_GT(ddgiMean, directMean * 1.05f)
             << "DDGI's infinite-bounce term is dead even with the walls inside the probe volume — "
                "DDGI "
             << ddgiMean << " vs direct-only ground truth " << directMean;
+
+        // ...and it lands in the SAME parity band as the air-fitted fixture.
+        // Before #751 only this fixture could make that claim; now both do,
+        // which is the real deliverable — the two authorings converge on the
+        // same physics instead of differing by a factor of two.
+        const f32 ratio = ddgiMean / fullMean;
+        EXPECT_GT(ratio, 0.75f) << "DDGI is " << ratio << "x the FULL reference irradiance — too dark";
+        EXPECT_LT(ratio, 1.25f) << "DDGI is " << ratio << "x the FULL reference irradiance — too bright";
+
+        // A volume that already encloses its geometry must need NO margin: the
+        // pass's own diagnostic has to read essentially 1.0 here, which is what
+        // makes it a usable authoring signal rather than a number that is
+        // always a bit under 1.
+        auto* pass = Renderer3D::GetDDGIPass();
+        ASSERT_NE(pass, nullptr);
+        const f32 coverage = pass->GetBounceCoverage();
+        std::cout << "[ddgi-parity] bounce coverage (wall-enclosing volume): " << coverage << "\n";
+        EXPECT_GT(coverage, 0.95f)
+            << "a volume that encloses its own walls reports only " << coverage
+            << " bounce coverage — the diagnostic is measuring something other than the authoring";
     }
 
     // =========================================================================
@@ -716,5 +817,155 @@ namespace OloEngine::Tests
         // visible artefact and a real bug worth filing.
         EXPECT_GT(ratio, 0.7f) << "DDGI's shading model is much BRIGHTER than the lit passes' BRDF";
         EXPECT_LT(ratio, 1.3f) << "DDGI's shading model is much DARKER than the lit passes' BRDF";
+    }
+
+    // =========================================================================
+    // The stability half of the #751 fix, and the reason it needed a design
+    // decision rather than a one-line patch.
+    //
+    // `ddgiIsInsideVolume` was not only a correctness guard: by zeroing the
+    // bounce term it also held the feedback loop's gain at ZERO, which is
+    // trivially contractive. Letting the bounce through restores the loop, and
+    // a loop that has just been switched on for the first time in the common
+    // authoring case is exactly where a slow divergence or a limit cycle would
+    // hide — a failure that takes hundreds of frames to show and that a single
+    // brighter-looking screenshot cannot rule out.
+    //
+    // The analytic argument (ADR 0007):
+    //
+    //   L_hit  = min(albedo, c)/PI * (directE + bounceE)          [relight]
+    //   E_next = PI * sum(w L) / sum(w)                           [blend]
+    //   bounceE(x) = sum(W_i E_i) / sum(W_i), scaled by a volume weight <= 1
+    //
+    // Both the blend's ratio estimator and the gather's weight normalization
+    // are convex averages, so in the sup norm ||E_next|| <= c * (||direct|| +
+    // ||E||): the map is a contraction with Lipschitz constant exactly c =
+    // u_DDGIEnergyConservation = 0.9, INDEPENDENT of the margin. (This is also
+    // why the gather passes intensity 1.0 on the bounce path — an authored
+    // gain would multiply that constant and an intensity above ~1.11 would
+    // turn the contraction into a divergence.) The EMA on top is a convex
+    // combination with the previous state, which cannot increase it.
+    //
+    // This test is the measurement behind that argument.
+    // =========================================================================
+    TEST_F(DDGIReferenceParityTest, InfiniteBounceFeedbackConverges)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Well past the 60 frames the parity measurements use: at hysteresis
+        // 0.5 the EMA settles in ~10, so 300 frames is ~30 time constants and
+        // ~300 round trips of the feedback loop. A creep of even 0.1% per
+        // frame would compound to +35% over this window.
+        constexpr u32 kWarmupFrames = kConvergenceFrames;
+        constexpr u32 kSampleStride = 20;
+        constexpr u32 kSampleCount = 15;
+
+        RunFrames(kWarmupFrames);
+
+        auto* pass = Renderer3D::GetDDGIPass();
+        ASSERT_NE(pass, nullptr) << "the DDGI pass never ran";
+        ASSERT_GT(pass->GetCapturedFraction(), 0.99f);
+        ASSERT_GT(pass->GetBounceCoverage(), 0.0f)
+            << "the bounce term is dead on this volume, so there is no feedback loop to test — see #751";
+
+        constexpr glm::ivec3 kProbe{ 1, 1, 1 };
+        std::vector<f32> probeSeries;
+        std::vector<f32> peakSeries;
+        probeSeries.reserve(kSampleCount);
+        peakSeries.reserve(kSampleCount);
+
+        glm::vec3 probePosition(0.0f);
+        for (u32 sample = 0; sample < kSampleCount; ++sample)
+        {
+            RunFrames(kSampleStride);
+
+            ProbeIrradiance probe;
+            ASSERT_TRUE(ReadProbeIrradiance(kProbe, probe, probePosition));
+            probeSeries.push_back(MeanChannel(probe.Mean));
+
+            f32 peak = 0.0f;
+            bool allFinite = true;
+            ASSERT_TRUE(ReadAtlasPeak(peak, allFinite));
+            ASSERT_TRUE(allFinite) << "the irradiance atlas contains a non-finite texel after "
+                                   << (kWarmupFrames + (sample + 1) * kSampleStride)
+                                   << " frames — the feedback loop diverged";
+            // A lit room's atlas has to have SOME energy in it. This is what
+            // makes the growth ratio below a real assertion rather than 0/0.
+            ASSERT_GT(peak, 0.0f) << "the whole irradiance atlas is zero — either the readback did nothing "
+                                     "or the probe field is dead";
+            peakSeries.push_back(peak);
+        }
+
+        std::cout << "[ddgi-stability] frame / probe(1,1,1) mean E / whole-atlas peak\n";
+        for (u32 sample = 0; sample < kSampleCount; ++sample)
+        {
+            std::cout << "[ddgi-stability]   " << (kWarmupFrames + (sample + 1) * kSampleStride) << "  "
+                      << probeSeries[sample] << "  " << peakSeries[sample] << "\n";
+        }
+
+        // 1. It settled. The last step of 20 frames must move the probe by
+        //    essentially nothing.
+        ASSERT_GE(probeSeries.size(), 2u);
+        const f32 finalValue = probeSeries.back();
+        ASSERT_GT(finalValue, 1e-4f) << "the probe went dark";
+        const f32 lastStep = std::abs(probeSeries.back() - probeSeries[probeSeries.size() - 2]) / finalValue;
+        EXPECT_LT(lastStep, 0.005f) << "probe irradiance is still moving " << (lastStep * 100.0f)
+                                    << "% per 20 frames after " << (kWarmupFrames + kSampleCount * kSampleStride)
+                                    << " frames — the feedback loop has not settled";
+
+        // 2. It is not creeping or oscillating. Over the whole measured window
+        //    — not just the tail — the spread must be small. A creep shows up
+        //    here as a large spread with a settled last step; a limit cycle
+        //    shows up as a large spread with a small one.
+        const auto [minIt, maxIt] = std::minmax_element(probeSeries.begin(), probeSeries.end());
+        const f32 spread = (*maxIt - *minIt) / finalValue;
+        EXPECT_LT(spread, 0.02f) << "probe irradiance varies by " << (spread * 100.0f)
+                                 << "% across the measured window (min " << *minIt << ", max " << *maxIt
+                                 << ") — the feedback loop is creeping or oscillating rather than converging";
+
+        // 3. The whole FIELD is bounded, not just the sampled probe. The peak
+        //    texel anywhere in the atlas must not grow across the window: that
+        //    is what a local instability (one probe pumping its own light back
+        //    into itself) looks like, and probe (1,1,1) would never show it.
+        //
+        //    Measured against the MAXIMUM of the series, not its last value: an
+        //    oscillation that spikes mid-window and decays before the final
+        //    sample is exactly the instability being looked for, and comparing
+        //    only the endpoints would let it through.
+        const f32 peakMax = *std::max_element(peakSeries.begin(), peakSeries.end());
+        const f32 peakGrowth = peakMax / std::max(peakSeries.front(), 1e-6f);
+        EXPECT_LT(peakGrowth, 1.02f) << "the atlas peak reached " << peakGrowth << "x its starting value over "
+                                     << (kSampleCount * kSampleStride)
+                                     << " frames — some probe's feedback is diverging";
+
+        // 4. The fixed point is where ground truth says it should be. A
+        //    contraction to the WRONG value is still a contraction, and — the
+        //    sharper risk for a test like this — a feedback loop that stopped
+        //    running entirely would also read as perfectly stable. So the
+        //    settled state is checked against the path tracer from BOTH sides,
+        //    including a floor over the direct-only reference: a frozen or
+        //    bounce-less atlas fails that even though every assertion above
+        //    would pass.
+        ReferenceScene reference;
+        BuildReferenceRoom(reference, /*lambertian*/ true);
+        const ProbeIrradiance traced = TraceProbeIrradiance(reference, probePosition, 192, 0x751u);
+        const ProbeIrradiance tracedDirect =
+            TraceProbeIrradiance(reference, probePosition, 96, 0x751u, /*maxBounces*/ 1);
+        const f32 referenceMean = MeanChannel(traced.Mean);
+        const f32 referenceDirectMean = MeanChannel(tracedDirect.Mean);
+        ASSERT_GT(referenceMean, 1e-4f);
+        ASSERT_GT(referenceDirectMean, 1e-4f);
+        const f32 settledRatio = finalValue / referenceMean;
+        std::cout << "[ddgi-stability] settled DDGI " << finalValue << " vs reference(4 bounces) " << referenceMean
+                  << "  (ratio " << settledRatio << ", vs direct-only " << (finalValue / referenceDirectMean)
+                  << ")\n";
+        EXPECT_LT(settledRatio, 1.25f) << "the loop settled, but " << settledRatio
+                                       << "x above ground truth — a stable over-brightening is still a bug";
+        EXPECT_GT(settledRatio, 0.7f) << "the loop settled at " << settledRatio
+                                      << "x ground truth — stable, and much too dark";
+        EXPECT_GT(finalValue, referenceDirectMean * 1.15f)
+            << "the settled field carries no multi-bounce energy (" << (finalValue / referenceDirectMean)
+            << "x the direct-only reference) — the loop is stable because it is dead, which is exactly the "
+               "#751 failure this test exists to detect";
     }
 } // namespace OloEngine::Tests

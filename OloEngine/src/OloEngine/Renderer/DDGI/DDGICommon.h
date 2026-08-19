@@ -63,6 +63,25 @@ namespace OloEngine::DDGI
     // diagonal before mean/mean^2 blending (keeps mean^2 inside FP16 range).
     inline constexpr f32 kMaxRayDistanceSpacingScale = 1.5f;
 
+    // Issue #751. How far PAST the volume bounds the INFINITE-BOUNCE feedback
+    // path may still gather irradiance, in probe spacings per axis.
+    //
+    // The bounce term samples the previous frame's irradiance at cached hit
+    // points, and every hit point is ON A SURFACE — so a volume fitted to a
+    // room's interior air (the natural authoring) excludes every wall, floor
+    // and ceiling, and a hard inside-test silently zeroes the entire feedback
+    // term. One spacing is the principled reach: the gather's trilinear lookup
+    // already clamps to the boundary probe layer for a position outside the
+    // bounds, and a probe field cannot resolve variation finer than its own
+    // spacing, so extrapolating by one spacing is exactly as accurate as the
+    // interpolation inside the volume. Beyond that the constant extrapolation
+    // is no longer justified by the sample density, so the weight is zero.
+    //
+    // The LIT path keeps margin 0 (a surface outside the volume must fall
+    // through to the ambient ladder, not be shaded from a clamped boundary
+    // probe). See docs/adr/0007-ddgi-hit-point-cache-gather.md.
+    inline constexpr f32 kBounceMarginSpacingScale = 1.0f;
+
     // Probe state stored in the probe-data texture's .w channel.
     enum class ProbeState : i32
     {
@@ -237,6 +256,64 @@ namespace OloEngine::DDGI
     [[nodiscard("the relocated probe position is the only effect")]] inline glm::vec3 ProbeWorldPosition(const glm::ivec3& coord, const glm::vec3& boundsMin, const glm::vec3& boundsMax, const glm::ivec3& dims, const glm::vec3& offsetNormalized) noexcept
     {
         return ProbeGridPosition(coord, boundsMin, boundsMax, dims) + offsetNormalized * ProbeSpacing(boundsMin, boundsMax, dims);
+    }
+
+    // Per-axis margin the bounce path gathers with. GLSL mirror:
+    // ddgiBounceMargin (which reads the precomputed spacing from the UBO).
+    //
+    // On an axis with resolution 1, ProbeSpacing returns the whole extent
+    // (extent / max(dims - 1, 1)), so the margin there is the extent too. That
+    // is the rule applied consistently rather than a special case: with one
+    // probe layer the volume's INTERIOR is already served by constant
+    // extrapolation from that layer across the whole extent, so extending it
+    // by one more extent is exactly as justified as the interior is. It does
+    // mean a deliberately flat volume reaches further than a reader might
+    // expect, which is why it is written down here and pinned by
+    // DDGIMath.BounceMarginOnASingleProbeAxisIsTheWholeExtent.
+    [[nodiscard("the bounce margin is the only effect")]] inline glm::vec3 BounceMargin(const glm::vec3& spacing) noexcept
+    {
+        return spacing * kBounceMarginSpacingScale;
+    }
+
+    // -------------------------------------------------------------------------
+    // Volume membership. GLSL mirror: ddgiIsInsideVolume, ddgiVolumeWeight.
+    // -------------------------------------------------------------------------
+
+    [[nodiscard("the membership test is the only effect")]] inline bool IsInsideVolume(const glm::vec3& worldPos, const glm::vec3& boundsMin, const glm::vec3& boundsMax) noexcept
+    {
+        return glm::all(glm::greaterThanEqual(worldPos, boundsMin)) && glm::all(glm::lessThanEqual(worldPos, boundsMax));
+    }
+
+    // Smooth membership of `worldPos` in the volume grown by a per-axis
+    // `margin`: exactly 1 inside the bounds, smoothstep down to 0 across the
+    // margin band, exactly 0 beyond it.
+    //
+    // margin == 0 reproduces IsInsideVolume EXACTLY (1 inside, 0 outside,
+    // boundary inclusive), which is what lets the one gather serve both the
+    // lit path (margin 0, behaviour unchanged) and the bounce path
+    // (margin = BounceMargin(spacing), issue #751).
+    [[nodiscard("the volume weight must be applied to the gathered irradiance")]] inline f32 VolumeWeight(const glm::vec3& worldPos, const glm::vec3& boundsMin, const glm::vec3& boundsMax, const glm::vec3& margin) noexcept
+    {
+        glm::vec3 const outside = glm::max(glm::max(boundsMin - worldPos, worldPos - boundsMax), glm::vec3(0.0f));
+        if (glm::dot(outside, outside) <= 0.0f)
+        {
+            return 1.0f;
+        }
+        glm::vec3 const safeMargin = glm::max(margin, glm::vec3(0.0f));
+        // Beyond the margin on ANY axis -> no contribution. This also covers
+        // margin == 0, so the division below never divides a positive distance
+        // by zero.
+        if (glm::any(glm::greaterThan(outside, safeMargin)))
+        {
+            return 0.0f;
+        }
+        f32 const t = glm::clamp(glm::length(outside / glm::max(safeMargin, glm::vec3(1e-20f))), 0.0f, 1.0f);
+        f32 const w = 1.0f - t * t * (3.0f - 2.0f * t);
+        // Positive test on purpose: a non-finite worldPos must read as
+        // "outside" (w is NaN, `w > 0.0f` is false), which is what the hard
+        // inside-test did for free. See the GLSL mirror for why that matters
+        // on the shader side.
+        return (w > 0.0f) ? w : 0.0f;
     }
 
     // -------------------------------------------------------------------------

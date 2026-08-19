@@ -90,10 +90,19 @@ Adopted:
   within seconds at bounded cost; relight is optionally budgeted round-robin
   for very large grids ("fixed update cost, variable lighting latency").
 - **Feedback-loop guards** (shared with RTXGI): backface hits contribute zero
-  radiance, albedo clamped (≤ 0.9) in the bounce term, relit radiance
-  saturated, and a minimum hit distance before the previous-frame probe
-  sample may be taken (Lumen's 10 cm `MinTraceDistanceToSampleSurface`
-  anti-self-lighting rule).
+  radiance, albedo clamped (≤ 0.9) in the bounce term, and relit radiance
+  saturated. The albedo clamp is the load-bearing one — see *"The bounce
+  gather reaches one probe spacing past the bounds"* below for why it, and not
+  the volume test, is what makes the loop a contraction.
+
+  Lumen's 10 cm `MinTraceDistanceToSampleSurface` anti-self-lighting rule was
+  listed here as adopted and **never was** — `DDGI_Relight.glsl` has no
+  minimum-hit-distance guard before the previous-frame probe sample. That went
+  unnoticed for as long as it did because the bounce term it guards was itself
+  dead in the common authoring case (issue #751): a guard on a term that is
+  always zero cannot be observed to be missing. Corrected here rather than
+  implemented, because with the bounce term live the reference path tracer says
+  it is not needed at this probe density — see the measurements below.
 
 Explicitly rejected as out of scale for this engine (each is engineer-months
 and requires infrastructure that does not exist here — no mesh/global SDF, no
@@ -135,6 +144,136 @@ GPU BVH, no geometry-shader stage, no virtualized page streaming):
 - **`m_RaysPerProbe` maps to the hit-cache angular resolution** (8×8=64,
   16×16=256, 32×32=1024; default 256) — the honest equivalent of ray count in
   a cached design.
+
+## The bounce gather reaches one probe spacing past the bounds (issue #751)
+
+Amends the gather contract above. The original design sampled the bounce term
+through the *same* `ddgiSampleIrradiance` the lit passes call, and that sampler
+opens by returning zero for any position outside the volume. Every cached hit
+point is **on a surface**, so a volume fitted to a room's interior air — the
+natural authoring, and what both `SandboxProject/Assets/Scenes/DDGITest.olo` and
+`DDGIVisualEvidenceTest` do — excludes every wall, floor and ceiling in the
+room, which is to say every surface the bounce light was supposed to come from.
+The infinite-bounce term was therefore **exactly zero on every probe, every
+frame**, with no visual signature beyond "the GI is a bit dim". The offline
+reference path tracer (#709) measured probe irradiance at 0.41–0.61× ground
+truth while agreeing with the *direct-only* reference to within 1%.
+
+**Decision.** The bounce path gathers through a margined variant of the same
+function — `ddgiGatherIrradiance(…, volumeMargin, intensity)` — with
+`volumeMargin` = one probe spacing per axis and `intensity` = 1. The lit passes
+keep calling `ddgiSampleIrradiance`, which is now a wrapper passing margin 0 and
+the authored intensity, so their behaviour is unchanged by construction rather
+than by inspection (`DDGI::VolumeWeight` with a zero margin reproduces the old
+hard inside-test exactly, boundary inclusive; pinned by
+`DDGIMath.VolumeWeightZeroMarginIsTheHardInsideTest`).
+
+**Why one spacing, and why a margin at all.** The gather's trilinear lookup
+already clamps to the boundary probe layer for a position outside the bounds —
+`p0` is clamped to the grid and `frac` to [0, 1] — so "extend the volume" and
+"clamp the lookup" are the same arithmetic; the only question is how far that
+constant extrapolation is allowed to reach. A probe field cannot resolve
+variation finer than its own spacing, so extrapolating by one spacing is exactly
+as accurate as the interpolation *inside* the volume, and no further. Weight
+falls off as a smoothstep across the band rather than stepping at its edge,
+because a step in the bounce term draws a hard edge in the GI wherever geometry
+crosses it.
+
+**Contractiveness — the constraint this had to be argued against.** The volume
+test was doing double duty: it was also what held the feedback loop's gain at
+zero. Writing the iteration out:
+
+    L_hit  = min(albedo, c)/PI * (directE + bounceE)          [relight]
+    E_next = PI * sum(w L) / sum(w)                           [blend]
+    bounceE(x) = m(x) * sum(W_i E_i) / sum(W_i)               [gather]
+
+both the blend's ratio estimator and the gather's weight normalization are
+**convex averages**, and the margin only enters as a factor `m(x) ∈ [0, 1]`. So
+in the sup norm
+
+    ||E_next|| ≤ c * (||direct|| + ||E||),   c = u_DDGIEnergyConservation = 0.9
+
+— a contraction with Lipschitz constant exactly `c`, **independent of the
+margin**. The albedo clamp, not the volume test, is what makes the loop stable;
+the volume test was only making it *dead*. The EMA on top is a convex
+combination with the previous state and cannot increase that constant.
+
+Two consequences follow from the same inequality and are implemented:
+
+- The bounce path passes **intensity 1**, not `u_DDGIIntensity`. An artist gain
+  inside the loop multiplies the Lipschitz bound to `c · intensity`, so an
+  authored intensity above ~1.11 pushes it to 1 and the argument above stops
+  **proving** contraction. That is weaker than saying it diverges — the true
+  operator norm is bounded by `c · intensity` and is generally well under it
+  (sky misses feed nothing back, the volume weight is ≤ 1, Chebyshev de-weights
+  occluded probes), so such a volume might still settle. But a stability
+  guarantee that an artist-facing knob can revoke is not one worth keeping.
+  Kept out, the intensity scales the converged field linearly, which is what an
+  intensity knob should do. (Latent before this change only because the loop
+  was dead.)
+- The bound says nothing about *where* the fixed point is, so a contraction to
+  the wrong value is still a contraction — and a loop that stopped running
+  would read as perfectly stable. `DDGIReferenceParityTest` asserts the settled
+  field against the path tracer, and
+  `DDGIReferenceParityTest.InfiniteBounceFeedbackConverges` runs 360 frames
+  (~30 EMA time constants), asserting that a sampled probe settles, that the
+  spread across the whole measured window is under 2%, that the peak texel
+  **anywhere** in the atlas does not grow (a local instability would not show
+  at a single probe), and that the settled value still carries multi-bounce
+  energy against the direct-only reference.
+
+  Measured: from frame 80 to frame 360 the sampled probe reads **0.378878** and
+  the whole-atlas peak **1.3877** at every one of the 15 samples — not "within
+  tolerance", bit-identical. The loop reaches an exactly representable fixed
+  point in the FP16 atlas and stays on it.
+
+**Measured, against the reference path tracer** (`DDGIReferenceParityTest`,
+enclosed ~8x4x8 room, one point light, albedos 0.55-0.6). DDGI / full
+multi-bounce ground truth, per probe:
+
+| volume | before | after |
+|---|---|---|
+| fitted to the air (the natural authoring) | 0.41 – 0.61 | **0.79 – 0.89** |
+| enclosing the wall slabs | 1.12 | **1.12** (unchanged, to three digits) |
+
+The wall-enclosing case is handed the same one-spacing margin as everything
+else — `BounceMarginScale` is uploaded unconditionally — and never uses it: its
+hit points are inside the hard bounds, where `VolumeWeight` returns 1 before the
+margin is consulted. So the fix is a no-op there, which is what makes it the
+control. The air-fitted case still
+lands 11–21% low, and that residual is the margin's smoothstep taper: its
+surfaces sit 0.29–0.42 of a spacing outside the bounds and therefore gather at
+0.6–0.8 weight, which compounds through the bounce series. Erring low rather
+than high is the right side for a feedback loop. The residual is comparable to
+the machinery's own 12% error at full coverage — smaller at three of the four
+probes, larger at the fourth — so the two authorings now differ by roughly the
+width of the approximation instead of by a factor of two.
+
+**Options rejected.**
+
+- *Authoring rule only* (document "enclose the surfaces you want bounce light
+  from", warn in the editor). Zero risk and zero fix: it leaves a correct-looking
+  volume silently producing half the light it should, and every scene already
+  authored stays wrong. Shipped as a **companion**, not as the fix:
+  `DDGIProbeUpdatePass::GetBounceCoverage()` is the **mean of `DDGI::VolumeWeight`
+  over every captured hit point of every active probe** — i.e. the average of the
+  attenuations the bounce gather actually applies, each hit point counting once.
+  It is a proxy for how much of the bounce term survives, not that fraction
+  itself: the irradiance a hit point contributes is also weighted by its radiance
+  and its cosine term, and neither enters here. Good enough to answer "are these
+  probes' surfaces inside the volume?", which is the authoring question. The
+  Light Probe Volume inspector warns below 50%. It reads **0.762** for the
+  `DDGIReferenceParityTest` air-fitted room, **1.000** for the wall-enclosing one,
+  and **0** for the pre-fix behaviour (margin 0), which is the point: it turns a
+  silent no-op into something an author can see. It returns **-1** when there is
+  nothing to measure — no active probe, or no cached surface hit yet — because a
+  diagnostic that reports "fine" when it means "unknown" is the failure mode it
+  exists to fix.
+- *Clamp the lookup with no bound.* Same arithmetic as the margin, minus the
+  limit. It stays contractive, but it lets a probe shade an arbitrarily distant
+  surface from a boundary probe — an extrapolation the field's own sample
+  density cannot justify, and one that pumps indoor light onto outdoor geometry
+  behind the volume. The margin is this option with the reach made explicit.
 
 ## Component / mode contract
 

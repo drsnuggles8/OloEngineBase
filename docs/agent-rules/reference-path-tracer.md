@@ -177,10 +177,12 @@ the assertion becomes a coin flip.
 
 ---
 
-## 5. The DDGI divergence this instrument found (acceptance criterion 2)
+## 5. The DDGI divergence this instrument found, and what fixing it took (acceptance criterion 2)
 
-**A DDGI probe volume fitted to a room's air silently kills the entire infinite-bounce term.
-Probe irradiance comes out at roughly half of ground truth.**
+**A DDGI probe volume fitted to a room's air silently killed the entire infinite-bounce term.
+Probe irradiance came out at roughly half of ground truth.** Filed as **#751**, fixed there; the
+diagnosis below is kept because it is the worked example of what this instrument is *for* — no
+golden, no contract test and no screenshot could have produced it.
 
 Measured, four probes, room with one point light, albedos 0.55–0.6 (`DDGIReferenceParityTest`):
 
@@ -225,15 +227,71 @@ volume bounds so the wall slabs fall **inside** it:
 With the walls inside, the bounce term comes alive and DDGI lands within 12% of full multi-bounce
 ground truth — which is a perfectly respectable result for a real-time probe field.
 
-### Status: documented, not fixed
+### Status: fixed (#751)
 
-Filed rather than fixed because the fix is a design decision, not a patch. `ddgiIsInsideVolume` is
-also the guard that keeps the feedback loop *contractive* (ADR 0006), so the options — extend the
-sample volume by a bias margin, clamp the lookup to the volume instead of zeroing it, or make the
-authoring rule explicit and enforced — need weighing against stability by whoever owns #632.
+It was filed rather than fixed on discovery because the fix is a design decision, not a patch:
+`ddgiIsInsideVolume` was *also* what held the feedback loop's gain at zero, so relaxing it trades
+against stability. What resolved that is in
+[ADR 0007](../adr/0007-ddgi-hit-point-cache-gather.md) — the loop's Lipschitz constant is the
+**albedo clamp** (0.9) and is independent of the volume test, which was only making the term dead —
+and the shipped fix is the issue's option 3: the bounce path gathers through
+`ddgiGatherIrradiance(…, volumeMargin, intensity)` with a margin of one probe spacing and intensity
+1, while the lit passes keep the hard test through a zero-margin wrapper.
 
-**If you author a DDGI volume today: make it enclose the surfaces you want bounce light from, not
-just the space the camera moves through.**
+Measured after the fix, same four probes, same fixture:
+
+| probe | DDGI | reference (4 bounces) | reference (direct only) | DDGI / full | DDGI / direct |
+|---|---|---|---|---|---|
+| (0, 0.8, 0) | 0.373 | 0.446 | 0.246 | 0.84 *(was 0.52)* | **1.52** *(was 0.93)* |
+| (0, 3.2, 0) | 0.379 | 0.443 | 0.237 | 0.85 *(was 0.54)* | **1.60** *(was 1.003)* |
+| (−3, 3.2, 0) | 0.498 | 0.560 | 0.341 | 0.89 *(was 0.61)* | **1.46** *(was 1.005)* |
+| (3, 3.2, 0) | 0.186 | 0.236 | 0.098 | 0.79 *(was 0.41)* | **1.90** *(was 0.989)* |
+
+A factor-of-two error became a 11–21% one, and it errs **low** — the residual is the margin's
+smoothstep taper, not a missing term. The pass reports its own coverage for this volume as
+**0.762**: the room's surfaces sit 0.29–0.42 of a probe spacing outside the bounds, so they gather
+at 0.6–0.8 weight rather than 1.0, and the shortfall compounds through the bounce series. Landing
+under ground truth rather than over is the side to err on for a feedback loop.
+
+Two controls make that attribution rather than a story:
+
+- **The wall-enclosing fixture is unchanged, to three digits.** `DDGIReferenceParityWideVolumeTest`
+  still measures DDGI/direct **1.744** and DDGI/full **1.124**, exactly what it measured before the
+  fix, and its coverage reads **1.000**. A volume that already enclosed its geometry needs no
+  margin and gets none — the change is a no-op there.
+- **That 1.124 is also the machinery's own error floor.** At full coverage this probe field lands
+  12% *above* ground truth; the air-fitted case now lands 11–21% below. The two authorings no
+  longer differ by a factor of two, they differ by the width of the approximation.
+
+
+The **authoring rule still helps** — a volume more than one probe spacing away from the surfaces it
+wants bounce light from still loses the term — but it is no longer the only thing standing between
+an author and a silently dead feature. `DDGIProbeUpdatePass::GetBounceCoverage()` now reports the
+**mean of `DDGI::VolumeWeight` over every captured hit point of every active probe** — the average
+attenuation the bounce gather applies, each hit point counting once. It is a proxy for how much of
+the bounce term survives rather than that fraction itself (a hit point's contribution is also
+weighted by its radiance and cosine term, neither of which enters here), which is ample for the
+authoring question it answers. The Light Probe Volume inspector warns below 50%. It reads **0.762** for the air-fitted fixture above, **1.000** for the
+wall-enclosing one, and **0** for the pre-fix behaviour: the instrument's finding is now a number
+the editor shows you. (It returns **-1** for "nothing to measure" rather than 1.0 — a diagnostic
+whose job is to stop a dead feature reading as healthy must not confuse *unknown* with *fine*.)
+
+### What generalises about the failure, not just the fix
+
+Two things, and neither is about DDGI:
+
+- **A guard can be load-bearing for a reason nobody wrote down.** `ddgiIsInsideVolume` was put
+  there for a real reason (a lookup outside the grid has no probes to interpolate) and was
+  *silently* also the thing keeping a feedback loop bounded. The way out was not to argue about
+  the guard but to write the iteration down and find where the contraction actually comes from —
+  at which point the guard turned out not to be load-bearing at all. If you are about to relax a
+  guard "that is also what keeps X safe", derive X's real bound first; you may find it lives
+  somewhere else entirely.
+- **A missing guard is unobservable while the term it guards is zero.** ADR 0007 listed Lumen's
+  10 cm `MinTraceDistanceToSampleSurface` anti-self-lighting rule as adopted; it never was. Nothing
+  caught that for the feature's whole life, because the bounce term it guards was itself dead.
+  Turning a dead path on is therefore also a *review* of every guard that path was supposed to
+  have.
 
 ### The methodological point, which generalises
 

@@ -76,7 +76,9 @@ when a carve does not rebuild the neighbours it uncovered) ·
 [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) (a
 settings struct, on entering Play) ·
 [light-path-photometric-parity.md](light-path-photometric-parity.md) (an authored light parameter →
-a dead knob) · [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) (world
+a dead knob) · [reference-path-tracer.md](reference-path-tracer.md) §5 (DDGI's entire
+infinite-bounce term, for any probe volume fitted to a room's air — a guard that was load-bearing
+for a second, unwritten reason) · [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) (world
 position, gradually) · [runtime-scene-switching.md](runtime-scene-switching.md) (every script, in
 shipped games only) · [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) (a
 component's teardown, when `m_Registry.destroy()` skips `OnComponentRemoved`) ·
