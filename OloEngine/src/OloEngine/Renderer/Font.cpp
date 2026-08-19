@@ -243,12 +243,23 @@ namespace OloEngine
         return m_Data->BandTexture;
     }
 
+    namespace
+    {
+        // The process-wide default font. File-scope rather than function-local so
+        // ShutdownDefault() below can reach it: its curve + band atlas textures are GPU
+        // objects, and until #839 nothing released them in any session, on any backend —
+        // Font.cpp had a getter and no reset at all. They are created from an ECS
+        // component's default member initializer (UITextComponent / TextComponent
+        // `= Font::GetDefault()`), so the creating session need not have touched the 3D
+        // renderer, or any renderer. See docs/agent-rules/lazy-static-release-ownership.md.
+        Ref<Font> s_DefaultFont;
+    } // namespace
+
     Ref<Font> Font::GetDefault()
     {
-        static Ref<Font> DefaultFont;
-        if (DefaultFont && DefaultFont->IsLoaded())
+        if (s_DefaultFont && s_DefaultFont->IsLoaded())
         {
-            return DefaultFont;
+            return s_DefaultFont;
         }
 
         // Search a small list of well-known locations. Production code runs
@@ -270,19 +281,26 @@ namespace OloEngine
             auto candidateFont = Font::Create(candidate);
             if (candidateFont && candidateFont->IsLoaded())
             {
-                DefaultFont = candidateFont;
-                return DefaultFont;
+                s_DefaultFont = candidateFont;
+                return s_DefaultFont;
             }
         }
 
         // Nothing on disk loaded. Cache whatever the last attempt produced
         // (an unloaded Font sentinel) so accessors can null-check via
         // IsLoaded() without infinite re-load attempts.
-        if (!DefaultFont)
+        if (!s_DefaultFont)
         {
-            DefaultFont = Font::Create(kCandidates[0]);
+            s_DefaultFont = Font::Create(kCandidates[0]);
         }
-        return DefaultFont;
+        return s_DefaultFont;
+    }
+
+    void Font::ShutdownDefault()
+    {
+        // Idempotent, and a later GetDefault() simply reloads — nothing holds a raw
+        // pointer into the font, and every component that wanted it kept its own Ref.
+        s_DefaultFont.Reset();
     }
 
     Ref<Font> Font::Create(const std::filesystem::path& font)

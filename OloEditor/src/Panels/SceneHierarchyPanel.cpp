@@ -81,9 +81,41 @@ namespace
 
 namespace OloEngine
 {
+    // Every DrawComponent<T> instantiation owns its own static map of undo snapshots, and a
+    // snapshot is a COPY of the component — so the ModelComponent one owns a Ref<Model> and
+    // the texture-bearing ones own Ref<Texture2D>. There is no way to reach a function-local
+    // static of a template from outside, so each instantiation registers a clearer here the
+    // first time it runs, and ClearComponentEditSnapshots() calls them all.
+    //
+    // Note this is the same leak species as s_DrawComponentScene further down this file, but
+    // wrapped in a container: a scan that looks for `static Ref<GpuType>` declarations cannot
+    // see a Ref that lives inside a std::unordered_map's mapped_type. It was the last object
+    // still alive at vmaDestroyAllocator after the rest of the #839 sweep landed.
+    static std::vector<void (*)()>& DrawComponentSnapshotClearers()
+    {
+        static std::vector<void (*)()> clearers;
+        return clearers;
+    }
+
     SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
     {
         SetContext(context);
+    }
+
+    SceneHierarchyPanel::~SceneHierarchyPanel()
+    {
+        // The panel dies with EditorLayer during Application's m_LayerStack.Clear(), i.e.
+        // before Renderer::Shutdown() — so anything the snapshots pin is released while
+        // the graphics context is still alive, which is the deadline that matters (#839).
+        ClearComponentEditSnapshots();
+    }
+
+    void SceneHierarchyPanel::ClearComponentEditSnapshots()
+    {
+        for (void (*clear)() : DrawComponentSnapshotClearers())
+        {
+            clear();
+        }
     }
 
     void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
@@ -91,6 +123,11 @@ namespace OloEngine
         m_Context = context;
         m_SelectionContext = {};
         m_SelectedEntities.clear();
+        // The snapshots are keyed by entity UUID and hold copies of the OUTGOING scene's
+        // components; keeping them across a scene swap both leaks that scene's GPU
+        // resources and lets a stale "before" state feed the undo stack of a UUID that
+        // happens to repeat in the new scene.
+        ClearComponentEditSnapshots();
     }
 
     void SceneHierarchyPanel::OnImGuiRender()
@@ -1107,9 +1144,42 @@ namespace OloEngine
         return modified;
     }
 
-    // File-scope state for undo integration in DrawComponent (set by DrawComponents)
+    // File-scope state for undo integration in DrawComponent (set by DrawComponents).
+    //
+    // Scoped to ONE DrawComponents() call by DrawComponentStateScope below, and that
+    // matters: s_DrawComponentScene is a strong Ref, and leaving it set between frames
+    // pinned the last scene the Properties panel drew for the rest of the process —
+    // every MeshSource, texture and cubemap in it — long past m_LayerStack.Clear().
+    // On Vulkan that made closing the editor ABORT rather than exit — every MeshSource
+    // and texture in the scene was still live at vmaDestroyAllocator (measured: 12 vertex
+    // arrays, 6 textures, 147 MB on the sandbox start scene; 64 vertex arrays on the
+    // scene in #839). On GL it was silent. Note the leak only happens once an entity has
+    // been selected, because that is what makes the Properties panel call DrawComponents
+    // at all. A Ref parked in file-scope state "until the next frame overwrites it" is a
+    // leak on the frame that never comes.
     static CommandHistory* s_DrawComponentCmdHistory = nullptr;
     static Ref<Scene> s_DrawComponentScene = nullptr;
+
+    // Clears both on every exit path from DrawComponents(), so the invariant "these are
+    // live only for the duration of the call" is enforced by the type system rather than
+    // by a trailing assignment somebody can jump over.
+    struct DrawComponentStateScope
+    {
+        DrawComponentStateScope(CommandHistory* history, const Ref<Scene>& scene)
+        {
+            s_DrawComponentCmdHistory = history;
+            s_DrawComponentScene = scene;
+        }
+        ~DrawComponentStateScope()
+        {
+            s_DrawComponentCmdHistory = nullptr;
+            s_DrawComponentScene = nullptr;
+        }
+        DrawComponentStateScope(const DrawComponentStateScope&) = delete;
+        DrawComponentStateScope& operator=(const DrawComponentStateScope&) = delete;
+        DrawComponentStateScope(DrawComponentStateScope&&) = delete;
+        DrawComponentStateScope& operator=(DrawComponentStateScope&&) = delete;
+    };
 
     // Compile-time stable component name extraction (no RTTI dependency).
     // Uses a probe type in the OloEngine namespace to calibrate __FUNCSIG__/__PRETTY_FUNCTION__.
@@ -1503,6 +1573,16 @@ namespace OloEngine
                         alignas(alignof(T)) unsigned char snapshotBytes[sizeof(T)]{};
                     };
                     static std::unordered_map<u64, EditState> s_EditStates;
+                    // Register this instantiation's map for bulk clearing exactly once. A
+                    // capture-less lambda can name an enclosing function's static directly
+                    // (statics are not captured), so it converts to the plain function
+                    // pointer the registry holds. See DrawComponentSnapshotClearers (#839).
+                    [[maybe_unused]] static const bool s_ClearerRegistered = []
+                    {
+                        DrawComponentSnapshotClearers().push_back([]
+                                                                  { s_EditStates.clear(); });
+                        return true;
+                    }();
                     auto& editState = s_EditStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
 
                     // Take a snapshot once per idle→edit cycle (not every frame)
@@ -1923,9 +2003,9 @@ namespace OloEngine
 
     void SceneHierarchyPanel::DrawComponents(Entity entity)
     {
-        // Set file-scope state for DrawComponent undo integration
-        s_DrawComponentCmdHistory = m_CommandHistory;
-        s_DrawComponentScene = m_Context;
+        // Set file-scope state for DrawComponent undo integration, and drop it again on
+        // the way out — the Ref<Scene> must not outlive this call (see the declaration).
+        const DrawComponentStateScope drawComponentState(m_CommandHistory, m_Context);
 
         if (entity.HasComponent<TagComponent>())
         {

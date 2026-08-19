@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer.h"
 
+#include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -20,6 +21,17 @@ namespace OloEngine
 
         RenderCommand::Init();
         s_RendererType = type;
+
+        // Symmetric with the Shutdown() call at the bottom of Renderer::Shutdown(),
+        // which is the only half that existed: Initialize() had NO callers, so the
+        // tracker never sized its history buffers and — worse — never cleared the
+        // m_IsShutdown latch its own comment says it exists to clear. After the first
+        // Renderer::Shutdown() in a process, TrackDeallocation() early-returned while
+        // TrackAllocation() kept recording, so every resource type read as a phantom
+        // leaker across an Init/Shutdown/Init cycle (the test binary and the editor's
+        // project reload both do exactly that). Needed here because Shutdown() now
+        // REPORTS what is still tracked (#839) rather than silently clearing it.
+        RendererMemoryTracker::GetInstance().Initialize();
 
         // Initialize boot + fallback shaders BEFORE any renderer loads shaders.
         // This ensures the warmup progress bar is available during all shader
@@ -93,6 +105,16 @@ namespace OloEngine
         // enqueue into VulkanDeferredReclaim, which VulkanContext::Shutdown
         // drains a final time just before VulkanDevice::Shutdown.
         MeshPrimitives::Shutdown();
+
+        // The process-wide default font's two Slug atlas textures. Same class as the
+        // triangle above and the same reason it belongs here rather than in
+        // Renderer3D::Shutdown(): Font::GetDefault() is reached from an ECS component's
+        // default member initializer (`Ref<Font> m_FontAsset = Font::GetDefault()` on
+        // UITextComponent / TextComponent), so merely deserialising a scene with a text
+        // component creates it — in a 2D session, a 3D session, or a headless one. Until
+        // #839 it had NO release site anywhere; the atlases survived every session on
+        // every backend, and only Vulkan's allocator teardown ever said so.
+        Font::ShutdownDefault();
 
         // Release the descriptor heap and its backend WHILE THE CONTEXT IS STILL
         // CURRENT. ~OpenGLRendererAPI cannot do this: it runs from the static

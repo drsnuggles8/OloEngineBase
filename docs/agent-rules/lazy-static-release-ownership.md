@@ -166,3 +166,230 @@ fullscreen-triangle cache "is a process STATIC now holding Vulkan VMA buffers �
 released here or the allocator teardown asserts on the leak". A test that has to
 reach past a subsystem's teardown to release something is evidence the release
 site is in the wrong place; it read as a test-fixture quirk for a whole phase.
+
+---
+
+# The sweep (#839): what the rest of the class looked like
+
+#814 fixed one member and this document predicted there were others. There were
+eight, and the part worth carrying forward is that **they were not all the same
+shape**. "The release site is in the wrong teardown" turned out to be the
+*rarest* of three species:
+
+| species | what it looks like | members found |
+|---|---|---|
+| **(a) release in a conditional teardown** | a release call exists and runs, just not in every session that can create the object | the fullscreen triangle (#814) — and nothing else |
+| **(b) no release site at all** | nobody ever wrote one; the object is simply immortal | the default font, the GL cubemap staging PBO, the inspector's scene reference, the inspector's undo-snapshot maps, the scene's default material |
+| **(c) a release site nothing calls** | someone wrote the teardown — one of them with a comment saying when to call it — and never wired it up | `VideoSystem::Shutdown()`, `GPUTimerQueryPool::Shutdown()` |
+
+Species (c) is the one to internalise. Both instances read as *finished* code: a
+public `Shutdown()`, a correct body, and in `VideoSystem`'s case a doc comment
+reading "Release the global fullscreen player. Call on engine/scene shutdown."
+Grepping for "is this released?" finds the function and stops. The question that
+finds the bug is **"who calls it?"**, and it has to be asked separately.
+
+So the sweep is three scans, not one:
+
+1. every process static holding a `Ref<T>` where `T` owns GPU memory — does its
+   own translation unit reset it anywhere?
+2. every `Shutdown()` / `Release*()` on a static or singleton facility — does
+   anything call it?
+3. every raw `static GLuint` / `static Vk*` in the platform layers — is there a
+   matching delete?
+
+Scan 3 is not garnish. It found a persistent `GL_PIXEL_UNPACK_BUFFER` staging
+buffer in `OpenGLTextureCubemap`'s face upload, created on first use, grown by
+`glNamedBufferData` to the largest cubemap face the session ever uploaded, and
+never deleted. It is **GL-only**, so the Vulkan forensics that found everything
+else were blind to it, and GL has no allocator assertion to complain. *A leak
+class found on Vulkan still needs a GL-side pass.*
+
+## The big one was not a teardown-placement bug at all
+
+The headline number — 64 surviving vertex arrays, two per mesh, plus the BRDF LUT
+— was not a misplaced release. Every one of those `MeshSource`s was owned by the
+deserialised scene through `MeshComponent::m_MeshSource`, the BRDF LUT through
+`EnvironmentMapComponent`, and the surviving albedo textures through the model
+components. They survived because **the scene survived**, and the scene survived
+because `SceneHierarchyPanel.cpp` kept a file-scope `Ref<Scene>`:
+
+```cpp
+// File-scope state for undo integration in DrawComponent (set by DrawComponents)
+static CommandHistory* s_DrawComponentCmdHistory = nullptr;
+static Ref<Scene>      s_DrawComponentScene      = nullptr;
+```
+
+`DrawComponents()` sets it every inspector frame so the templated
+`DrawComponent<T>` helpers can build undo commands without threading two extra
+parameters through ~95 call sites. That is a reasonable trick, and the comment
+even scopes it to the call. Nothing ever unset it, so the last scene the
+Properties panel drew was pinned for the rest of the process.
+
+**The A/B that proves it**, same binary, same scene, `--rhi=vulkan`, close the
+window:
+
+| | vertex arrays | textures | VMA allocations | bytes | exit |
+|---|---|---|---|---|---|
+| no entity selected | 0 | 0 | 0 | 0 | 0, "Context shut down cleanly" |
+| one entity selected | 12 | 6 | 30 | 147,330,896 | **3 (abort)** |
+
+Selecting an entity is the whole difference: it is what makes the Properties
+panel call `DrawComponents()` at all. Worth knowing when reading a teardown-leak
+report — **this class of bug can be conditional on a UI interaction**, so "I
+couldn't reproduce it" may only mean you did not click the same thing. It also
+means the failure is worse than a leak: with a selection, closing the Vulkan
+editor **aborts** rather than exiting.
+
+Two things this rules out. `~Application` *already* detaches the layers and calls
+`Project::Unload()` before `Renderer::Shutdown()`, deliberately, with a comment
+explaining that the asset manager's Refs would otherwise outlive the graphics
+context (#691 Phase 8). **The teardown order was right; the object had one more
+owner than the order accounted for.** When a survivor is a whole aggregate — a
+scene, a model, an asset pack — rather than a single cached resource, look for
+the extra owner before you reach for the teardown order: reordering teardown to
+"fix" a stray strong reference just converts a leak into a use-after-free
+somewhere less visible.
+
+The general rule for a scratch static like this one: **if a static exists only
+for the duration of a call, clear it at the end of that call** — with a scope
+guard, not a trailing assignment somebody can jump over. A `Ref<>` parked in
+file-scope state "until next frame overwrites it" is a leak on the frame that
+never comes.
+
+
+## The one the guard cannot see, and how it was found
+
+The sweep above got the Vulkan teardown from 12 vertex arrays / 6 textures / 30 VMA
+allocations / 147 MB down to **1 vertex array and 2 allocations (18 KB)** — and the
+acceptance bar is zero, so that last one mattered. Its creation stack named a `Model`
+built by `ModelComponent::Reload` during scene deserialisation, and it only appeared
+when an entity had been selected in the inspector.
+
+The owner is an **eighth** member, and it is species (b) wearing a disguise:
+
+```cpp
+struct EditState { bool isEditing; bool snapshotValid; T snapshot{}; ... };
+static std::unordered_map<u64, EditState> s_EditStates;   // inside DrawComponent<T>
+```
+
+`snapshot` is a **copy of the component**, so the `ModelComponent` instantiation of that
+template owns a `Ref<Model>` and the texture-bearing ones own `Ref<Texture2D>`. Nothing
+ever cleared the maps, so drawing an entity in the inspector once pinned its GPU
+resources for the life of the process.
+
+Two things to take from it.
+
+**A declaration scan cannot find a Ref inside a container.** The guard looks for
+`static Ref<GpuOwningType> name;`. Here the Ref is a member of a struct that is the
+`mapped_type` of a static map, three type layers down — invisible, and deliberately not
+chased, because "recursively decide whether an arbitrary static's type transitively owns
+GPU memory" is a type-system question a regex cannot answer. **The guard covers direct
+declarations only. Say so; do not let it imply coverage it does not have.**
+
+**Run the teardown under a debugger before believing a leak count.** The VMA leak assert
+*aborts*, and an abort discards spdlog's buffered tail — so `OloEngine.log` stopped at
+"Pipeline cache saved", several lines before the forensics that name the survivors, and
+the run looked like it might be a fresh crash in `~VulkanContext`. Under `cdb` the
+inherited console showed the whole report and `sxe av` proved there was no access
+violation at all: same old leak assert, far fewer survivors. Without that, the last
+member would have been missed and the leak reported as fixed.
+
+Also worth knowing when reading a teardown log: **a nonzero exit code with a log that
+stops early is the abort, not a second bug.** Check the console, not the file.
+
+## The rule, one level up
+
+#814 phrased it as "for anything under `Renderer/` that is not exclusively 3D,
+release from `Renderer::Shutdown()`". Two of #839's members live outside
+`Renderer/`, and releasing them from `Renderer::Shutdown()` would have inverted
+the layering. The rule generalises:
+
+> Release from the **narrowest teardown that is unconditional for every session
+> that can create the object**, and that still runs **while the graphics context
+> is alive**.
+
+which resolves, in widening order, to:
+
+| creator | release from |
+|---|---|
+| a 3D-only facility | `Renderer3D::Shutdown()` |
+| anything else under `Renderer/` | `Renderer::Shutdown()` |
+| a backend-private object under `Platform/OpenGL/` | `OpenGLRendererAPI::ShutdownGpuResources()` |
+| a non-renderer subsystem that can own GPU memory (video, scene defaults) | `Application::~Application()`, after `Project::Unload()` and before `Renderer::Shutdown()` |
+| state that lives for one call | the end of that call |
+
+That third row has a trap worth knowing. The obvious home for the GL staging PBO
+was the `if (GetAPI() == OpenGL)` branch already sitting in `Renderer::Shutdown()`
+next to `OpenGLFramebuffer::ShutdownSharedResources()` — but `OpenGLTextureCubemap.h`
+includes `<glad/gl.h>` (that framebuffer header does not), so calling it from
+`Renderer.cpp` would drag the GL loader into an engine-core translation unit and
+undo the `sweep_glad_includes == 0` property `RHIBoundaryRatchetTest` pins.
+**And the ratchet would not have caught it**: it counts *direct* `#include` lines
+naming `glad/gl.h`, so an indirect one through a backend header breaks the
+property while the counter stays at zero. `OpenGLRendererAPI::ShutdownGpuResources()`
+is the correct home instead — it is inside the backend, it is GL-only by
+construction (`Renderer::Shutdown()` reaches it through
+`RenderCommand::ShutdownGpuResources()`, which the Vulkan path inherits as the
+empty `RendererAPI` base default), and it already runs while the context is
+current, which is exactly the deadline a `glDelete*` has.
+
+## The guard, and what it deliberately does not cover
+
+`RendererShutdown.EveryProcessStaticGpuResourceHasAReleaseSite` implements scans
+1 and 3. The two older tests in that file both start from a teardown *body* and
+ask "is this facility released from the right place?", which only ever sees
+facilities somebody already thought to release — structurally blind to species
+(b). So this one starts from the **declaration**: every process static holding a
+GPU-owning `Ref` (seeded roster, `kGpuOwningRefTypes`) and every lazily created
+raw GL handle must be reset somewhere in its own translation unit. Where that
+reset is *called* from is the other two tests' business.
+
+It does **not** implement scan 2. A prototype was written and thrown away:
+resolving `Foo::GetInstance().Shutdown()` through aliases, member calls and
+delegating bodies textually produced enough false positives to be noise, and a
+curated roster of "teardowns that must be called" drifts by construction.
+**Species (c) has no cheap static guard.** It is caught empirically, by:
+
+- the Vulkan teardown forensics (#794), which name every survivor with its
+  creation stack; and
+- `RendererMemoryTracker::Shutdown()`, which used to `clear()` its live-allocation
+  map without looking at it and now reports what is in it first. That map already
+  held the type, size, name, file and line of every survivor — so the one
+  backend-independent instrument threw the answer away at exactly the moment it
+  had it. Its limit: `TrackAllocation` is called from the **OpenGL** resource
+  classes only, so on Vulkan the report is empty and #794 remains the instrument
+  there. (`RendererMemoryTracker::Initialize()` had no callers either, which left
+  the `m_IsShutdown` latch its own comment exists to clear permanently set after
+  the first `Renderer::Shutdown()` in a process; `Renderer::Init()` now calls it.)
+
+  **It earned its keep on the first run.** With this sweep complete and Vulkan at zero
+  survivors, the very first OpenGL session reported **115 surviving shader programs**
+  (3.2 MB) — and nothing else: no textures, no buffers, no vertex arrays. `OpenGLShader`
+  pairs its alloc/dealloc tracking correctly, so those are 115 objects genuinely still
+  alive after `ShaderLibrary::Clear()`, `ShutdownFallbackShader()`,
+  `ShaderWarmup::Shutdown()` and every `s_Data.*Shader.Reset()` have run — while the
+  Vulkan backend releases the same set cleanly on the identical path. Filed as **#841**:
+  a backend divergence in shader lifetime, not one of this class's scene-owned families.
+  The instrument had been recording that answer for the whole life of the GL backend and
+  discarding it at the one moment it mattered.
+
+Red-checked against every way scan 1 can break: it reports exactly the four
+species-(b) members against the unfixed tree and none against the fixed one, and
+neither a declaration's own `= nullptr` initializer **nor an out-of-class static
+member definition** (`Ref<Shader> ShaderLibrary::s_Fallback = nullptr;` in the
+.cpp that pairs with the `static Ref<Shader> s_Fallback;` in the .h) counts as a
+release. Both textually contain `= nullptr`; without excluding them, giving a
+static an explicit null initializer — or simply *defining* a class static — would
+be enough to "release" it, which would have made the check silently vacuous for
+every class static in the engine.
+
+And red-check it **in the compiled binary**, not only in a scratch copy of the
+scan. Both halves of this guard were validated standalone first, but the *test's*
+GL-handle branch still shipped broken: widening its regex to accept an
+anonymous-namespace declaration (which is exactly what fixing the PBO looks like)
+shifted the capture groups, and the body still read `match[1]` as the name — so it
+searched for `glCreate...&<whitespace>`, matched nothing, and **skipped the entire
+GL branch silently**. The test passed. It would have kept passing with the leak
+reinstated. The scratch copy had the corrected indices, so only running the real
+binary against a deliberately broken tree found it. Being a source-scan test makes
+that cheap: delete the release, re-run the already-built binary, no rebuild needed.

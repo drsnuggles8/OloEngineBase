@@ -48,6 +48,7 @@
 #include <chrono>
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
@@ -709,6 +710,14 @@ namespace OloEngine
         // (both are idempotent, but no need to call them twice).
 
         GPUPassTimerPool::GetInstance().Shutdown();
+        // Its neighbour, and a different species of the same bug (#839): this pool has
+        // had a correct Shutdown() since it was written and NOTHING called it. Grepping
+        // "is this released?" finds the function and stops; the question that finds the
+        // leak is "who calls it?". CommandBucket::ExecuteWithGPUTiming lazily
+        // Initialize()s it on the first GPU-timed frame from SceneRenderPass, so it is
+        // 3D-only by construction and Renderer3D::Shutdown() is unconditional for every
+        // session that can create it. See docs/agent-rules/lazy-static-release-ownership.md.
+        GPUTimerQueryPool::GetInstance().Shutdown();
         RendererProfiler::GetInstance().Shutdown();
 
         s_Data.CoreInitialized = false;

@@ -176,6 +176,108 @@ namespace OloEngine::Tests
             return s_StartCwd / relative; // report the path we looked for
         }
 
+        // ------------------------------------------------------------------------------
+        // #839 sweep guard helpers.
+        // ------------------------------------------------------------------------------
+
+        // The repo root. Derived from one of the scan roots below rather than by counting
+        // parent_path() hops up from a source file — that count is silent if the file
+        // moves, and this one is wrong only if the directory the scan already depends on
+        // is wrong, which the scan's own non-vacuity assertion catches.
+        [[nodiscard]] std::filesystem::path RepoRoot()
+        {
+            return RepoFile("OloEngine/src").parent_path().parent_path();
+        }
+
+        // Types whose Ref<> owns GPU memory, or transitively owns something that does.
+        // SEEDED deliberately rather than discovered: a scan that discovers what to check
+        // can stop checking, which is the lesson #814's guard learned the hard way. Adding a
+        // new GPU-resource class means adding it here.
+        constexpr const char* kGpuOwningRefTypes[] = {
+            "VertexArray", "VertexBuffer", "IndexBuffer", "UniformBuffer", "StorageBuffer",
+            "Texture", "Texture2D", "Texture3D", "TextureCubemap", "Texture2DArray",
+            "TextureCubemapArray", "Framebuffer", "Shader", "ComputeShader",
+            "Mesh", "MeshSource", "StaticMesh", "Material", "Font", "EnvironmentMap",
+            "Scene", "VideoPlayer", "RenderGraph", "Model", "AnimatedModel"
+        };
+
+        // Statics released through a SETTER called with nullptr rather than by an assignment
+        // the scan can see. Keep the justification with the entry; an unexplained name here
+        // is how a roster turns into a place to hide a leak.
+        struct IndirectRelease
+        {
+            const char* Name;
+            const char* Where;
+        };
+        constexpr IndirectRelease kReleasedIndirectly[] = {
+            { "s_ActiveGraph",
+              "RenderGraphDebugRuntime::SetActiveGraph(nullptr), called from Renderer3D::Shutdown(); it is "
+              "also only ever SET from Renderer3D::Init(), so the 3D-only teardown is unconditional for it" }
+        };
+
+        [[nodiscard]] std::vector<std::filesystem::path> EngineSourceFiles()
+        {
+            std::vector<std::filesystem::path> files;
+            for (const char* root : { "OloEngine/src", "OloEditor/src" })
+            {
+                const std::filesystem::path dir = RepoFile(root);
+                std::error_code ec;
+                if (!std::filesystem::is_directory(dir, ec))
+                {
+                    continue;
+                }
+                for (std::filesystem::recursive_directory_iterator it(dir, ec), end; it != end; it.increment(ec))
+                {
+                    if (ec)
+                    {
+                        break;
+                    }
+                    if (const std::string ext = it->path().extension().string(); ext == ".cpp" || ext == ".h")
+                    {
+                        files.push_back(it->path());
+                    }
+                }
+            }
+            std::sort(files.begin(), files.end());
+            return files;
+        }
+
+        // An out-of-class static member DEFINITION: `Ref<Shader> ShaderLibrary::s_Fallback
+        // = nullptr;` in the .cpp that pairs with `static Ref<Shader> s_Fallback;` in the
+        // .h. It textually contains `= nullptr` but is not a release, and declRe does not
+        // match it (the `Class::` qualifier), so without this the sibling-file search would
+        // accept every class static as "released" by its own definition — a silent false
+        // negative on exactly the species this test exists to catch.
+        const std::regex kStaticMemberDefinitionRe(
+            R"RX(^[ \t]*(?:Ref|Scope)<[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*>[ \t]+[A-Za-z_][A-Za-z0-9_]*::[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:=[^;]*)?;)RX");
+
+        // Is `name` reset anywhere in `scope`? A declaration with an initializer
+        // (`Ref<Font> s_DefaultFont = nullptr;`) textually contains `= nullptr`, so lines
+        // that are themselves declarations or definitions do not count — without that,
+        // giving a static an explicit null initializer would be enough to "release" it.
+        [[nodiscard]] bool HasReleaseSite(const std::string& scope, const std::string& name,
+                                          const std::regex& declRe)
+        {
+            const std::regex releaseRe(
+                "\\b" + name +
+                "[ \\t]*(\\.Reset\\(\\)|\\.Release\\(\\)|=[ \\t]*nullptr[ \\t]*;|=[ \\t]*\\{[ \\t]*\\}[ \\t]*;)");
+            for (auto it = std::sregex_iterator(scope.begin(), scope.end(), releaseRe);
+                 it != std::sregex_iterator(); ++it)
+            {
+                const sizet at = static_cast<sizet>(it->position());
+                const sizet before = scope.rfind('\n', at);
+                const sizet lineStart = (before == std::string::npos) ? 0 : before + 1;
+                const sizet after = scope.find('\n', at);
+                const std::string hit =
+                    scope.substr(lineStart, (after == std::string::npos ? scope.size() : after) - lineStart);
+                if (!std::regex_search(hit, declRe) && !std::regex_search(hit, kStaticMemberDefinitionRe))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // Every `Foo::Shutdown*()` / `Foo::Get().Shutdown*()` / `Foo::GetInstance().Shutdown*()`
         // in a teardown body, reduced to the bare facility name `Foo`. `Release*` and `Clear*`
         // are matched too — `TerrainGPUQuadtree::ReleaseSharedPatchMesh()` and
@@ -387,5 +489,190 @@ namespace OloEngine::Tests
                "Call `<Facility>::Shutdown();` from a teardown that ALWAYS runs — Renderer::Shutdown() in\n"
                "Renderer.cpp (it owns both sub-renderers), or the Renderer2D / ShaderWarmup teardown that\n"
                "created the resource in the first place.";
+    }
+
+    // #839: the sweep guard. The two tests above both start from a teardown BODY and ask
+    // "is this facility released from the right place?". That only sees facilities somebody
+    // already thought to release. The sweep behind #839 found seven more members of the
+    // class, and the largest ones were not misfiled releases at all — they were statics with
+    // no release site of ANY kind, which a teardown-body scan is structurally blind to:
+    //
+    //   * Font::GetDefault()'s cached default font — two Slug atlas textures, created from an
+    //     ECS component's default member initializer, released by nothing on any backend.
+    //   * SceneHierarchyPanel's s_DrawComponentScene — a Ref<Scene> set every inspector frame
+    //     and never cleared, pinning the whole scene (64 vertex arrays, ~133 MB) forever.
+    //   * Scene.cpp's cached default Material.
+    //   * OpenGLTextureCubemap's face-upload staging PBO — a raw GLuint, so not even a Ref.
+    //
+    // So this test starts from the DECLARATION instead: every process static that holds a
+    // GPU-owning Ref (or a lazily created raw GL object) must be reset somewhere in its own
+    // translation unit. Where that reset is CALLED from is the other two tests' business;
+    // this one only insists that it exists at all.
+    //
+    // LIMITS, stated so nobody over-trusts it. TWO species are out of reach.
+    //
+    // 1. A release site that exists and correctly resets the static, which nothing ever calls
+    //    (VideoSystem::Shutdown() and GPUTimerQueryPool::Shutdown() were both like that, the
+    //    former carrying a comment saying "Call on engine/scene shutdown"). A prototype that
+    //    tried to resolve callers textually through singleton accessors, aliases and
+    //    delegating bodies produced enough false positives to be noise, and a curated roster
+    //    of "teardowns that must be called" drifts by construction.
+    //
+    // 2. A GPU-owning Ref that is not DECLARED as one — because it sits inside a container or
+    //    a struct. The #839 sweep's last survivor was exactly this: DrawComponent<T> keeps a
+    //    `static std::unordered_map<u64, EditState>` of undo snapshots, and EditState::snapshot
+    //    is a COPY of the component, so the ModelComponent instantiation owns a Ref<Model>
+    //    three type layers below anything this regex can see. Chasing it would mean deciding
+    //    whether an arbitrary static's type TRANSITIVELY owns GPU memory, which is a
+    //    type-system question, not a text one. This test covers direct declarations only.
+    //
+    // Both are caught empirically instead: the Vulkan teardown forensics (#794), and
+    // RendererMemoryTracker::Shutdown(), which now reports its live allocations instead of
+    // clear()ing them unseen. Note when reading that output that the VMA leak assert ABORTS,
+    // and an abort discards the log's buffered tail — so the forensics may be missing from
+    // OloEngine.log while present on the console. Run the editor under cdb if in doubt.
+    TEST(RendererShutdown, EveryProcessStaticGpuResourceHasAReleaseSite)
+    {
+        const std::vector<std::filesystem::path> files = EngineSourceFiles();
+        ASSERT_GT(files.size(), 500u)
+            << "found only " << files.size()
+            << " engine sources — the scan roots are wrong (is the cwd inside the repo?), which would make "
+               "this test silently vacuous";
+
+        // Ref<T>/Scope<T> declaration at namespace, class or function scope. `static` is
+        // explicit at class/function scope; an anonymous-namespace global carries no keyword,
+        // so an `s_`-prefixed name at shallow indent counts too (the repo's convention, and
+        // how VideoSystem's leaked player was declared).
+        const std::regex declRe(
+            R"RX(^([ \t]*)(?:inline[ \t]+)?(static[ \t]+)?(?:Ref|Scope)<[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*>[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=[^;]*)?;)RX");
+        // A lazily created raw GL object: `GLuint s_Foo = 0;` handed to glCreate*/glGen*.
+        // Same static-storage rule as above — the `static` keyword is optional because
+        // moving such a handle into an anonymous namespace (which is what fixing one looks
+        // like) must not drop it out of this test's coverage.
+        const std::regex glHandleRe(
+            R"RX(^([ \t]*)(static[ \t]+)?(?:GLuint|u32)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*0[ \t]*;)RX");
+
+        std::vector<std::string> unreleased;
+        u32 examined = 0;
+
+        for (const std::filesystem::path& path : files)
+        {
+            const std::string raw = ReadFile(path);
+            if (raw.empty())
+            {
+                continue;
+            }
+            const std::string text = StripLineComments(raw);
+
+            // A class static declared in Foo.h is defined — and released — in Foo.cpp, so the
+            // sibling translation unit is part of the search scope.
+            std::string scope = text;
+            if (const std::filesystem::path sibling =
+                    std::filesystem::path(path).replace_extension(path.extension() == ".h" ? ".cpp" : ".h");
+                std::filesystem::exists(sibling))
+            {
+                scope += '\n';
+                scope += StripLineComments(ReadFile(sibling));
+            }
+
+            const std::string relative = std::filesystem::relative(path, RepoRoot()).generic_string();
+
+            std::istringstream in(text);
+            std::string line;
+            while (std::getline(in, line))
+            {
+                // Cheap pre-filter before any regex: a static-storage declaration either
+                // says `static` or carries the repo's `s_` prefix. Two substring finds per
+                // line instead of two regex_searches over ~700k lines — 10.5s -> 3.0s in a
+                // Debug build, same findings.
+                if (line.find("s_") == std::string::npos && line.find("static") == std::string::npos)
+                {
+                    continue;
+                }
+
+                std::smatch match;
+                if ((line.find("Ref<") != std::string::npos || line.find("Scope<") != std::string::npos) &&
+                    std::regex_search(line, match, declRe))
+                {
+                    const std::string indent = match[1].str();
+                    const bool explicitStatic = match[2].matched;
+                    const std::string type = match[3].str();
+                    const std::string name = match[4].str();
+
+                    const bool gpuOwning =
+                        std::find_if(std::begin(kGpuOwningRefTypes), std::end(kGpuOwningRefTypes),
+                                     [&](const char* t)
+                                     { return type == t; }) != std::end(kGpuOwningRefTypes);
+                    const bool staticStorage = explicitStatic || (name.starts_with("s_") && indent.size() <= 8);
+                    const bool indirect =
+                        std::find_if(std::begin(kReleasedIndirectly), std::end(kReleasedIndirectly),
+                                     [&](const IndirectRelease& e)
+                                     { return name == e.Name; }) !=
+                        std::end(kReleasedIndirectly);
+
+                    if (gpuOwning && staticStorage && !indirect)
+                    {
+                        ++examined;
+                        if (!HasReleaseSite(scope, name, declRe))
+                        {
+                            unreleased.push_back("Ref<" + type + "> " + name + "  (" + relative + ")");
+                        }
+                    }
+                }
+
+                if (std::regex_search(line, match, glHandleRe))
+                {
+                    const std::string glIndent = match[1].str();
+                    const bool glExplicitStatic = match[2].matched;
+                    const std::string name = match[3].str();
+                    // Same static-storage rule as the Ref scan above.
+                    if (glExplicitStatic || (name.starts_with("s_") && glIndent.size() <= 8))
+                    {
+                        const bool created =
+                            std::regex_search(text, std::regex("gl(Create|Gen)[A-Za-z]*\\([^;]*&" + name));
+                        if (created)
+                        {
+                            ++examined;
+                            if (!std::regex_search(text, std::regex("glDelete[A-Za-z]*\\([^;]*&?" + name)))
+                            {
+                                unreleased.push_back("GLuint " + name + "  (" + relative + ")");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Non-vacuity: the seeded type roster means a deleted DECLARATION cannot quietly
+        // shrink what this test covers, but a drifted regex can. The engine has dozens of
+        // these statics; finding none at all means the scan stopped working.
+        ASSERT_GT(examined, 15u)
+            << "the declaration scan matched only " << examined
+            << " process statics of a GPU-owning type. The engine has far more than that, so the regex has "
+               "drifted from the code and this test is no longer checking anything.";
+
+        std::string names;
+        for (const std::string& n : unreleased)
+        {
+            names += "\n  - " + n;
+        }
+
+        EXPECT_TRUE(unreleased.empty())
+            << "these process statics own GPU memory and NOTHING in their translation unit ever releases "
+               "them:"
+            << names
+            << "\n\nA lazily created GPU object with no release site survives every session on every backend.\n"
+               "Vulkan reports it at vmaDestroyAllocator (and in Debug the assertion is a HANG, not a log\n"
+               "line); OpenGL, having no allocator-teardown assertion, says nothing at all — which is exactly\n"
+               "why this class went unnoticed for the whole life of the GL backend (#814, #839).\n\n"
+               "Give the static a release function and call it from the narrowest teardown that is\n"
+               "unconditional for every session that can CREATE it, and that still runs while the graphics\n"
+               "context is alive:\n"
+               "  * 3D-only facility            -> Renderer3D::Shutdown()\n"
+               "  * anything else under Renderer/ -> Renderer::Shutdown()\n"
+               "  * a non-renderer subsystem    -> ~Application, after Project::Unload()\n"
+               "If the static exists only for the duration of one call (like the inspector's\n"
+               "s_DrawComponentScene), clear it at the end of that call instead.\n\n"
+               "See docs/agent-rules/lazy-static-release-ownership.md.";
     }
 } // namespace OloEngine::Tests
