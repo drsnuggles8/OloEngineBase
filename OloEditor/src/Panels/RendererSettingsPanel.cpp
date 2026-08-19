@@ -869,16 +869,21 @@ namespace OloEngine
                 bool cascadeDirty = false;
                 // Bounds come from the header constants rather than literals, so the
                 // slider cannot outrun what the UBO arrays and the atlas sizing allow.
-                cascadeDirty |= ImGui::SliderInt("Cascades", &settings.DDGICascadeCount, 1, DDGI::kMaxCascades);
-                cascadeDirty |= ImGui::SliderInt("Probes per axis", &settings.DDGICascadeResolution, 4,
-                                                 DDGI::kMaxCascadeResolution);
-                cascadeDirty |= ImGui::SliderFloat("Base spacing (m)", &settings.DDGICascadeBaseSpacing,
-                                                   0.25f, 8.0f, "%.2f");
-                cascadeDirty |= ImGui::SliderFloat("Blend band", &settings.DDGICascadeBlendBand,
-                                                   0.0f, 0.9f, "%.2f");
+                if (ImGui::SliderInt("Cascades", &settings.DDGICascadeCount, 1, DDGI::kMaxCascades))
+                    cascadeDirty = true;
+                if (ImGui::SliderInt("Probes per axis", &settings.DDGICascadeResolution, 4,
+                                     DDGI::kMaxCascadeResolution))
+                    cascadeDirty = true;
+                if (ImGui::SliderFloat("Base spacing (m)", &settings.DDGICascadeBaseSpacing,
+                                       0.25f, 8.0f, "%.2f"))
+                    cascadeDirty = true;
+                if (ImGui::SliderFloat("Blend band", &settings.DDGICascadeBlendBand,
+                                       0.0f, 0.9f, "%.2f"))
+                    cascadeDirty = true;
 
-                cascadeDirty |= ImGui::Checkbox("Sparsity (request-driven relight)",
-                                                &settings.DDGISparsityEnabled);
+                if (ImGui::Checkbox("Sparsity (request-driven relight)",
+                                    &settings.DDGISparsityEnabled))
+                    cascadeDirty = true;
                 if (ImGui::IsItemHovered())
                 {
                     ImGui::SetTooltip("Relight only probes a shaded screen pixel or another live\n"
@@ -904,8 +909,9 @@ namespace OloEngine
                     cascadeDirty = true;
                 }
 
-                cascadeDirty |= ImGui::SliderFloat("Camera seed radius (m)", &settings.DDGICameraSeedRadius,
-                                                   0.0f, 64.0f, "%.1f");
+                if (ImGui::SliderFloat("Camera seed radius (m)", &settings.DDGICameraSeedRadius,
+                                       0.0f, 64.0f, "%.1f"))
+                    cascadeDirty = true;
                 if (ImGui::IsItemHovered())
                 {
                     ImGui::SetTooltip("Probes within this radius are requested every frame no\n"

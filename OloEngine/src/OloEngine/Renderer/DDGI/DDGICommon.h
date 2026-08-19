@@ -394,7 +394,10 @@ namespace OloEngine::DDGI
     // cascade N covers 2^N times the extent at 2^N times the probe spacing.
     [[nodiscard("the cascade spacing is the only effect")]] inline glm::vec3 CascadeSpacing(const glm::vec3& baseSpacing, i32 level) noexcept
     {
-        return baseSpacing * static_cast<f32>(1 << glm::clamp(level, 0, 30));
+        // Unsigned shift: `1 << level` on a signed left operand is UB the moment
+        // the clamp is ever widened past 30, and there is no signedness to want
+        // here -- the result is a positive power of two on its way to f32.
+        return baseSpacing * static_cast<f32>(1u << static_cast<u32>(glm::clamp(level, 0, 30)));
     }
 
     // Camera-centred cascade. The window is placed so the camera sits as close
