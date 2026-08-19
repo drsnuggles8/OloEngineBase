@@ -235,8 +235,10 @@ there — which is also what makes it the control. The air-fitted case still
 lands 11–21% low, and that residual is the margin's smoothstep taper: its
 surfaces sit 0.29–0.42 of a spacing outside the bounds and therefore gather at
 0.6–0.8 weight, which compounds through the bounce series. Erring low rather
-than high is the right side for a feedback loop, and the remaining gap is
-smaller than the machinery's own 12% error at full coverage.
+than high is the right side for a feedback loop. The residual is comparable to
+the machinery's own 12% error at full coverage — smaller at three of the four
+probes, larger at the fourth — so the two authorings now differ by roughly the
+width of the approximation instead of by a factor of two.
 
 **Options rejected.**
 

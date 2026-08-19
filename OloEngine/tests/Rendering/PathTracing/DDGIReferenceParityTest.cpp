@@ -927,8 +927,14 @@ namespace OloEngine::Tests
         //    texel anywhere in the atlas must not grow across the window: that
         //    is what a local instability (one probe pumping its own light back
         //    into itself) looks like, and probe (1,1,1) would never show it.
-        const f32 peakGrowth = peakSeries.back() / std::max(peakSeries.front(), 1e-6f);
-        EXPECT_LT(peakGrowth, 1.02f) << "the atlas peak grew " << peakGrowth << "x over "
+        //
+        //    Measured against the MAXIMUM of the series, not its last value: an
+        //    oscillation that spikes mid-window and decays before the final
+        //    sample is exactly the instability being looked for, and comparing
+        //    only the endpoints would let it through.
+        const f32 peakMax = *std::max_element(peakSeries.begin(), peakSeries.end());
+        const f32 peakGrowth = peakMax / std::max(peakSeries.front(), 1e-6f);
+        EXPECT_LT(peakGrowth, 1.02f) << "the atlas peak reached " << peakGrowth << "x its starting value over "
                                      << (kSampleCount * kSampleStride)
                                      << " frames — some probe's feedback is diverging";
 
