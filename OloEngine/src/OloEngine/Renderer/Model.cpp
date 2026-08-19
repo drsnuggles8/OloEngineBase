@@ -16,6 +16,7 @@
 #include <initializer_list>
 #include <limits>
 #include <memory>
+#include <random>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -555,17 +556,54 @@ namespace OloEngine
                 if (!decoded)
                     return std::nullopt;
 
+                // WRITE TO A TEMPORARY, THEN RENAME. The existence check above is the only
+                // thing standing between a warm load and a re-cook, so a half-written file is
+                // permanent: it exists, so nothing ever rewrites it, and every later load hands
+                // the material a truncated or empty texture. Writing in place makes that the
+                // outcome of any crash mid-write — and of two processes cooking the same
+                // texture at once, which is routine here, because ctest runs each case in its
+                // own process against one shared repo-relative cache directory.
+                //
+                // A rename within a directory is atomic, so a reader sees either no file or the
+                // whole file. The temp name carries a random token so two processes cooking the
+                // same texture never collide on the temporary itself (there is no portable
+                // process-id accessor in the engine's HAL, and uniqueness only has to hold
+                // among concurrent cooks in one directory).
+                std::random_device rd;
+                const u64 token = (static_cast<u64>(rd()) << 32) ^ rd();
+                std::ostringstream tempName;
+                tempName << cookedPath.stem().string() << ".tmp"
+                         << std::hex << std::setw(16) << std::setfill('0') << token << ".png";
+                const std::filesystem::path tempPath = cookedPath.parent_path() / tempName.str();
+
                 // Written TOP-DOWN, like any image file: Texture2D::Create(path) flips it
                 // on load, so a cooked bitmap and the same bitmap shipped loose end up with
                 // identical orientation on the GPU.
                 const int written = ::stbi_write_png(
-                    cookedPath.string().c_str(),
+                    tempPath.string().c_str(),
                     static_cast<int>(decoded->Width), static_cast<int>(decoded->Height), 4,
                     decoded->RGBA.data(), static_cast<int>(decoded->Width * 4u));
                 if (written == 0)
                 {
-                    OLO_CORE_WARN("Model: Failed to write cooked texture '{}'", cookedPath.string());
+                    OLO_CORE_WARN("Model: Failed to write cooked texture '{}'", tempPath.string());
+                    std::filesystem::remove(tempPath, ec);
                     return std::nullopt;
+                }
+
+                std::error_code renameEc;
+                std::filesystem::rename(tempPath, cookedPath, renameEc);
+                if (renameEc)
+                {
+                    // A racing process that finished first is the expected loser-path here, and
+                    // its file is equally valid (same identity => same pixels), so treat an
+                    // existing destination as success rather than failing the cook.
+                    std::filesystem::remove(tempPath, ec);
+                    if (std::error_code existsEc; !std::filesystem::exists(cookedPath, existsEc))
+                    {
+                        OLO_CORE_WARN("Model: Failed to publish cooked texture '{}': {}",
+                                      cookedPath.string(), renameEc.message());
+                        return std::nullopt;
+                    }
                 }
                 OLO_CORE_TRACE("Model: Cooked texture '{}' -> {}", identity, cookedPath.string());
             }
@@ -614,6 +652,44 @@ namespace OloEngine
         // plus both scalar factors. Change any one and the packed pixels change, so a
         // different file must be cooked; change none and the existing file is reused, which
         // keeps its timestamp — and the asset registry's LastWriteTime — stable.
+        // THE identity of a packed metallic-roughness map — every input that changes a pixel of
+        // it, and nothing else. Used for BOTH the cooked filename and the in-session
+        // `m_LoadedTextures` key, deliberately: those two are the same question ("is this the
+        // same texture?") and answering it two ways lets them disagree. They did — the
+        // in-session key omitted the two scales, so two materials that differ only in whether
+        // a metallic/roughness FACTOR was declared (same paths, same values) shared one cache
+        // entry while cooking to two different files, and the second material silently got the
+        // first one's texture.
+        //
+        // Paths are weakly-canonicalised, matching MeshCache::HashSourcePath and
+        // CookEmbeddedTexture: the same file reached by a different spelling (relative vs
+        // absolute, `.` or `..` segments) must hash the same, or one texture cooks twice under
+        // two names. Canonicalisation can fail for a path that does not exist; fall back to the
+        // path as given rather than dropping the component.
+        std::string PackedMetallicRoughnessIdentity(const std::filesystem::path& metallicPath,
+                                                    const std::filesystem::path& roughnessPath,
+                                                    f32 metallicFallback,
+                                                    f32 roughnessFallback,
+                                                    f32 metallicScale,
+                                                    f32 roughnessScale)
+        {
+            const auto canonical = [](const std::filesystem::path& p)
+            {
+                if (p.empty())
+                    return std::string{};
+                std::error_code ec;
+                const std::filesystem::path c = std::filesystem::weakly_canonical(p, ec);
+                return ec ? p.generic_string() : c.generic_string();
+            };
+
+            return "packed_mr|" + canonical(metallicPath) + "|" +
+                   canonical(roughnessPath) + "|" +
+                   std::to_string(metallicFallback) + "|" +
+                   std::to_string(roughnessFallback) + "|" +
+                   std::to_string(metallicScale) + "|" +
+                   std::to_string(roughnessScale);
+        }
+
         std::optional<std::filesystem::path> CookPackedMetallicRoughnessTexture(
             const std::filesystem::path& metallicPath,
             const std::filesystem::path& roughnessPath,
@@ -622,12 +698,8 @@ namespace OloEngine
             f32 metallicScale,
             f32 roughnessScale)
         {
-            const std::string identity = "packed_mr|" + metallicPath.generic_string() + "|" +
-                                         roughnessPath.generic_string() + "|" +
-                                         std::to_string(metallicFallback) + "|" +
-                                         std::to_string(roughnessFallback) + "|" +
-                                         std::to_string(metallicScale) + "|" +
-                                         std::to_string(roughnessScale);
+            const std::string identity = PackedMetallicRoughnessIdentity(
+                metallicPath, roughnessPath, metallicFallback, roughnessFallback, metallicScale, roughnessScale);
 
             return CookRgbaToAssetCache("mr_", identity, /*srgb*/ false,
                                         [&]
@@ -1570,8 +1642,11 @@ namespace OloEngine
                 {
                     const auto metallicScale = metallicSourcePath.empty() ? 1.0f : (hasMetallicFactor ? metallic : 1.0f);
                     const auto roughnessScale = roughnessSourcePath.empty() ? 1.0f : (hasRoughnessFactor ? roughness : 1.0f);
-                    const auto cacheKey = std::string("packed_mr|") + metallicSourcePath.string() + "|" + roughnessSourcePath.string() + "|" +
-                                          std::to_string(metallic) + "|" + std::to_string(roughness);
+                    // Same identity the cook hashes into the filename — one definition, so the
+                    // in-session cache and the on-disk cache cannot disagree about what counts
+                    // as "the same texture".
+                    const auto cacheKey = PackedMetallicRoughnessIdentity(
+                        metallicSourcePath, roughnessSourcePath, metallic, roughness, metallicScale, roughnessScale);
 
                     Ref<Texture2D> packedTexture;
                     if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())

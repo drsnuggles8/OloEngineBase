@@ -177,6 +177,22 @@ namespace OloEngine::ImportedMaterialCodec
             return editor->GetAssetHandleFromFilePath(path);
         }
 
+        // THE set of texture slots this codec persists, in table order. Both Describe() and
+        // CanPersistEveryTexture() read it, so a slot added to the material can only be
+        // half-supported if someone edits this list and then ignores the compile error the
+        // structured binding below produces — rather than by simply forgetting the guard,
+        // which would silently reintroduce exactly the drop issue #791 was about.
+        [[nodiscard]] std::array<Ref<Texture2D>, 5> MaterialTextureSlots(const Material& material)
+        {
+            return {
+                material.GetAlbedoMap(),
+                material.GetMetallicRoughnessMap(),
+                material.GetNormalMap(),
+                material.GetAOMap(),
+                material.GetEmissiveMap(),
+            };
+        }
+
         [[nodiscard]] TextureRef DescribeTexture(const Ref<Texture2D>& texture)
         {
             TextureRef ref;
@@ -286,11 +302,14 @@ namespace OloEngine::ImportedMaterialCodec
             desc.OcclusionStrength = material->GetOcclusionStrength();
             desc.EnableIBL = material->IsIBLEnabled();
 
-            desc.Albedo = DescribeTexture(material->GetAlbedoMap());
-            desc.MetallicRoughness = DescribeTexture(material->GetMetallicRoughnessMap());
-            desc.Normal = DescribeTexture(material->GetNormalMap());
-            desc.AO = DescribeTexture(material->GetAOMap());
-            desc.Emissive = DescribeTexture(material->GetEmissiveMap());
+            // Destructured from the shared slot list rather than re-fetching each getter:
+            // adding a slot there is then a compile error here until this is updated too.
+            const auto& [albedo, metallicRoughness, normal, ao, emissive] = MaterialTextureSlots(*material);
+            desc.Albedo = DescribeTexture(albedo);
+            desc.MetallicRoughness = DescribeTexture(metallicRoughness);
+            desc.Normal = DescribeTexture(normal);
+            desc.AO = DescribeTexture(ao);
+            desc.Emissive = DescribeTexture(emissive);
 
             descs.push_back(std::move(desc));
         }
@@ -377,15 +396,7 @@ namespace OloEngine::ImportedMaterialCodec
                 continue;
             }
 
-            const std::array<Ref<Texture2D>, 5> slots = {
-                material->GetAlbedoMap(),
-                material->GetMetallicRoughnessMap(),
-                material->GetNormalMap(),
-                material->GetAOMap(),
-                material->GetEmissiveMap(),
-            };
-
-            for (const auto& texture : slots)
+            for (const auto& texture : MaterialTextureSlots(*material))
             {
                 // An UNSET slot is nothing to lose. A SET slot whose description is empty is
                 // a texture the reader has no way of finding again — neither a handle nor a

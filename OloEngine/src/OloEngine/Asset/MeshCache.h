@@ -58,13 +58,15 @@ namespace OloEngine
         // Save AnimationClips to cache after import.
         bool SaveAnimationsToCache(const std::filesystem::path& sourcePath, const std::vector<Ref<AnimationClip>>& clips);
 
-        // Delete all cached files (e.g. for "clear cache" editor action).
+        // Delete all cached files — mesh, animation and cooked embedded textures
+        // (e.g. for the "clear cache" editor action).
         void ClearCache();
 
         // Delete the cached files for a specific source file (reimport trigger).
         void InvalidateCache(const std::filesystem::path& sourcePath, const std::string& prefix = {});
 
-        // Returns the total size of all cached mesh + animation files in bytes.
+        // Returns the total size of all cached mesh + animation + cooked embedded-texture
+        // files in bytes.
         u64 GetTotalCacheSize();
 
     } // namespace MeshCache

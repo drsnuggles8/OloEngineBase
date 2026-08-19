@@ -998,6 +998,23 @@ namespace OloEngine::Tests
             if (ec)
                 continue;
 
+            // `Assets/cache/` is DERIVED data, not authored content: every file under it is
+            // regenerated on demand from something else, and the whole tree is git-ignored
+            // (`**/cache/**`). It is validated by AllCacheFilesMatchKnownPattern below — by
+            // filename pattern, which is the meaningful contract for a cache — rather than by
+            // registry membership.
+            //
+            // This only started to matter with issue #791. Cache files never had a *supported
+            // asset extension* before, so the scan skipped them all on the extension check
+            // above; the cooked embedded/packed textures are real `.png` files, so they are the
+            // first cache artifacts to reach this point. Registering them is a runtime
+            // side-effect of loading a model, and the registry is tracked while the files
+            // themselves are ignored — so requiring the two to agree here would fail on any
+            // machine that had run the editor, and committing the entries would leave a fresh
+            // clone pointing at files that do not exist.
+            if (relative.starts_with("Assets/cache/"))
+                continue;
+
             if (!registeredPaths.contains(relative))
             {
                 unregistered.push_back({

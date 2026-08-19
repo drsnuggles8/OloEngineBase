@@ -42,6 +42,7 @@
 
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Texture.h"
 
@@ -253,6 +254,26 @@ namespace OloEngine::Tests
             ASSERT_TRUE(MeshCache::IsMeshCacheValid(absolutePath))
                 << "the cold load wrote no .omesh for " << param.Name
                 << ", so the warm half below would silently re-run the cold path and prove nothing";
+
+            // The .omesh must carry the MATERIALS, not just the geometry.
+            //
+            // Without this the test has a hole big enough to pass on the bug it exists to
+            // catch: Model::LoadModel drops the imported-material table when a texture cannot
+            // be referenced, and a table-less cache sends the warm load down the Assimp
+            // re-import branch — which rebuilds the materials from source and restores the
+            // albedo. The pixel comparison below would then be comparing two *cold* imports
+            // and would pass with the cache contributing nothing. Read the cached MeshSource
+            // directly and require a non-empty table, so "warm" means what it says.
+            if (param.ExpectsAlbedoTexture)
+            {
+                Ref<MeshSource> const cached = MeshCache::LoadMeshFromCache(absolutePath);
+                ASSERT_TRUE(cached) << "the .omesh for " << param.Name << " reports valid but did not load";
+                EXPECT_FALSE(cached->GetImportedMaterials().empty())
+                    << "the .omesh for " << param.Name << " carries geometry but NO imported-material table, so the "
+                                                          "warm load below will re-import materials from source and the albedo assertions would pass "
+                                                          "without the cache ever round-tripping a texture. Model::LoadModel drops the table when "
+                                                          "ImportedMaterialCodec cannot reference one of the material's textures.";
+            }
 
             // -- Warm: geometry and materials come back out of the .omesh. --
             Model warm{ absolutePath.string() };
