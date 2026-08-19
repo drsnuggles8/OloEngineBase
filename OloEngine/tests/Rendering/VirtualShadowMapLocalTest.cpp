@@ -26,10 +26,12 @@
 // It also brings in ShadowAtlas.h for the 16-light budget this beats.
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
+// Also for MIN_GUARANTEED_BUFFER_BINDINGS — the 84 this file used to spell as a
+// literal. It reached into Platform/Vulkan/VulkanBindingState.h for that constant
+// until #811, which does not compile under OLO_WITH_VULKAN=OFF (the whole header is
+// behind the guard) — and nothing built that configuration, so it went unnoticed.
+// The bound is a GL binding-number property, so it now lives in the neutral header.
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
-// For kMaxBufferBindings — the 84 this file used to spell as a literal. Including
-// a Platform header from a renderer test follows VulkanDrawPathTest.cpp.
-#include "Platform/Vulkan/VulkanBindingState.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -171,7 +173,7 @@ TEST(VirtualShadowMapLocal, ConstantsMirrorTheShaderContract)
     // streams and the GL 4.6 minimum, the same two checks #702's bindings got.
     EXPECT_NE(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, ShaderBindingLayout::SSBO_VERTEX_PULL);
     EXPECT_NE(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, ShaderBindingLayout::SSBO_BONE_PULL);
-    EXPECT_LT(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, VulkanBindingState::kMaxBufferBindings)
+    EXPECT_LT(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS)
         << "past the GL_MAX_UNIFORM_BUFFER_BINDINGS minimum guarantee (84), which is the bound the "
            "Vulkan backend sizes its binding tables to — not a shader-storage limit, which is where "
            "the previous message pointed";

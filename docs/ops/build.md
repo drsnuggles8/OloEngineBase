@@ -383,6 +383,48 @@ backend is logged at startup and, when it isn't the GL default, shown in the
 window title. `OloServer` is headless and selects no backend at all (ADR
 0011 amendment (86)).
 
+### `OLO_WITH_VULKAN=OFF` — what it does and does not do
+
+The *build-time* axis, distinct from `--rhi=` above. `-DOLO_WITH_VULKAN=OFF`
+drops the `volk` / `vulkan-headers` / `vulkan-memory-allocator` vcpkg ports and
+compiles every `OloEngine/src/Platform/Vulkan/*.cpp` to an empty object, so the
+binary ships the OpenGL backend only.
+
+Two things it is **not**, both of which the docs claimed until #811:
+
+- **It is not "build without Vulkan development packages."**
+  `find_package(Vulkan REQUIRED ...)` in `OloEngine/CMakeLists.txt` is ungated on
+  purpose, because the *shader* toolchain (shaderc, glslang, SPIRV-Tools,
+  SPIRV-Cross) is needed by every build regardless of backend. Turning the option
+  off does not relax that, but what satisfies it differs by platform:
+  - **MSVC** takes the `COMPONENTS glslc glslang SPIRV-Tools` branch, which in
+    practice means the LunarG SDK — configuring without `VULKAN_SDK` fails at
+    `find_package`, whichever way this option is set.
+  - **Everywhere else** takes a plain `find_package(Vulkan REQUIRED)`, so any
+    discoverable Vulkan installation will do and the shader tooling can come from
+    system packages instead (`glslang-dev`, `libshaderc-dev`,
+    `libspirv-cross-c-shared-dev`, `spirv-tools` on Debian/Ubuntu — the same set
+    the Linux CI jobs install). No LunarG SDK is strictly required there.
+- **It is not per-target.** `OloServer`, `OloEditor` and `OloRuntime` come out of
+  one configure, so there is no "OFF for the server, ON for the editor". A lean,
+  SDK-free server build was considered in #811 and explicitly **rejected**: the
+  server is backend-less already, and its deployment image (ubuntu +
+  libstdc++6 — see [deployment.md](deployment.md)) carries no GPU stack, so the
+  build weight the valve saves buys nothing there.
+
+What it *is* good for: cutting three ports and the backend object code out of a
+GL-only build. It is exercised in CI by
+[`.github/workflows/vulkan-off.yml`](../../.github/workflows/vulkan-off.yml),
+which configures + builds it on Linux and asserts the Vulkan test suites SKIP
+cleanly. Run it locally with a separate build directory so it does not clobber
+the default tree:
+
+```powershell
+cmake --preset msvc -B build-vkoff -DOLO_WITH_VULKAN=OFF
+pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
+  'cmake --build build-vkoff --target OloEngine-Tests --config Debug --parallel 6'
+```
+
 ---
 
 ## Build speed options

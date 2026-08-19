@@ -1,0 +1,284 @@
+# Anti-rot gate for the OLO_WITH_VULKAN=OFF build configuration (#811).
+#
+# WHY THIS WORKFLOW EXISTS
+# ------------------------
+# `OLO_WITH_VULKAN=OFF` is a real, documented build configuration: it drops the volk /
+# vulkan-headers / VulkanMemoryAllocator vcpkg ports and compiles every `Platform/Vulkan` TU to an
+# empty object. Before this workflow, NO CI job set the option — every workflow in this repo built
+# the default ON path. That left two things compiled nowhere but on a developer's machine:
+#
+#   * the `#if OLO_WITH_VULKAN` self-guards in the ~40 `Platform/Vulkan/*.cpp` TUs, which is
+#     exactly the "guarded code bitrots because nothing compiles it" shape that Trap 3 in
+#     docs/agent-rules/vcpkg-dependency-management.md describes, and
+#   * the `#if !OLO_WITH_VULKAN` GTEST_SKIP branches in seven Vulkan test files plus the `#else`
+#     arms in Rendering/BackendSelectionTest.cpp, which had presumably never executed.
+#
+# WHAT IT DOES NOT PROVE
+# ----------------------
+# Nothing about the Vulkan backend itself — that is what the ON builds and the device-gated
+# gpu-conformance-amd nightly are for. This job answers exactly one question: does the GL-only
+# configuration still compile, link and skip cleanly?
+#
+# NOTE Vulkan dev packages are still required. `OLO_WITH_VULKAN=OFF` is NOT "build without
+# Vulkan installed": `find_package(Vulkan REQUIRED ...)` in OloEngine/CMakeLists.txt is
+# deliberately ungated because the SHADER toolchain (shaderc / glslang / SPIRV-Tools /
+# SPIRV-Cross) is needed by every build regardless of backend. See ADR 0011 amendment (86). The
+# option is about link weight and port count, not about Vulkan discovery.
+#
+# On MSVC that means the LunarG SDK specifically (the COMPONENTS branch). This job is Linux, which
+# takes the plain `find_package(Vulkan REQUIRED)` branch and could likely be satisfied by the apt
+# packages installed below alone — but it runs setup-vulkan anyway, matching every other build job
+# here. Dropping that step is a plausible minute or two of savings; it is untested, so it is left
+# in rather than traded for a red nightly.
+name: Vulkan OFF (GL-only build)
+
+# TRIGGER RATIONALE — a full engine build is not cheap, so the cadence is deliberately mixed
+# rather than "every PR" or "weekly only":
+#
+#   * pull_request WITH A PATHS FILTER. Anything that can break OFF-but-not-ON has to live in a
+#     Vulkan-guarded region, in a consumer of the Vulkan targets, or in the option plumbing
+#     itself — so the paths below are where the risk actually concentrates, and a PR touching
+#     them gets the check while the PRs that do not touch them pay nothing.
+#   * push to master + weekly. The paths filter is a heuristic, not a proof: an include-graph
+#     change somewhere else can still reach a guarded region. The unfiltered runs catch that with
+#     a bounded blast radius (discovered on the next master/weekly run rather than in review),
+#     which is the same trade steam-stub.yml documents for its stub-build job.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    paths:
+      - '.github/workflows/vulkan-off.yml'
+      - '.github/actions/**'
+      # The option plumbing, listed file by file rather than as **/CMakeLists.txt.
+      # Nearly every renderer PR in this repo touches SOME CMakeLists (source lists), and a
+      # wildcard would hand each of them a full engine build for a change that cannot affect the
+      # option. These four files are where OLO_WITH_VULKAN actually lives: the root option() and
+      # the vcpkg manifest-feature mirror, the compile definition and the ungated
+      # find_package(Vulkan), and the port/pinned-header block.
+      - 'CMakeLists.txt'
+      - 'OloEngine/CMakeLists.txt'
+      - 'OloEngine/vendor/CMakeLists.txt'
+      - 'cmake/**'
+      - 'CMakePresets.json'
+      - 'vcpkg.json'
+      - 'OloEngine/src/Platform/Vulkan/**'
+      - 'OloEngine/src/OloEngine/Renderer/RHI/**'
+      - 'OloEngine/tests/Rendering/Vulkan*'
+      - 'OloEngine/tests/Rendering/BackendSelectionTest.cpp'
+      # The two files that carry the ON/OFF *contract* rather than the option. The break #811
+      # actually found was in VirtualShadowMapLocalTest.cpp — a GL-path test that had reached into
+      # a Platform/Vulkan header — and none of the patterns above would have caught the PR that
+      # introduced it. ShaderBindingLayout.h is the other half: it now defines
+      # MIN_GUARANTEED_BUFFER_BINDINGS, which VulkanBindingState::kMaxBufferBindings aliases, so a
+      # change there lands on both sides of the guard at once.
+      #
+      # Naming two files is narrow, and deliberately so — but it is also the weakest link here:
+      # any OTHER GL-only TU could acquire the same dependency and slip past. The durable guard
+      # for that class is a cheap grep job (the shape steam-stub.yml's single-valve-tu uses),
+      # which would run on every PR in seconds. Worth adding if this ever recurs.
+      - 'OloEngine/src/OloEngine/Renderer/ShaderBindingLayout.h'
+      - 'OloEngine/tests/Rendering/VirtualShadowMapLocalTest.cpp'
+  schedule:
+    - cron: '0 5 * * 4' # weekly, Thursday 05:00 UTC (off steam-stub's Wednesday and video-ffmpeg's Monday slots)
+  workflow_dispatch:
+
+# Read-only: this job builds and runs tests, it never comments, labels or publishes. Declared
+# explicitly rather than inherited so a future step cannot quietly acquire write scopes.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
+jobs:
+  build-vulkan-off:
+    name: Configure + build OLO_WITH_VULKAN=OFF
+    # Linux deliberately, for the same reason steam-stub.yml uses it: hosted Linux minutes bill at
+    # 1x against Windows' 2x, and nothing about this configuration is Windows-specific — the
+    # option, the guards and the SKIP branches are all platform-agnostic.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Python 3.10
+        id: py
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+
+      # Pinned (SonarCloud githubactions:S8544). jinja2 is used only by the glad2 GL-loader
+      # generator; bump it deliberately rather than floating. Same treatment as steam-stub.yml.
+      - name: Python deps (OloHeaderTool)
+        run: python -m pip install jinja2==3.1.6
+
+      # Installed even though the Vulkan BACKEND is off — see the note at the top of this file.
+      - name: Setup Vulkan SDK
+        uses: ./.github/actions/setup-vulkan
+
+      # The engine needs a C++23 STANDARD LIBRARY, not just a C++23 compiler: Core/Reflection uses
+      # std::forward_like, which ubuntu-24.04's default libstdc++ does not provide. Every Linux
+      # job in this repo pins clang-19 from apt.llvm.org for that reason — see asan.yml.
+      - name: Add LLVM apt repository
+        uses: ./.github/actions/setup-llvm-apt
+
+      - name: Install Linux deps
+        run: |
+          # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that periodically
+          # return 403 Forbidden; we never use them, and `apt-get update` fails hard on any single
+          # repo error. Drop them so a Microsoft-side outage cannot break our update.
+          sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-19 lld-19 \
+            libgl-dev libglu1-mesa-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-linux
+
+      # The heavy optional importers and FFmpeg are off: this job's question is "does the GL-only
+      # configuration still build", not "does the whole engine still work" — the main Windows /
+      # Linux workflows already answer that, and every minute spent building OpenUSD here is a
+      # minute not spent on the thing under test.
+      - name: Configure (OLO_WITH_VULKAN=OFF)
+        run: |
+          cmake -S . -B build \
+            -DOLO_WITH_VULKAN=OFF \
+            -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+            -DOLO_VIDEO_FFMPEG=OFF \
+            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DCMAKE_C_COMPILER=clang-19 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
+            ${{ steps.vcpkg.outputs.toolchain-args }} \
+            -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+
+      # Fail loudly if the option plumbing did not take. Without this the job could pass green
+      # while quietly building the default ON path — which would make the whole workflow a
+      # reassuring no-op, the precise failure it exists to prevent. Same guard shape as
+      # steam-stub.yml's "Verify the ON path is actually enabled".
+      - name: Verify the OFF path is actually selected
+        run: |
+          if ! grep -q '^OLO_WITH_VULKAN:BOOL=OFF' build/CMakeCache.txt; then
+            echo "::error::OLO_WITH_VULKAN did not resolve to OFF — the option plumbing is broken."
+            grep -E '^OLO_WITH_VULKAN' build/CMakeCache.txt || true
+            exit 1
+          fi
+
+          # The vcpkg manifest feature is mirrored from the option in the root CMakeLists BEFORE
+          # project(), and that mirroring is easy to break silently (the comment there says so).
+          # If the `vulkan` feature still resolved, the ports are installed and OFF is only half
+          # applied — the object code would be gone but the ports still built, so the job would
+          # stop measuring what it claims to.
+          if [ -d build/vcpkg_installed/x64-linux/include/volk ] \
+             || [ -f build/vcpkg_installed/x64-linux/include/volk.h ] \
+             || [ -f build/vcpkg_installed/x64-linux/include/vk_mem_alloc.h ]; then
+            echo "::error::Vulkan backend ports were installed despite OLO_WITH_VULKAN=OFF —"
+            echo "the vcpkg manifest-feature mirror in the root CMakeLists has drifted from the option."
+            exit 1
+          fi
+          echo "OK: building the GL-only configuration (backend object code and Vulkan ports both out)."
+
+      # Capped parallelism, per CLAUDE.md — a bare --parallel forwards the omission to the native
+      # tool and takes ITS default, which is wider, not narrower.
+      #
+      # No --config: single-config generator, so the build type came from CMAKE_BUILD_TYPE.
+      #
+      # OloServer and OloRuntime are built alongside the tests on purpose. #762/#834 split
+      # OloEngine into three static archives, and the OFF configuration changes what lands in
+      # them — a link-order or missing-symbol regression can hit one consumer and not another.
+      - name: Build (engine, tests, runtime, server)
+        run: cmake --build build --target OloEngine-Tests OloRuntime OloServer --parallel 4
+
+      # Resolved once and exported rather than re-found per step: two lookups can disagree, and a
+      # single failure point is easier to read in the log. Same as steam-stub.yml.
+      - name: Locate the test binary
+        run: |
+          BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
+          if [ -z "$BIN" ]; then
+            echo "::error::OloEngine-Tests binary not found under build/OloEngine/tests."
+            exit 1
+          fi
+          echo "OLO_TESTS_BIN=${GITHUB_WORKSPACE}/${BIN}" >> "$GITHUB_ENV"
+          echo "Test binary: ${BIN}"
+
+      # The issue (#811) only asked for configure+build. Running the two OFF-specific suites costs
+      # a few seconds on top of a build that already happened, and it is the only thing that
+      # proves the `#if !OLO_WITH_VULKAN` branches do what they say rather than merely compiling.
+      #
+      # Runs from OloEditor/ to match the suite's working-directory contract.
+      - name: Assert the Vulkan suites SKIP rather than fail or vanish
+        run: |
+          cd OloEditor
+
+          # Capture the status explicitly. GitHub runs `run:` under `bash -e`, so `OUT=$(cmd)`
+          # with a failing cmd aborts before the echo and the job reports a failure whose output
+          # was never printed — exactly when the log matters most.
+          set +e
+          OUTPUT=$("$OLO_TESTS_BIN" --gtest_filter='Vulkan*' 2>&1)
+          STATUS=$?
+          set -e
+          echo "$OUTPUT"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::The Vulkan* suites exited with status $STATUS in an OLO_WITH_VULKAN=OFF build."
+            exit "$STATUS"
+          fi
+          if echo "$OUTPUT" | grep -qE '\[  FAILED  \]'; then
+            echo "::error::A Vulkan test FAILED in an OFF build; the OFF branch should SKIP."
+            exit 1
+          fi
+
+          # The filter must match something. A renamed suite otherwise yields "0 tests ran" and a
+          # zero exit — a green step that tested nothing.
+          if echo "$OUTPUT" | grep -qE '^\[==========\] Running 0 tests'; then
+            echo "::error::The Vulkan* filter matched no tests — suite names changed?"
+            exit 1
+          fi
+
+          # And they must actually SKIP. If a future refactor compiled the ON body into an OFF
+          # build, these would PASS instead, and this job would silently stop testing the guards.
+          SKIPPED=$(echo "$OUTPUT" | sed -nE 's/^\[  SKIPPED \] ([0-9]+) tests?.*/\1/p' | tail -1)
+          if [ -z "${SKIPPED:-}" ] || [ "$SKIPPED" -eq 0 ]; then
+            echo "::error::No Vulkan test SKIPPED in an OFF build — the #if !OLO_WITH_VULKAN branches did not run."
+            exit 1
+          fi
+          echo "OK: $SKIPPED Vulkan test(s) skipped cleanly with the backend compiled out."
+
+      # BackendSelectionTest is the other half: its `#else` arms assert that `--rhi=vulkan` in an
+      # OFF binary degrades to OpenGL *with a diagnostic* — never silently. Those arms must PASS,
+      # not skip, so this is a separate step with a different assertion.
+      - name: Assert --rhi=vulkan degrades loudly, not silently
+        run: |
+          cd OloEditor
+
+          set +e
+          OUTPUT=$("$OLO_TESTS_BIN" --gtest_filter='BackendSelection.*' 2>&1)
+          STATUS=$?
+          set -e
+          echo "$OUTPUT"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::BackendSelection exited with status $STATUS."
+            exit "$STATUS"
+          fi
+          if echo "$OUTPUT" | grep -qE '\[  FAILED  \]'; then
+            echo "::error::BackendSelection reported failures in an OFF build."
+            exit 1
+          fi
+
+          PASSED=$(echo "$OUTPUT" | sed -nE 's/^\[  PASSED  \] ([0-9]+) tests?.*/\1/p' | tail -1)
+          if [ -z "${PASSED:-}" ] || [ "$PASSED" -eq 0 ]; then
+            echo "::error::BackendSelection matched no passing tests — filter or suite name changed?"
+            exit 1
+          fi
+          echo "OK: $PASSED backend-selection tests passed against the OFF binary."
