@@ -275,6 +275,63 @@ width of the approximation instead of by a factor of two.
   density cannot justify, and one that pumps indoor light onto outdoor geometry
   behind the volume. The margin is this option with the reach made explicit.
 
+## Probe cascades, sparsity and GPU relocation (issue #707)
+
+The decision above is unchanged — the probe field is still a relit static
+hit-point cache, and the AUTHORED single-volume path is bit-identical to what
+#632 shipped. #707 adds a second way to place the field and changes *which*
+probes pay for an update.
+
+**Cascades.** A cascade is a probe LATTICE anchored at a fixed world origin, of
+which a `Dims`-sized window is stored TOROIDALLY (storage coordinate `s` holds
+the lattice point congruent to `s` mod `Dims` inside the window). Cascade N has
+twice cascade N-1's spacing and covers twice the extent; a blend band cross-fades
+between neighbours, and the complement rule (`w1 = 1 - w0`) is what makes the
+pair a partition of unity rather than a double-count.
+
+Toroidal storage is not an optimisation here, it is the enabling constraint.
+Because capture is rasterization rather than ray tracing, a grid whose probes all
+moved on every one-cell camera step could never converge at any affordable
+capture budget. With the toroidal window, a one-cell shift reassigns exactly one
+slab.
+
+An AUTHORED volume is the same structure with one cascade, lattice origin =
+`BoundsMin`, lattice min = 0 and blend band 0 — which reproduces the pre-#707
+probe indices, atlas tiles and world positions exactly. That compatibility is
+load-bearing: `DDGIReferenceParityTest` measured its parity against that layout.
+
+**Sparsity.** A probe relights only if something requested it — a shaded screen
+pixel, another live probe's cached hit point (ONE indirection deep), or the
+camera-neighbourhood seed. The hop matters more than it looks: cached hit points
+are surfaces, and those surfaces are usually not on screen, so without it the
+bounce term collapses to what the screen-visible probes alone carry.
+
+**Variable update rate.** 1-in-N live probes relight per frame, round-robin by
+`(probeIndex + frameIndex) % N` — an exact partition rather than a hash, so every
+probe updates exactly once per period and adjacent probes update on adjacent
+frames. This SUPERSEDES #632's `RelightBudget` atlas-row scissor, which throttled
+by storage order and therefore had no relationship to what the camera could see.
+
+**GPU relocation.** `RelocateProbe`/`ClassifyProbe` moved into
+`compute/DDGI_Relocate.comp`, removing the per-probe `glGetTextureSubImage` that
+sat immediately after the draw producing its input — a mid-frame pipeline drain.
+The relocation itself became a SPRING (crowding + average free direction + a pull
+back toward the lattice point), keeping the strictly-inside-geometry escape from
+the RTXGI rule because that is the one case where the closest face is unambiguous.
+The spring is what fixes probes pressed against a wall or wedged in a corner,
+which the closest-face rule leaves alone and which PGI's notes identify as the
+visible "blind spot" producer.
+
+**What did NOT change, and why.** The issue quotes PGI's default of 6 cascades x
+32^3. That is ~196k probes, and a probe costs ~4-8 KB here (hit cache, radiance,
+irradiance, visibility) because the capture is a rasterized hit-point CACHE
+rather than re-traced rays — so their default would be ~1.6 GB of atlases. PGI
+can afford theirs because they store no hit cache. The shipped default is 4
+cascades x 16^3 (~68 MB), and the renderer-settings panel prints the arithmetic
+next to the sliders.
+
+Traps and verification order: [docs/agent-rules/ddgi-probe-cascades-and-sparsity.md](../agent-rules/ddgi-probe-cascades-and-sparsity.md).
+
 ## Component / mode contract
 
 `LightProbeVolumeComponent.m_Mode` (`Baked` | `Realtime` | `Hybrid`,

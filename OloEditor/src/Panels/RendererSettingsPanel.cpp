@@ -128,6 +128,19 @@ namespace OloEngine
             AppendChange(changes, "OITEnabled", before.OITEnabled, after.OITEnabled);
             AppendChange(changes, "Deferred.GBufferDecalsEnabled", before.Deferred.GBufferDecalsEnabled, after.Deferred.GBufferDecalsEnabled);
             AppendChange(changes, "Deferred.EnableLightProbes", before.Deferred.EnableLightProbes, after.Deferred.EnableLightProbes);
+
+            // Realtime DDGI (issues #632 / #707). EnableDDGI was never logged
+            // here; the cascade knobs are new. All of them change what the
+            // renderer does per frame, so all of them belong in the change log.
+            AppendChange(changes, "EnableDDGI", before.EnableDDGI, after.EnableDDGI);
+            AppendChange(changes, "DDGICascadesEnabled", before.DDGICascadesEnabled, after.DDGICascadesEnabled);
+            AppendChange(changes, "DDGICascadeCount", before.DDGICascadeCount, after.DDGICascadeCount);
+            AppendChange(changes, "DDGICascadeResolution", before.DDGICascadeResolution, after.DDGICascadeResolution);
+            AppendChange(changes, "DDGICascadeBaseSpacing", before.DDGICascadeBaseSpacing, after.DDGICascadeBaseSpacing);
+            AppendChange(changes, "DDGICascadeBlendBand", before.DDGICascadeBlendBand, after.DDGICascadeBlendBand);
+            AppendChange(changes, "DDGISparsityEnabled", before.DDGISparsityEnabled, after.DDGISparsityEnabled);
+            AppendChange(changes, "DDGIUpdateRateDivisor", before.DDGIUpdateRateDivisor, after.DDGIUpdateRateDivisor);
+            AppendChange(changes, "DDGICameraSeedRadius", before.DDGICameraSeedRadius, after.DDGICameraSeedRadius);
             if (before.Deferred.DebugChannel != after.Deferred.DebugChannel)
             {
                 std::ostringstream oss;
@@ -808,6 +821,114 @@ namespace OloEngine
             ImGui::TextDisabled("Live graph topology, execution order, per-pass\n"
                                 "diagnostics, and JSON export live in\n"
                                 "View \xE2\x86\x92 Render Graph Debugger.");
+
+            ImGui::Unindent();
+        }
+
+        // Realtime DDGI (issues #632 / #707). OUTSIDE the per-path branches
+        // above on purpose: DDGI irradiance feeds the ambient ladder of BOTH
+        // the deferred and the forward(+) lit passes (RenderingPath.h), so
+        // putting its master switch inside the Deferred branch — next to
+        // "Enable Light Probes", where it would naturally sit — would hide it
+        // from half the users it applies to.
+        if (ImGui::CollapsingHeader("Realtime GI (DDGI)"))
+        {
+            ImGui::Indent();
+
+            if (ImGui::Checkbox("Enable DDGI", &settings.EnableDDGI))
+            {
+                Renderer3D::ApplyRendererSettings();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Master switch for realtime probe relighting.\n"
+                                  "Off makes a Realtime/Hybrid probe volume behave as Baked\n"
+                                  "and disables the camera-centred cascades below.");
+            }
+
+            if (ImGui::Checkbox("Camera-centred cascades", &settings.DDGICascadesEnabled))
+            {
+                Renderer3D::ApplyRendererSettings();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Issue #707. Probe grids centred on the camera, each cascade\n"
+                                  "twice the previous one's spacing, so GI covers a large scene\n"
+                                  "with NO authored probe volume.\n\n"
+                                  "An ACTIVE Realtime/Hybrid LightProbeVolumeComponent still wins\n"
+                                  "where one exists: the cascades cover what nobody authored.\n\n"
+                                  "Off by default, because turning it on gives realtime GI to\n"
+                                  "every scene without a probe volume - a deliberate opt-in\n"
+                                  "rather than a silent change to every existing scene.");
+            }
+
+            if (settings.DDGICascadesEnabled)
+            {
+                ImGui::Indent();
+                bool cascadeDirty = false;
+                cascadeDirty |= ImGui::SliderInt("Cascades", &settings.DDGICascadeCount, 1, 8);
+                cascadeDirty |= ImGui::SliderInt("Probes per axis", &settings.DDGICascadeResolution, 4, 32);
+                cascadeDirty |= ImGui::SliderFloat("Base spacing (m)", &settings.DDGICascadeBaseSpacing,
+                                                   0.25f, 8.0f, "%.2f");
+                cascadeDirty |= ImGui::SliderFloat("Blend band", &settings.DDGICascadeBlendBand,
+                                                   0.0f, 0.9f, "%.2f");
+
+                cascadeDirty |= ImGui::Checkbox("Sparsity (request-driven relight)",
+                                                &settings.DDGISparsityEnabled);
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Relight only probes a shaded screen pixel or another live\n"
+                                      "probe's cached hit point asked for. This is what makes a\n"
+                                      "cascaded field affordable at all.");
+                }
+
+                static const char* updateRateItems[] = { "Every frame", "1 in 2", "1 in 8",
+                                                         "1 in 16", "1 in 32", "1 in 64" };
+                static const i32 updateRateValues[] = { 1, 2, 8, 16, 32, 64 };
+                int rateSelection = 2; // 1-in-8, the default
+                for (int i = 0; i < IM_ARRAYSIZE(updateRateValues); ++i)
+                {
+                    if (updateRateValues[i] == settings.DDGIUpdateRateDivisor)
+                    {
+                        rateSelection = i;
+                        break;
+                    }
+                }
+                if (ImGui::Combo("Update rate", &rateSelection, updateRateItems, IM_ARRAYSIZE(updateRateItems)))
+                {
+                    settings.DDGIUpdateRateDivisor = updateRateValues[rateSelection];
+                    cascadeDirty = true;
+                }
+
+                cascadeDirty |= ImGui::SliderFloat("Camera seed radius (m)", &settings.DDGICameraSeedRadius,
+                                                   0.0f, 64.0f, "%.1f");
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Probes within this radius are requested every frame no\n"
+                                      "matter what the screen asked for - the floor under\n"
+                                      "sparsity, so GI around the viewer cannot go dark.");
+                }
+
+                // The dense storage cost is what an author can walk off a cliff
+                // with here, so it is SHOWN rather than described. 6 x 32^3 (the
+                // figure PGI quotes) is ~1.6 GB in this engine, because our
+                // capture is a rasterized hit-point cache rather than re-traced
+                // rays. ~4.3 KB/probe is that cache plus the radiance,
+                // irradiance and visibility atlases at the 8-texel default.
+                const i64 probeCount = static_cast<i64>(settings.DDGICascadeCount) *
+                                       static_cast<i64>(settings.DDGICascadeResolution) *
+                                       static_cast<i64>(settings.DDGICascadeResolution) *
+                                       static_cast<i64>(settings.DDGICascadeResolution);
+                const f64 megabytes = static_cast<f64>(probeCount) * 4.3e-3;
+                ImGui::TextDisabled("%lld probes, ~%.0f MB of probe atlases",
+                                    static_cast<long long>(probeCount), megabytes);
+
+                if (cascadeDirty)
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                ImGui::Unindent();
+            }
 
             ImGui::Unindent();
         }

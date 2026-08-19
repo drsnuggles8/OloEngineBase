@@ -110,6 +110,48 @@ namespace OloEngine
         // tiering hook (Low tier forces DDGI off instead; see QualityTiering).
         f32 DDGIBudgetScale = 1.0f;
 
+        // --- Realtime DDGI cascades (issue #707) ---
+        // Camera-centred probe clipmap: N grids centred on the camera, each at
+        // twice the previous one's spacing, cross-faded across a blend band.
+        // GI then covers a large scene with NO authored probe volume at all,
+        // which is the first acceptance criterion of #707.
+        //
+        // An AUTHORED LightProbeVolumeComponent still wins where one exists —
+        // the two are not alternatives to choose between. An author who placed
+        // a volume around a specific interior wants that volume's resolution
+        // and bounds there, and the cascades cover everywhere they did not.
+        bool DDGICascadesEnabled = false;
+        // Probes per axis PER CASCADE. The dense-storage cost is
+        // CascadeCount * Resolution^3 probes at roughly 8 KB each (hit cache,
+        // radiance, irradiance, visibility), so 4 x 16^3 is ~130 MB and 6 x 32^3
+        // — the figure the issue quotes from PGI — would be ~1.6 GB. PGI can
+        // afford theirs because they RE-TRACE rays per update and store no hit
+        // cache; this engine's capture is a rasterized hit-point cache (ADR
+        // 0007), which is what buys per-frame relighting without ray tracing
+        // and what makes the per-probe footprint ~48x larger. Raise these only
+        // with the memory arithmetic in hand.
+        i32 DDGICascadeCount = 4;
+        i32 DDGICascadeResolution = 16;
+        // Cascade 0's probe spacing in world units; cascade N is 2^N times it.
+        // With the defaults the field reaches +-11 m at 1.5 m spacing and
+        // +-90 m at 12 m spacing.
+        f32 DDGICascadeBaseSpacing = 1.5f;
+        // Fraction of a cascade's half-extent over which it cross-fades into
+        // the next. 0 is a hard boundary and shows as a visible step.
+        f32 DDGICascadeBlendBand = 0.2f;
+        // Sparsity: relight only probes a shaded screen pixel or another live
+        // probe's cached hit point asked for. This is what makes a cascaded
+        // field affordable — without it every probe in every cascade relights
+        // every frame.
+        bool DDGISparsityEnabled = true;
+        // Variable update rate: relight 1-in-N live probes per frame. Snapped
+        // to 1 / 2 / 8 / 16 / 32 / 64 (DDGI::SnapUpdateRate). PGI's default is
+        // 8 and so is this one.
+        i32 DDGIUpdateRateDivisor = 8;
+        // World radius around the camera whose probes are requested every frame
+        // regardless of what the screen asked for — the floor under sparsity.
+        f32 DDGICameraSeedRadius = 12.0f;
+
         // --- Virtualized geometry (Nanite-style cluster LOD DAG, issue #629) ---
         // Master switch for the whole virtual-geometry path. Deferred-only regardless (the
         // pass is not even added to the graph outside Deferred), so this is an ADDITIONAL

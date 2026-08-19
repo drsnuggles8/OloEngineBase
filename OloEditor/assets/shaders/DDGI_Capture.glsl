@@ -50,17 +50,40 @@ layout(std140, binding = 0) uniform CameraMatrices
 };
 
 // Per-draw capture data — mirrors DDGIPassDataUBO in DDGIProbeUpdatePass.cpp.
-layout(std140, binding = 7) uniform DDGIPassData
-{
-    mat4 u_DDGIModel;         // render-relative model matrix
-    mat4 u_DDGINormalMatrix;  // transpose(inverse(model))
-    vec4 u_DDGIBaseColor;     // material base color factor
-    vec4 u_DDGIProbePosition; // xyz = render-relative probe position, w = probe linear index
-};
+#include "include/DDGICommon.glsl"
+#include "include/DDGIPassData.glsl"
 
-layout(location = 0) out vec3 v_WorldPos;
+#include "include/BindlessHeap.glsl"
+// The probe's RELOCATED position is read here, on the GPU, from the probe-data
+// texture (issue #707, upgrade 4). It used to arrive in u_DDGIProbePosition.xyz
+// because the CPU owned the relocation offset — and that is exactly the coupling
+// that forced the per-probe readback. With relocation moved into
+// DDGI_Relocate.comp the CPU no longer knows the offset, so the capture derives
+// the eye position itself and the CPU supplies only an eye-at-ORIGIN
+// view-projection plus the probe's global index.
+//
+// Getting this wrong is silent: capturing from the lattice point while the
+// relight stage reconstructs hit points from the relocated one offsets every
+// cached hit by up to 0.45 of a cell, which reads as slightly wrong GI rather
+// than as anything failing.
+#ifdef OLO_BINDLESS
+#define u_ProbeData OLO_HEAP_TEX_2D(1) // xyz = offsetN, w = state
+#else
+layout(binding = 1) uniform sampler2D u_ProbeData;
+#endif
+
+layout(location = 0) out vec3 v_ProbeRelative; // caster position RELATIVE TO THE PROBE
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
+
+vec3 ddgiCaptureProbePosition()
+{
+    int probeIndex = int(u_DDGIProbePosition.w + 0.5);
+    int level = ddgiCascadeOfProbeIndex(probeIndex);
+    ivec3 storage = ddgiStorageCoordOfProbeIndex(probeIndex);
+    vec4 pdata = texelFetch(u_ProbeData, ddgiCascadedProbeTileCoord(level, storage), 0);
+    return ddgiCascadeProbeWorldPosition(storage, level, pdata.xyz);
+}
 
 void main()
 {
@@ -71,24 +94,19 @@ void main()
     vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
 #endif
     vec4 worldPos = u_DDGIModel * vec4(a_Position, 1.0);
-    v_WorldPos = worldPos.xyz;
+    // u_ViewProjection is the face's projection times a rotation-only view (eye
+    // at the ORIGIN), so the probe-relative position IS the view-space input.
+    v_ProbeRelative = worldPos.xyz - ddgiCaptureProbePosition();
     v_Normal = mat3(u_DDGINormalMatrix) * a_Normal;
     v_TexCoord = a_TexCoord;
-    gl_Position = u_ViewProjection * worldPos;
+    gl_Position = u_ViewProjection * vec4(v_ProbeRelative, 1.0);
 }
 
 #type fragment
 #version 460 core
 
 #include "include/DDGICommon.glsl"
-
-layout(std140, binding = 7) uniform DDGIPassData
-{
-    mat4 u_DDGIModel;
-    mat4 u_DDGINormalMatrix;
-    vec4 u_DDGIBaseColor;
-    vec4 u_DDGIProbePosition;
-};
+#include "include/DDGIPassData.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -101,7 +119,7 @@ layout(std140, binding = 7) uniform DDGIPassData
 layout(binding = 0) uniform sampler2D u_AlbedoMap; // white fallback when the caster has no texture
 #endif
 
-layout(location = 0) in vec3 v_WorldPos;
+layout(location = 0) in vec3 v_ProbeRelative;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
 
@@ -122,7 +140,9 @@ void main()
     }
     float flag = gl_FrontFacing ? DDGI_HIT_FRONTFACE : DDGI_HIT_BACKFACE;
 
-    float dist = length(v_WorldPos - u_DDGIProbePosition.xyz);
+    // The vertex stage already produced the probe-relative position, so the
+    // distance costs a length() and no second probe-data fetch.
+    float dist = length(v_ProbeRelative);
 
     o_AlbedoFlag = vec4(albedo, flag);
     o_GeoDist = vec4(ddgiOctEncode(n), dist, 0.0);

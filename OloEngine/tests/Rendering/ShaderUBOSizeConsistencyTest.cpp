@@ -61,10 +61,10 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        // 40 = the base 33, plus the five #691 Phase 8 compute blocks, plus
-        // ColorBlindParams (#458), plus PrefixSumParams (#713) and
-        // TerrainCullParams (#714).
-        const std::array<KnownBlock, 41> kKnownBlocks = { {
+        // 43 = the base 33, plus the five #691 Phase 8 compute blocks, plus
+        // ColorBlindParams (#458), plus PrefixSumParams (#713),
+        // TerrainCullParams (#714) and the two DDGI blocks (#707).
+        const std::array<KnownBlock, 43> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -128,6 +128,14 @@ namespace OloEngine::Tests
             // once in include/TerrainCullParams.glsl and included by all four
             // Terrain*.comp kernels. Same reason again.
             { "TerrainCullParams", sizeof(UBOStructures::TerrainCullUBO) },
+            // Realtime DDGI (issues #632 / #707). Neither block was listed
+            // before #707 — so the one test that compares a reflected GLSL
+            // block against its C++ twin covered neither, while DDGIVolume grew
+            // from 112 to 512 bytes and DDGIPassData from 160 to 400. Both are
+            // declared once in an include and read by five shaders each, which
+            // is the drift shape this table exists for.
+            { "DDGIVolume", sizeof(UBOStructures::DDGIVolumeUBO) },
+            { "DDGIPassData", sizeof(UBOStructures::DDGIPassDataUBO) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)

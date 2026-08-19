@@ -26,6 +26,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
+#include <array>
 #include <cmath>
 #include <limits>
 #include <random>
@@ -1149,4 +1150,449 @@ TEST(DDGIMath, BounceMarginOnASingleProbeAxisIsTheWholeExtent)
     EXPECT_FLOAT_EQ(normalMargin.y, 4.0f);
     glm::vec3 const denseMargin = DDGI::BounceMargin(DDGI::ProbeSpacing(boundsMin, boundsMax, glm::ivec3(5, 5, 5)));
     EXPECT_FLOAT_EQ(denseMargin.y, 1.0f);
+}
+
+// =============================================================================
+// Issue #707 — cascades, toroidal storage, sparsity, variable update rate and
+// the spring-force relocation.
+//
+// Every one of these fails SILENTLY in the frame: a wrong wrap shows as GI
+// smearing behind the camera, a wrong blend band as a soft seam, a wrong
+// update-rate phase as blotchy convergence, a wrong spring as probes drifting
+// into geometry over many frames. None of them make a picture obviously wrong
+// on the frame they happen, which is exactly why they are pinned here.
+// =============================================================================
+
+// The authored single-volume path must reproduce the pre-#707 layout EXACTLY.
+// This is the load-bearing compatibility claim: the reference-path-tracer
+// parity tests, the goldens and the visual-evidence PNGs were all measured
+// against that layout, so "equivalent" is not good enough — it has to be the
+// same probe index, the same tile and the same world position.
+TEST(DDGIMath, AuthoredCascadeReproducesTheLegacyLayoutExactly)
+{
+    glm::vec3 const boundsMin(-10.0f, -2.0f, -10.0f);
+    glm::vec3 const boundsMax(10.0f, 2.0f, 10.0f);
+    glm::ivec3 const dims(4, 3, 4);
+
+    DDGI::CascadeGrid const grid = DDGI::MakeAuthoredCascade(boundsMin, boundsMax, dims);
+    EXPECT_EQ(grid.LatticeMin, glm::ivec3(0));
+    EXPECT_EQ(grid.Dims, dims);
+    EXPECT_EQ(grid.Spacing, DDGI::ProbeSpacing(boundsMin, boundsMax, dims));
+
+    for (i32 z = 0; z < dims.z; ++z)
+    {
+        for (i32 y = 0; y < dims.y; ++y)
+        {
+            for (i32 x = 0; x < dims.x; ++x)
+            {
+                glm::ivec3 const coord(x, y, z);
+                i32 const legacyIndex = DDGI::ProbeLinearIndex(coord, dims);
+
+                EXPECT_EQ(DDGI::CascadedProbeIndex(0, coord, dims), legacyIndex);
+                EXPECT_EQ(DDGI::CascadedProbeTileCoord(0, coord, dims), DDGI::ProbeTileCoord(legacyIndex, dims));
+                EXPECT_EQ(DDGI::CascadedProbeTileCoord(legacyIndex, dims), DDGI::ProbeTileCoord(legacyIndex, dims));
+                EXPECT_EQ(DDGI::CascadeOfProbeIndex(legacyIndex, dims), 0);
+                EXPECT_EQ(DDGI::StorageCoordOfProbeIndex(legacyIndex, dims), coord);
+
+                glm::vec3 const legacyPos = DDGI::ProbeGridPosition(coord, boundsMin, boundsMax, dims);
+                glm::vec3 const cascadePos = DDGI::CascadeProbeGridPosition(coord, grid);
+                EXPECT_NEAR(cascadePos.x, legacyPos.x, 1e-5f);
+                EXPECT_NEAR(cascadePos.y, legacyPos.y, 1e-5f);
+                EXPECT_NEAR(cascadePos.z, legacyPos.z, 1e-5f);
+            }
+        }
+    }
+
+    EXPECT_EQ(DDGI::CascadedAtlasTileDimensions(dims, 1), DDGI::AtlasTileDimensions(dims));
+    glm::vec3 const cascadeMin = DDGI::CascadeBoundsMin(grid);
+    glm::vec3 const cascadeMax = DDGI::CascadeBoundsMax(grid);
+    EXPECT_NEAR(cascadeMin.x, boundsMin.x, 1e-5f);
+    EXPECT_NEAR(cascadeMax.y, boundsMax.y, 1e-5f);
+    EXPECT_NEAR(cascadeMax.z, boundsMax.z, 1e-5f);
+}
+
+// The property the entire cascade design rests on: moving the window by one
+// cell must reassign exactly ONE SLAB of probes, not the whole grid. Our
+// capture is a rasterized cube-face bake, so a scheme that invalidated every
+// probe on every one-cell camera step could never converge.
+TEST(DDGIMath, ToroidalStorageInvalidatesOnlyOneSlabPerCellOfCameraMotion)
+{
+    glm::ivec3 const dims(16, 16, 16);
+    DDGI::CascadeGrid const before = DDGI::MakeCameraCascade(0, glm::vec3(0.0f), glm::vec3(1.0f), dims);
+    DDGI::CascadeGrid after = before;
+    after.LatticeMin.x += 1;
+
+    i32 changed = 0;
+    for (i32 z = 0; z < dims.z; ++z)
+    {
+        for (i32 y = 0; y < dims.y; ++y)
+        {
+            for (i32 x = 0; x < dims.x; ++x)
+            {
+                glm::ivec3 const storage(x, y, z);
+                if (DDGI::CascadeProbeGridPosition(storage, before) != DDGI::CascadeProbeGridPosition(storage, after))
+                {
+                    ++changed;
+                }
+            }
+        }
+    }
+    EXPECT_EQ(changed, dims.y * dims.z) << "a one-cell shift must move exactly one YZ slab";
+
+    // ...and shifting by a whole window length must move everything, which is
+    // the other end of the same property (and would silently pass if the wrap
+    // were a no-op).
+    DDGI::CascadeGrid wrappedAround = before;
+    wrappedAround.LatticeMin.x += dims.x;
+    i32 farChanged = 0;
+    for (i32 x = 0; x < dims.x; ++x)
+    {
+        if (DDGI::CascadeProbeGridPosition({ x, 0, 0 }, before) != DDGI::CascadeProbeGridPosition({ x, 0, 0 }, wrappedAround))
+        {
+            ++farChanged;
+        }
+    }
+    EXPECT_EQ(farChanged, dims.x);
+}
+
+// The single most load-bearing line in the toroidal scheme: C++ % and GLSL %
+// both truncate toward zero, so a negative lattice coordinate maps to a
+// NEGATIVE storage index unless the modulo is Euclidean. Cascades go negative
+// the moment the camera moves toward -x, so this is not an edge case.
+TEST(DDGIMath, NegativeLatticeCoordinatesWrapIntoTheStorageWindow)
+{
+    glm::ivec3 const dims(16, 8, 16);
+    DDGI::CascadeGrid const grid = DDGI::MakeCameraCascade(0, glm::vec3(-137.0f, -41.0f, -9.0f), glm::vec3(1.0f), dims);
+    ASSERT_LT(grid.LatticeMin.x, 0) << "the fixture must actually exercise negative lattice coordinates";
+
+    for (i32 z = 0; z < dims.z; ++z)
+    {
+        for (i32 y = 0; y < dims.y; ++y)
+        {
+            for (i32 x = 0; x < dims.x; ++x)
+            {
+                glm::ivec3 const storage(x, y, z);
+                glm::ivec3 const lattice = DDGI::LatticeForStorageCoord(storage, grid);
+
+                // Inside the window on every axis...
+                EXPECT_GE(lattice.x, grid.LatticeMin.x);
+                EXPECT_LT(lattice.x, grid.LatticeMin.x + dims.x);
+                EXPECT_GE(lattice.y, grid.LatticeMin.y);
+                EXPECT_LT(lattice.y, grid.LatticeMin.y + dims.y);
+                EXPECT_GE(lattice.z, grid.LatticeMin.z);
+                EXPECT_LT(lattice.z, grid.LatticeMin.z + dims.z);
+
+                // ...and a round trip back to the same storage slot.
+                EXPECT_EQ(DDGI::StorageCoordForLattice(lattice, dims), storage);
+            }
+        }
+    }
+
+    EXPECT_EQ(DDGI::WrapIndex(-1, 16), 15);
+    EXPECT_EQ(DDGI::WrapIndex(-16, 16), 0);
+    EXPECT_EQ(DDGI::WrapIndex(-17, 16), 15);
+    EXPECT_EQ(DDGI::WrapIndex(17, 16), 1);
+}
+
+TEST(DDGIMath, CascadeSpacingDoublesPerLevel)
+{
+    glm::vec3 const base(1.5f, 1.5f, 1.5f);
+    EXPECT_EQ(DDGI::CascadeSpacing(base, 0), base);
+    EXPECT_EQ(DDGI::CascadeSpacing(base, 1), base * 2.0f);
+    EXPECT_EQ(DDGI::CascadeSpacing(base, 3), base * 8.0f);
+
+    // Each cascade therefore covers twice the extent of the previous one,
+    // which is what makes N cascades reach 2^N times cascade 0.
+    glm::ivec3 const dims(16, 16, 16);
+    DDGI::CascadeGrid const c0 = DDGI::MakeCameraCascade(0, glm::vec3(0.0f), base, dims);
+    DDGI::CascadeGrid const c3 = DDGI::MakeCameraCascade(3, glm::vec3(0.0f), base, dims);
+    f32 const extent0 = (DDGI::CascadeBoundsMax(c0) - DDGI::CascadeBoundsMin(c0)).x;
+    f32 const extent3 = (DDGI::CascadeBoundsMax(c3) - DDGI::CascadeBoundsMin(c3)).x;
+    EXPECT_NEAR(extent3, extent0 * 8.0f, 1e-3f);
+}
+
+// The blend band is where cascades go wrong, and a subtly wrong one reads as
+// "GI is a bit soft near the transition" rather than as a failure.
+TEST(DDGIMath, CascadeInteriorWeightFallsMonotonicallyToZeroAcrossTheBand)
+{
+    glm::ivec3 const dims(16, 16, 16);
+    DDGI::CascadeGrid const grid = DDGI::MakeCameraCascade(0, glm::vec3(0.0f), glm::vec3(1.0f), dims);
+    glm::vec3 const boundsMin = DDGI::CascadeBoundsMin(grid);
+    glm::vec3 const boundsMax = DDGI::CascadeBoundsMax(grid);
+    glm::vec3 const centre = (boundsMin + boundsMax) * 0.5f;
+    constexpr f32 kBand = 0.2f;
+
+    EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(centre, grid, kBand), 1.0f);
+    EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(boundsMax + glm::vec3(0.5f), grid, kBand), 0.0f);
+    EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(boundsMax, grid, kBand), 0.0f);
+
+    f32 previous = 1.0f;
+    bool sawIntermediate = false;
+    for (i32 step = 0; step <= 40; ++step)
+    {
+        f32 const t = static_cast<f32>(step) / 40.0f;
+        glm::vec3 const p = centre + (boundsMax - centre) * t;
+        f32 const w = DDGI::CascadeInteriorWeight(p, grid, kBand);
+        EXPECT_LE(w, previous + 1e-5f) << "weight must never rise as the sample leaves the cascade (step " << step << ")";
+        if (w > 0.01f && w < 0.99f)
+        {
+            sawIntermediate = true;
+        }
+        previous = w;
+    }
+    EXPECT_TRUE(sawIntermediate) << "the band must actually ramp, not step";
+
+    // Band 0 is the AUTHORED path's setting and must reproduce the hard
+    // membership test — boundary inclusive, exactly as ddgiIsInsideVolume.
+    EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(boundsMax, grid, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(boundsMin, grid, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(boundsMax + glm::vec3(1e-3f), grid, 0.0f), 0.0f);
+}
+
+TEST(DDGIMath, SelectCascadePicksTheFinestOneOwningThePoint)
+{
+    glm::ivec3 const dims(16, 16, 16);
+    std::array<DDGI::CascadeGrid, 4> grids{};
+    for (i32 level = 0; level < 4; ++level)
+    {
+        grids[static_cast<std::size_t>(level)] =
+            DDGI::MakeCameraCascade(level, glm::vec3(0.0f), glm::vec3(1.0f), dims);
+    }
+
+    // At the camera, cascade 0.
+    EXPECT_EQ(DDGI::SelectCascade(glm::vec3(0.0f), grids.data(), 4, 0.2f), 0);
+
+    // Just past cascade 0's window, the next one takes over.
+    glm::vec3 const beyond0 = DDGI::CascadeBoundsMax(grids[0]) + glm::vec3(1.0f, 0.0f, 0.0f);
+    EXPECT_GE(DDGI::SelectCascade(beyond0, grids.data(), 4, 0.2f), 1);
+
+    // Beyond every cascade, nothing owns the point and the gather must fall
+    // through to the ambient ladder rather than clamp to a boundary probe.
+    glm::vec3 const beyondAll = DDGI::CascadeBoundsMax(grids[3]) + glm::vec3(1000.0f);
+    EXPECT_EQ(DDGI::SelectCascade(beyondAll, grids.data(), 4, 0.2f), -1);
+}
+
+// The variable update rate must be an exact partition: every probe once per N
+// frames, 1/N of the field per frame. A hash would satisfy neither, and the
+// failure (some probes never updating) is invisible in a single frame.
+TEST(DDGIMath, UpdateRatePartitionsProbesExactlyOncePerPeriod)
+{
+    constexpr i32 kProbes = 512;
+    for (i32 divisor : { 1, 2, 8, 16, 32, 64 })
+    {
+        std::vector<i32> updates(static_cast<std::size_t>(kProbes), 0);
+        for (u32 frame = 0; frame < static_cast<u32>(divisor); ++frame)
+        {
+            i32 thisFrame = 0;
+            for (i32 probe = 0; probe < kProbes; ++probe)
+            {
+                if (DDGI::ProbeUpdatesThisFrame(probe, frame, divisor))
+                {
+                    ++updates[static_cast<std::size_t>(probe)];
+                    ++thisFrame;
+                }
+            }
+            EXPECT_EQ(thisFrame, kProbes / divisor)
+                << "divisor " << divisor << " frame " << frame << " updated the wrong share of the field";
+        }
+        for (i32 probe = 0; probe < kProbes; ++probe)
+        {
+            EXPECT_EQ(updates[static_cast<std::size_t>(probe)], 1)
+                << "probe " << probe << " did not update exactly once per " << divisor << " frames";
+        }
+    }
+}
+
+TEST(DDGIMath, UpdateRateSnapsDownToASupportedRate)
+{
+    EXPECT_EQ(DDGI::SnapUpdateRate(1), DDGI::ProbeUpdateRate::EveryFrame);
+    EXPECT_EQ(DDGI::SnapUpdateRate(0), DDGI::ProbeUpdateRate::EveryFrame);
+    EXPECT_EQ(DDGI::SnapUpdateRate(-5), DDGI::ProbeUpdateRate::EveryFrame);
+    EXPECT_EQ(DDGI::SnapUpdateRate(3), DDGI::ProbeUpdateRate::OneInTwo);
+    EXPECT_EQ(DDGI::SnapUpdateRate(8), DDGI::ProbeUpdateRate::OneInEight);
+    EXPECT_EQ(DDGI::SnapUpdateRate(15), DDGI::ProbeUpdateRate::OneInEight);
+    EXPECT_EQ(DDGI::SnapUpdateRate(1000), DDGI::ProbeUpdateRate::OneInSixtyFour);
+    EXPECT_EQ(DDGI::UpdateRateDivisor(DDGI::kDefaultProbeUpdateRate), 8);
+}
+
+TEST(DDGIMath, ProbeLivenessExpiresAfterTheRequestLifetime)
+{
+    constexpr u32 kLifetime = 16u;
+    // 0 is the "never requested" sentinel — deliberately not "requested at
+    // frame 0", which is why the pass's frame counter starts at 1.
+    EXPECT_FALSE(DDGI::IsProbeLive(0u, 1u, kLifetime));
+    EXPECT_FALSE(DDGI::IsProbeLive(0u, 100u, kLifetime));
+
+    EXPECT_TRUE(DDGI::IsProbeLive(100u, 100u, kLifetime));
+    EXPECT_TRUE(DDGI::IsProbeLive(100u, 116u, kLifetime));
+    EXPECT_FALSE(DDGI::IsProbeLive(100u, 117u, kLifetime));
+    // A request from "the future" (the pass re-created its resources and the
+    // counter restarted) must read live, not as an enormous elapsed time —
+    // unsigned wraparound would otherwise park the probe dead forever.
+    EXPECT_TRUE(DDGI::IsProbeLive(200u, 100u, kLifetime));
+}
+
+// =============================================================================
+// Spring-force relocation (issue #707's biggest quality delta over stock DDGI).
+// =============================================================================
+
+namespace
+{
+    // A probe with a wall close on -X and open space on +X: the case stock
+    // RTXGI relocation does nothing about (the probe is not inside anything)
+    // and PGI's notes call out as the visible "blind spot" producer.
+    DDGI::ProbeHitAggregates MakeAgainstWallAggregates()
+    {
+        DDGI::ProbeHitAggregates agg;
+        agg.BackfaceFraction = 0.0f;
+        agg.ClosestFrontfaceDir = glm::vec3(-1.0f, 0.0f, 0.0f);
+        agg.ClosestFrontfaceDist = 0.05f;
+        agg.FarthestFrontfaceDir = glm::vec3(1.0f, 0.0f, 0.0f);
+        agg.FarthestFrontfaceDist = 4.0f;
+        agg.CrowdingSum = glm::vec3(-1.0f, 0.0f, 0.0f) * 0.9f;
+        agg.CrowdingWeight = 0.9f;
+        agg.FreeDirectionSum = glm::vec3(1.0f, 0.0f, 0.0f) * 0.8f;
+        agg.FreeDirectionWeight = 1.0f;
+        return agg;
+    }
+} // namespace
+
+TEST(DDGIMath, SpringRelocationPushesAProbeOffAWallItIsPressedAgainst)
+{
+    DDGI::ProbeHitAggregates const agg = MakeAgainstWallAggregates();
+    glm::vec3 const spacing(1.0f);
+    constexpr f32 kMinFrontface = 0.25f;
+
+    glm::vec3 offset = DDGI::RelocateProbeSpring(glm::vec3(0.0f), agg, spacing, kMinFrontface);
+    EXPECT_GT(offset.x, 0.0f) << "the probe must move AWAY from the crowding wall, into the free direction";
+    EXPECT_FLOAT_EQ(offset.y, 0.0f);
+    EXPECT_FLOAT_EQ(offset.z, 0.0f);
+
+    // Iterating (the pass re-runs the spring on every recapture) must converge
+    // inside the cell rather than run away: the offset clamp is what keeps the
+    // trilinear gather's "probe i is near lattice point i" assumption true.
+    for (i32 iteration = 0; iteration < 64; ++iteration)
+    {
+        offset = DDGI::RelocateProbeSpring(offset, agg, spacing, kMinFrontface);
+        ASSERT_LE(glm::length(offset), DDGI::kMaxProbeOffsetFraction)
+            << "iteration " << iteration << " left the 45%-of-cell ellipsoid";
+        ASSERT_TRUE(std::isfinite(offset.x) && std::isfinite(offset.y) && std::isfinite(offset.z));
+    }
+}
+
+TEST(DDGIMath, SpringRelocationDecaysBackToTheLatticePointWhenNothingIsClose)
+{
+    DDGI::ProbeHitAggregates agg;
+    agg.BackfaceFraction = 0.0f;
+    agg.ClosestFrontfaceDir = glm::vec3(0.0f, 0.0f, 1.0f);
+    agg.ClosestFrontfaceDist = 5.0f; // comfortable
+
+    glm::vec3 offset(0.3f, -0.2f, 0.1f);
+    for (i32 iteration = 0; iteration < 64; ++iteration)
+    {
+        offset = DDGI::RelocateProbeSpring(offset, agg, glm::vec3(1.0f), 0.25f);
+    }
+    EXPECT_LT(glm::length(offset), 1e-2f)
+        << "the grid-restore term must pull an unconstrained probe back to its lattice point, "
+           "or the field loses the regular spacing the trilinear gather assumes";
+}
+
+TEST(DDGIMath, SpringRelocationKeepsTheInsideGeometryEscape)
+{
+    // The one case where the single closest face IS unambiguous, and where a
+    // pure spring would have to climb out through the crowding term alone.
+    DDGI::ProbeHitAggregates agg;
+    agg.BackfaceFraction = 0.8f; // > kBackfaceFraction: inside geometry
+    agg.ClosestBackfaceDir = glm::vec3(0.0f, 1.0f, 0.0f);
+    agg.ClosestBackfaceDist = 0.1f;
+
+    glm::vec3 const offset = DDGI::RelocateProbeSpring(glm::vec3(0.0f), agg, glm::vec3(1.0f), 0.25f);
+    EXPECT_GT(offset.y, 0.0f) << "an in-wall probe must be pushed through the closest backface";
+    EXPECT_LE(glm::length(offset), DDGI::kMaxProbeOffsetFraction);
+
+    // ...and classification still marks it Inactive so the gather de-weights it
+    // while it waits for the recapture from the new position.
+    EXPECT_EQ(DDGI::ClassifyProbe(agg), DDGI::ProbeState::Inactive);
+}
+
+TEST(DDGIMath, SpringRelocationClampProjectsRatherThanRejects)
+{
+    // A permanently crowded probe pushes forever; the clamp must place it ON
+    // the ellipsoid rather than snap it back to its previous offset. Rejection
+    // is right for RTXGI's large discrete steps and wrong for a spring — it
+    // leaves the probe pinned with an unsatisfied force, reading as a probe
+    // that never converges.
+    DDGI::ProbeHitAggregates agg;
+    agg.BackfaceFraction = 0.0f;
+    agg.CrowdingSum = glm::vec3(-1.0f, 0.0f, 0.0f);
+    agg.CrowdingWeight = 1.0f;
+
+    glm::vec3 offset(0.0f);
+    for (i32 iteration = 0; iteration < 128; ++iteration)
+    {
+        offset = DDGI::RelocateProbeSpring(offset, agg, glm::vec3(1.0f), 1.0f);
+    }
+    EXPECT_NEAR(glm::length(offset), DDGI::kMaxProbeOffsetFraction, 1e-3f)
+        << "a permanently crowded probe must settle ON the ellipsoid boundary";
+}
+
+// The capture-priority ordering. This is here because getting it wrong is
+// INVISIBLE: every tier is still captured eventually, so coverage still reaches
+// 100% and every DDGI test still passes — just many frames later. Ordering
+// refinement ahead of first capture took the wide-volume parity rig from 12
+// frames to full coverage to 56, against a 60-frame budget.
+TEST(DDGIMath, CaptureTiersOrderCoverageBeforeRefinementBeforeRefresh)
+{
+    // Deliberately stacked against the tier order: the never-captured probe is
+    // the FURTHEST away and in the COARSEST cascade, which is the case an
+    // unclamped `distance + tier * bias` gets wrong.
+    const f32 neverCaptured = DDGI::CaptureScore(DDGI::CaptureTier::NeverCaptured, 5000.0f, 7, 0u);
+    const f32 refinement = DDGI::CaptureScore(DDGI::CaptureTier::RelocationRefinement, 0.0f, 0, 0u);
+    const f32 refresh = DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 0.0f, 0, 100000u);
+
+    EXPECT_LT(neverCaptured, refinement)
+        << "a probe with no capture at all contributes NOTHING to the gather; it must outrank a probe "
+           "that is merely slightly mis-positioned, however far away it is";
+    EXPECT_LT(refinement, refresh)
+        << "a probe mid-relocation is actively wrong; a stale one is merely old";
+
+    // The separation must hold for an absurd distance too — that is what the
+    // intra-tier clamp is for.
+    const f32 absurd = DDGI::CaptureScore(DDGI::CaptureTier::NeverCaptured, 1.0e9f, 7, 0u);
+    EXPECT_LT(absurd, DDGI::CaptureScore(DDGI::CaptureTier::RelocationRefinement, 0.0f, 0, 0u))
+        << "the intra-tier rank must be clamped below the tier bias, or a distant probe crosses tiers";
+    EXPECT_TRUE(std::isfinite(absurd));
+}
+
+TEST(DDGIMath, CaptureScoreOrdersNearerAndFinerCascadesFirstWithinATier)
+{
+    for (DDGI::CaptureTier tier : { DDGI::CaptureTier::NeverCaptured, DDGI::CaptureTier::RelocationRefinement })
+    {
+        EXPECT_LT(DDGI::CaptureScore(tier, 1.0f, 0, 0u), DDGI::CaptureScore(tier, 50.0f, 0, 0u))
+            << "nearer probes first";
+        EXPECT_LT(DDGI::CaptureScore(tier, 1.0f, 0, 0u), DDGI::CaptureScore(tier, 1.0f, 2, 0u))
+            << "finer cascades first — they are what the viewer is standing in";
+        // A negative distance cannot happen, but a NaN-free, monotone response
+        // to garbage is cheaper to guarantee than to debug.
+        EXPECT_TRUE(std::isfinite(DDGI::CaptureScore(tier, -5.0f, -1, 0u)));
+    }
+}
+
+TEST(DDGIMath, CaptureRefreshTierOrdersOldestFirstAndIgnoresDistance)
+{
+    const f32 old = DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 100.0f, 3, 500u);
+    const f32 recent = DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 0.0f, 0, 5u);
+    EXPECT_LT(old, recent) << "oldest first inside the refresh tier";
+
+    // Distance deliberately does not enter the refresh tier: letting it win
+    // would starve the far field of refreshes forever, and a stale far probe is
+    // exactly as wrong as a stale near one.
+    EXPECT_FLOAT_EQ(DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 0.0f, 0, 42u),
+                    DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 900.0f, 5, 42u));
+
+    // ...and an enormous age must still stay inside the tier rather than
+    // wrapping below it.
+    const f32 ancient = DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 0.0f, 0, 0xFFFFFFFFu);
+    EXPECT_GE(ancient, 2.0f * DDGI::kCaptureTierBias);
+    EXPECT_LT(ancient, 3.0f * DDGI::kCaptureTierBias);
 }

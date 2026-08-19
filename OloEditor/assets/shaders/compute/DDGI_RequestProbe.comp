@@ -1,0 +1,98 @@
+#version 460 core
+
+// =============================================================================
+// DDGI_RequestProbe.comp — probes request probes (issue #707, sparsity)
+//
+// The second half of "requested by shaded screen pixels AND by probe trace
+// hits, ONE INDIRECTION DEEP". One work group per probe; a live probe walks its
+// own cached hit points and requests the probes around each of them.
+//
+// This is what makes the bounce term work under sparsity. Every cached hit
+// point is a surface the relight stage gathers previous-frame irradiance from,
+// and that surface is usually NOT itself on screen — a wall the camera can see
+// bounces light off a ceiling it cannot. Without this hop the off-screen probes
+// would never be requested, never relight, and the bounce term would collapse
+// to whatever the screen-visible probes alone carry: GI that is subtly too dark
+// in exactly the places indirect light is supposed to come from, with nothing
+// failing anywhere.
+//
+// ONE indirection, not a closure: this pass walks only probes a SCREEN pixel
+// (or the camera seed) requested, and the requests it raises are marked
+// non-screen. So a probe that became live through this hop is relit, but its own
+// hit points are never walked, and the request set cannot grow transitively over
+// frames into the dense grid again. That is the issue's specification and it is
+// also what bounds the cost; DDGIProbeAuxRecord::ScreenRequestFrame is what
+// enforces it.
+// =============================================================================
+
+#define DDGI_PROBE_DISPATCH_STRIDE 32768
+layout(local_size_x = 64) in;
+
+#include "../include/DDGICommon.glsl"
+#include "../include/DDGIPassData.glsl"
+#include "../include/DDGIProbeBuffers.glsl"
+
+#include "../include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_HitGeo OLO_HEAP_TEX_2D(0) // rg octN, b dist (<0 sky), a flag
+#else
+layout(binding = 0) uniform sampler2D u_HitGeo;
+#endif
+
+void main()
+{
+    // 2D work-group grid: GL guarantees only 65535 groups per dimension and a
+    // 6-cascade 32^3 field is ~196k probes, so a 1D dispatch would silently
+    // process a prefix of the field and leave the tail permanently unrequested.
+    // The stride is a compile-time constant so both sides cannot disagree.
+    int probeIndex = int(gl_WorkGroupID.y) * DDGI_PROBE_DISPATCH_STRIDE + int(gl_WorkGroupID.x);
+    if (probeIndex >= u_DDGIComputeParams.x)
+    {
+        return;
+    }
+
+    uint frameIndex = uint(max(u_DDGIFrameIndex, 0));
+
+    // GROUP-UNIFORM early-out: every invocation in this group agrees, so the
+    // whole group returns together. There is no barrier below, but keeping the
+    // gate uniform is the habit this codebase enforces (gpu-scan-compaction.md).
+    //
+    // A probe that has never been captured has no hit cache to walk, and an
+    // Inactive one is inside geometry — its hits are backfaces whose radiance
+    // the relight stage zeroes anyway.
+    if (!ddgiProbeIsCaptured(probeIndex) ||
+        b_ProbeAux[probeIndex].State != DDGI_PROBE_STATE_ACTIVE ||
+        !ddgiProbeWasScreenRequested(probeIndex, frameIndex))
+    {
+        return;
+    }
+
+    int level = ddgiCascadeOfProbeIndex(probeIndex);
+    ivec3 storage = ddgiStorageCoordOfProbeIndex(probeIndex);
+    ivec2 tile = ddgiCascadedProbeTileCoord(level, storage);
+
+    int t = u_DDGIHitCacheTexels;
+    int texelCount = t * t;
+
+    // Hit points are reconstructed from the probe's UN-relocated grid position.
+    // The relight stage uses the relocated one, so the two differ by at most
+    // 0.45 of a cell — an order of magnitude below the probe spacing this
+    // request is quantized to, which is the only thing it has to get right.
+    // Reading the probe-data texture here to close that gap would buy nothing
+    // and cost a second sampler in the hottest loop of the request chain.
+    vec3 probeRel = ddgiCascadeProbeGridPosition(storage, level);
+
+    for (int i = int(gl_LocalInvocationID.x); i < texelCount; i += int(gl_WorkGroupSize.x))
+    {
+        ivec2 local = ivec2(i % t, i / t);
+        vec4 geo = texelFetch(u_HitGeo, tile * t + local, 0);
+        // Sky misses carry environment radiance, not a bounce, and backfaces are
+        // zeroed before the gather — neither is a place worth having a probe.
+        if (geo.b < 0.0 || geo.a < 0.75)
+        {
+            continue;
+        }
+        vec3 hitRel = probeRel + ddgiTexelDirection(local, t) * geo.b;
+        ddgiRequestProbesAtPosition(hitRel, frameIndex, false);
+    }
+}

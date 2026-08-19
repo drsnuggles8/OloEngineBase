@@ -484,10 +484,24 @@ namespace OloEngine
             i32 FrameIndex;            // monotonically increasing DDGI update counter
             f32 HybridBlend;           // 0 = baked SH only .. 1 = DDGI only (Hybrid coverage ramp)
             f32 EnergyConservation;    // bounce-feedback albedo clamp, default 0.9
-            f32 MaxRayDistance;        // visibility distance clamp = 1.5 * |ProbeSpacing.xyz|
+            f32 MaxRayDistance;        // cascade 0 visibility distance clamp = 1.5 * |ProbeSpacing.xyz|
             f32 BounceMarginScale;     // infinite-bounce gather margin, in probe spacings (#751)
-            f32 _pad1 = 0.0f;
-            f32 _pad2 = 0.0f;
+            // --- Issue #707: cascades, sparsity, variable update rate ---
+            i32 CascadeCount = 1;       // >= 1; 1 == the authored single-volume path
+            f32 CascadeBlendBand = 0.f; // fraction of the half-extent; 0 == hard bounds (authored path)
+            i32 UpdateRateDivisor = 1;  // relight 1-in-N probes per frame
+            i32 RequestLifetime = 0;    // frames a sparsity request keeps a probe live
+            i32 SparsityEnabled = 0;    // 0 = every probe is live (authored path)
+            i32 _pad0 = 0;
+
+            // Per-cascade lattice description; index 0 is the FINEST cascade.
+            // Fixed-size because the block is a UBO — mirrors
+            // DDGI::kMaxCascades and DDGI_MAX_CASCADES in DDGICommon.glsl, and
+            // all three must move together.
+            static constexpr u32 MaxCascades = 8;
+            glm::vec4 CascadeOrigin[MaxCascades]{};   // xyz = render-relative world pos of lattice (0,0,0), w = max ray distance
+            glm::vec4 CascadeSpacing[MaxCascades]{};  // xyz = per-axis spacing, w = min axial spacing
+            glm::ivec4 CascadeLattice[MaxCascades]{}; // xyz = lattice coord stored at the window's low corner
 
             static constexpr u32 GetSize()
             {
@@ -495,7 +509,46 @@ namespace OloEngine
             }
         };
         static_assert(sizeof(DDGIVolumeUBO) % 16 == 0, "DDGIVolumeUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(DDGIVolumeUBO) == 112, "DDGIVolumeUBO std140 size drifted from GLSL expectation (112 B)");
+        static_assert(sizeof(DDGIVolumeUBO) == 512, "DDGIVolumeUBO std140 size drifted from GLSL expectation (512 B)");
+        // Still a UBO, comfortably: 512 B against the 16 KB block ceiling. The
+        // cascade arrays are what make #707 cost ZERO new binding slots — the
+        // engine has exactly one UBO slot left (UBO_BINDING_LIMIT = 83), and
+        // spending it on a second DDGI block would have been the wrong trade.
+        static_assert(sizeof(DDGIVolumeUBO) <= 16384, "DDGIVolumeUBO must stay under the 16 KB UBO block limit");
+
+        // @brief DDGI pass-local per-draw / per-dispatch data (binding 7,
+        // UBO_USER_0). Mirrors the `DDGIPassData` std140 block declared ONCE in
+        // OloEditor/assets/shaders/include/DDGIPassData.glsl.
+        //
+        // Lives here rather than inside DDGIProbeUpdatePass.cpp (where it was
+        // until issue #707) for one reason: ShaderUBOSizeConsistencyTest can
+        // only guard a block whose C++ twin it can name, and an unlisted block
+        // is SKIPPED rather than failed. The block grew from 160 to 400 bytes
+        // for the compute stages and is now read by five shaders, which is
+        // exactly the shape that drifts.
+        //
+        // UBO_USER_0 is a PASS-LOCAL slot — the DDGI pass owns it for its own
+        // draws and dispatches and the post-process chain refills it later in
+        // the frame, so this consumes no new binding.
+        struct DDGIPassDataUBO
+        {
+            glm::mat4 Model;                                    //   0 — capture: render-relative model matrix
+            glm::mat4 NormalMatrix;                             //  64 — capture: transpose(inverse(model))
+            glm::vec4 BaseColor;                                // 128 — capture: material base color factor
+            glm::vec4 ProbePosition;                            // 144 — xyz = render-relative probe pos, w = GLOBAL probe index
+            glm::mat4 InvViewProjection;                        // 160 — PREVIOUS frame's WORLD inverse view-projection
+            glm::vec4 RenderOrigin;                             // 224 — xyz = render origin (world), w = camera seed radius
+            glm::vec4 CameraPosRel;                             // 240 — xyz = render-relative camera position
+            glm::ivec4 ComputeParams;                           // 256 — x = total probes, y/z = screen size, w = flags
+            glm::ivec4 PrevLattice[DDGIVolumeUBO::MaxCascades]; // 272 — previous per-cascade lattice min
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(DDGIPassDataUBO);
+            }
+        };
+        static_assert(sizeof(DDGIPassDataUBO) % 16 == 0, "DDGIPassDataUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(DDGIPassDataUBO) == 400, "DDGIPassDataUBO std140 size drifted from GLSL expectation (400 B)");
         // @brief Water surface rendering parameters
         struct WaterUBO
         {
@@ -2048,6 +2101,26 @@ namespace OloEngine
         // the last member to be unsized. GLSL twin: the VSMLocalLights block in
         // include/VirtualShadowResources.glsl.
         static constexpr u32 SSBO_VSM_LOCAL_LIGHTS = 78; // per-layer projections + per-layer frame state
+
+        // Realtime DDGI sparsity + GPU relocation (issue #707). TWO storage
+        // bindings, and ZERO new UBO bindings — the per-cascade lattice arrays
+        // ride inside the existing DDGIVolumeUBO (binding 51) at 512 B, which
+        // is what keeps the one remaining UBO slot free for whoever needs it
+        // next. Read the SSBO_VSM_LOCAL_LIGHTS note above before adding more.
+        //
+        // SSBO_DDGI_PROBE_AUX is one record per probe across ALL cascades: the
+        // last frame a shaded pixel (or another probe's hit point) requested it,
+        // its GPU-computed classification, and the #751 bounce-coverage
+        // accumulator. Written by the request / relocate / relight computes,
+        // read back ONLY by the explicit diagnostics entry point — never inside
+        // DDGIProbeUpdatePass::Execute, which is acceptance criterion 3 of #707.
+        //
+        // SSBO_DDGI_STATS is a handful of frame counters (live / relit /
+        // captured probes) with the same read-back-on-demand contract, and is
+        // where the "active probes is a small fraction of the dense grid" claim
+        // is MEASURED rather than asserted.
+        static constexpr u32 SSBO_DDGI_PROBE_AUX = 79; // DDGIProbeAux[totalProbes]: request frame, state, bounce coverage
+        static constexpr u32 SSBO_DDGI_STATS = 80;     // DDGIStats: per-frame live/relit/captured counters
 
         // GPU prefix-sum / parallel scan (issue #713). Bound by
         // `GPUPrefixSum::ExclusiveScanInPlace` immediately before each of its

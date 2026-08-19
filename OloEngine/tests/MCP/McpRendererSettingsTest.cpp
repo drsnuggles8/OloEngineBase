@@ -397,6 +397,36 @@ TEST(McpRendererSettingsApply, HZBOcclusionTogglesTheLeverAndReportsPrior)
     EXPECT_FALSE(lever.SoftShadows);
 }
 
+// Issue #707. The cascade lever writes a RendererSettings FIELD rather than a
+// LeverState entry (like renderpath, unlike hzbocclusion), so it gets its own
+// round-trip: the two groups reach the renderer by different routes and a
+// setting wired into the wrong one reads back correctly while changing nothing.
+TEST(McpRendererSettingsApply, DDGICascadesTogglesTheRendererSettingAndReportsPrior)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    ASSERT_FALSE(rs.DDGICascadesEnabled) << "cascades ship off by default; this test asserts the transition";
+
+    const auto result = RS::Apply(RS::Setting::DDGICascades, RS::kDDGICascadesOn, pp, rs, lever);
+    ASSERT_TRUE(result.Ok);
+    EXPECT_TRUE(rs.DDGICascadesEnabled);
+    EXPECT_EQ(result.Data["previousValue"], "off");
+    EXPECT_EQ(result.Data["value"], "on");
+    EXPECT_EQ(result.Data["restoreWith"], "off");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+
+    const auto restored = RS::Apply(RS::Setting::DDGICascades, RS::kDDGICascadesOff, pp, rs, lever);
+    ASSERT_TRUE(restored.Ok);
+    EXPECT_FALSE(rs.DDGICascadesEnabled);
+
+    // A settings write must never touch the other levers, nor the neighbouring
+    // DDGI knobs the tool deliberately does NOT expose.
+    EXPECT_FALSE(lever.DepthPrepassEnabled);
+    EXPECT_FALSE(lever.HZBOcclusion);
+    EXPECT_TRUE(rs.EnableDDGI) << "the cascade lever must not disturb the DDGI master switch that gates it";
+}
+
 // Describe reads the lever state for the two new settings — 'auto' is
 // write-only, so the current value is always off/on.
 TEST(McpRendererSettingsApply, DescribeReportsLeverCurrentValues)

@@ -1,0 +1,286 @@
+Scene: DDGICascadesTest.olo
+# =============================================================================
+# Issue #707 — camera-centred DDGI probe cascades.
+#
+# DELIBERATELY HAS NO LightProbeVolumeComponent. That is the point of the
+# scene: with Renderer Settings -> "Camera-centred cascades" ticked, GI must be
+# continuous down the whole corridor with nothing authored. An authored volume
+# would take precedence and the scene would stop testing what it is for.
+#
+# HOW TO USE IT: open the scene, then Renderer Settings -> Realtime GI (DDGI) ->
+# "Camera-centred cascades". The setting is a RENDERER setting, not a scene
+# one, so the scene cannot switch it on for you.
+#
+# The corridor is 120 m long on Z and the coloured bounce panels sit at
+# z = -10, -25, -50 and -95. With the default 4 cascades x 16 probes at 1.5 m
+# base spacing the cascade windows reach +-11 m, +-22 m, +-45 m and +-90 m from
+# the camera, so a camera at the near end sees a panel inside EVERY cascade and
+# at least two blend bands. Fly down the corridor and the bands sweep across the
+# panels — which is how a wrong blend band or a wrong toroidal wrap becomes
+# visible instead of staying a plausible-looking softness.
+# =============================================================================
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera, at the near end looking down the corridor ──
+  - Entity: 811000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 3, 8]
+      Rotation: [-0.05, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Dim directional light: the corridor is lit mostly by bounce ──
+  - Entity: 811000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [1, 0.97, 0.92]
+      Intensity: 0.08
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Key light at the near end (cascade 0) ──
+  - Entity: 811000000000003
+    TagComponent:
+      Tag: Near Key Light
+    TransformComponent:
+      Translation: [0, 5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.95, 0.85]
+      Intensity: 30
+      Range: 40
+      Attenuation: 1
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Key light in the middle of the corridor (cascade 2) ──
+  - Entity: 811000000000004
+    TagComponent:
+      Tag: Far Key Light
+    TransformComponent:
+      Translation: [0, 5, -60]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.95, 0.85]
+      Intensity: 30
+      Range: 40
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Floor: 120 m of corridor ──
+  - Entity: 811000000000005
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0, 0, -50]
+      Rotation: [0, 0, 0]
+      Scale: [16, 0.2, 120]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.6]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Ceiling ──
+  - Entity: 811000000000006
+    TagComponent:
+      Tag: Ceiling
+    TransformComponent:
+      Translation: [0, 8, -50]
+      Rotation: [0, 0, 0]
+      Scale: [16, 0.2, 120]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.75, 0.75, 0.75]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Long side walls ──
+  - Entity: 811000000000007
+    TagComponent:
+      Tag: Left Wall
+    TransformComponent:
+      Translation: [-8, 4, -50]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 8, 120]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 811000000000008
+    TagComponent:
+      Tag: Right Wall
+    TransformComponent:
+      Translation: [8, 4, -50]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 8, 120]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Coloured bounce panels, one inside each cascade window ──
+  # z = -10 : cascade 0 (window reaches ~11 m from the camera)
+  - Entity: 811000000000010
+    TagComponent:
+      Tag: Bounce Panel Cascade0 (red)
+    TransformComponent:
+      Translation: [-7.5, 4, -10]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 6, 8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.15, 0.1]
+      Metallic: 0
+      Roughness: 0.9
+  # z = -25 : cascade 1 (window reaches ~22 m)
+  - Entity: 811000000000011
+    TagComponent:
+      Tag: Bounce Panel Cascade1 (green)
+    TransformComponent:
+      Translation: [7.5, 4, -25]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 6, 8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.15, 0.85, 0.2]
+      Metallic: 0
+      Roughness: 0.9
+  # z = -50 : cascade 2 (window reaches ~45 m)
+  - Entity: 811000000000012
+    TagComponent:
+      Tag: Bounce Panel Cascade2 (blue)
+    TransformComponent:
+      Translation: [-7.5, 4, -50]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 6, 8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.1, 0.25, 0.95]
+      Metallic: 0
+      Roughness: 0.9
+  # z = -95 : cascade 3 (window reaches ~90 m — just past it, so the OUTERMOST
+  # fade is visible here too)
+  - Entity: 811000000000013
+    TagComponent:
+      Tag: Bounce Panel Cascade3 (yellow)
+    TransformComponent:
+      Translation: [7.5, 4, -95]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 6, 8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.8, 0.15]
+      Metallic: 0
+      Roughness: 0.9
+  # ── White diffuse spheres beside each panel: the colour bleed onto these is
+  # what shows GI is alive at that distance, and a probe field that stops at a
+  # cascade boundary shows up as a sphere that suddenly goes grey.
+  - Entity: 811000000000020
+    TagComponent:
+      Tag: Probe Sphere 0
+    TransformComponent:
+      Translation: [-4, 1.5, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 811000000000021
+    TagComponent:
+      Tag: Probe Sphere 1
+    TransformComponent:
+      Translation: [4, 1.5, -25]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 811000000000022
+    TagComponent:
+      Tag: Probe Sphere 2
+    TransformComponent:
+      Translation: [-4, 1.5, -50]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 811000000000023
+    TagComponent:
+      Tag: Probe Sphere 3
+    TransformComponent:
+      Translation: [4, 1.5, -95]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 0.9

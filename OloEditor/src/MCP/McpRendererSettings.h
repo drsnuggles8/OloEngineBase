@@ -76,6 +76,7 @@ namespace OloEngine::MCP::RendererSettings
         SoftShadows,       // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
         HZBOcclusion,      // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
         VirtualShadowMaps, // LeverState::VirtualShadowMaps (ShadowSettings::VSM.Enabled, issue #702)
+        DDGICascades,      // RendererSettings::DDGICascadesEnabled (issue #707)
     };
 
     // Live renderer state the perf-lever settings (#316) read/write. These are NOT
@@ -113,6 +114,9 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kVirtualShadowMapsOff = 0;
     inline constexpr i32 kVirtualShadowMapsOn = 1;
+
+    inline constexpr i32 kDDGICascadesOff = 0;
+    inline constexpr i32 kDDGICascadesOn = 1;
 
     // One allowed value of an enum-valued setting: the stable, user-facing token the
     // agent passes, the underlying engine enum integer, and a human description.
@@ -161,6 +165,17 @@ namespace OloEngine::MCP::RendererSettings
           "unshadowed" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kDDGICascadeValues = { {
+        { "off", kDDGICascadesOff,
+          "Realtime GI comes only from an authored Realtime/Hybrid LightProbeVolumeComponent; a scene without "
+          "one gets no DDGI at all" },
+        { "on", kDDGICascadesOn,
+          "Camera-centred probe cascades (issue #707): N grids centred on the camera, each twice the previous "
+          "one's spacing, so GI covers a large scene with NO authored volume. An ACTIVE authored volume still "
+          "takes precedence where one exists, so turning this on in a scene that HAS one changes nothing — "
+          "check for a LightProbeVolumeComponent before concluding the lever did not work" },
+    } };
+
     inline constexpr std::array<EnumValue, 2> kSoftShadowValues = { {
         { "pcf", kSoftShadowsPcf, "Fixed 3x3 hardware PCF (cheap, hard-edged shadows)" },
         { "pcss", kSoftShadowsPcss, "Percentage-Closer Soft Shadows (contact-hardening variable penumbra; expensive blocker search)" },
@@ -179,7 +194,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 7> kSettings = { {
+    inline constexpr std::array<SettingInfo, 8> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -202,6 +217,13 @@ namespace OloEngine::MCP::RendererSettings
           "voxel and virtualized-geometry casters still render through CSM, so enabling it in a scene that relies on "
           "those leaves them unshadowed. Reads back the EFFECTIVE value — a request that failed to initialise reports "
           "'off'." },
+        { "ddgicascades", Setting::DDGICascades,
+          "Camera-centred realtime-GI probe cascades (RendererSettings.DDGICascadesEnabled, issue #707). Off by "
+          "default: turning it on gives realtime GI to every scene without an authored probe volume. Gated by "
+          "EnableDDGI and Deferred.EnableLightProbes, so it is a no-op while either of those is off — and a "
+          "no-op in a scene whose authored volume already claims the field. Pair it with olo_screenshot from "
+          "several poses: the failure modes (a field that stops at a cascade boundary, a blend band that steps) "
+          "are invisible from one viewpoint." },
         { "hzbocclusion", Setting::HZBOcclusion,
           "GPU Hi-Z occlusion culling (Renderer3D::EnableHZBOcclusionCulling), off by default. Drives BOTH two-phase "
           "culls: instanced static batches (#431/#486) and virtualized-geometry clusters (#682, where phase 1 tests "
@@ -246,6 +268,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kHZBOcclusionValues;
             case Setting::VirtualShadowMaps:
                 return kVirtualShadowMapValues;
+            case Setting::DDGICascades:
+                return kDDGICascadeValues;
         }
         return {};
     }
@@ -450,6 +474,8 @@ namespace OloEngine::MCP::RendererSettings
                 return lever.HZBOcclusion ? kHZBOcclusionOn : kHZBOcclusionOff;
             case Setting::VirtualShadowMaps:
                 return lever.VirtualShadowMaps ? kVirtualShadowMapsOn : kVirtualShadowMapsOff;
+            case Setting::DDGICascades:
+                return rs.DDGICascadesEnabled ? kDDGICascadesOn : kDDGICascadesOff;
         }
         return 0;
     }
@@ -507,6 +533,9 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::HZBOcclusion:
                 lever.HZBOcclusion = value == kHZBOcclusionOn;
+                break;
+            case Setting::DDGICascades:
+                rs.DDGICascadesEnabled = value == kDDGICascadesOn;
                 break;
             case Setting::VirtualShadowMaps:
                 lever.VirtualShadowMaps = value == kVirtualShadowMapsOn;

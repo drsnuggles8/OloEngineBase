@@ -348,6 +348,11 @@ namespace OloEngine::Tests
                 return false;
 
             const i32 probeIndex = DDGI::ProbeLinearIndex(probeCoord, VolumeResolution());
+            // Issue #707: the relocation offset lives on the GPU now, so pull
+            // it across explicitly. Comparing against the UN-relocated position
+            // would trace the ground truth at a different point in the room and
+            // read as a transport error — see the note below.
+            pass->ReadbackProbeDiagnostics();
             const std::vector<DDGIProbeUpdatePass::ProbeRecord>& records = pass->GetProbeRecords();
             if (probeIndex < 0 || static_cast<sizet>(probeIndex) >= records.size())
                 return false;
