@@ -2441,6 +2441,18 @@ namespace OloEngine
                            name == "u_ShadowAtlas" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).
                            name == "u_HitGeo" || name == "u_CaptureGeo" || name == "u_PrevVisibility" ||
+                           // DDGI capture VERTEX stage (issue #707). Unlike every other
+                           // entry here this one is not a fullscreen pass: DDGI_Capture
+                           // rasterizes real geometry, so a material could in principle
+                           // occupy slot 1. It cannot here — the capture pass binds its
+                           // own units explicitly (0 = caster albedo, 1 = probe data) and
+                           // never goes through the material system. The vertex stage
+                           // needs it because #707 moved probe-position derivation onto
+                           // the GPU: capturing from the lattice point while relight
+                           // reconstructs from the RELOCATED one would offset every
+                           // cached hit. u_ProbeData is also allowlisted at TEX_HEIGHT
+                           // for the #632 fullscreen passes; both are pass-local.
+                           name == "u_ProbeData" ||
                            // Cloudscape passes (issue #633): the temporal
                            // resolve samples last frame's history, the
                            // composite samples the resolved half-res clouds —

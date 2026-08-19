@@ -76,7 +76,24 @@ namespace OloEngine::Tests
         // addition deliberate rather than incidental -- see the note at
         // SSBO_VSM_LOCAL_LIGHTS for why that binding could not ride an existing
         // buffer, and how little space is left in this namespace.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS;
+        //
+        // Bumped again from SSBO_VSM_LOCAL_LIGHTS (78) to SSBO_DDGI_STATS (80)
+        // by issue #707, which added TWO: SSBO_DDGI_PROBE_AUX (79) is one record
+        // per probe across all cascades (request timestamps, GPU classification,
+        // the #751 bounce accumulator) and SSBO_DDGI_STATS (80) is the per-frame
+        // counter block. Neither could ride an existing buffer: both are declared
+        // once in include/DDGIProbeBuffers.glsl and used by the six shaders that
+        // include it, the aux record sized by the probe field and the stats block
+        // written by atomics from three of them (ProbeMaintain, Relight,
+        // BlendIrradiance).
+        //
+        // The guard did its job here: #707 added the bindings without bumping
+        // this, and CI caught it rather than the mismatch reaching a runtime
+        // where an out-of-range binding is silent. If you are bumping it again,
+        // the UBO namespace is the one that is nearly full (UBO_BINDING_LIMIT is
+        // 83 against a GL 4.6 ceiling of 84) -- #707 deliberately spent none of
+        // it, riding the per-cascade arrays inside the existing DDGIVolumeUBO.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_DDGI_STATS;
 
         struct BindingFailure
         {
