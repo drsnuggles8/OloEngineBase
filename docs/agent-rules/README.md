@@ -92,6 +92,10 @@ not instead of it) ·
 [steamworks-platform-integration.md](steamworks-platform-integration.md) (an SDK path set one level
 too high drops the whole feature — the build succeeds with Steam quietly switched off, and the error
 explaining the correct layout is the one thing that never fires) ·
+[configure-time-variable-visibility.md](configure-time-variable-visibility.md) (a DLL, from the test
+executable — a configure-time guard that could not tell "does not apply here" from "not computed
+yet", so the copy step was never generated and the exe died at gtest discovery with an error naming
+nothing about Steam) ·
 [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) (a texture, from the
 SECOND load onward — an empty reference in a cache is indistinguishable from a slot that was never
 set, so every step downstream handles it "correctly")
@@ -152,7 +156,10 @@ between two recorded draws is GL command order; a life-stable Vulkan address mak
 last-write-wins) · [gpu-scan-compaction.md](gpu-scan-compaction.md) (a `barrier()` only some
 invocations reach — the early-return habit in front of a work-group scan) ·
 [lazy-static-release-ownership.md](lazy-static-release-ownership.md) (a shared lazy static released
-from a *conditional* teardown — fine until a session creates it without running that teardown)
+from a *conditional* teardown — fine until a session creates it without running that teardown) ·
+[configure-time-variable-visibility.md](configure-time-variable-visibility.md) (a CMake variable read
+by a subdirectory processed *before* the line that sets it — correct on every configure but the
+first, which is the only one that matters)
 
 ## 6. It was never actually called
 
@@ -213,6 +220,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Build & deps** — [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) ·
 [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) ·
+[configure-time-variable-visibility.md](configure-time-variable-visibility.md) ·
 [vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·
 [asset-import-usd-alembic.md](asset-import-usd-alembic.md)
 
