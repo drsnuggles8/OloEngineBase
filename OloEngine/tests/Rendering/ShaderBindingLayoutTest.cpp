@@ -90,7 +90,11 @@ TEST(ShaderBindingLayout, IBLParametersUBOAlignment)
 
 TEST(ShaderBindingLayout, TerrainUBOSizeStable)
 {
-    EXPECT_EQ(sizeof(UBOStructures::TerrainUBO), 144u);
+    // 144 before issue #715 appended the three virtual-texture vec4s. The GLSL
+    // side is include/TerrainParamsBlock.glsl — ONE declaration shared by all
+    // eight terrain shaders, so bumping this number and forgetting the shader is
+    // a single-file fix rather than the thirteen-copy hunt it used to be.
+    EXPECT_EQ(sizeof(UBOStructures::TerrainUBO), 192u);
 }
 
 TEST(ShaderBindingLayout, BrushPreviewUBOSizeStable)

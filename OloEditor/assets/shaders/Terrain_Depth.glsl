@@ -62,20 +62,7 @@ layout(location = 0) out vec3 tc_Position[];
 layout(location = 1) out vec2 tc_TexCoord[];
 
 // Terrain UBO (binding 10)
-layout(std140, binding = 10) uniform TerrainParams {
-    vec4 u_WorldSizeAndHeightScale;
-    vec4 u_TerrainParams;
-    int u_HeightmapResolution;
-    int u_TerrainGpuDriven;
-    int u_TerrainGpuGridRes;
-    int _terrainPad2;
-    vec4 u_TessFactors;
-    vec4 u_TessFactors2;
-    vec4 u_LayerTilingScales0;
-    vec4 u_LayerTilingScales1;
-    vec4 u_LayerBlendSharpness0;
-    vec4 u_LayerBlendSharpness1;
-};
+#include "include/TerrainParamsBlock.glsl"
 
 void main()
 {
@@ -128,20 +115,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 #include "include/InstanceBlock_Single.glsl"
 
 // Terrain UBO (binding 10)
-layout(std140, binding = 10) uniform TerrainParams {
-    vec4 u_WorldSizeAndHeightScale;
-    vec4 u_TerrainParams;
-    int u_HeightmapResolution;
-    int u_TerrainGpuDriven;
-    int u_TerrainGpuGridRes;
-    int _terrainPad2;
-    vec4 u_TessFactors;
-    vec4 u_TessFactors2;
-    vec4 u_LayerTilingScales0;
-    vec4 u_LayerTilingScales1;
-    vec4 u_LayerBlendSharpness0;
-    vec4 u_LayerBlendSharpness1;
-};
+#include "include/TerrainParamsBlock.glsl"
 
 #include "include/BindlessHeap.glsl"
 

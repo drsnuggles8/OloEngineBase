@@ -93,7 +93,7 @@ layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
 // the shared one is wrong.
 layout(std140, binding = 56) uniform OloHeapOffsetBlock
 {
-    uvec4 g_OloHeapOffsets[19];
+    uvec4 g_OloHeapOffsets[20];
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
@@ -208,10 +208,16 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // MAX_ENGINE_TEXTURE_SLOTS = TEX_SHADER_GRAPH_0 + 1 — so it MOVES whenever an
 // engine texture slot is added, and this literal does not move with it.
 //
-// 68 since issue #723 inserted TEX_VOLUMETRIC_SHADOW at 66 and pushed the
-// shader-graph base to 67. Before that it was 67 (issue #702 inserted
-// TEX_VSM_PHYSICAL at 65), and 66 before THAT (the A2 renumber moved
-// TEX_DDGI_VISIBILITY to 64 and the shader-graph base to 65).
+// 70 since issue #715 inserted TEX_TERRAIN_VT_INDIRECTION (67) and
+// TEX_TERRAIN_VT_CACHE (68) and pushed the shader-graph base to 69. Note this
+// is the first bump that ALSO moved the array size above — 78 used entries
+// round to 80 rather than the 76 they rounded to before — so the two mirrors
+// moved together for once instead of only this literal.
+//
+// Before that it was 68 (issue #723 inserted TEX_VOLUMETRIC_SHADOW at 66), 67
+// before that (issue #702 inserted TEX_VSM_PHYSICAL at 65), and 66 before THAT
+// (the A2 renumber moved TEX_DDGI_VISIBILITY to 64 and the shader-graph base
+// to 65).
 //
 // THIS EXACT DRIFT SHIPPED ONCE. Adding the VSM slot silently moved the C++ base
 // while this literal stayed at 66, so every bindless storage image resolved one
@@ -220,7 +226,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // headless CI. It is now pinned headlessly by
 // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout — if you are here
 // because that failed, update this number, do not relax the test.
-#define OLO_HEAP_IMAGE_BASE 68u
+#define OLO_HEAP_IMAGE_BASE 70u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 
 // Pass this as `mem` for an image you both read and write, or for one with no

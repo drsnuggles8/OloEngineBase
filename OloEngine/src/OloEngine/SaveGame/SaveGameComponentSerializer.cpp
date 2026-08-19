@@ -2076,6 +2076,17 @@ namespace OloEngine
             ar << c.m_VoxelMesher;
         }
 
+        // ── Format v17: adaptive virtual texturing (issue #715, slice 1) ──
+        // Appended at the end when kSaveGameFormatVersion was bumped 16->17. A
+        // save written before v17 omits the block and keeps VT off, which is the
+        // pre-#715 splat path exactly.
+        if (HasFieldsSince(ar, 17))
+        {
+            ar << c.m_VirtualTextureEnabled;
+            ar << c.m_VTVirtualPagesWide << c.m_VTPageTexels << c.m_VTBorderTexels;
+            ar << c.m_VTCacheTilesWide << c.m_VTMaxTileBakesPerFrame;
+        }
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
@@ -2101,6 +2112,19 @@ namespace OloEngine
             // is a no-op for it.
             if (c.m_VoxelMesher != VoxelMesherKind::GreedyCubic)
                 c.m_VoxelMesher = VoxelMesherKind::MarchingCubes;
+            // Virtual-texture sizing (issue #715): continuous quantities, so
+            // clamp. TerrainVirtualTextureConfig::Sanitize() additionally rounds
+            // the two power-of-two fields down at configure time, so a corrupt
+            // 300 becomes 256 rather than being rejected outright. Bounding here
+            // as well keeps a garbage value from ever reaching an allocation
+            // size — 4096 pages of 1024 texels is already 32 GB of virtual
+            // image, and the point of the clamp is the ARITHMETIC, not the
+            // aesthetics.
+            c.m_VTVirtualPagesWide = std::clamp(c.m_VTVirtualPagesWide, 2u, 4096u);
+            c.m_VTPageTexels = std::clamp(c.m_VTPageTexels, 8u, 1024u);
+            c.m_VTBorderTexels = std::min(c.m_VTBorderTexels, 32u);
+            c.m_VTCacheTilesWide = std::clamp(c.m_VTCacheTilesWide, 2u, 256u);
+            c.m_VTMaxTileBakesPerFrame = std::clamp(c.m_VTMaxTileBakesPerFrame, 1u, 64u);
             for (TerrainLayerRule& r : c.m_LayerRules)
             {
                 if (r.LayerIndex >= MAX_TERRAIN_LAYERS)

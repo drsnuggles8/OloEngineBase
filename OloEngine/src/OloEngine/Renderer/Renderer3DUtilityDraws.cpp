@@ -646,7 +646,8 @@ namespace OloEngine
         const ShaderBindingLayout::TerrainUBO& terrainUBO,
         i32 entityID,
         RHI::ResourceHandle terrainIndirectArgsID,
-        RHI::ResourceHandle terrainVisibleNodesID)
+        RHI::ResourceHandle terrainVisibleNodesID,
+        const TerrainVTBindings& virtualTexture)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -713,6 +714,20 @@ namespace OloEngine
         }
         cmd->terrainIndirectArgsID = terrainIndirectArgsID;
         cmd->terrainVisibleNodesID = terrainVisibleNodesID;
+        // All three or none, for the same reason the pair above is: the shader's
+        // VT branch samples the indirection map, the cache AND writes feedback,
+        // so a partial set would leave one of the three unbound while the UBO
+        // still says the branch is live — a silently wrong frame rather than a
+        // missing one.
+        if (!virtualTexture.IsEmpty() && !virtualTexture.IsComplete())
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawTerrainPatch: terrain virtual texturing needs the indirection "
+                           "map, the cache AND the feedback buffer; got indirection={} cache={} feedback={}",
+                           virtualTexture.indirectionTextureID.IsValid(), virtualTexture.cacheTextureID.IsValid(),
+                           virtualTexture.feedbackBufferID.IsValid());
+            return nullptr;
+        }
+        cmd->virtualTexture = virtualTexture;
         cmd->terrainUBOData = terrainUBO;
 
         // Terrain is opaque — depth test on, no blending, culling on

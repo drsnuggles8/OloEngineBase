@@ -62,6 +62,7 @@ the drift is silent because each side is individually self-consistent.
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | four subsystems holding world-space state outside the set that gets rebased |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | the packed-quad bit layout, face numbering and U/V basis live in `VoxelQuad.h` **and** `include/VoxelQuadUnpack.glsl`; nothing links them and a mismatch compiles |
 | [destructible-debris.md](destructible-debris.md) | two unrelated physics "layer" numberings — `SetCollisionLayer(Debris /*7*/)` never reaches Jolt's `ObjectLayers::DEBRIS /*4*/`, so debris silently shoves the player |
+| [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | four uint packings (page key, feedback word, indirection texel, bake request) live in C++ **and** in four GLSL files; the bake↔shade UV mapping is an exact inverse spread across a compute kernel and an include. A wrong bit shifts the address, and a wrong address renders plausible, wrong content rather than an error |
 | `ShaderBindingLayout.h` ↔ `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is *derived* (`= MAX_ENGINE_TEXTURE_SLOTS`) but its GLSL twin `OLO_HEAP_IMAGE_BASE` is a hand-written literal — so **adding any `TEX_*` slot is also a shader edit**. #702 added one, the base moved 66→67, and every bindless storage image read a sampler descriptor through an image declaration (undefined, not blank). The comment there had claimed the two "cannot disagree". Now pinned by `BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout` |
 
 **The counter-move:** a parity test that reads both sides as text, or a generator that makes one
@@ -136,7 +137,10 @@ before the physics kick, camera last) ·
 previous-frame depth) ·
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) (clearing the LRU bit one step
 early evicts the whole cache every frame; §8 — a perspective light face cannot be culled by
-projecting AABB corners and dividing by w, and the caster vanishes only when it gets close) · [render-pass-published-state.md](render-pass-published-state.md) (publish
+projecting AABB corners and dividing by w, and the caster vanishes only when it gets close) ·
+[terrain-virtual-texturing.md](terrain-virtual-texturing.md) (§4 — LRU moves to the front and evicts
+from the tail, so touching a priority-ordered list front-to-back evicts the highest-priority page
+first; §3a — the coarse-to-fine fill must be one dispatch per level, barriers between) · [render-pass-published-state.md](render-pass-published-state.md) (publish
 last, restore deliberately) · [cluster-lod-simplification.md](cluster-lod-simplification.md) (a lock
 that must outlive the level that created it) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) (a read from a pooled
@@ -229,6 +233,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) ·
 [cluster-lod-simplification.md](cluster-lod-simplification.md) ·
 [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md) ·
+[terrain-virtual-texturing.md](terrain-virtual-texturing.md) ·
 [camera-relative-rendering.md](camera-relative-rendering.md) ·
 [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) ·
 [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) ·

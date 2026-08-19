@@ -33,20 +33,7 @@
 // Terrain UBO (binding 10) — declared here so the vertex stage can read the
 // GPU-driven mode flag. Same block the tess/fragment stages declare inline;
 // keep the member list identical or the std140 layout forks per stage.
-layout(std140, binding = 10) uniform TerrainParams {
-    vec4 u_WorldSizeAndHeightScale;
-    vec4 u_TerrainParams;
-    int u_HeightmapResolution;
-    int u_TerrainGpuDriven;
-    int u_TerrainGpuGridRes;
-    int _terrainPad2;
-    vec4 u_TessFactors;
-    vec4 u_TessFactors2;
-    vec4 u_LayerTilingScales0;
-    vec4 u_LayerTilingScales1;
-    vec4 u_LayerBlendSharpness0;
-    vec4 u_LayerBlendSharpness1;
-};
+#include "TerrainParamsBlock.glsl"
 
 // The GPU-built visible-node list: .x = packed (level, x, y), .y = packed seam
 // deltas. One entry per drawn patch, indexed by the instance.

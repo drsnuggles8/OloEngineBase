@@ -92,6 +92,39 @@ layer 0 (never an all-zero/black splat weight).
 biome (solid colours — no texture files needed) so "enable procedural + auto
 material" yields a textured planet out of the box.
 
+### Virtual texturing (optional surfacing path)
+
+`TerrainComponent::m_VirtualTextureEnabled` swaps the per-pixel splat blend for a
+feedback-driven virtual texture (issue #715, slice 1). The blend itself is
+unchanged — it just runs **once per cache tile** in a compute kernel instead of
+once per pixel, so shading cost stops scaling with layer count and the composited
+surface is stored at up to 32 768 texels across the terrain rather than being
+recomputed from a 512-texel splatmap every frame.
+
+It is an alternative, not a replacement: with the flag off, everything above
+behaves exactly as it did. Streamed terrain always keeps the splat path (each
+streamed tile has its own material and its own `[0,1]` UV space, which one
+uniform virtual image cannot address).
+
+The five sizing knobs are a memory/density trade:
+
+| Field | Default | What it costs |
+|---|---|---|
+| `VTVirtualPagesWide` | 256 | virtual resolution; also the indirection map's size |
+| `VTPageTexels` | 128 | unique texels per page edge |
+| `VTBorderTexels` | 4 | what keeps a linear filter from bleeding across a page seam |
+| `VTCacheTilesWide` | 16 | the residency budget — 16² tiles ≈ 38 MB |
+| `VTMaxTileBakesPerFrame` | 8 | convergence speed against frame-time stability |
+
+The terrain inspector shows residency, page requests, tiles baked, deferred
+requests and evictions while it runs; `OloEditor/SandboxProject/Assets/Scenes/TerrainVirtualTextureTest.olo`
+is the scene that enables it with eight layers.
+
+**Read [`docs/agent-rules/terrain-virtual-texturing.md`](../agent-rules/terrain-virtual-texturing.md)
+before changing anything inside the loop** — every defect this subsystem can have
+is a wrong address, and a wrong address renders plausible content in the wrong
+place rather than an error.
+
 ### Foliage auto-population
 
 The foliage scatter already places vegetation by reading a splatmap channel +
@@ -275,3 +308,9 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
   plant meshes is still manual).
 - **Non-square / streamed generation.** The generator is single-tile; wiring it
   into `TerrainStreamer` would allow infinite procedural worlds.
+- **Virtual texturing, slices 2-4** (tracked on #715). Slice 1 shipped the fixed
+  grid, the uncompressed cache and the mip-chained indirection map. Still open:
+  incremental indirection deltas instead of a full rebuild, adaptive /
+  variable-size virtual images (which want the shared power-of-two atlas
+  allocator from #718), and BC-compressed cache tiles (which want the GPU
+  compressor from item 3 of #624).

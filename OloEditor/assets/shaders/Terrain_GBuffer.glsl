@@ -97,20 +97,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding1;
 };
 
-layout(std140, binding = 10) uniform TerrainParams {
-    vec4 u_WorldSizeAndHeightScale;
-    vec4 u_TerrainParams;
-    int u_HeightmapResolution;
-    int u_TerrainGpuDriven;
-    int u_TerrainGpuGridRes;
-    int _terrainPad2;
-    vec4 u_TessFactors;
-    vec4 u_TessFactors2;
-    vec4 u_LayerTilingScales0;
-    vec4 u_LayerTilingScales1;
-    vec4 u_LayerBlendSharpness0;
-    vec4 u_LayerBlendSharpness1;
-};
+#include "include/TerrainParamsBlock.glsl"
 
 float calcTessLevel(vec3 p0, vec3 p1)
 {
@@ -178,20 +165,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 
 #include "include/InstanceBlock_Single.glsl"
 
-layout(std140, binding = 10) uniform TerrainParams {
-    vec4 u_WorldSizeAndHeightScale;
-    vec4 u_TerrainParams;
-    int u_HeightmapResolution;
-    int u_TerrainGpuDriven;
-    int u_TerrainGpuGridRes;
-    int _terrainPad2;
-    vec4 u_TessFactors;
-    vec4 u_TessFactors2;
-    vec4 u_LayerTilingScales0;
-    vec4 u_LayerTilingScales1;
-    vec4 u_LayerBlendSharpness0;
-    vec4 u_LayerBlendSharpness1;
-};
+#include "include/TerrainParamsBlock.glsl"
 
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
@@ -331,20 +305,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 // isn't declared as fragment input without a producer (link error).
 #include "include/InstanceBlock_Single.glsl"
 
-layout(std140, binding = 10) uniform TerrainParams {
-    vec4 u_WorldSizeAndHeightScale;
-    vec4 u_TerrainParams;
-    int u_HeightmapResolution;
-    int u_TerrainGpuDriven;
-    int u_TerrainGpuGridRes;
-    int _terrainPad2;
-    vec4 u_TessFactors;
-    vec4 u_TessFactors2;
-    vec4 u_LayerTilingScales0;
-    vec4 u_LayerTilingScales1;
-    vec4 u_LayerBlendSharpness0;
-    vec4 u_LayerBlendSharpness1;
-};
+#include "include/TerrainParamsBlock.glsl"
 
 // Brush preview UBO (editor-only overlay).
 layout(std140, binding = 11) uniform BrushPreview {
@@ -404,44 +365,24 @@ vec2 octEncodeGB(vec3 n)
 }
 
 // =============================================================================
-// SPLATMAP HELPERS (duplicated from Terrain_PBR.glsl — same logic, G-Buffer output)
+// SPLATMAP HELPERS — the blend math is SHARED with Terrain_PBR.glsl and with
+// compute/TerrainVTTileBake.comp via include/TerrainLayerBlend.glsl (issue
+// #715). It used to be a hand-duplicated copy of the forward path's, which the
+// old header here said out loud; the virtual-texture bake made it a third copy,
+// which is one too many to keep in step by hand.
 // =============================================================================
+
+#include "include/TerrainLayerBlend.glsl"
+#include "include/TerrainVirtualTexture.glsl"
 
 float getLayerTiling(int layer)
 {
-    if (layer < 4) return u_LayerTilingScales0[layer];
-    else           return u_LayerTilingScales1[layer - 4];
-}
-
-float getLayerBlendSharpness(int layer)
-{
-    if (layer < 4) return u_LayerBlendSharpness0[layer];
-    else           return u_LayerBlendSharpness1[layer - 4];
+    return oloTerrainLayerTiling(layer, u_LayerTilingScales0, u_LayerTilingScales1);
 }
 
 void heightBlend(inout float weights[8], float heights[8], int layerCount)
 {
-    float maxHeight = -1e10;
-    for (int i = 0; i < layerCount; ++i)
-    {
-        float h = heights[i] + weights[i];
-        maxHeight = max(maxHeight, h);
-    }
-
-    float sum = 0.0;
-    for (int i = 0; i < layerCount; ++i)
-    {
-        float h = heights[i] + weights[i];
-        float sharpness = getLayerBlendSharpness(i);
-        weights[i] = max(h - maxHeight + (1.0 / max(sharpness, 0.01)), 0.0);
-        sum += weights[i];
-    }
-
-    if (sum > 0.0)
-    {
-        for (int i = 0; i < layerCount; ++i)
-            weights[i] /= sum;
-    }
+    oloTerrainHeightBlend(weights, heights, layerCount, u_LayerBlendSharpness0, u_LayerBlendSharpness1);
 }
 
 vec4 sampleLayerAlbedo(int layer, vec2 uv)
@@ -507,7 +448,23 @@ void main()
     float ao;
     vec3 normalMap = vec3(0.0, 0.0, 1.0);
 
-    if (useSplatmap)
+    // Virtual texturing (issue #715). One indirection lookup + one cache sample
+    // replaces the whole loop below, so shading cost stops scaling with
+    // layerCount. `Enabled` is a UBO value, so the branch is uniform across the
+    // draw — which is what makes the dFdx inside oloVTComputeMip legal here.
+    OloVTParams vtParams = oloVTUnpackParams(u_TerrainVTParams0, u_TerrainVTParams1, u_TerrainVTParams2);
+    bool useVirtualTexture = useSplatmap && (vtParams.Enabled > 0.5);
+
+    if (useVirtualTexture)
+    {
+        float vtMip = oloVTComputeMip(vtParams, v_TexCoord);
+        // Record what this pixel wanted BEFORE clamping to what is resident:
+        // the request list has to describe the camera, not the cache.
+        oloVTWriteFeedback(vtParams, gl_FragCoord.xy, v_TexCoord, vtMip);
+        oloVTSampleSurface(vtParams, v_TexCoord, int(floor(clamp(vtMip, 0.0, vtParams.MaxMip))),
+                           albedo, ao, normalMap, roughness, metallic);
+    }
+    else if (useSplatmap)
     {
         float weights[8];
         vec4 splat0 = texture(u_TerrainSplatmap0, v_TexCoord);
@@ -529,12 +486,11 @@ void main()
             weights[4] = 0.0; weights[5] = 0.0; weights[6] = 0.0; weights[7] = 0.0;
         }
 
-        vec3 absNormal = abs(N);
-        vec3 triWeights = pow(absNormal, vec3(max(triplanarSharpness, 1.0)));
-        triWeights /= (triWeights.x + triWeights.y + triWeights.z + 0.0001);
-
-        float slope = 1.0 - N.y;
-        bool useTriplanar = (slope > 0.4);
+        // Shared with the VT tile bake, which must agree about BOTH the
+        // weights and the slope threshold: a tile baked planar and shaded
+        // as if triplanar shows a hard band exactly where they disagree.
+        vec3 triWeights = oloTerrainTriplanarWeights(N, triplanarSharpness);
+        bool useTriplanar = oloTerrainUseTriplanar(N);
 
         float heights[8];
         for (int i = 0; i < layerCount; ++i)

@@ -5887,6 +5887,102 @@ namespace OloEngine
                 }
             }
 
+            // ── Adaptive Virtual Texturing (issue #715, slice 1) ──────────
+            //
+            // The residency / request read-outs below are acceptance criterion 3
+            // of the issue, and they are the only way to tell the two failure
+            // modes apart from the viewport: "the cache is thrashing" (resident
+            // pinned at the tile count with evictions climbing every frame) looks
+            // exactly like "the bake budget is too small" (requests deferred
+            // climbing while evictions stay flat) if all you can see is a blurry
+            // terrain.
+            ImGui::Separator();
+            ImGui::Text("Virtual Texturing");
+            ImGui::Checkbox("VT Enabled", &component.m_VirtualTextureEnabled);
+            if (component.m_StreamingEnabled && component.m_VirtualTextureEnabled)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                   "Streamed terrain keeps the splat path (slice 1 is single-tile).");
+            }
+
+            if (component.m_VirtualTextureEnabled)
+            {
+                // Powers of two — TerrainVirtualTextureConfig::Sanitize() rounds
+                // DOWN, so the slider steps are shown as such rather than letting
+                // the user pick a value that silently becomes a different one.
+                auto powerOfTwoDrag = [](const char* label, u32& value, u32 lo, u32 hi)
+                {
+                    int exponent = 0;
+                    for (u32 v = value; v > 1u; v >>= 1u)
+                        ++exponent;
+                    int loExp = 0;
+                    for (u32 v = lo; v > 1u; v >>= 1u)
+                        ++loExp;
+                    int hiExp = 0;
+                    for (u32 v = hi; v > 1u; v >>= 1u)
+                        ++hiExp;
+                    if (ImGui::SliderInt(label, &exponent, loExp, hiExp, "%d"))
+                    {
+                        value = 1u << static_cast<u32>(exponent);
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("= %u", value);
+                };
+
+                powerOfTwoDrag("VT Pages (log2)", component.m_VTVirtualPagesWide, 2u, 4096u);
+                powerOfTwoDrag("VT Page Texels (log2)", component.m_VTPageTexels, 8u, 1024u);
+
+                if (int border = static_cast<int>(component.m_VTBorderTexels);
+                    ImGui::DragInt("VT Border Texels", &border, 1, 0, 32))
+                {
+                    component.m_VTBorderTexels = static_cast<u32>(border);
+                }
+                if (int tiles = static_cast<int>(component.m_VTCacheTilesWide);
+                    ImGui::DragInt("VT Cache Tiles (per side)", &tiles, 1, 2, 256))
+                {
+                    component.m_VTCacheTilesWide = static_cast<u32>(tiles);
+                }
+                if (int bakes = static_cast<int>(component.m_VTMaxTileBakesPerFrame);
+                    ImGui::DragInt("VT Bakes / Frame", &bakes, 1, 1, 64))
+                {
+                    component.m_VTMaxTileBakesPerFrame = static_cast<u32>(bakes);
+                }
+
+                if (component.m_VirtualTexture)
+                {
+                    const auto& vt = *component.m_VirtualTexture;
+                    const auto& stats = vt.GetStats();
+                    const auto& cfg = vt.GetConfig();
+
+                    ImGui::Separator();
+                    ImGui::Text("VT status: %s", vt.IsReadyForShading() ? "shading" : "warming up");
+                    ImGui::Text("Virtual texels: %llu x %llu",
+                                static_cast<unsigned long long>(cfg.VirtualTexelsWide()),
+                                static_cast<unsigned long long>(cfg.VirtualTexelsWide()));
+                    ImGui::Text("Cache residency: %u / %u tiles", stats.m_ResidentTiles, stats.m_CacheTileCount);
+                    ImGui::Text("Pages requested: %u (from %u feedback texels)", stats.m_PagesRequested,
+                                stats.m_FeedbackTexelsWritten);
+                    ImGui::Text("Tiles baked: %u this frame, %u total", stats.m_TilesBakedThisFrame,
+                                stats.m_TilesBakedTotal);
+                    ImGui::Text("Requests deferred to a later frame: %u", stats.m_BudgetStarvedRequests);
+                    if (stats.m_WorkingSetExceedsCache)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                           "Working set exceeds the cache — raise VT Cache Tiles.");
+                    }
+                    ImGui::Text("Evictions: %u", stats.m_EvictionsTotal);
+                    ImGui::Text("Readbacks in flight: %u", stats.m_ReadbackSlotsInFlight);
+                    ImGui::Text("GPU memory: %.1f MB cache + %.2f MB indirection",
+                                static_cast<f64>(stats.m_CacheBytes) / (1024.0 * 1024.0),
+                                static_cast<f64>(stats.m_IndirectionBytes) / (1024.0 * 1024.0));
+
+                    if (ImGui::Button("Rebake VT Cache"))
+                    {
+                        component.m_VirtualTexture->Invalidate();
+                    }
+                }
+            }
+
             // ── Voxel Override Settings ───────────────────────────────────
             ImGui::Separator();
             ImGui::Text("Voxel Override (Caves/Overhangs)");

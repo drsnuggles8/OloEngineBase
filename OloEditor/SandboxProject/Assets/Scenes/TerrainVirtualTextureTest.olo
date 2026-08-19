@@ -1,0 +1,274 @@
+Scene: TerrainVirtualTextureTest.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.5
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+SnowSettings:
+  Enabled: false
+FogSettings:
+  Enabled: false
+WindSettings:
+  Enabled: false
+SnowAccumulationSettings:
+  Enabled: false
+SnowEjectaSettings:
+  Enabled: false
+PrecipitationSettings:
+  Enabled: false
+StreamingSettings:
+  Enabled: false
+Entities:
+  - Entity: 9977033210160945011
+    TagComponent:
+      Tag: camera
+    TransformComponent:
+      Translation: [512, 120, 860]
+      Rotation: [-0.22, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 6000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: true
+      FlySpeed: 40
+  - Entity: 100000000000030
+    TagComponent:
+      Tag: Virtual Textured Terrain
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 1024
+      WorldSizeZ: 1024
+      HeightScale: 160
+      ProceduralEnabled: true
+      ProceduralSeed: 715
+      ProceduralResolution: 1024
+      ProceduralOctaves: 6
+      ProceduralFrequency: 3
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.45
+      ShapingRidgeBlend: 0.45
+      ShapingWarpStrength: 0.12
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0.0
+          MaxHeight: 0.1
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 30
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.06
+          MaxHeight: 0.34
+          HeightBlend: 0.1
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 26
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0.0
+          MaxHeight: 1.0
+          HeightBlend: 0.0
+          MinSlopeDeg: 34
+          MaxSlopeDeg: 90
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.72
+          MaxHeight: 1.0
+          HeightBlend: 0.12
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 50
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 4
+          MinHeight: 0.08
+          MaxHeight: 0.24
+          HeightBlend: 0.08
+          MinSlopeDeg: 20
+          MaxSlopeDeg: 45
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 5
+          MinHeight: 0.2
+          MaxHeight: 0.48
+          HeightBlend: 0.1
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 20
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 6
+          MinHeight: 0.3
+          MaxHeight: 0.6
+          HeightBlend: 0.1
+          MinSlopeDeg: 10
+          MaxSlopeDeg: 40
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 7
+          MinHeight: 0.52
+          MaxHeight: 0.8
+          HeightBlend: 0.12
+          MinSlopeDeg: 25
+          MaxSlopeDeg: 70
+          SlopeBlend: 12
+          Strength: 1
+      TessellationEnabled: true
+      TargetTriangleSize: 8
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VirtualTextureEnabled: true
+      VTVirtualPagesWide: 256
+      VTPageTexels: 128
+      VTBorderTexels: 4
+      VTCacheTilesWide: 16
+      VTMaxTileBakesPerFrame: 8
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: Sand
+          AlbedoPath: assets/textures/Checkerboard.png
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 24
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.76, 0.7, 0.5]
+          Roughness: 0.95
+          Metallic: 0
+        - Name: Grass
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 20
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.28, 0.45, 0.17]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Rock
+          AlbedoPath: assets/textures/pbr/wall/albedo.png
+          NormalPath: assets/textures/pbr/wall/normal.png
+          ARMPath: assets/textures/pbr/wall/occlusionRoughnessMetallic.png
+          TilingScale: 12
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.42, 0.4, 0.38]
+          Roughness: 0.8
+          Metallic: 0
+        - Name: Snow
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.92, 0.93, 0.96]
+          Roughness: 0.6
+          Metallic: 0
+        - Name: Gravel
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 26
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.5, 0.48, 0.45]
+          Roughness: 0.85
+          Metallic: 0
+        - Name: Moss
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 30
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.2, 0.34, 0.16]
+          Roughness: 0.92
+          Metallic: 0
+        - Name: Clay
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 14
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.55, 0.36, 0.24]
+          Roughness: 0.88
+          Metallic: 0
+        - Name: Slate
+          AlbedoPath: assets/textures/pbr/rusted_iron/albedo.png
+          NormalPath: assets/textures/pbr/rusted_iron/normal.png
+          ARMPath: assets/textures/pbr/rusted_iron/occlusionRoughnessMetallic.png
+          TilingScale: 10
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.3, 0.31, 0.34]
+          Roughness: 0.55
+          Metallic: 0
+  - Entity: 100000000000031
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [21.055992, 25.520258, 26.569588]
+      Rotation: [-0.78539824, 0.39269903, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.8, -0.3]
+      Color: [1, 0.9607843, 0.8980392]
+      Intensity: 2.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 2000
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false

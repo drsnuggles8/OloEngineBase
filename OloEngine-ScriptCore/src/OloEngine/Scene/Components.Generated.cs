@@ -2799,6 +2799,42 @@ namespace OloEngine
 			set => InternalCalls.TerrainComponent_SetSplatmapGenResolution(Entity.ID, value);
 		}
 
+		public bool VirtualTextureEnabled
+		{
+			get => InternalCalls.TerrainComponent_GetVirtualTextureEnabled(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVirtualTextureEnabled(Entity.ID, value);
+		}
+
+		public uint VTVirtualPagesWide
+		{
+			get => InternalCalls.TerrainComponent_GetVTVirtualPagesWide(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTVirtualPagesWide(Entity.ID, value);
+		}
+
+		public uint VTPageTexels
+		{
+			get => InternalCalls.TerrainComponent_GetVTPageTexels(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTPageTexels(Entity.ID, value);
+		}
+
+		public uint VTBorderTexels
+		{
+			get => InternalCalls.TerrainComponent_GetVTBorderTexels(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTBorderTexels(Entity.ID, value);
+		}
+
+		public uint VTCacheTilesWide
+		{
+			get => InternalCalls.TerrainComponent_GetVTCacheTilesWide(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTCacheTilesWide(Entity.ID, value);
+		}
+
+		public uint VTMaxTileBakesPerFrame
+		{
+			get => InternalCalls.TerrainComponent_GetVTMaxTileBakesPerFrame(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTMaxTileBakesPerFrame(Entity.ID, value);
+		}
+
 		public int VoxelMesher
 		{
 			get => InternalCalls.TerrainComponent_GetVoxelMesher(Entity.ID);

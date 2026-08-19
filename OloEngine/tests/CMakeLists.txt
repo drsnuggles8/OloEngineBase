@@ -345,6 +345,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainCameraRelativeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainGPUQuadtreeVisualEvidenceTest.cpp
+		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelGreedyMeshVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelMarchingCubesVisualEvidenceTest.cpp
@@ -505,6 +506,7 @@ add_executable(OloEngine-Tests
 		Cinematic/CinematicEditTest.cpp
 		# Procedural Terrain Generation Tests
 		Terrain/TerrainGeneratorTest.cpp
+		Terrain/TerrainVirtualTextureTest.cpp
 		Terrain/VoxelGreedyMesherTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp

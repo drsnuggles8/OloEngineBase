@@ -1252,6 +1252,17 @@ namespace OloEngine
                                            "erosionIterations", sol::property([](const TerrainComponent& t)
                                                                               { return t.m_ProceduralErosionIterations; }, [](TerrainComponent& t, i32 v)
                                                                               { t.m_ProceduralErosionIterations = std::clamp(v, 0, 64); }),
+                                           // Virtual texturing (issue #715). Only the toggle and the
+                                           // per-frame bake budget: those are the two a gameplay
+                                           // script has any business changing at runtime (a quality
+                                           // setting, and a frame-time knob). The sizing fields
+                                           // reallocate ~38 MB of GPU memory when they change, so
+                                           // they stay authoring-time — the editor and the scene
+                                           // file own them.
+                                           "virtualTextureEnabled", &TerrainComponent::m_VirtualTextureEnabled,
+                                           "vtMaxTileBakesPerFrame", sol::property([](const TerrainComponent& t)
+                                                                                   { return t.m_VTMaxTileBakesPerFrame; }, [](TerrainComponent& t, u32 v)
+                                                                                   { if (v >= 1u && v <= 64u) t.m_VTMaxTileBakesPerFrame = v; }),
                                            "regenerate", &TerrainComponent::Regenerate);
 
         // --- BuoyancyComponent ---
