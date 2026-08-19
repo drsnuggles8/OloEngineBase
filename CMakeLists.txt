@@ -166,6 +166,13 @@ endif()
 # Includes
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)
+# Resolves OLO_STEAM_{SDK_ROOT,INCLUDE_DIR,IMPORT_LIB,RUNTIME_DLL} from the two options above.
+# MUST stay ABOVE every add_subdirectory() below — those variables are read from four different
+# subdirectories (OloEngine/tests, OloEditor/src, OloRuntime/src, OloServer/src) and a variable
+# set after a subdirectory is added is invisible inside it. That ordering trap is issue #828; the
+# file's header comment carries the full story. It touches no targets, so it has no ordering
+# requirement of its own and can sit here with the other pure-configuration includes.
+include(cmake/Steamworks.cmake)
 include(cmake/Sanitizers.cmake)
 # Must come AFTER SetupConfigurations.cmake (it overrides that file's MSVC
 # debug-info default) and BEFORE the target subdirectories below (it sets the
