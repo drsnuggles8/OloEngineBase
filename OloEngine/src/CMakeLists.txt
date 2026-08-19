@@ -332,6 +332,8 @@
 		"OloEngine/Core/Application.h"
 		"OloEngine/Core/Assert.h"
 		"OloEngine/Core/Base.h"
+		"OloEngine/Core/CVar.h"
+		"OloEngine/Core/CVar.cpp"
 		"OloEngine/Core/DebugLevers.h"
 		"OloEngine/Core/DebugLevers.cpp"
 		# THE list of debug levers. Included several times with different macro
@@ -1186,7 +1188,6 @@
 		"OloEngine/Task/Scheduler.cpp"
 		"OloEngine/Task/Scheduler.h"
 		"OloEngine/Task/SmallTaskAllocator.h"
-		"OloEngine/Task/Task.cpp"
 		"OloEngine/Task/Task.h"
 		"OloEngine/Task/TaskConcurrencyLimiter.h"
 		"OloEngine/Task/TaskDelegate.h"

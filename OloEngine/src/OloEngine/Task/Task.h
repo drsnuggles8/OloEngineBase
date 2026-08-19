@@ -506,51 +506,13 @@ namespace OloEngine::Tasks
         Wait(Tasks, FMonotonicTimeSpan::Infinity());
     }
 
-    // ============================================================================
-    // FTaskPriorityCVar - Runtime configurable task priority
-    // ============================================================================
-
-    // @class FTaskPriorityCVar
-    // @brief Console variable for configuring task priorities at runtime
+    // `FTaskPriorityCVar` used to live here — a UE 5.7 port whose constructor
+    // said "OloEngine doesn't have a console variable system yet, so we just
+    // store the defaults". It had zero call sites and its Name/Help members were
+    // stored and never read, so it was a placeholder rather than a feature.
     //
-    // This class mirrors UE5.7's FTaskPriorityCVar, allowing task priorities to be
-    // configured via console variables. The console variable accepts a string
-    // in the format "[TaskPriority] [ExtendedTaskPriority]".
-    //
-    // Example usage:
-    // @code
-    // FTaskPriorityCVar CVar{ "r.MyFeature.Priority", "Help text", ETaskPriority::Normal, EExtendedTaskPriority::None };
-    // Launch("MyTask", [] {}, CVar.GetTaskPriority(), CVar.GetExtendedTaskPriority()).Wait();
-    // @endcode
-    class FTaskPriorityCVar
-    {
-      public:
-        // @brief Construct a task priority console variable
-        //
-        // @param Name The console variable name (e.g., "r.Feature.Priority")
-        // @param Help Help text describing what this priority controls
-        // @param DefaultPriority Default task priority
-        // @param DefaultExtendedPriority Default extended priority
-        FTaskPriorityCVar(const char* Name, const char* Help,
-                          ETaskPriority DefaultPriority, EExtendedTaskPriority DefaultExtendedPriority);
-
-        // @brief Get the current task priority
-        ETaskPriority GetTaskPriority() const
-        {
-            return m_Priority;
-        }
-
-        // @brief Get the current extended task priority
-        EExtendedTaskPriority GetExtendedTaskPriority() const
-        {
-            return m_ExtendedPriority;
-        }
-
-      private:
-        ETaskPriority m_Priority;
-        EExtendedTaskPriority m_ExtendedPriority;
-        const char* m_Name;
-        const char* m_Help;
-    };
-
+    // The engine has one now (`Core/CVar.h`, issue #821), so the placeholder is
+    // gone. A task priority that genuinely needs to be runtime-settable should
+    // be a `CVars::CVar<i64>` (or a pair of them) read through
+    // `CVars::AddChangeCallback`, not a bespoke type that mirrors UE's.
 } // namespace OloEngine::Tasks

@@ -2,15 +2,20 @@
 #include "OloEngine/Core/DebugLevers.h"
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/CVar.h"
 #include "OloEngine/Core/Environment.h"
 #include "OloEngine/Core/Log.h"
 
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <format>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Levers
@@ -26,6 +31,35 @@ namespace OloEngine::Levers
         [[nodiscard]] bool IsUnsetNumber(f32 v)
         {
             return std::isnan(v);
+        }
+
+        // Shortest round-trip, NOT std::to_string's fixed six decimals. It reads
+        // better ("2.5", not "2.500000"), but the reason it is load-bearing is
+        // the cvar registry: that decides "did this value change?" by comparing
+        // rendered strings, and at six decimals two genuinely different floats
+        // render identically, so the change notification would be silently
+        // skipped for the very changes that are hardest to notice by eye.
+        [[nodiscard]] std::string RenderFloat(f32 value)
+        {
+            return std::format("{}", value);
+        }
+
+        // Outer whitespace only. The other lever kinds get this for free from
+        // the CVars:: text helpers; OLO_LEVER_NUMBER goes through
+        // ParseNumberLever instead, which must stay strict for the environment.
+        [[nodiscard]] std::string_view TrimForParse(std::string_view text)
+        {
+            const auto isSpace = [](char c)
+            { return std::isspace(static_cast<unsigned char>(c)) != 0; };
+            while (!text.empty() && isSpace(text.front()))
+            {
+                text.remove_prefix(1);
+            }
+            while (!text.empty() && isSpace(text.back()))
+            {
+                text.remove_suffix(1);
+            }
+            return text;
         }
 
         // Storage. One member per lever, generated from the same table as the
@@ -76,11 +110,47 @@ namespace OloEngine::Levers
 #undef OLO_LEVER_NUMBER
 #undef OLO_LEVER_TEXT
 
-        // All three are constant-initialized, so there is no static-init order
+        // The cvar-registry handle for each lever, filled by RegisterCVars().
+        // Every setter announces its write through this so a change arriving by
+        // ANY route — a typed setter like RenderGraph::SetTransientDebugFlags,
+        // a console line, `--set`, an MCP call — reaches the same change
+        // notification. Invalid until registration, and MarkChanged(Invalid) is
+        // a no-op, so a setter that runs before the registry is built (a test,
+        // or `--set` itself) simply does not notify — correct, because nobody
+        // can have registered a callback yet either.
+        //
+        // Atomic for the same reason s_Values and s_Overridden are, and it is
+        // not decorative: these are WRITTEN lazily by RegisterCVars() on
+        // whichever thread first asks the registry a name-based question, and
+        // READ by every generated setter from any thread. A plain member would
+        // be a data race — one that costs only a dropped notification in
+        // practice, but this repo has already learned that a race you have
+        // argued is benign still fails the TSan job.
+#define OLO_LEVER_TOGGLE(id, env, help) std::atomic<CVars::CVarHandle> id{ CVars::CVarHandle::Invalid };
+#define OLO_LEVER_EXACT(id, env, help) std::atomic<CVars::CVarHandle> id{ CVars::CVarHandle::Invalid };
+#define OLO_LEVER_TRISTATE(id, env, help) std::atomic<CVars::CVarHandle> id{ CVars::CVarHandle::Invalid };
+#define OLO_LEVER_INT(id, env, minValue, help) std::atomic<CVars::CVarHandle> id{ CVars::CVarHandle::Invalid };
+#define OLO_LEVER_NUMBER(id, env, minValue, maxValue, help) std::atomic<CVars::CVarHandle> id{ CVars::CVarHandle::Invalid };
+#define OLO_LEVER_TEXT(id, env, help) std::atomic<CVars::CVarHandle> id{ CVars::CVarHandle::Invalid };
+
+        struct Handles
+        {
+#include "OloEngine/Core/DebugLevers.inl"
+        };
+
+#undef OLO_LEVER_TOGGLE
+#undef OLO_LEVER_EXACT
+#undef OLO_LEVER_TRISTATE
+#undef OLO_LEVER_INT
+#undef OLO_LEVER_NUMBER
+#undef OLO_LEVER_TEXT
+
+        // All four are constant-initialized, so there is no static-init order
         // question between them and no lever can be read before its storage
         // exists.
         Storage s_Values;
         Overridden s_Overridden;
+        Handles s_Handles;
         std::once_flag s_SeedOnce;
 
         // Seeding is LAZY — first access — which can be arbitrarily early,
@@ -179,6 +249,7 @@ namespace OloEngine::Levers
         s_Overridden.id.store(true, std::memory_order_relaxed);                  \
         Seed();                                                                  \
         s_Values.id.store(value ? u8{ 1 } : u8{ 0 }, std::memory_order_relaxed); \
+        CVars::MarkChanged(s_Handles.id.load(std::memory_order_relaxed));        \
     }
 #define OLO_LEVER_EXACT(id, env, help) OLO_LEVER_TOGGLE(id, env, help)
 #define OLO_LEVER_TRISTATE(id, env, help)                                          \
@@ -192,6 +263,7 @@ namespace OloEngine::Levers
         s_Overridden.id.store(true, std::memory_order_relaxed);                    \
         Seed();                                                                    \
         s_Values.id.store(static_cast<u8>(value), std::memory_order_relaxed);      \
+        CVars::MarkChanged(s_Handles.id.load(std::memory_order_relaxed));          \
     }
 #define OLO_LEVER_INT(id, env, minValue, help)                                    \
     std::optional<i64> id()                                                       \
@@ -205,6 +277,7 @@ namespace OloEngine::Levers
         s_Overridden.id.store(true, std::memory_order_relaxed);                   \
         Seed();                                                                   \
         s_Values.id.store(value ? *value : kUnsetInt, std::memory_order_relaxed); \
+        CVars::MarkChanged(s_Handles.id.load(std::memory_order_relaxed));         \
     }
 #define OLO_LEVER_NUMBER(id, env, minValue, maxValue, help)                          \
     std::optional<f32> id()                                                          \
@@ -218,6 +291,7 @@ namespace OloEngine::Levers
         s_Overridden.id.store(true, std::memory_order_relaxed);                      \
         Seed();                                                                      \
         s_Values.id.store(value ? *value : kUnsetNumber, std::memory_order_relaxed); \
+        CVars::MarkChanged(s_Handles.id.load(std::memory_order_relaxed));            \
     }
 #define OLO_LEVER_TEXT(id, env, help) \
     std::optional<std::string> id()   \
@@ -287,12 +361,12 @@ namespace OloEngine::Levers
                                  v == kUnsetInt ? std::string("unset") : std::to_string(v), v == kUnsetInt, \
                                  !s_Overridden.id.load(std::memory_order_relaxed) });                       \
     }
-#define OLO_LEVER_NUMBER(id, env, minValue, maxValue, help)                                                     \
-    {                                                                                                           \
-        const f32 v = s_Values.id.load(std::memory_order_relaxed);                                              \
-        out.push_back(LeverInfo{ env, help, LeverKind::Number,                                                  \
-                                 IsUnsetNumber(v) ? std::string("unset") : std::to_string(v), IsUnsetNumber(v), \
-                                 !s_Overridden.id.load(std::memory_order_relaxed) });                           \
+#define OLO_LEVER_NUMBER(id, env, minValue, maxValue, help)                                                  \
+    {                                                                                                        \
+        const f32 v = s_Values.id.load(std::memory_order_relaxed);                                           \
+        out.push_back(LeverInfo{ env, help, LeverKind::Number,                                               \
+                                 IsUnsetNumber(v) ? std::string("unset") : RenderFloat(v), IsUnsetNumber(v), \
+                                 !s_Overridden.id.load(std::memory_order_relaxed) });                        \
     }
 #define OLO_LEVER_TEXT(id, env, help)                                                                             \
     out.push_back(LeverInfo{ env, help, LeverKind::Text, s_Values.id.value_or("unset"), !s_Values.id.has_value(), \
@@ -329,7 +403,11 @@ namespace OloEngine::Levers
             summary += lever.Value;
             if (!lever.FromEnvironment)
             {
-                summary += " (set in code)";
+                // Not "set in code" any more: since issue #821 the non-environment
+                // routes are a C++ setter, `--set NAME=VALUE`, the editor console
+                // and olo_cvar_set. All this flag can honestly distinguish is
+                // "the environment did not put it here".
+                summary += " (set at runtime)";
             }
         }
         return summary;
@@ -349,5 +427,160 @@ namespace OloEngine::Levers
         {
             OLO_CORE_INFO("[Levers] active: {}", summary);
         }
+    }
+
+    // --- The cvar bindings ------------------------------------------------------
+    //
+    // Generated from the same table, so the console reaches every lever and
+    // there is still exactly one list. The levers are NOT reimplemented on top
+    // of CVar<T>: each row binds the accessor/setter pair that already exists,
+    // which is why no call site, `LogActive()` or `olo_debug_levers` had to
+    // change.
+    //
+    // The text rendering here MUST match Snapshot()'s, because the registry
+    // compares rendered values to decide a change happened and because the two
+    // enumerations are read side by side.
+    //
+    // Called once, lazily, from the cvar registry — see the note on
+    // EnsureBuiltinsRegistered in CVar.cpp for why this is not a static
+    // initializer.
+    void RegisterCVars()
+    {
+#define OLO_LEVER_BINDBOOL(id, env, help)                                        \
+    {                                                                            \
+        CVars::CVarBinding binding;                                              \
+        binding.Name = env;                                                      \
+        binding.Help = help;                                                     \
+        binding.Type = CVars::CVarType::Bool;                                    \
+        binding.Render = [](void*) { return std::string(id() ? "on" : "off"); }; \
+        binding.IsDefault = [](void*) { return !id(); };                         \
+        binding.Parse = [](void*, std::string_view raw, std::string& error) {                  \
+            const std::optional<bool> parsed = CVars::ParseBoolText(raw);                      \
+            if (!parsed)                                                                       \
+            {                                                                                  \
+                error = "expected on/off (also accepts 1/0, true/false, yes/no)";              \
+                return false;                                                                  \
+            }                                                                                  \
+            Set##id(*parsed);                                                                  \
+            return true; }; \
+        s_Handles.id.store(CVars::Register(binding), std::memory_order_relaxed); \
+    }
+#define OLO_LEVER_TOGGLE(id, env, help) OLO_LEVER_BINDBOOL(id, env, help)
+        // Exact vs lenient is about how the ENVIRONMENT is parsed. From a
+        // console both are plain booleans, and the console's own parser already
+        // rejects a typo instead of reading it as on.
+#define OLO_LEVER_EXACT(id, env, help) OLO_LEVER_BINDBOOL(id, env, help)
+#define OLO_LEVER_TRISTATE(id, env, help)                                        \
+    {                                                                            \
+        CVars::CVarBinding binding;                                              \
+        binding.Name = env;                                                      \
+        binding.Help = help;                                                     \
+        binding.Type = CVars::CVarType::Tristate;                                \
+        binding.Render = [](void*) {                                                                   \
+            const Tristate t = id();                                                                   \
+            return std::string(t == Tristate::Unset ? "unset" : (t == Tristate::On ? "on" : "off")); };                                          \
+        binding.IsDefault = [](void*) { return id() == Tristate::Unset; };       \
+        binding.Parse = [](void*, std::string_view raw, std::string& error) {                          \
+            if (CVars::IsUnsetText(raw))                                                               \
+            {                                                                                          \
+                Set##id(Tristate::Unset);                                                              \
+                return true;                                                                           \
+            }                                                                                          \
+            const std::optional<bool> parsed = CVars::ParseBoolText(raw);                              \
+            if (!parsed)                                                                               \
+            {                                                                                          \
+                error = "expected on/off/unset - 'unset' leaves the hardware-derived default alone, "  \
+                        "which is not the same as off";                                                \
+                return false;                                                                          \
+            }                                                                                          \
+            Set##id(*parsed ? Tristate::On : Tristate::Off);                                           \
+            return true; }; \
+        s_Handles.id.store(CVars::Register(binding), std::memory_order_relaxed); \
+    }
+#define OLO_LEVER_INT(id, env, minValue, help)                                   \
+    {                                                                            \
+        CVars::CVarBinding binding;                                              \
+        binding.Name = env;                                                      \
+        binding.Help = help;                                                     \
+        binding.Type = CVars::CVarType::Int;                                     \
+        binding.Render = [](void*) {                                                              \
+            const std::optional<i64> v = id();                                                    \
+            return v ? std::to_string(*v) : std::string("unset"); };                                          \
+        binding.IsDefault = [](void*) { return !id().has_value(); };             \
+        binding.Parse = [](void*, std::string_view raw, std::string& error) {                     \
+            if (CVars::IsUnsetText(raw))                                                          \
+            {                                                                                     \
+                Set##id(std::nullopt);                                                            \
+                return true;                                                                      \
+            }                                                                                     \
+            const std::optional<i64> parsed = CVars::ParseIntText(raw);                           \
+            if (!parsed || *parsed < (minValue))                                                  \
+            {                                                                                     \
+                error = "expected a whole number >= " + std::to_string(static_cast<i64>(minValue)) + \
+                        ", or 'unset'";                                                           \
+                return false;                                                                     \
+            }                                                                                     \
+            Set##id(*parsed);                                                                     \
+            return true; }; \
+        s_Handles.id.store(CVars::Register(binding), std::memory_order_relaxed); \
+    }
+#define OLO_LEVER_NUMBER(id, env, minValue, maxValue, help)                      \
+    {                                                                            \
+        CVars::CVarBinding binding;                                              \
+        binding.Name = env;                                                      \
+        binding.Help = help;                                                     \
+        binding.Type = CVars::CVarType::Float;                                   \
+        binding.Render = [](void*) {                                                                   \
+            const std::optional<f32> v = id();                                                         \
+            return v ? RenderFloat(*v) : std::string("unset"); };                                          \
+        binding.IsDefault = [](void*) { return !id().has_value(); };             \
+        binding.Parse = [](void*, std::string_view raw, std::string& error) {                          \
+            if (CVars::IsUnsetText(raw))                                                               \
+            {                                                                                          \
+                Set##id(std::nullopt);                                                                 \
+                return true;                                                                           \
+            }                                                                                          \
+            /* The same parser the environment seed uses, so the console cannot get a value past */    \
+            /* the bounds that an exported variable could not — non-finite included. Trimmed first: */ \
+            /* that parser deliberately rejects trailing whitespace, which is right for an exported */ \
+            /* variable but would make olo_cvar_set refuse "2.5 " with a bogus RANGE error, while  */  \
+            /* every other kind here accepts it.                                                   */  \
+            const std::string buffer(TrimForParse(raw));                                               \
+            const std::optional<f32> parsed = ParseNumberLever(buffer.c_str(), (minValue), (maxValue)); \
+            if (!parsed)                                                                               \
+            {                                                                                          \
+                error = "expected a finite number within [" + RenderFloat(minValue) + ", " +           \
+                        RenderFloat(maxValue) + "], or 'unset'";                                       \
+                return false;                                                                          \
+            }                                                                                          \
+            Set##id(*parsed);                                                                          \
+            return true; }; \
+        s_Handles.id.store(CVars::Register(binding), std::memory_order_relaxed); \
+    }
+        // Read-only, exactly as in the lever table: every text lever is consumed
+        // once at init, so a runtime write would be accepted and then ignored —
+        // which is worse than refusing it.
+#define OLO_LEVER_TEXT(id, env, help)                                               \
+    {                                                                               \
+        CVars::CVarBinding binding;                                                 \
+        binding.Name = env;                                                         \
+        binding.Help = help;                                                        \
+        binding.Type = CVars::CVarType::String;                                     \
+        binding.ReadOnly = true;                                                    \
+        binding.Render = [](void*) { return id().value_or(std::string("unset")); }; \
+        binding.IsDefault = [](void*) { return !id().has_value(); };                \
+        binding.Parse = nullptr;                                                    \
+        s_Handles.id.store(CVars::Register(binding), std::memory_order_relaxed);    \
+    }
+
+#include "OloEngine/Core/DebugLevers.inl"
+
+#undef OLO_LEVER_TOGGLE
+#undef OLO_LEVER_EXACT
+#undef OLO_LEVER_TRISTATE
+#undef OLO_LEVER_INT
+#undef OLO_LEVER_NUMBER
+#undef OLO_LEVER_TEXT
+#undef OLO_LEVER_BINDBOOL
     }
 } // namespace OloEngine::Levers

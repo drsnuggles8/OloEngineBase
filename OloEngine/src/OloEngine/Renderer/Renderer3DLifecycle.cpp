@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/CVar.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Terrain/TerrainGPUQuadtree.h"
@@ -424,6 +425,36 @@ namespace OloEngine
 
         s_Data.RGraph = Ref<RenderGraph>::Create();
         RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
+
+        // Flipping the aliasing lever has to evict the transient pool, or the
+        // A/B compares a mixed state: objects acquired under the previous policy
+        // are still bucketed and get handed straight back out under the new one.
+        // `olo_render_debug_set` has always done this inline, which is why only
+        // THAT path was correct — a console line, `--set` or any other write
+        // left the stale buckets in place.
+        //
+        // A change callback fixes it for every path at once, and this is the
+        // shape those callbacks are meant to have: it reads the CURRENT value
+        // rather than a delta, and it runs on the game thread at the top of a
+        // frame, which is the only place evicting GPU objects is safe.
+        //
+        // Function-local static: registered once for the process, not once per
+        // Renderer3D::Init, and it looks the active graph up each time so it
+        // survives a shutdown/init cycle. invokeNow is false because a freshly
+        // constructed pool has nothing to evict.
+        static const CVars::CallbackHandle s_AliasingChanged = CVars::AddChangeCallback(
+            "OLO_RG_DISABLE_ALIASING",
+            [](const CVars::CVarInfo&)
+            {
+                // Own (non-const) Ref: Ref<T> propagates constness through
+                // operator->, and GetActiveGraph() returns a const Ref.
+                if (Ref<RenderGraph> graph = RenderGraphDebugRuntime::GetActiveGraph(); graph)
+                {
+                    graph->GetTransientPool().Clear();
+                }
+            },
+            /*invokeNow*/ false);
+        (void)s_AliasingChanged;
         // Headless init (window == nullptr) uses a placeholder framebuffer size;
         // the real size is applied later via Renderer3D::OnWindowResize.
         const u32 fbWidth = window ? window->GetFramebufferWidth() : 1280u;

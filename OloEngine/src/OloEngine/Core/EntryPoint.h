@@ -1,6 +1,7 @@
 #pragma once
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/CVar.h"
 #include "OloEngine/Debug/CrashReporter.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
@@ -14,6 +15,28 @@ int main(int argc, char** argv)
     // Force initialization here so log file + crash ring buffer are ready early.
     OloEngine::Log::Initialize();
     OloEngine::CrashReporter::Init();
+
+    // `--set NAME=VALUE`, before CreateApplication and therefore before any
+    // subsystem can cache a value. Applying it later would reinvent the exact
+    // bug the change notification exists to fix: the value would be right in
+    // the registry and wrong in whoever read it at init.
+    //
+    // Shared by OloEditor, OloRuntime and OloServer — this main() is the one
+    // they all use, so there is no per-app copy to keep in sync. Unknown names
+    // and malformed arguments are logged and the launch continues; a typo in a
+    // debug switch is not a reason to refuse to start, but it must not be
+    // silent either.
+    {
+        const OloEngine::CVars::CommandLineResult cvarArgs = OloEngine::CVars::ApplyCommandLine(argc, argv);
+        for (const std::string& error : cvarArgs.Errors)
+        {
+            OLO_CORE_WARN("[CVar] {}", error);
+        }
+        if (cvarArgs.Applied > 0)
+        {
+            OLO_CORE_INFO("[CVar] applied {} --set argument(s) before startup", cvarArgs.Applied);
+        }
+    }
 
     int exitCode = EXIT_SUCCESS;
     OloEngine::Application* app = nullptr;

@@ -182,7 +182,7 @@ namespace OloEngine::Tests
         EXPECT_NE(summary.find("OLO_RG_BLACKSQUARE_HUNT"), std::string::npos);
         // The provenance matters when reading a log: a lever set by code is a
         // different situation from one the operator exported.
-        EXPECT_NE(summary.find("set in code"), std::string::npos);
+        EXPECT_NE(summary.find("set at runtime"), std::string::npos);
 
         Levers::SetBlackSquareHunt(original);
     }

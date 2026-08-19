@@ -1,11 +1,20 @@
 #include "OloEnginePCH.h"
 #include "ConsolePanel.h"
+#include "OloEngine/Core/CVar.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <imgui.h>
 #include <spdlog/sinks/callback_sink.h>
 #include <spdlog/details/log_msg_buffer.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace OloEngine
 {
@@ -100,6 +109,260 @@ namespace OloEngine
         m_Entries.clear();
     }
 
+    // --- Command line -------------------------------------------------------
+
+    namespace
+    {
+        [[nodiscard]] std::string_view Trim(std::string_view text)
+        {
+            const auto isSpace = [](char c)
+            { return std::isspace(static_cast<unsigned char>(c)) != 0; };
+            while (!text.empty() && isSpace(text.front()))
+            {
+                text.remove_prefix(1);
+            }
+            while (!text.empty() && isSpace(text.back()))
+            {
+                text.remove_suffix(1);
+            }
+            return text;
+        }
+
+        [[nodiscard]] std::string_view CVarTypeName(CVars::CVarType type)
+        {
+            switch (type)
+            {
+                case CVars::CVarType::Bool:
+                    return "bool";
+                case CVars::CVarType::Tristate:
+                    return "tristate";
+                case CVars::CVarType::Int:
+                    return "int";
+                case CVars::CVarType::Float:
+                    return "float";
+                case CVars::CVarType::String:
+                    return "string";
+                default:
+                    return "unknown";
+            }
+        }
+    } // namespace
+
+    void ConsolePanel::Echo(const std::string& text, Log::Level level)
+    {
+        PushMessage(text, level, Log::Type::Client);
+        m_ScrollToBottom = true;
+    }
+
+    void ConsolePanel::PrintCVar(std::string_view name)
+    {
+        const std::optional<CVars::CVarInfo> info = CVars::Find(name);
+        if (!info)
+        {
+            Echo("unknown console variable '" + std::string(name) + "' - try 'list " + std::string(name) + "'",
+                 Log::Level::Warn);
+            return;
+        }
+        Echo(std::string(info->Name) + " = " + info->Value + "  (" + std::string(CVarTypeName(info->Type)) +
+             (info->ReadOnly ? ", read-only" : "") + (info->IsDefault ? ", default" : "") + ")");
+        Echo("    " + std::string(info->Help));
+    }
+
+    void ConsolePanel::ListCVars(std::string_view filter)
+    {
+        // Every registered name is upper-case OLO_*, so upper-casing the needle
+        // once is the whole of case-insensitive matching here.
+        std::string needle(Trim(filter));
+        std::ranges::transform(needle, needle.begin(),
+                               [](char c)
+                               { return static_cast<char>(std::toupper(static_cast<unsigned char>(c))); });
+
+        u32 shown = 0;
+        for (const CVars::CVarInfo& info : CVars::Snapshot())
+        {
+            if (!needle.empty() && info.Name.find(needle) == std::string_view::npos)
+            {
+                continue;
+            }
+            Echo(std::string(info.Name) + " = " + info.Value + (info.IsDefault ? "" : "   <-- not default"));
+            ++shown;
+        }
+        Echo(std::to_string(shown) + " console variable(s)" +
+             (needle.empty() ? std::string() : " matching '" + needle + "'"));
+    }
+
+    void ConsolePanel::ExecuteCommand(const std::string& command)
+    {
+        const std::string_view line = Trim(command);
+        if (line.empty())
+        {
+            return;
+        }
+
+        Echo("> " + std::string(line));
+
+        // Split into the first token and the rest. `NAME=VALUE` is accepted as
+        // well as `NAME VALUE`, because both are what people type and the
+        // `--set` form is the first one.
+        std::string_view name = line;
+        std::string_view value;
+        bool hasValue = false;
+        if (const sizet space = line.find_first_of(" \t"); space != std::string_view::npos)
+        {
+            name = Trim(line.substr(0, space));
+            value = Trim(line.substr(space + 1));
+            hasValue = true;
+        }
+        if (const sizet equals = name.find('='); equals != std::string_view::npos)
+        {
+            // `NAME=VALUE rest` would be ambiguous; take everything after the
+            // '=' on the original line so quoted paths survive.
+            const sizet lineEquals = line.find('=');
+            name = Trim(line.substr(0, lineEquals));
+            value = Trim(line.substr(lineEquals + 1));
+            hasValue = true;
+        }
+
+        if (name == "help" || name == "?")
+        {
+            Echo("Console commands:");
+            Echo("  <NAME>                 print a console variable's value and help");
+            Echo("  <NAME> <VALUE>         set it (also accepts <NAME>=<VALUE>)");
+            Echo("  list [TEXT]            list console variables, optionally filtered");
+            Echo("  clear                  clear this panel");
+            Echo("  help                   this text");
+            Echo("Tab completes a name; Up/Down walk the command history. Booleans take "
+                 "on/off (also 1/0, true/false, yes/no); an int or float also takes 'unset'.");
+            Echo("The same names work as --set NAME=VALUE on the command line.");
+            return;
+        }
+        if (name == "clear")
+        {
+            Clear();
+            return;
+        }
+        if (name == "list")
+        {
+            ListCVars(hasValue ? value : std::string_view{});
+            return;
+        }
+
+        if (!hasValue)
+        {
+            PrintCVar(name);
+            return;
+        }
+
+        const CVars::SetResult result = CVars::SetFromString(name, value);
+        if (!result.Ok)
+        {
+            Echo(result.Error, Log::Level::Warn);
+            return;
+        }
+        if (!result.Changed)
+        {
+            Echo(std::string(name) + " = " + result.NewValue + " (unchanged)");
+            return;
+        }
+        // The change reaches its observers at the top of the NEXT frame, not
+        // here — say so, because "I set it and the frame still looks the same"
+        // is otherwise indistinguishable from "the write did not work".
+        Echo(std::string(name) + " = " + result.NewValue + "  (was " + result.OldValue +
+             "; takes effect from the next frame)");
+    }
+
+    int ConsolePanel::InputTextCallback(ImGuiInputTextCallbackData* data)
+    {
+        auto* self = static_cast<ConsolePanel*>(data->UserData);
+        switch (data->EventFlag)
+        {
+            case ImGuiInputTextFlags_CallbackCompletion:
+                self->OnCompletion(data);
+                break;
+            case ImGuiInputTextFlags_CallbackHistory:
+                self->OnHistory(data);
+                break;
+            default:
+                break;
+        }
+        return 0;
+    }
+
+    void ConsolePanel::OnCompletion(ImGuiInputTextCallbackData* data)
+    {
+        // Complete the FIRST token only — the rest is a value, and cvar names
+        // are the only thing there is a list of.
+        const std::string_view text(data->Buf, static_cast<sizet>(data->CursorPos));
+        if (text.find_first_of(" \t=") != std::string_view::npos)
+        {
+            return;
+        }
+
+        const std::vector<std::string_view> matches = CVars::Complete(text);
+        if (matches.empty())
+        {
+            Echo("no console variable starts with '" + std::string(text) + "'", Log::Level::Warn);
+            return;
+        }
+
+        // Extend as far as it is unambiguous, then list what is left. One match
+        // completes fully and appends a space, which is what a shell does.
+        const std::string completion = CVars::LongestCompletion(text);
+        if (completion.size() > text.size() || matches.size() == 1)
+        {
+            data->DeleteChars(0, data->BufTextLen);
+            data->InsertChars(0, completion.c_str());
+            if (matches.size() == 1)
+            {
+                data->InsertChars(data->CursorPos, " ");
+            }
+        }
+
+        if (matches.size() > 1)
+        {
+            for (const std::string_view match : matches)
+            {
+                Echo("  " + std::string(match));
+            }
+        }
+    }
+
+    void ConsolePanel::OnHistory(ImGuiInputTextCallbackData* data)
+    {
+        if (m_History.empty())
+        {
+            return;
+        }
+
+        const int previous = m_HistoryPos;
+        if (data->EventKey == ImGuiKey_UpArrow)
+        {
+            if (m_HistoryPos == -1)
+            {
+                m_HistoryPos = static_cast<int>(m_History.size()) - 1;
+            }
+            else if (m_HistoryPos > 0)
+            {
+                --m_HistoryPos;
+            }
+        }
+        else if (data->EventKey == ImGuiKey_DownArrow && m_HistoryPos != -1)
+        {
+            if (++m_HistoryPos >= static_cast<int>(m_History.size()))
+            {
+                m_HistoryPos = -1;
+            }
+        }
+
+        if (previous == m_HistoryPos)
+        {
+            return;
+        }
+        const std::string replacement = m_HistoryPos >= 0 ? m_History[static_cast<sizet>(m_HistoryPos)] : std::string();
+        data->DeleteChars(0, data->BufTextLen);
+        data->InsertChars(0, replacement.c_str());
+    }
+
     void ConsolePanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
@@ -147,8 +410,11 @@ namespace OloEngine
 
         ImGui::Separator();
 
-        // Log entries
-        ImGui::BeginChild("LogEntries", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+        // Log entries. Height leaves room for the command line below — without
+        // the reservation the child eats the window and the input is unreachable.
+        const f32 commandLineHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+        ImGui::BeginChild("LogEntries", ImVec2(0, -commandLineHeight), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_HorizontalScrollbar);
         {
             TUniqueLock<FMutex> lock(m_Mutex);
 
@@ -214,12 +480,47 @@ namespace OloEngine
             }
         }
 
-        if (m_AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+        if (m_ScrollToBottom || (m_AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()))
         {
             ImGui::SetScrollHereY(1.0f);
         }
+        m_ScrollToBottom = false;
 
         ImGui::EndChild();
+
+        // Command line
+        ImGui::Separator();
+        constexpr ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue |
+                                                   ImGuiInputTextFlags_CallbackCompletion |
+                                                   ImGuiInputTextFlags_CallbackHistory;
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::InputTextWithHint("##ConsoleCommand", "Console variable, or 'help' (Tab completes)",
+                                     m_CommandBuffer, sizeof(m_CommandBuffer), inputFlags, &InputTextCallback, this))
+        {
+            std::string command(m_CommandBuffer);
+            m_CommandBuffer[0] = '\0';
+            m_HistoryPos = -1;
+            if (!Trim(command).empty())
+            {
+                // Consecutive duplicates are noise when walking back through it.
+                if (m_History.empty() || m_History.back() != command)
+                {
+                    m_History.push_back(command);
+                }
+                ExecuteCommand(command);
+            }
+            m_ReclaimFocus = true;
+        }
+
+        // Keep the caret in the box across a submit, so a sequence of commands
+        // does not need a click between each.
+        ImGui::SetItemDefaultFocus();
+        if (m_ReclaimFocus)
+        {
+            ImGui::SetKeyboardFocusHere(-1);
+            m_ReclaimFocus = false;
+        }
+
         ImGui::End();
     }
 
