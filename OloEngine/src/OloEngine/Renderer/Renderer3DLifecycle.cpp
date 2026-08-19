@@ -20,6 +20,7 @@
 
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
+#include "OloEngine/Renderer/VolumetricShadowMap.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -533,7 +534,10 @@ namespace OloEngine
         // Shutdown wind system
         WindSystem::Shutdown();
 
-        // Shutdown volumetric cloudscape systems (issue #633)
+        // Shutdown volumetric cloudscape systems (issue #633) and the shared
+        // media self-shadowing volume (issue #723 — before CloudNoise, which
+        // owns the field the generator marches).
+        VolumetricShadowMap::Shutdown();
         CloudShadowMap::Shutdown();
         CloudNoise::Shutdown();
 

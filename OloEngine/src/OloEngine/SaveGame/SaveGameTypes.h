@@ -58,7 +58,12 @@ namespace OloEngine
     // v13: AircraftComponent gained the landing-gear block (m_HasLandingGear + the 8 gear knobs — issue #438 follow-up; v12 and older saves omit them and keep the gear-off constructor defaults)
     // v14: AudioSourceConfig gained the voice-budget Priority field (issue #730; v13 and older saves omit it and keep the neutral 0.5 constructor default)
     // v15: TerrainComponent gained m_VoxelMesher, the marching-cubes / greedy-cubic selector (issue #727; v14 and older saves omit it and keep the MarchingCubes constructor default, which is the pre-#727 behaviour)
-    static constexpr u32 kSaveGameFormatVersion = 15;
+    // v16: CloudscapeComponent gained the volumetric self-shadow block (issue #723; v15 and
+    //      older saves omit it and keep the constructor defaults, which have self-shadowing ON —
+    //      the same look a fresh scene gets). FogSettings' matching fields are deliberately NOT
+    //      in the archive: the scene-settings section is a flat stream with no length prefix, so
+    //      it cannot carry a version-gated field — see SaveGameSerializer::SerializeFogSettings.
+    static constexpr u32 kSaveGameFormatVersion = 16;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

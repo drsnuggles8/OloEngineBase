@@ -208,8 +208,9 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // MAX_ENGINE_TEXTURE_SLOTS = TEX_SHADER_GRAPH_0 + 1 — so it MOVES whenever an
 // engine texture slot is added, and this literal does not move with it.
 //
-// 67 since issue #702 inserted TEX_VSM_PHYSICAL at 65 and pushed the
-// shader-graph base to 66. Before that it was 66 (the A2 renumber moved
+// 68 since issue #723 inserted TEX_VOLUMETRIC_SHADOW at 66 and pushed the
+// shader-graph base to 67. Before that it was 67 (issue #702 inserted
+// TEX_VSM_PHYSICAL at 65), and 66 before THAT (the A2 renumber moved
 // TEX_DDGI_VISIBILITY to 64 and the shader-graph base to 65).
 //
 // THIS EXACT DRIFT SHIPPED ONCE. Adding the VSM slot silently moved the C++ base
@@ -219,7 +220,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // headless CI. It is now pinned headlessly by
 // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout — if you are here
 // because that failed, update this number, do not relax the test.
-#define OLO_HEAP_IMAGE_BASE 67u
+#define OLO_HEAP_IMAGE_BASE 68u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 
 // Pass this as `mem` for an image you both read and write, or for one with no

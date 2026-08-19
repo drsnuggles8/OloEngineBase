@@ -57,6 +57,10 @@ layout(location = 0) out vec4 o_Cloud;
 
 #include "include/NoiseCommon.glsl"
 #include "include/CloudscapeCommon.glsl"
+// Volumetric shadow map (issue #723): the cloud cascade carries the optical
+// depth through the WHOLE layer, which the cone march below structurally
+// cannot — see cloudLightNearRange().
+#include "include/VolumetricShadowCommon.glsl"
 
 // Full-res scene depth (TEX_POSTPROCESS_DEPTH).
 #include "include/BindlessHeap.glsl"
@@ -91,12 +95,23 @@ float cloudIGN(vec2 pixel)
     return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
 
-// Optical depth toward the light through the layer: short cone of
-// exponentially spaced cheap density taps (Schneider light march).
-float cloudLightOpticalDepth(vec3 worldPos, vec3 towardLight, int lightSteps)
+// The NEAR range of the light march, in metres. Historically this was also the
+// WHOLE march: capped at 1400 m, it could not reach the top of a 2500 m layer,
+// so density above that height darkened nothing — the deep interior of a thick
+// deck was lit exactly like its top, and no coverage setting could produce the
+// "bright on the sun side, dark underneath" cue. The volumetric shadow map
+// (issue #723) carries everything past this range; the cone keeps the near
+// field, where its high-frequency taps beat a ~94 m/texel volume.
+float cloudLightNearRange()
 {
-    float layerThickness = u_CloudLayer.y - u_CloudLayer.x;
-    float maxT = min(layerThickness, 1400.0);
+    return min(u_CloudLayer.y - u_CloudLayer.x, 1400.0);
+}
+
+// Optical depth toward the light over [0, maxT]: short cone of exponentially
+// spaced cheap density taps (Schneider light march). Returns density-length —
+// the caller applies kCloudExtinction.
+float cloudLightOpticalDepth(vec3 worldPos, vec3 towardLight, int lightSteps, float maxT)
+{
     float od = 0.0;
     float prevT = 0.0;
     for (int i = 1; i <= lightSteps; ++i)
@@ -179,7 +194,19 @@ void main()
 
             // Sun/moon in-scatter with powder + one cheap multi-scatter octave
             // (reduced-extinction re-evaluation, Wrenninge-style).
-            float lightOD = cloudLightOpticalDepth(samplePos, u_CloudSunDir.xyz, lightSteps) * kExtinction;
+            //
+            // The light path splits at cloudLightNearRange(): the cone march
+            // owns [0, near] and the volumetric shadow map owns [near, the
+            // light]. They COMPOSE rather than overlap — the map stores optical
+            // depth measured FROM the light, so sampling it at the point where
+            // the cone stops is exactly the remainder, with no double count.
+            // Both halves are in physical (extinction-multiplied) units by the
+            // time they are added, and the map's own gate makes the second term
+            // 0 when its cascade is off.
+            float nearRange = cloudLightNearRange();
+            float lightOD = cloudLightOpticalDepth(samplePos, u_CloudSunDir.xyz, lightSteps, nearRange) * kExtinction;
+            lightOD += volumetricShadowOpticalDepth(samplePos + u_CloudSunDir.xyz * nearRange - u_RenderOrigin,
+                                                    VSM_CASCADE_CLOUD);
             float sunTrans = cloudBeerPowder(lightOD, u_CloudLight.w);
             sunTrans += u_CloudLight.z * 0.6 * cloudBeerPowder(lightOD * 0.25, 0.0);
             // 0.55: artistic single-scatter albedo — untamed, the sun term

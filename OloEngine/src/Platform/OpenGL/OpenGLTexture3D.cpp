@@ -22,6 +22,8 @@ namespace OloEngine
                     return GL_RGBA16F;
                 case Texture3DFormat::RGBA32F:
                     return GL_RGBA32F;
+                case Texture3DFormat::R32F:
+                    return GL_R32F;
             }
             OLO_CORE_ASSERT(false, "Unknown Texture3DFormat");
             return 0;
@@ -37,6 +39,8 @@ namespace OloEngine
                     return 8;
                 case Texture3DFormat::RGBA32F:
                     return 16;
+                case Texture3DFormat::R32F:
+                    return 4;
             }
             OLO_CORE_ASSERT(false, "Unknown Texture3DFormat");
             return 0;

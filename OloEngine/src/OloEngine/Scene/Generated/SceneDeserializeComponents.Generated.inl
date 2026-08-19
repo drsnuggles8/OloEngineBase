@@ -286,6 +286,11 @@ if (auto node = entity["CloudscapeComponent"]; node)
         comp.m_ShadowStrength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowMapWorldSize"], v))
         comp.m_ShadowMapWorldSize = std::clamp(v, static_cast<f32>(500.0f), static_cast<f32>(50000.0f));
+    comp.m_VolumetricSelfShadow = node["VolumetricSelfShadow"].as<bool>(comp.m_VolumetricSelfShadow);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["VolumetricSelfShadowStrength"], v))
+        comp.m_VolumetricSelfShadowStrength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["VolumetricSelfShadowExtent"], v))
+        comp.m_VolumetricSelfShadowExtent = std::clamp(v, static_cast<f32>(1000.0f), static_cast<f32>(60000.0f));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TemporalBlend"], v))
         comp.m_TemporalBlend = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(0.98f));
     comp.m_AffectIBL = node["AffectIBL"].as<bool>(comp.m_AffectIBL);

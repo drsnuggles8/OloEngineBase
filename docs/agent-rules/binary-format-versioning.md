@@ -80,6 +80,48 @@ it establishes the pattern so the *next* dev who adds a field to
 `AssetInfo`/`SceneInfo`/`IndexTable` gates it correctly on the first try,
 instead of learning the desync trap from a corrupted pack.
 
+## The rule has a PRECONDITION: the field must live inside a framed block
+
+Discovered by issue #723, which added a settings field and broke
+`FullSaveWithPreV3TerrainRestoresThroughRestoreSceneState` while following
+rule 3 exactly.
+
+"Gate each new field" only resynchronises if something downstream can recover
+the reader's position when the gate skips bytes the writer emitted. In the
+save-game archive that something is the **per-component length prefix**:
+each entity's components are written as `{typeHash, byteCount, payload}`, so a
+component reading fewer fields than were written still lands on the next
+block's header. Every gated field to date — `TerrainComponent`,
+`IKTargetComponent`, `VehicleComponent`, `AircraftComponent` — is inside one.
+
+The **scene-settings section is not framed**. It is a flat run of structs
+between the `"SETS"` and `"ENTS"` markers, with no count and no length. A
+version-gated field there makes reader and writer consume different byte
+counts with nothing to resync against, so every later settings struct reads
+shifted bytes and the `"ENTS"` marker check fails — a clean rejection, but a
+rejection.
+
+So, before gating a field, ask **which framed block is it inside?**
+
+- Inside a component block → gate it, per rule 3.
+- In the settings section (or any other flat run) → you cannot gate it. Either
+  frame the section first, or leave the field out of the archive.
+
+`FogSettings`' volumetric self-shadow fields took the second option, and the
+loss is smaller than it looks once `RestoreSceneState` seeds its settings
+structs **from the live scene** instead of default-constructing them: a field
+the archive does not carry then keeps the value the scene was loaded with,
+rather than snapping to a global default. That is the right default for every
+settings field a save game does not own, and it is what makes "leave it out"
+a real option rather than a silent drop.
+
+**Why the guard test catches this and a hand-check would not:** the test builds
+its "old" archive by taking a CURRENT-layout capture and declaring it version
+2. That is an archive no build could ever have written, and it is exactly the
+right adversary — it holds the writer at the new layout and the reader at the
+old one, which is the desync, isolated. It passes trivially while every gated
+field is framed, and fails the moment one is not.
+
 ## Guard
 
 `SaveGameFileTest.cpp` (`SaveGameHeaderTest.OlderSupportedFormatVersionIsValid`

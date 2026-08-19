@@ -248,6 +248,15 @@ void main()
                 binding == ShaderBindingLayout::TEX_CLOUD_BASE_NOISE ||
                 binding == ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE ||
                 binding == ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP ||
+                // include/VolumetricShadowCommon.glsl (issue #723) — the shared
+                // media shadow volume, published+bound every frame by
+                // VolumetricShadowMap::Dispatch via PublishTextureOffsetAndBind.
+                // Both of its readers are already ON the bindless route (the
+                // cloud raymarch and the froxel fog scatter), which is exactly
+                // why the publish has to do both halves: the seam's
+                // IsBoundProgramBindless() fork has no answer at publish time,
+                // when neither consumer's program is bound.
+                binding == ShaderBindingLayout::TEX_VOLUMETRIC_SHADOW ||
                 // include/ReflectionProbes.glsl — the distance-impostor probe
                 // arrays (issue #705), published every frame by
                 // ReflectionProbeArray::BindForShading via
@@ -798,6 +807,9 @@ void main()
               "shared header; TEX_CLOUD_SHADOW is published+bound in BindShadowTextures" },
             { "include/CloudscapeCommon.glsl",
               "shared header; the three cloud-noise slots are published+bound in RenderPipeline" },
+            { "include/VolumetricShadowCommon.glsl",
+              "shared header (issue #723); TEX_VOLUMETRIC_SHADOW is published+bound every frame in "
+              "VolumetricShadowMap::Dispatch" },
             { "include/DDGICommon.glsl",
               "shared header; the three DDGI atlases are published+bound in DDGIProbeUpdatePass" },
             { "include/WindSampling.glsl",

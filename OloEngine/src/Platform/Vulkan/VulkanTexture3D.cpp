@@ -25,6 +25,8 @@ namespace OloEngine
                     return VK_FORMAT_R16G16B16A16_SFLOAT;
                 case Texture3DFormat::RGBA32F:
                     return VK_FORMAT_R32G32B32A32_SFLOAT;
+                case Texture3DFormat::R32F:
+                    return VK_FORMAT_R32_SFLOAT;
             }
             return VK_FORMAT_UNDEFINED;
         }

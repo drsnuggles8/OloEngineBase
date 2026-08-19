@@ -3821,6 +3821,25 @@ namespace OloEngine
                 ImGui::Unindent();
             }
 
+            ImGui::SeparatorText("Volumetric Self-Shadowing");
+            ImGui::Checkbox("Self-Shadow##Cloudscape", &component.m_VolumetricSelfShadow);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Darkens the clouds' OWN undersides (issue #723).\n"
+                                  "The ground shadows above darken the scene BENEATH the clouds;\n"
+                                  "this darkens the deck's interior, which the raymarch's 1400 m\n"
+                                  "light cone cannot reach on its own.");
+            if (component.m_VolumetricSelfShadow)
+            {
+                ImGui::Indent();
+                ImGui::SliderFloat("Self-Shadow Strength##Cloudscape", &component.m_VolumetricSelfShadowStrength, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Self-Shadow Extent##Cloudscape", &component.m_VolumetricSelfShadowExtent, 100.0f, 1000.0f, 60000.0f, "%.0f m");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("World extent of the shadow volume's camera-centered window.\n"
+                                      "At a low sun the light path leaves the window sideways long\n"
+                                      "before it leaves vertically, so this wants to be generous.");
+                ImGui::Unindent();
+            }
+
             ImGui::SeparatorText("Temporal & IBL");
             ImGui::SliderFloat("Temporal Blend##Cloudscape", &component.m_TemporalBlend, 0.0f, 0.98f, "%.2f");
             if (ImGui::IsItemHovered())

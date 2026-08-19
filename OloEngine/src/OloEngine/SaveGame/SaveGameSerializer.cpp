@@ -146,6 +146,26 @@ namespace OloEngine
         ar << s.EnableVolumetric << s.VolumetricSamples << s.AbsorptionCoefficient;
         ar << s.EnableNoise << s.NoiseScale << s.NoiseSpeed << s.NoiseIntensity;
         ar << s.EnableLightShafts << s.LightShaftIntensity;
+        // NOT SERIALIZED, deliberately: FogSettings' three volumetric
+        // self-shadow fields (issue #723).
+        //
+        // This section is a FLAT byte stream between the "SETS" and "ENTS"
+        // markers — unlike a component block, it carries no length prefix. So
+        // the per-field version gate that binary-format-versioning.md
+        // prescribes cannot be used here: a gated field makes the reader and
+        // writer consume different byte counts, and with nothing to resync
+        // against, everything after it slides. (Proven by
+        // SaveGameVersionMigration.FullSaveWithPreV3TerrainRestoresThrough-
+        // RestoreSceneState, which is the first test to put a current-layout
+        // capture through an older archive version once such a field existed.)
+        //
+        // The values are not lost. They are authored scene state, persisted by
+        // SceneSerializer, and RestoreSceneState now seeds its settings structs
+        // from the LIVE scene rather than from a default-constructed one — so a
+        // field this archive does not carry keeps the value the scene was
+        // loaded with instead of snapping back to a global default. That is the
+        // right answer for every settings field a save game legitimately does
+        // not own, not just these three.
     }
 
     static void SerializeWindSettings(FArchive& ar, WindSettings& s)
@@ -489,14 +509,20 @@ namespace OloEngine
             return false;
         }
 
-        PostProcessSettings postProcess{};
-        SnowSettings snow{};
-        FogSettings fog{};
-        WindSettings wind{};
-        SnowAccumulationSettings snowAccum{};
-        SnowEjectaSettings snowEjecta{};
-        PrecipitationSettings precipitation{};
-        StreamingSettings streaming{};
+        // SEEDED FROM THE LIVE SCENE, not default-constructed. Every one of
+        // these is overwritten field by field by the reads below — except any
+        // field this archive predates or deliberately does not carry, which
+        // then retains the value the scene was loaded with. Default-
+        // constructing instead would silently reset such a field to a global
+        // default that has nothing to do with the scene the player is in.
+        PostProcessSettings postProcess = scene.m_PostProcessSettings;
+        SnowSettings snow = scene.m_SnowSettings;
+        FogSettings fog = scene.m_FogSettings;
+        WindSettings wind = scene.m_WindSettings;
+        SnowAccumulationSettings snowAccum = scene.m_SnowAccumulationSettings;
+        SnowEjectaSettings snowEjecta = scene.m_SnowEjectaSettings;
+        PrecipitationSettings precipitation = scene.m_PrecipitationSettings;
+        StreamingSettings streaming = scene.m_StreamingSettings;
 
         SerializePostProcessSettings(reader, postProcess);
         SerializeSnowSettings(reader, snow);

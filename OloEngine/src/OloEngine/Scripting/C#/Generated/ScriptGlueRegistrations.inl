@@ -319,6 +319,8 @@ OLO_ADD_INTERNAL_CALL(CloudscapeComponent_GetTypeBlend);
 OLO_ADD_INTERNAL_CALL(CloudscapeComponent_SetTypeBlend);
 OLO_ADD_INTERNAL_CALL(CloudscapeComponent_GetCastCloudShadows);
 OLO_ADD_INTERNAL_CALL(CloudscapeComponent_SetCastCloudShadows);
+OLO_ADD_INTERNAL_CALL(CloudscapeComponent_GetVolumetricSelfShadow);
+OLO_ADD_INTERNAL_CALL(CloudscapeComponent_SetVolumetricSelfShadow);
 
 // DestructibleComponent
 OLO_ADD_INTERNAL_CALL(DestructibleComponent_GetHealth);

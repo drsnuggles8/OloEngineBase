@@ -260,6 +260,11 @@ case 3559159903u: // CloudscapeComponent
     comp.m_ShadowStrength = std::clamp(comp.m_ShadowStrength, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     if (!SceneBinIO::Read(reader, comp.m_ShadowMapWorldSize)) return false;
     comp.m_ShadowMapWorldSize = std::clamp(comp.m_ShadowMapWorldSize, static_cast<f32>(500.0f), static_cast<f32>(50000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_VolumetricSelfShadow)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_VolumetricSelfShadowStrength)) return false;
+    comp.m_VolumetricSelfShadowStrength = std::clamp(comp.m_VolumetricSelfShadowStrength, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_VolumetricSelfShadowExtent)) return false;
+    comp.m_VolumetricSelfShadowExtent = std::clamp(comp.m_VolumetricSelfShadowExtent, static_cast<f32>(1000.0f), static_cast<f32>(60000.0f));
     if (!SceneBinIO::Read(reader, comp.m_TemporalBlend)) return false;
     comp.m_TemporalBlend = std::clamp(comp.m_TemporalBlend, static_cast<f32>(0.0f), static_cast<f32>(0.98f));
     if (!SceneBinIO::Read(reader, comp.m_AffectIBL)) return false;

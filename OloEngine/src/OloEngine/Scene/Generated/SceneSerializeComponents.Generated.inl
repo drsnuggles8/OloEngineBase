@@ -223,6 +223,9 @@ if (entity.HasComponent<CloudscapeComponent>())
     out << YAML::Key << "CastCloudShadows" << YAML::Value << comp.m_CastCloudShadows;
     out << YAML::Key << "ShadowStrength" << YAML::Value << comp.m_ShadowStrength;
     out << YAML::Key << "ShadowMapWorldSize" << YAML::Value << comp.m_ShadowMapWorldSize;
+    out << YAML::Key << "VolumetricSelfShadow" << YAML::Value << comp.m_VolumetricSelfShadow;
+    out << YAML::Key << "VolumetricSelfShadowStrength" << YAML::Value << comp.m_VolumetricSelfShadowStrength;
+    out << YAML::Key << "VolumetricSelfShadowExtent" << YAML::Value << comp.m_VolumetricSelfShadowExtent;
     out << YAML::Key << "TemporalBlend" << YAML::Value << comp.m_TemporalBlend;
     out << YAML::Key << "AffectIBL" << YAML::Value << comp.m_AffectIBL;
     out << YAML::EndMap; // CloudscapeComponent

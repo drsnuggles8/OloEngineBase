@@ -98,7 +98,7 @@ you are in.
 - [distance-impostor-reflection-probes.md](docs/agent-rules/distance-impostor-reflection-probes.md) — one encoding contract mirrored in three places, and the miss-sentinel that shades from stale sky.
 - [foliage-impostor-card-rendering.md](docs/agent-rules/foliage-impostor-card-rendering.md) — three ways impostor cards go missing, separable only by reading the PNG from several azimuths.
 - [light-path-photometric-parity.md](docs/agent-rules/light-path-photometric-parity.md) — the three light evaluators must agree; a dropped field in a GPU light struct is a silently dead knob.
-- [volumetric-cloud-debugging.md](docs/agent-rules/volumetric-cloud-debugging.md) — four look-alike causes of a "uniform veil", plus the two suite-level golden killers.
+- [volumetric-cloud-debugging.md](docs/agent-rules/volumetric-cloud-debugging.md) — eight look-alike causes of a "uniform veil", the two suite-level golden killers, how to tell "darker" from "directionally darker", and why a correct change can move the frame by 0.3%.
 - [pbf-solver-stability.md](docs/agent-rules/pbf-solver-stability.md) — PBF/SPH formulas assume unit-mass particles; with physical masses the reference constants diverge.
 
 **Scene, ECS & serialization**

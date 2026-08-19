@@ -1668,9 +1668,23 @@ namespace OloEngine
         ar << c.m_PhaseG << c.m_PowderStrength;
         ar << c.m_CastCloudShadows << c.m_ShadowStrength << c.m_ShadowMapWorldSize;
         ar << c.m_TemporalBlend << c.m_AffectIBL;
+        // Appended in v16 (issue #723 — v15 went to #727's voxel mesher, which
+        // landed on master while this was in flight). Gated, or every field a
+        // future slice appends after it desyncs when a v15 save is read.
+        if (HasFieldsSince(ar, 16))
+        {
+            ar << c.m_VolumetricSelfShadow << c.m_VolumetricSelfShadowStrength;
+            ar << c.m_VolumetricSelfShadowExtent;
+        }
 
         if (ar.IsLoading())
         {
+            c.m_VolumetricSelfShadowStrength = std::isfinite(c.m_VolumetricSelfShadowStrength)
+                                                   ? std::clamp(c.m_VolumetricSelfShadowStrength, 0.0f, 1.0f)
+                                                   : 1.0f;
+            c.m_VolumetricSelfShadowExtent = std::isfinite(c.m_VolumetricSelfShadowExtent)
+                                                 ? std::clamp(c.m_VolumetricSelfShadowExtent, 1000.0f, 60000.0f)
+                                                 : 12000.0f;
             c.m_LayerBottom = std::isfinite(c.m_LayerBottom) ? std::clamp(c.m_LayerBottom, 0.0f, 20000.0f) : 1500.0f;
             c.m_LayerTop = std::isfinite(c.m_LayerTop) ? std::clamp(c.m_LayerTop, 100.0f, 30000.0f) : 4000.0f;
             c.m_Coverage = std::isfinite(c.m_Coverage) ? std::clamp(c.m_Coverage, 0.0f, 1.0f) : 0.35f;

@@ -23,6 +23,7 @@
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
+#include "OloEngine/Renderer/VolumetricShadowMap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderPipelineBuilder.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
@@ -1278,6 +1279,31 @@ namespace OloEngine
         data.SceneEffectsGPU.FogVolumes->SetData(&data.SceneEffectsGPU.FogVolumesData, FogVolumesUBOData::GetSize());
         data.SceneEffectsGPU.FogVolumes->Bind();
 
+        // Invalidate the froxel fog's temporal history whenever the chain is
+        // OFF — here, where the enable is decided, not downstream.
+        //
+        // The history is PASS state (VolumetricFogPass's scatter ping-pong) and
+        // therefore outlives the scene. Its only invalidation site was
+        // FogRenderPass::Execute's `else` branch, which is unreachable when fog
+        // is off ENTIRELY: that pass does not run, so nothing clears the flag
+        // and a valid history from the previous scene survives. The next frame
+        // that turns fog back on then reprojects against another scene's fog
+        // and blends toward the truth at the history weight (0.9), so several
+        // frames read visibly wrong — thinner or thicker fog than the scene
+        // actually has, converging slowly enough to look like a lighting bug
+        // rather than a stale buffer.
+        //
+        // Found via issue #723: a new fog test left a valid history behind and
+        // VolumetricFogVisualEvidenceTest's coloured glow dropped below its
+        // threshold, while its fog-DISABLED baseline stayed bit-identical —
+        // which is the signature of history, not of settings. The same defect
+        // is reachable in a shipped game through a runtime scene switch
+        // (docs/agent-rules/runtime-scene-switching.md).
+        if (PostProcessPasses.VolumetricFog && !(data.Fog.Enabled && data.Fog.EnableVolumetric))
+        {
+            PostProcessPasses.VolumetricFog->UploadDisabledUBO();
+        }
+
         // Update wind system (regenerate 3D wind field, upload wind UBO)
         {
             // TODO(olbu): Pass actual frame dt once Timestep is threaded through BeginScene
@@ -1328,10 +1354,17 @@ namespace OloEngine
         // uploaded + bound HERE — before graph execution — because
         // CloudShadow_Generate.comp consumes UBO 53 and the noise samplers
         // 59/60/61 outside the graph.
+        // Whether the cloud NOISE FIELD is actually usable this frame. The
+        // volumetric shadow generator marches the same volumes the raymarch
+        // does, so it has to fail safe on the same condition — and that
+        // condition is NOT `data.Cloudscape.Enabled`, which stays true down the
+        // generation-failed path below.
+        bool cloudFieldReady = false;
         if (PostProcessPasses.Cloudscape && data.Cloudscape.Enabled)
         {
             if (CloudNoise::EnsureGenerated())
             {
+                cloudFieldReady = true;
                 const auto& cloudState = data.Cloudscape;
 
                 // Advance the wind-advection accumulators (shared by the
@@ -1419,14 +1452,53 @@ namespace OloEngine
             }
         }
 
-        // Surface weather response (AtmosphereShadingUBO, binding 54) —
-        // ALWAYS uploaded: the weather director's global wetness signal
-        // applies with or without clouds, and a zeroed upload is the
-        // canonical "everything off" state the PBR surface shaders gate on.
+        // Volumetric shadow map (issue #723), phase 1 of 2 — CPU only. Fits
+        // both cascades to this frame's media. It runs unconditionally because
+        // the FOG cascade does not depend on the cloudscape at all, and it must
+        // run BEFORE the atmosphere UBO is filled below: that UBO is where the
+        // generator reads its transforms from.
+        {
+            // The fog scatter shades with -sunDir (FogCommon's u_FogSunDirection
+            // is the sun's TRAVEL direction), so the cascade is fitted toward
+            // the light: the negated travel direction.
+            glm::vec3 fogTowardLight(0.0f, 1.0f, 0.0f);
+            if (const f32 dirLen2 = glm::dot(data.PrimaryDirectionalLightDir, data.PrimaryDirectionalLightDir);
+                std::isfinite(dirLen2) && dirLen2 > 1e-8f)
+            {
+                fogTowardLight = -glm::normalize(data.PrimaryDirectionalLightDir);
+            }
+            VolumetricShadowMap::PrepareFrame(data.Cloudscape, data.Fog, data.SceneEffectsGPU.FogVolumesData,
+                                              data.ViewPos, Renderer3D::GetRenderOrigin(), fogTowardLight,
+                                              cloudFieldReady);
+        }
+
+        // Surface weather response + volumetric-shadow transforms
+        // (AtmosphereShadingUBO, binding 54) — ALWAYS uploaded: the weather
+        // director's global wetness signal applies with or without clouds, and
+        // a zeroed upload is the canonical "everything off" state the PBR
+        // surface shaders gate on.
         if (AtmosphereShadingUBO)
         {
             UBOStructures::AtmosphereShadingUBO atmosphere{};
             atmosphere.Params0.x = data.Cloudscape.SurfaceWetness;
+
+            // Volumetric shadow cascades (issue #723). Uploaded even when both
+            // are disabled: the per-cascade enable lane is what the sampler and
+            // the generator gate on, so a zeroed upload is the "no volumetric
+            // shadowing" state rather than a stale transform nobody clears.
+            atmosphere.VsmVolume = glm::vec4(static_cast<f32>(VolumetricShadowMap::kSlicesPerCascade),
+                                             static_cast<f32>(VolumetricShadowMap::kCascadeCount),
+                                             1.0f / static_cast<f32>(VolumetricShadowMap::kVolumeDepth),
+                                             static_cast<f32>(VolumetricShadowMap::kResolution));
+            for (u32 cascade = 0; cascade < UBOStructures::AtmosphereShadingUBO::kVsmCascades; ++cascade)
+            {
+                const auto& state =
+                    VolumetricShadowMap::GetCascade(static_cast<VolumetricShadowMap::Cascade>(cascade));
+                atmosphere.RelWorldToVsmTex[cascade] = state.RelWorldToTex;
+                atmosphere.VsmTexToAbsWorld[cascade] = state.TexToAbsWorld;
+                atmosphere.VsmParams[cascade] = glm::vec4(state.Enabled ? 1.0f : 0.0f, state.Strength,
+                                                          state.StepLength, 0.0f);
+            }
             const bool cloudShadowActive = data.Cloudscape.Enabled &&
                                            data.Cloudscape.CastShadows &&
                                            CloudShadowMap::IsReady();
@@ -1452,6 +1524,14 @@ namespace OloEngine
             // persistent glBindBufferBase, and any transient UBO created on
             // this slot (then destroyed) reverts it to 0.
             AtmosphereShadingUBO->Bind();
+
+            // Volumetric shadow map, phase 2 of 2 — the dispatch, which reads
+            // the transforms just uploaded above plus the cloud field (UBO 53 +
+            // samplers 59/60/61) and the fog fields (UBOs 17/20), all bound
+            // earlier in this function. Ordering is the contract, not a
+            // preference: run this before the UBO upload and the generator
+            // marches last frame's cascade boxes.
+            VolumetricShadowMap::Dispatch();
         }
 
         // Upload motion blur / inverse VP matrices (needed by motion blur AND fog depth reconstruction
@@ -1693,6 +1773,24 @@ namespace OloEngine
         // the CloudsHistory import below, so the flip MUST invalidate the
         // cache or the resolve never sees its history.
         HashBool(h, CloudsHistoryValid);
+        // ...and the volumetric shadow volume (issue #723), for the third time
+        // in a row, because the trap does not care that the PRODUCER dodged it.
+        //
+        // VolumetricShadowMap runs pre-graph precisely to stay clear of the
+        // fingerprint cache (virtual-shadow-map-page-cache.md §5). But its
+        // DIAGNOSTIC import at the tail of PopulateBlackboard is still a
+        // declaration behind a runtime condition — the handle only becomes
+        // valid on the first successful Dispatch(). Without this hash, a scene
+        // that moves no other hashed input keeps the cached blackboard, the
+        // import never lands, and `VolumetricShadowVolume` never appears in
+        // RenderGraph::GetRegisteredResources() — silently costing exactly the
+        // capture target it exists to provide, while rendering stays correct
+        // because the volume is written and sampled outside the graph.
+        //
+        // Hashed by IDENTITY, like the shadow and IBL handles above: Shutdown()
+        // releases the volume, and a later frame can recreate it onto a
+        // recycled driver name.
+        HashU64(h, RHI::HashKey(VolumetricShadowMap::GetTextureHandle()));
 
         // Pass-set readiness (covers branches like
         //   `if (pipeline.PostProcessPasses.X && X->IsReadyForExecution())`)
@@ -3195,6 +3293,43 @@ namespace OloEngine
             board.IBL.BrdfLut = graph.ImportTextureHandle(
                 ResourceNames::BrdfLut, data.GlobalBRDFLutMapID,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::BrdfLut));
+        }
+
+        // ------------------------------------------------------------------
+        // Volumetric shadow volume (issue #723)
+        // ------------------------------------------------------------------
+        // Import-only, so a diagnostic can SEE it. The volume is owned by the
+        // VolumetricShadowMap system and written outside the graph entirely
+        // (UploadExecutionState, before the graph is even built), so no Read or
+        // Write declaration here changes ordering or culling — this exists
+        // purely to put it in RenderGraph::GetRegisteredResources() where
+        // olo_render_capture_target can slice it.
+        //
+        // That is not a nicety for THIS feature. Every failure mode in
+        // docs/agent-rules/volumetric-cloud-debugging.md presents as the same
+        // uniform veil, and the one question that separates them — "does the
+        // volume itself hold a gradient, or is it flat?" — is unanswerable from
+        // the composited frame. #607 added exactly this for the froxel volumes
+        // after a scatter-vs-integrate defect could not be bisected without it.
+        //
+        // Guarded on validity because the volume is created lazily on the first
+        // frame a cascade is enabled, and this runs BEFORE that (the same
+        // reason the IBL trio above is guarded): frame 1 imports nothing.
+        if (const RHI::ResourceHandle volumetricShadow = VolumetricShadowMap::GetTextureHandle();
+            volumetricShadow.IsValid())
+        {
+            static constexpr const char* kVolumetricShadowTargetName = "VolumetricShadowVolume";
+            RGResourceDesc desc =
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture3D, kVolumetricShadowTargetName);
+            desc.Format = RGResourceFormat::R32Float;
+            desc.Width = VolumetricShadowMap::kResolution;
+            desc.Height = VolumetricShadowMap::kResolution;
+            // Both cascades, stacked: slices [0, kSlicesPerCascade) are the
+            // cloud layer and the rest are fog, so a capture's `layer` picks
+            // which medium AND which depth along the light in one number.
+            desc.DepthOrLayers = VolumetricShadowMap::kVolumeDepth;
+            [[maybe_unused]] const RGTextureHandle handle =
+                graph.ImportTextureHandle(kVolumetricShadowTargetName, volumetricShadow, desc);
         }
     }
 

@@ -3222,6 +3222,21 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 500.0f, Max = 50000.0f)
         f32 m_ShadowMapWorldSize = 8000.0f; // world extent covered, centered on camera
 
+        // Volumetric SELF-shadowing (issue #723): the cloud cascade of the
+        // shared volumetric shadow map darkens the clouds' OWN undersides,
+        // where m_CastCloudShadows above darkens the scene beneath them. The
+        // raymarch's per-sample light cone only reaches 1400 m, so without this
+        // the interior of a thick deck is lit exactly like its top.
+        OLO_PROPERTY()
+        bool m_VolumetricSelfShadow = true;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_VolumetricSelfShadowStrength = 1.0f;
+        // Larger than the visible layer patch on purpose: at a low sun the
+        // light path into a sample leaves the window sideways long before it
+        // leaves vertically.
+        OLO_SERIALIZE(Clamp, Min = 1000.0f, Max = 60000.0f)
+        f32 m_VolumetricSelfShadowExtent = 12000.0f;
+
         // Temporal reprojection history feedback (0 = fresh every frame)
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 0.98f)
         f32 m_TemporalBlend = 0.9f;
@@ -3260,6 +3275,9 @@ namespace OloEngine
                    m_CastCloudShadows == other.m_CastCloudShadows &&
                    Math::BitwiseEqual(m_ShadowStrength, other.m_ShadowStrength) &&
                    Math::BitwiseEqual(m_ShadowMapWorldSize, other.m_ShadowMapWorldSize) &&
+                   m_VolumetricSelfShadow == other.m_VolumetricSelfShadow &&
+                   Math::BitwiseEqual(m_VolumetricSelfShadowStrength, other.m_VolumetricSelfShadowStrength) &&
+                   Math::BitwiseEqual(m_VolumetricSelfShadowExtent, other.m_VolumetricSelfShadowExtent) &&
                    Math::BitwiseEqual(m_TemporalBlend, other.m_TemporalBlend) &&
                    m_AffectIBL == other.m_AffectIBL;
         }
