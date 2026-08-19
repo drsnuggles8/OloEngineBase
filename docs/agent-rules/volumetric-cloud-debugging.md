@@ -213,7 +213,6 @@ flicker. `VolumetricShadowVisualEvidenceTest` is the worked example.
   side" as camera poses, work out which is which at the sun elevation you are
   actually testing.
 
-
 - **`olo_render_capture_target` shows the EDITOR viewport camera's frame**,
   not the pose passed to `olo_screenshot`. A capture of a sky-effect buffer
   taken while the viewport camera looks at the ground is legitimately black.

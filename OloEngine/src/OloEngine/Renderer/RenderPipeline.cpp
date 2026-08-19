@@ -1773,6 +1773,24 @@ namespace OloEngine
         // the CloudsHistory import below, so the flip MUST invalidate the
         // cache or the resolve never sees its history.
         HashBool(h, CloudsHistoryValid);
+        // ...and the volumetric shadow volume (issue #723), for the third time
+        // in a row, because the trap does not care that the PRODUCER dodged it.
+        //
+        // VolumetricShadowMap runs pre-graph precisely to stay clear of the
+        // fingerprint cache (virtual-shadow-map-page-cache.md §5). But its
+        // DIAGNOSTIC import at the tail of PopulateBlackboard is still a
+        // declaration behind a runtime condition — the handle only becomes
+        // valid on the first successful Dispatch(). Without this hash, a scene
+        // that moves no other hashed input keeps the cached blackboard, the
+        // import never lands, and `VolumetricShadowVolume` never appears in
+        // RenderGraph::GetRegisteredResources() — silently costing exactly the
+        // capture target it exists to provide, while rendering stays correct
+        // because the volume is written and sampled outside the graph.
+        //
+        // Hashed by IDENTITY, like the shadow and IBL handles above: Shutdown()
+        // releases the volume, and a later frame can recreate it onto a
+        // recycled driver name.
+        HashU64(h, RHI::HashKey(VolumetricShadowMap::GetTextureHandle()));
 
         // Pass-set readiness (covers branches like
         //   `if (pipeline.PostProcessPasses.X && X->IsReadyForExecution())`)

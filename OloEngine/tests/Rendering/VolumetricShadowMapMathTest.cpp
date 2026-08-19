@@ -98,6 +98,26 @@ namespace OloEngine::Tests
             return (static_cast<f32>(cascade) * slices + w * slices) * (1.0f / static_cast<f32>(kVolumeDepth));
         }
 
+        // PrepareFrame writes PROCESS-GLOBAL cascade state, so a test that calls
+        // it owes a reset — and a trailing statement is NOT one: ASSERT_* returns
+        // from the test function, so any failure would skip it and hand the next
+        // test a populated cascade. This is the same leak class that already cost
+        // an afternoon on the GPU side of this issue, one scope up.
+        struct ScopedCascadeReset
+        {
+            ScopedCascadeReset() = default;
+            ScopedCascadeReset(const ScopedCascadeReset&) = delete;
+            ScopedCascadeReset& operator=(const ScopedCascadeReset&) = delete;
+            ScopedCascadeReset(ScopedCascadeReset&&) = delete;
+            ScopedCascadeReset& operator=(ScopedCascadeReset&&) = delete;
+            ~ScopedCascadeReset()
+            {
+                VolumetricShadowMap::PrepareFrame(CloudscapeRenderState{}, FogSettings{},
+                                                  FogVolumesUBOData{}, glm::vec3(0.0f), glm::vec3(0.0f),
+                                                  glm::vec3(0.0f, 1.0f, 0.0f), false);
+            }
+        };
+
         // ── Literal mirror of VolumetricShadow_Generate.comp's march ──
         // Slice i stores the optical depth at the slice CENTRE: the running
         // total through slices [0, i) plus half of slice i's own contribution.
@@ -460,6 +480,7 @@ namespace OloEngine::Tests
         // anywhere. Running pre-graph dodges that entirely, and this test is
         // what says so out loud: every toggle below is flipped AFTER a frame
         // that ran with it off.
+        const ScopedCascadeReset resetOnExit;
         CloudscapeRenderState clouds; // defaults: Enabled = false
         FogSettings fog;              // defaults: Enabled = false
         const FogVolumesUBOData volumes{};
@@ -525,11 +546,7 @@ namespace OloEngine::Tests
         prepare(true);
         EXPECT_FALSE(fogCascade().Enabled);
 
-        // Leave the process-global snapshot clean for whatever runs next.
-        clouds = CloudscapeRenderState{};
-        fog = FogSettings{};
-        prepare(true);
-        EXPECT_FALSE(VolumetricShadowMap::AnyCascadeEnabled());
+        // The reset is ScopedCascadeReset's job, not a trailing statement's.
     }
 
     TEST(VolumetricShadowMapMath, FogCascadeHoldsStillUnderSubTexelCameraMotion)
@@ -547,6 +564,7 @@ namespace OloEngine::Tests
         // sample slid sub-texel — straight into the froxel scatter's
         // 0.9-weight history, which is where it would have shown up as shimmer
         // rather than as anything pointing at this code.
+        const ScopedCascadeReset resetOnExit;
         CloudscapeRenderState clouds; // disabled: fog cascade only
         FogSettings fog;
         fog.Enabled = true;
@@ -587,9 +605,7 @@ namespace OloEngine::Tests
             }
         }
 
-        // Leave the process-global snapshot clean.
-        VolumetricShadowMap::PrepareFrame(CloudscapeRenderState{}, FogSettings{}, volumes, cameraBase,
-                                          renderOrigin, towardLight, false);
+        // The reset is ScopedCascadeReset's job, not a trailing statement's.
     }
 
     TEST(VolumetricShadowMapMath, BoundsUnionAndWindowClampBehave)

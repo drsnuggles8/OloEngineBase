@@ -14,6 +14,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace OloEngine
 {
@@ -34,8 +35,8 @@ namespace OloEngine
         LightFrame BuildLightFrame(const glm::vec3& towardLight)
         {
             glm::vec3 toward = towardLight;
-            const f32 lengthSq = glm::dot(toward, toward);
-            if (!std::isfinite(lengthSq) || lengthSq < 1.0e-12f)
+            if (const f32 lengthSq = glm::dot(toward, toward);
+                !std::isfinite(lengthSq) || lengthSq < 1.0e-12f)
             {
                 toward = glm::vec3(0.0f, 1.0f, 0.0f); // degenerate input: straight-down sun
             }
@@ -168,6 +169,15 @@ namespace OloEngine
             {
                 localHalf = glm::vec3(std::abs(extents.x), std::abs(extents.y), std::abs(extents.x));
             }
+            else
+            {
+                // BOX, and every unknown shape id with it. Matching
+                // FogVolumeCommon.glsl's evaluateVolumeSDF, whose own chain ends
+                // `else // BOX (default)` — a shape the shader treats as a box
+                // must be bounded as a box here or the cascade is fitted to
+                // something the medium is not.
+                localHalf = glm::abs(extents);
+            }
             if (localHalf.x <= 0.0f || localHalf.y <= 0.0f || localHalf.z <= 0.0f)
             {
                 return invalid;
@@ -230,7 +240,16 @@ namespace OloEngine
 
     namespace
     {
-        using namespace VolumetricShadowMath;
+        using VolumetricShadowMath::Bounds;
+        using VolumetricShadowMath::BuildLightFrame;
+        using VolumetricShadowMath::CascadeFit;
+        using VolumetricShadowMath::ClampBoundsToWindow;
+        using VolumetricShadowMath::FitCascade;
+        using VolumetricShadowMath::FogVolumeWorldBounds;
+        using VolumetricShadowMath::LightFrame;
+        using VolumetricShadowMath::MakeRelWorldToTex;
+        using VolumetricShadowMath::MakeTexToAbsWorld;
+        using VolumetricShadowMath::UnionBounds;
 
         // Must match local_size_x/y in VolumetricShadow_Generate.comp
         constexpr u32 kLocalSize = 8;
@@ -238,7 +257,7 @@ namespace OloEngine
         // The cloud cascade's domain: the layer slab over a camera-centred
         // window. The window is what bounds the march at a low sun — see
         // FitCascade's comment.
-        Bounds BuildCloudDomain(const CloudscapeRenderState& clouds, const glm::vec3& cameraPosAbsolute)
+        [[nodiscard]] Bounds BuildCloudDomain(const CloudscapeRenderState& clouds, const glm::vec3& cameraPosAbsolute)
         {
             const f32 bottom = clouds.LayerBottom;
             const f32 top = std::max(clouds.LayerTop, bottom + 1.0f);
@@ -256,8 +275,8 @@ namespace OloEngine
         // volume placed off to one side would sit outside the footprint and be
         // reported unshadowed — which is exactly the acceptance criterion this
         // cascade exists for.
-        Bounds BuildFogDomain(const FogSettings& fog, const FogVolumesUBOData& fogVolumes,
-                              const glm::vec3& cameraPosAbsolute)
+        [[nodiscard]] Bounds BuildFogDomain(const FogSettings& fog, const FogVolumesUBOData& fogVolumes,
+                                            const glm::vec3& cameraPosAbsolute)
         {
             // The setting is a FLOOR, not the final answer: any froxel outside
             // this window reads back "unshadowed", so a window that does not
@@ -338,8 +357,7 @@ namespace OloEngine
             for (i32 i = 0; i < count; ++i)
             {
                 const FogVolumeData& volume = fogVolumes.Volumes[static_cast<u32>(i)];
-                const f32 density = volume.ColorAndDensity.a * volume.ShapeAndFalloff.z;
-                if (!(density > 0.0f))
+                if (const f32 density = volume.ColorAndDensity.a * volume.ShapeAndFalloff.z; !(density > 0.0f))
                 {
                     continue;
                 }
@@ -353,8 +371,8 @@ namespace OloEngine
             return domain;
         }
 
-        VolumetricShadowMap::CascadeState MakeCascadeState(const Bounds& domain, const glm::vec3& towardLight,
-                                                           const glm::vec3& renderOrigin, f32 strength)
+        [[nodiscard]] VolumetricShadowMap::CascadeState MakeCascadeState(const Bounds& domain, const glm::vec3& towardLight,
+                                                                         const glm::vec3& renderOrigin, f32 strength)
         {
             VolumetricShadowMap::CascadeState state;
             if (!domain.IsValid() || !(strength > 0.0f))
@@ -405,7 +423,7 @@ namespace OloEngine
 
         if (clouds.Enabled && clouds.VolumetricSelfShadow && cloudFieldReady)
         {
-            s_Data.m_Cascades[static_cast<u32>(Cascade::Cloud)] =
+            s_Data.m_Cascades[std::to_underlying(Cascade::Cloud)] =
                 MakeCascadeState(BuildCloudDomain(clouds, cameraPosAbsolute), clouds.SunDirection, renderOrigin,
                                  clouds.VolumetricShadowStrength);
         }
@@ -414,7 +432,7 @@ namespace OloEngine
         // no per-sample march to attach a transmittance to.
         if (fog.Enabled && fog.EnableVolumetric && fog.EnableVolumetricSelfShadow)
         {
-            s_Data.m_Cascades[static_cast<u32>(Cascade::Fog)] =
+            s_Data.m_Cascades[std::to_underlying(Cascade::Fog)] =
                 MakeCascadeState(BuildFogDomain(fog, fogVolumes, cameraPosAbsolute), fogTowardLight, renderOrigin,
                                  fog.VolumetricSelfShadowStrength);
         }
@@ -576,7 +594,7 @@ namespace OloEngine
 
     const VolumetricShadowMap::CascadeState& VolumetricShadowMap::GetCascade(Cascade cascade)
     {
-        return s_Data.m_Cascades[static_cast<u32>(cascade)];
+        return s_Data.m_Cascades[std::to_underlying(cascade)];
     }
 
     bool VolumetricShadowMap::AnyCascadeEnabled()

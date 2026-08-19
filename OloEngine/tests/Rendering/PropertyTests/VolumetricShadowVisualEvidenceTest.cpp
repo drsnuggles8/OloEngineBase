@@ -59,6 +59,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -374,8 +375,8 @@ namespace OloEngine::Tests
             { "Dusk05", 5.0f },
         } };
 
-        std::array<f64, 4> undersideDeltas{};
-        std::array<f64, 4> towardSunDeltas{};
+        std::array<f64, suns.size()> undersideDeltas{};
+        std::array<f64, suns.size()> towardSunDeltas{};
 
         for (u32 i = 0; i < suns.size(); ++i)
         {
@@ -432,7 +433,14 @@ namespace OloEngine::Tests
         // all of it. Measured ratio ~9x here (0.78 -> 7.11 grey levels) and
         // ~175x in the live editor with the same sweep; 3x is the floor, where
         // a veil would sit at 1x.
-        EXPECT_GT(duskSun, highSun * 3.0)
+        // FLOORED AT ZERO, because a ratio against a negative baseline is not a
+        // test. highSun is a measured difference and may land slightly below 0
+        // (the -0.5 tolerance above allows it); `duskSun > highSun * 3.0` would
+        // then be satisfied by ANY positive dusk value — including one far too
+        // small to mean the map ran. Clamping makes the assertion "at least 3x
+        // the high-sun differential, and never less than the absolute floor".
+        const f64 highSunFloor = std::max(highSun, 1.0);
+        EXPECT_GT(duskSun, highSunFloor * 3.0)
             << "the differential did not grow as the sun sank (60 deg: " << highSun << ", 5 deg: " << duskSun
             << ") — a shadow that does not track the light is a veil, not occlusion";
 
