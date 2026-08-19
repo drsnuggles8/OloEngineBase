@@ -40,6 +40,9 @@ layout(binding = 0) uniform sampler2D u_SceneDepth;
 
 // Screen texels between samples, per axis. 8 keeps a 1920x1080 frame at
 // 240x135 invocations — a rounding error against the probe work it schedules.
+// Mirrors DDGI::kScreenRequestStride (DDGICommon.h); the C++ side sizes the
+// dispatch from it, so a mismatch samples the wrong share of the screen.
+// Pinned by BindlessShaderPipeline.DDGIShaderConstantsMatchTheCppMirrors.
 const int DDGI_SCREEN_REQUEST_STRIDE = 8;
 
 void main()

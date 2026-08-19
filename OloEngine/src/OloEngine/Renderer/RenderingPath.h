@@ -121,15 +121,29 @@ namespace OloEngine
         // a volume around a specific interior wants that volume's resolution
         // and bounds there, and the cascades cover everywhere they did not.
         bool DDGICascadesEnabled = false;
-        // Probes per axis PER CASCADE. The dense-storage cost is
-        // CascadeCount * Resolution^3 probes at roughly 8 KB each (hit cache,
-        // radiance, irradiance, visibility), so 4 x 16^3 is ~130 MB and 6 x 32^3
-        // — the figure the issue quotes from PGI — would be ~1.6 GB. PGI can
-        // afford theirs because they RE-TRACE rays per update and store no hit
-        // cache; this engine's capture is a rasterized hit-point cache (ADR
-        // 0007), which is what buys per-frame relighting without ray tracing
-        // and what makes the per-probe footprint ~48x larger. Raise these only
-        // with the memory arithmetic in hand.
+        // Probes per axis PER CASCADE. Dense storage is CascadeCount *
+        // Resolution^3 probes, and the per-probe cost DEPENDS ON THE HIT-CACHE
+        // RESOLUTION — which is the thing to state, because quoting one figure
+        // without it is how the same field ends up described as both 68 MB and
+        // 130 MB in different comments:
+        //
+        //   irradiance 8x8 RGBA16F x2 (ping-pong)  1024 B
+        //   visibility 16x16 RG16F  x2 (ping-pong) 2048 B
+        //   radiance   t*t   RGBA16F                512 B at t=8, 2048 B at t=16
+        //   hit cache  t*t   RGBA8 + RGBA16F        768 B at t=8, 3072 B at t=16
+        //                                          -------
+        //   total                                  ~4.3 KB at t=8, ~8.0 KB at t=16
+        //
+        // The CASCADE path submits t=8 (DDGI::kHitCacheResolutionLow), so the
+        // 4 x 16^3 default is ~68 MB. At the 16-texel cache an authored volume
+        // uses it would be ~128 MB. PGI's 6 x 32^3 — the figure the issue
+        // quotes — is ~0.8 GB at t=8 and ~1.5 GB at t=16.
+        //
+        // PGI can afford theirs because they RE-TRACE rays per update and store
+        // no hit cache at all; this engine's capture is a rasterized hit-point
+        // cache (ADR 0007), which is what buys per-frame relighting without ray
+        // tracing and what makes the per-probe footprint large. Raise these only
+        // with the arithmetic above in hand.
         i32 DDGICascadeCount = 4;
         i32 DDGICascadeResolution = 16;
         // Cascade 0's probe spacing in world units; cascade N is 2^N times it.

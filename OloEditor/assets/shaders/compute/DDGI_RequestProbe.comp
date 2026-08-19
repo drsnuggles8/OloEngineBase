@@ -25,6 +25,9 @@
 // enforces it.
 // =============================================================================
 
+// Mirrors DDGI::kProbeDispatchStride (DDGICommon.h). Pinned by
+// BindlessShaderPipeline.DDGIShaderConstantsMatchTheCppMirrors — a mismatch
+// silently processes the wrong probes rather than failing.
 #define DDGI_PROBE_DISPATCH_STRIDE 32768
 layout(local_size_x = 64) in;
 

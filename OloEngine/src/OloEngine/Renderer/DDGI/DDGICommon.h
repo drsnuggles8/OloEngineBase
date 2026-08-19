@@ -354,6 +354,25 @@ namespace OloEngine::DDGI
     inline constexpr f32 kDefaultBaseProbeSpacing = 1.5f;
     inline constexpr glm::ivec3 kDefaultCascadeResolution{ 16, 16, 16 };
 
+    // Upper bound on the per-cascade probe count per axis. Dense storage is
+    // CascadeCount * Resolution^3 probes, so this is a MEMORY guard, not a
+    // quality one: at 8 cascades, 64^3 would be 2M probes (~9 GB of atlases).
+    // The editor slider stops at 32, but a settings file, a script or a quality
+    // preset can reach SubmitVolume without passing through the slider, so the
+    // bound belongs at the submission boundary too.
+    inline constexpr i32 kMaxCascadeResolution = 64;
+
+    // Compute dispatch geometry, shared with the GLSL that must agree with it.
+    //
+    // GL guarantees only 65535 work groups per dimension and a 6-cascade 32^3
+    // field is ~196k probes, so the one-group-per-probe request dispatch is 2D
+    // and both sides must use the SAME stride — a mismatch silently processes
+    // the wrong probes rather than failing. Same for the screen-request
+    // subsample. Pinned against the shader source by
+    // BindlessShaderPipeline.DDGIShaderConstantsMatchTheCppMirrors.
+    inline constexpr u32 kProbeDispatchStride = 32768u;
+    inline constexpr u32 kScreenRequestStride = 8u;
+
     // Fraction of a cascade's half-extent, per axis, over which its
     // contribution cross-fades into the next coarser cascade. 0 disables the
     // band entirely and restores the pre-#707 hard volume test — which is what
@@ -697,8 +716,11 @@ namespace OloEngine::DDGI
     inline constexpr f32 kCaptureCascadePenalty = 1.0e3f;
 
     // Lower is more urgent. `framesSinceCapture` is only consulted for
-    // PeriodicRefresh (oldest first); the other tiers order by distance, then
-    // cascade level. Callers break remaining ties on the probe index so the
+    // PeriodicRefresh (oldest first); the other tiers order by CASCADE LEVEL
+    // FIRST and distance second — kCaptureCascadePenalty is 1e3, so any coarser
+    // cascade loses to any finer one inside a kilometre, which is the intended
+    // priority (the finest cascade is what the viewer is standing in) and not
+    // merely a tie-break. Callers break remaining ties on the probe index so the
     // schedule is reproducible frame to frame — a temporal algorithm whose
     // capture order wobbles cannot be converged against.
     [[nodiscard("the capture score is the only effect")]] inline f32 CaptureScore(CaptureTier tier, f32 distanceToCamera, i32 cascadeLevel, u32 framesSinceCapture) noexcept

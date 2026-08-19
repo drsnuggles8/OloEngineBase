@@ -7595,7 +7595,12 @@ namespace OloEngine
                         DDGIVolumeDesc desc;
                         desc.Cascaded = true;
                         desc.CascadeCount = std::clamp(rendererSettings.DDGICascadeCount, 1, DDGI::kMaxCascades);
-                        desc.Resolution = glm::ivec3(std::max(rendererSettings.DDGICascadeResolution, 1));
+                        // Clamped at the SUBMISSION boundary, not just in the
+                        // editor slider: a settings file, a script or a quality
+                        // preset reaches here without passing through the UI,
+                        // and the cost is CascadeCount * Resolution^3 probes.
+                        desc.Resolution = glm::ivec3(
+                            std::clamp(rendererSettings.DDGICascadeResolution, 1, DDGI::kMaxCascadeResolution));
                         desc.BaseProbeSpacing = std::max(rendererSettings.DDGICascadeBaseSpacing, 1e-3f);
                         desc.CascadeBlendBand = std::clamp(rendererSettings.DDGICascadeBlendBand, 0.0f, 0.9f);
                         desc.SparsityEnabled = rendererSettings.DDGISparsityEnabled;

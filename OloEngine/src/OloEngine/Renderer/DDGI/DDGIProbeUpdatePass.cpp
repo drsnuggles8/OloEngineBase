@@ -68,14 +68,11 @@ namespace OloEngine
         // the tail never maintained), so they are named rather than inlined.
         constexpr u32 kMaintainGroupSize = 64;
         constexpr u32 kScreenRequestGroupSize = 8;
-        constexpr u32 kScreenRequestStride = 8; // must match DDGI_SCREEN_REQUEST_STRIDE
         constexpr u32 kRelocateGroupSize = 64;
-        // GL guarantees only 65535 work groups per dimension, and a 6-cascade
-        // 32^3 field is ~196k probes — so the one-group-per-probe request
-        // dispatch is 2D. Must match DDGI_PROBE_DISPATCH_STRIDE in
-        // DDGI_RequestProbe.comp; a mismatch processes the wrong probes rather
-        // than failing.
-        constexpr u32 kProbeDispatchStride = 32768;
+        // The two dispatch strides live in DDGICommon.h so the GLSL mirrors have
+        // a single C++ counterpart to be pinned against.
+        using DDGI::kProbeDispatchStride;
+        using DDGI::kScreenRequestStride;
 
         // Bit flags mirroring DDGI_PASS_FLAG_* in include/DDGIPassData.glsl.
         constexpr i32 kPassFlagCascadeShifted = 1;
@@ -566,6 +563,18 @@ namespace OloEngine
             UBOStructures::DDGIVolumeUBO ubo{};
             ubo.Enabled = 0;
             ubo.CascadeCount = 1;
+            // A zero spacing would divide by ~0 in any cascade helper that ran
+            // before the Enabled check. Every shader tests Enabled first, so
+            // this is defensive only — but it is the same defensiveness
+            // BuildCascades applies to unused cascade levels, and a disabled
+            // UBO carrying values that are illegal to use is a trap for whoever
+            // adds the next consumer.
+            for (u32 level = 0; level < UBOStructures::DDGIVolumeUBO::MaxCascades; ++level)
+            {
+                ubo.CascadeSpacing[level] = glm::vec4(1.0f);
+                ubo.CascadeOrigin[level] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            }
+            ubo.ProbeSpacing = glm::vec4(1.0f);
             m_DDGIUBO->SetData(&ubo, sizeof(ubo));
             m_DDGIUBO->Bind();
         }
@@ -1724,7 +1733,12 @@ namespace OloEngine
         // Remember this frame's world view-projection for the NEXT frame's
         // screen-request reconstruction: it must be the matrix the depth buffer
         // that pass reads was rendered with, not this frame's.
-        m_PrevWorldInvViewProjection = glm::inverse(m_WorldViewProjection);
+        // RECOMPUTED FROM THE ADJUSTED FORWARD MATRIX, never adjusted after
+        // inverting — RHIProjectionSeam.h states that contract for every
+        // uploaded inverse, and DDGI_RequestScreen.comp reconstructs world
+        // positions from this one. Identity on GL, so this is a Vulkan-route
+        // correctness fix rather than a behaviour change today.
+        m_PrevWorldInvViewProjection = RHI::AdjustedInverseForShaderReconstruction(m_WorldViewProjection);
         m_HavePrevViewProjection = true;
 
         m_Casters.clear();

@@ -297,8 +297,16 @@ slab.
 
 An AUTHORED volume is the same structure with one cascade, lattice origin =
 `BoundsMin`, lattice min = 0 and blend band 0 — which reproduces the pre-#707
-probe indices, atlas tiles and world positions exactly. That compatibility is
+probe indices, atlas tiles and grid positions exactly. That compatibility is
 load-bearing: `DDGIReferenceParityTest` measured its parity against that layout.
+
+What is preserved is the LAYOUT, INDEXING AND GATHER ARITHMETIC — not the frame.
+The authored path is not bit-identical to #632 overall, and claiming so would be
+wrong: every captured probe now goes through `RelocateProbeGPU`, so the spring
+replaces RTXGI's three-case rule there too and converged probes settle at
+slightly different offsets. Measured against the table PR #836 recorded on the
+same rig, the four air-fitted probes hold to within +-0.01 while the
+wall-enclosing control moves ~2%.
 
 **Sparsity.** A probe relights only if something requested it — a shaded screen
 pixel, another live probe's cached hit point (ONE indirection deep), or the
@@ -323,12 +331,15 @@ which the closest-face rule leaves alone and which PGI's notes identify as the
 visible "blind spot" producer.
 
 **What did NOT change, and why.** The issue quotes PGI's default of 6 cascades x
-32^3. That is ~196k probes, and a probe costs ~4-8 KB here (hit cache, radiance,
-irradiance, visibility) because the capture is a rasterized hit-point CACHE
-rather than re-traced rays — so their default would be ~1.6 GB of atlases. PGI
-can afford theirs because they store no hit cache. The shipped default is 4
-cascades x 16^3 (~68 MB), and the renderer-settings panel prints the arithmetic
-next to the sliders.
+32^3, i.e. ~196k probes. A probe costs ~4.3 KB at the 8-texel hit cache the
+cascade path submits and ~8.0 KB at the 16-texel cache an authored volume uses
+(irradiance and visibility are fixed-size and ping-ponged; radiance and the hit
+cache scale with t^2 — the full breakdown is in `RenderingPath.h`). So PGI's
+default would be ~0.8 GB at t=8 and ~1.5 GB at t=16, against a shipped default of
+4 cascades x 16^3 at t=8 = **~68 MB**. Quote the hit-cache resolution with any of
+these figures; without it the same field reads as 68 MB or 128 MB depending on
+which comment you land on. PGI can afford theirs because they store no hit cache
+at all. The renderer-settings panel prints the arithmetic next to the sliders.
 
 Traps and verification order: [docs/agent-rules/ddgi-probe-cascades-and-sparsity.md](../agent-rules/ddgi-probe-cascades-and-sparsity.md).
 

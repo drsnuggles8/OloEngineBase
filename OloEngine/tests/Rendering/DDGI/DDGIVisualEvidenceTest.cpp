@@ -1016,7 +1016,10 @@ namespace OloEngine::Tests
         static constexpr i32 kCascadeRes = 8;
         static constexpr f32 kBaseSpacing = 3.0f;
         static constexpr i32 kProbesPerCascade = kCascadeRes * kCascadeRes * kCascadeRes;
-        static constexpr i32 kTotalProbes = kCascadeCount * kProbesPerCascade;
+        // Deliberately NOT `kTotalProbes`: the anonymous namespace already has one
+        // (the authored rig's 48), and a fixture member that shadows it makes every
+        // reference here ambiguous to a reader even though the compiler is happy.
+        static constexpr i32 kCascadeTotalProbes = kCascadeCount * kProbesPerCascade;
 
         // Long enough for the capture schedule to reach the far cascades AND
         // for the relocation spring's follow-up captures to drain, since a
@@ -1254,7 +1257,7 @@ namespace OloEngine::Tests
                "the scene really has no LightProbeVolumeComponent (an authored volume takes precedence)";
 
         EXPECT_EQ(pass->GetCascadeCount(), kCascadeCount);
-        EXPECT_EQ(pass->GetTotalProbeCount(), kTotalProbes);
+        EXPECT_EQ(pass->GetTotalProbeCount(), kCascadeTotalProbes);
 
         // Cascade N must be twice cascade N-1's spacing, and every window must
         // be centred near the camera. Checked against the LIVE cascade table so
@@ -1297,7 +1300,7 @@ namespace OloEngine::Tests
         ASSERT_NE(pass, nullptr);
         const DDGIProbeUpdatePass::ProbeStats stats = pass->GetProbeStats();
 
-        std::cout << "[ddgi-cascades] probes: total=" << kTotalProbes
+        std::cout << "[ddgi-cascades] probes: total=" << kCascadeTotalProbes
                   << " live=" << stats.LiveProbes
                   << " active=" << stats.ActiveProbes
                   << " relit/frame=" << stats.RelitProbes
@@ -1305,10 +1308,10 @@ namespace OloEngine::Tests
                   << " captured=" << stats.CapturedProbes
                   << " live-but-uncaptured=" << stats.UncapturedLive << "\n";
         std::cout << "[ddgi-cascades] live fraction = "
-                  << (100.0 * static_cast<f64>(stats.LiveProbes) / static_cast<f64>(kTotalProbes)) << "%\n";
+                  << (100.0 * static_cast<f64>(stats.LiveProbes) / static_cast<f64>(kCascadeTotalProbes)) << "%\n";
 
         EXPECT_GT(stats.LiveProbes, 0u) << "nothing requested a probe — sparsity has starved the field";
-        EXPECT_LT(stats.LiveProbes, static_cast<u32>(kTotalProbes))
+        EXPECT_LT(stats.LiveProbes, static_cast<u32>(kCascadeTotalProbes))
             << "every probe is live, so sparsity is not actually gating anything";
         // The relight set can never exceed the live set — if it does, the two
         // gates (DDGI_Relight.glsl and DDGI_ProbeMaintain.comp) disagree about
@@ -1333,28 +1336,57 @@ namespace OloEngine::Tests
 
         // Longer than kConvergeFrames: at 1-in-8 a probe's EMA advances one
         // frame in eight, so the field needs proportionally longer to settle.
-        Converge({ 0.0f, 3.0f, 6.0f }, { 0.0f, 3.0f, -40.0f }, kConvergeFrames * 2u);
+        const glm::vec3 eye{ 0.0f, 3.0f, 6.0f };
+        const glm::vec3 target{ 0.0f, 3.0f, -40.0f };
+        Converge(eye, target, kConvergeFrames * 2u);
 
         auto* pass = Renderer3D::GetDDGIPass();
         ASSERT_NE(pass, nullptr);
-        const DDGIProbeUpdatePass::ProbeStats stats = pass->GetProbeStats();
 
-        const f64 livePct = 100.0 * static_cast<f64>(stats.LiveProbes) / static_cast<f64>(kTotalProbes);
-        const f64 relitPct = 100.0 * static_cast<f64>(stats.RelitProbes) / static_cast<f64>(kTotalProbes);
-        std::cout << "[ddgi-cascades] at 1-in-8: total=" << kTotalProbes << " live=" << stats.LiveProbes << " ("
-                  << livePct << "%)  relit/frame=" << stats.RelitProbes << " (" << relitPct << "% of the field)\n";
+        // AVERAGE OVER A FULL PERIOD, not a single frame.
+        //
+        // `RelitProbes` is one frame's count, and the round-robin selects probes
+        // by INDEX — so each of the 8 phases picks a different slice of a live
+        // set whose indices are clustered (they are cascade-major, and the
+        // cascades are not equally live). Sampling one frame therefore returns
+        // anything from well under to well over the mean: measured 63 on one
+        // run and 119 on another with an identical live set of 515. Averaging
+        // one whole period is what actually measures "1-in-8", and it removes a
+        // margin that was passing on luck.
+        constexpr u32 kPeriod = 8u;
+        u64 relitTotal = 0;
+        u64 blendedTotal = 0;
+        u32 liveSample = 0;
+        for (u32 frame = 0; frame < kPeriod; ++frame)
+        {
+            Converge(eye, target, 1);
+            const DDGIProbeUpdatePass::ProbeStats s = pass->GetProbeStats();
+            relitTotal += s.RelitProbes;
+            blendedTotal += s.BlendedProbes;
+            liveSample = s.LiveProbes;
+            EXPECT_EQ(s.BlendedProbes, s.RelitProbes)
+                << "frame " << frame
+                << ": the blend gate and the relight gate must select the SAME probes (ddgiProbeUpdatesNow); a "
+                   "probe blended without being relit EMAs toward a radiance cache nobody is refreshing";
+        }
 
-        ASSERT_GT(stats.LiveProbes, 0u);
-        EXPECT_LT(stats.RelitProbes, stats.LiveProbes)
-            << "at 1-in-8 the relit set must be a strict subset of the live set — equal means the update-rate "
-               "gate is not gating, which is invisible in any single frame";
-        // One eighth, with slack for the round-robin phase landing unevenly
-        // across a live set that is not a multiple of 8.
-        EXPECT_LT(static_cast<f64>(stats.RelitProbes), 0.25 * static_cast<f64>(stats.LiveProbes))
-            << "1-in-8 should relight roughly an eighth of the live probes per frame";
-        EXPECT_TRUE(stats.BlendedProbes == stats.RelitProbes)
-            << "the blend gate and the relight gate must select the SAME probes (ddgiProbeUpdatesNow); a probe "
-               "blended without being relit EMAs toward a radiance cache nobody is refreshing";
+        const f64 relitPerFrame = static_cast<f64>(relitTotal) / static_cast<f64>(kPeriod);
+        const f64 livePct = 100.0 * static_cast<f64>(liveSample) / static_cast<f64>(kCascadeTotalProbes);
+        const f64 relitPct = 100.0 * relitPerFrame / static_cast<f64>(kCascadeTotalProbes);
+        std::cout << "[ddgi-cascades] at 1-in-8 (mean over " << kPeriod << " frames): total=" << kCascadeTotalProbes
+                  << " live=" << liveSample << " (" << livePct << "%)  relit/frame=" << relitPerFrame << " ("
+                  << relitPct << "% of the field)\n";
+
+        ASSERT_GT(liveSample, 0u);
+        EXPECT_EQ(relitTotal, blendedTotal);
+        // Over a full period every live probe relights exactly once, so the mean
+        // is live/8 by construction — assert that rather than a hand-picked
+        // slack, and let the tolerance cover probes entering or leaving the live
+        // set during the 8 frames.
+        const f64 expected = static_cast<f64>(liveSample) / static_cast<f64>(kPeriod);
+        EXPECT_NEAR(relitPerFrame, expected, 0.25 * expected)
+            << "1-in-8 must relight a mean of live/8 probes per frame over one full period; measured "
+            << relitPerFrame << " against an expected " << expected;
     }
 
     // Sparsity and the variable update rate are about WHEN probes update, so
@@ -1379,8 +1411,9 @@ namespace OloEngine::Tests
         // something is shading from is still waiting for its first capture.
         auto* warmupPass = Renderer3D::GetDDGIPass();
         ASSERT_NE(warmupPass, nullptr);
+        constexpr u32 kMaxWarmupIntervals = 12u;
         u32 warmupFrames = 0;
-        for (; warmupFrames < 12u; ++warmupFrames)
+        for (; warmupFrames < kMaxWarmupIntervals; ++warmupFrames)
         {
             Converge(eye, target, kConvergeFrames / 2u);
             if (warmupPass->GetProbeStats().UncapturedLive == 0u)
@@ -1389,7 +1422,13 @@ namespace OloEngine::Tests
             }
         }
         const DDGIProbeUpdatePass::ProbeStats warm = warmupPass->GetProbeStats();
-        std::cout << "[ddgi-cascades] warmed up after " << ((warmupFrames + 1u) * (kConvergeFrames / 2u))
+        // `warmupFrames` is the index of the iteration that broke, but on the
+        // exhausted path it is the loop LIMIT — so the number that actually ran
+        // is min(warmupFrames + 1, limit). Adding one unconditionally
+        // over-reports by a whole interval exactly when the warm-up failed,
+        // i.e. in the diagnostic that matters most.
+        const u32 warmupIterations = std::min(warmupFrames + 1u, kMaxWarmupIntervals);
+        std::cout << "[ddgi-cascades] warmed up after " << (warmupIterations * (kConvergeFrames / 2u))
                   << " frames; live=" << warm.LiveProbes << " live-but-uncaptured=" << warm.UncapturedLive << "\n";
         EXPECT_EQ(warm.UncapturedLive, 0u)
             << "the capture schedule never caught up, so the RMSE below would measure convergence rather than "
@@ -1408,20 +1447,6 @@ namespace OloEngine::Tests
         // one I measured, which is the mistake live-verification-noise-floor.md
         // is about. Comparing two intervals makes the pipeline supply its own
         // noise floor instead.
-        const auto rmse = [](const std::vector<u8>& a, const std::vector<u8>& b)
-        {
-            f64 sumSq = 0.0;
-            for (std::size_t i = 0; i < a.size(); i += 4)
-            {
-                for (std::size_t c = 0; c < 3; ++c)
-                {
-                    const f64 d = static_cast<f64>(a[i + c]) - static_cast<f64>(b[i + c]);
-                    sumSq += d * d;
-                }
-            }
-            return std::sqrt(sumSq / (static_cast<f64>(a.size() / 4) * 3.0));
-        };
-
         // SUCCESSIVE INCREMENTS, not cumulative differences.
         //
         // Two earlier versions of this assertion measured the wrong thing, and
@@ -1461,7 +1486,7 @@ namespace OloEngine::Tests
             if (::testing::Test::HasFatalFailure())
                 return;
             ASSERT_EQ(previous.size(), current.size());
-            increments.push_back(rmse(previous, current));
+            increments.push_back(Rgba8Rmse(previous, current));
             previous.swap(current);
         }
 
@@ -1535,7 +1560,7 @@ namespace OloEngine::Tests
             ASSERT_NE(pass, nullptr);
             const DDGIProbeUpdatePass::ProbeStats stats = pass->GetProbeStats();
             std::cout << "[ddgi-cascades] " << view.Name << ": live=" << stats.LiveProbes
-                      << " active=" << stats.ActiveProbes << " of " << kTotalProbes << "\n";
+                      << " active=" << stats.ActiveProbes << " of " << kCascadeTotalProbes << "\n";
         }
     }
 

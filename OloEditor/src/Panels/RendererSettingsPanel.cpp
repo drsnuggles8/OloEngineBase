@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
+#include "OloEngine/Renderer/DDGI/DDGICommon.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
@@ -866,8 +867,11 @@ namespace OloEngine
             {
                 ImGui::Indent();
                 bool cascadeDirty = false;
-                cascadeDirty |= ImGui::SliderInt("Cascades", &settings.DDGICascadeCount, 1, 8);
-                cascadeDirty |= ImGui::SliderInt("Probes per axis", &settings.DDGICascadeResolution, 4, 32);
+                // Bounds come from the header constants rather than literals, so the
+                // slider cannot outrun what the UBO arrays and the atlas sizing allow.
+                cascadeDirty |= ImGui::SliderInt("Cascades", &settings.DDGICascadeCount, 1, DDGI::kMaxCascades);
+                cascadeDirty |= ImGui::SliderInt("Probes per axis", &settings.DDGICascadeResolution, 4,
+                                                 DDGI::kMaxCascadeResolution);
                 cascadeDirty |= ImGui::SliderFloat("Base spacing (m)", &settings.DDGICascadeBaseSpacing,
                                                    0.25f, 8.0f, "%.2f");
                 cascadeDirty |= ImGui::SliderFloat("Blend band", &settings.DDGICascadeBlendBand,

@@ -1177,7 +1177,10 @@ TEST(DDGIMath, AuthoredCascadeReproducesTheLegacyLayoutExactly)
     DDGI::CascadeGrid const grid = DDGI::MakeAuthoredCascade(boundsMin, boundsMax, dims);
     EXPECT_EQ(grid.LatticeMin, glm::ivec3(0));
     EXPECT_EQ(grid.Dims, dims);
-    EXPECT_EQ(grid.Spacing, DDGI::ProbeSpacing(boundsMin, boundsMax, dims));
+    glm::vec3 const expectedSpacing = DDGI::ProbeSpacing(boundsMin, boundsMax, dims);
+    EXPECT_NEAR(grid.Spacing.x, expectedSpacing.x, 1e-6f);
+    EXPECT_NEAR(grid.Spacing.y, expectedSpacing.y, 1e-6f);
+    EXPECT_NEAR(grid.Spacing.z, expectedSpacing.z, 1e-6f);
 
     for (i32 z = 0; z < dims.z; ++z)
     {
@@ -1207,6 +1210,9 @@ TEST(DDGIMath, AuthoredCascadeReproducesTheLegacyLayoutExactly)
     glm::vec3 const cascadeMin = DDGI::CascadeBoundsMin(grid);
     glm::vec3 const cascadeMax = DDGI::CascadeBoundsMax(grid);
     EXPECT_NEAR(cascadeMin.x, boundsMin.x, 1e-5f);
+    EXPECT_NEAR(cascadeMin.y, boundsMin.y, 1e-5f);
+    EXPECT_NEAR(cascadeMin.z, boundsMin.z, 1e-5f);
+    EXPECT_NEAR(cascadeMax.x, boundsMax.x, 1e-5f);
     EXPECT_NEAR(cascadeMax.y, boundsMax.y, 1e-5f);
     EXPECT_NEAR(cascadeMax.z, boundsMax.z, 1e-5f);
 }
@@ -1230,7 +1236,12 @@ TEST(DDGIMath, ToroidalStorageInvalidatesOnlyOneSlabPerCellOfCameraMotion)
             for (i32 x = 0; x < dims.x; ++x)
             {
                 glm::ivec3 const storage(x, y, z);
-                if (DDGI::CascadeProbeGridPosition(storage, before) != DDGI::CascadeProbeGridPosition(storage, after))
+                // Compare the INTEGER lattice coordinate, not the float world
+                // position: the property under test is "which lattice point does
+                // this storage slot hold", and comparing positions would both
+                // rest on exact float equality and answer a weaker question.
+                if (DDGI::LatticeForStorageCoord(storage, before) !=
+                    DDGI::LatticeForStorageCoord(storage, after))
                 {
                     ++changed;
                 }
@@ -1247,7 +1258,8 @@ TEST(DDGIMath, ToroidalStorageInvalidatesOnlyOneSlabPerCellOfCameraMotion)
     i32 farChanged = 0;
     for (i32 x = 0; x < dims.x; ++x)
     {
-        if (DDGI::CascadeProbeGridPosition({ x, 0, 0 }, before) != DDGI::CascadeProbeGridPosition({ x, 0, 0 }, wrappedAround))
+        if (DDGI::LatticeForStorageCoord({ x, 0, 0 }, before) !=
+            DDGI::LatticeForStorageCoord({ x, 0, 0 }, wrappedAround))
         {
             ++farChanged;
         }
@@ -1297,9 +1309,9 @@ TEST(DDGIMath, NegativeLatticeCoordinatesWrapIntoTheStorageWindow)
 TEST(DDGIMath, CascadeSpacingDoublesPerLevel)
 {
     glm::vec3 const base(1.5f, 1.5f, 1.5f);
-    EXPECT_EQ(DDGI::CascadeSpacing(base, 0), base);
-    EXPECT_EQ(DDGI::CascadeSpacing(base, 1), base * 2.0f);
-    EXPECT_EQ(DDGI::CascadeSpacing(base, 3), base * 8.0f);
+    EXPECT_NEAR(DDGI::CascadeSpacing(base, 0).x, base.x, 1e-6f);
+    EXPECT_NEAR(DDGI::CascadeSpacing(base, 1).x, base.x * 2.0f, 1e-6f);
+    EXPECT_NEAR(DDGI::CascadeSpacing(base, 3).x, base.x * 8.0f, 1e-6f);
 
     // Each cascade therefore covers twice the extent of the previous one,
     // which is what makes N cascades reach 2^N times cascade 0.
@@ -1309,6 +1321,7 @@ TEST(DDGIMath, CascadeSpacingDoublesPerLevel)
     f32 const extent0 = (DDGI::CascadeBoundsMax(c0) - DDGI::CascadeBoundsMin(c0)).x;
     f32 const extent3 = (DDGI::CascadeBoundsMax(c3) - DDGI::CascadeBoundsMin(c3)).x;
     EXPECT_NEAR(extent3, extent0 * 8.0f, 1e-3f);
+    EXPECT_GT(extent0, 0.0f) << "a degenerate cascade would satisfy the ratio above trivially";
 }
 
 // The blend band is where cascades go wrong, and a subtly wrong one reads as

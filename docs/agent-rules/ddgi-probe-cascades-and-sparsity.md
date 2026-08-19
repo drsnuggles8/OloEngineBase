@@ -151,14 +151,22 @@ Two things that are not obvious:
 
 ## 7. Cascade defaults are a memory decision, not a quality one
 
-The issue quotes PGI's 6 cascades × 32³. That is ~196k probes, and in **this** engine a probe costs
-~4–8 KB (hit cache, radiance, irradiance, visibility) because our capture is a rasterized hit-point
-cache rather than re-traced rays — so 6 × 32³ is roughly 1.6 GB of atlases. PGI can afford theirs
-because they store no hit cache.
+The issue quotes PGI's 6 cascades × 32³ — ~196k probes. **Always quote the hit-cache resolution with
+a footprint figure**, because the per-probe cost depends on it and the same field otherwise reads as
+68 MB or 128 MB depending on which comment you land on:
 
-The shipped default is 4 cascades × 16³ ≈ 68 MB. The renderer-settings panel prints the probe count
-and the estimated atlas footprint next to the sliders for exactly this reason. If you raise them,
-have the arithmetic in hand; the failure is an allocation that either fails or swaps, not a warning.
+| | per probe | 4 × 16³ (shipped default) | 6 × 32³ (PGI's figure) |
+|---|---|---|---|
+| t = 8 (what the CASCADE path submits) | ~4.3 KB | **~68 MB** | ~0.8 GB |
+| t = 16 (what an authored volume uses) | ~8.0 KB | ~128 MB | ~1.5 GB |
+
+Irradiance and visibility are fixed-size and ping-ponged; radiance and the hit cache scale with t².
+The full breakdown is in `RenderingPath.h`. PGI can afford their default because they re-trace rays
+per update and store no hit cache at all.
+
+The renderer-settings panel prints the probe count and estimated footprint next to the sliders for
+exactly this reason. If you raise them, have the arithmetic in hand; the failure is an allocation
+that either fails or swaps, not a warning.
 
 ## 8. What to verify, and in what order
 

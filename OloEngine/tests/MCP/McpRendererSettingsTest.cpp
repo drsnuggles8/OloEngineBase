@@ -416,9 +416,28 @@ TEST(McpRendererSettingsApply, DDGICascadesTogglesTheRendererSettingAndReportsPr
     EXPECT_EQ(result.Data["restoreWith"], "off");
     EXPECT_TRUE(result.Data["changed"].get<bool>());
 
+    // Describe is the READ side and reaches the value through CurrentValue, not
+    // through Apply's return — so a setting wired into Apply but missed in
+    // CurrentValue would toggle correctly and then report its old value forever.
+    // Assert both directions.
+    const auto cascadeCurrentValue = [](const PostProcessSettings& p, const RendererSettings& r,
+                                        const RS::LeverState& l) -> std::string
+    {
+        for (const auto& entry : RS::Describe(p, r, l).at("settings"))
+        {
+            if (entry.at("setting") == "ddgicascades")
+            {
+                return entry.at("currentValue").get<std::string>();
+            }
+        }
+        return "<missing>";
+    };
+    EXPECT_EQ(cascadeCurrentValue(pp, rs, lever), "on");
+
     const auto restored = RS::Apply(RS::Setting::DDGICascades, RS::kDDGICascadesOff, pp, rs, lever);
     ASSERT_TRUE(restored.Ok);
     EXPECT_FALSE(rs.DDGICascadesEnabled);
+    EXPECT_EQ(cascadeCurrentValue(pp, rs, lever), "off");
 
     // A settings write must never touch the other levers, nor the neighbouring
     // DDGI knobs the tool deliberately does NOT expose.
