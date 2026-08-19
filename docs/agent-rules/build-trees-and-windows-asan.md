@@ -208,7 +208,14 @@ because of three non-obvious choices you must replicate locally:
   (`0xC0000135` has a second, unrelated cause on this repo: a missing
   `steam_api64.dll` next to the executable — see
   [configure-time-variable-visibility.md](configure-time-variable-visibility.md).
-  Tell them apart with `dumpbin /DEPENDENTS` on the exe.)
+  To tell them apart, start with `dumpbin /DEPENDENTS` on the exe — but note
+  it only lists the DLL names the image *imports*, statically. It does not
+  say which one failed to load, and both names appear whether or not they
+  resolve at run time. So use it to see which of the two candidates the
+  binary even imports, then check each one's resolution separately:
+  `steam_api64.dll` must sit **beside the executable**, and
+  `clang_rt.asan_dynamic-x86_64.dll` must be reachable **through `PATH`**.
+  An ASan build can be missing both at once.)
 - **To see an ASan crash report instead of gtest's opaque
   `SEH exception with code 0xc0000005 thrown in the test body`**, run the
   failing test with `--gtest_catch_exceptions=0`. gtest's SEH catcher
