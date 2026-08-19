@@ -17,6 +17,7 @@ namespace OloEngine
     {
         constexpr const char* kMeshCacheSubdir = "cache/mesh";
         constexpr const char* kAnimationCacheSubdir = "cache/animation";
+        constexpr const char* kEmbeddedTextureCacheSubdir = "cache/embedded";
 
         // Returns the project asset directory if a project is active, or falls back
         // to the CWD-relative "assets/" for headless / test scenarios.
@@ -89,6 +90,13 @@ namespace OloEngine
         std::filesystem::path GetAnimationCacheDirectory()
         {
             auto dir = GetAssetRoot() / kAnimationCacheSubdir;
+            EnsureDirectoryExists(dir);
+            return dir;
+        }
+
+        std::filesystem::path GetEmbeddedTextureCacheDirectory()
+        {
+            auto dir = GetAssetRoot() / kEmbeddedTextureCacheSubdir;
             EnsureDirectoryExists(dir);
             return dir;
         }
@@ -255,6 +263,23 @@ namespace OloEngine
                     OLO_CORE_INFO("MeshCache: Cleared animation cache");
                 }
             }
+
+            // The cooked-texture cache is derived data like the other two: every file in it is
+            // reproducible from the model that produced it. Leaving it behind would make "clear
+            // cache" silently partial — and the .omesh files that reference these textures by
+            // path are being deleted right above, so keeping them would strand them anyway.
+            if (auto embeddedDir = GetAssetRoot() / kEmbeddedTextureCacheSubdir; std::filesystem::exists(embeddedDir, ec))
+            {
+                std::filesystem::remove_all(embeddedDir, ec);
+                if (ec)
+                {
+                    OLO_CORE_ERROR("MeshCache: Failed to clear embedded-texture cache: {}", ec.message());
+                }
+                else
+                {
+                    OLO_CORE_INFO("MeshCache: Cleared embedded-texture cache");
+                }
+            }
         }
 
         void InvalidateCache(const std::filesystem::path& sourcePath, const std::string& prefix)
@@ -390,6 +415,7 @@ namespace OloEngine
 
             accumulateDirectorySize(GetAssetRoot() / kMeshCacheSubdir);
             accumulateDirectorySize(GetAssetRoot() / kAnimationCacheSubdir);
+            accumulateDirectorySize(GetAssetRoot() / kEmbeddedTextureCacheSubdir);
 
             return totalSize;
         }

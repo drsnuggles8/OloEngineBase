@@ -39,6 +39,7 @@ run is **not** evidence.
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | every glyph in the engine invisible on AMD, with the font loaded, 189 glyphs packed and 852 quads submitted — bake that and the nightly defends a blank UI forever |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | a merged quad with U and V swapped, or width and height transposed, still merges and still draws — five of the six face directions look right |
+| [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) | 7/7 green on every CI run and every clean checkout — a runner never has a warm cache, so the failing path is the one nothing runs twice |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -90,7 +91,10 @@ pushes that nothing reports missing — which is why the new carrier runs *besid
 not instead of it) ·
 [steamworks-platform-integration.md](steamworks-platform-integration.md) (an SDK path set one level
 too high drops the whole feature — the build succeeds with Steam quietly switched off, and the error
-explaining the correct layout is the one thing that never fires)
+explaining the correct layout is the one thing that never fires) ·
+[cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) (a texture, from the
+SECOND load onward — an empty reference in a cache is indistinguishable from a slot that was never
+set, so every step downstream handles it "correctly")
 
 **The counter-move:** ask what the *absence* would look like, and whether anything in the system
 would be different. If the answer is "nothing", you need a coverage test, not a unit test.
@@ -235,6 +239,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 **Scene, ECS & serialization** — [component-serializer-codegen.md](component-serializer-codegen.md) ·
 [scene-binary-sidecar.md](scene-binary-sidecar.md) ·
 [binary-format-versioning.md](binary-format-versioning.md) ·
+[cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) ·
 [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) ·
 [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) ·
 [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md)

@@ -998,6 +998,23 @@ namespace OloEngine::Tests
             if (ec)
                 continue;
 
+            // `Assets/cache/` is DERIVED data, not authored content: every file under it is
+            // regenerated on demand from something else, and the whole tree is git-ignored
+            // (`**/cache/**`). It is validated by AllCacheFilesMatchKnownPattern below — by
+            // filename pattern, which is the meaningful contract for a cache — rather than by
+            // registry membership.
+            //
+            // This only started to matter with issue #791. Cache files never had a *supported
+            // asset extension* before, so the scan skipped them all on the extension check
+            // above; the cooked embedded/packed textures are real `.png` files, so they are the
+            // first cache artifacts to reach this point. Registering them is a runtime
+            // side-effect of loading a model, and the registry is tracked while the files
+            // themselves are ignored — so requiring the two to agree here would fail on any
+            // machine that had run the editor, and committing the entries would leave a fresh
+            // clone pointing at files that do not exist.
+            if (relative.starts_with("Assets/cache/"))
+                continue;
+
             if (!registeredPaths.contains(relative))
             {
                 unregistered.push_back({
@@ -1430,6 +1447,28 @@ namespace OloEngine::Tests
             { "animation",
               std::regex(R"([0-9A-F]{16}\.oanim)"),
               "<path-hash>.oanim" },
+            // Cooked-texture cache (MeshCache::GetEmbeddedTextureCacheDirectory).
+            // Textures the importer SYNTHESISES rather than reads off disk, written
+            // out as real .png files so they have a path and can therefore survive
+            // the .omesh cache and the asset pack (issue #791 — before that a
+            // synthesised texture had no identity and the warm load silently lost
+            // the map). Two producers, one directory:
+            //   `emb_` — a bitmap embedded in a glTF/GLB/FBX (Model::CookEmbeddedTexture)
+            //   `mr_`  — the legacy/specular workflow's separate metallic + roughness
+            //            files packed into one map (Model::CookPackedMetallicRoughnessTexture)
+            // The name is `<prefix><identity-hash><colour-space>.png`: 16 LOWERCASE hex
+            // digits (std::hex), then the colour-space intent, which is part of the
+            // filename because the packed-runtime loader and the pack cook both decide
+            // sRGB from the name (TextureCompression::IsLikelyColorTexture).
+            //
+            // No orphan detection: unlike a shader, whose source file is the obvious
+            // referent, deciding whether one of these is still reachable means
+            // re-importing every model and re-deriving its texture hashes. They are
+            // small, content-addressed and stable across re-imports, so a stale one is
+            // dead weight rather than a hazard.
+            { "embedded",
+              std::regex(R"((emb|mr)_[0-9a-f]{16}_(basecolor|linear)\.png)"),
+              "{emb|mr}_<identity-hash>_{basecolor|linear}.png" },
             // physics/ and shapes/ are reserved for future caches. Until they
             // grow content with a stable filename pattern, any file appearing
             // there is unclassified and fails the test below.

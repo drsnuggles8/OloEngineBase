@@ -12,9 +12,11 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <initializer_list>
 #include <limits>
 #include <memory>
+#include <random>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,6 +31,7 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Task/ParallelFor.h"
 
 #include <assimp/GltfMaterial.h>
@@ -200,10 +203,16 @@ namespace OloEngine
             i32 height = 0;
             i32 channels = 0;
 
-            // Match Texture2D::Create(path), which flips file-backed images for OpenGL.
-            ::stbi_set_flip_vertically_on_load_thread(1);
+            // TOP-DOWN (file row order), deliberately NOT flipped for OpenGL.
+            //
+            // This used to flip, to match Texture2D::Create(path), because the packed
+            // result was uploaded straight to the GPU and so had to arrive already in
+            // OpenGL's bottom-left origin. The packed result is now written out as a .png
+            // first and loaded back through Texture2D::Create(path), which applies that
+            // flip itself — flipping here as well would invert the metallic-roughness map
+            // relative to every other map on the material. One flip, at load, same as any
+            // image file: that is what DecodedBitmap's TOP-DOWN contract buys.
             stbi_uc* pixels = ::stbi_load(path.string().c_str(), &width, &height, &channels, 1);
-            ::stbi_set_flip_vertically_on_load_thread(0); // reset thread-local flag to avoid polluting later stbi calls
             if (!pixels)
             {
                 OLO_CORE_WARN("Model: Failed to load single-channel material texture '{}'", path.string());
@@ -227,7 +236,27 @@ namespace OloEngine
             return image.Pixels.get()[static_cast<sizet>(sourceY) * static_cast<sizet>(image.Width) + sourceX];
         }
 
-        Ref<Texture2D> CreatePackedMetallicRoughnessTexture(
+        // A bitmap in RGBA8, TOP-DOWN (image-file) row order — i.e. exactly the
+        // orientation a .png on disk stores. Every consumer starts from this: a cook
+        // writes it straight out as a PNG, and an in-memory upload flips it into
+        // OpenGL's bottom-left origin (which is what the on-disk loader does too, via
+        // stbi's flip-on-load). Produced both by decoding an embedded texture and by
+        // packing two single-channel maps into one.
+        struct DecodedBitmap
+        {
+            std::vector<u8> RGBA;
+            u32 Width = 0;
+            u32 Height = 0;
+        };
+
+        // The legacy/specular workflow ships metallic and roughness as two separate
+        // single-channel files; the PBR shader wants them packed into one texture. The
+        // packed result exists only in memory, which used to mean it had no path and no
+        // asset handle — so ImportedMaterialCodec recorded an empty reference and the
+        // .omesh silently came back without a metallic-roughness map, the same defect
+        // issue #791 fixed for embedded textures. It is now cooked to a real file too,
+        // so this returns PIXELS and the caller cooks them.
+        std::optional<DecodedBitmap> BuildPackedMetallicRoughnessPixels(
             const std::filesystem::path& metallicPath,
             const std::filesystem::path& roughnessPath,
             f32 metallicFallback,
@@ -238,18 +267,18 @@ namespace OloEngine
             auto metallicImage = LoadSingleChannelImage(metallicPath);
             auto roughnessImage = LoadSingleChannelImage(roughnessPath);
             if (!metallicImage.IsValid() && !roughnessImage.IsValid())
-                return nullptr;
+                return std::nullopt;
 
             const auto width = static_cast<u32>(metallicImage.IsValid() ? metallicImage.Width : roughnessImage.Width);
             const auto height = static_cast<u32>(metallicImage.IsValid() ? metallicImage.Height : roughnessImage.Height);
             if (width == 0 || height == 0)
-                return nullptr;
+                return std::nullopt;
 
             const auto pixelCount = static_cast<sizet>(width) * static_cast<sizet>(height);
             if (pixelCount > (std::numeric_limits<u32>::max() / 4u))
             {
                 OLO_CORE_WARN("Model: Refusing to pack oversized metallic-roughness texture ({}x{})", width, height);
-                return nullptr;
+                return std::nullopt;
             }
 
             std::vector<u8> packed(pixelCount * 4u);
@@ -272,19 +301,11 @@ namespace OloEngine
                 }
             }
 
-            TextureSpecification spec;
-            spec.Width = width;
-            spec.Height = height;
-            spec.Format = ImageFormat::RGBA8;
-            spec.GenerateMips = false;
-            spec.MipLevels = 1;
-
-            auto texture = Texture2D::Create(spec);
-            if (!texture || !texture->IsLoaded())
-                return nullptr;
-
-            texture->SetData(packed.data(), static_cast<u32>(packed.size()));
-            return texture;
+            // TOP-DOWN, matching DecodedBitmap's contract: LoadSingleChannelImage reads
+            // rows in file order and this loop preserves them, so the cook can write these
+            // bytes straight out as a .png and Texture2D::Create(path) flips them on load
+            // exactly as it would for any other image file.
+            return DecodedBitmap{ std::move(packed), width, height };
         }
 
         // Sanity cap on embedded textures. A hostile (or just thoughtlessly
@@ -298,28 +319,16 @@ namespace OloEngine
                       "Embedded-texture pixel cap must keep the RGBA byte count within u32 — "
                       "Texture2D::SetData takes the size as u32.");
 
-        // An embedded bitmap decoded to RGBA8, in TOP-DOWN (image-file) row order —
-        // i.e. exactly the orientation a .png on disk stores. Both consumers below
-        // start from this: the cook writes it straight out as a PNG, and the
-        // in-memory upload flips it into OpenGL's bottom-left origin (which is what
-        // the on-disk loader does too, via stbi's flip-on-load).
-        struct DecodedEmbeddedTexture
-        {
-            std::vector<u8> RGBA;
-            u32 Width = 0;
-            u32 Height = 0;
-        };
-
         // Decode an Assimp embedded texture. glTF / FBX may embed the bitmap either
         // as compressed bytes (PNG/JPG in pcData, mHeight==0, mWidth=byte-length —
         // this covers both a GLB binary chunk and a base64 data URI, which Assimp has
         // already decoded) or as raw BGRA aiTexel pixels (mWidth/mHeight = dimensions).
-        std::optional<DecodedEmbeddedTexture> DecodeEmbeddedTopDown(const aiTexture* embedded)
+        std::optional<DecodedBitmap> DecodeEmbeddedTopDown(const aiTexture* embedded)
         {
             if (!embedded || !embedded->pcData)
                 return std::nullopt;
 
-            DecodedEmbeddedTexture out;
+            DecodedBitmap out;
 
             if (embedded->mHeight == 0)
             {
@@ -406,13 +415,14 @@ namespace OloEngine
         // srgb mirrors Texture2D::Create(path, srgb) — pass true for albedo /
         // base-color / emissive so the GPU converts samples to linear.
         //
-        // This is the FALLBACK now: CookEmbeddedTexture (below) turns an embedded
-        // bitmap into a real Texture asset on disk whenever a project is mounted, so
-        // that it gains an AssetHandle and a path and therefore survives the .omesh
-        // cache and the asset pack. This path still runs when there is no project (a
-        // packed runtime never imports from source; a headless test may not mount one)
-        // or when the cook fails — the mesh then renders correctly for this session,
-        // it just cannot persist the texture.
+        // This is the FALLBACK now: CookEmbeddedTexture (below) writes an embedded
+        // bitmap out as a real .png under the asset cache, so that it gains a path —
+        // and, when a project is mounted, an AssetHandle too — and therefore survives
+        // the .omesh cache and the asset pack. Since issue #791 the cook no longer
+        // requires a project, so this path only runs when the cook genuinely FAILS (no
+        // writable cache directory, an undecodable bitmap). The mesh then renders
+        // correctly for this session but the texture cannot persist — which is why the
+        // cache-write site refuses to store a material table containing one.
         Ref<Texture2D> CreateTextureFromEmbedded(const aiTexture* embedded, bool srgb = false)
         {
             auto decoded = DecodeEmbeddedTopDown(embedded);
@@ -461,10 +471,21 @@ namespace OloEngine
         // every model that embeds them — which is most GLB files.
         //
         // The fix is upstream of the codec, not inside it: give the texture a real
-        // identity at import time. We decode it once, write it into the project's asset
-        // cache as a plain .png, and ImportAsset it, after which it is an ordinary
-        // Texture2D asset — a path, a registry handle, an asset-pack entry — and BOTH
-        // containers already work with zero codec changes.
+        // identity at import time. We decode it once, write it into the asset cache as a
+        // plain .png, and (when there is an editor asset manager) ImportAsset it, after
+        // which it is an ordinary Texture2D asset — a path, a registry handle, an
+        // asset-pack entry — and BOTH containers already work with zero codec changes.
+        //
+        // NO PROJECT REQUIRED (issue #791). The cook originally bailed out unless a
+        // project with an EditorAssetManager was mounted, which quietly reintroduced the
+        // very bug it was written to fix for every project-less load: the texture stayed
+        // an in-memory decode with no path and no handle, and the .omesh written right
+        // after recorded an EMPTY reference for the slot. Cold load: textured. Warm load:
+        // no albedo map, no error. The two halves are now separated — the cache
+        // DIRECTORY comes from MeshCache (which falls back to a CWD-relative "assets"
+        // exactly as the .omesh itself does), and asset REGISTRATION is best-effort on
+        // top. A path alone is enough for the .omesh, because ImportedMaterialCodec's
+        // RealizeTexture resolves the recorded path before it ever consults the handle.
         //
         // STABILITY (the property that matters): the cooked filename is derived from
         // FNV-1a-64(canonical model path + '|' + the Assimp texture reference) plus the
@@ -487,72 +508,206 @@ namespace OloEngine
         // the cooked path is constructed by the engine from a hash, never from a string
         // in the model file, so no attacker-controlled component reaches the filesystem.
         // ────────────────────────────────────────────────────────────────────────
-        std::optional<std::filesystem::path> CookEmbeddedTexture(const aiTexture* embedded,
-                                                                 const std::string& modelSourcePath,
-                                                                 const std::string& assimpTextureRef,
-                                                                 bool srgb)
+        // An RGBA8 bitmap the importer synthesised rather than read off disk, ready to be
+        // written out. `Produce` is only invoked when the cooked file is not already there,
+        // so a warm cook never pays for the decode/pack it would throw away.
+        using RgbaProducer = std::function<std::optional<DecodedBitmap>()>;
+
+        // Writes a synthesised bitmap into the asset cache under a name derived from
+        // `identity`, registers it as an asset where that is possible, and hands back the
+        // path. Shared by every texture the importer builds in memory — see the two callers
+        // below — because they all face the same problem: a Texture2D with no file behind it
+        // has no identity, and ImportedMaterialCodec can only persist an identity.
+        std::optional<std::filesystem::path> CookRgbaToAssetCache(std::string_view namePrefix,
+                                                                  const std::string& identity,
+                                                                  bool srgb,
+                                                                  const RgbaProducer& produce)
         {
-            // No project => no asset directory and no registry to hand out a handle.
-            // (A packed runtime never imports from source, so this is the editor path.)
-            Ref<Project> project = Project::GetActive();
-            if (!project)
-                return std::nullopt;
-
-            Ref<AssetManagerBase> managerBase = Project::GetAssetManager();
-            auto* editor = dynamic_cast<EditorAssetManager*>(managerBase.Raw());
-            if (!editor)
-                return std::nullopt;
-
+            // The cook does NOT require a project (issue #791). It used to bail out when
+            // there was no active project or no EditorAssetManager, which left the texture
+            // as a GPU-only decode with neither a path nor a handle — and the .omesh written
+            // moments later therefore recorded an EMPTY texture reference for that slot. The
+            // cold load looked right, the warm load came back with no map at all, and nothing
+            // said so. A registry handle is a bonus (it is what puts the texture in the asset
+            // pack); the PATH is what the .omesh actually needs, and a path can be produced
+            // with no project at all.
+            //
+            // MeshCache owns the asset-root fallback (project asset dir, else CWD-relative
+            // "assets") so the cooked texture lands under the SAME root as the .omesh that
+            // will reference it — see GetEmbeddedTextureCacheDirectory.
             std::error_code ec;
-            const std::filesystem::path cacheDir = Project::GetAssetDirectory() / "cache" / "embedded";
-            std::filesystem::create_directories(cacheDir, ec);
-            if (ec)
+            const std::filesystem::path cacheDir = MeshCache::GetEmbeddedTextureCacheDirectory();
+            if (!std::filesystem::is_directory(cacheDir, ec))
             {
-                OLO_CORE_WARN("Model: Could not create embedded-texture cache dir '{}': {}",
-                              cacheDir.string(), ec.message());
+                OLO_CORE_WARN("Model: Texture cache dir '{}' is unavailable — the texture cannot be persisted",
+                              cacheDir.string());
                 return std::nullopt;
             }
 
             // Stable, deterministic identity — see STABILITY above.
-            const std::filesystem::path canonicalModel = std::filesystem::weakly_canonical(modelSourcePath, ec);
-            const std::string modelKey = ec ? modelSourcePath : canonicalModel.generic_string();
-            const u64 hash = HashString(modelKey + "|" + assimpTextureRef);
-
             std::ostringstream name;
-            name << "emb_" << std::hex << std::setw(16) << std::setfill('0') << hash
+            name << namePrefix << std::hex << std::setw(16) << std::setfill('0') << HashString(identity)
                  << (srgb ? "_basecolor" : "_linear") << ".png";
             const std::filesystem::path cookedPath = cacheDir / name.str();
 
             if (!std::filesystem::exists(cookedPath, ec))
             {
-                auto decoded = DecodeEmbeddedTopDown(embedded);
+                auto decoded = produce();
                 if (!decoded)
                     return std::nullopt;
 
+                // WRITE TO A TEMPORARY, THEN RENAME. The existence check above is the only
+                // thing standing between a warm load and a re-cook, so a half-written file is
+                // permanent: it exists, so nothing ever rewrites it, and every later load hands
+                // the material a truncated or empty texture. Writing in place makes that the
+                // outcome of any crash mid-write — and of two processes cooking the same
+                // texture at once, which is routine here, because ctest runs each case in its
+                // own process against one shared repo-relative cache directory.
+                //
+                // A rename within a directory is atomic, so a reader sees either no file or the
+                // whole file. The temp name carries a random token so two processes cooking the
+                // same texture never collide on the temporary itself (there is no portable
+                // process-id accessor in the engine's HAL, and uniqueness only has to hold
+                // among concurrent cooks in one directory).
+                std::random_device rd;
+                const u64 token = (static_cast<u64>(rd()) << 32) ^ rd();
+                std::ostringstream tempName;
+                tempName << cookedPath.stem().string() << ".tmp"
+                         << std::hex << std::setw(16) << std::setfill('0') << token << ".png";
+                const std::filesystem::path tempPath = cookedPath.parent_path() / tempName.str();
+
                 // Written TOP-DOWN, like any image file: Texture2D::Create(path) flips it
-                // on load, so an embedded texture and the same bitmap shipped loose end up
-                // with identical orientation on the GPU.
+                // on load, so a cooked bitmap and the same bitmap shipped loose end up with
+                // identical orientation on the GPU.
                 const int written = ::stbi_write_png(
-                    cookedPath.string().c_str(),
+                    tempPath.string().c_str(),
                     static_cast<int>(decoded->Width), static_cast<int>(decoded->Height), 4,
                     decoded->RGBA.data(), static_cast<int>(decoded->Width * 4u));
                 if (written == 0)
                 {
-                    OLO_CORE_WARN("Model: Failed to write cooked embedded texture '{}'", cookedPath.string());
+                    OLO_CORE_WARN("Model: Failed to write cooked texture '{}'", tempPath.string());
+                    std::filesystem::remove(tempPath, ec);
                     return std::nullopt;
                 }
-                OLO_CORE_TRACE("Model: Cooked embedded texture '{}' -> {}", assimpTextureRef, cookedPath.string());
+
+                std::error_code renameEc;
+                std::filesystem::rename(tempPath, cookedPath, renameEc);
+                if (renameEc)
+                {
+                    // A racing process that finished first is the expected loser-path here, and
+                    // its file is equally valid (same identity => same pixels), so treat an
+                    // existing destination as success rather than failing the cook.
+                    std::filesystem::remove(tempPath, ec);
+                    if (std::error_code existsEc; !std::filesystem::exists(cookedPath, existsEc))
+                    {
+                        OLO_CORE_WARN("Model: Failed to publish cooked texture '{}': {}",
+                                      cookedPath.string(), renameEc.message());
+                        return std::nullopt;
+                    }
+                }
+                OLO_CORE_TRACE("Model: Cooked texture '{}' -> {}", identity, cookedPath.string());
             }
 
-            // Registers the file (or returns the handle it already has), which is what
-            // puts it in the asset registry and therefore in the asset pack.
-            if (static_cast<u64>(editor->ImportAsset(cookedPath)) == 0)
+            // Registering the file (or fetching the handle it already has) is what puts the
+            // texture in the asset registry and therefore in the ASSET PACK. That needs an
+            // EditorAssetManager, which only exists in an editor session with a project
+            // mounted — so it is best-effort, NOT a precondition. Failing it costs the packed
+            // runtime its handle; returning nullopt here would additionally cost the .omesh
+            // its path, which is the strictly worse outcome the cook exists to prevent.
+            Ref<AssetManagerBase> managerBase = Project::GetActive() ? Project::GetAssetManager() : nullptr;
+            if (auto* editor = dynamic_cast<EditorAssetManager*>(managerBase.Raw()))
             {
-                OLO_CORE_WARN("Model: Could not register cooked embedded texture '{}'", cookedPath.string());
-                return std::nullopt;
+                if (static_cast<u64>(editor->ImportAsset(cookedPath)) == 0)
+                {
+                    OLO_CORE_WARN("Model: Could not register cooked texture '{}' as an asset — it will round-trip "
+                                  "the .omesh cache by path but will be missing from the asset pack",
+                                  cookedPath.string());
+                }
             }
 
             return cookedPath;
+        }
+
+        std::optional<std::filesystem::path> CookEmbeddedTexture(const aiTexture* embedded,
+                                                                 const std::string& modelSourcePath,
+                                                                 const std::string& assimpTextureRef,
+                                                                 bool srgb)
+        {
+            std::error_code ec;
+            const std::filesystem::path canonicalModel = std::filesystem::weakly_canonical(modelSourcePath, ec);
+            const std::string modelKey = ec ? modelSourcePath : canonicalModel.generic_string();
+
+            return CookRgbaToAssetCache("emb_", modelKey + "|" + assimpTextureRef, srgb,
+                                        [embedded]
+                                        { return DecodeEmbeddedTopDown(embedded); });
+        }
+
+        // The packed metallic-roughness map, cooked to a real file for the same reason an
+        // embedded texture is: it is synthesised in memory, so without a file it has no
+        // identity and cannot survive the .omesh. Always LINEAR — it is data, not colour —
+        // so the cooked name carries the "_linear" intent and the pack/runtime loaders read
+        // it back as linear too.
+        //
+        // The identity is the same tuple that keys the in-session cache: both source paths
+        // plus both scalar factors. Change any one and the packed pixels change, so a
+        // different file must be cooked; change none and the existing file is reused, which
+        // keeps its timestamp — and the asset registry's LastWriteTime — stable.
+        // THE identity of a packed metallic-roughness map — every input that changes a pixel of
+        // it, and nothing else. Used for BOTH the cooked filename and the in-session
+        // `m_LoadedTextures` key, deliberately: those two are the same question ("is this the
+        // same texture?") and answering it two ways lets them disagree. They did — the
+        // in-session key omitted the two scales, so two materials that differ only in whether
+        // a metallic/roughness FACTOR was declared (same paths, same values) shared one cache
+        // entry while cooking to two different files, and the second material silently got the
+        // first one's texture.
+        //
+        // Paths are weakly-canonicalised, matching MeshCache::HashSourcePath and
+        // CookEmbeddedTexture: the same file reached by a different spelling (relative vs
+        // absolute, `.` or `..` segments) must hash the same, or one texture cooks twice under
+        // two names. Canonicalisation can fail for a path that does not exist; fall back to the
+        // path as given rather than dropping the component.
+        std::string PackedMetallicRoughnessIdentity(const std::filesystem::path& metallicPath,
+                                                    const std::filesystem::path& roughnessPath,
+                                                    f32 metallicFallback,
+                                                    f32 roughnessFallback,
+                                                    f32 metallicScale,
+                                                    f32 roughnessScale)
+        {
+            const auto canonical = [](const std::filesystem::path& p)
+            {
+                if (p.empty())
+                    return std::string{};
+                std::error_code ec;
+                const std::filesystem::path c = std::filesystem::weakly_canonical(p, ec);
+                return ec ? p.generic_string() : c.generic_string();
+            };
+
+            return "packed_mr|" + canonical(metallicPath) + "|" +
+                   canonical(roughnessPath) + "|" +
+                   std::to_string(metallicFallback) + "|" +
+                   std::to_string(roughnessFallback) + "|" +
+                   std::to_string(metallicScale) + "|" +
+                   std::to_string(roughnessScale);
+        }
+
+        std::optional<std::filesystem::path> CookPackedMetallicRoughnessTexture(
+            const std::filesystem::path& metallicPath,
+            const std::filesystem::path& roughnessPath,
+            f32 metallicFallback,
+            f32 roughnessFallback,
+            f32 metallicScale,
+            f32 roughnessScale)
+        {
+            const std::string identity = PackedMetallicRoughnessIdentity(
+                metallicPath, roughnessPath, metallicFallback, roughnessFallback, metallicScale, roughnessScale);
+
+            return CookRgbaToAssetCache("mr_", identity, /*srgb*/ false,
+                                        [&]
+                                        {
+                                            return BuildPackedMetallicRoughnessPixels(
+                                                metallicPath, roughnessPath, metallicFallback,
+                                                roughnessFallback, metallicScale, roughnessScale);
+                                        });
         }
     } // namespace
 
@@ -872,8 +1027,25 @@ namespace OloEngine
                 // omit the materials; that load then re-imports them from the source file (the
                 // pre-v4 behaviour) instead of inheriting someone else's textures.
                 // The MeshSource here is a cache-only copy on this path, so clearing is local.
+                //
+                // The second reason to omit them is a texture the codec cannot REFERENCE
+                // (issue #791). ImportedMaterialCodec describes a texture by asset handle or
+                // source path; one that has neither — an embedded bitmap whose cook failed —
+                // encodes as an empty slot, so the warm load silently comes back with fewer
+                // maps than the cold import produced. Dropping the table sends the next load
+                // down the Assimp re-import branch above: slower, but it reproduces the cold
+                // result exactly. A cache that is slow is a cost; a cache that is wrong on
+                // the second run only is a bug that reads as a flaky test.
                 if (m_TextureOverride)
                 {
+                    combinedMeshSource->SetImportedMaterials({});
+                }
+                else if (!ImportedMaterialCodec::CanPersistEveryTexture(combinedMeshSource->GetImportedMaterials()))
+                {
+                    OLO_CORE_WARN("Model::LoadModel: '{}' has a material texture with no asset handle and no source "
+                                  "path, so the imported-material table cannot round-trip the .omesh cache — writing "
+                                  "the geometry only; the next load re-imports its materials from source",
+                                  path);
                     combinedMeshSource->SetImportedMaterials({});
                 }
                 MeshCache::SaveMeshToCache(sourcePath, *combinedMeshSource, cachePrefix);
@@ -1135,10 +1307,11 @@ namespace OloEngine
                         continue;
                     }
 
-                    // COOK FIRST: an embedded texture written into the project's asset
-                    // cache gains a path AND an AssetHandle, so ImportedMaterialCodec can
-                    // persist it through both the .omesh cache and the asset pack. Without
-                    // this the material comes back from either container with no maps.
+                    // COOK FIRST: an embedded texture written into the asset cache gains a
+                    // path (and, where a project is mounted, an AssetHandle), so
+                    // ImportedMaterialCodec can persist it through both the .omesh cache and
+                    // the asset pack. Without this the material comes back from either
+                    // container with no maps.
                     // Loading it back off the cooked file (rather than keeping the
                     // in-memory decode) is deliberate: the texture we hand out is then
                     // byte-for-byte the one the codec will resolve later, so the editor
@@ -1150,8 +1323,10 @@ namespace OloEngine
                         if (texture && !texture->IsLoaded())
                             texture = nullptr;
                     }
-                    // No project mounted (or the cook failed): fall back to the GPU-only
-                    // decode. Renders correctly this session; simply cannot persist.
+                    // The cook failed (no writable cache directory, or an undecodable
+                    // bitmap): fall back to the GPU-only decode. Renders correctly this
+                    // session; simply cannot persist — and the cache-write site drops the
+                    // whole material table rather than storing a reference to it.
                     if (!texture)
                         texture = CreateTextureFromEmbedded(embedded, srgb);
 
@@ -1467,8 +1642,11 @@ namespace OloEngine
                 {
                     const auto metallicScale = metallicSourcePath.empty() ? 1.0f : (hasMetallicFactor ? metallic : 1.0f);
                     const auto roughnessScale = roughnessSourcePath.empty() ? 1.0f : (hasRoughnessFactor ? roughness : 1.0f);
-                    const auto cacheKey = std::string("packed_mr|") + metallicSourcePath.string() + "|" + roughnessSourcePath.string() + "|" +
-                                          std::to_string(metallic) + "|" + std::to_string(roughness);
+                    // Same identity the cook hashes into the filename — one definition, so the
+                    // in-session cache and the on-disk cache cannot disagree about what counts
+                    // as "the same texture".
+                    const auto cacheKey = PackedMetallicRoughnessIdentity(
+                        metallicSourcePath, roughnessSourcePath, metallic, roughness, metallicScale, roughnessScale);
 
                     Ref<Texture2D> packedTexture;
                     if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
@@ -1477,13 +1655,23 @@ namespace OloEngine
                     }
                     else
                     {
-                        packedTexture = CreatePackedMetallicRoughnessTexture(
-                            metallicSourcePath,
-                            roughnessSourcePath,
-                            metallic,
-                            roughness,
-                            metallicScale,
-                            roughnessScale);
+                        // Cook to a real file, then load it back — deliberately, and for the
+                        // same reason the embedded path does it: the texture we hand the
+                        // material is then byte-for-byte the one ImportedMaterialCodec will
+                        // resolve out of the .omesh later, so this session and a warm reload
+                        // cannot disagree. Uploading the packed bytes straight to the GPU (what
+                        // this did before) left the texture with no path, so the cache recorded
+                        // an empty reference and the warm load lost the map entirely.
+                        if (auto cooked = CookPackedMetallicRoughnessTexture(
+                                metallicSourcePath,
+                                roughnessSourcePath,
+                                metallic,
+                                roughness,
+                                metallicScale,
+                                roughnessScale))
+                        {
+                            packedTexture = Texture2D::Create(cooked->string(), /*srgb*/ false);
+                        }
                         if (packedTexture && packedTexture->IsLoaded())
                         {
                             m_LoadedTextures[cacheKey] = packedTexture;

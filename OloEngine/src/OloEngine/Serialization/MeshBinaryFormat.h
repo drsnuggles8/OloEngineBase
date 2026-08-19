@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 2
+    // .omesh Binary Mesh Format — Version 5
     //
     // Layout:
     //   [FileHeader]
@@ -49,7 +49,17 @@ namespace OloEngine
         // with, so a warm cache load no longer has to re-run a full Assimp import of the
         // source file just to rebuild them (and so the asset-pack cook, which reads the
         // MeshSource, has materials to ship at all — issue #629).
-        constexpr u32 CurrentVersion = 4; // v4: imported-material table
+        //
+        // v5 adds no sections either. Like v3 it exists purely to INVALIDATE the caches
+        // written before it (issue #791). A v4 file produced without a project mounted
+        // recorded an EMPTY texture reference for every EMBEDDED texture — the importer
+        // only cooked those into real .png assets when there was a project, so they had
+        // neither a handle nor a path to record. Such a file reads back cleanly and
+        // resolves materials with no albedo map, which looks like a flaky test rather
+        // than a corrupt cache (the first, cold run of the day always passes). The
+        // writer is fixed, but every .omesh already on a developer's disk still holds
+        // the empty references, so the version must move for them to be re-imported.
+        constexpr u32 CurrentVersion = 5; // v5: invalidates v4 caches with unpersisted embedded textures
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed
@@ -368,6 +378,7 @@ namespace OloEngine
     static_assert(OMeshFormat::SectionCountForVersion(1) == 7);
     static_assert(OMeshFormat::SectionCountForVersion(2) == 8);
     static_assert(OMeshFormat::SectionCountForVersion(3) == 8);
+    static_assert(OMeshFormat::SectionCountForVersion(4) == OMeshFormat::kSectionCount);
     static_assert(OMeshFormat::SectionCountForVersion(OMeshFormat::CurrentVersion) == OMeshFormat::kSectionCount);
 
     static_assert(std::is_trivially_copyable_v<OMeshFormat::GeometryHeader>);

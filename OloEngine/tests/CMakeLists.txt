@@ -1115,8 +1115,15 @@ include(GoogleTest)
 # we serialize these offenders against EACH OTHER with a shared RESOURCE_LOCK;
 # they still overlap freely with every unrelated test. Keep this list in sync if
 # a new test loads + invalidates a shared model cache.
+#
+# DeccerCubesLoaderFixture joins the list for the same reason (issue #791): its
+# SurvivesAWarmMeshCacheRoundTrip case invalidates a variant's .omesh, writes it
+# cold, then reads it warm. LoadsWithMeshesAndFiniteBounds loads the SAME source
+# files, so under --parallel the two cases race over one cache entry — the
+# round-trip's invalidate can land between the other case's write and read. Both
+# cases are matched with one wildcard.
 set(OLO_MESH_CACHE_TESTS
-	"ModelLoadDeterminism.Backpack_FreshVsCache:DataRoundTripTest.BackpackLegacyObjImportsPbrCompanionMaps:DataRoundTripTest.BackpackLegacyObjFlipsUvsToMatchTextureUploads")
+	"ModelLoadDeterminism.Backpack_FreshVsCache:DataRoundTripTest.BackpackLegacyObjImportsPbrCompanionMaps:DataRoundTripTest.BackpackLegacyObjFlipsUvsToMatchTextureUploads:AllVariants/DeccerCubesLoaderFixture.*")
 
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
