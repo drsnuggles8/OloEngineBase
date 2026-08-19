@@ -1664,7 +1664,17 @@ namespace OloEngine
                           UBO_VIRTUAL_SHADOW < UBO_BINDING_LIMIT &&
                           UBO_VIRTUAL_SHADOW_DRAW < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
-        static_assert(UBO_BINDING_LIMIT <= 84,
+        // GL 4.6's MINIMUM guarantee for GL_MAX_UNIFORM_BUFFER_BINDINGS — the floor every
+        // conforming implementation must meet, so it is the largest binding number the engine
+        // may hand out and still be portable. Backend-neutral on purpose: it is a GL-derived
+        // bound that the Vulkan bind-state mirror also sizes its arrays to
+        // (VulkanBindingState::kMaxBufferBindings aliases this), and it used to be spelled as a
+        // bare 84 in both places. Naming it here rather than there is what lets a GL-only test
+        // assert against it — VirtualShadowMapLocalTest reached into
+        // Platform/Vulkan/VulkanBindingState.h for the constant and stopped compiling under
+        // OLO_WITH_VULKAN=OFF, which nothing built until #811 added the CI job.
+        static constexpr u32 MIN_GUARANTEED_BUFFER_BINDINGS = 84;
+        static_assert(UBO_BINDING_LIMIT <= MIN_GUARANTEED_BUFFER_BINDINGS,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
 
         // =============================================================================
