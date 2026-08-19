@@ -266,10 +266,12 @@ Two controls make that attribution rather than a story:
 
 The **authoring rule still helps** — a volume more than one probe spacing away from the surfaces it
 wants bounce light from still loses the term — but it is no longer the only thing standing between
-an author and a silently dead feature. `DDGIProbeUpdatePass::GetBounceCoverage()` now measures
-`DDGI::VolumeWeight` over every captured hit point of every active probe, weighted by hit point
-(i.e. the fraction of the bounce term the bounds actually let through), and the Light Probe Volume
-inspector warns below 50%. It reads **0.762** for the air-fitted fixture above, **1.000** for the
+an author and a silently dead feature. `DDGIProbeUpdatePass::GetBounceCoverage()` now reports the
+**mean of `DDGI::VolumeWeight` over every captured hit point of every active probe** — the average
+attenuation the bounce gather applies, each hit point counting once. It is a proxy for how much of
+the bounce term survives rather than that fraction itself (a hit point's contribution is also
+weighted by its radiance and cosine term, neither of which enters here), which is ample for the
+authoring question it answers. The Light Probe Volume inspector warns below 50%. It reads **0.762** for the air-fitted fixture above, **1.000** for the
 wall-enclosing one, and **0** for the pre-fix behaviour: the instrument's finding is now a number
 the editor shows you. (It returns **-1** for "nothing to measure" rather than 1.0 — a diagnostic
 whose job is to stop a dead feature reading as healthy must not confuse *unknown* with *fine*.)

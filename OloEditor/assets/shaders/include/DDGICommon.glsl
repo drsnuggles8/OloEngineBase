@@ -301,9 +301,11 @@ vec3 ddgiSelfShadowBias(vec3 normal, vec3 viewDir)
 //     constant extrapolation is allowed to reach.
 //
 //   intensity — the artist gain. u_DDGIIntensity for the lit pass; 1.0 for
-//     the feedback path, because a gain inside a feedback loop multiplies the
-//     loop's spectral radius (albedo clamp x intensity) and would let an
-//     authored value above ~1.11 turn a contraction into a divergence. Kept
+//     the feedback path, because a gain inside a feedback loop multiplies its
+//     Lipschitz bound (albedo clamp x intensity), and above ~1.11 that bound
+//     reaches 1 and stops proving the loop contracts. It does not prove it
+//     diverges — the true gain is generally well under the bound — but a
+//     stability guarantee an artist knob can revoke is not worth keeping. Kept
 //     out, `intensity` scales the converged field linearly instead.
 // -----------------------------------------------------------------------------
 vec3 ddgiGatherIrradiance(sampler2D irradianceAtlas, sampler2D visibilityAtlas, sampler2D probeData,

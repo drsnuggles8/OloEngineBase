@@ -201,10 +201,16 @@ combination with the previous state and cannot increase that constant.
 Two consequences follow from the same inequality and are implemented:
 
 - The bounce path passes **intensity 1**, not `u_DDGIIntensity`. An artist gain
-  inside the loop multiplies the Lipschitz constant, so an authored intensity
-  above ~1.11 would have turned the contraction into a divergence. Kept out, the
-  intensity scales the converged field linearly, which is what an intensity knob
-  should do. (Latent before this change only because the loop was dead.)
+  inside the loop multiplies the Lipschitz bound to `c · intensity`, so an
+  authored intensity above ~1.11 pushes it to 1 and the argument above stops
+  **proving** contraction. That is weaker than saying it diverges — the true
+  operator norm is bounded by `c · intensity` and is generally well under it
+  (sky misses feed nothing back, the volume weight is ≤ 1, Chebyshev de-weights
+  occluded probes), so such a volume might still settle. But a stability
+  guarantee that an artist-facing knob can revoke is not one worth keeping.
+  Kept out, the intensity scales the converged field linearly, which is what an
+  intensity knob should do. (Latent before this change only because the loop
+  was dead.)
 - The bound says nothing about *where* the fixed point is, so a contraction to
   the wrong value is still a contraction — and a loop that stopped running
   would read as perfectly stable. `DDGIReferenceParityTest` asserts the settled
@@ -230,8 +236,11 @@ multi-bounce ground truth, per probe:
 | fitted to the air (the natural authoring) | 0.41 – 0.61 | **0.79 – 0.89** |
 | enclosing the wall slabs | 1.12 | **1.12** (unchanged, to three digits) |
 
-The wall-enclosing case needs no margin and gets none, so the fix is a no-op
-there — which is also what makes it the control. The air-fitted case still
+The wall-enclosing case is handed the same one-spacing margin as everything
+else — `BounceMarginScale` is uploaded unconditionally — and never uses it: its
+hit points are inside the hard bounds, where `VolumeWeight` returns 1 before the
+margin is consulted. So the fix is a no-op there, which is what makes it the
+control. The air-fitted case still
 lands 11–21% low, and that residual is the margin's smoothstep taper: its
 surfaces sit 0.29–0.42 of a spacing outside the bounds and therefore gather at
 0.6–0.8 weight, which compounds through the bounce series. Erring low rather
@@ -246,10 +255,14 @@ width of the approximation instead of by a factor of two.
   from", warn in the editor). Zero risk and zero fix: it leaves a correct-looking
   volume silently producing half the light it should, and every scene already
   authored stays wrong. Shipped as a **companion**, not as the fix:
-  `DDGIProbeUpdatePass::GetBounceCoverage()` measures `DDGI::VolumeWeight` over
-  every captured hit point of every active probe, weighted by hit point — the
-  actual fraction of the bounce term the bounds let through — and the Light Probe
-  Volume inspector warns below 50%. It reads **0.762** for the
+  `DDGIProbeUpdatePass::GetBounceCoverage()` is the **mean of `DDGI::VolumeWeight`
+  over every captured hit point of every active probe** — i.e. the average of the
+  attenuations the bounce gather actually applies, each hit point counting once.
+  It is a proxy for how much of the bounce term survives, not that fraction
+  itself: the irradiance a hit point contributes is also weighted by its radiance
+  and its cosine term, and neither enters here. Good enough to answer "are these
+  probes' surfaces inside the volume?", which is the authoring question. The
+  Light Probe Volume inspector warns below 50%. It reads **0.762** for the
   `DDGIReferenceParityTest` air-fitted room, **1.000** for the wall-enclosing one,
   and **0** for the pre-fix behaviour (margin 0), which is the point: it turns a
   silent no-op into something an author can see. It returns **-1** when there is

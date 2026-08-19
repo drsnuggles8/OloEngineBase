@@ -147,11 +147,18 @@ namespace OloEngine
         [[nodiscard]] bool RanThisFrame() const;
         [[nodiscard]] f32 GetCapturedFraction() const; // captured probes / total
 
-        // Issue #751. Fraction of the infinite-bounce term the volume's
-        // BOUNDS let through, over every cached hit point of every ACTIVE
-        // probe: 1.0 when they all lie inside the volume (or within its bounce
-        // margin), falling toward 0 as the surfaces the probes bounce from
-        // drift past it.
+        // Issue #751. Mean DDGI::VolumeWeight over every cached hit point of
+        // every ACTIVE probe — the average attenuation the bounce gather
+        // applies, each hit point counting once: 1.0 when they all lie inside
+        // the volume (or within its bounce margin), falling toward 0 as the
+        // surfaces the probes bounce from drift past it.
+        //
+        // A PROXY for how much of the bounce term survives, not that fraction
+        // itself: what a hit point contributes to probe irradiance is also
+        // weighted by its radiance and its cosine term, and neither enters
+        // here. That is fine for the question it answers — "are these probes'
+        // surfaces inside the volume?" — but do not quote it as delivered
+        // energy.
         //
         // Returns **-1.0** when there is nothing to measure — no active probe,
         // or no probe has a cached surface hit yet. That is deliberately not

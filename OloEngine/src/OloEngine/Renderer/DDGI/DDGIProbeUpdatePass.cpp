@@ -865,9 +865,11 @@ namespace OloEngine
         // volume's bounds actually deliver. Every cached frontface hit is a
         // surface the relight pass gathers previous-frame irradiance from, and
         // DDGI::VolumeWeight is EXACTLY the factor ddgiGatherIrradiance
-        // applies there, so summing it over the tile measures the fraction of
-        // the infinite-bounce term that survives. That is the authoring
-        // mistake this issue is about, and the number the editor warns on.
+        // applies there, so the mean over the tile is the average attenuation
+        // the bounce gather applies — a proxy for how much of the term
+        // survives (radiance and cosine weighting do not enter), and enough to
+        // catch the authoring mistake this issue is about. It is the number the
+        // editor warns on.
         //
         // Computed here, AFTER relocation, and from `newOffset`: the relight
         // shader reconstructs each hit point as
