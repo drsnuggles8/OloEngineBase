@@ -33,7 +33,15 @@ void main()
 {
     int base = gl_VertexIndex * 5;
     vec2 pos = vec2(b_Vertices.v[base + 0], b_Vertices.v[base + 1]);
-    v_UV = pos * 0.5 + 0.5;
+    // Vulkan NDC +Y points DOWN where GL's points up. This shader writes raw NDC
+    // with no projection matrix, so it is the one shader that never passes through
+    // the projection seam that owns the convention for everything else
+    // (rhi-abstraction-boundary.md 13c) — the flip has to happen here. Without it
+    // v_UV.y means "up" on GL and "down" on Vulkan, and BOTH consumers assume GL:
+    // the layout (label 0.60 / counter 0.555 / bar 0.50, i.e. label above bar) and
+    // the 4x5 glyph row index (py = 4 - lc.y*5). So the Vulkan boot screen rendered
+    // the stack upside down AND every glyph vertically mirrored ('/' became '\').
+    v_UV = vec2(pos.x, -pos.y) * 0.5 + 0.5;
     gl_Position = vec4(pos, 0.0, 1.0);
 }
 #else
