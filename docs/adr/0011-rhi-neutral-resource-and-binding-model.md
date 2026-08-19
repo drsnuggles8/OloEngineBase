@@ -465,9 +465,11 @@ genuinely separate axes, and this ADR separates them:
 - **Build-time — `OLO_WITH_VULKAN` (CMake option, default `ON` on desktop):**
   *is the Vulkan backend compiled in at all?* This is needed, because the SDK +
   volk + VMA vendoring is heavy, and `docs/agent-rules/asset-import-usd-alembic.md`
-  already records what heavyweight vendored dependencies cost this build. It
-  also lets `OloServer` (the WSL2/headless target) and a lean CI configuration
-  build without a Vulkan SDK present. This is an *availability* switch.
+  already records what heavyweight vendored dependencies cost this build. This
+  is an *availability* switch, and it is **whole-tree**: `OloServer`, the editor
+  and the runtime are configured together, so it cannot be set "for the server".
+  It also does **not** remove the Vulkan SDK requirement — see amendment (86)
+  and the Consequences bullet, corrected by #811.
 - **Run-time — `--rhi=`:** *which compiled-in backend does this process use?*
   This is a *selection* switch, and it is the one the user interacts with.
 
@@ -1023,7 +1025,17 @@ changes the model in §1.1–§1.5; all four are corrections to the *vocabulary*
   Vulkan (§1.5) — fixed in Phase 5 by (43): the transition record is unified
   onto `RHI::Access`, with the WAW fix applied at barrier emission.
 - One binary ships both backends. Binary size and link time grow; `OLO_WITH_VULKAN=OFF`
-  is the escape valve for `OloServer` and lean CI.
+  drops the volk / vulkan-headers / VulkanMemoryAllocator ports and compiles the
+  backend object code out. **It is not an escape valve from the Vulkan SDK, and
+  not a per-target one.** `find_package(Vulkan REQUIRED)` is deliberately ungated
+  (the *shader* toolchain — shaderc / glslang / SPIRV-Tools / SPIRV-Cross — lives
+  in the same SDK and every build needs it), and the option is whole-tree, so
+  `OloServer` cannot be configured lean while the editor is not. Corrected in
+  place by amendment (86); #811 then decided the follow-on question — **an
+  SDK-free lean server build is not a goal** (the server is already backend-less
+  per (86), and its deployment image needs no GPU stack) — and added the
+  `vulkan-off.yml` CI job so the OFF configuration is compiled somewhere other
+  than a developer's machine.
 - Vulkan adds exactly one new on-disk cache artefact (`pipeline_cache.vkpc`) and
   changes the *name* of an existing one (the target-env-keyed SPIR-V). Existing
   caches are invalidated once, at the version that lands (b); this is a
