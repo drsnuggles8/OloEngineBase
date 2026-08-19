@@ -354,6 +354,19 @@ The registry is the slow, name-based side on purpose.
    `olo_render_debug_set` (where only *that* one path was correct) and into a
    callback in `Renderer3D::Init`, which every route now gets.
 
+**The trap in that design: the rendering IS the equality operator.** "Did this
+change?" is decided by comparing each cvar's *rendered* value against the last
+one dispatched. That is what makes every write path equal — a typed setter,
+`SetFromString` and `--set` are all caught the same way, with no per-type
+comparator to keep in sync — but it means a lossy rendering silently disables
+the notification. `std::to_string(f32)` gives six fixed decimals, so `1.0` and
+`1.0000004` render identically: the observer keeps the old value while the typed
+accessor already returns the new one, and nothing anywhere reports a problem.
+Float cvars therefore render **shortest-round-trip** (`std::format("{}", v)`),
+and `Levers::Snapshot()` must use the same helper or the two enumerations
+disagree. If you add a cvar type, ask what two distinct values it can render
+identically as — that set must be empty.
+
 `FTaskPriorityCVar` in `Task.h` — the UE port whose constructor said "OloEngine
 doesn't have a console variable system yet, so we just store the defaults", with
 zero call sites — was deleted by the same change.
