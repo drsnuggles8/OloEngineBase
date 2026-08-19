@@ -36,7 +36,12 @@ namespace OloEngine
         {
             return false;
         }
-        if (BorderTexels > PageTexels / 4u)
+        // At least one, and that is not a style preference: the physical cache is
+        // sampled with a LINEAR filter, so a tap at a page edge reads a texel
+        // outside the page's interior. The border is the only thing that makes
+        // that texel the true neighbouring content instead of whichever page
+        // happens to occupy the adjacent tile.
+        if (BorderTexels == 0u || BorderTexels > PageTexels / 4u)
         {
             return false;
         }
@@ -63,7 +68,7 @@ namespace OloEngine
 
         VirtualPagesWide = FloorPowerOfTwo(std::clamp(VirtualPagesWide, 2u, kVTMaxPagesWide), 2u);
         PageTexels = FloorPowerOfTwo(std::clamp(PageTexels, 8u, 1024u), 8u);
-        BorderTexels = std::min(BorderTexels, PageTexels / 4u);
+        BorderTexels = std::clamp(BorderTexels, 1u, PageTexels / 4u);
         CacheTilesWide = std::clamp(CacheTilesWide, 2u, kVTMaxCacheTilesWide);
         MaxTileBakesPerFrame = std::max(MaxTileBakesPerFrame, 1u);
         FeedbackDownscale = FloorPowerOfTwo(std::clamp(FeedbackDownscale, 2u, 32u), 2u);

@@ -1295,7 +1295,7 @@ namespace OloEngine
         terrain.m_VTPageTexels =
             std::clamp(terrainComponent["VTPageTexels"].as<u32>(terrain.m_VTPageTexels), 8u, 1024u);
         terrain.m_VTBorderTexels =
-            std::clamp(terrainComponent["VTBorderTexels"].as<u32>(terrain.m_VTBorderTexels), 0u, 32u);
+            std::clamp(terrainComponent["VTBorderTexels"].as<u32>(terrain.m_VTBorderTexels), 1u, 32u);
         terrain.m_VTCacheTilesWide =
             std::clamp(terrainComponent["VTCacheTilesWide"].as<u32>(terrain.m_VTCacheTilesWide), 2u, 256u);
         terrain.m_VTMaxTileBakesPerFrame = std::clamp(

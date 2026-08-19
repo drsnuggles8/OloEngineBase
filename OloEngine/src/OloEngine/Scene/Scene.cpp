@@ -228,6 +228,18 @@ namespace OloEngine
             return (std::isfinite(value) && value > 0.0f) ? value : TerrainLODConfig{}.TargetTriangleSize;
         }
 
+        // How sharply the terrain's triplanar projection falls off, shared by the
+        // two paths that must agree about it: the virtual-texture bake input (the
+        // terrain UPDATE loop) and TerrainParams.w for the splat blend (the
+        // terrain RENDER loop).
+        //
+        // At namespace scope because those are different loops — a constant
+        // declared in either block is out of scope at the other site. And shared
+        // at all because a tile baked planar and shaded as if triplanar shows a
+        // hard band exactly where the two thresholds disagree, which is a
+        // "the terrain looks odd on slopes" bug rather than an obvious one.
+        constexpr f32 kTerrainTriplanarSharpness = 8.0f;
+
         [[nodiscard]] TerrainLocalCullInputs MakeTerrainLocalCullInputs(const glm::mat4& worldTransform,
                                                                         const glm::vec3& cameraWorldPos,
                                                                         const glm::mat4& worldViewProjection)
@@ -7848,10 +7860,7 @@ namespace OloEngine
                         vtInputs.m_WorldSizeX = terrain.m_WorldSizeX;
                         vtInputs.m_WorldSizeZ = terrain.m_WorldSizeZ;
                         vtInputs.m_HeightScale = terrain.m_HeightScale;
-                        // Matches the constant the submit path puts in
-                        // TerrainParams.w, so the bake and the splat path agree
-                        // about which pixels are steep enough for triplanar.
-                        vtInputs.m_TriplanarSharpness = 8.0f;
+                        vtInputs.m_TriplanarSharpness = kTerrainTriplanarSharpness;
                         (void)terrain.m_VirtualTexture->Update(vtInputs);
                     }
                     else if (terrain.m_VirtualTexture)
@@ -8148,7 +8157,7 @@ namespace OloEngine
 
                             const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
                             u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
-                            f32 triplanarSharpness = 8.0f;
+                            f32 triplanarSharpness = kTerrainTriplanarSharpness;
                             terrainUBOData.TerrainParams = glm::vec4(
                                 1.0f / static_cast<f32>(res),
                                 1.0f / static_cast<f32>(res),

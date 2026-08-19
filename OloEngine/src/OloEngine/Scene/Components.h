@@ -4020,9 +4020,11 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 8, Max = 1024)
         u32 m_VTPageTexels = 128;
         // Duplicated neighbourhood on each side of a cache tile — what lets the
-        // cache be linearly filtered without bleeding across a page seam.
+        // cache be linearly filtered without bleeding across a page seam. At
+        // least ONE: the cache is sampled with a linear filter, so a zero border
+        // puts a neighbouring page's texels inside every edge tap.
         OLO_PROPERTY(Name = "VTBorderTexels")
-        OLO_SERIALIZE(Clamp, Min = 0, Max = 32)
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 32)
         u32 m_VTBorderTexels = 4;
         // Physical cache is this squared tiles. The residency budget.
         OLO_PROPERTY(Name = "VTCacheTilesWide")

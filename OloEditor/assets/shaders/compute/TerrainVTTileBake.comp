@@ -119,7 +119,12 @@ void main()
     // clamps rather than wrapping to the far edge.
     vec2 uvClamped = clamp(uv, vec2(0.0), vec2(1.0));
 
-    int layerCount = int(u_VTBakeConfig1.x);
+    // min(): weights[]/heights[] below are fixed at 8, and an out-of-bounds
+    // GLSL array write is undefined rather than caught. TerrainMaterial::AddLayer
+    // already refuses past MAX_TERRAIN_LAYERS so the producer cannot send more,
+    // but that invariant lives in another file — this keeps the array bound
+    // provable from the loop that uses it.
+    int layerCount = min(int(u_VTBakeConfig1.x), 8);
     float layerResolution = float(u_VTBakeConfig1.z);
 
     float weights[8];

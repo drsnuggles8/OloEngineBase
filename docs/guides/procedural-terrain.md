@@ -97,9 +97,10 @@ material" yields a textured planet out of the box.
 `TerrainComponent::m_VirtualTextureEnabled` swaps the per-pixel splat blend for a
 feedback-driven virtual texture (issue #715, slice 1). The blend itself is
 unchanged — it just runs **once per cache tile** in a compute kernel instead of
-once per pixel, so shading cost stops scaling with layer count and the composited
-surface is stored at up to 32 768 texels across the terrain rather than being
-recomputed from a 512-texel splatmap every frame.
+once per pixel. The *virtual* surface is up to 32 768 texels across the terrain
+against the splatmap's 512; only the pages the camera actually asked for are
+resident in the physical cache at any moment, which is the whole point of the
+indirection map.
 
 It is an alternative, not a replacement: with the flag off, everything above
 behaves exactly as it did. Streamed terrain always keeps the splat path (each

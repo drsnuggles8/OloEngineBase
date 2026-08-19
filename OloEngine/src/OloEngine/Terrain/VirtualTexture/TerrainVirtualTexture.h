@@ -243,7 +243,6 @@ namespace OloEngine
         std::vector<PendingAnalysis> m_PendingAnalyses;
         // The most recent completed analysis, consumed by ServiceRequests().
         std::vector<VTPageRequest> m_Requests;
-        bool m_HasFreshRequests = false;
         u64 m_NextAnalysisSequence = 1;
         u64 m_AdoptedAnalysisSequence = 0;
 

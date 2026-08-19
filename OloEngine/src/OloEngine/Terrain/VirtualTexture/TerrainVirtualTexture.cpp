@@ -247,7 +247,6 @@ namespace OloEngine
         m_FeedbackDims = glm::uvec2(0u);
         m_FeedbackWords = 0;
         m_NextReadbackSlot = 0;
-        m_HasFreshRequests = false;
         m_NextAnalysisSequence = 1;
         m_AdoptedAnalysisSequence = 0;
         m_IndirectionDirty = false;
@@ -503,7 +502,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_HasFreshRequests = false;
         for (auto it = m_PendingAnalyses.begin(); it != m_PendingAnalyses.end();)
         {
             if (!it->m_Task.IsCompleted())
@@ -528,7 +526,6 @@ namespace OloEngine
                 m_Requests = it->m_Analyzer->GetRequests();
                 m_Stats.m_PagesRequested = static_cast<u32>(m_Requests.size());
                 m_Stats.m_FeedbackTexelsWritten = it->m_Analyzer->GetWrittenTexelCount();
-                m_HasFreshRequests = true;
             }
             it = m_PendingAnalyses.erase(it);
         }
@@ -598,6 +595,19 @@ namespace OloEngine
         }
 
         const TerrainMaterial& material = *inputs.m_Material;
+
+        // IsBuilt() only tests the ALBEDO array, but all three are dereferenced
+        // below and each Texture2DArray::Create can fail on its own. Relying on
+        // the caller's gate would turn a failed normal/ARM allocation into a null
+        // dereference here rather than a skipped bake.
+        const Ref<Texture2DArray> albedoArray = material.GetAlbedoArray();
+        const Ref<Texture2DArray> normalArray = material.GetNormalArray();
+        const Ref<Texture2DArray> armArray = material.GetARMArray();
+        if (!albedoArray || !normalArray || !armArray)
+        {
+            return;
+        }
+
         const u32 layerCount = material.GetLayerCount();
 
         VTBakeHeader header;
@@ -653,12 +663,12 @@ namespace OloEngine
         {
             HeapBinding::BindTextureOrOffset(SBL::TEX_TERRAIN_SPLATMAP_1, splat1->GetRHIHandle(), Persistent);
         }
-        HeapBinding::BindTextureOrOffset(SBL::TEX_TERRAIN_ALBEDO_ARRAY, material.GetAlbedoArray()->GetRHIHandle(),
-                                         Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
-        HeapBinding::BindTextureOrOffset(SBL::TEX_TERRAIN_NORMAL_ARRAY, material.GetNormalArray()->GetRHIHandle(),
-                                         Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
-        HeapBinding::BindTextureOrOffset(SBL::TEX_TERRAIN_ARM_ARRAY, material.GetARMArray()->GetRHIHandle(),
-                                         Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
+        HeapBinding::BindTextureOrOffset(SBL::TEX_TERRAIN_ALBEDO_ARRAY, albedoArray->GetRHIHandle(), Persistent,
+                                         {}, RHI::NullSamplerKind::Texture2DArray);
+        HeapBinding::BindTextureOrOffset(SBL::TEX_TERRAIN_NORMAL_ARRAY, normalArray->GetRHIHandle(), Persistent,
+                                         {}, RHI::NullSamplerKind::Texture2DArray);
+        HeapBinding::BindTextureOrOffset(SBL::TEX_TERRAIN_ARM_ARRAY, armArray->GetRHIHandle(), Persistent, {},
+                                         RHI::NullSamplerKind::Texture2DArray);
 
         RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_VT_BAKE, m_BakeBuffer->GetRHIHandle());
         HeapBinding::BindImageOrOffset(kImageUnitTarget, m_CacheTexture->GetRHIHandle(), 0, /*layered*/ true, 0,

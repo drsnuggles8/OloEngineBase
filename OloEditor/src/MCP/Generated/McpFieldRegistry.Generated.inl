@@ -940,7 +940,7 @@ registry.push_back(OLO_GFW_FIELD(TerrainComponent, "StreamingMaxTiles", m_Stream
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VirtualTextureEnabled", m_VirtualTextureEnabled));
 registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTVirtualPagesWide", m_VTVirtualPagesWide, OLO_GFW_BOUND(2), OLO_GFW_BOUND(4096)));
 registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTPageTexels", m_VTPageTexels, OLO_GFW_BOUND(8), OLO_GFW_BOUND(1024)));
-registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTBorderTexels", m_VTBorderTexels, OLO_GFW_BOUND(0), OLO_GFW_BOUND(32)));
+registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTBorderTexels", m_VTBorderTexels, OLO_GFW_BOUND(1), OLO_GFW_BOUND(32)));
 registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTCacheTilesWide", m_VTCacheTilesWide, OLO_GFW_BOUND(2), OLO_GFW_BOUND(256)));
 registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTMaxTileBakesPerFrame", m_VTMaxTileBakesPerFrame, OLO_GFW_BOUND(1), OLO_GFW_BOUND(64)));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VoxelEnabled", m_VoxelEnabled));

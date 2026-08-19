@@ -167,6 +167,31 @@ TEST(TerrainVirtualTexture, DefaultConfigurationIsValidAndReachesAOneByOneMip)
     EXPECT_EQ(config.VirtualTexelsWide(), 32768u);
 }
 
+TEST(TerrainVirtualTexture, AZeroCacheBorderIsRejectedAndRepaired)
+{
+    // The border is not padding. The physical cache is sampled with a LINEAR
+    // filter, so a tap at a page edge reads a texel outside the page's interior;
+    // the border is the only thing that makes that texel the true neighbouring
+    // content instead of whichever unrelated page occupies the adjacent tile.
+    // With zero border every page boundary in the terrain becomes a seam — and a
+    // seam is exactly the kind of defect that reads as "the texture looks a bit
+    // off" rather than as an error.
+    TerrainVirtualTextureConfig config;
+    config.BorderTexels = 0;
+    EXPECT_FALSE(config.IsValid()) << "a zero border must not be accepted";
+
+    EXPECT_FALSE(config.Sanitize()) << "Sanitize must report that it changed the border";
+    EXPECT_GE(config.BorderTexels, 1u);
+    EXPECT_TRUE(config.IsValid());
+
+    // The upper bound still holds, and the two are independent.
+    TerrainVirtualTextureConfig wide;
+    wide.BorderTexels = 9999;
+    EXPECT_FALSE(wide.IsValid());
+    EXPECT_FALSE(wide.Sanitize());
+    EXPECT_EQ(wide.BorderTexels, wide.PageTexels / 4u);
+}
+
 TEST(TerrainVirtualTexture, SanitizeRoundsToWhatThePackingsCanExpressAndReportsThatItDid)
 {
     TerrainVirtualTextureConfig config;

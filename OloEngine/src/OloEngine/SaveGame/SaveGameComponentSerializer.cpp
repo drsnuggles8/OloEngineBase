@@ -2122,7 +2122,7 @@ namespace OloEngine
             // aesthetics.
             c.m_VTVirtualPagesWide = std::clamp(c.m_VTVirtualPagesWide, 2u, 4096u);
             c.m_VTPageTexels = std::clamp(c.m_VTPageTexels, 8u, 1024u);
-            c.m_VTBorderTexels = std::min(c.m_VTBorderTexels, 32u);
+            c.m_VTBorderTexels = std::clamp(c.m_VTBorderTexels, 1u, 32u);
             c.m_VTCacheTilesWide = std::clamp(c.m_VTCacheTilesWide, 2u, 256u);
             c.m_VTMaxTileBakesPerFrame = std::clamp(c.m_VTMaxTileBakesPerFrame, 1u, 64u);
             for (TerrainLayerRule& r : c.m_LayerRules)

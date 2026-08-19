@@ -5932,8 +5932,10 @@ namespace OloEngine
                 powerOfTwoDrag("VT Pages (log2)", component.m_VTVirtualPagesWide, 2u, 4096u);
                 powerOfTwoDrag("VT Page Texels (log2)", component.m_VTPageTexels, 8u, 1024u);
 
+                // Minimum 1: the border is the only thing keeping a linear tap at a
+                // page edge from reading the neighbouring cache tile.
                 if (int border = static_cast<int>(component.m_VTBorderTexels);
-                    ImGui::DragInt("VT Border Texels", &border, 1, 0, 32))
+                    ImGui::DragInt("VT Border Texels", &border, 1, 1, 32))
                 {
                     component.m_VTBorderTexels = static_cast<u32>(border);
                 }
@@ -5956,8 +5958,11 @@ namespace OloEngine
 
                     ImGui::Separator();
                     ImGui::Text("VT status: %s", vt.IsReadyForShading() ? "shading" : "warming up");
-                    ImGui::Text("Virtual texels: %llu x %llu",
-                                static_cast<unsigned long long>(cfg.VirtualTexelsWide()),
+                    // Squared rather than "W x H": the virtual image is square by
+                    // construction (one VirtualPagesWide, one PageTexels), so there
+                    // is no height to print — and printing the same accessor twice
+                    // reads like a copy-paste bug even when it is not.
+                    ImGui::Text("Virtual texels: %llu^2",
                                 static_cast<unsigned long long>(cfg.VirtualTexelsWide()));
                     ImGui::Text("Cache residency: %u / %u tiles", stats.m_ResidentTiles, stats.m_CacheTileCount);
                     ImGui::Text("Pages requested: %u (from %u feedback texels)", stats.m_PagesRequested,
