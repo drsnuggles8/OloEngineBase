@@ -109,6 +109,7 @@ Read before trusting any measurement.
 | [reference-path-tracer.md](reference-path-tracer.md) | a golden answers "did it change?", never "is it correct?" |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | a per-vendor baseline set is the instrument validating itself — and a small cross-vendor RMSE measures portability, never correctness |
 | [gpu-debug-draws.md](gpu-debug-draws.md) | read the two-counter overflow protocol before concluding "it drew nothing" |
+| [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) | `LNK1248` reports the offset where the archive crossed 4 GiB, not its size — two readings both looked ~0.5 MB over when the real overshoot was ~1.1 GB |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e | the CI job that said `--config Release` was building no config at all, and grepping for `--parallel` finds four sites of which only one is a runaway — the generator, not the flag, decides |
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close is not evidence of a clean teardown — the same leak was silent there for the backend's whole life |
 
@@ -205,6 +206,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md)
 
 **Build & deps** — [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) ·
+[static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) ·
 [vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·
 [asset-import-usd-alembic.md](asset-import-usd-alembic.md)
 

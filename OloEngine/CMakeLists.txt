@@ -639,3 +639,78 @@ endif()
 # OloServer / fuzz harnesses), which need the asan_dynamic.lib import lib at
 # link time but don't need to be instrumented themselves.
 olo_apply_fuzz_sanitizer(OloEngine)
+
+# --------------------------------------------------------------------------
+# The other two engine archives (issue #762).
+#
+# OloEngine/src/CMakeLists.txt splits the engine's sources across three static libraries so no
+# single COFF archive approaches the format's hard 4 GiB ceiling. `OloEngine` remains the target
+# everything outside the engine links, and the one this file configures above; the two parts need
+# the same build settings, and get them two ways:
+#
+#   * PUBLIC usage requirements — include directories, ENTT_USE_ATOMIC / SOL_ALL_INTEGER_VALUES_FIT
+#     and the rest of the PUBLIC definitions, cxx_std_23, every third-party link — arrive through
+#     `target_link_libraries(<part> OloEngine)` below.
+#   * PRIVATE settings do NOT propagate, so they are applied here explicitly. That list must stay
+#     in step with the PRIVATE settings applied to OloEngine near the top of this file: a part
+#     compiled without OLO_DIST, or with a different runtime library, is an ODR violation that
+#     links cleanly and misbehaves at runtime, which is far worse than the build error it isn't.
+#     The one PRIVATE setting deliberately NOT mirrored is the Steamworks include directory: the
+#     single TU allowed to include a Valve header (Platform/Steam/SteamworksBackend.cpp, enforced
+#     by a CI grep) is in the core part, so the other two have no use for it.
+#
+# The link is deliberately mutual (`OloEngine` also links the parts, below): the parts call back
+# into core engine code and core calls into them. CMake documents cycles between STATIC libraries
+# as supported and repeats them on the link line, so this is a declared cycle, not an oversight.
+foreach(_olo_part IN LISTS OLO_ENGINE_LIBRARY_PARTS)
+	if(_olo_part STREQUAL "OloEngine")
+		continue()  # configured above, in full
+	endif()
+
+	olo_set_output_directories(${_olo_part})
+	olo_enable_lto(${_olo_part})
+	olo_enable_pch(${_olo_part} src/OloEnginePCH.h)
+	olo_set_compiler_options(${_olo_part})
+	olo_set_common_definitions(${_olo_part})
+	olo_apply_fuzz_sanitizer(${_olo_part})
+
+	target_compile_features(${_olo_part} PUBLIC cxx_std_23)
+	target_compile_definitions(${_olo_part} PRIVATE
+							_CRT_SECURE_NO_WARNINGS
+							GLFW_INCLUDE_NONE
+							IMGUI_DEFINE_MATH_OPERATORS
+							YAML_CPP_STATIC_DEFINE
+							OLO_ENGINE_VERSION="${CMAKE_PROJECT_VERSION}"
+	)
+
+	if(OLO_ENABLE_UNITY_BUILD)
+		set_target_properties(${_olo_part} PROPERTIES
+			UNITY_BUILD ON
+			UNITY_BUILD_BATCH_SIZE 16
+		)
+	endif()
+
+	# Plain signature throughout: this file already uses it for OloEngine, and CMake rejects
+	# mixing the plain and keyword forms on one target.
+	target_link_libraries(${_olo_part} OloEngine)
+
+	# The parts compile the same generated .inl files OloEngine does. The mutual link would
+	# order this anyway, but stating it keeps the codegen edge readable and independent of
+	# how CMake chooses to break the cycle.
+	add_dependencies(${_olo_part} GenerateBindings)
+endforeach()
+
+# Close the cycle so anything linking OloEngine gets all three archives.
+target_link_libraries(OloEngine OloEngineRenderer OloEngineContent)
+
+# How many times a cyclically-dependent static library is repeated on the link line. CMake's
+# default is 2, which is enough for a two-member cycle; this is a THREE-member one, so a symbol
+# chain that alternates core -> renderer -> content -> core needs a third pass to resolve.
+#
+# This is invisible on the primary MSVC toolchain — link.exe resolves lazily out of archives and
+# does not care about command-line order — so the Windows evidence that all three app targets
+# link cannot rule the problem out. It is the single-pass GNU/LLVM linkers used by the Linux jobs
+# (OloServer, the sanitizer builds) that would report it, as `undefined reference`. Setting it
+# costs a slightly longer link line and nothing else, so it is set rather than discovered.
+set_target_properties(OloEngine OloEngineRenderer OloEngineContent
+	PROPERTIES LINK_INTERFACE_MULTIPLICITY 3)

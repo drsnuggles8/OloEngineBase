@@ -283,6 +283,57 @@ else()
 endif()
 
 # --------------------------------------------------------------------------
+# Static-archive headroom against the 4 GiB COFF ceiling (issue #762).
+#
+# A .lib stores member offsets as 32-bit values and has no 64-bit variant, so 4 GiB is a hard
+# format limit rather than a tunable. OloEngine.lib crossed it in the Dist configuration — whose
+# /GL objects hold compiler IL rather than machine code — and every app target stopped linking
+# with a message that names neither the cause nor the cure:
+#
+#     OloEngine.lib : fatal error LNK1248: image size (10007B6EE) exceeds maximum allowable size
+#
+# Nothing was watching, because no CI workflow builds Dist and the ones that build Release pass
+# -DOLO_ENABLE_LTO=OFF, so no gate had ever produced a /GL object at all. The thresholds below
+# turn that cliff into a slope: cmake/CheckArchiveSize.cmake runs after the archive is written
+# and reports its size every time, warns while there is still room to act, and fails with an
+# actionable message short of the point lib.exe gives up.
+#
+# Expressed as a percentage of the format limit, because that is the number that matters — the
+# absolute size is meaningless without it. Raise them only to buy time for a real fix; lowering
+# WARN is free and gives earlier notice.
+set(OLO_ARCHIVE_WARN_PERCENT "75" CACHE STRING
+    "Warn when a static archive reaches this percentage of the 4 GiB COFF limit (issue #762)")
+set(OLO_ARCHIVE_FAIL_PERCENT "90" CACHE STRING
+    "Fail the build when a static archive reaches this percentage of the 4 GiB COFF limit (issue #762)")
+foreach(_olo_archive_var OLO_ARCHIVE_WARN_PERCENT OLO_ARCHIVE_FAIL_PERCENT)
+    # Same rule and reason as OLO_LINK_JOBS above: a value CMake would accept but that silently
+    # disables the check (empty, 0, or past the format limit) is worse than one that fails here.
+    #
+    # 100 is rejected along with 0, and for the same reason rather than as an off-by-one: an
+    # archive can never REACH 100% of 4 GiB, because lib.exe refuses to write one at or past the
+    # limit — that refusal is the whole premise of this check. A threshold of 100 is therefore a
+    # threshold that can never fire, which is exactly the silently-disabled case above.
+    if(NOT ${_olo_archive_var} MATCHES "^[1-9][0-9]?$")
+        message(FATAL_ERROR
+            "${_olo_archive_var} must be an integer percentage in 1..99 (got "
+            "'${${_olo_archive_var}}'). It bounds how close a static archive may get to the "
+            "4 GiB COFF limit; an out-of-range value would leave the archive unguarded, and 100 "
+            "is unreachable because lib.exe never writes an archive that large.")
+    endif()
+endforeach()
+# GREATER_EQUAL, not GREATER: cmake/CheckArchiveSize.cmake tests the fail threshold first and the
+# warn threshold in an elseif, so equal thresholds do not merely make the warning redundant — they
+# make it unreachable, which is the same defect this message already describes.
+if(OLO_ARCHIVE_WARN_PERCENT GREATER_EQUAL OLO_ARCHIVE_FAIL_PERCENT)
+    message(FATAL_ERROR
+        "OLO_ARCHIVE_WARN_PERCENT (${OLO_ARCHIVE_WARN_PERCENT}) must be strictly less than "
+        "OLO_ARCHIVE_FAIL_PERCENT (${OLO_ARCHIVE_FAIL_PERCENT}) — the build would fail before "
+        "ever emitting the warning that is supposed to precede it.")
+endif()
+math(EXPR OLO_ARCHIVE_WARN_BYTES "(4294967296 / 100) * ${OLO_ARCHIVE_WARN_PERCENT}")
+math(EXPR OLO_ARCHIVE_FAIL_BYTES "(4294967296 / 100) * ${OLO_ARCHIVE_FAIL_PERCENT}")
+
+# --------------------------------------------------------------------------
 # Build instrumentation (CMake 4.3+, Makefile/Ninja/FASTBuild only — issue #822).
 #
 # Native successor to the recipe issue #759 used by hand

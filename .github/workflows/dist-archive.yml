@@ -1,0 +1,167 @@
+# Watches the one quantity no other workflow can see: how close the engine's static archives are
+# to the COFF format's hard 4 GiB ceiling (issue #762).
+#
+# Why this job has to exist separately from Windows.yml, rather than being an assertion added to
+# it. Two independent reasons, and the second one is the surprising half:
+#
+#   * Nothing builds Dist. It is the distribution config and it had no CI coverage at all, which
+#     is how every app target came to be un-linkable in it for an unknown length of time.
+#   * Every workflow that builds Release passes -DOLO_ENABLE_LTO=OFF, deliberately, so that /GL
+#     does not defeat sccache. /GL is precisely what makes an object carry compiler IL instead of
+#     machine code — one to two orders of magnitude larger. So NO CI job in this repo has ever
+#     produced a /GL object, and the archive Windows.yml builds is small for a reason that has
+#     nothing to do with the one that matters here.
+#
+# Why it is scheduled and not per-PR. This is a cold build every time: /GL objects are not
+# cacheable, so sccache cannot help, and there is no incremental state between runs. Running it
+# on every PR would roughly double the cost of Windows CI to watch a number that moves by a few
+# MB per feature. Weekly catches the creep with days of warning, which is proportionate; the
+# per-build guard developers actually feel is cmake/CheckArchiveSize.cmake, which prints the
+# headroom locally after every single build in every config.
+#
+# What it does NOT cover, stated so nobody reads more into a green tick than is there:
+#   * It builds the three archives, not the apps. The archive step is where LNK1248 fires; the
+#     /LTCG app links downstream are enormously more expensive and would not add signal about
+#     archive size.
+#   * USD / Alembic / MaterialX / FFmpeg are off, as in Windows.yml. Those translator and video
+#     TUs still compile (to stubs), so the file count is identical, but the measurement is a
+#     slight LOWER BOUND on a full local Dist build — Video/ is 0.5% of the mass, the translators
+#     less. The thresholds have far more margin than that difference.
+#
+# Background: docs/agent-rules/static-archive-4gib-ceiling.md
+name: Dist archive
+on:
+  schedule:
+    # Mondays 05:00 UTC. Nothing depends on the exact time; it is off-peak for the shared runners.
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+  # Also run when the guard MECHANISM changes, so a PR that edits it proves it still works. The
+  # root CMakeLists.txt is in the list because it holds OLO_ARCHIVE_WARN/FAIL_PERCENT - without it
+  # a PR that raises the failure threshold to 98 would merge without ever running a Dist build.
+  #
+  # Deliberately NOT triggered by OloEngine/src/CMakeLists.txt, which holds the partition regexes
+  # and the /GL- list: that file changes in most feature PRs (every added source file touches it),
+  # and running this cold LTO build on all of them is exactly the per-PR cost the schedule exists
+  # to avoid. The residual gap is real and accepted - a change to the regexes themselves is caught
+  # by the next weekly run rather than at review time, days rather than months after the fact.
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'CMakeLists.txt'
+      - 'cmake/CheckArchiveSize.cmake'
+      - 'cmake/CommonProperties.cmake'
+      - '.github/workflows/dist-archive.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: windows-latest
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Python 3.10
+        id: py
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+
+      - name: Install python dependencies
+        run: |
+          # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
+          python -m pip install jinja2==3.1.6
+
+      - name: Setup Vulkan SDK
+        uses: ./.github/actions/setup-vulkan
+
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-windows-static-md
+
+      # A /GL Dist tree is the largest thing this repo produces: several GB of IL objects plus the
+      # archives themselves. Record the starting headroom so a disk-full failure is diagnosable as
+      # one, rather than as a mysterious toolchain error late in the build.
+      - name: Report free disk space
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem |
+            Where-Object { $_.Used -ne $null } |
+            Select-Object Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}} |
+            Format-Table -AutoSize
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          # -DOLO_ENABLE_LTO is left at its ON default ON PURPOSE — it is the entire point of this
+          # job, and the one thing every other Windows workflow turns off.
+          # No -DOLO_ENABLE_COMPILER_CACHE: /GL objects are not cacheable, so a launcher would only
+          # add overhead and a misleading 0% hit rate.
+          cmake -S . -B "${GITHUB_WORKSPACE}/build" \
+            -G "Ninja Multi-Config" \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+            -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
+            -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+            -DOLO_VIDEO_FFMPEG=OFF \
+            ${{ steps.vcpkg.outputs.toolchain-args }}
+
+      # Ninja on a hosted runner defaults to cores+2 and there is no memory job pool on this
+      # generator path worth relying on, so cap explicitly — see CLAUDE.md "Cap build parallelism"
+      # and build-trees-and-windows-asan.md §5e (a bare --parallel means a different thing per
+      # generator, and only some of them are bounded).
+      - name: Build the Dist archives
+        run: >
+          cmake --build "${{ github.workspace }}/build" --config Dist
+          --target OloEngine OloEngineRenderer OloEngineContent
+          --parallel 4
+
+      # cmake/CheckArchiveSize.cmake has already failed the build above if any archive crossed
+      # OLO_ARCHIVE_FAIL_PERCENT. This step exists so the actual numbers land in the run summary,
+      # where the trend is readable across weeks without opening a log.
+      - name: Report archive headroom
+        if: always()
+        shell: pwsh
+        run: |
+          $limit = 4GB
+          # -ErrorAction SilentlyContinue is load-bearing: GitHub's pwsh shell prepends
+          # $ErrorActionPreference = 'stop', so a missing bin/Dist (the build died before
+          # archiving) would throw out of this step before reaching the fallback below - turning
+          # one real failure into two red steps and no summary.
+          $rows = Get-ChildItem -Path "${{ github.workspace }}/bin/Dist" -Recurse -Filter *.lib -ErrorAction SilentlyContinue |
+            Sort-Object Length -Descending |
+            ForEach-Object {
+              [pscustomobject]@{
+                Archive   = $_.Name
+                MiB       = [math]::Round($_.Length / 1MB, 1)
+                PctOf4GiB = [math]::Round(100 * $_.Length / $limit, 1)
+              }
+            }
+          if (-not $rows) {
+            "No archives found under bin/Dist — the build did not get that far." |
+              Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            exit 0
+          }
+          "## Dist archive headroom (4 GiB COFF limit)" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          "" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          "| Archive | MiB | % of 4 GiB |" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          "|---|---:|---:|" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          foreach ($r in $rows) {
+            "| $($r.Archive) | $($r.MiB) | $($r.PctOf4GiB)% |" |
+              Out-File $env:GITHUB_STEP_SUMMARY -Append
+          }
+          $rows | Format-Table -AutoSize

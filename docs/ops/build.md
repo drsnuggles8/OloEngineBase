@@ -397,6 +397,15 @@ the defaults are what you want for local dev.
 | `OLO_ENABLE_COMPILER_CACHE`| `OFF`   | warm/incremental    | sccache/ccache; Ninja-only (the VS generator ignores compiler launchers). CI's win. Force-disables PCH **and** unity (both are non-cacheable). |
 | `OLO_ENABLE_UNITY_BUILD`   | `OFF`   | cold (situationally)| Jumbo/unity build of `OloEngine`. See below — measured, marginal. |
 
+Two further options are safety rails rather than speed levers. `OLO_ARCHIVE_WARN_PERCENT` (75) and
+`OLO_ARCHIVE_FAIL_PERCENT` (90) bound how close a static archive may get to the COFF format's hard
+4 GiB ceiling; `cmake/CheckArchiveSize.cmake` prints each archive's headroom after every build and
+fails before `lib.exe` would. The engine ships as **three** archives (`OloEngine`,
+`OloEngineRenderer`, `OloEngineContent`) for exactly this reason — with `OLO_ENABLE_LTO=ON` a
+single one measured 119% of the limit and nothing could link in Dist. If the guard fires, cut the
+offending part further rather than raising the threshold:
+[static-archive-4gib-ceiling.md](../agent-rules/static-archive-4gib-ceiling.md).
+
 ### Unity (jumbo) builds — `-DOLO_ENABLE_UNITY_BUILD=ON`
 
 Batches the `OloEngine` TUs 16-per-jumbo (`UNITY_BUILD_BATCH_SIZE`) so headers parse once per
