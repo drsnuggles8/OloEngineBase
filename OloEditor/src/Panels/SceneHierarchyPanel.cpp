@@ -91,9 +91,11 @@ namespace OloEngine
     // wrapped in a container: a scan that looks for `static Ref<GpuType>` declarations cannot
     // see a Ref that lives inside a std::unordered_map's mapped_type. It was the last object
     // still alive at vmaDestroyAllocator after the rest of the #839 sweep landed.
-    static std::vector<void (*)()>& DrawComponentSnapshotClearers()
+    using SnapshotClearer = void (*)();
+
+    [[nodiscard]] static std::vector<SnapshotClearer>& DrawComponentSnapshotClearers()
     {
-        static std::vector<void (*)()> clearers;
+        static std::vector<SnapshotClearer> clearers;
         return clearers;
     }
 
@@ -112,7 +114,7 @@ namespace OloEngine
 
     void SceneHierarchyPanel::ClearComponentEditSnapshots()
     {
-        for (void (*clear)() : DrawComponentSnapshotClearers())
+        for (const SnapshotClearer clear : DrawComponentSnapshotClearers())
         {
             clear();
         }

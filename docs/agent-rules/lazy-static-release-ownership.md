@@ -341,7 +341,14 @@ ask "is this facility released from the right place?", which only ever sees
 facilities somebody already thought to release — structurally blind to species
 (b). So this one starts from the **declaration**: every process static holding a
 GPU-owning `Ref` (seeded roster, `kGpuOwningRefTypes`) and every lazily created
-raw GL handle must be reset somewhere in its own translation unit. Where that
+raw GL handle must be reset somewhere in its own translation unit. A third seeded
+roster sits alongside the type list and is just as load-bearing: **the file
+extensions the scan reads**. It walks `.cpp/.cc/.cxx` and `.h/.hpp/.hh/.inl`
+(the repo has 15 `.inl` files under those roots), because a static in a file
+whose extension is missing from that list is never examined and the test passes
+regardless — the same silent-coverage-loss failure the type roster exists to
+prevent, one level down. CodeRabbit caught the `.cpp`/`.h`-only version of this
+on review. Where that
 reset is *called* from is the other two tests' business.
 
 It does **not** implement scan 2. A prototype was written and thrown away:

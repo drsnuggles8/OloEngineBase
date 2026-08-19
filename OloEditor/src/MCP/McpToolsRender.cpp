@@ -4746,7 +4746,7 @@ namespace OloEngine::MCP
                     const Material& resolved =
                         ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), index, *engineDefault);
                     const Material* material = &resolved;
-                    std::string_view source = "engine default material";
+                    std::string_view source;
                     if (material == overrideMaterial)
                     {
                         source = "MaterialComponent (override)";
@@ -4754,6 +4754,10 @@ namespace OloEngine::MCP
                     else if (material != engineDefault.get())
                     {
                         source = "MeshSource imported material (per-submesh)";
+                    }
+                    else
+                    {
+                        source = "engine default material";
                     }
 
                     const PODMaterialData data = Renderer3D::CreatePODMaterialDataForMaterial(*material, RHI::NullResource);

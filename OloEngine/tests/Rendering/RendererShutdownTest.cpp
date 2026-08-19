@@ -215,6 +215,26 @@ namespace OloEngine::Tests
               "also only ever SET from Renderer3D::Init(), so the 3D-only teardown is unconditional for it" }
         };
 
+        // The extensions this scan reads. THIS LIST IS THE COVERAGE BOUNDARY: a GPU-owning
+        // static in a file whose extension is missing here is never examined, and the test
+        // passes anyway — the same "a scan that stops checking" failure the seeded type
+        // roster above exists to prevent. `.inl` is in the list because this repo has 15 of
+        // them under the scanned roots (the OloHeaderTool-generated component lists, plus
+        // hand-written ones like DebugLevers.inl); the rest are here so a future file using
+        // a conventional C++ extension cannot silently escape.
+        constexpr const char* kHeaderExtensions[] = { ".h", ".hpp", ".hh", ".inl" };
+        constexpr const char* kImplementationExtensions[] = { ".cpp", ".cc", ".cxx" };
+
+        [[nodiscard]] bool IsScannedExtension(const std::string& ext)
+        {
+            return std::find_if(std::begin(kHeaderExtensions), std::end(kHeaderExtensions),
+                                [&](const char* e)
+                                { return ext == e; }) != std::end(kHeaderExtensions) ||
+                   std::find_if(std::begin(kImplementationExtensions), std::end(kImplementationExtensions),
+                                [&](const char* e)
+                                { return ext == e; }) != std::end(kImplementationExtensions);
+        }
+
         [[nodiscard]] std::vector<std::filesystem::path> EngineSourceFiles()
         {
             std::vector<std::filesystem::path> files;
@@ -232,7 +252,7 @@ namespace OloEngine::Tests
                     {
                         break;
                     }
-                    if (const std::string ext = it->path().extension().string(); ext == ".cpp" || ext == ".h")
+                    if (IsScannedExtension(it->path().extension().string()))
                     {
                         files.push_back(it->path());
                     }
@@ -240,6 +260,48 @@ namespace OloEngine::Tests
             }
             std::sort(files.begin(), files.end());
             return files;
+        }
+
+        // Every counterpart a class static's declaration and its definition could be split
+        // across: a `static Ref<Shader> s_Fallback;` in Foo.h is defined and released in
+        // Foo.cpp (or Foo.cc), so the search scope has to span both. Returns the paths that
+        // exist, never the file itself.
+        [[nodiscard]] std::vector<std::filesystem::path> SiblingTranslationUnits(const std::filesystem::path& path)
+        {
+            const std::string ext = path.extension().string();
+            const bool isHeader = std::find_if(std::begin(kHeaderExtensions), std::end(kHeaderExtensions),
+                                               [&](const char* e)
+                                               { return ext == e; }) != std::end(kHeaderExtensions);
+
+            std::vector<std::filesystem::path> siblings;
+            const auto probe = [&](const char* candidateExt)
+            {
+                std::filesystem::path candidate = path;
+                candidate.replace_extension(candidateExt);
+                std::error_code ec;
+                if (candidate != path && std::filesystem::exists(candidate, ec))
+                {
+                    siblings.push_back(std::move(candidate));
+                }
+            };
+
+            // A header's release lives in an implementation file and vice versa. `.inl` is
+            // treated as a header: it is #included, never compiled on its own.
+            if (isHeader)
+            {
+                for (const char* implExt : kImplementationExtensions)
+                {
+                    probe(implExt);
+                }
+            }
+            else
+            {
+                for (const char* headerExt : kHeaderExtensions)
+                {
+                    probe(headerExt);
+                }
+            }
+            return siblings;
         }
 
         // An out-of-class static member DEFINITION: `Ref<Shader> ShaderLibrary::s_Fallback
@@ -564,12 +626,12 @@ namespace OloEngine::Tests
             }
             const std::string text = StripLineComments(raw);
 
-            // A class static declared in Foo.h is defined — and released — in Foo.cpp, so the
-            // sibling translation unit is part of the search scope.
+            // A class static declared in Foo.h is defined — and released — in Foo.cpp, so
+            // every sibling translation unit is part of the search scope. All counterparts
+            // are probed, not just the .h/.cpp pair, so a release that lives in a .cc (or a
+            // declaration in a .hpp/.inl) is still found.
             std::string scope = text;
-            if (const std::filesystem::path sibling =
-                    std::filesystem::path(path).replace_extension(path.extension() == ".h" ? ".cpp" : ".h");
-                std::filesystem::exists(sibling))
+            for (const std::filesystem::path& sibling : SiblingTranslationUnits(path))
             {
                 scope += '\n';
                 scope += StripLineComments(ReadFile(sibling));
