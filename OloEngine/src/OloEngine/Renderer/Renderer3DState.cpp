@@ -50,11 +50,12 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform)
+    void Renderer3D::AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
+                                          u32 instanceCount)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
-            shadowPass->AddVoxelCaster(vaoID, indexCount, transform);
+            shadowPass->AddVoxelCaster(vaoID, indexCount, transform, instanceCount);
         }
     }
 

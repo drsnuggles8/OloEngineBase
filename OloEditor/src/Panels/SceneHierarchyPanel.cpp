@@ -5876,10 +5876,47 @@ namespace OloEngine
             {
                 ImGui::DragFloat("Voxel Size", &component.m_VoxelSize, 0.1f, 0.25f, 4.0f, "%.2f");
 
+                // Mesher selection (issue #727). Not a quality slider — the two
+                // produce different silhouettes on purpose.
+                {
+                    static const char* kMesherNames[] = { "Marching Cubes (smooth)", "Greedy Cubic (blocky)" };
+                    int mesherIndex = static_cast<int>(component.m_VoxelMesher);
+                    if (ImGui::Combo("Voxel Mesher", &mesherIndex, kMesherNames, IM_ARRAYSIZE(kMesherNames)))
+                    {
+                        component.m_VoxelMesher = static_cast<VoxelMesherKind>(mesherIndex);
+                        // Every chunk has to be re-meshed by the other algorithm.
+                        if (component.m_VoxelOverride)
+                        {
+                            for (auto& [coord, chunk] : component.m_VoxelOverride->GetChunks())
+                            {
+                                chunk.Dirty = true;
+                            }
+                        }
+                    }
+                }
+
                 if (component.m_VoxelOverride)
                 {
                     ImGui::Text("Voxel Chunks: %u", component.m_VoxelOverride->GetChunkCount());
-                    ImGui::Text("Voxel Meshes: %u", static_cast<u32>(component.m_VoxelMeshes.size()));
+                    if (component.m_VoxelMesher == VoxelMesherKind::GreedyCubic)
+                    {
+                        const u32 chunkCount = component.m_VoxelQuadMeshes
+                                                   ? static_cast<u32>(component.m_VoxelQuadMeshes->GetMeshes().size())
+                                                   : 0u;
+                        const u32 quadCount = component.m_VoxelQuadMeshes ? component.m_VoxelQuadMeshes->GetQuadCount() : 0u;
+                        const u32 triangleCount = component.m_VoxelQuadMeshes ? component.m_VoxelQuadMeshes->GetTriangleCount() : 0u;
+                        ImGui::Text("Quad Meshes: %u", chunkCount);
+                        ImGui::Text("Merged Quads: %u", quadCount);
+                        ImGui::Text("Triangles: %u", triangleCount);
+                        if (component.m_VoxelQuadMeshes && component.m_VoxelQuadMeshes->HasPendingWork())
+                        {
+                            ImGui::TextUnformatted("Meshing... (background)");
+                        }
+                    }
+                    else
+                    {
+                        ImGui::Text("Voxel Meshes: %u", static_cast<u32>(component.m_VoxelMeshes.size()));
+                    }
                 }
             }
 

@@ -1,0 +1,114 @@
+// NOTE: single-file compute shader (no `#type` prefix — the compute-shader
+// loader in this project uses a plain `#version ... core` header directly).
+#version 460 core
+#extension GL_ARB_gpu_shader_int64 : require
+
+// =============================================================================
+// GPUCacheResolve_Probe.comp — issue #704 acceptance criterion 2.
+//
+// One thread per query key: probe the GPUPagedCache object directory
+// (GPUHashMap layout, binding 0), then walk the page-node chain (binding 1),
+// writing everything the CPU can cross-check into binding 2 — hit/miss, the
+// allocation fields, the chain length, and an ORDER-SENSITIVE chain checksum.
+// The checksum is deliberately position-dependent (h = h * 33 + page): a
+// set-style comparison would pass on a walk that visits the right pages in the
+// wrong order, which is exactly the bug class
+// docs/agent-rules/gpu-scan-compaction.md §2 warns about.
+//
+// Driven by GPUCacheShaderResolveTest.cpp against a live GPUPagedCache in
+// HostMirrored backing; the CPU computes the same tuple through
+// GPUPagedCache::Find + a CPU chain walk and requires exact equality.
+// =============================================================================
+
+layout(local_size_x = 64) in;
+
+// Must mirror GPUHashMap<u64, GPUPagedCache<u64, Atom, LRUPolicy>::ObjectAllocation>::Entry
+// — see the contract in ../include/GPUCacheResolve.glsl.
+struct OloGpuCacheEntry
+{
+    uint64_t Key;
+    uint TotalElementCount;
+    uint StartPage;
+    uint EndPage;
+    uint PolicyHandle;
+};
+
+layout(std430, binding = 0) readonly buffer GpuCacheEntries
+{
+    OloGpuCacheEntry u_Entries[];
+};
+
+layout(std430, binding = 1) readonly buffer GpuCachePageNodes
+{
+    uint u_PageNodes[];
+};
+
+struct ResolveResult
+{
+    uint Found;
+    uint TotalElementCount;
+    uint StartPage;
+    uint EndPage;
+    uint PageCount;      // chain length walked on the GPU
+    uint LastPage;       // final page reached by the walk (must equal EndPage)
+    uint ChainChecksum;  // h = h * 33 + page, per chain step — order-sensitive
+    uint Pad;
+};
+
+layout(std430, binding = 2) buffer ResolveIO
+{
+    uint u_QueryCount;
+    uint u_Pad0;
+    uint u_Pad1;
+    uint u_Pad2;
+    uint64_t u_QueryKeys[256];
+    ResolveResult u_Results[256];
+};
+
+#include "../include/GPUCacheResolve.glsl"
+
+OLO_GPU_CACHE_DEFINE_FIND(OloGpuCacheFind, u_Entries)
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= u_QueryCount)
+    {
+        return;
+    }
+
+    ResolveResult result;
+    result.Found = 0u;
+    result.TotalElementCount = 0u;
+    result.StartPage = OLO_GPU_CACHE_INVALID_PAGE;
+    result.EndPage = OLO_GPU_CACHE_INVALID_PAGE;
+    result.PageCount = 0u;
+    result.LastPage = OLO_GPU_CACHE_INVALID_PAGE;
+    result.ChainChecksum = 0u;
+    result.Pad = 0u;
+
+    uint totalElementCount;
+    uint startPage;
+    uint endPage;
+    if (OloGpuCacheFind(u_QueryKeys[idx], totalElementCount, startPage, endPage))
+    {
+        result.Found = 1u;
+        result.TotalElementCount = totalElementCount;
+        result.StartPage = startPage;
+        result.EndPage = endPage;
+
+        // Chain walk, bounded by the page-node table size so a corrupt chain
+        // cannot hang the dispatch.
+        uint maxSteps = uint(u_PageNodes.length());
+        uint current = startPage;
+        for (uint step = 0u; step < maxSteps && current != OLO_GPU_CACHE_INVALID_PAGE; ++step)
+        {
+            result.ChainChecksum = result.ChainChecksum * 33u + current;
+            result.LastPage = current;
+            ++result.PageCount;
+            current = u_PageNodes[current];
+        }
+    }
+
+    u_Results[idx] = result;
+}

@@ -224,18 +224,36 @@ void main()
     float metallic = arm.b;
 
     // Sample normal map with triplanar projection
-    vec3 normX = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling, 0.0)).rgb * 2.0 - 1.0;
-    vec3 normY = texture(u_TerrainNormalArray, vec3(wpTri.xz * tiling, 0.0)).rgb * 2.0 - 1.0;
-    vec3 normZ = texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling, 0.0)).rgb * 2.0 - 1.0;
-    vec3 triNormal = normalize(normX * triWeights.x + normY * triWeights.y + normZ * triWeights.z);
+    // Blend the normal map in 0..1 texel space and decode AFTERWARDS, so an
+    // unbound / empty terrain normal array is detectable (issue #727).
+    //
+    // Decoding first is a trap: an unbound sampler reads solid black, and
+    // `black * 2 - 1` is (-1,-1,-1) — a UNIT-LENGTH vector indistinguishable
+    // from a legitimate perturbation. Fed through the TBN it rotates the
+    // surface normal ~55 degrees off true, so most of the mesh ends up facing
+    // away from the sun and renders black while the geometry, the materials and
+    // the lighting are all provably fine. A voxel scene with no terrain layer
+    // textures bound hits this on every fragment.
+    vec3 packedNormal = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling, 0.0)).rgb * triWeights.x
+                      + texture(u_TerrainNormalArray, vec3(wpTri.xz * tiling, 0.0)).rgb * triWeights.y
+                      + texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling, 0.0)).rgb * triWeights.z;
+    bool hasNormalMap = dot(packedNormal, packedNormal) > 1e-5;
+    vec3 triNormal = hasNormalMap ? normalize(packedNormal * 2.0 - 1.0) : vec3(0.0, 0.0, 1.0);
 
     // Build TBN from world normal and apply tangent-space normal map
-    vec3 T = normalize(cross(N, vec3(0.0, 0.0, 1.0)));
-    if (length(T) < 0.001)
-        T = normalize(cross(N, vec3(1.0, 0.0, 0.0)));
-    vec3 B = cross(N, T);
-    mat3 TBN = mat3(T, B, N);
-    N = normalize(TBN * triNormal);
+    // Pick the reference axis BEFORE crossing rather than crossing and testing
+    // the result: cross(N, (0,0,1)) is the ZERO vector for an exactly +/-Z
+    // normal and normalize(0) is NaN, which `length(T) < 0.001` can never
+    // catch because every comparison against NaN is false. Rare on a marching-
+    // cubes isosurface, but not impossible (a perfectly flat region), and free
+    // to rule out.
+    if (hasNormalMap)
+    {
+        vec3 reference = (abs(N.z) < 0.99) ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+        vec3 T = normalize(cross(N, reference));
+        vec3 B = cross(N, T);
+        N = normalize(mat3(T, B, N) * triNormal);
+    }
 
     // If no texture arrays are bound, use procedural cave material
     if (albedo == vec3(0.0))

@@ -147,6 +147,9 @@ add_executable(OloEngine-Tests
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/GPUPrefixSumTest.cpp
 		Rendering/GPUPrefixSumPerfProbe.cpp
+		Rendering/GPUHashMapTest.cpp
+		Rendering/GPUPagedCacheTest.cpp
+		Rendering/GPUCacheShaderResolveTest.cpp
 		Rendering/GPUParticleCompactionTest.cpp
 		Rendering/ShaderDebugDrawContractTest.cpp
 		Rendering/ShaderDebugDrawExpansionTest.cpp
@@ -341,6 +344,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainCameraRelativeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainGPUQuadtreeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
+		Rendering/PropertyTests/VoxelGreedyMeshVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VoxelMarchingCubesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
@@ -498,6 +503,7 @@ add_executable(OloEngine-Tests
 		Cinematic/CinematicEditTest.cpp
 		# Procedural Terrain Generation Tests
 		Terrain/TerrainGeneratorTest.cpp
+		Terrain/VoxelGreedyMesherTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp
 		# AI Behavior Tree & FSM Tests

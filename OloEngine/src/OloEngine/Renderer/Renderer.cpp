@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer.h"
 
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderWarmup.h"
@@ -67,6 +68,31 @@ namespace OloEngine
         // (Idempotent — safe even if Renderer3D::Shutdown already called these.)
         ShaderWarmup::Shutdown();
         ShaderLibrary::ShutdownFallbackShader();
+
+        // The shared fullscreen-triangle VAO. MeshPrimitives is NOT a 3D-only
+        // facility — whoever draws a fullscreen pass first creates it, and on any
+        // launch that is ShaderWarmup's progress frame, from Renderer2D::Init,
+        // before (and sometimes instead of) Renderer3D::Init. Releasing it from
+        // Renderer3D::Shutdown therefore leaked it in every session that never
+        // brought 3D up — OloRuntime exits before 3D init when it finds no start
+        // scene, and Vulkan answered with a surviving VertexArray plus two live
+        // VMA allocations at vmaDestroyAllocator (#814); GL leaked the same
+        // objects silently, having no allocator-teardown assertion.
+        //
+        // Position: after ShaderWarmup::Shutdown, the last consumer. It must stay
+        // ahead of ShutdownGpuResources() below only on GL, where that call is
+        // what releases the descriptor heap while the context is current
+        // (OpenGLRendererAPI overrides it; on Vulkan it is the empty
+        // RendererAPI base default, and the device is not destroyed until
+        // VulkanContext::Shutdown runs from m_Window.reset()).
+        //
+        // Releasing here rather than inside Renderer3D::Shutdown is safe on both
+        // backends — on GL, FrameResourceManager::SubmitForDeletion runs the
+        // delete lambda immediately once the manager is down, so the VAO is
+        // deleted with the context still current; on Vulkan the destructors
+        // enqueue into VulkanDeferredReclaim, which VulkanContext::Shutdown
+        // drains a final time just before VulkanDevice::Shutdown.
+        MeshPrimitives::Shutdown();
 
         // Release the descriptor heap and its backend WHILE THE CONTEXT IS STILL
         // CURRENT. ~OpenGLRendererAPI cannot do this: it runs from the static

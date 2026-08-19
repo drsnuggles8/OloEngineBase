@@ -9032,6 +9032,26 @@ static void TerrainComponent_SetSplatmapGenResolution(UUID entityID, unsigned in
     comp.m_SplatmapGenResolution = value;
 }
 
+static int TerrainComponent_GetVoxelMesher(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return static_cast<int>(comp.m_VoxelMesher);
+}
+
+static void TerrainComponent_SetVoxelMesher(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_VoxelMesher = static_cast<VoxelMesherKind>(value);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // TextComponent                                                                  //
 ///////////////////////////////////////////////////////////////////////////////////////////

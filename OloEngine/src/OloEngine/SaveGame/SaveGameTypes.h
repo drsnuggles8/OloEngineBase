@@ -57,7 +57,8 @@ namespace OloEngine
     // v12: VehicleComponent gained the FWD/AWD differential config (m_DriveMode + the 5 differential knobs — issue #438; v11 and older saves omit them and keep the RWD constructor defaults, which reproduce the pre-#438 jeep exactly)
     // v13: AircraftComponent gained the landing-gear block (m_HasLandingGear + the 8 gear knobs — issue #438 follow-up; v12 and older saves omit them and keep the gear-off constructor defaults)
     // v14: AudioSourceConfig gained the voice-budget Priority field (issue #730; v13 and older saves omit it and keep the neutral 0.5 constructor default)
-    static constexpr u32 kSaveGameFormatVersion = 14;
+    // v15: TerrainComponent gained m_VoxelMesher, the marching-cubes / greedy-cubic selector (issue #727; v14 and older saves omit it and keep the MarchingCubes constructor default, which is the pre-#727 behaviour)
+    static constexpr u32 kSaveGameFormatVersion = 15;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

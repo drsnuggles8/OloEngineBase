@@ -611,15 +611,35 @@ namespace OloEngine
         }
 
         // ── Voxel meshes ──
+        // Two depth shaders: the marching-cubes triangle soup and the packed-
+        // quad instanced path (issue #727). Casters are interleaved in one list,
+        // so bind lazily and only when the shader actually changes.
         if (!m_VoxelCasters.empty())
         {
             auto voxelDepthShader = Renderer3D::GetVoxelDepthShader();
-            if (voxelDepthShader)
+            auto voxelQuadDepthShader = Renderer3D::GetVoxelGreedyDepthShader();
+            const Shader* boundDepthShader = nullptr;
+
+            for (const auto& caster : m_VoxelCasters)
             {
-                voxelDepthShader->Bind();
-                for (const auto& caster : m_VoxelCasters)
+                const Ref<Shader>& depthShader = (caster.instanceCount > 0) ? voxelQuadDepthShader : voxelDepthShader;
+                if (!depthShader)
                 {
-                    uploadShadowModelUBO(caster.transform);
+                    continue;
+                }
+                if (depthShader.get() != boundDepthShader)
+                {
+                    depthShader->Bind();
+                    boundDepthShader = depthShader.get();
+                }
+
+                uploadShadowModelUBO(caster.transform);
+                if (caster.instanceCount > 0)
+                {
+                    RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, 0, caster.instanceCount);
+                }
+                else
+                {
                     RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
                 }
             }
@@ -706,9 +726,10 @@ namespace OloEngine
         m_TerrainCasters.push_back({ vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO });
     }
 
-    void ShadowRenderPass::AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform)
+    void ShadowRenderPass::AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
+                                          u32 instanceCount)
     {
-        m_VoxelCasters.push_back({ vaoID, indexCount, transform });
+        m_VoxelCasters.push_back({ vaoID, indexCount, instanceCount, transform });
     }
 
     void ShadowRenderPass::AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time)

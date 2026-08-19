@@ -1278,6 +1278,18 @@ namespace OloEngine
         terrain.m_VoxelEnabled = terrainComponent["VoxelEnabled"].as<bool>(terrain.m_VoxelEnabled);
         terrain.m_VoxelSize = terrainComponent["VoxelSize"].as<f32>(terrain.m_VoxelSize);
         SanitizeFloat(terrain.m_VoxelSize, 1.0e-3f, 1.0e6f, 1.0f);
+        // Discriminated mode (issue #727): REJECT an out-of-range value back to
+        // the default rather than clamp it — saturating would silently select
+        // the other mesher, which is a different valid value, not a repair.
+        if (const i32 mesherKind = terrainComponent["VoxelMesher"].as<i32>(0);
+            mesherKind >= 0 && mesherKind <= static_cast<i32>(VoxelMesherKind::GreedyCubic))
+        {
+            terrain.m_VoxelMesher = static_cast<VoxelMesherKind>(mesherKind);
+        }
+        else
+        {
+            terrain.m_VoxelMesher = VoxelMesherKind::MarchingCubes;
+        }
 
         // Deserialize terrain material layers
         if (auto layersNode = terrainComponent["Layers"]; layersNode && layersNode.IsSequence())
@@ -4895,6 +4907,7 @@ namespace OloEngine
             // Voxel override settings
             out << YAML::Key << "VoxelEnabled" << YAML::Value << terrain.m_VoxelEnabled;
             out << YAML::Key << "VoxelSize" << YAML::Value << terrain.m_VoxelSize;
+            out << YAML::Key << "VoxelMesher" << YAML::Value << static_cast<i32>(terrain.m_VoxelMesher);
 
             // Terrain material layers
             if (terrain.m_Material && terrain.m_Material->GetLayerCount() > 0)

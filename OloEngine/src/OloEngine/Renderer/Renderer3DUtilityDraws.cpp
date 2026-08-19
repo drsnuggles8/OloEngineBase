@@ -747,7 +747,8 @@ namespace OloEngine
         const Ref<Shader>& shader,
         RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
         const glm::mat4& transform,
-        i32 entityID)
+        i32 entityID,
+        u32 instanceCount)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -762,11 +763,23 @@ namespace OloEngine
             return nullptr;
         }
 
-        // Substitute voxel G-Buffer shader in deferred path.
+        // Substitute the matching voxel G-Buffer shader in the deferred path.
+        // Marching-cubes and packed-quad draws have separate G-Buffer variants
+        // because their vertex stages differ; substituting the wrong one would
+        // feed a triangle-soup VAO to an instanced unpacking shader.
         const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
         Ref<Shader> activeShader = shader;
-        if (deferredActive && shader == s_Data.VoxelPBRShader && s_Data.VoxelGBufferShader)
-            activeShader = s_Data.VoxelGBufferShader;
+        if (deferredActive)
+        {
+            if (shader == s_Data.VoxelPBRShader && s_Data.VoxelGBufferShader)
+                activeShader = s_Data.VoxelGBufferShader;
+            else if (shader == s_Data.VoxelGreedyPBRShader && s_Data.VoxelGreedyGBufferShader)
+                activeShader = s_Data.VoxelGreedyGBufferShader;
+            else
+            {
+                // No additional handling required.
+            }
+        }
         const bool useGBufferVariant = deferredActive && (activeShader != shader);
         const bool overlayRoute = deferredActive && !useGBufferVariant && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
 
@@ -780,6 +793,7 @@ namespace OloEngine
 
         cmd->vertexArrayID = vaoID;
         cmd->indexCount = indexCount;
+        cmd->instanceCount = instanceCount;
         cmd->shaderRendererID = activeShader->GetRHIHandle();
         cmd->albedoArrayTextureID = albedoArrayID;
         cmd->normalArrayTextureID = normalArrayID;
