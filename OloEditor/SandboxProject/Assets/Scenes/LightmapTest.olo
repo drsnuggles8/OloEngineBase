@@ -1,0 +1,185 @@
+Scene: LightmapTest.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Baked GI / lightmaps (issue #439) — the acceptance-criteria room: a matte
+# corridor between a RED (-X) and a GREEN (+X) wall with a pillar occluder,
+# lit by two white point lights. Every wall/floor/ceiling entity is marked
+# LightmapStatic; the sphere is DYNAMIC (not marked) and covered by a Baked
+# light-probe volume instead.
+#
+# To exercise the feature: Build > Bake Lightmaps, then save the scene (the
+# baked .olmap handle lands in LightmapSettings below). Expected result: the
+# floor beside the red wall picks up a red indirect tint, the floor beside
+# the green wall a green one, and the pillar's shadowed side is no longer
+# black — while the dynamic sphere keeps sampling probes. Moving any static
+# entity stales the bake: the lightmap silently switches off (falls back to
+# probes/IBL) and the log says why, until the next bake.
+# ─────────────────────────────────────────────────────────────────────────────
+LightmapSettings:
+  LightmapAsset: 0
+  Enabled: true
+  Intensity: 1
+  AtlasSize: 1024
+  SamplesPerTexel: 128
+  MaxBounces: 4
+  TexelsPerMeter: 8
+Entities:
+  - Entity: 439000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1.8, 9]
+      Rotation: [-0.35, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 1.0472
+        PerspectiveNear: 0.05
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 439000000000002
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0, -0.25, 0]
+      Rotation: [0, 0, 0]
+      Scale: [7, 0.25, 25]
+    MeshComponent:
+      Primitive: 1
+      LightmapStatic: true
+    MaterialComponent:
+      AlbedoColor: [0.65, 0.65, 0.65]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 439000000000003
+    TagComponent:
+      Tag: Red Wall (-X)
+    TransformComponent:
+      Translation: [-3.25, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.25, 5, 25]
+    MeshComponent:
+      Primitive: 1
+      LightmapStatic: true
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.05, 0.05]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 439000000000004
+    TagComponent:
+      Tag: Green Wall (+X)
+    TransformComponent:
+      Translation: [3.25, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.25, 5, 25]
+    MeshComponent:
+      Primitive: 1
+      LightmapStatic: true
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.9, 0.05]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 439000000000005
+    TagComponent:
+      Tag: Back Wall (-Z)
+    TransformComponent:
+      Translation: [0, 2, -12.25]
+      Rotation: [0, 0, 0]
+      Scale: [7, 5, 0.25]
+    MeshComponent:
+      Primitive: 1
+      LightmapStatic: true
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.6]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 439000000000006
+    TagComponent:
+      Tag: Ceiling
+    TransformComponent:
+      Translation: [0, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [7, 0.25, 25]
+    MeshComponent:
+      Primitive: 1
+      LightmapStatic: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.55, 0.55]
+      Metallic: 0
+      Roughness: 0.95
+  - Entity: 439000000000007
+    TagComponent:
+      Tag: Pillar (occluder)
+    TransformComponent:
+      Translation: [1.4, 1, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 2, 0.6]
+    MeshComponent:
+      Primitive: 1
+      LightmapStatic: true
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.5, 0.1]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 439000000000008
+    TagComponent:
+      Tag: Dynamic Sphere (probe-lit)
+    TransformComponent:
+      Translation: [-1.2, 1, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 439000000000009
+    TagComponent:
+      Tag: Probe Volume (dynamic objects)
+    TransformComponent:
+      Translation: [0, 2.2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightProbeVolumeComponent:
+      BoundsMin: [-3, -0.1, -12]
+      BoundsMax: [3, 4.4, 12]
+      Resolution: [5, 3, 9]
+      Spacing: 3
+      Intensity: 1
+      Active: true
+      BakedDataAsset: 0
+  - Entity: 439000000000010
+    TagComponent:
+      Tag: Point Light A
+    TransformComponent:
+      Translation: [0, 3.6, 5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 3
+      Range: 25
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 439000000000011
+    TagComponent:
+      Tag: Point Light B
+    TransformComponent:
+      Translation: [0, 3.6, -5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 3
+      Range: 25
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1

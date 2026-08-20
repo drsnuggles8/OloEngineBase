@@ -5072,8 +5072,10 @@ namespace OloEngine
         }
 
         // Re-Build the unwrapped meshes right away (GL thread) so rendering
-        // picks up the seam-split vertex data while the bake runs.
-        for (const auto& input : inputs)
+        // picks up the seam-split vertex data while the bake runs. Non-const
+        // iteration on purpose: Ref<T> propagates const through operator->,
+        // and Build() mutates the mesh.
+        for (auto& input : inputs)
         {
             input.Mesh->Build();
         }

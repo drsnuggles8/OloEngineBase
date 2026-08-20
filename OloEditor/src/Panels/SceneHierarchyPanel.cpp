@@ -31,6 +31,7 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -7247,6 +7248,73 @@ namespace OloEngine
                         component.m_BakedDataAsset = handle;
                         component.m_Dirty = true;
                         OLO_CORE_INFO("Light probe baking complete ({} probes), asset handle: {}", component.GetTotalProbeCount(), handle);
+                    }
+
+                    // Path-traced bake (issue #439): same probe grid, same SH
+                    // storage convention, but the incident radiance comes from
+                    // the CPU reference path tracer over the lightmap-static
+                    // geometry set — no GL capture, full multi-bounce GI, so
+                    // dynamic objects sample ground-truth-quality probes.
+                    if (ImGui::Button("Bake Light Probes (Path Traced)"))
+                    {
+                        OLO_PROFILE_SCOPE("Bake Light Probes (Path Traced)");
+                        s_BakeInProgress = true;
+                        s_BakeProgress = 0.0f;
+
+                        // The SAME static set the scene lightmap bakes
+                        // (EditorLayer::StartLightmapBake): geometry is gated
+                        // on MeshComponent::m_LightmapStatic; lights are
+                        // gathered unconditionally by AddScene.
+                        PathTracing::ReferenceSceneBuilder builder;
+                        builder.AddScene(*m_Context, [](Entity meshEntity)
+                                         { return meshEntity.template HasComponent<MeshComponent>() &&
+                                                  meshEntity.template GetComponent<MeshComponent>().m_LightmapStatic; });
+
+                        bool baked = false;
+                        auto asset = Ref<LightProbeVolumeAsset>::Create();
+                        if (builder.GetPendingGeometryCount() == 0)
+                        {
+                            // Same bail as the lightmap bake: proceeding would
+                            // overwrite a possibly good bake with an all-dark,
+                            // all-invalid one.
+                            OLO_CORE_WARN("Path-traced probe bake: no entities are marked Lightmap Static — nothing to bake");
+                        }
+                        else
+                        {
+                            PathTracing::ReferenceScene const world = builder.Build(PathTracing::ReferenceSceneBuildOptions{});
+                            LightProbePathTracedBakeSettings const bakeSettings{};
+                            baked = LightProbeBaker::BakeVolumePathTraced(
+                                world,
+                                component,
+                                asset,
+                                bakeSettings,
+                                [](i32 current, i32 total)
+                                {
+                                    s_BakeProgress = static_cast<f32>(current) / static_cast<f32>(total);
+                                    OLO_CORE_INFO("Baking probe (path traced) {}/{}", current, total);
+                                });
+                        }
+                        s_BakeInProgress = false;
+                        s_BakeProgress = 1.0f;
+
+                        if (baked)
+                        {
+                            // Store the result THE SAME WAY the cubemap button
+                            // above does, so the two bake modes stay symmetric.
+                            // TODO(#439): persist to a real asset file — a
+                            // memory-only asset does not survive an editor
+                            // restart or scene reload (same weakness as the
+                            // cubemap route; fix both together).
+                            AssetHandle handle = AssetManager::AddMemoryOnlyAsset(asset);
+                            component.m_BakedDataAsset = handle;
+                            component.m_Dirty = true;
+                            OLO_CORE_INFO("Path-traced light probe bake complete ({} probes), asset handle: {}", component.GetTotalProbeCount(), handle);
+                        }
+                        else
+                        {
+                            s_BakeProgress = 0.0f;
+                            OLO_CORE_ERROR("Path-traced light probe bake failed — see log above");
+                        }
                     }
                     if (s_BakeProgress > 0.0f && !s_BakeInProgress)
                     {
