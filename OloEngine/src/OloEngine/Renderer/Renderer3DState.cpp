@@ -46,7 +46,14 @@ namespace OloEngine
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
-            shadowPass->AddTerrainCaster(vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO);
+            // The depth pass has no virtual-texture branch and no VT resources
+            // bound, so the enable flag is cleared here rather than at each of
+            // the three submit sites. Clearing it in ONE place is what keeps a
+            // future depth-shader change from finding a stale "VT is on" in the
+            // block it shares with the lit shaders (issue #715).
+            ShaderBindingLayout::TerrainUBO depthUBO = terrainUBO;
+            depthUBO.VTParams2 = glm::vec4(0.0f);
+            shadowPass->AddTerrainCaster(vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, depthUBO);
         }
     }
 

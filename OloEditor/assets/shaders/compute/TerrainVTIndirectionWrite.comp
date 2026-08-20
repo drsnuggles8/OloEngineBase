@@ -1,0 +1,51 @@
+#version 450 core
+
+// =============================================================================
+// Terrain virtual texture — indirection map, pass 2 of 3 (issue #715).
+//
+// Stamp the resident pages of ONE mip into that mip of the indirection texture.
+// The CPU sorts the update list by mip and hands each dispatch its [base, count)
+// window, so the whole list is uploaded once and read by up to `mipCount`
+// dispatches — one per level, because a storage image binds a single level.
+//
+// alpha = 255 marks the texel as a DIRECT mapping. Pass 3 leaves those alone and
+// fills everything else from the coarser level.
+//
+// C++ twin of the record: VTIndirectionUpdate in
+// OloEngine/Terrain/VirtualTexture/TerrainVirtualTextureTypes.h.
+// =============================================================================
+
+layout(local_size_x = 64) in;
+
+layout(rgba8, binding = 0) uniform writeonly image2D u_VTIndirectionTarget;
+
+struct VTIndirectionUpdate
+{
+    uint TexelCoord; // x | (y << 16), already at this mip
+    uint Packed;     // tileX | tileY << 8 | residentMip << 16 | direct << 24
+};
+
+layout(std430, binding = 81) readonly buffer TerrainVTIndirectionUpdates
+{
+    uvec4 u_VTUpdateParams; // x = base index, y = count, zw = unused
+    VTIndirectionUpdate b_VTUpdates[];
+};
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= u_VTUpdateParams.y)
+        return;
+
+    VTIndirectionUpdate update = b_VTUpdates[u_VTUpdateParams.x + index];
+
+    ivec2 texel = ivec2(int(update.TexelCoord & 0xFFFFu), int(update.TexelCoord >> 16u));
+
+    vec4 color;
+    color.x = float( update.Packed        & 0xFFu) / 255.0;
+    color.y = float((update.Packed >>  8u) & 0xFFu) / 255.0;
+    color.z = float((update.Packed >> 16u) & 0xFFu) / 255.0;
+    color.w = float((update.Packed >> 24u) & 0xFFu) / 255.0;
+
+    imageStore(u_VTIndirectionTarget, texel, color);
+}

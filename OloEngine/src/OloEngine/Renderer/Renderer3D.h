@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/TerrainVTBindings.h"
 
 #include <algorithm>
 #include <chrono>
@@ -287,7 +288,10 @@ namespace OloEngine
             // patch grid instanced from the GPU-built visible-node list; leave
             // both null for a chunk-geometry draw.
             RHI::ResourceHandle terrainIndirectArgsID = {},
-            RHI::ResourceHandle terrainVisibleNodesID = {});
+            RHI::ResourceHandle terrainVisibleNodesID = {},
+            // Terrain virtual texturing (issue #715). Default-constructed means
+            // "VT off for this draw"; a partially-filled set is rejected.
+            const TerrainVTBindings& virtualTexture = {});
 
         static CommandPacket* DrawVoxelMesh(
             RHI::ResourceHandle vaoID, u32 indexCount,

@@ -63,6 +63,15 @@ namespace OloEngine
             return m_AlbedoArray != nullptr;
         }
 
+        // Per-layer texture-array resolution. Needed by any consumer that has to
+        // pick an explicit sampling LOD instead of relying on derivatives — the
+        // virtual-texture tile bake (issue #715) runs in a compute shader, which
+        // has none.
+        [[nodiscard]] u32 GetLayerResolution() const
+        {
+            return m_LayerResolution;
+        }
+
         // CPU splatmap data for paint brush editing
         void InitializeCPUSplatmaps(u32 resolution);
         [[nodiscard]] u32 GetSplatmapResolution() const

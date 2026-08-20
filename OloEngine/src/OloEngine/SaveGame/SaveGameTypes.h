@@ -63,7 +63,10 @@ namespace OloEngine
     //      the same look a fresh scene gets). FogSettings' matching fields are deliberately NOT
     //      in the archive: the scene-settings section is a flat stream with no length prefix, so
     //      it cannot carry a version-gated field — see SaveGameSerializer::SerializeFogSettings.
-    static constexpr u32 kSaveGameFormatVersion = 16;
+    // v17: TerrainComponent gained the virtual-texture block (m_VirtualTextureEnabled plus the
+    //      five sizing knobs — issue #715 slice 1; v16 and older saves omit them and keep the
+    //      constructor defaults, which have VT OFF, i.e. exactly the pre-#715 splat path)
+    static constexpr u32 kSaveGameFormatVersion = 17;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

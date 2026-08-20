@@ -4,6 +4,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include "OloEngine/Renderer/TerrainVTBindings.h"
 #include <glm/glm.hpp>
 #include <type_traits>
 
@@ -729,6 +730,12 @@ namespace OloEngine
         // non-tessellated path), which keep drawing exactly as before.
         RHI::ResourceHandle terrainIndirectArgsID{};
         RHI::ResourceHandle terrainVisibleNodesID{};
+
+        // Terrain virtual texturing (issue #715). All three null on a draw whose
+        // terrain has VT off, or whose VT has not converged yet; the UBO's
+        // VTParams2.x carries the matching enable flag, so the shader never
+        // samples an unbound cache.
+        TerrainVTBindings virtualTexture{};
 
         // Terrain UBO data (inlined per-chunk — tess factors vary per chunk)
         ShaderBindingLayout::TerrainUBO terrainUBOData{};

@@ -96,20 +96,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding1;
 };
 
-layout(std140, binding = 10) uniform TerrainParams {
-    vec4 u_WorldSizeAndHeightScale;
-    vec4 u_TerrainParams;
-    int u_HeightmapResolution;
-    int u_TerrainGpuDriven;
-    int u_TerrainGpuGridRes;
-    int _terrainPad2;
-    vec4 u_TessFactors;
-    vec4 u_TessFactors2;
-    vec4 u_LayerTilingScales0;
-    vec4 u_LayerTilingScales1;
-    vec4 u_LayerBlendSharpness0;
-    vec4 u_LayerBlendSharpness1;
-};
+#include "include/TerrainParamsBlock.glsl"
 
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS

@@ -1,0 +1,32 @@
+#version 450 core
+
+// =============================================================================
+// Terrain virtual texture — indirection map, pass 1 of 3 (issue #715).
+//
+// Zero one mip of the indirection texture. Run before the write pass so a page
+// that was evicted since the last rebuild cannot leave its old physical address
+// behind: an entry the write pass does not re-stamp must read as "unmapped" so
+// the fill pass can inherit a coarser one for it.
+//
+// The alpha channel is the flag the other two passes key on — 0 here means
+// "nothing direct at this texel", which is exactly the state a cleared texel
+// should be in.
+//
+// Slice 1 rebuilds the whole map on any residency change. Incremental delta
+// updates (which would make this pass unnecessary) are slice 2 of #715.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba8, binding = 0) uniform writeonly image2D u_VTIndirectionTarget;
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    // imageSize(), not a uniform: the bound level IS the authority on its own
+    // extent, so the bound-check cannot disagree with the dispatch.
+    if (any(greaterThanEqual(texel, imageSize(u_VTIndirectionTarget))))
+        return;
+
+    imageStore(u_VTIndirectionTarget, texel, vec4(0.0));
+}

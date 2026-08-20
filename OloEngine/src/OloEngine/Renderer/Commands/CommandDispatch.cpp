@@ -2371,6 +2371,27 @@ namespace OloEngine
             HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
         }
 
+        // Terrain virtual texturing (issue #715). Persistent lifetime, like the
+        // splat/layer textures above: both resources are owned by the terrain's
+        // TerrainVirtualTexture across frames, not minted per pass.
+        //
+        // These go through the heap seam for the same reason the layer arrays
+        // do — Terrain_PBR/Terrain_GBuffer are on the bindless route, so a plain
+        // BindTexture here would be recorded as an offset by nobody and read as
+        // black (docs/agent-rules/glsl-shaders.md §5c). The feedback SSBO is a
+        // buffer, not a descriptor, so it binds directly.
+        if (cmd->virtualTexture.IsComplete())
+        {
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_VT_INDIRECTION,
+                                             cmd->virtualTexture.indirectionTextureID,
+                                             RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_VT_CACHE,
+                                             cmd->virtualTexture.cacheTextureID, RHI::HeapSlotLifetime::Persistent,
+                                             {}, RHI::NullSamplerKind::Texture2DArray);
+            api.BindStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK,
+                                  cmd->virtualTexture.feedbackBufferID);
+        }
+
         // Bind the full shadow contract the terrain shaders sample — CSM, spot,
         // the PCSS comparison-OFF raw-depth views, the point-light cubemaps, and
         // the snow depth map. Sharing BindShadowTextures keeps terrain in lockstep
