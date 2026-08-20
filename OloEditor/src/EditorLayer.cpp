@@ -55,6 +55,8 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/Interchange/MeshExporterRegistry.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
+#include "OloEngine/Scene/SceneLightmap.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/InputActionSerializer.h"
@@ -5141,10 +5143,14 @@ namespace OloEngine
         // Persist as a REAL registered asset (never AddMemoryOnlyAsset — a
         // memory-only asset has no file and no registry entry, so the asset
         // pack would silently omit it).
-        auto editorAssetManager = Project::GetActive() ? Project::GetActive()->GetEditorAssetManager() : nullptr;
+        Ref<EditorAssetManager> editorAssetManager;
+        if (Project::GetActive() && Project::HasAssetManager())
+        {
+            editorAssetManager = Project::GetAssetManager().As<EditorAssetManager>();
+        }
         if (!editorAssetManager)
         {
-            OLO_CORE_ERROR("Lightmap bake finished but no project is active — result discarded");
+            OLO_CORE_ERROR("Lightmap bake finished but no editor asset manager is active — result discarded");
             return;
         }
 
