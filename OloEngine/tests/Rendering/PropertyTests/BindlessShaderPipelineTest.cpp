@@ -655,6 +655,84 @@ void main()
         EXPECT_EQ(UBOStructures::DDGIVolumeUBO::MaxCascades, static_cast<u32>(DDGI::kMaxCascades));
     }
 
+    // The terrain virtual-texture samplers, pinned the same way and for the same
+    // reason as the image base above: the number lives in C++ AND in GLSL, and
+    // nothing links them.
+    //
+    // THIS DRIFT SHIPPED TOO, inside issue #715's own development. The slots were
+    // first written as 68/69, then moved to 67/68 on the C++ side when
+    // TEX_SHADER_GRAPH_0 was renumbered — and the GLSL kept 68/69. The result was
+    // not a black screen: the indirection sampler read the CACHE texture and the
+    // cache sampler read an unbound shader-graph slot, so the terrain rendered,
+    // lit, shaded entirely black. Nothing logged anything. It took a
+    // frame-comparison test against the splat path to see it at all.
+    //
+    // Both declarations are checked, and the BINDLESS one is the reason this test
+    // exists at all: `ShaderReflectionBinding.AllProductionShaderBindingsMatchCppLayout`
+    // already validates the slot-based form against
+    // `ShaderBindingLayout::IsKnownTextureBinding` — it is what finally caught the
+    // drift described above — but it compiles the DEFAULT variant, so the
+    // `#ifdef OLO_BINDLESS` literal in the other branch is validated by nothing.
+    // Two literals in mutually exclusive branches means only one is ever compiled
+    // and the other rots unobserved.
+    TEST(BindlessShaderPipeline, TerrainVirtualTextureSamplerSlotsMatchTheBindingLayout)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path include =
+            fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / "include" / "TerrainVirtualTexture.glsl";
+        ASSERT_TRUE(fs::exists(include)) << include.string();
+        const std::string src = ReadWholeFile(include);
+
+        struct SlotPin
+        {
+            const char* m_Name;
+            u32 m_Expected;
+            const char* m_HeapPattern; // the OLO_HEAP_TEX_* form
+            const char* m_SlotPattern; // the layout(binding = N) form
+        };
+
+        const std::array<SlotPin, 2> kPins{ {
+            { "TEX_TERRAIN_VT_INDIRECTION", ShaderBindingLayout::TEX_TERRAIN_VT_INDIRECTION,
+              R"(#define\s+u_TerrainVTIndirection\s+OLO_HEAP_TEX_2D\((\d+)\))",
+              R"(layout\(binding\s*=\s*(\d+)\)\s*uniform\s+sampler2D\s+u_TerrainVTIndirection)" },
+            { "TEX_TERRAIN_VT_CACHE", ShaderBindingLayout::TEX_TERRAIN_VT_CACHE,
+              R"(#define\s+u_TerrainVTCache\s+OLO_HEAP_TEX_2D_ARRAY\((\d+)\))",
+              R"(layout\(binding\s*=\s*(\d+)\)\s*uniform\s+sampler2DArray\s+u_TerrainVTCache)" },
+        } };
+
+        for (const SlotPin& pin : kPins)
+        {
+            for (const char* pattern : { pin.m_HeapPattern, pin.m_SlotPattern })
+            {
+                std::smatch match;
+                ASSERT_TRUE(std::regex_search(src, match, std::regex(pattern)))
+                    << pin.m_Name << " has no declaration matching /" << pattern
+                    << "/ in TerrainVirtualTexture.glsl — if the declaration moved, repoint this test "
+                       "rather than deleting the pin";
+                EXPECT_EQ(static_cast<u32>(std::stoul(match[1].str())), pin.m_Expected)
+                    << "TerrainVirtualTexture.glsl binds " << pin.m_Name << " at " << match[1].str()
+                    << " but ShaderBindingLayout says " << pin.m_Expected
+                    << ".\n  The terrain will render, lit, sampling whatever else lives at that slot — "
+                       "which is black if nothing does. Fix the GLSL literal.";
+            }
+        }
+
+        // The feedback SSBO is the third number in the same file and the same
+        // hazard, minus the two-branch split (a buffer binding has no bindless
+        // form).
+        std::smatch feedback;
+        ASSERT_TRUE(std::regex_search(
+            src, feedback, std::regex(R"(layout\(std430,\s*binding\s*=\s*(\d+)\)\s*buffer\s+TerrainVTFeedback)")))
+            << "the TerrainVTFeedback block is not declared in TerrainVirtualTexture.glsl";
+        EXPECT_EQ(static_cast<u32>(std::stoul(feedback[1].str())),
+                  ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK)
+            << "TerrainVirtualTexture.glsl writes feedback to SSBO " << feedback[1].str()
+            << " but ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK is "
+            << ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK
+            << " — the page requests land in another system's buffer and the VT loop never converges.";
+    }
+
     TEST(BindlessShaderPipeline, HeapImageBaseMatchesTheBindingLayout)
     {
         namespace fs = std::filesystem;
@@ -899,6 +977,35 @@ void main()
             { "include/ReflectionProbes.glsl",
               "shared header; the two probe cube arrays are published+bound in "
               "ReflectionProbeArray::BindForShading (issue #705)" },
+
+            // The terrain virtual-texture kernels (issue #715). Grouped because
+            // the four share one reason and one owner.
+            //
+            // Their C++ side IS through the seam — TerrainVirtualTexture binds
+            // every input with HeapBinding::BindTextureOrOffset /
+            // BindImageOrOffset — but the DECLARATIONS stay slot-based, so the
+            // seam takes its fallback and issues a real bind. That is the same
+            // arrangement as the VSM compute entries above, and the same reason:
+            // converting the declarations would make these programs bindless, and
+            // then the indirection kernels' per-mip image rebinds become the
+            // ping-pong shape §5b warns needs a flush per iteration — for a
+            // handful of per-frame dispatches that are not a per-draw bind path.
+            //
+            // If anyone does convert them, the flush is the edit to remember:
+            // there is no FlushOffsets() in TerrainVirtualTexture today because
+            // the fallback stages nothing.
+            { "compute/TerrainVTTileBake.comp",
+              "issue #715: samplers + a layered storage image, bound through the seam's fallback in "
+              "TerrainVirtualTexture::BakeTiles" },
+            { "compute/TerrainVTIndirectionClear.comp",
+              "issue #715: STORAGE IMAGE bound per mip level through the seam's fallback in "
+              "TerrainVirtualTexture::PublishIndirection" },
+            { "compute/TerrainVTIndirectionWrite.comp",
+              "issue #715: STORAGE IMAGE bound per mip level through the seam's fallback in "
+              "TerrainVirtualTexture::PublishIndirection" },
+            { "compute/TerrainVTIndirectionFill.comp",
+              "issue #715: two STORAGE IMAGES (a level and the level above it) rebound per iteration "
+              "through the seam's fallback in TerrainVirtualTexture::PublishIndirection" },
 
             // ---- 2. A SAMPLER TARGET WITH NO RESERVED NULL -------------------
             // A heap handle is typed by TARGET, and every unset input lands on

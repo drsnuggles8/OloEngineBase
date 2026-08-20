@@ -1,0 +1,253 @@
+#version 450 core
+
+// =============================================================================
+// Terrain virtual texture — physical cache tile bake (issue #715, slice 1).
+//
+// **This is where the splat blend moved to.** One invocation per cache texel
+// composites the whole up-to-8-layer triplanar + height blend ONCE and writes
+// the result into the physical cache; the fragment stages then do a single
+// indirection lookup plus a cache sample, which is what makes terrain shading
+// cost independent of layer count.
+//
+// gl_GlobalInvocationID.z selects the tile, so every page the CPU mapped this
+// frame is baked by one dispatch.
+//
+// Two things differ from the fragment path on purpose:
+//
+//  - **Explicit LOD.** A compute invocation has no derivatives, so the layer
+//    arrays are sampled with a LOD derived from the page's own texel density.
+//    That is not a workaround — it is more correct than the fragment path's
+//    implicit derivatives, because a cache texel's footprint is known exactly.
+//  - **Absolute world position.** The triplanar projection is world-anchored, so
+//    the bake takes the terrain's ABSOLUTE model matrix rather than the
+//    camera-relative one the draw path uses (issue #429). The cache is
+//    invalidated if that matrix moves.
+//
+// The blend math itself is shared with both fragment paths via
+// include/TerrainLayerBlend.glsl — three evaluators of one blend is exactly the
+// shape that drifts silently.
+// =============================================================================
+
+#include "../include/TerrainLayerBlend.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
+layout(binding = 24) uniform sampler2D u_TerrainSplatmap0;
+layout(binding = 25) uniform sampler2DArray u_TerrainAlbedoArray;
+layout(binding = 26) uniform sampler2DArray u_TerrainNormalArray;
+layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
+layout(binding = 28) uniform sampler2D u_TerrainSplatmap1;
+
+// Layer 0 = albedo.rgb + AO, layer 1 = normal.xy + roughness + metallic.
+layout(rgba8, binding = 0) uniform writeonly image2DArray u_VTCache;
+
+struct VTBakeRequest
+{
+    uint PageKey; // mip << 24 | y << 12 | x
+    uint TileX;
+    uint TileY;
+    uint Pad;
+};
+
+layout(std430, binding = 80) readonly buffer TerrainVTBake
+{
+    uvec4 u_VTBakeConfig0; // x = pagesWide, y = pageTexels, z = borderTexels, w = requestCount
+    uvec4 u_VTBakeConfig1; // x = layerCount, y = tileTexels, z = layerResolution, w = unused
+    vec4  u_VTBakeWorld;   // x = worldSizeX, y = worldSizeZ, z = heightScale, w = triplanarSharpness
+    vec4  u_VTBakeTexel;   // x = heightmap texel size, yzw = unused
+    mat4  u_VTBakeModel;   // terrain-local -> ABSOLUTE world
+    vec4  u_VTBakeTiling0;
+    vec4  u_VTBakeTiling1;
+    vec4  u_VTBakeSharp0;
+    vec4  u_VTBakeSharp1;
+    VTBakeRequest b_VTBakeRequests[];
+};
+
+float layerTiling(int layer)
+{
+    return oloTerrainLayerTiling(layer, u_VTBakeTiling0, u_VTBakeTiling1);
+}
+
+// Terrain-local surface normal from the height field — the same four-tap central
+// difference the tess_eval stage uses, so the triplanar decision here matches
+// the geometry the shaded pixel actually sits on.
+vec3 terrainNormal(vec2 uv)
+{
+    float texelSize = u_VTBakeTexel.x;
+    float heightScale = u_VTBakeWorld.z;
+
+    float hL = textureLod(u_TerrainHeightmap, uv + vec2(-texelSize, 0.0), 0.0).r * heightScale;
+    float hR = textureLod(u_TerrainHeightmap, uv + vec2( texelSize, 0.0), 0.0).r * heightScale;
+    float hD = textureLod(u_TerrainHeightmap, uv + vec2(0.0, -texelSize), 0.0).r * heightScale;
+    float hU = textureLod(u_TerrainHeightmap, uv + vec2(0.0,  texelSize), 0.0).r * heightScale;
+
+    float dX = (hR - hL) / (2.0 * texelSize * u_VTBakeWorld.x);
+    float dZ = (hU - hD) / (2.0 * texelSize * u_VTBakeWorld.y);
+    return normalize(vec3(-dX, 1.0, -dZ));
+}
+
+void main()
+{
+    uint requestIndex = gl_GlobalInvocationID.z;
+    if (requestIndex >= u_VTBakeConfig0.w)
+        return;
+
+    uint tileTexels = u_VTBakeConfig1.y;
+    uvec2 localTexel = gl_GlobalInvocationID.xy;
+    if (localTexel.x >= tileTexels || localTexel.y >= tileTexels)
+        return;
+
+    VTBakeRequest request = b_VTBakeRequests[requestIndex];
+
+    uint mip   = (request.PageKey >> 24u) & 0xFu;
+    uint pageX =  request.PageKey         & 0xFFFu;
+    uint pageY = (request.PageKey >> 12u) & 0xFFFu;
+
+    float pageTexels = float(u_VTBakeConfig0.y);
+    float border = float(u_VTBakeConfig0.z);
+    float span = 1.0 / float(u_VTBakeConfig0.x >> mip);
+
+    // EXACT INVERSE of oloVTVirtualToPhysicalUV: that maps page-local [0,1) to
+    // physical texel `border + local * pageTexels`, so texel centre j + 0.5 must
+    // hold the content at page-local (j + 0.5 - border) / pageTexels. Outside
+    // [0,1) is the border, which is why it holds the true neighbouring content
+    // rather than a clamped edge.
+    vec2 pageLocal = (vec2(localTexel) + 0.5 - border) / pageTexels;
+    vec2 uv = (vec2(float(pageX), float(pageY)) + pageLocal) * span;
+    // The terrain's own maps do not tile, so a border that runs off the terrain
+    // clamps rather than wrapping to the far edge.
+    vec2 uvClamped = clamp(uv, vec2(0.0), vec2(1.0));
+
+    // min(): weights[]/heights[] below are fixed at 8, and an out-of-bounds
+    // GLSL array write is undefined rather than caught. TerrainMaterial::AddLayer
+    // already refuses past MAX_TERRAIN_LAYERS so the producer cannot send more,
+    // but that invariant lives in another file — this keeps the array bound
+    // provable from the loop that uses it.
+    int layerCount = min(int(u_VTBakeConfig1.x), 8);
+    float layerResolution = float(u_VTBakeConfig1.z);
+
+    float weights[8];
+    vec4 splat0 = textureLod(u_TerrainSplatmap0, uvClamped, 0.0);
+    weights[0] = splat0.r;
+    weights[1] = splat0.g;
+    weights[2] = splat0.b;
+    weights[3] = splat0.a;
+    if (layerCount > 4)
+    {
+        vec4 splat1 = textureLod(u_TerrainSplatmap1, uvClamped, 0.0);
+        weights[4] = splat1.r;
+        weights[5] = splat1.g;
+        weights[6] = splat1.b;
+        weights[7] = splat1.a;
+    }
+    else
+    {
+        weights[4] = 0.0; weights[5] = 0.0; weights[6] = 0.0; weights[7] = 0.0;
+    }
+
+    vec3 localNormal = terrainNormal(uvClamped);
+    vec3 triWeights = oloTerrainTriplanarWeights(localNormal, u_VTBakeWorld.w);
+    bool useTriplanar = oloTerrainUseTriplanar(localNormal);
+
+    float height = textureLod(u_TerrainHeightmap, uvClamped, 0.0).r * u_VTBakeWorld.z;
+    vec3 worldPos = (u_VTBakeModel * vec4(uv.x * u_VTBakeWorld.x, height, uv.y * u_VTBakeWorld.y, 1.0)).xyz;
+
+    // How many layer-texture texels one cache texel spans. Planar sampling reads
+    // the array at uv * tiling; triplanar reads it at worldPos.xz * tiling, so
+    // the two differ by the world size.
+    float uvPerTexel = span / pageTexels;
+    float worldPerTexel = uvPerTexel * max(u_VTBakeWorld.x, u_VTBakeWorld.y);
+    float lodBase = useTriplanar ? worldPerTexel : uvPerTexel;
+
+    float heights[8];
+    for (int i = 0; i < layerCount; ++i)
+    {
+        float tiling = layerTiling(i);
+        float lod = log2(max(lodBase * tiling * layerResolution, 1e-6));
+        vec4 arm;
+        if (useTriplanar)
+        {
+            vec4 xARM = textureLod(u_TerrainARMArray, vec3(worldPos.yz * tiling, float(i)), lod);
+            vec4 yARM = textureLod(u_TerrainARMArray, vec3(worldPos.xz * tiling, float(i)), lod);
+            vec4 zARM = textureLod(u_TerrainARMArray, vec3(worldPos.xy * tiling, float(i)), lod);
+            arm = xARM * triWeights.x + yARM * triWeights.y + zARM * triWeights.z;
+        }
+        else
+        {
+            arm = textureLod(u_TerrainARMArray, vec3(uv * tiling, float(i)), lod);
+        }
+        heights[i] = arm.a;
+    }
+    for (int i = layerCount; i < 8; ++i)
+        heights[i] = 0.0;
+
+    oloTerrainHeightBlend(weights, heights, layerCount, u_VTBakeSharp0, u_VTBakeSharp1);
+
+    vec3 albedo = vec3(0.0);
+    vec3 normalMap = vec3(0.0);
+    float ao = 0.0;
+    float roughness = 0.0;
+    float metallic = 0.0;
+
+    for (int i = 0; i < layerCount; ++i)
+    {
+        if (weights[i] < 0.001)
+            continue;
+
+        float tiling = layerTiling(i);
+        float lod = log2(max(lodBase * tiling * layerResolution, 1e-6));
+
+        vec4 layerAlbedo;
+        vec3 layerNormal;
+        vec4 layerARM;
+
+        if (useTriplanar)
+        {
+            vec2 uvX = worldPos.yz * tiling;
+            vec2 uvY = worldPos.xz * tiling;
+            vec2 uvZ = worldPos.xy * tiling;
+
+            layerAlbedo = textureLod(u_TerrainAlbedoArray, vec3(uvX, float(i)), lod) * triWeights.x +
+                          textureLod(u_TerrainAlbedoArray, vec3(uvY, float(i)), lod) * triWeights.y +
+                          textureLod(u_TerrainAlbedoArray, vec3(uvZ, float(i)), lod) * triWeights.z;
+
+            vec3 nX = textureLod(u_TerrainNormalArray, vec3(uvX, float(i)), lod).rgb * 2.0 - 1.0;
+            vec3 nY = textureLod(u_TerrainNormalArray, vec3(uvY, float(i)), lod).rgb * 2.0 - 1.0;
+            vec3 nZ = textureLod(u_TerrainNormalArray, vec3(uvZ, float(i)), lod).rgb * 2.0 - 1.0;
+            layerNormal = normalize(nX * triWeights.x + nY * triWeights.y + nZ * triWeights.z);
+
+            layerARM = textureLod(u_TerrainARMArray, vec3(uvX, float(i)), lod) * triWeights.x +
+                       textureLod(u_TerrainARMArray, vec3(uvY, float(i)), lod) * triWeights.y +
+                       textureLod(u_TerrainARMArray, vec3(uvZ, float(i)), lod) * triWeights.z;
+        }
+        else
+        {
+            vec2 layerUV = uv * tiling;
+            layerAlbedo = textureLod(u_TerrainAlbedoArray, vec3(layerUV, float(i)), lod);
+            layerNormal = textureLod(u_TerrainNormalArray, vec3(layerUV, float(i)), lod).rgb * 2.0 - 1.0;
+            layerARM = textureLod(u_TerrainARMArray, vec3(layerUV, float(i)), lod);
+        }
+
+        albedo    += layerAlbedo.rgb * weights[i];
+        normalMap += layerNormal * weights[i];
+        ao        += layerARM.r * weights[i];
+        roughness += layerARM.g * weights[i];
+        metallic  += layerARM.b * weights[i];
+    }
+
+    normalMap = normalize(normalMap);
+    // Guard the degenerate case (every weight below the 0.001 cull): normalize()
+    // of a zero vector is a NaN that would be baked into the cache permanently.
+    if (!(dot(normalMap, normalMap) > 0.5))
+        normalMap = vec3(0.0, 0.0, 1.0);
+
+    ivec3 dst = ivec3(int(request.TileX * tileTexels + localTexel.x),
+                      int(request.TileY * tileTexels + localTexel.y), 0);
+    imageStore(u_VTCache, dst, vec4(albedo, ao));
+
+    dst.z = 1;
+    // Only xy is stored; the shading side reconstructs z from the upper
+    // hemisphere, which buys the roughness byte.
+    imageStore(u_VTCache, dst, vec4(normalMap.xy * 0.5 + 0.5, roughness, metallic));
+}

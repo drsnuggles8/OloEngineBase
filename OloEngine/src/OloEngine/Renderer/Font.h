@@ -105,6 +105,18 @@ namespace OloEngine
         }
 
         static Ref<Font> GetDefault();
+
+        // Release the process-wide default font cached by GetDefault(). Called from
+        // Renderer::Shutdown() — the teardown that always runs — because the default
+        // font is built from an ECS component's default member initializer, so any
+        // session that constructs a UITextComponent/TextComponent creates it, 3D or
+        // not. Before #839 it had no release site at all and its two Slug atlas
+        // textures survived every session on every backend (Vulkan reported them at
+        // vmaDestroyAllocator; GL, having no allocator assertion, said nothing).
+        // Idempotent; a later GetDefault() reloads.
+        // See docs/agent-rules/lazy-static-release-ownership.md.
+        static void ShutdownDefault();
+
         static Ref<Font> Create(const std::filesystem::path& font);
         static Ref<Font> Create(const std::filesystem::path& font, const std::vector<FontCodepointRange>& ranges);
 

@@ -46,13 +46,13 @@ const uint DDGI_PROBE_STATE_UNCAPTURED = 0u;
 const uint DDGI_PROBE_STATE_ACTIVE = 1u;
 const uint DDGI_PROBE_STATE_INACTIVE = 2u;
 
-layout(std430, binding = 79) buffer DDGIProbeAuxBuffer
+layout(std430, binding = 82) buffer DDGIProbeAuxBuffer
 {
     DDGIProbeAuxRecord b_ProbeAux[];
 };
 
 // C++ twin: DDGIProbeUpdatePass::ProbeStats.
-layout(std430, binding = 80) buffer DDGIStatsBuffer
+layout(std430, binding = 83) buffer DDGIStatsBuffer
 {
     uint b_StatLiveProbes;      // probes whose request is still inside the lifetime window
     uint b_StatActiveProbes;    // probes classified Active (captured, not inside geometry)

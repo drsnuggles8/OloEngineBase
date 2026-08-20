@@ -317,6 +317,21 @@ namespace OloEngine
             glm::vec4 LayerBlendSharpness0; // Height blend sharpness for layers 0-3
             glm::vec4 LayerBlendSharpness1; // Height blend sharpness for layers 4-7
 
+            // Virtual texturing (issue #715). APPENDED, and that matters: a
+            // std140 block a shader declares SHORTER than the buffer simply
+            // reads a prefix, so the five terrain shaders that have no VT branch
+            // (Terrain_Depth, the four voxel ones) keep their existing shorter
+            // declaration and are untouched by this. Only Terrain_PBR and
+            // Terrain_GBuffer declare the three below.
+            //
+            // Packed rather than named one-per-field because they cross into
+            // GLSL as three vec4s; the ONE owner of the packing is
+            // TerrainVirtualTexture::FillShaderParams, and the GLSL twin is
+            // oloVTUnpackParams() in include/TerrainVirtualTexture.glsl.
+            glm::vec4 VTParams0{ 0.0f }; // x = pagesWide, y = pageTexels, z = borderTexels, w = tileTexels
+            glm::vec4 VTParams1{ 0.0f }; // x = cacheTexels, y = maxMip, zw = feedback dimensions
+            glm::vec4 VTParams2{ 0.0f }; // x = enabled, y = feedback frame slot, z = downscale, w = log2(downscale)
+
             static constexpr u32 GetSize()
             {
                 return sizeof(TerrainUBO);
@@ -1476,7 +1491,10 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::TerrainCullUBO) == 160, "TerrainCullUBO unexpected size — update include/TerrainCullParams.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) % 16 == 0, "BrushPreviewUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::FoliageUBO) % 16 == 0, "FoliageUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::TerrainUBO) == 144, "TerrainUBO unexpected size — update GLSL layout");
+    // 144 before issue #715 appended the three virtual-texture vec4s. Bumping this
+    // is only half the edit: the GLSL block lives in include/TerrainParamsBlock.glsl
+    // and is declared ONCE for all eight terrain shaders (see that file for why).
+    static_assert(sizeof(UBOStructures::TerrainUBO) == 192, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::FoliageUBO) == 80, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
@@ -1717,7 +1735,20 @@ namespace OloEngine
                           UBO_VIRTUAL_SHADOW < UBO_BINDING_LIMIT &&
                           UBO_VIRTUAL_SHADOW_DRAW < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
-        static_assert(UBO_BINDING_LIMIT <= 84,
+        // GL 4.6's MINIMUM guarantee for GL_MAX_UNIFORM_BUFFER_BINDINGS — the floor every
+        // conforming implementation must meet. It is a COUNT, so it is an EXCLUSIVE upper bound:
+        // the portable binding indices are 0..83, and 84 itself must never be handed out. Compare
+        // against it with `<` (an array sized by it, like the bind-state mirror's, makes that
+        // automatic); `<=` is only correct for a value that is itself a count, which is why the
+        // UBO_BINDING_LIMIT assert above uses one. Backend-neutral on purpose: it is a GL-derived
+        // bound that the Vulkan bind-state mirror also sizes its arrays to
+        // (VulkanBindingState::kMaxBufferBindings aliases this), and it used to be spelled as a
+        // bare 84 in both places. Naming it here rather than there is what lets a GL-only test
+        // assert against it — VirtualShadowMapLocalTest reached into
+        // Platform/Vulkan/VulkanBindingState.h for the constant and stopped compiling under
+        // OLO_WITH_VULKAN=OFF, which nothing built until #811 added the CI job.
+        static constexpr u32 MIN_GUARANTEED_BUFFER_BINDINGS = 84;
+        static_assert(UBO_BINDING_LIMIT <= MIN_GUARANTEED_BUFFER_BINDINGS,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
 
         // =============================================================================
@@ -1872,7 +1903,21 @@ namespace OloEngine
         static constexpr u32 TEX_VOLUMETRIC_SHADOW = 66; // sampler3D R32F — optical depth from the light (2 stacked cascades)
         // Moved 65 -> 66 for TEX_VSM_PHYSICAL, then 66 -> 67 for
         // TEX_VOLUMETRIC_SHADOW, per the established shift procedure.
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 67; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Terrain adaptive virtual texturing (issue #715, slice 1). GLSL twin:
+        // include/TerrainVirtualTexture.glsl, which is the ONLY place either is
+        // declared.
+        //
+        // The cache is a two-LAYER array rather than two 2D textures, and that
+        // is a slot-budget decision made deliberately: every texture slot added
+        // here shifts HEAP_IMAGE_SLOT_BASE, and that base is mirrored by a
+        // hand-written literal in BindlessHeap.glsl (see the storage-image
+        // section below for the #702 incident). One array costs one slot and one
+        // layered image binding instead of two of each.
+        //   layer 0 = albedo.rgb + AO, layer 1 = normal.xy + roughness + metallic
+        static constexpr u32 TEX_TERRAIN_VT_INDIRECTION = 67; // RGBA8 + mip chain: virtual page -> physical tile
+        static constexpr u32 TEX_TERRAIN_VT_CACHE = 68;       // RGBA8 2-layer physical cache atlas
+
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 69; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -2119,8 +2164,19 @@ namespace OloEngine
         // captured probes) with the same read-back-on-demand contract, and is
         // where the "active probes is a small fraction of the dense grid" claim
         // is MEASURED rather than asserted.
-        static constexpr u32 SSBO_DDGI_PROBE_AUX = 79; // DDGIProbeAux[totalProbes]: request frame, state, bounce coverage
-        static constexpr u32 SSBO_DDGI_STATS = 80;     // DDGIStats: per-frame live/relit/captured counters
+        //
+        // These were 79/80 while #707 was in review and moved to 82/83 when
+        // #715's terrain virtual texture landed on master first and took 79-81.
+        // Worth knowing if you hit the same thing: the collision merged CLEANLY
+        // -- the two blocks are in different parts of this file, so git had no
+        // textual conflict to report and produced a header with two constants
+        // per slot. NOTHING caught it: SSBOSlotUniqueness is a hand-curated list
+        // and neither family was on it, and the GLSL literals only disagree once
+        // someone renumbers one side. Both families are on that list now. When
+        // rebasing a branch that claims bindings, diff the slot NUMBERS against
+        // master, not just the files git reports as conflicting.
+        static constexpr u32 SSBO_DDGI_PROBE_AUX = 82; // DDGIProbeAux[totalProbes]: request frame, state, bounce coverage
+        static constexpr u32 SSBO_DDGI_STATS = 83;     // DDGIStats: per-frame live/relit/captured counters
 
         // GPU prefix-sum / parallel scan (issue #713). Bound by
         // `GPUPrefixSum::ExclusiveScanInPlace` immediately before each of its
@@ -2160,6 +2216,21 @@ namespace OloEngine
         static constexpr u32 SSBO_TERRAIN_SPLIT_MAP = 60;     // uint[node]: 1 = this node split this frame
         static constexpr u32 SSBO_TERRAIN_LOD_MAP = 61;       // uint[(1<<depth)^2]: selected level per finest-node texel
         static constexpr u32 SSBO_TERRAIN_DRAW_ARGS = 62;     // DrawElementsIndirectCommand (also bound as GL_DRAW_INDIRECT_BUFFER, so it must be its own buffer at offset 0)
+
+        // Terrain adaptive virtual texturing (issue #715, slice 1). Three
+        // buffers, and NO new UBO — deliberately: the UBO namespace has exactly
+        // one free slot under the GL 4.6 minimum of 84 (UBO_BINDING_LIMIT is
+        // 83), and a feature that wants a per-dispatch parameter block has no
+        // business spending the last one. The bake and indirection kernels read
+        // their parameters from a fixed HEADER at the front of their own SSBO
+        // instead, and the shading-side parameters ride the existing
+        // UBO_TERRAIN (10) block as three appended vec4s.
+        //
+        // 79-81, above the VSM range (68-78), so the two systems' ten-and-three
+        // bindings cannot collide the way #713/#714 and #703/#818 did.
+        static constexpr u32 SSBO_TERRAIN_VT_FEEDBACK = 79;    // uint[feedbackW*feedbackH], written by the terrain FRAGMENT stage
+        static constexpr u32 SSBO_TERRAIN_VT_BAKE = 80;        // bake params header + VTBakeRequest[]
+        static constexpr u32 SSBO_TERRAIN_VT_INDIRECTION = 81; // update-window header + VTIndirectionUpdate[]
 
         // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691
         // Phase 7 Wave C, ADR items A2/A3). On the Vulkan backend pipelines
@@ -2594,6 +2665,12 @@ namespace OloEngine
                 case TEX_VOLUMETRIC_SHADOW:
                     // Shared volumetric shadow volume (issue #723).
                     return name == "u_VolumetricShadowVolume";
+                case TEX_TERRAIN_VT_INDIRECTION:
+                    // Terrain virtual texture (issue #715). Both declared once, in
+                    // include/TerrainVirtualTexture.glsl.
+                    return name == "u_TerrainVTIndirection";
+                case TEX_TERRAIN_VT_CACHE:
+                    return name == "u_TerrainVTCache";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

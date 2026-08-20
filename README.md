@@ -132,7 +132,7 @@ The full per-OS build matrix (including Linux and WSL specifics) lives in [docs/
 - **Custom collision layers** for flexible filtering and detection.
 
 ### Environmental & world systems
-- **Procedural terrain** generation with LOD.
+- **Procedural terrain** generation with GPU-driven quadtree LOD, and optional **virtual texturing** — a feedback-driven page cache that moves the splat blend off the per-pixel path.
 - **Water / FFT ocean** rendering.
 - **Weather & environment** — wind, snow (with deformation), and precipitation systems.
 - **Streaming volumes**, light-probe volumes, fog volumes, and navigation-mesh bounds as scene-level authored data.

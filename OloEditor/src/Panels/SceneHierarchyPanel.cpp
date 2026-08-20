@@ -81,9 +81,43 @@ namespace
 
 namespace OloEngine
 {
+    // Every DrawComponent<T> instantiation owns its own static map of undo snapshots, and a
+    // snapshot is a COPY of the component — so the ModelComponent one owns a Ref<Model> and
+    // the texture-bearing ones own Ref<Texture2D>. There is no way to reach a function-local
+    // static of a template from outside, so each instantiation registers a clearer here the
+    // first time it runs, and ClearComponentEditSnapshots() calls them all.
+    //
+    // Note this is the same leak species as s_DrawComponentScene further down this file, but
+    // wrapped in a container: a scan that looks for `static Ref<GpuType>` declarations cannot
+    // see a Ref that lives inside a std::unordered_map's mapped_type. It was the last object
+    // still alive at vmaDestroyAllocator after the rest of the #839 sweep landed.
+    using SnapshotClearer = void (*)();
+
+    [[nodiscard]] static std::vector<SnapshotClearer>& DrawComponentSnapshotClearers()
+    {
+        static std::vector<SnapshotClearer> clearers;
+        return clearers;
+    }
+
     SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
     {
         SetContext(context);
+    }
+
+    SceneHierarchyPanel::~SceneHierarchyPanel()
+    {
+        // The panel dies with EditorLayer during Application's m_LayerStack.Clear(), i.e.
+        // before Renderer::Shutdown() — so anything the snapshots pin is released while
+        // the graphics context is still alive, which is the deadline that matters (#839).
+        ClearComponentEditSnapshots();
+    }
+
+    void SceneHierarchyPanel::ClearComponentEditSnapshots()
+    {
+        for (const SnapshotClearer clear : DrawComponentSnapshotClearers())
+        {
+            clear();
+        }
     }
 
     void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
@@ -91,6 +125,11 @@ namespace OloEngine
         m_Context = context;
         m_SelectionContext = {};
         m_SelectedEntities.clear();
+        // The snapshots are keyed by entity UUID and hold copies of the OUTGOING scene's
+        // components; keeping them across a scene swap both leaks that scene's GPU
+        // resources and lets a stale "before" state feed the undo stack of a UUID that
+        // happens to repeat in the new scene.
+        ClearComponentEditSnapshots();
     }
 
     void SceneHierarchyPanel::OnImGuiRender()
@@ -1107,9 +1146,42 @@ namespace OloEngine
         return modified;
     }
 
-    // File-scope state for undo integration in DrawComponent (set by DrawComponents)
+    // File-scope state for undo integration in DrawComponent (set by DrawComponents).
+    //
+    // Scoped to ONE DrawComponents() call by DrawComponentStateScope below, and that
+    // matters: s_DrawComponentScene is a strong Ref, and leaving it set between frames
+    // pinned the last scene the Properties panel drew for the rest of the process —
+    // every MeshSource, texture and cubemap in it — long past m_LayerStack.Clear().
+    // On Vulkan that made closing the editor ABORT rather than exit — every MeshSource
+    // and texture in the scene was still live at vmaDestroyAllocator (measured: 12 vertex
+    // arrays, 6 textures, 147 MB on the sandbox start scene; 64 vertex arrays on the
+    // scene in #839). On GL it was silent. Note the leak only happens once an entity has
+    // been selected, because that is what makes the Properties panel call DrawComponents
+    // at all. A Ref parked in file-scope state "until the next frame overwrites it" is a
+    // leak on the frame that never comes.
     static CommandHistory* s_DrawComponentCmdHistory = nullptr;
     static Ref<Scene> s_DrawComponentScene = nullptr;
+
+    // Clears both on every exit path from DrawComponents(), so the invariant "these are
+    // live only for the duration of the call" is enforced by the type system rather than
+    // by a trailing assignment somebody can jump over.
+    struct DrawComponentStateScope
+    {
+        DrawComponentStateScope(CommandHistory* history, const Ref<Scene>& scene)
+        {
+            s_DrawComponentCmdHistory = history;
+            s_DrawComponentScene = scene;
+        }
+        ~DrawComponentStateScope()
+        {
+            s_DrawComponentCmdHistory = nullptr;
+            s_DrawComponentScene = nullptr;
+        }
+        DrawComponentStateScope(const DrawComponentStateScope&) = delete;
+        DrawComponentStateScope& operator=(const DrawComponentStateScope&) = delete;
+        DrawComponentStateScope(DrawComponentStateScope&&) = delete;
+        DrawComponentStateScope& operator=(DrawComponentStateScope&&) = delete;
+    };
 
     // Compile-time stable component name extraction (no RTTI dependency).
     // Uses a probe type in the OloEngine namespace to calibrate __FUNCSIG__/__PRETTY_FUNCTION__.
@@ -1503,6 +1575,16 @@ namespace OloEngine
                         alignas(alignof(T)) unsigned char snapshotBytes[sizeof(T)]{};
                     };
                     static std::unordered_map<u64, EditState> s_EditStates;
+                    // Register this instantiation's map for bulk clearing exactly once. A
+                    // capture-less lambda can name an enclosing function's static directly
+                    // (statics are not captured), so it converts to the plain function
+                    // pointer the registry holds. See DrawComponentSnapshotClearers (#839).
+                    [[maybe_unused]] static const bool s_ClearerRegistered = []
+                    {
+                        DrawComponentSnapshotClearers().push_back([]
+                                                                  { s_EditStates.clear(); });
+                        return true;
+                    }();
                     auto& editState = s_EditStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
 
                     // Take a snapshot once per idle→edit cycle (not every frame)
@@ -1923,9 +2005,9 @@ namespace OloEngine
 
     void SceneHierarchyPanel::DrawComponents(Entity entity)
     {
-        // Set file-scope state for DrawComponent undo integration
-        s_DrawComponentCmdHistory = m_CommandHistory;
-        s_DrawComponentScene = m_Context;
+        // Set file-scope state for DrawComponent undo integration, and drop it again on
+        // the way out — the Ref<Scene> must not outlive this call (see the declaration).
+        const DrawComponentStateScope drawComponentState(m_CommandHistory, m_Context);
 
         if (entity.HasComponent<TagComponent>())
         {
@@ -5884,6 +5966,107 @@ namespace OloEngine
                     ImGui::Separator();
                     ImGui::Text("Loaded Tiles: %u", component.m_Streamer->GetLoadedTileCount());
                     ImGui::Text("Loading: %u", component.m_Streamer->GetLoadingTileCount());
+                }
+            }
+
+            // ── Adaptive Virtual Texturing (issue #715, slice 1) ──────────
+            //
+            // The residency / request read-outs below are acceptance criterion 3
+            // of the issue, and they are the only way to tell the two failure
+            // modes apart from the viewport: "the cache is thrashing" (resident
+            // pinned at the tile count with evictions climbing every frame) looks
+            // exactly like "the bake budget is too small" (requests deferred
+            // climbing while evictions stay flat) if all you can see is a blurry
+            // terrain.
+            ImGui::Separator();
+            ImGui::Text("Virtual Texturing");
+            ImGui::Checkbox("VT Enabled", &component.m_VirtualTextureEnabled);
+            if (component.m_StreamingEnabled && component.m_VirtualTextureEnabled)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                   "Streamed terrain keeps the splat path (slice 1 is single-tile).");
+            }
+
+            if (component.m_VirtualTextureEnabled)
+            {
+                // Powers of two — TerrainVirtualTextureConfig::Sanitize() rounds
+                // DOWN, so the slider steps are shown as such rather than letting
+                // the user pick a value that silently becomes a different one.
+                auto powerOfTwoDrag = [](const char* label, u32& value, u32 lo, u32 hi)
+                {
+                    int exponent = 0;
+                    for (u32 v = value; v > 1u; v >>= 1u)
+                        ++exponent;
+                    int loExp = 0;
+                    for (u32 v = lo; v > 1u; v >>= 1u)
+                        ++loExp;
+                    int hiExp = 0;
+                    for (u32 v = hi; v > 1u; v >>= 1u)
+                        ++hiExp;
+                    if (ImGui::SliderInt(label, &exponent, loExp, hiExp, "%d"))
+                    {
+                        value = 1u << static_cast<u32>(exponent);
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("= %u", value);
+                };
+
+                powerOfTwoDrag("VT Pages (log2)", component.m_VTVirtualPagesWide, 2u, 4096u);
+                powerOfTwoDrag("VT Page Texels (log2)", component.m_VTPageTexels, 8u, 1024u);
+
+                // Minimum 1: the border is the only thing keeping a linear tap at a
+                // page edge from reading the neighbouring cache tile.
+                if (int border = static_cast<int>(component.m_VTBorderTexels);
+                    ImGui::DragInt("VT Border Texels", &border, 1, 1, 32))
+                {
+                    component.m_VTBorderTexels = static_cast<u32>(border);
+                }
+                if (int tiles = static_cast<int>(component.m_VTCacheTilesWide);
+                    ImGui::DragInt("VT Cache Tiles (per side)", &tiles, 1, 2, 256))
+                {
+                    component.m_VTCacheTilesWide = static_cast<u32>(tiles);
+                }
+                if (int bakes = static_cast<int>(component.m_VTMaxTileBakesPerFrame);
+                    ImGui::DragInt("VT Bakes / Frame", &bakes, 1, 1, 64))
+                {
+                    component.m_VTMaxTileBakesPerFrame = static_cast<u32>(bakes);
+                }
+
+                if (component.m_VirtualTexture)
+                {
+                    const auto& vt = *component.m_VirtualTexture;
+                    const auto& stats = vt.GetStats();
+                    const auto& cfg = vt.GetConfig();
+
+                    ImGui::Separator();
+                    ImGui::Text("VT status: %s", vt.IsReadyForShading() ? "shading" : "warming up");
+                    // Squared rather than "W x H": the virtual image is square by
+                    // construction (one VirtualPagesWide, one PageTexels), so there
+                    // is no height to print — and printing the same accessor twice
+                    // reads like a copy-paste bug even when it is not.
+                    ImGui::Text("Virtual texels: %llu^2",
+                                static_cast<unsigned long long>(cfg.VirtualTexelsWide()));
+                    ImGui::Text("Cache residency: %u / %u tiles", stats.m_ResidentTiles, stats.m_CacheTileCount);
+                    ImGui::Text("Pages requested: %u (from %u feedback texels)", stats.m_PagesRequested,
+                                stats.m_FeedbackTexelsWritten);
+                    ImGui::Text("Tiles baked: %u this frame, %u total", stats.m_TilesBakedThisFrame,
+                                stats.m_TilesBakedTotal);
+                    ImGui::Text("Requests deferred to a later frame: %u", stats.m_BudgetStarvedRequests);
+                    if (stats.m_WorkingSetExceedsCache)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                           "Working set exceeds the cache — raise VT Cache Tiles.");
+                    }
+                    ImGui::Text("Evictions: %u", stats.m_EvictionsTotal);
+                    ImGui::Text("Readbacks in flight: %u", stats.m_ReadbackSlotsInFlight);
+                    ImGui::Text("GPU memory: %.1f MB cache + %.2f MB indirection",
+                                static_cast<f64>(stats.m_CacheBytes) / (1024.0 * 1024.0),
+                                static_cast<f64>(stats.m_IndirectionBytes) / (1024.0 * 1024.0));
+
+                    if (ImGui::Button("Rebake VT Cache"))
+                    {
+                        component.m_VirtualTexture->Invalidate();
+                    }
                 }
             }
 

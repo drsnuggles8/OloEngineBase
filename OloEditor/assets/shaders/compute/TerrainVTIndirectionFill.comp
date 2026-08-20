@@ -1,0 +1,47 @@
+#version 450 core
+
+// =============================================================================
+// Terrain virtual texture — indirection map, pass 3 of 3 (issue #715).
+//
+// **THIS PASS IS THE ANTI-POP MECHANISM.** Everything else in the loop decides
+// which pages are resident; this decides what a lookup reads when the page it
+// wanted is not.
+//
+// For one mip: every texel that pass 2 did NOT stamp directly (alpha == 0)
+// inherits the entry of the texel above it in the chain, with alpha left at 0 so
+// the inheritance keeps propagating downwards. Dispatched from the coarsest
+// level to the finest, so an entry can travel any number of levels in a single
+// rebuild without a search.
+//
+// The consequence at shading time: a fragment that asks for a fine page that is
+// not resident gets a COARSER resident page's physical address plus that page's
+// mip, and `oloVTVirtualToPhysicalUV` evaluates the page-local coordinate at
+// that coarser mip. So the surface is blurrier until the fine page arrives, and
+// then sharpens — instead of flashing whatever the cache tile happened to hold.
+//
+// The chain terminates because the analyzer pins the 1x1 coarsest page, which is
+// therefore always a direct entry at the top level.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Read-modify-write: the pass has to see pass 2's direct entries to know which
+// texels to leave alone.
+layout(rgba8, binding = 0) uniform image2D u_VTIndirectionTarget;
+layout(rgba8, binding = 1) readonly uniform image2D u_VTIndirectionCoarser;
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(texel, imageSize(u_VTIndirectionTarget))))
+        return;
+
+    vec4 current = imageLoad(u_VTIndirectionTarget, texel);
+    if (current.w > 0.5)
+        return; // a direct mapping — pass 2 owns this texel
+
+    // alpha stays 0: an inherited entry must not look direct to the NEXT finer
+    // level, or that level would stop inheriting one step short.
+    vec4 coarse = imageLoad(u_VTIndirectionCoarser, texel >> 1);
+    imageStore(u_VTIndirectionTarget, texel, vec4(coarse.xyz, 0.0));
+}

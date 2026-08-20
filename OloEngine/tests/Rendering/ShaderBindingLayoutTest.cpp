@@ -90,7 +90,11 @@ TEST(ShaderBindingLayout, IBLParametersUBOAlignment)
 
 TEST(ShaderBindingLayout, TerrainUBOSizeStable)
 {
-    EXPECT_EQ(sizeof(UBOStructures::TerrainUBO), 144u);
+    // 144 before issue #715 appended the three virtual-texture vec4s. The GLSL
+    // side is include/TerrainParamsBlock.glsl — ONE declaration shared by all
+    // eight terrain shaders, so bumping this number and forgetting the shader is
+    // a single-file fix rather than the thirteen-copy hunt it used to be.
+    EXPECT_EQ(sizeof(UBOStructures::TerrainUBO), 192u);
 }
 
 TEST(ShaderBindingLayout, BrushPreviewUBOSizeStable)
@@ -242,6 +246,27 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_SPHERE, "SSBO_DEBUG_DRAW_SPHERE");
     // Per-cluster reflection-probe bitmask (issue #705).
     checkSlot(ShaderBindingLayout::SSBO_REFLECTION_PROBE_GRID, "SSBO_REFLECTION_PROBE_GRID");
+
+    // Terrain virtual texture (#715) and DDGI v2 (#707), added together because
+    // they COLLIDED: both branches independently claimed 79/80 while in review,
+    // and #715 merged first. Nothing caught it. The two blocks live in different
+    // parts of ShaderBindingLayout.h, so git auto-merged them into a header with
+    // two constants per slot and no textual conflict; this list is curated by
+    // hand and neither family was in it; and the GLSL literals only disagree
+    // with C++ once someone renumbers one side. The result would have been two
+    // unrelated buffers bound to one slot -- terrain page-feedback writes
+    // landing in the DDGI probe-aux buffer, which reads as "GI is subtly wrong"
+    // and "the VT loop never converges", neither of them near the cause.
+    //
+    // The other SSBO families (VSM, prefix-sum, fluid alternates) are still
+    // absent from this list. Adding them is worth doing, but is an audit rather
+    // than a merge fix -- these two are here because this PR is where the
+    // collision actually happened.
+    checkSlot(ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK, "SSBO_TERRAIN_VT_FEEDBACK");
+    checkSlot(ShaderBindingLayout::SSBO_TERRAIN_VT_BAKE, "SSBO_TERRAIN_VT_BAKE");
+    checkSlot(ShaderBindingLayout::SSBO_TERRAIN_VT_INDIRECTION, "SSBO_TERRAIN_VT_INDIRECTION");
+    checkSlot(ShaderBindingLayout::SSBO_DDGI_PROBE_AUX, "SSBO_DDGI_PROBE_AUX");
+    checkSlot(ShaderBindingLayout::SSBO_DDGI_STATS, "SSBO_DDGI_STATS");
 }
 
 // =============================================================================

@@ -33,6 +33,7 @@
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
+#include "OloEngine/Terrain/VirtualTexture/TerrainVirtualTexture.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
 #include "OloEngine/Terrain/Voxel/MarchingCubes.h"
 #include "OloEngine/Terrain/Voxel/VoxelGreedyMeshBuilder.h"
@@ -3993,6 +3994,48 @@ namespace OloEngine
         u32 m_StreamingLoadRadius = 3; // Tile load radius around camera
         u32 m_StreamingMaxTiles = 25;  // LRU tile budget
 
+        // ── Adaptive virtual texturing (serialized, issue #715 slice 1) ──
+        //
+        // An ALTERNATIVE surfacing path, not a replacement: with this off the
+        // splat blend in Terrain_PBR / Terrain_GBuffer runs exactly as before.
+        // With it on, that blend moves into a compute kernel that composites one
+        // cache tile at a time and the fragment stage does a single indirection
+        // lookup plus a cache sample, so shading cost stops scaling with layer
+        // count and unique texel density stops being capped by the splatmap.
+        //
+        // Four of the five knobs below are a memory/density trade and nothing
+        // else; the fifth (bakes per frame) is a rate. Defaults: 256 pages x 128
+        // texels = 32768 virtual texels across the terrain (vs. a typical
+        // 512-texel splatmap), held in a 16x16 tile cache of 2176^2 x RGBA8 x 2
+        // layers = ~38 MB.
+        OLO_PROPERTY(Name = "VirtualTextureEnabled")
+        bool m_VirtualTextureEnabled = false;
+        // Power of two. Also caps the mip chain: the indirection map halves this
+        // per level and must reach 1x1, and the mip index has 4 bits.
+        OLO_PROPERTY(Name = "VTVirtualPagesWide")
+        OLO_SERIALIZE(Clamp, Min = 2, Max = 4096)
+        u32 m_VTVirtualPagesWide = 256;
+        // Power of two. Unique texels per page edge, excluding the border.
+        OLO_PROPERTY(Name = "VTPageTexels")
+        OLO_SERIALIZE(Clamp, Min = 8, Max = 1024)
+        u32 m_VTPageTexels = 128;
+        // Duplicated neighbourhood on each side of a cache tile — what lets the
+        // cache be linearly filtered without bleeding across a page seam. At
+        // least ONE: the cache is sampled with a linear filter, so a zero border
+        // puts a neighbouring page's texels inside every edge tap.
+        OLO_PROPERTY(Name = "VTBorderTexels")
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 32)
+        u32 m_VTBorderTexels = 4;
+        // Physical cache is this squared tiles. The residency budget.
+        OLO_PROPERTY(Name = "VTCacheTilesWide")
+        OLO_SERIALIZE(Clamp, Min = 2, Max = 256)
+        u32 m_VTCacheTilesWide = 16;
+        // Per-frame ceiling on tile composites — convergence speed traded
+        // against frame-time stability.
+        OLO_PROPERTY(Name = "VTMaxTileBakesPerFrame")
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 64)
+        u32 m_VTMaxTileBakesPerFrame = 8;
+
         // Voxel override settings (serialized)
         bool m_VoxelEnabled = false;
         f32 m_VoxelSize = 1.0f;
@@ -4021,6 +4064,10 @@ namespace OloEngine
         Ref<TerrainStreamer> m_Streamer;
         OLO_SERIALIZE(Skip)
         Ref<VoxelOverride> m_VoxelOverride;
+        // Owns the indirection map, the physical cache, the feedback ring and the
+        // page cache. Created lazily on the first frame VT is enabled.
+        OLO_SERIALIZE(Skip)
+        Ref<TerrainVirtualTexture> m_VirtualTexture;
         OLO_SERIALIZE(Skip)
         std::unordered_map<VoxelCoord, VoxelMesh, VoxelCoordHash> m_VoxelMeshes;
         // Packed-quad greedy meshes + their in-flight task state (issue #727).
@@ -4046,7 +4093,7 @@ namespace OloEngine
 
         TerrainComponent() = default;
         TerrainComponent(const TerrainComponent& other)
-            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher)
+            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VirtualTextureEnabled(other.m_VirtualTextureEnabled), m_VTVirtualPagesWide(other.m_VTVirtualPagesWide), m_VTPageTexels(other.m_VTPageTexels), m_VTBorderTexels(other.m_VTBorderTexels), m_VTCacheTilesWide(other.m_VTCacheTilesWide), m_VTMaxTileBakesPerFrame(other.m_VTMaxTileBakesPerFrame), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher)
         {
             // Runtime state intentionally NOT copied — force rebuild
         }
@@ -4081,6 +4128,12 @@ namespace OloEngine
                 m_TileResolution = other.m_TileResolution;
                 m_StreamingLoadRadius = other.m_StreamingLoadRadius;
                 m_StreamingMaxTiles = other.m_StreamingMaxTiles;
+                m_VirtualTextureEnabled = other.m_VirtualTextureEnabled;
+                m_VTVirtualPagesWide = other.m_VTVirtualPagesWide;
+                m_VTPageTexels = other.m_VTPageTexels;
+                m_VTBorderTexels = other.m_VTBorderTexels;
+                m_VTCacheTilesWide = other.m_VTCacheTilesWide;
+                m_VTMaxTileBakesPerFrame = other.m_VTMaxTileBakesPerFrame;
                 m_VoxelEnabled = other.m_VoxelEnabled;
                 m_VoxelSize = other.m_VoxelSize;
                 m_VoxelMesher = other.m_VoxelMesher;
@@ -4090,6 +4143,7 @@ namespace OloEngine
                 m_Material = nullptr;
                 m_Streamer = nullptr;
                 m_VoxelOverride = nullptr;
+                m_VirtualTexture = nullptr;
                 m_VoxelMeshes.clear();
                 m_VoxelQuadMeshes = nullptr;
                 m_VoxelAutoSeeded = false;

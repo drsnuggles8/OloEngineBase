@@ -18,8 +18,20 @@ namespace OloEngine
       public:
         SceneHierarchyPanel() = default;
         SceneHierarchyPanel(const Ref<Scene>& context);
+        ~SceneHierarchyPanel();
 
         void SetContext(const Ref<Scene>& context);
+
+        // Drop every DrawComponent<T> undo snapshot. Each instantiation keeps a static
+        // map of "component as it looked before this edit" keyed by entity, and a
+        // snapshot is a COPY of the component — so for ModelComponent it owns a
+        // Ref<Model>, and for the texture-bearing components a Ref<Texture2D>. Nothing
+        // cleared those maps, so drawing an entity in the inspector once pinned its GPU
+        // resources for the life of the process (#839: the last survivor at
+        // vmaDestroyAllocator after the rest of that sweep landed). Called on every scene
+        // swap — the snapshots belong to the outgoing scene's entities — and from the
+        // destructor, which runs while the renderer is still alive.
+        static void ClearComponentEditSnapshots();
         void SetCommandHistory(CommandHistory* history)
         {
             m_CommandHistory = history;

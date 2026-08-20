@@ -1282,6 +1282,25 @@ namespace OloEngine
         terrain.m_StreamingLoadRadius = terrainComponent["StreamingLoadRadius"].as<u32>(terrain.m_StreamingLoadRadius);
         terrain.m_StreamingMaxTiles = terrainComponent["StreamingMaxTiles"].as<u32>(terrain.m_StreamingMaxTiles);
 
+        // Virtual texturing (issue #715). Every sizing knob is clamped rather
+        // than rejected: they are continuous quantities (a density/memory
+        // trade), so saturating an out-of-range value gives a valid neighbour
+        // rather than a different MODE the way the mesher selector below would.
+        // TerrainVirtualTextureConfig::Sanitize() then rounds the two
+        // power-of-two fields at configure time.
+        terrain.m_VirtualTextureEnabled =
+            terrainComponent["VirtualTextureEnabled"].as<bool>(terrain.m_VirtualTextureEnabled);
+        terrain.m_VTVirtualPagesWide =
+            std::clamp(terrainComponent["VTVirtualPagesWide"].as<u32>(terrain.m_VTVirtualPagesWide), 2u, 4096u);
+        terrain.m_VTPageTexels =
+            std::clamp(terrainComponent["VTPageTexels"].as<u32>(terrain.m_VTPageTexels), 8u, 1024u);
+        terrain.m_VTBorderTexels =
+            std::clamp(terrainComponent["VTBorderTexels"].as<u32>(terrain.m_VTBorderTexels), 1u, 32u);
+        terrain.m_VTCacheTilesWide =
+            std::clamp(terrainComponent["VTCacheTilesWide"].as<u32>(terrain.m_VTCacheTilesWide), 2u, 256u);
+        terrain.m_VTMaxTileBakesPerFrame = std::clamp(
+            terrainComponent["VTMaxTileBakesPerFrame"].as<u32>(terrain.m_VTMaxTileBakesPerFrame), 1u, 64u);
+
         // Voxel override settings
         terrain.m_VoxelEnabled = terrainComponent["VoxelEnabled"].as<bool>(terrain.m_VoxelEnabled);
         terrain.m_VoxelSize = terrainComponent["VoxelSize"].as<f32>(terrain.m_VoxelSize);
@@ -4911,6 +4930,14 @@ namespace OloEngine
             out << YAML::Key << "TileResolution" << YAML::Value << terrain.m_TileResolution;
             out << YAML::Key << "StreamingLoadRadius" << YAML::Value << terrain.m_StreamingLoadRadius;
             out << YAML::Key << "StreamingMaxTiles" << YAML::Value << terrain.m_StreamingMaxTiles;
+
+            // Virtual texturing (issue #715)
+            out << YAML::Key << "VirtualTextureEnabled" << YAML::Value << terrain.m_VirtualTextureEnabled;
+            out << YAML::Key << "VTVirtualPagesWide" << YAML::Value << terrain.m_VTVirtualPagesWide;
+            out << YAML::Key << "VTPageTexels" << YAML::Value << terrain.m_VTPageTexels;
+            out << YAML::Key << "VTBorderTexels" << YAML::Value << terrain.m_VTBorderTexels;
+            out << YAML::Key << "VTCacheTilesWide" << YAML::Value << terrain.m_VTCacheTilesWide;
+            out << YAML::Key << "VTMaxTileBakesPerFrame" << YAML::Value << terrain.m_VTMaxTileBakesPerFrame;
 
             // Voxel override settings
             out << YAML::Key << "VoxelEnabled" << YAML::Value << terrain.m_VoxelEnabled;

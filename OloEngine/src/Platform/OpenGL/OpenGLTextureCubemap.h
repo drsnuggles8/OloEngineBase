@@ -15,6 +15,12 @@ namespace OloEngine
         explicit OpenGLTextureCubemap(const std::vector<std::string>& facePaths);
         ~OpenGLTextureCubemap() override;
 
+        // Delete the shared face-upload staging PBO (see OpenGLTextureCubemap.cpp).
+        // Called from Renderer::Shutdown()'s OpenGL branch, alongside
+        // OpenGLFramebuffer::ShutdownSharedResources(), so the buffer dies while the
+        // context is still current. Idempotent; the next upload recreates it (#839).
+        static void ShutdownSharedResources();
+
         // Texture interface implementation
         const TextureSpecification& GetSpecification() const override
         {

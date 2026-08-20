@@ -19,8 +19,10 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
+#include "OloEngine/Video/VideoSystem.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/NamedThreads.h"
@@ -268,6 +270,15 @@ namespace OloEngine
             m_LayerStack.Clear();
             m_ImGuiLayer = nullptr;
 
+            // Same two GPU-owning caches the destructor path releases, and for the same
+            // reason: a layer that ran OnAttach before the throw can already have created
+            // them. OloRuntime puts up a studio-logo splash through
+            // VideoSystem::ShowFullscreenImage() from its layer attach, so this is a real
+            // path, not symmetry for its own sake. Both are no-ops when nothing was
+            // created (#839).
+            VideoSystem::Shutdown();
+            Scene::ReleaseSharedRenderDefaults();
+
             // Unwind subsystems in reverse initialization order.
             // Each Shutdown() is safe to call even if its Init() wasn't reached.
             if (!m_Specification.IsHeadless)
@@ -321,6 +332,26 @@ namespace OloEngine
         // which vmaDestroyAllocator answers with an "allocations not freed"
         // abort on Vulkan (#691 Phase 8, the close-button crash).
         Project::Unload();
+
+        // Two process-wide caches that own GPU memory but do NOT live under Renderer/,
+        // so releasing them from Renderer::Shutdown() would invert the layering. This is
+        // the narrowest teardown that is unconditional for every session that can create
+        // them AND still runs while the graphics context is alive, which is the rule
+        // (#814/#839, docs/agent-rules/lazy-static-release-ownership.md) one level up
+        // from "release it from Renderer::Shutdown()".
+        //
+        // VideoSystem's global fullscreen player holds a decoded-frame GPU texture. Its
+        // Shutdown() was written with the comment "Call on engine/scene shutdown" and had
+        // ZERO callers, so a splash/cutscene overlay leaked for the life of the process —
+        // a shipped OloRuntime showing a studio logo hit this on every launch.
+        //
+        // Scene's cached default material is a plain PBR stand-in that owns no textures
+        // today, but Material can own five Texture2Ds and three cubemaps, so the shape is
+        // one ConfigureIBL() call away from being a real leak. Released here rather than
+        // left to static destruction, where a Ref's destructor runs after the Meyer's
+        // singletons it frees through are already gone.
+        VideoSystem::Shutdown();
+        Scene::ReleaseSharedRenderDefaults();
 
         if (!m_Specification.IsHeadless)
         {

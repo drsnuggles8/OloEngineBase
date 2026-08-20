@@ -56,8 +56,15 @@ namespace OloEngine
         // frame (#691 Phase 7: the auto-exposure block moving to 72 on the
         // #705 merge, and the A2 renumber pushing TEX_DDGI_VISIBILITY to 64
         // and TEX_SHADER_GRAPH_0 to 65, both walked past the old 64).
-        static constexpr u32 kMaxBufferBindings = 84; // GL_MAX_UNIFORM_BUFFER_BINDINGS' minimum guarantee
-        static constexpr u32 kMaxTextureSlots = 96;   // engine slots + shader-graph user slots, with headroom
+        //
+        // kMaxBufferBindings ALIASES the backend-neutral constant rather than repeating the
+        // literal: the bound is GL_MAX_UNIFORM_BUFFER_BINDINGS' minimum guarantee, a property of
+        // the binding NUMBERS the engine hands out and not of Vulkan. Defining it in
+        // ShaderBindingLayout.h is what lets a GL-only TU assert against it without reaching into
+        // this header, which vanishes entirely under OLO_WITH_VULKAN=OFF — VirtualShadowMapLocalTest
+        // did exactly that and had stopped compiling in that configuration (#811).
+        static constexpr u32 kMaxBufferBindings = ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS;
+        static constexpr u32 kMaxTextureSlots = 96; // engine slots + shader-graph user slots, with headroom
         static constexpr u32 kNoHeapSlot = 0xFFFFFFFFu;
 
         static_assert(ShaderBindingLayout::UBO_BINDING_LIMIT <= kMaxBufferBindings,

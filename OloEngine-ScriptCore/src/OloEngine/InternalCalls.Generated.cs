@@ -1795,6 +1795,30 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetSplatmapGenResolution(ulong entityID, uint value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TerrainComponent_GetVirtualTextureEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVirtualTextureEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetVTVirtualPagesWide(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTVirtualPagesWide(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetVTPageTexels(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTPageTexels(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetVTBorderTexels(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTBorderTexels(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetVTCacheTilesWide(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTCacheTilesWide(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetVTMaxTileBakesPerFrame(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTMaxTileBakesPerFrame(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int TerrainComponent_GetVoxelMesher(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetVoxelMesher(ulong entityID, int value);

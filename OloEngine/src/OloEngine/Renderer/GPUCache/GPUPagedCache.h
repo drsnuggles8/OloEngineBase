@@ -486,6 +486,26 @@ namespace OloEngine
             return result;
         }
 
+        // Re-register `obj` as most recently used without touching its
+        // allocation. Returns false when the object is not in the directory.
+        //
+        // THE EVICTION-ORDERING HALF OF A CACHE HIT. A consumer that finds an
+        // object already resident still has to tell the policy it was used, or
+        // the object ages towards the LRU tail while in active use and is
+        // evicted from under a live frame. `AllocatePages` cannot serve this: it
+        // APPENDS the requested pages to whatever the object already holds, so
+        // calling it to record a hit grows the allocation every frame.
+        //
+        // Note the ordering consequence for a caller touching a whole priority
+        // list: `LRUPolicy::OnAccess` moves to the FRONT and the victim is the
+        // TAIL, so touching in priority order leaves the highest-priority entry
+        // nearest the tail. Touch in REVERSE priority order.
+        bool Touch(const ObjectID& obj)
+        {
+            return m_ObjectPages.Mutate(obj, [this](ObjectAllocation& stored)
+                                        { m_Policy->OnAccess(stored.m_PolicyHandle); });
+        }
+
         [[nodiscard]] bool Has(const ObjectID& obj) const
         {
             return m_ObjectPages.Contains(obj);

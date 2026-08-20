@@ -63,6 +63,7 @@ the drift is silent because each side is individually self-consistent.
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | four subsystems holding world-space state outside the set that gets rebased |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | the packed-quad bit layout, face numbering and U/V basis live in `VoxelQuad.h` **and** `include/VoxelQuadUnpack.glsl`; nothing links them and a mismatch compiles |
 | [destructible-debris.md](destructible-debris.md) | two unrelated physics "layer" numberings — `SetCollisionLayer(Debris /*7*/)` never reaches Jolt's `ObjectLayers::DEBRIS /*4*/`, so debris silently shoves the player |
+| [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | four uint packings (page key, feedback word, indirection texel, bake request) live in C++ **and** in four GLSL files; the bake↔shade UV mapping is an exact inverse spread across a compute kernel and an include. A wrong bit shifts the address, and a wrong address renders plausible, wrong content rather than an error |
 | `ShaderBindingLayout.h` ↔ `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is *derived* (`= MAX_ENGINE_TEXTURE_SLOTS`) but its GLSL twin `OLO_HEAP_IMAGE_BASE` is a hand-written literal — so **adding any `TEX_*` slot is also a shader edit**. #702 added one, the base moved 66→67, and every bindless storage image read a sampler descriptor through an image declaration (undefined, not blank). The comment there had claimed the two "cannot disagree". Now pinned by `BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout` |
 
 **The counter-move:** a parity test that reads both sides as text, or a generator that makes one
@@ -93,6 +94,10 @@ not instead of it) ·
 [steamworks-platform-integration.md](steamworks-platform-integration.md) (an SDK path set one level
 too high drops the whole feature — the build succeeds with Steam quietly switched off, and the error
 explaining the correct layout is the one thing that never fires) ·
+[configure-time-variable-visibility.md](configure-time-variable-visibility.md) (a DLL, from the test
+executable — a configure-time guard that could not tell "does not apply here" from "not computed
+yet", so the copy step was never generated and the exe died at gtest discovery with an error naming
+nothing about Steam) ·
 [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) (a texture, from the
 SECOND load onward — an empty reference in a cache is indistinguishable from a slot that was never
 set, so every step downstream handles it "correctly")
@@ -137,7 +142,10 @@ before the physics kick, camera last) ·
 previous-frame depth) ·
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) (clearing the LRU bit one step
 early evicts the whole cache every frame; §8 — a perspective light face cannot be culled by
-projecting AABB corners and dividing by w, and the caster vanishes only when it gets close) · [render-pass-published-state.md](render-pass-published-state.md) (publish
+projecting AABB corners and dividing by w, and the caster vanishes only when it gets close) ·
+[terrain-virtual-texturing.md](terrain-virtual-texturing.md) (§4 — LRU moves to the front and evicts
+from the tail, so touching a priority-ordered list front-to-back evicts the highest-priority page
+first; §3a — the coarse-to-fine fill must be one dispatch per level, barriers between) · [render-pass-published-state.md](render-pass-published-state.md) (publish
 last, restore deliberately) · [cluster-lod-simplification.md](cluster-lod-simplification.md) (a lock
 that must outlive the level that created it) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) (a read from a pooled
@@ -153,7 +161,10 @@ between two recorded draws is GL command order; a life-stable Vulkan address mak
 last-write-wins) · [gpu-scan-compaction.md](gpu-scan-compaction.md) (a `barrier()` only some
 invocations reach — the early-return habit in front of a work-group scan) ·
 [lazy-static-release-ownership.md](lazy-static-release-ownership.md) (a shared lazy static released
-from a *conditional* teardown — fine until a session creates it without running that teardown)
+from a *conditional* teardown — fine until a session creates it without running that teardown) ·
+[configure-time-variable-visibility.md](configure-time-variable-visibility.md) (a CMake variable read
+by a subdirectory processed *before* the line that sets it — correct on every configure but the
+first, which is the only one that matters)
 
 ## 6. It was never actually called
 
@@ -214,6 +225,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Build & deps** — [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) ·
 [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) ·
+[configure-time-variable-visibility.md](configure-time-variable-visibility.md) ·
 [vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·
 [asset-import-usd-alembic.md](asset-import-usd-alembic.md)
 
@@ -231,6 +243,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) ·
 [cluster-lod-simplification.md](cluster-lod-simplification.md) ·
 [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md) ·
+[terrain-virtual-texturing.md](terrain-virtual-texturing.md) ·
 [camera-relative-rendering.md](camera-relative-rendering.md) ·
 [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) ·
 [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) ·

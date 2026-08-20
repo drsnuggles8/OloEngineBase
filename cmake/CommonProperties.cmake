@@ -178,8 +178,25 @@ endfunction()
 #
 # Same directory-scope rule as olo_copy_ffmpeg_runtime above: add_custom_command(TARGET ...) must
 # run in the directory that created the target, so call this next to each add_executable.
+#
+# The DEFINED check used to be part of the `if` condition, so an unset variable meant this
+# function quietly staged nothing — issue #828: OLO_STEAM_RUNTIME_DLL was resolved BELOW
+# add_subdirectory(tests), so on a fresh configure OloEngine-Tests silently shipped without the
+# DLL and died hours later at gtest discovery with 0xC0000135, an error naming nothing about
+# Steam. It is now a FATAL_ERROR: if Steam is on with the real SDK, there is no legitimate way to
+# reach here without the path, and a configure-time sentence naming Steam beats an opaque runtime
+# status code. Safe in CI, which is Steam-OFF (or stub) and never enters this branch at all.
 function(olo_copy_steam_runtime target_name)
-    if(OLO_WITH_STEAM AND NOT OLO_WITH_STEAM_STUB_SDK AND DEFINED OLO_STEAM_RUNTIME_DLL)
+    if(OLO_WITH_STEAM AND NOT OLO_WITH_STEAM_STUB_SDK)
+        if(NOT OLO_STEAM_RUNTIME_DLL)
+            message(FATAL_ERROR
+                "olo_copy_steam_runtime(${target_name}): OLO_WITH_STEAM is ON with the real SDK, "
+                "but OLO_STEAM_RUNTIME_DLL is not set, so steam_api64.dll would not be staged "
+                "next to ${target_name} and the executable would fail to start with 0xC0000135 "
+                "(STATUS_DLL_NOT_FOUND). This is an ordering bug: cmake/Steamworks.cmake resolves "
+                "that variable and MUST be included from the root CMakeLists before the "
+                "add_subdirectory() that created ${target_name}. See issue #828.")
+        endif()
         add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${OLO_STEAM_RUNTIME_DLL}" "$<TARGET_FILE_DIR:${target_name}>"

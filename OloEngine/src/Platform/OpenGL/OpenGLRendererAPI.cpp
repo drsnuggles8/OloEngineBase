@@ -3,6 +3,7 @@
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "Platform/OpenGL/OpenGLRHIConversions.h"
+#include "Platform/OpenGL/OpenGLTextureCubemap.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -58,6 +59,21 @@ namespace OloEngine
         }
         RHI::DescriptorHeap::Get().Shutdown();
         m_DescriptorHeapBackend.Shutdown();
+        // The cubemap face-upload staging PBO: a lazily created GL buffer that
+        // glNamedBufferData grows to the largest face the session ever uploaded (tens of
+        // MB for a 2048² HDR skybox) and that nothing ever deleted (#839). GL-only, so
+        // the Vulkan teardown forensics that found the rest of that leak class could not
+        // see it, and GL has no allocator-teardown assertion to complain.
+        //
+        // Released HERE rather than from Renderer::Shutdown() for a boundary reason:
+        // OpenGLTextureCubemap.h includes <glad/gl.h>, so calling it from Renderer.cpp
+        // would drag the GL loader into an engine-core translation unit and undo the
+        // `sweep_glad_includes == 0` property RHIBoundaryRatchetTest pins. This entry
+        // point is already the GL-only teardown that always runs — Renderer::Shutdown()
+        // reaches it through RenderCommand::ShutdownGpuResources(), which the Vulkan path
+        // inherits as the empty RendererAPI base default — and it runs while the context
+        // is still current, which is exactly the deadline a GL delete has.
+        OpenGLTextureCubemap::ShutdownSharedResources();
         m_GpuResourcesReleased = true;
     }
 

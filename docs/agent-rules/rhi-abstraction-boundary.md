@@ -2171,8 +2171,45 @@ including its font atlas.
 Also note the separate axis: `OLO_WITH_VULKAN` (build-time, "is the backend
 compiled in") is **not** the selection mechanism. Both backends ship in one
 binary so a machine below Vulkan's hardware floor (ADR 0010: Intel ANV is still
-experimental) can fall back at runtime. `OLO_WITH_VULKAN=OFF` exists for
-`OloServer`/WSL2 and lean CI, where no Vulkan SDK is present.
+experimental) can fall back at runtime.
+
+`OLO_WITH_VULKAN=OFF` does **not** mean "no Vulkan SDK". That claim was wrong
+from the start and #811 removed it here and from ADR 0011: OFF drops the volk /
+vulkan-headers / VulkanMemoryAllocator ports and compiles every
+`Platform/Vulkan` TU to an empty object, but `find_package(Vulkan REQUIRED ...)`
+in `OloEngine/CMakeLists.txt` is deliberately **ungated** — the SDK is also
+where the *shader* toolchain lives (shaderc, glslang, SPIRV-Tools,
+SPIRV-Cross), which every build needs regardless of backend. The valve is about
+link weight and port count.
+
+It is also **whole-tree**, not per-target: `OloServer` is configured from the
+same tree as the editor and the runtime, so "OFF for the server" is not a thing
+a single configure can express. #811 decided explicitly that a lean, SDK-free
+server build is **not** a goal — the server is backend-less anyway (ADR 0011
+amendment (86)) and its deployment image (ubuntu + libstdc++6, no libGL, no
+libvulkan) needs no GPU stack — so the capability was deleted from the docs
+rather than built.
+
+**If you touch a `#if OLO_WITH_VULKAN` guard, the OFF path has a CI job now:**
+`.github/workflows/vulkan-off.yml` configures and builds the GL-only
+configuration on Linux and asserts the seven Vulkan suites SKIP while
+`BackendSelection`'s `#else` arms pass. It runs on every PR that touches the
+paths where OFF-only breakage can live — the option plumbing (the root /
+`OloEngine/` / `OloEngine/vendor/` `CMakeLists.txt`, `cmake/`,
+`CMakePresets.json`, `vcpkg.json`), `Platform/Vulkan/`, `Renderer/RHI/`, the
+Vulkan tests, and the two ON/OFF *contract* files (`ShaderBindingLayout.h` and
+`VirtualShadowMapLocalTest.cpp`) — and unfiltered on master and weekly. Before
+#811 nothing set the option anywhere in CI, and the guards had gone
+uncompiled — and the SKIP branches unexecuted — for the whole epic.
+
+**The filter is a heuristic, and here is its known hole:** it names two contract
+files because those are the ones that broke, but *any* GL-only TU that acquires
+an include of a `Platform/Vulkan` header inherits the same failure and would
+slip past on the PR that introduced it (master/weekly still catch it, one merge
+later). If that recurs, the right answer is not a longer path list but a cheap
+grep job in the shape of `steam-stub.yml`'s `single-valve-tu` — assert that no
+TU outside `Platform/Vulkan/` and the Vulkan tests includes a
+`Platform/Vulkan/` header — which runs on every PR in seconds.
 
 ---
 

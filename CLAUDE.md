@@ -76,6 +76,7 @@ you are in.
 - [build-trees-and-windows-asan.md](docs/agent-rules/build-trees-and-windows-asan.md) — never build the msvc and clangcl trees concurrently; plus per-user `mspdbsrv` stalls, the codegen build-graph wiring, the local ASan recipe, and (§5e) why both memory job pools vanish on Linux CI so a bare `--parallel` is a runaway there and nowhere else.
 - [static-archive-4gib-ceiling.md](docs/agent-rules/static-archive-4gib-ceiling.md) — a .lib cannot exceed 4 GiB, `LNK1248` under-reports the overshoot, and no CI job had ever built a `/GL` object.
 - [vcpkg-dependency-management.md](docs/agent-rules/vcpkg-dependency-management.md) — read before adding, bumping or removing a dep: the CRT triplet mismatch is heap corruption, and three of the five traps are silent.
+- [configure-time-variable-visibility.md](docs/agent-rules/configure-time-variable-visibility.md) — a CMake variable resolved *below* the `add_subdirectory()` that consumes it, behind a guard that reads "unset" as "nothing to do": correct on every configure but the first.
 - [asset-import-usd-alembic.md](docs/agent-rules/asset-import-usd-alembic.md) — the importer/exporter registry seam, and vendoring OpenUSD / Alembic / MaterialX into a static-everything build.
 
 **Renderer**
@@ -94,6 +95,7 @@ you are in.
 - [virtual-shadow-map-page-cache.md](docs/agent-rules/virtual-shadow-map-page-cache.md) — four page-cache invariants; break one and the frame still renders, wrong, as a different bug. §5 is general: a render-graph `Setup()` that branches on a runtime toggle is frozen by the frame-graph fingerprint cache. §8 covers the local-light (point/spot) domain, where a perspective face cannot be culled the way an ortho clip level can.
 - [cluster-lod-simplification.md](docs/agent-rules/cluster-lod-simplification.md) — a terminal group's boundary lock must outlive the level that created it; plus how to A/B a builder change the editor never runs.
 - [terrain-gpu-lod-quadtree.md](docs/agent-rules/terrain-gpu-lod-quadtree.md) — the GPU terrain descent: crack-freedom is a vertex-set property, and a gating flag no scene sets is a feature with zero coverage.
+- [terrain-virtual-texturing.md](docs/agent-rules/terrain-virtual-texturing.md) — the terrain VT loop: every defect is a wrong address, the coarse-mip fallback has three parts, and LRU must be touched in reverse priority order.
 - [binary-greedy-voxel-meshing.md](docs/agent-rules/binary-greedy-voxel-meshing.md) — the cubic voxel mesher: a packed-quad encoding mirrored in GLSL, and six ways a merged quad renders plausibly and wrong.
 - [camera-relative-rendering.md](docs/agent-rules/camera-relative-rendering.md) — every world-space GPU upload is a site; large-coordinate f32 cancellation shows up as vertex jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](docs/agent-rules/distance-impostor-reflection-probes.md) — one encoding contract mirrored in three places, and the miss-sentinel that shades from stale sky.

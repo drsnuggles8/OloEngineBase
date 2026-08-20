@@ -228,6 +228,18 @@ namespace OloEngine
             return (std::isfinite(value) && value > 0.0f) ? value : TerrainLODConfig{}.TargetTriangleSize;
         }
 
+        // How sharply the terrain's triplanar projection falls off, shared by the
+        // two paths that must agree about it: the virtual-texture bake input (the
+        // terrain UPDATE loop) and TerrainParams.w for the splat blend (the
+        // terrain RENDER loop).
+        //
+        // At namespace scope because those are different loops — a constant
+        // declared in either block is out of scope at the other site. And shared
+        // at all because a tile baked planar and shaded as if triplanar shows a
+        // hard band exactly where the two thresholds disagree, which is a
+        // "the terrain looks odd on slopes" bug rather than an obvious one.
+        constexpr f32 kTerrainTriplanarSharpness = 8.0f;
+
         [[nodiscard]] TerrainLocalCullInputs MakeTerrainLocalCullInputs(const glm::mat4& worldTransform,
                                                                         const glm::vec3& cameraWorldPos,
                                                                         const glm::mat4& worldViewProjection)
@@ -6342,6 +6354,14 @@ namespace OloEngine
         return *s_DefaultMaterial;
     }
 
+    void Scene::ReleaseSharedRenderDefaults()
+    {
+        // Idempotent; GetDefaultMaterial() rebuilds on next use. Nothing keeps a
+        // Material* across frames — every consumer takes the reference and submits
+        // within the same call — so dropping it here cannot dangle.
+        s_DefaultMaterial.Reset();
+    }
+
     void Scene::LoadAndRenderSkybox()
     {
         OLO_PROFILE_FUNCTION();
@@ -7820,6 +7840,13 @@ namespace OloEngine
                         terrain.m_Material->BuildTextureArrays();
                         terrain.m_Material->LoadSplatmaps();
                         terrain.m_MaterialNeedsRebuild = false;
+                        // Every resident VT tile was composited from the OLD layer
+                        // arrays. Nothing about a rebuilt material tells the cache
+                        // its contents are stale, so the cache has to be told.
+                        if (terrain.m_VirtualTexture)
+                        {
+                            terrain.m_VirtualTexture->Invalidate();
+                        }
                     }
 
                     // Auto-material: derive the splatmap from height/slope rules so
@@ -7836,6 +7863,82 @@ namespace OloEngine
                             terrain.m_SplatmapGenResolution,
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         terrain.m_AutoSplatNeedsRebuild = false;
+                        // Same reason as the material rebuild above: the splatmap is
+                        // an INPUT to every baked tile.
+                        if (terrain.m_VirtualTexture)
+                        {
+                            terrain.m_VirtualTexture->Invalidate();
+                        }
+                    }
+
+                    // ── Adaptive virtual texturing (issue #715, slice 1) ──
+                    //
+                    // Runs HERE, in the update pass, rather than as a render-graph
+                    // pass: its Update() branches on a runtime toggle, and a
+                    // render-graph Setup() that does the same is frozen in by the
+                    // frame-graph fingerprint cache — enabling VT after the first
+                    // frame would then silently do nothing (see
+                    // docs/agent-rules/virtual-shadow-map-page-cache.md §5). Same
+                    // reasoning, and the same call site, as the GPU quadtree
+                    // descent just below.
+                    //
+                    // Single-tile terrain only for slice 1: a streamed terrain's
+                    // tiles each carry their own material and their own [0,1] UV
+                    // space, so one uniform virtual image cannot address them.
+                    if (terrain.m_VirtualTextureEnabled && !terrain.m_StreamingEnabled)
+                    {
+                        if (!terrain.m_VirtualTexture)
+                        {
+                            terrain.m_VirtualTexture = Ref<TerrainVirtualTexture>::Create();
+                        }
+
+                        TerrainVirtualTextureConfig vtConfig;
+                        vtConfig.VirtualPagesWide = terrain.m_VTVirtualPagesWide;
+                        vtConfig.PageTexels = terrain.m_VTPageTexels;
+                        vtConfig.BorderTexels = terrain.m_VTBorderTexels;
+                        vtConfig.CacheTilesWide = terrain.m_VTCacheTilesWide;
+                        vtConfig.MaxTileBakesPerFrame = terrain.m_VTMaxTileBakesPerFrame;
+
+                        (void)terrain.m_VirtualTexture->Configure(vtConfig);
+
+                        // Update() is called UNCONDITIONALLY, even when the inputs
+                        // below are missing, and that is the point: it is the only
+                        // thing that clears IsReadyForShading(). A frame that
+                        // skipped it — a procedural Regenerate() drops
+                        // m_TerrainData, so the heightmap handle is invalid for a
+                        // tick or two — would leave last frame's `ready` standing,
+                        // and the submit path would keep shading from tiles baked
+                        // against the height field that was just discarded. It also
+                        // owns clearing the feedback buffer, which must happen every
+                        // frame whether or not anything was baked.
+                        const auto& vtTransform = terrainView.get<TransformComponent>(entity);
+                        TerrainVirtualTexture::FrameInputs vtInputs;
+                        vtInputs.m_ViewportWidth = m_ViewportWidth;
+                        vtInputs.m_ViewportHeight = m_ViewportHeight;
+                        // ABSOLUTE, not render-relative: the bake's triplanar
+                        // projection is world-anchored, and the bake is not a
+                        // camera-relative draw (issue #429). The fragment path
+                        // reaches the same absolute position by adding
+                        // u_RenderOrigin back inside triplanarSample*.
+                        vtInputs.m_Model = vtTransform.GetTransform();
+                        vtInputs.m_Material = terrain.m_Material.get();
+                        if (terrain.m_TerrainData && terrain.m_TerrainData->GetGPUHeightmap())
+                        {
+                            vtInputs.m_Heightmap = terrain.m_TerrainData->GetGPUHeightmap()->GetRHIHandle();
+                            vtInputs.m_HeightmapResolution = terrain.m_TerrainData->GetResolution();
+                        }
+                        vtInputs.m_WorldSizeX = terrain.m_WorldSizeX;
+                        vtInputs.m_WorldSizeZ = terrain.m_WorldSizeZ;
+                        vtInputs.m_HeightScale = terrain.m_HeightScale;
+                        vtInputs.m_TriplanarSharpness = kTerrainTriplanarSharpness;
+                        (void)terrain.m_VirtualTexture->Update(vtInputs);
+                    }
+                    else if (terrain.m_VirtualTexture)
+                    {
+                        // Toggled off (or the terrain became streamed): give the
+                        // ~38 MB back rather than keeping a cache nothing samples.
+                        terrain.m_VirtualTexture->Destroy();
+                        terrain.m_VirtualTexture = nullptr;
                     }
 
                     // Run quadtree LOD selection each frame if tessellation is enabled.
@@ -8124,7 +8227,7 @@ namespace OloEngine
 
                             const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
                             u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
-                            f32 triplanarSharpness = 8.0f;
+                            f32 triplanarSharpness = kTerrainTriplanarSharpness;
                             terrainUBOData.TerrainParams = glm::vec4(
                                 1.0f / static_cast<f32>(res),
                                 1.0f / static_cast<f32>(res),
@@ -8144,6 +8247,24 @@ namespace OloEngine
                                     terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
                                     terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
                                 }
+                            }
+
+                            // Virtual texturing (issue #715). PER TERRAIN, not per
+                            // tile: slice 1's virtual image covers one terrain's UV
+                            // space, and a streamed terrain's tiles each have their
+                            // own material and their own [0,1] UVs — so the streaming
+                            // path never gets a ready VT and keeps the splat blend.
+                            // IsReadyForShading() is the gate that keeps the shader's
+                            // VT branch off until the coarsest page is resident;
+                            // without it the first frames sample a zeroed cache.
+                            TerrainVTBindings vtBindings{};
+                            if (terrain.m_VirtualTexture && terrain.m_VirtualTexture->IsReadyForShading())
+                            {
+                                terrain.m_VirtualTexture->FillShaderParams(
+                                    terrainUBOData.VTParams0, terrainUBOData.VTParams1, terrainUBOData.VTParams2);
+                                vtBindings.indirectionTextureID = terrain.m_VirtualTexture->GetIndirectionHandle();
+                                vtBindings.cacheTextureID = terrain.m_VirtualTexture->GetCacheHandle();
+                                vtBindings.feedbackBufferID = terrain.m_VirtualTexture->GetFeedbackBufferHandle();
                             }
 
                             // GPU-driven LOD (issue #714). One instanced indirect
@@ -8192,7 +8313,8 @@ namespace OloEngine
                                     tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
                                     tileModel, gpuUBO, entityID,
                                     gpuQuadtree->GetDrawArgsHandle(),
-                                    gpuQuadtree->GetVisibleNodesHandle());
+                                    gpuQuadtree->GetVisibleNodesHandle(),
+                                    vtBindings);
                                 if (packet)
                                     Renderer3D::SubmitPacket(packet);
 
@@ -8240,7 +8362,7 @@ namespace OloEngine
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        tileModel, terrainUBOData, entityID);
+                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
 
@@ -8272,7 +8394,7 @@ namespace OloEngine
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        tileModel, terrainUBOData, entityID);
+                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
 

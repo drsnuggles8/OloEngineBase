@@ -83,6 +83,15 @@ namespace OloEngine
         static Ref<Scene> Create();
         static Ref<Scene> Copy(Ref<Scene>& other);
 
+        // Release the process-wide render defaults Scene.cpp caches lazily (currently
+        // the fallback PBR material every un-materialed submesh draws with). Not
+        // per-scene state, so ~Scene() is the wrong place; called from
+        // ~Application after Project::Unload() and before Renderer::Shutdown(), i.e.
+        // the narrowest teardown that is unconditional for every session that can
+        // create them and still has a live graphics context (#839).
+        // See docs/agent-rules/lazy-static-release-ownership.md.
+        static void ReleaseSharedRenderDefaults();
+
         [[nodiscard("Store this!")]] Entity CreateEntity(const std::string& name = std::string());
         [[nodiscard("Store this!")]] Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
         void DestroyEntity(Entity entity);

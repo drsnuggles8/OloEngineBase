@@ -76,6 +76,68 @@ namespace OloEngine
 
         TUniqueLock<FMutex> lock(m_Mutex);
 
+        // Anything still tracked here outlived the renderer, which is the entire
+        // lazy-static-release bug class (#814, #839). This used to clear() the map
+        // without looking at it — so the ONE instrument that is backend-independent, and
+        // that already knew every survivor's type, size, name and creation site, threw
+        // that away at exactly the moment it had the answer. That is why "GL is quiet"
+        // read as "GL is clean" for the whole life of the backend while Vulkan aborted at
+        // vmaDestroyAllocator over the same objects.
+        //
+        // Reported at ERROR because it always indicates a real defect: by the time
+        // Renderer::Shutdown() reaches here the layers are detached and Project::Unload()
+        // has dropped every loaded asset, so a live GPU allocation has no legitimate
+        // owner left. Its limit, stated so nobody over-trusts it: TrackAllocation() is
+        // called from the OpenGL resource classes only, so on Vulkan this is silent and
+        // the #794 teardown forensics remain the instrument there.
+        // See docs/agent-rules/lazy-static-release-ownership.md.
+        {
+            // Deliberately terse: ONE error line with the totals and a per-type breakdown,
+            // then a handful of examples at warning level. The first run of this reporter
+            // found 115 survivors on OpenGL, and a two-dozen-line dump on every editor exit
+            // — and at the end of every test run, since OloEngineTest calls
+            // Renderer::Shutdown() — is noise nobody reads. The count and the type tell you
+            // whether to care; the examples tell you where to start looking.
+            constexpr u32 kMaxSurvivorExamples = 6;
+            sizet gpuBytes = 0;
+            u32 gpuCount = 0;
+            std::array<u32, static_cast<sizet>(std::to_underlying(ResourceType::COUNT))> byType{};
+            for (const auto& [address, info] : m_Allocations)
+            {
+                if (!info.m_IsGPU)
+                    continue;
+                ++gpuCount;
+                gpuBytes += info.m_Size;
+                ++byType[static_cast<sizet>(std::to_underlying(info.m_Type))];
+            }
+            if (gpuCount > 0)
+            {
+                std::string breakdown;
+                for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ResourceType::COUNT)); ++i)
+                {
+                    if (byType[i] == 0)
+                        continue;
+                    if (!breakdown.empty())
+                        breakdown += ", ";
+                    breakdown += std::to_string(byType[i]) + " " + GetResourceTypeName(static_cast<ResourceType>(i));
+                }
+                OLO_CORE_ERROR("[Teardown] {} GPU allocation(s) ({} bytes) survived the renderer — {}. Each is a "
+                               "process static, or a Ref that outlived Renderer::Shutdown(). See "
+                               "docs/agent-rules/lazy-static-release-ownership.md",
+                               gpuCount, gpuBytes, breakdown);
+                u32 listed = 0;
+                for (const auto& [address, info] : m_Allocations)
+                {
+                    if (!info.m_IsGPU || listed == kMaxSurvivorExamples)
+                        continue;
+                    ++listed;
+                    OLO_CORE_WARN("[Teardown]   e.g. {} '{}' ({} bytes) created at {}:{}",
+                                  GetResourceTypeName(info.m_Type), info.m_Name, info.m_Size,
+                                  info.m_File, info.m_Line);
+                }
+            }
+        }
+
         m_Allocations.clear();
         m_TypeUsage.fill(0);
         m_TypeCounts.fill(0);
