@@ -7254,10 +7254,20 @@ namespace OloEngine
                     entry.Score = ShadowAtlas::ComputeScore(
                         candidate.Position, candidate.Range, candidate.Intensity,
                         cameraPosition, cameraFrustum);
+                    // Stable per-light identity (issue #718): lets the
+                    // persistent allocator recognise this caster across
+                    // frames and keep its existing tile instead of a fresh
+                    // repack. 0 (unknown UUID) just means "always reallocate".
+                    entry.UserData = candidate.LightEntity;
                     scored.push_back(entry);
                 }
 
-                const auto allocation = ShadowAtlas::Allocate(scored, shadowMap.GetAtlasResolution());
+                // Persistent allocation (issue #718): a caster that keeps
+                // ranking into the accepted set keeps its EXISTING tile
+                // across frames instead of the whole atlas being repacked
+                // from nothing every call — see ShadowMap::AllocateAtlasTiles
+                // / ShadowAtlas::PersistentAllocator.
+                const auto allocation = shadowMap.AllocateAtlasTiles(scored);
 
                 // Diagnostics record of the FULL candidate list — winners and
                 // starved losers alike (issue #607, olo_shadow_atlas_layout).

@@ -15,6 +15,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <random>
 #include <set>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
@@ -339,4 +340,171 @@ TEST(ShadowAtlasPacking, EmptyAndDegenerateInputs)
     std::vector<ShadowAtlas::Candidate> one = { MakeCandidate(ShadowAtlas::CasterType::Spot, 1.0f) };
     const auto zeroAtlas = ShadowAtlas::Allocate(one, 0);
     EXPECT_TRUE(zeroAtlas.Accepted.empty());
+}
+
+// =============================================================================
+// PersistentAllocator (issue #718) — the stateful sibling backed by the
+// shared OloEngine::AtlasAllocator. Same ranking/tiering/skip-whole-caster
+// rules as the free function above; what's new here is cross-call behaviour.
+// =============================================================================
+
+namespace
+{
+    ShadowAtlas::Candidate MakeIdentifiedCandidate(ShadowAtlas::CasterType type, f32 score, u64 userData)
+    {
+        ShadowAtlas::Candidate c = MakeCandidate(type, score);
+        c.UserData = userData;
+        return c;
+    }
+} // namespace
+
+TEST(ShadowAtlasPersistentAllocator, ReusesTheSameTileAcrossCallsForTheSameIdentity)
+{
+    ShadowAtlas::PersistentAllocator allocator(1024);
+    std::vector<ShadowAtlas::Candidate> candidates = {
+        MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 42),
+    };
+
+    const auto first = allocator.Allocate(candidates);
+    ASSERT_EQ(first.Accepted.size(), 1u);
+    const auto firstRect = first.EntryRects[first.Accepted[0].BaseEntry];
+
+    // Same candidate, same score, called again — must land on the SAME tile
+    // rather than a freshly repacked one.
+    const auto second = allocator.Allocate(candidates);
+    ASSERT_EQ(second.Accepted.size(), 1u);
+    const auto secondRect = second.EntryRects[second.Accepted[0].BaseEntry];
+
+    EXPECT_EQ(firstRect.X, secondRect.X);
+    EXPECT_EQ(firstRect.Y, secondRect.Y);
+    EXPECT_EQ(firstRect.Size, secondRect.Size);
+}
+
+TEST(ShadowAtlasPersistentAllocator, RankShiftAcrossATierBoundaryReallocatesAtTheNewSize)
+{
+    ShadowAtlas::PersistentAllocator allocator(4096);
+
+    // Alone, this candidate ranks 0 (large tier, 1024px).
+    const auto solo = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
+        MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 7) });
+    ASSERT_EQ(solo.Accepted.size(), 1u);
+    EXPECT_EQ(solo.EntryRects[0].Size, 1024u);
+
+    // Six brighter newcomers push it to rank 6 (small tier, 256px) — the
+    // reuse check (identity match, size mismatch) must free the old tile and
+    // reallocate rather than keep serving a stale 1024px rect.
+    std::vector<ShadowAtlas::Candidate> crowded;
+    for (int i = 0; i < 6; ++i)
+        crowded.push_back(MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 20.0f - static_cast<f32>(i), 100u + i));
+    crowded.push_back(MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 7));
+
+    const auto result = allocator.Allocate(crowded);
+    ASSERT_EQ(result.Accepted.size(), 7u);
+    const auto& last = result.Accepted.back();
+    EXPECT_EQ(last.CandidateIndex, 6u); // candidate 7 (UserData=7) is last by score
+    EXPECT_EQ(result.EntryRects[last.BaseEntry].Size, 256u);
+}
+
+TEST(ShadowAtlasPersistentAllocator, DroppedCandidateTileIsReclaimedNotLeaked)
+{
+    // A tiny 64px atlas: a lone (rank-0) spot always lands in the "large"
+    // tier == atlas/4 == 16px, so the atlas holds at most 16 of them
+    // concurrently (4096px^2 / 256px^2). Churning through 40 single-candidate
+    // calls, each a brand-new identity that is NEVER reused, only succeeds
+    // throughout if every previous call's tile was actually freed rather than
+    // silently leaked.
+    ShadowAtlas::PersistentAllocator allocator(64);
+
+    for (u64 id = 1; id <= 40; ++id)
+    {
+        const auto result = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
+            MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, id) });
+        ASSERT_EQ(result.Accepted.size(), 1u) << "candidate " << id << " starved — a prior tile was leaked, not reclaimed";
+        EXPECT_EQ(result.EntryRects[0].Size, 16u);
+    }
+}
+
+TEST(ShadowAtlasPersistentAllocator, PreservesSkipWholeCasterAcrossCalls)
+{
+    ShadowAtlas::PersistentAllocator allocator(4096);
+
+    std::vector<ShadowAtlas::Candidate> candidates = {
+        MakeIdentifiedCandidate(ShadowAtlas::CasterType::Point, 2.0f, 1),
+        MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 1.0f, 2),
+    };
+
+    const auto result = allocator.Allocate(candidates);
+    ASSERT_EQ(result.Accepted.size(), 2u);
+    EXPECT_EQ(result.Accepted[0].EntryCount, 6u); // point light: 6 contiguous entries, never partial
+    EXPECT_EQ(result.Accepted[1].EntryCount, 1u);
+
+    // Same candidates again: the point caster must keep its whole cube (never
+    // a partial one) AND land on the exact same 6 tiles via reuse.
+    const auto second = allocator.Allocate(candidates);
+    ASSERT_EQ(second.Accepted.size(), 2u);
+    EXPECT_EQ(second.Accepted[0].EntryCount, 6u);
+    EXPECT_EQ(second.Accepted[1].EntryCount, 1u);
+    for (u32 face = 0; face < 6; ++face)
+    {
+        EXPECT_EQ(result.EntryRects[result.Accepted[0].BaseEntry + face].X,
+                  second.EntryRects[second.Accepted[0].BaseEntry + face].X);
+        EXPECT_EQ(result.EntryRects[result.Accepted[0].BaseEntry + face].Y,
+                  second.EntryRects[second.Accepted[0].BaseEntry + face].Y);
+    }
+}
+
+TEST(ShadowAtlasPersistentAllocator, TilesNeverOverlapAcrossRepeatedChangingCalls)
+{
+    ShadowAtlas::PersistentAllocator allocator(2048);
+    std::mt19937 rng(0x51DEu);
+    std::uniform_real_distribution<float> scoreDist(0.1f, 10.0f);
+
+    for (int call = 0; call < 20; ++call)
+    {
+        std::vector<ShadowAtlas::Candidate> candidates;
+        for (int i = 0; i < 10; ++i)
+        {
+            // Half carry a stable identity (eligible for reuse), half don't —
+            // exercises both paths every call.
+            const u64 userData = (i % 2 == 0) ? static_cast<u64>(1000 + i) : 0u;
+            const auto type = (i % 3 == 0) ? ShadowAtlas::CasterType::Point : ShadowAtlas::CasterType::Spot;
+            candidates.push_back(MakeIdentifiedCandidate(type, scoreDist(rng), userData));
+        }
+
+        const auto result = allocator.Allocate(candidates);
+        for (sizet a = 0; a < result.EntryRects.size(); ++a)
+        {
+            const auto& rect = result.EntryRects[a];
+            EXPECT_LE(rect.X + rect.Size, 2048u);
+            EXPECT_LE(rect.Y + rect.Size, 2048u);
+            for (sizet b = a + 1; b < result.EntryRects.size(); ++b)
+                EXPECT_FALSE(RectsOverlap(rect, result.EntryRects[b]))
+                    << "call " << call << ": entries " << a << " and " << b << " overlap";
+        }
+    }
+}
+
+TEST(ShadowAtlasPersistentAllocator, ChangingAtlasResolutionResetsHeldTiles)
+{
+    ShadowAtlas::PersistentAllocator allocator(1024);
+    const auto before = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
+        MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 1) });
+    ASSERT_EQ(before.Accepted.size(), 1u);
+    EXPECT_EQ(before.EntryRects[0].Size, 256u); // 1024/4
+
+    allocator.SetAtlasResolution(2048);
+    EXPECT_EQ(allocator.GetAtlasResolution(), 2048u);
+
+    const auto after = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
+        MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 1) });
+    ASSERT_EQ(after.Accepted.size(), 1u);
+    EXPECT_EQ(after.EntryRects[0].Size, 512u); // 2048/4 — retiered at the new resolution
+
+    // A no-op resize (same value) must not disturb what is already held.
+    allocator.SetAtlasResolution(2048);
+    const auto unchanged = allocator.Allocate(std::vector<ShadowAtlas::Candidate>{
+        MakeIdentifiedCandidate(ShadowAtlas::CasterType::Spot, 5.0f, 1) });
+    ASSERT_EQ(unchanged.Accepted.size(), 1u);
+    EXPECT_EQ(unchanged.EntryRects[0].X, after.EntryRects[0].X);
+    EXPECT_EQ(unchanged.EntryRects[0].Y, after.EntryRects[0].Y);
 }

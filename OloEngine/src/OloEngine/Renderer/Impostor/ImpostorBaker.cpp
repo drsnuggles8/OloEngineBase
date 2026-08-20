@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Renderer/Impostor/OctahedralImpostor.h"
 
+#include "OloEngine/Memory/AlignmentTemplates.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
@@ -54,6 +55,33 @@ namespace OloEngine
             return s_White;
         }
 
+        // Shared VRAM budget for impostor bakes (issue #718). NOT a spatial
+        // atlas -- Albedo/NormalDepth stay dedicated per-bake textures (a
+        // shared physical atlas would need every runtime card sample in
+        // Foliage_Impostor.glsl to carry a UV scale/offset, which is exactly
+        // the kind of layout change docs/agent-rules/foliage-impostor-card-
+        // rendering.md flags as a repeat offender for "impostors silently go
+        // missing"; deferred rather than risked in this retrofit). This is
+        // the accounting ceiling instead: every bake must reserve a
+        // power-of-two region here before it is allowed to allocate GPU
+        // textures, so N foliage layers can no longer demand N unbounded
+        // full-resolution atlases with nothing to stop them.
+        constexpr u32 kBudgetAtlasSize = 8192;
+        constexpr u32 kBudgetMinTile = 32;
+
+        // Single-threaded by design, same as every other renderer-owned static
+        // here (s_WhiteFallback above, the GL context itself): Bake()/Free()/
+        // Shutdown() all touch GPU state and are already only ever called from
+        // the thread that owns the render context. AtlasAllocator itself has
+        // no internal synchronization, so that assumption is load-bearing —
+        // it must stay true for every future caller, not just the current
+        // ones (FoliageRenderer's ctor/dtor and UpdateImpostorAtlas).
+        AtlasAllocator& GetBudgetAllocator()
+        {
+            static AtlasAllocator s_Budget(kBudgetAtlasSize, kBudgetMinTile);
+            return s_Budget;
+        }
+
         Ref<Texture2D> CreateAtlasTexture(u32 size)
         {
             TextureSpecification spec;
@@ -69,6 +97,32 @@ namespace OloEngine
     void ImpostorBaker::Shutdown()
     {
         s_WhiteFallback.Reset();
+
+        // Deliberately NOT GetBudgetAllocator().Reset(): unlike s_WhiteFallback
+        // (a Ref<Texture2D> — any ImpostorAtlas that still points at the old
+        // texture keeps it alive safely via refcounting, no aliasing possible),
+        // the budget allocator hands out plain node INDICES. Resetting it would
+        // make every node allocatable again while live ImpostorAtlas instances
+        // (e.g. a FoliageRenderer this Shutdown() didn't tear down) still carry
+        // their old BudgetNode values — a later Bake() could then hand out the
+        // same index to a new atlas, and the OLD atlas's eventual Free() would
+        // silently release the NEW atlas's claim instead of its own. The
+        // documented contract is already "call Free() before letting an
+        // ImpostorAtlas go" (issue #718) — asserting it held is louder and
+        // safer than quietly reassigning still-live claims.
+        OLO_CORE_ASSERT(GetBudgetAllocator().LiveAllocationCount() == 0,
+                        "ImpostorBaker::Shutdown: {} impostor VRAM budget claim(s) still live — "
+                        "every ImpostorAtlas must be freed via ImpostorBaker::Free before shutdown",
+                        GetBudgetAllocator().LiveAllocationCount());
+    }
+
+    void ImpostorBaker::Free(ImpostorAtlas& atlas)
+    {
+        if (atlas.BudgetNode != AtlasAllocator::kInvalidNode)
+        {
+            GetBudgetAllocator().Free(atlas.BudgetNode);
+            atlas.BudgetNode = AtlasAllocator::kInvalidNode;
+        }
     }
 
     ImpostorAtlas ImpostorBaker::Bake(
@@ -101,6 +155,24 @@ namespace OloEngine
             OLO_CORE_ERROR("ImpostorBaker::Bake: Impostor_Bake shader not available");
             return atlas;
         }
+
+        // Reserve this bake's footprint against the shared VRAM budget (issue
+        // #718) before creating any GPU resources — as late as possible, so a
+        // failure past this point (none currently exist, but future ones
+        // would) can free it via ImpostorBaker::Free rather than leaking it.
+        // Rounds up to the allocator's power-of-two granularity; the actual
+        // textures stay exactly atlasSize (never rounded up), so this can
+        // over-reserve slightly but never under-reserves.
+        const u32 budgetSize = std::min(RoundUpToPowerOfTwo(std::max(atlasSize, kBudgetMinTile)), kBudgetAtlasSize);
+        const u32 budgetNode = GetBudgetAllocator().Allocate(budgetSize);
+        if (budgetNode == AtlasAllocator::kInvalidNode)
+        {
+            OLO_CORE_WARN("ImpostorBaker::Bake: shared impostor VRAM budget exhausted "
+                          "(wanted {}x{}, {:.0f}% already committed) — skipping this bake",
+                          atlasSize, atlasSize, GetBudgetAllocator().Occupancy() * 100.0f);
+            return atlas;
+        }
+        atlas.BudgetNode = budgetNode;
 
         // Frame the WHOLE MeshSource, not just submesh 0: DrawIndexed(vao) below
         // renders the full shared index buffer (every submesh), so framing to the

@@ -101,7 +101,10 @@ yet", so the copy step was never generated and the exe died at gtest discovery w
 nothing about Steam) ·
 [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) (a texture, from the
 SECOND load onward — an empty reference in a cache is indistinguishable from a slot that was never
-set, so every step downstream handles it "correctly")
+set, so every step downstream handles it "correctly") ·
+[shared-atlas-allocator.md](shared-atlas-allocator.md) (a plain accounting handle embedded in an
+otherwise-POD-looking struct — `vector::resize()` shrinking, a `= T{}` reset, and the enclosing
+object's own destructor all discard it silently, leaking a process-wide budget claim)
 
 **The counter-move:** ask what the *absence* would look like, and whether anything in the system
 would be different. If the answer is "nothing", you need a coverage test, not a unit test.

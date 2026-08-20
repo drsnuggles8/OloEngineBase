@@ -13,6 +13,7 @@
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <array>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -138,6 +139,23 @@ namespace OloEngine
         [[nodiscard]] const std::vector<AtlasCasterRecord>& GetAtlasLayout() const
         {
             return m_AtlasLayout;
+        }
+
+        // Rank + pack this frame's shadow candidates into the atlas (issue
+        // #718). Thin forwarder to a PersistentAllocator owned here (rebuilt
+        // by Init()/SetSettings() whenever AtlasResolution changes) instead
+        // of the pure ShadowAtlas::Allocate() free function, so a caster that
+        // keeps ranking into the accepted set keeps its EXISTING tile across
+        // frames rather than the whole atlas being repacked from nothing
+        // every call. See ShadowAtlas::PersistentAllocator for the reuse/free
+        // rules; candidates should set UserData to a stable per-light
+        // identity (e.g. the owning entity's UUID) to benefit from reuse.
+        [[nodiscard]] ShadowAtlas::Result AllocateAtlasTiles(
+            std::span<const ShadowAtlas::Candidate> candidates,
+            u32 maxEntries = MAX_SHADOW_ATLAS_ENTRIES,
+            u32 maxLights = ShadowAtlas::kMaxShadowedLights)
+        {
+            return m_AtlasAllocator.Allocate(candidates, maxEntries, maxLights);
         }
 
         // Store one atlas entry (world-space light VP + pixel tile rect).
@@ -403,6 +421,13 @@ namespace OloEngine
         // Diagnostics-only candidate list for the current frame (see
         // AtlasCasterRecord). Never read by the render path.
         std::vector<AtlasCasterRecord> m_AtlasLayout;
+
+        // Persistent tile allocator (issue #718) backing AllocateAtlasTiles().
+        // Rebuilt (dropping every held tile) by Init() whenever AtlasResolution
+        // changes; survives a Resolution-only re-Init untouched, since the
+        // atlas itself did not resize. NOT reset by BeginFrame() — its whole
+        // purpose is to persist tile assignments frame-to-frame.
+        ShadowAtlas::PersistentAllocator m_AtlasAllocator;
 
         // Directional VSM (issue #702). Holds no GPU resources while disabled.
         VirtualShadowMap m_VirtualShadowMap;

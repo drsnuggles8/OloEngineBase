@@ -112,6 +112,19 @@ namespace OloEngine::Tests
             cone, /*albedoTexture=*/nullptr, glm::vec3(0.25f, 0.55f, 0.15f),
             N, kAtlasRes, /*hemi=*/true, /*alphaCutoff=*/0.5f);
 
+        // Release the bake's claim on the shared impostor VRAM budget (issue
+        // #718) on every exit path, including an ASSERT_* return below —
+        // Bake() reserves it unconditionally on success, and this test never
+        // hands the atlas to a FoliageRenderer, so nothing else would.
+        struct BudgetGuard
+        {
+            ImpostorAtlas& Atlas;
+            ~BudgetGuard()
+            {
+                ImpostorBaker::Free(Atlas);
+            }
+        } budgetGuard{ atlas };
+
         ASSERT_TRUE(atlas.IsValid()) << "impostor bake produced an invalid atlas";
         EXPECT_EQ(atlas.FramesPerAxis, N);
         EXPECT_GT(atlas.Radius, 0.0f);
