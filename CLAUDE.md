@@ -178,6 +178,7 @@ CMake presets ([CMakePresets.json](CMakePresets.json)) — note all three requir
 - `msvc` (Visual Studio 18 2026, `build/`) — primary; default build dir. Triplet `x64-windows-static-md`.
 - `clangcl` (Ninja Multi-Config, `build-clang/`) — clang-cl warnings with MSVC ABI. Compiles **our** code with clang-cl (chainloaded via `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`) but shares the **`x64-windows-static-md`** ports with the msvc tree — deliberately, see [docs/agent-rules/vcpkg-dependency-management.md](docs/agent-rules/vcpkg-dependency-management.md).
 - `clangcl-asan` — adds AddressSanitizer.
+- `dev-cached` (Ninja Multi-Config, `build-cached/`) — **the fast one.** Same clang-cl toolchain as `clangcl`, plus the compiler cache. Its own build dir because caching force-disables PCH and unity builds. Measured on target `OloEngine`: **12m04s cold, 3m23s in a second worktree with 689/689 cache hits** — the cache is shared *across* worktrees, which is the point when several exist. The `msvc` preset can never cache: the Visual Studio generator ignores `CMAKE_<LANG>_COMPILER_LAUNCHER` entirely. Pin the tool with the `OLO_COMPILER_CACHE_TOOL` environment variable (an absolute path — a bare `ccache` on PATH may be an unrelated bundled copy) and configure it for cross-directory sharing (`ccache`: `base_dir` + `hash_dir=false`); see [cmake/CompilerCache.cmake](cmake/CompilerCache.cmake).
 
 ```powershell
 # Generate VS solution
@@ -203,9 +204,20 @@ pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
   'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
 ```
 
-[build-lock.ps1](.claude/skills/run-oloengine/build-lock.ps1) runs one build at a time across every worktree of this repo, and kills its own build if the session that launched it dies. A `PreToolUse` hook (`.claude/hooks/claude-build-lock-guard.py`) **blocks** a `cmake --build` / `ninja` / `msbuild` tool call that skips it and replies with the wrapped command to use; a command that merely *mentions* a build tool opts out with the literal marker `OLO_BUILD_LOCK_BYPASS`. Why it exists, and what it does and does not protect you from: [.claude/skills/run-oloengine/SKILL.md](.claude/skills/run-oloengine/SKILL.md).
+[build-lock.ps1](.claude/skills/run-oloengine/build-lock.ps1) runs one build at a time across every worktree of this repo, and kills its own build if the session that launched it dies. A `PreToolUse` hook (`.claude/hooks/claude-build-lock-guard.py`) **blocks** a `cmake --build` / `ninja` / `msbuild` tool call that skips it and replies with the wrapped command to use. Two literal markers opt out, and they are **not** interchangeable:
+
+- `OLO_NOT_A_BUILD` — the command merely *mentions* a build tool (a `Get-Process`, a grep over docs). Silent allow, no permission needed.
+- `OLO_BUILD_LOCK_OVERRIDE` — the command really is a build and you are running it **unlocked**. Allowed, but **recorded** to `.git/olo-build-metrics.jsonl`. This needs the user's explicit permission **for that build**; a past grant does not carry forward.
+
+(`OLO_BUILD_LOCK_BYPASS` still works for compatibility and is audited when it wraps a real build. It used to be the only marker, which is how a real unlocked build once slipped through as a "merely mentions" case — the check is a plain substring test that a *comment* satisfies, so the discipline is yours, not the hook's.)
+
+Why it exists, and what it does and does not protect you from: [.claude/skills/run-oloengine/SKILL.md](.claude/skills/run-oloengine/SKILL.md).
 
 ### Cap build parallelism — a full-width build can OOM this machine
+
+**Under the mutex this is now automatic.** `build-lock.ps1` derives the job count from **measured free memory at acquire time** and rewrites the `--parallel N` / `-jN` in your command (and exports `CMAKE_BUILD_PARALLEL_LEVEL` for commands that carry no flag). Keep writing `--parallel 6` — it is a floor the lock may raise when the machine has room, and `-Jobs N` pins it, `-Jobs -1` opts out. Deriving it beats a constant because the mutex guaranteeing exclusivity does **not** mean the box is idle: the gh-runners for another repository still share it.
+
+The rest of this section still governs any build you run **outside** the lock.
 
 **Never build uncapped.** Either pass an explicit job count — `--parallel 6`, or `ninja -j6` — or set `CMAKE_BUILD_PARALLEL_LEVEL`, which `cmake --build` uses whenever no `--parallel` is given (this is how the nightly workflow caps itself):
 
@@ -231,6 +243,16 @@ An agent session running repeated uncapped builds — especially with a test sui
 **Measured headroom (issue #759).** `-j6` is a deliberately conservative *floor*, not a hard limit for this hardware. An instrumented clean Debug build on this idle 64 GB host peaks at **~47 GiB (MSVC) / ~42 GiB (clang-cl)** at `-j6` — and because a handful of heavy TUs set the peak, not the lane count, `-j12` adds only **~2 GiB** of peak while running **1.3–1.6× faster** (still ~16 GiB free). So `-j12` is a safe, faster choice **when this box is otherwise idle**. Keep `-j6` as the default: it is the value that stays safe on the smaller/shared worst case and while the CI runners are active — the constraint the pool and cap were written for is the *shared* box, not the raw memory ceiling. The link pool (`OLO_LINK_JOBS=2`) is separately confirmed correct: linking is off the compile-bound critical path, so the pool costs ~0 wall-time. Details and the trace method are in [docs/agent-rules/build-trees-and-windows-asan.md](docs/agent-rules/build-trees-and-windows-asan.md) §5.
 
 Link steps are capped separately and automatically: the root `CMakeLists.txt` puts them in a Ninja job pool (`OLO_LINK_JOBS`, default 2) because linking the full static engine is the memory spike. That pool lives in the generated `build.ninja`, so it protects a bare `ninja` too — but it does **not** cap compilation, which is what the job count above is for.
+
+**And it is per-BUILD-TREE, which is the gap.** Measured 2026-08-19 by deliberately running several worktrees' builds concurrently with the mutex bypassed, sampling every 15 s:
+
+| concurrent linkers | memory in use | | peak compilers |
+|---|---|---|---|
+| 1 | avg 41.2 GiB | | |
+| 2 | avg 43.4 GiB, max 55.3 | | **2** |
+| **3** | **59.1 GiB — 4.7 GiB free** | | |
+
+Three linkers took a 64 GB host to within 4.7 GiB of nothing, and a single 15-second sample caught a **+11.3 GiB jump** as the third one started. Peak *compilers* across the whole run was two — so the spike is not about compile lanes at all. Since `OLO_LINK_JOBS` is scoped to one tree, N concurrent trees get up to N×2 linkers and the pool does not see it. Treat "how many links are running across all worktrees" as the real memory constraint; a **cross-tree** link semaphore is the fix and does not exist yet.
 
 VS Code tasks ([.vscode/tasks.json](.vscode/tasks.json)) wrap the above: `build-oloeditor-debug`, `run-oloeditor-debug`, `build-tests-debug`, `run-tests-debug`, `build-clangcl-tests-debug`, `configure-clangcl`, etc.
 
