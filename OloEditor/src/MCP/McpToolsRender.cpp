@@ -4686,7 +4686,12 @@ namespace OloEngine::MCP
                 // The engine's stand-in when neither an override nor an imported
                 // material exists. Constructed exactly like Scene's cached default
                 // (Scene.cpp::GetDefaultMaterial), which is file-static there.
-                static const Ref<Material> s_EngineDefault =
+                //
+                // Deliberately NOT static: this is a per-call temporary. As a function
+                // static it was a process-wide Ref<Material> with no release site — the
+                // same shape as everything #839 swept — and caching buys nothing here,
+                // since an MCP tool handler runs at agent speed, not per frame.
+                const Ref<Material> engineDefault =
                     Material::CreatePBR("Default", glm::vec3(0.8f, 0.8f, 0.8f), 0.0f, 0.5f);
 
                 const Material* overrideMaterial = entity.HasComponent<MaterialComponent>()
@@ -4739,16 +4744,20 @@ namespace OloEngine::MCP
                     // rule the renderer no longer follows would make this tool lie to the
                     // next person debugging a material.
                     const Material& resolved =
-                        ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), index, *s_EngineDefault);
+                        ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), index, *engineDefault);
                     const Material* material = &resolved;
-                    std::string_view source = "engine default material";
+                    std::string_view source;
                     if (material == overrideMaterial)
                     {
                         source = "MaterialComponent (override)";
                     }
-                    else if (material != s_EngineDefault.get())
+                    else if (material != engineDefault.get())
                     {
                         source = "MeshSource imported material (per-submesh)";
+                    }
+                    else
+                    {
+                        source = "engine default material";
                     }
 
                     const PODMaterialData data = Renderer3D::CreatePODMaterialDataForMaterial(*material, RHI::NullResource);

@@ -6354,6 +6354,14 @@ namespace OloEngine
         return *s_DefaultMaterial;
     }
 
+    void Scene::ReleaseSharedRenderDefaults()
+    {
+        // Idempotent; GetDefaultMaterial() rebuilds on next use. Nothing keeps a
+        // Material* across frames — every consumer takes the reference and submits
+        // within the same call — so dropping it here cannot dangle.
+        s_DefaultMaterial.Reset();
+    }
+
     void Scene::LoadAndRenderSkybox()
     {
         OLO_PROFILE_FUNCTION();

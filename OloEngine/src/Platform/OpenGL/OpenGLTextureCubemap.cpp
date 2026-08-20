@@ -9,6 +9,26 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // The persistent GL_PIXEL_UNPACK_BUFFER staging buffer UploadFace() uploads
+        // through (see the rationale at its use site). It was a function-local static
+        // with no release site of any kind: created on the first cubemap face upload,
+        // grown by glNamedBufferData to the largest face the session ever uploaded, and
+        // still owning that storage at process exit. File-scope so
+        // ShutdownSharedResources() can delete it while the context is current (#839).
+        GLuint s_UnpackStagingPBO = 0;
+    } // namespace
+
+    void OpenGLTextureCubemap::ShutdownSharedResources()
+    {
+        if (s_UnpackStagingPBO != 0)
+        {
+            glDeleteBuffers(1, &s_UnpackStagingPBO);
+            s_UnpackStagingPBO = 0;
+        }
+    }
+
     namespace Utils
     {
         [[nodiscard("Store this!")]] static GLenum OloEngineImageFormatToGLDataFormat(ImageFormat format)
@@ -483,7 +503,6 @@ namespace OloEngine
         // create/delete, so it adds no buffer-id churn; a single GL context on the main thread
         // makes the shared static race-free. GL_UNPACK_ALIGNMENT (set above) still applies to
         // the PBO read.
-        static GLuint s_UnpackStagingPBO = 0;
         if (s_UnpackStagingPBO == 0)
             glCreateBuffers(1, &s_UnpackStagingPBO);
         // Save + restore whatever was bound to GL_PIXEL_UNPACK_BUFFER rather than assume 0,
