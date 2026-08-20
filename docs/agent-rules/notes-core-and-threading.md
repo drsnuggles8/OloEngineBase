@@ -311,15 +311,65 @@ Two things to get right when adding one:
 - **Seeding is lazy and once.** A setter marks the lever overridden *before*
   seeding, so a set that happens before any read survives the seed the first
   read triggers. Get that order backwards and the environment quietly wins.
-  A subsystem that cached the value at init still won't see a later change —
-  check the consumer.
+  A subsystem that cached the value at init still won't see a later change on
+  its own — register a change callback (below) or check the consumer.
 
-This is deliberately **not** a console-variable system: no name-based lookup, no
-editor console, no persistence, and no runtime change without a restart. It is
-the registry such a system would need underneath it — that layer is issue #821,
-which would also retire `FTaskPriorityCVar` in `Task.h`, a UE port whose own
-constructor says the engine has no console-variable system yet and which has
-zero call sites.
+### The console-variable layer above it (`Core/CVar.h`, issue #821)
+
+Every lever is *also* a console variable, bound into `CVars::` by
+`Levers::RegisterCVars()` — generated from the same `.inl`, so there is still
+one list and the ~27 typed call sites did not change. What the layer adds:
+
+- **By name.** `CVars::SetFromString("OLO_RG_POISON_TRANSIENTS", "on")`, which
+  is what the editor's **Window → Console** input, `--set NAME=VALUE` on
+  `OloEditor`/`OloRuntime`/`OloServer`, and the `olo_cvar_set` MCP tool all
+  reduce to. `--set` is handled in the shared `EntryPoint.h` `main()` **before
+  `CreateApplication`**, so a value is in place before any subsystem caches it.
+- **Change notification**, which is the part worth understanding before using
+  it.
+
+**Read through the generated accessor.** `Levers::PoisonTransients()` is a
+relaxed atomic load; `CVars::Find("…")` is a locked linear scan of a name table.
+The registry is the slow, name-based side on purpose.
+
+**Three rules for a change callback, and the first one is the whole design:**
+
+1. **Write the callback as "apply the current value", never "handle a delta".**
+   `AddChangeCallback` invokes it once at registration by default, so a
+   subsystem that comes up *after* a `--set` is synchronised for free and the
+   registration-vs-change ordering stops being a race. Every other property
+   below follows from this: several writes in one frame **coalesce** into one
+   call, and a value that goes A → B → A within a frame notifies nobody (the
+   registry compares the *rendered* value against what it last notified).
+2. **It fires at the top of the next frame, on the game thread** —
+   `CVars::DispatchPendingChanges()` in both `Application::Run` and
+   `RunHeadless`. A write only marks the cvar. That is deliberate: writes arrive
+   from the ImGui thread, an httplib MCP worker and tests, and the typical
+   reaction is *recreate a GPU resource*, which must not run there. The visible
+   consequence: a screenshot taken immediately after a write shows the frame
+   rendered under the **old** value.
+3. **The generated setter notifies too**, not just the name-based path. So
+   `RenderGraph::SetTransientDebugFlags` — and any other typed caller —
+   participates. That is what let the transient-pool eviction move out of
+   `olo_render_debug_set` (where only *that* one path was correct) and into a
+   callback in `Renderer3D::Init`, which every route now gets.
+
+**The trap in that design: the rendering IS the equality operator.** "Did this
+change?" is decided by comparing each cvar's *rendered* value against the last
+one dispatched. That is what makes every write path equal — a typed setter,
+`SetFromString` and `--set` are all caught the same way, with no per-type
+comparator to keep in sync — but it means a lossy rendering silently disables
+the notification. `std::to_string(f32)` gives six fixed decimals, so `1.0` and
+`1.0000004` render identically: the observer keeps the old value while the typed
+accessor already returns the new one, and nothing anywhere reports a problem.
+Float cvars therefore render **shortest-round-trip** (`std::format("{}", v)`),
+and `Levers::Snapshot()` must use the same helper or the two enumerations
+disagree. If you add a cvar type, ask what two distinct values it can render
+identically as — that set must be empty.
+
+`FTaskPriorityCVar` in `Task.h` — the UE port whose constructor said "OloEngine
+doesn't have a console variable system yet, so we just store the defaults", with
+zero call sites — was deleted by the same change.
 
 ### An environment variable is the wrong mechanism for a knob you own
 

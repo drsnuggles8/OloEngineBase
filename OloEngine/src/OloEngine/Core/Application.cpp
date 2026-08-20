@@ -2,6 +2,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Core/CVar.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/Input.h"
@@ -552,6 +553,12 @@ namespace OloEngine
 
         while (m_Running)
         {
+            // Console-variable changes land here and nowhere else: a write from
+            // the console, an MCP worker or a test only MARKS its cvar, and this
+            // is where the observers run — on the game thread, before anything
+            // in the frame reads a value. Cheap when nothing changed, which is
+            // every frame but the ones you are debugging.
+            CVars::DispatchPendingChanges();
 
             const auto timeNow = Time::GetTime();
             const f32 rawDelta = timeNow - m_LastFrameTime;
@@ -682,6 +689,11 @@ namespace OloEngine
 
             while (accumulator >= tickInterval)
             {
+                // Same contract as the windowed loop: observers run on the game
+                // thread at the top of the tick. OloServer has no console, but
+                // it does have `--set` and the MCP surface.
+                CVars::DispatchPendingChanges();
+
                 const Timestep timestep(tickInterval * m_TimeScale);
 
                 // Process tasks targeted at the Game Thread

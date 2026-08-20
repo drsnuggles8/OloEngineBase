@@ -190,6 +190,7 @@ and for what to do when adding a tool.
 |---|---|
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
 | `olo_debug_levers` | the engine's debug/diagnostic levers and their current values (`activeOnly` to see just the non-default ones). **Call this first when a session renders or performs unlike a clean one** — a lever left set is otherwise invisible, and explains a whole class of "it only misbehaves on this machine". Each seeds from an environment variable of the same name; `source` says whether the environment or code set it |
+| `olo_cvar_set` | **(consented write)** set any of those levers BY NAME against the running editor — the generalisation of `olo_render_debug_set`'s two special cases (issue #821). `name` + `value`, both strings; booleans take `on`/`off` (also `1/0`, `true/false`, `yes/no`), a tristate additionally takes `unset` (= "leave the hardware-derived default alone", **not** off), an int/float also takes `unset` to clear it. Out-of-range and non-finite values are refused with the reason rather than clamped; the read-only text levers are refused explicitly (they are consumed once at init). Subsystems that cached the value are re-notified at the **top of the next frame**, so re-capture with `olo_screenshot { forceFrame: true }` rather than trusting the frame you already have. `restoreWith` puts it back. Gated behind **Agent writes** |
 | `olo_events_tail` | unified "what just happened?" timeline — scene load, play/stop, entity spawn/destroy, asset reload, script error — newest last with a monotonic `id`; incremental polling via `sinceId`, plus a `categories` filter |
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_open` | **(consented write)** open / switch the active scene by `path` (a `.olo`/`.scene` file, relative paths resolve against the project asset directory) — the scriptable scene switch. Loads directly, bypassing the auto-save recovery modal a remote agent can't click; stops Play mode first; **cancels any pending auto-save recovery** (an armed recovery modal used to be able to swap the freshly opened scene back out when its button was clicked later, issue #607). Reports the loaded scene name + entity count and settles rendered frames before returning. Gated behind **Agent writes** |
@@ -431,7 +432,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 
 | Toolset | Tools |
 |---|---|
-| `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_debug_levers`, `olo_crash_list`, `olo_crash_get` |
+| `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity`, `olo_scheduler_graph` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_material_get`, `olo_shader_debug_draw` |
@@ -1244,6 +1245,15 @@ frame and "proves" the instrument does nothing.
 // 2) olo_screenshot { "forceFrame": true }   -> an azure wash names the leaking resource
 // 3) olo_render_debug_set { "poisonTransients": false }
 ```
+
+Since issue #821 these two are no longer special. Every lever is settable by name with
+`olo_cvar_set { "name": "OLO_RG_POISON_TRANSIENTS", "value": "on" }`, from the editor's
+**Window → Console** panel, or with `--set OLO_RG_POISON_TRANSIENTS=on` on the command line
+of `OloEditor` / `OloRuntime` / `OloServer`. The transient-pool eviction that used to live
+inside `olo_render_debug_set` is now a change callback on the aliasing lever, so every one
+of those routes evicts correctly. `olo_render_debug_set` stays because it does two things a
+generic setter cannot: it returns the `poisonColorMap` up front, and it settles two frames
+for you. For anything else, reach for `olo_cvar_set`.
 
 ### Probing the froxel fog volume (`olo_froxel_fog_probe`)
 

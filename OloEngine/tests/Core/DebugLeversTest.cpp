@@ -182,7 +182,14 @@ namespace OloEngine::Tests
         EXPECT_NE(summary.find("OLO_RG_BLACKSQUARE_HUNT"), std::string::npos);
         // The provenance matters when reading a log: a lever set by code is a
         // different situation from one the operator exported.
-        EXPECT_NE(summary.find("set in code"), std::string::npos);
+        // Scoped to THIS lever's entry, not the whole summary: with any other
+        // lever also non-default, a bare find() would pass on that one's
+        // provenance text while this row still said something stale.
+        const sizet rowStart = summary.find("OLO_RG_BLACKSQUARE_HUNT");
+        ASSERT_NE(rowStart, std::string::npos);
+        const sizet rowEnd = summary.find(", OLO_", rowStart);
+        const std::string row = summary.substr(rowStart, rowEnd == std::string::npos ? rowEnd : rowEnd - rowStart);
+        EXPECT_NE(row.find("set at runtime"), std::string::npos) << "row was: " << row;
 
         Levers::SetBlackSquareHunt(original);
     }

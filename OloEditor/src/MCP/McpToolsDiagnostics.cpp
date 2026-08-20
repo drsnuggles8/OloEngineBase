@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpSchemaBuilder.h"
+#include "OloEngine/Core/CVar.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
@@ -193,6 +194,67 @@ namespace OloEngine::MCP
             return ToolResult::Structured(out);
         }
 
+        // ---- olo_cvar_set (main-marshaled; session WRITE) -----------------------
+        //
+        // The generalisation of olo_render_debug_set's two special cases (issue
+        // #821): every registered console variable, by name, against a running
+        // editor. olo_render_debug_set stays because it does more than set a
+        // value — it hands back the poison colour map and settles two frames —
+        // but the transient-pool eviction it used to own is now a change
+        // callback, so this tool flips the aliasing lever just as correctly.
+        // Type names come from CVars::CVarTypeName, not a local copy: this
+        // tool's schema `enum` and the editor console must not be free to drift.
+
+        ToolResult Handle_CVarSet(McpServer& server, const Json& args)
+        {
+            if (!args.contains("name") || !args["name"].is_string())
+                return ToolResult::Error("Missing 'name': the console variable to set.");
+            if (!args.contains("value") || !args["value"].is_string())
+                return ToolResult::Error("Missing 'value': the new value, as a string.");
+
+            const std::string name = args["name"].get<std::string>();
+            const std::string value = args["value"].get<std::string>();
+
+            // Marshaled to the main thread: the write itself is thread-safe, but
+            // the observers run from the game thread's dispatch and a caller
+            // reading the result back wants the two in a defined order.
+            const Json result = server.MarshalRead([&name, &value]() -> Json
+                                                   {
+                const CVars::SetResult set = CVars::SetFromString(name, value);
+                if (!set.Ok)
+                    return Json{ { "__error", set.Error } };
+
+                const std::optional<CVars::CVarInfo> info = CVars::Find(name);
+                Json out{
+                    { "name", info ? std::string(info->Name) : name },
+                    { "value", set.NewValue },
+                    { "previous", set.OldValue },
+                    { "changed", set.Changed },
+                    { "restoreWith", set.OldValue },
+                    // The note has to match what actually happened. A no-op
+                    // write schedules no notification at all, so promising one
+                    // would send a caller looking for an effect that is not
+                    // coming.
+                    { "note", set.Changed
+                                  ? "Observers run at the top of the next frame; a value read back "
+                                    "immediately is already the new one, but the frame you are looking "
+                                    "at was rendered under the old one."
+                                  : "No change: the variable already held this value, so no observer "
+                                    "runs and nothing about the rendered frame will differ." },
+                };
+                if (info)
+                {
+                    out["type"] = std::string(CVars::CVarTypeName(info->Type));
+                    out["isDefault"] = info->IsDefault;
+                    out["help"] = std::string(info->Help);
+                }
+                return out; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
         ToolResult Handle_CrashList(McpServer& /*server*/, const Json& /*args*/)
         {
             const std::filesystem::path dir = CrashReportsDir();
@@ -360,7 +422,8 @@ namespace OloEngine::MCP
                 "The engine's debug/diagnostic levers and their current values — transient poisoning, "
                 "aliasing, bindless routing, the threading and terrain-LOD bisection switches, and the "
                 "task-graph tuning knobs. Each seeds from an environment variable of the same name and "
-                "some are settable at runtime (olo_render_debug_set covers the two transient ones). Call "
+                "all but the read-only text ones are settable at runtime by name with olo_cvar_set "
+                "(olo_render_debug_set stays the richer tool for the two transient instruments). Call "
                 "this FIRST when a session renders or performs unlike a clean one: a lever left on is "
                 "invisible otherwise, and explains a whole class of 'it only misbehaves on this machine'.";
             tool.InputSchema = Schema::Object()
@@ -377,10 +440,57 @@ namespace OloEngine::MCP
                                                       .Prop("kind", Schema::String().Enum({ "toggle", "exactToggle", "tristate", "integer", "number", "text" }))
                                                       .Prop("value", Schema::String().Desc("Rendered current value; 'unset' when the lever has none."))
                                                       .Prop("isDefault", Schema::Bool().Desc("True when the lever is doing nothing."))
-                                                      .Prop("source", Schema::String().Enum({ "environment", "code" }).Desc("'code' means a setter overrode the environment."))))
+                                                      .Prop("source", Schema::String().Enum({ "environment", "code" }).Desc("'code' means something overrode the environment seed at runtime — a C++ setter, --set NAME=VALUE, the editor console, or olo_cvar_set."))))
                     .Required({ "count", "activeCount", "summary", "levers" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_DebugLevers;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_cvar_set";
+            tool.Toolset = "diagnostics";
+            tool.Title = "Set a console variable";
+            // Flips a session-global engine switch — the same read-only line
+            // olo_render_debug_set crosses, so the same gate. Reversible via the
+            // reported 'restoreWith'.
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Set any of the engine's console variables BY NAME against the running editor, instead of "
+                "exporting an environment variable and restarting — which loses whatever repro you were "
+                "looking at. The names, current values, types and help are exactly what olo_debug_levers "
+                "lists, so call that first. Values are given as strings: a boolean takes on/off (also "
+                "1/0, true/false, yes/no); a tristate additionally takes 'unset', which means 'leave the "
+                "hardware-derived default alone' and is NOT the same as off; an int or float also takes "
+                "'unset' to clear it. Out-of-range and non-finite numbers are refused with the reason, "
+                "not silently clamped. A few variables are read-only (they are consumed once at init, so "
+                "a later write would be accepted and ignored) and are refused explicitly. Subsystems that "
+                "cached the value are re-notified at the top of the next frame, so the frame you captured "
+                "a moment ago was still rendered under the old value — take a fresh screenshot with "
+                "olo_screenshot { forceFrame: true }. For the two transient-corruption instruments "
+                "specifically, olo_render_debug_set is still the better tool: it also returns the "
+                "resource->poison-colour map and settles two frames for you. This is a WRITE tool: "
+                "refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default).";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("name", Schema::String().Desc("The console variable, e.g. OLO_RG_POISON_TRANSIENTS. Case-insensitive."))
+                                   .Prop("value", Schema::String().Desc("The new value as a string — see the description for what each type accepts."))
+                                   .Required({ "name", "value" })
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("name", Schema::String().Desc("The registered name, in its canonical casing."))
+                                    .Prop("value", Schema::String().Desc("Rendered value after the call."))
+                                    .Prop("previous", Schema::String().Desc("Rendered value before the call."))
+                                    .Prop("changed", Schema::Bool().Desc("False when the value was already what you asked for."))
+                                    .Prop("restoreWith", Schema::String().Desc("Pass this back as 'value' to restore."))
+                                    .Prop("type", Schema::String().Enum({ "bool", "tristate", "int", "float", "string" }))
+                                    .Prop("isDefault", Schema::Bool().Desc("True when the variable is now doing nothing."))
+                                    .Prop("help", Schema::String())
+                                    .Prop("note", Schema::String().Desc("When the change reaches subsystems that cached it."))
+                                    .Required({ "name", "value", "previous", "changed", "restoreWith" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_CVarSet;
             server.RegisterTool(std::move(tool));
         }
 

@@ -28,17 +28,23 @@ namespace OloEngine::Levers
     // for everything except the read-once text levers, and `Snapshot()` for the
     // startup log and the MCP tool. Add a lever to the .inl and nowhere else.
     //
-    // **This is not a console-variable system.** There is no name-based lookup,
-    // no editor console, no persistence, and a change does not propagate to a
-    // subsystem that has already read its value. It is the registry a CVar
-    // system would need underneath it, delivered on its own — issue #821 is
-    // the layer above, and the reason a setter here does not always take
-    // effect is precisely the change notification it would add.
+    // **This file is still not the console-variable system** — it is the fast,
+    // typed, generated half of it. `Core/CVar.h` is the layer above (issue
+    // #821): name-based lookup, `--set NAME=VALUE`, the editor console, and the
+    // change notification that lets a subsystem which cached a value at init
+    // react to a later write. Every lever here is bound into that registry by
+    // `RegisterCVars()` below, generated from this same table, so all 21 rows
+    // became reachable by name without a single call site changing.
+    //
+    // Which one you use: **read through the generated accessor** — it is a
+    // relaxed atomic load and the registry never enters the picture. Reach for
+    // `CVars::` only when you have a NAME rather than a lever, or when you want
+    // to be told a value moved.
     //
     // **Values are seeded once**, on first access, from the environment. A
-    // setter overrides the seed whether or not it has happened yet, but a
-    // subsystem that cached the value at init will not notice — see each
-    // lever's consumer.
+    // setter overrides the seed whether or not it has happened yet. A subsystem
+    // that cached the value at init still will not notice on its own — that is
+    // what `CVars::AddChangeCallback` is for.
 
     enum class Tristate : u8
     {
@@ -94,6 +100,17 @@ namespace OloEngine::Levers
     // once during engine init so a run that behaves oddly says why in its own
     // log rather than in someone's shell history.
     void LogActive();
+
+    // Binds every lever into the console-variable registry (`Core/CVar.h`), so
+    // the editor console, `--set` and the MCP write tool reach all of them by
+    // name. Generated from the same table, so there is still one list.
+    //
+    // Called ONCE, lazily, by the cvar registry itself the first time anything
+    // asks it a name-based question — not from a static initializer, and not
+    // from engine init: `--set` runs before the Application exists and must
+    // still see every lever. Calling it a second time is harmless but logs a
+    // duplicate-registration error per lever, so don't.
+    void RegisterCVars();
 
 // --- Generated from DebugLevers.inl -----------------------------------------
 #define OLO_LEVER_TOGGLE(id, env, help) \
