@@ -76,6 +76,17 @@ All UBO blocks use `layout(std140, binding = N)`. Block names and members follow
 - Block names: PascalCase (`ModelMatrices`, `CameraMatrices`).
 - Members: `u_` prefix (`u_ViewProjection`, `u_Model`).
 - Padding fields: `_paddingN` or `_padN`.
+- **The leading underscore is load-bearing, not just style.** A shader that
+  only needs a subset of a shared block's fields and renames the rest to a
+  placeholder (`_camera_pad_view`, `_foliagePad0`, `_vdPad0`, …) is telling
+  `ShaderUBOSizeConsistencyTest`'s `CrossShaderUBOMemberOffsetsAgree` (#847)
+  that this shader deliberately never reads that byte — the test compares
+  std140 offsets across every shader sharing a block name and only flags a
+  conflict when two *non*-underscore (real) names claim the same offset. A
+  placeholder named without the leading `_` reads as real data drift and
+  fails that test; a genuinely unused real-sounding name left over from a
+  copy-paste (`VirtualMeshShadowDepth.glsl`'s `u_VirtualViewportWidth` before
+  its #847 cleanup) is exactly the false trail it's meant to prevent.
 
 ---
 

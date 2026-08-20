@@ -41,11 +41,16 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
+// The last two members are unused here (this pass never reads viewport
+// dimensions) and the CPU side always uploads zero for them; named as
+// padding to match VirtualMeshGBuffer.glsl's convention rather than the
+// real, populated `u_VirtualViewportWidth`/`Height` fields in
+// VirtualVisibilityResolve.glsl, which this block is not.
 layout(std140, binding = 49) uniform VirtualDrawInfo {
     uint u_VirtualInstanceIndex;
     uint u_VirtualCommandBase;
-    uint u_VirtualViewportWidth;
-    uint u_VirtualViewportHeight;
+    uint _vdPad0;
+    uint _vdPad1;
 };
 
 void main()
