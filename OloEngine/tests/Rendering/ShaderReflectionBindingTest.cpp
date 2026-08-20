@@ -71,6 +71,12 @@ namespace OloEngine::Tests
         /// inside `#ifdef OLO_VULKAN` branches this harness does not compile,
         /// so they never reach reflection. This constant tracks the highest
         /// slot a production shader actually declares.
+        // Bumped from SSBO_VSM_STATS (77) by issue #703, which added the one new
+        // SSBO the local-light work needed. This is the guard that makes such an
+        // addition deliberate rather than incidental -- see the note at
+        // SSBO_VSM_LOCAL_LIGHTS for why that binding could not ride an existing
+        // buffer, and how little space is left in this namespace.
+        //
         // Bumped from SSBO_VSM_LOCAL_LIGHTS (78) by issue #715, whose terrain
         // virtual texture takes 79-81: a feedback buffer the fragment stage
         // writes, and one parameters-plus-payload buffer for each of its two
@@ -78,11 +84,31 @@ namespace OloEngine::Tests
         // was deliberately left alone, which is why the per-dispatch parameters
         // live in an SSBO header here instead.
         //
-        // Bumped from SSBO_VSM_STATS (77) before that by issue #703. This is the
-        // guard that makes such an addition deliberate rather than incidental --
-        // see the note at SSBO_VSM_LOCAL_LIGHTS for how little space is left in
-        // this namespace.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_TERRAIN_VT_INDIRECTION;
+        // Bumped to SSBO_DDGI_STATS (83) by issue #707, which added TWO:
+        // SSBO_DDGI_PROBE_AUX (82) is one record per probe across all cascades
+        // (request timestamps, GPU classification, the #751 bounce accumulator)
+        // and SSBO_DDGI_STATS (83) is the per-frame counter block. Neither could
+        // ride an existing buffer: both are declared once in
+        // include/DDGIProbeBuffers.glsl and used by the six shaders that include
+        // it, the aux record sized by the probe field and the stats block
+        // written by atomics from three of them (ProbeMaintain, Relight,
+        // BlendIrradiance).
+        //
+        // #707 originally took 79/80 and had to renumber to 82/83 when #715
+        // landed on master first -- the FOURTH such renumber recorded in this
+        // comment, after #702's three. Note how it surfaced: the duplicate
+        // constants merged CLEANLY into ShaderBindingLayout.h (the two blocks
+        // sit in different parts of that file), so the only signals were this
+        // conflict and SSBOSlotUniqueness. Diff the slot NUMBERS when rebasing,
+        // not just the files.
+        //
+        // The guard did its job for #707: the bindings were added without
+        // bumping this, and CI caught it rather than the mismatch reaching a
+        // runtime where an out-of-range binding is silent. If you are bumping it
+        // again, note the UBO namespace is the tighter one (UBO_BINDING_LIMIT is
+        // 83 against a GL 4.6 ceiling of 84) -- both #715 and #707 deliberately
+        // spent none of it.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_DDGI_STATS;
 
         struct BindingFailure
         {

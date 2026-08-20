@@ -41,6 +41,7 @@
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 
 #include <array>
+#include <cstddef> // offsetof, for the DDGI C++<->GLSL layout pins
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -61,10 +62,10 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        // 40 = the base 33, plus the five #691 Phase 8 compute blocks, plus
-        // ColorBlindParams (#458), plus PrefixSumParams (#713) and
-        // TerrainCullParams (#714).
-        const std::array<KnownBlock, 41> kKnownBlocks = { {
+        // 43 = the base 33, plus the five #691 Phase 8 compute blocks, plus
+        // ColorBlindParams (#458), plus PrefixSumParams (#713),
+        // TerrainCullParams (#714) and the two DDGI blocks (#707).
+        const std::array<KnownBlock, 43> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -128,6 +129,14 @@ namespace OloEngine::Tests
             // once in include/TerrainCullParams.glsl and included by all four
             // Terrain*.comp kernels. Same reason again.
             { "TerrainCullParams", sizeof(UBOStructures::TerrainCullUBO) },
+            // Realtime DDGI (issues #632 / #707). Neither block was listed
+            // before #707 — so the one test that compares a reflected GLSL
+            // block against its C++ twin covered neither, while DDGIVolume grew
+            // from 112 to 512 bytes and DDGIPassData from 160 to 400. Both are
+            // declared once in an include and read by five shaders each, which
+            // is the drift shape this table exists for.
+            { "DDGIVolume", sizeof(UBOStructures::DDGIVolumeUBO) },
+            { "DDGIPassData", sizeof(UBOStructures::DDGIPassDataUBO) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)
@@ -533,6 +542,229 @@ namespace OloEngine::Tests
 
         if (!errors.str().empty())
             FAIL() << "Cross-shader UBO member-layout disagreement:\n"
+                   << errors.str();
+    }
+
+    // -------------------------------------------------------------------------
+    // DDGIBlockMembersMatchTheCppStructOffsets
+    //
+    // The two tests above leave a hole for the DDGI blocks specifically, and
+    // it is the hole that matters most for them:
+    //
+    //   * the size table only compares TOTAL size, so any two members swapped
+    //     between C++ and GLSL keeps the size identical and passes;
+    //   * CrossShaderUBOMemberOffsetsAgree only compares shader AGAINST shader,
+    //     and both DDGI blocks are declared exactly once in a shared include
+    //     (DDGICommon.glsl / DDGIPassData.glsl). Every shader therefore sees
+    //     byte-identical text, so that test can never disagree with itself and
+    //     provides no protection here at all.
+    //
+    // What is left unguarded is the only boundary that can actually drift: the
+    // C++ struct the engine uploads versus the GLSL block the shaders read.
+    // A swap there does not fail to compile, link, or dispatch. Reading
+    // CascadeOrigin's bytes as CascadeSpacing gives every cascade a plausible
+    // origin and a plausible spacing, so the field renders — lit, smooth, and
+    // sampling the wrong world position at every probe.
+    //
+    // std140 offsets come from spirv-cross's reflected decorations, i.e. what
+    // the compiler actually laid out, not a hand-computed prediction of it.
+    TEST(ShaderUBOSizeConsistency, DDGIBlockMembersMatchTheCppStructOffsets)
+    {
+        using OloEngine::UBOStructures::DDGIPassDataUBO;
+        using OloEngine::UBOStructures::DDGIVolumeUBO;
+
+        struct MemberPin
+        {
+            const char* GlslName;
+            u32 CppOffset;
+            u32 ElementCount; // 0 = not an array
+        };
+
+        // std140 packs an array of vec4/ivec4 at 16 bytes per element. Rather
+        // than trust a reflected stride decoration, this is DERIVED from the
+        // gap to the next member (or to the end of the block for the last
+        // one), which validates the actual packing and uses only the two
+        // reflection calls the tests above already rely on.
+        constexpr u32 kStd140Vec4Stride = 16;
+
+        static constexpr std::array<MemberPin, 23> kVolumePins{ {
+            { "u_DDGIBoundsMin", offsetof(DDGIVolumeUBO, BoundsMin), 0 },
+            { "u_DDGIBoundsMax", offsetof(DDGIVolumeUBO, BoundsMax), 0 },
+            { "u_DDGIGridDimensions", offsetof(DDGIVolumeUBO, GridDimensions), 0 },
+            { "u_DDGIProbeSpacing", offsetof(DDGIVolumeUBO, ProbeSpacing), 0 },
+            { "u_DDGIEnabled", offsetof(DDGIVolumeUBO, Enabled), 0 },
+            { "u_DDGIIntensity", offsetof(DDGIVolumeUBO, Intensity), 0 },
+            { "u_DDGIHysteresis", offsetof(DDGIVolumeUBO, Hysteresis), 0 },
+            { "u_DDGISelfShadowBias", offsetof(DDGIVolumeUBO, SelfShadowBias), 0 },
+            { "u_DDGIHitCacheTexels", offsetof(DDGIVolumeUBO, HitCacheTexels), 0 },
+            { "u_DDGIFrameIndex", offsetof(DDGIVolumeUBO, FrameIndex), 0 },
+            { "u_DDGIHybridBlend", offsetof(DDGIVolumeUBO, HybridBlend), 0 },
+            { "u_DDGIEnergyConservation", offsetof(DDGIVolumeUBO, EnergyConservation), 0 },
+            { "u_DDGIMaxRayDistance", offsetof(DDGIVolumeUBO, MaxRayDistance), 0 },
+            { "u_DDGIBounceMarginScale", offsetof(DDGIVolumeUBO, BounceMarginScale), 0 },
+            { "u_DDGICascadeCount", offsetof(DDGIVolumeUBO, CascadeCount), 0 },
+            { "u_DDGICascadeBlendBand", offsetof(DDGIVolumeUBO, CascadeBlendBand), 0 },
+            { "u_DDGIUpdateRateDivisor", offsetof(DDGIVolumeUBO, UpdateRateDivisor), 0 },
+            { "u_DDGIRequestLifetime", offsetof(DDGIVolumeUBO, RequestLifetime), 0 },
+            { "u_DDGISparsityEnabled", offsetof(DDGIVolumeUBO, SparsityEnabled), 0 },
+            { "_ddgiPad0", offsetof(DDGIVolumeUBO, _pad0), 0 },
+            // The three cascade arrays. Stride is asserted as well as offset:
+            // a std140 array of vec4/ivec4 packs at 16 bytes, and a stride
+            // disagreement would misread every element after the first while
+            // leaving element 0 — the finest cascade, the one most likely to
+            // be looked at — perfectly correct.
+            { "u_DDGICascadeOrigin", offsetof(DDGIVolumeUBO, CascadeOrigin), DDGIVolumeUBO::MaxCascades },
+            { "u_DDGICascadeSpacing", offsetof(DDGIVolumeUBO, CascadeSpacing), DDGIVolumeUBO::MaxCascades },
+            { "u_DDGICascadeLattice", offsetof(DDGIVolumeUBO, CascadeLattice), DDGIVolumeUBO::MaxCascades },
+        } };
+
+        static constexpr std::array<MemberPin, 9> kPassDataPins{ {
+            { "u_DDGIModel", offsetof(DDGIPassDataUBO, Model), 0 },
+            { "u_DDGINormalMatrix", offsetof(DDGIPassDataUBO, NormalMatrix), 0 },
+            { "u_DDGIBaseColor", offsetof(DDGIPassDataUBO, BaseColor), 0 },
+            { "u_DDGIProbePosition", offsetof(DDGIPassDataUBO, ProbePosition), 0 },
+            { "u_DDGIInvViewProjection", offsetof(DDGIPassDataUBO, InvViewProjection), 0 },
+            { "u_DDGIRenderOrigin", offsetof(DDGIPassDataUBO, RenderOrigin), 0 },
+            { "u_DDGICameraPosRel", offsetof(DDGIPassDataUBO, CameraPosRel), 0 },
+            { "u_DDGIComputeParams", offsetof(DDGIPassDataUBO, ComputeParams), 0 },
+            { "u_DDGIPrevLattice", offsetof(DDGIPassDataUBO, PrevLattice), DDGIVolumeUBO::MaxCascades },
+        } };
+
+        const fs::path root = SH::ResolveShaderRoot();
+        ASSERT_FALSE(root.empty());
+        const auto shaders = SH::EnumerateProductionShaders(root);
+        ASSERT_FALSE(shaders.empty());
+
+        shaderc::Compiler compiler;
+        ASSERT_TRUE(compiler.IsValid());
+
+        // Which blocks we managed to reflect at all. A DDGI block that stops
+        // being declared anywhere must fail this test rather than vacuously
+        // pass it -- that is how a pin quietly stops guarding anything.
+        bool sawVolume = false;
+        bool sawPassData = false;
+        std::ostringstream errors;
+
+        auto checkBlock = [&errors](const spirv_cross::Compiler& refl, const spirv_cross::Resource& res,
+                                    const std::string& blockName, const MemberPin* pins, sizet pinCount,
+                                    const std::string& shaderPath)
+        {
+            const auto& type = refl.get_type(res.base_type_id);
+            if (type.member_types.size() != pinCount)
+            {
+                errors << blockName << " in " << shaderPath << " declares " << type.member_types.size()
+                       << " members, the C++ pin table has " << pinCount
+                       << ". A member was added or removed on one side only; update the table in this "
+                          "test alongside the struct and the GLSL block.\n";
+                return;
+            }
+
+            for (u32 m = 0; m < type.member_types.size(); ++m)
+            {
+                const MemberPin& pin = pins[m];
+                // ShaderHarness compiles without SetGenerateDebugInfo, so
+                // shaderc emits no OpMemberName and every reflected member name
+                // is empty. Compare only when a name actually survived: that
+                // keeps this a real check if debug info is ever turned on,
+                // without asserting on something the harness does not produce.
+                //
+                // Worth knowing when reading the sibling test above:
+                // CrossShaderUBOMemberOffsetsAgree compares member names too and
+                // has always been comparing "" to "" for the same reason — and
+                // its offsets are all 0 because it reads decorations off
+                // res.type_id rather than res.base_type_id, so BOTH halves of
+                // its signature are constant and it cannot fail. Filed as #847;
+                // not fixed here because it is pre-existing, outside DDGI, and
+                // the fix is expected to surface real drift in other blocks.
+                // That is also why the checks below use base_type_id. The
+                // reorder detection below does not depend on names at all: the
+                // pins are in GLSL declared order carrying C++ offsets, so two
+                // swapped members produce mismatched offsets at both indices.
+                if (const std::string name = refl.get_member_name(res.base_type_id, m);
+                    !name.empty() && name != pin.GlslName)
+                {
+                    errors << blockName << " member " << m << " is named '" << name << "', expected '"
+                           << pin.GlslName << "' -- the block was REORDERED relative to the C++ struct.\n";
+                    continue;
+                }
+                const char* const name = pin.GlslName;
+
+                const u32 glslOffset = refl.get_member_decoration(res.base_type_id, m, spv::DecorationOffset);
+                if (glslOffset != pin.CppOffset)
+                {
+                    errors << blockName << "." << name << " is at std140 offset " << glslOffset
+                           << " but the C++ struct puts it at " << pin.CppOffset
+                           << ". The engine uploads one struct and the shader reads another layout; "
+                              "this renders without erroring.\n";
+                }
+
+                if (pin.ElementCount != 0)
+                {
+                    // Derived, not read from a stride decoration: the span this
+                    // array actually occupies is the gap to the next member, or
+                    // to the end of the block when it is the last one.
+                    const u32 spanEnd =
+                        (m + 1 < type.member_types.size())
+                            ? refl.get_member_decoration(res.base_type_id, m + 1, spv::DecorationOffset)
+                            : static_cast<u32>(refl.get_declared_struct_size(type));
+                    const u32 stride = (spanEnd - glslOffset) / pin.ElementCount;
+                    if (stride != kStd140Vec4Stride)
+                    {
+                        errors << blockName << "." << name << " occupies " << (spanEnd - glslOffset)
+                               << " bytes for " << pin.ElementCount << " elements (stride " << stride
+                               << "), expected stride " << kStd140Vec4Stride
+                               << " -- element 0 would still read correctly and every later cascade "
+                                  "would not.\n";
+                    }
+                }
+            }
+        };
+
+        for (const auto& path : shaders)
+        {
+            if (sawVolume && sawPassData)
+                break;
+
+            const std::string source = SH::ReadWholeFile(path);
+            for (const auto& [kind, stageSource] : SH::SplitStages(source))
+            {
+                auto result = SH::CompileStageToSpv(path, stageSource, kind, root, compiler);
+                if (result.GetCompilationStatus() != shaderc_compilation_status_success)
+                    continue;
+
+                try
+                {
+                    spirv_cross::Compiler refl(std::vector<u32>(result.cbegin(), result.cend()));
+                    for (const auto& res : refl.get_shader_resources().uniform_buffers)
+                    {
+                        const std::string blockName = ResolveBlockName(refl, res);
+                        if (blockName == "DDGIVolume" && !sawVolume)
+                        {
+                            sawVolume = true;
+                            checkBlock(refl, res, blockName, kVolumePins.data(), kVolumePins.size(),
+                                       path.generic_string());
+                        }
+                        else if (blockName == "DDGIPassData" && !sawPassData)
+                        {
+                            sawPassData = true;
+                            checkBlock(refl, res, blockName, kPassDataPins.data(), kPassDataPins.size(),
+                                       path.generic_string());
+                        }
+                    }
+                }
+                catch (const std::exception&)
+                {
+                    // Reflection failures are ShaderCompilationTest's problem.
+                }
+            }
+        }
+
+        EXPECT_TRUE(sawVolume) << "no production shader declares the DDGIVolume block — the C++<->GLSL "
+                                  "offset pins below are guarding nothing";
+        EXPECT_TRUE(sawPassData) << "no production shader declares the DDGIPassData block — same problem";
+
+        if (!errors.str().empty())
+            FAIL() << "DDGI UBO layout disagrees with its C++ struct:\n"
                    << errors.str();
     }
 } // namespace OloEngine::Tests

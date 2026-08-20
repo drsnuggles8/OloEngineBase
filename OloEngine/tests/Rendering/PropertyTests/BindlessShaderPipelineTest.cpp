@@ -31,6 +31,7 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/DDGI/DDGICommon.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <gtest/gtest.h>
@@ -597,6 +598,63 @@ void main()
     // handwritten heap prologue (it builds raw programs without OpenGLShader), and
     // that copy drifting is just as silent — it simply makes the GPU test itself
     // wrong rather than the engine.
+
+    // Issue #707. Three DDGI constants exist in BOTH a GLSL file and a C++
+    // header, with nothing linking them: the cascade-array bound, and the two
+    // compute dispatch strides. Each is the "one contract, several mirrors"
+    // shape this repo keeps postmortems about, and each fails the same quiet
+    // way — a mismatched stride does not fail to compile or dispatch, it
+    // silently processes the wrong probes (or the wrong share of the screen)
+    // and leaves the tail of the field permanently unrequested.
+    //
+    // Same mechanism as HeapImageBaseMatchesTheBindingLayout above: read the
+    // shader as text and compare. If one of these moved, repoint the test —
+    // do not delete the pin.
+    TEST(BindlessShaderPipeline, DDGIShaderConstantsMatchTheCppMirrors)
+    {
+        namespace fs = std::filesystem;
+        const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
+
+        struct Mirror
+        {
+            const char* Relative;
+            const char* Pattern;
+            u32 Expected;
+            const char* CppName;
+        };
+
+        const std::array<Mirror, 3> kMirrors{ {
+            { "include/DDGICommon.glsl", R"(#define\s+DDGI_MAX_CASCADES\s+(\d+))",
+              static_cast<u32>(DDGI::kMaxCascades), "DDGI::kMaxCascades" },
+            { "compute/DDGI_RequestProbe.comp", R"(#define\s+DDGI_PROBE_DISPATCH_STRIDE\s+(\d+))",
+              DDGI::kProbeDispatchStride, "DDGI::kProbeDispatchStride" },
+            { "compute/DDGI_RequestScreen.comp", R"(const\s+int\s+DDGI_SCREEN_REQUEST_STRIDE\s*=\s*(\d+))",
+              DDGI::kScreenRequestStride, "DDGI::kScreenRequestStride" },
+        } };
+
+        for (const Mirror& mirror : kMirrors)
+        {
+            const fs::path path = shaderRoot / mirror.Relative;
+            ASSERT_TRUE(fs::exists(path)) << path.string();
+            const std::string src = ReadWholeFile(path);
+
+            std::smatch match;
+            const std::regex pattern(mirror.Pattern);
+            ASSERT_TRUE(std::regex_search(src, match, pattern))
+                << mirror.CppName << "'s GLSL mirror was not found in " << mirror.Relative
+                << " — if it moved or was renamed, repoint this test rather than deleting the pin";
+
+            EXPECT_EQ(static_cast<u32>(std::stoul(match[1].str())), mirror.Expected)
+                << mirror.Relative << " disagrees with " << mirror.CppName
+                << ". These are the same constant on two sides of a boundary nothing else checks; a "
+                   "mismatch does not fail loudly, it silently addresses the wrong work.";
+        }
+
+        // The UBO's fixed-size cascade arrays are the third copy of kMaxCascades
+        // and the reason it cannot simply be raised on one side.
+        EXPECT_EQ(UBOStructures::DDGIVolumeUBO::MaxCascades, static_cast<u32>(DDGI::kMaxCascades));
+    }
+
     // The terrain virtual-texture samplers, pinned the same way and for the same
     // reason as the image base above: the number lives in C++ AND in GLSL, and
     // nothing links them.

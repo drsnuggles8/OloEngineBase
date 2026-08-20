@@ -32,6 +32,12 @@
 //      bindings and graph registration are their own seams and get their own
 //      GPU coverage here.
 //
+//   6-9. DDGICascadeEvidenceTest — issue #707's camera-centred cascades on a
+//      corridor rig with NO authored probe volume: coverage in every cascade,
+//      the measured live-vs-total probe counts sparsity is claimed to cut,
+//      temporal stability of the converged field, and multi-angle evidence
+//      PNGs (evidence, not goldens — the cascade windows follow the camera).
+//
 // Rendering path: DEFERRED for tests 1-4 (the primary GI consumer —
 // DeferredLightingShared.glsl samples the DDGI atlases in its ambient
 // ladder); test 5 switches to ForwardPlus for the frame-level smoke.
@@ -81,6 +87,8 @@
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -645,6 +653,12 @@ namespace OloEngine::Tests
             << "Capture schedule did not cover all " << kTotalProbes << " probes in "
             << kContractFrames << " frames";
 
+        // Issue #707: relocation offsets and classification are written by the
+        // GPU relocation compute, so the CPU-side records need one explicit
+        // sync before they carry anything. The frame never does this — that is
+        // the point of the upgrade — so a reader has to ask.
+        pass->ReadbackProbeDiagnostics();
+
         const auto& records = pass->GetProbeRecords();
         ASSERT_EQ(records.size(), static_cast<std::size_t>(kTotalProbes))
             << "Probe record count does not match the submitted 4x3x4 grid";
@@ -965,4 +979,589 @@ namespace OloEngine::Tests
             << "Forward+ lit side shows no red excess (" << litRedExcess
             << ") — the red light is not reaching the forward lit pass";
     }
+
+    // =========================================================================
+    // Issue #707 — camera-centred probe cascades, request-driven sparsity and
+    // the variable update rate.
+    //
+    // A separate fixture from the authored-volume rig above, because the whole
+    // point is that this scene has NO LightProbeVolumeComponent: the cascades
+    // are what places the probe field, and an authored volume would take
+    // precedence and stop the tests testing anything.
+    //
+    // The rig is a corridor 60 m long on Z with a coloured bounce panel inside
+    // each cascade window. Cascade N covers 2^N times cascade 0's extent, so a
+    // camera at the near end sees a panel in every cascade — which is what
+    // makes "GI is continuous across a large scene with no authored probe
+    // volume" (acceptance criterion 1) something a test can look at rather than
+    // a claim.
+    //
+    // Classification: L8 / integration (full GL pipeline + readback + PNG).
+    // =========================================================================
+    class DDGICascadeEvidenceTest : public RendererAttachedTest
+    {
+      protected:
+        // 4 x 8^3 = 2048 probes at 3 m base spacing, so the cascade windows
+        // reach +-10.5 m, +-21 m, +-42 m and +-84 m from the camera.
+        //
+        // THE FIELD MUST OUT-REACH THE CORRIDOR, and getting that wrong is how
+        // this rig first read as a bug: at 3 cascades x 2 m the outermost
+        // window stopped at +-28 m of a 68 m corridor, so GI correctly faded
+        // out two thirds of the way down and the evidence PNG looked exactly
+        // like a cascade that had failed to converge. A rig that cannot tell
+        // "the field ends here" from "the field is broken here" is not evidence
+        // for "GI is continuous across a large scene" — it is a picture of the
+        // field's own boundary.
+        static constexpr i32 kCascadeCount = 4;
+        static constexpr i32 kCascadeRes = 8;
+        static constexpr f32 kBaseSpacing = 3.0f;
+        static constexpr i32 kProbesPerCascade = kCascadeRes * kCascadeRes * kCascadeRes;
+        // Deliberately NOT `kTotalProbes`: the anonymous namespace already has one
+        // (the authored rig's 48), and a fixture member that shadows it makes every
+        // reference here ambiguous to a reader even though the compiler is happy.
+        static constexpr i32 kCascadeTotalProbes = kCascadeCount * kProbesPerCascade;
+
+        // Long enough for the capture schedule to reach the far cascades AND
+        // for the relocation spring's follow-up captures to drain, since a
+        // probe only counts as Active once its relocation compute has run.
+        static constexpr u32 kConvergeFrames = 140;
+
+        void BuildScene() override
+        {
+            Scene& scene = GetScene();
+            EnableRendering(kWidth, kHeight);
+
+            auto& settings = Renderer3D::GetRendererSettings();
+            settings.Path = RenderingPath::Deferred;
+            settings.EnableDDGI = true;
+            settings.Deferred.EnableLightProbes = true;
+            // The feature under test. The fixture snapshots and restores
+            // RendererSettings per test, so this cannot leak into the authored
+            // rig above (which would silently stop testing the authored path).
+            settings.DDGICascadesEnabled = true;
+            settings.DDGICascadeCount = kCascadeCount;
+            settings.DDGICascadeResolution = kCascadeRes;
+            settings.DDGICascadeBaseSpacing = kBaseSpacing;
+            settings.DDGICascadeBlendBand = 0.2f;
+            settings.DDGISparsityEnabled = true;
+            // 1-in-1 for the tests: the update rate is pinned as an exact
+            // partition by DDGIMath.UpdateRatePartitionsProbesExactlyOncePerPeriod,
+            // and throttling here would only make convergence slower to
+            // observe without testing anything the L1 test does not.
+            settings.DDGIUpdateRateDivisor = 1;
+            // 6 m, not the 10 m this rig started with: the seed is a floor, and
+            // an over-generous one silently becomes the dominant request source
+            // — it marked so much of a deliberately small field that the
+            // measured live fraction was really measuring the seed rather than
+            // the screen.
+            settings.DDGICameraSeedRadius = 6.0f;
+            // Scene derives the cascaded capture budget as 16 * DDGIBudgetScale.
+            settings.DDGIBudgetScale = 2.0f;
+            Renderer3D::ApplyRendererSettings();
+
+            // Gizmos are drawn into the composited frame these tests read back,
+            // so the light and world-axis helpers sit on top of the GI evidence.
+            //
+            // The RendererSettings flags are NOT enough: Scene keeps its own
+            // m_ShowLightGizmos / m_ShowWorldAxisHelper (both default true) and
+            // only EditorLayer pushes the settings into them — which this
+            // fixture never runs. Setting the renderer flags alone leaves the
+            // gizmos on and looks like the toggle did not work.
+            scene.SetLightGizmosVisible(false);
+            scene.SetWorldAxisHelperVisible(false);
+
+            auto& pp = Renderer3D::GetPostProcessSettings();
+            pp.TAAEnabled = false;
+            pp.AutoExposureEnabled = false;
+
+            {
+                Entity camera = scene.CreateEntity("Camera");
+                auto& tc = camera.GetComponent<TransformComponent>();
+                tc.Translation = { 0.0f, 3.0f, 6.0f };
+                auto& cc = camera.AddComponent<CameraComponent>();
+                cc.Primary = true;
+                cc.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
+            }
+
+            {
+                Entity sun = scene.CreateEntity("Sun");
+                auto& dl = sun.AddComponent<DirectionalLightComponent>();
+                dl.m_Direction = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.2f));
+                dl.m_Color = glm::vec3(1.0f, 0.97f, 0.92f);
+                dl.m_Intensity = 0.05f;
+                dl.m_CastShadows = true;
+            }
+
+            // Two key lights, one near and one far, so every cascade has real
+            // light to bounce rather than inheriting the near cascade's.
+            const auto addPointLight = [&scene](const char* name, const glm::vec3& pos, bool shadows)
+            {
+                Entity e = scene.CreateEntity(name);
+                e.GetComponent<TransformComponent>().Translation = pos;
+                auto& pl = e.AddComponent<PointLightComponent>();
+                pl.m_Color = { 1.0f, 0.95f, 0.85f };
+                pl.m_Intensity = 25.0f;
+                pl.m_Range = 30.0f;
+                pl.m_Attenuation = 1.0f;
+                pl.m_CastShadows = shadows;
+            };
+            addPointLight("Near Key", { 0.0f, 5.0f, 2.0f }, true);
+            addPointLight("Far Key", { 0.0f, 5.0f, -35.0f }, false);
+
+            // CUBES only: cube MeshComponents are the submission path verified
+            // to reach the DDGI caster sites (see the authored rig's note).
+            const auto addBox = [&scene](const char* name, const glm::vec3& pos, const glm::vec3& scale,
+                                         const glm::vec3& albedo)
+            {
+                Entity e = scene.CreateEntity(name);
+                auto& tc = e.GetComponent<TransformComponent>();
+                tc.Translation = pos;
+                tc.Scale = scale;
+                auto& mc = e.AddComponent<MeshComponent>();
+                mc.m_Primitive = MeshPrimitive::Cube;
+                if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
+                    mc.m_MeshSource = mesh->GetMeshSource();
+                auto& mat = e.AddComponent<MaterialComponent>();
+                mat.m_Material.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
+                mat.m_Material.SetMetallicFactor(0.0f);
+                mat.m_Material.SetRoughnessFactor(0.9f);
+            };
+
+            // A CLOSED corridor: as in the authored rig, an open roof floods
+            // every probe with a sky pedestal and washes out exactly the
+            // contrast these tests measure.
+            addBox("Floor", { 0.0f, 0.0f, -25.0f }, { 12.0f, 0.2f, 70.0f }, { 0.6f, 0.6f, 0.6f });
+            addBox("Ceiling", { 0.0f, 7.0f, -25.0f }, { 12.0f, 0.2f, 70.0f }, { 0.75f, 0.75f, 0.75f });
+            addBox("Left Wall", { -6.0f, 3.5f, -25.0f }, { 0.3f, 7.0f, 70.0f }, { 0.8f, 0.8f, 0.8f });
+            addBox("Right Wall", { 6.0f, 3.5f, -25.0f }, { 0.3f, 7.0f, 70.0f }, { 0.8f, 0.8f, 0.8f });
+            addBox("Near Wall", { 0.0f, 3.5f, 9.0f }, { 12.0f, 7.0f, 0.3f }, { 0.8f, 0.8f, 0.8f });
+            addBox("Far Wall", { 0.0f, 3.5f, -59.0f }, { 12.0f, 7.0f, 0.3f }, { 0.8f, 0.8f, 0.8f });
+
+            // One saturated bounce panel per cascade window.
+            addBox("Panel Cascade0", { -5.5f, 3.0f, 0.0f }, { 0.3f, 5.0f, 6.0f }, { 0.9f, 0.12f, 0.08f });
+            addBox("Panel Cascade1", { 5.5f, 3.0f, -12.0f }, { 0.3f, 5.0f, 6.0f }, { 0.12f, 0.85f, 0.15f });
+            addBox("Panel Cascade2", { -5.5f, 3.0f, -30.0f }, { 0.3f, 5.0f, 6.0f }, { 0.08f, 0.2f, 0.95f });
+        }
+
+        [[nodiscard]] EditorCamera MakePosedCamera(const glm::vec3& eye, const glm::vec3& target) const
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            const YawPitch yp = LookAtYawPitch(eye, target);
+            camera.SetPose(eye, yp.Yaw, yp.Pitch);
+            return camera;
+        }
+
+        void Converge(const glm::vec3& eye, const glm::vec3& target, u32 frames)
+        {
+            RunEditorFrames(MakePosedCamera(eye, target), frames);
+        }
+
+        void CaptureView(const char* tag, const glm::vec3& eye, const glm::vec3& target,
+                         std::vector<u8>& outPixels)
+        {
+            RunEditorFrames(MakePosedCamera(eye, target), 2);
+
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            if (!fb)
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+            ASSERT_TRUE(fb) << "No composited framebuffer for capture '" << tag << "'";
+
+            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
+
+            const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;
+            std::vector<u8> tmp(rowBytes);
+            for (u32 y = 0; y < kHeight / 2u; ++y)
+            {
+                u8* top = outPixels.data() + static_cast<std::size_t>(y) * rowBytes;
+                u8* bot = outPixels.data() + static_cast<std::size_t>(kHeight - 1u - y) * rowBytes;
+                std::memcpy(tmp.data(), top, rowBytes);
+                std::memcpy(top, bot, rowBytes);
+                std::memcpy(bot, tmp.data(), rowBytes);
+            }
+        }
+
+        // Per-cascade probe-state histogram, from the pass's explicit
+        // diagnostics sync (issue #707: the frame itself never reads back).
+        struct CascadeHistogram
+        {
+            std::array<i32, 8> Active{};
+            std::array<i32, 8> Inactive{};
+            std::array<i32, 8> Uncaptured{};
+        };
+
+        [[nodiscard]] static CascadeHistogram ReadCascadeHistogram(const DDGIProbeUpdatePass& pass)
+        {
+            pass.ReadbackProbeDiagnostics();
+            CascadeHistogram histogram{};
+            const auto& records = pass.GetProbeRecords();
+            const glm::ivec3 dims(kCascadeRes);
+            for (std::size_t i = 0; i < records.size(); ++i)
+            {
+                const i32 level = std::clamp(DDGI::CascadeOfProbeIndex(static_cast<i32>(i), dims), 0, 7);
+                switch (records[i].State)
+                {
+                    case DDGI::ProbeState::Active:
+                        ++histogram.Active[static_cast<std::size_t>(level)];
+                        break;
+                    case DDGI::ProbeState::Inactive:
+                        ++histogram.Inactive[static_cast<std::size_t>(level)];
+                        break;
+                    case DDGI::ProbeState::Uncaptured:
+                        ++histogram.Uncaptured[static_cast<std::size_t>(level)];
+                        break;
+                }
+            }
+            return histogram;
+        }
+
+        // Unconditional PNG write — evidence, not a golden. The cascade windows
+        // follow the camera, so a golden here would pin the pose as hard as it
+        // pinned the result, and any camera-constant retune would read as a
+        // regression. The images exist for a human (and the PR) to look at;
+        // the assertions live in the tests above.
+        static void WriteEvidencePng(const std::string& name, const std::vector<u8>& pixels)
+        {
+            const fs::path dir = fs::path("assets") / "tests" / "visual";
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            EXPECT_FALSE(ec) << "Failed to create evidence dir '" << dir.generic_string()
+                             << "': " << ec.message();
+            const std::string path = (dir / (name + ".png")).string();
+            const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
+                                               static_cast<int>(kHeight), 4, pixels.data(),
+                                               static_cast<int>(kWidth) * 4);
+            EXPECT_NE(wrote, 0) << "stbi_write_png failed for '" << path << "'";
+            std::cout << "[ddgi-cascades] wrote " << path << "\n";
+        }
+    };
+
+    // Acceptance criterion 1: GI is continuous across a large scene with NO
+    // authored probe volume. "Continuous" is measured as live, captured, Active
+    // probes in EVERY cascade — a field that stopped at cascade 0 would still
+    // render a perfectly plausible frame, just with the far corridor lit only
+    // by the ambient ladder.
+    TEST_F(DDGICascadeEvidenceTest, CascadesCoverTheCorridorWithNoAuthoredVolume)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Converge({ 0.0f, 3.0f, 6.0f }, { 0.0f, 3.0f, -40.0f }, kConvergeFrames);
+
+        auto* pass = Renderer3D::GetDDGIPass();
+        ASSERT_NE(pass, nullptr) << "the DDGI pass never ran";
+        EXPECT_TRUE(pass->RanThisFrame())
+            << "no cascaded field was submitted — check RendererSettings::DDGICascadesEnabled and that "
+               "the scene really has no LightProbeVolumeComponent (an authored volume takes precedence)";
+
+        EXPECT_EQ(pass->GetCascadeCount(), kCascadeCount);
+        EXPECT_EQ(pass->GetTotalProbeCount(), kCascadeTotalProbes);
+
+        // Cascade N must be twice cascade N-1's spacing, and every window must
+        // be centred near the camera. Checked against the LIVE cascade table so
+        // a regression in the pass's own layout is caught, not just the math
+        // header's (which DDGIMathTest already pins).
+        const auto& cascades = pass->GetCascades();
+        for (i32 level = 1; level < kCascadeCount; ++level)
+        {
+            EXPECT_NEAR(cascades[static_cast<std::size_t>(level)].Spacing.x,
+                        cascades[static_cast<std::size_t>(level - 1)].Spacing.x * 2.0f, 1e-3f)
+                << "cascade " << level << " must be twice the previous one's spacing";
+        }
+
+        const CascadeHistogram histogram = ReadCascadeHistogram(*pass);
+        for (i32 level = 0; level < kCascadeCount; ++level)
+        {
+            const auto l = static_cast<std::size_t>(level);
+            std::cout << "[ddgi-cascades] cascade " << level
+                      << ": active=" << histogram.Active[l]
+                      << " inactive=" << histogram.Inactive[l]
+                      << " uncaptured=" << histogram.Uncaptured[l]
+                      << " (of " << kProbesPerCascade << ")\n";
+            EXPECT_GT(histogram.Active[l], 0)
+                << "cascade " << level << " has no Active probe — GI stops before it, which renders as a "
+                                          "plausible frame lit only by the ambient ladder";
+        }
+    }
+
+    // Acceptance criterion 2, the measurable half: the ACTIVE probe count in a
+    // typical view is a small fraction of the dense grid. Measured, printed,
+    // and asserted loosely — the exact ratio depends on the rig, but "sparsity
+    // is doing nothing" (live == total) must fail.
+    TEST_F(DDGICascadeEvidenceTest, SparsityKeepsTheLiveSetASmallFractionOfTheField)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Converge({ 0.0f, 3.0f, 6.0f }, { 0.0f, 3.0f, -40.0f }, kConvergeFrames);
+
+        auto* pass = Renderer3D::GetDDGIPass();
+        ASSERT_NE(pass, nullptr);
+        const DDGIProbeUpdatePass::ProbeStats stats = pass->GetProbeStats();
+
+        std::cout << "[ddgi-cascades] probes: total=" << kCascadeTotalProbes
+                  << " live=" << stats.LiveProbes
+                  << " active=" << stats.ActiveProbes
+                  << " relit/frame=" << stats.RelitProbes
+                  << " blended/frame=" << stats.BlendedProbes
+                  << " captured=" << stats.CapturedProbes
+                  << " live-but-uncaptured=" << stats.UncapturedLive << "\n";
+        std::cout << "[ddgi-cascades] live fraction = "
+                  << (100.0 * static_cast<f64>(stats.LiveProbes) / static_cast<f64>(kCascadeTotalProbes)) << "%\n";
+
+        EXPECT_GT(stats.LiveProbes, 0u) << "nothing requested a probe — sparsity has starved the field";
+        EXPECT_LT(stats.LiveProbes, static_cast<u32>(kCascadeTotalProbes))
+            << "every probe is live, so sparsity is not actually gating anything";
+        // The relight set can never exceed the live set — if it does, the two
+        // gates (DDGI_Relight.glsl and DDGI_ProbeMaintain.comp) disagree about
+        // liveness, which is the drift the shared ddgiProbeUpdatesNow exists to
+        // prevent.
+        EXPECT_LE(stats.RelitProbes, stats.LiveProbes);
+    }
+
+    // The OTHER half of acceptance criterion 2, and the half that is easy to
+    // quote wrongly. Sparsity alone answers "how many probes are live"; what
+    // the frame actually PAYS FOR is `relit`, which is live x the update rate.
+    // The tests above deliberately run at 1-in-1 so convergence is observable,
+    // which excludes the second factor entirely — so it is measured here at the
+    // shipping 1-in-8 instead of multiplied out on paper.
+    TEST_F(DDGICascadeEvidenceTest, ShippingUpdateRateRelightsAFractionOfTheLiveSet)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.DDGIUpdateRateDivisor = 8; // PGI's default, and ours
+        Renderer3D::ApplyRendererSettings();
+
+        // Longer than kConvergeFrames: at 1-in-8 a probe's EMA advances one
+        // frame in eight, so the field needs proportionally longer to settle.
+        const glm::vec3 eye{ 0.0f, 3.0f, 6.0f };
+        const glm::vec3 target{ 0.0f, 3.0f, -40.0f };
+        Converge(eye, target, kConvergeFrames * 2u);
+
+        auto* pass = Renderer3D::GetDDGIPass();
+        ASSERT_NE(pass, nullptr);
+
+        // AVERAGE OVER A FULL PERIOD, not a single frame.
+        //
+        // `RelitProbes` is one frame's count, and the round-robin selects probes
+        // by INDEX — so each of the 8 phases picks a different slice of a live
+        // set whose indices are clustered (they are cascade-major, and the
+        // cascades are not equally live). Sampling one frame therefore returns
+        // anything from well under to well over the mean: measured 63 on one
+        // run and 119 on another with an identical live set of 515. Averaging
+        // one whole period is what actually measures "1-in-8", and it removes a
+        // margin that was passing on luck.
+        constexpr u32 kPeriod = 8u;
+        u64 relitTotal = 0;
+        u64 blendedTotal = 0;
+        u32 liveSample = 0;
+        for (u32 frame = 0; frame < kPeriod; ++frame)
+        {
+            Converge(eye, target, 1);
+            const DDGIProbeUpdatePass::ProbeStats s = pass->GetProbeStats();
+            relitTotal += s.RelitProbes;
+            blendedTotal += s.BlendedProbes;
+            liveSample = s.LiveProbes;
+            EXPECT_EQ(s.BlendedProbes, s.RelitProbes)
+                << "frame " << frame
+                << ": the blend gate and the relight gate must select the SAME probes (ddgiProbeUpdatesNow); a "
+                   "probe blended without being relit EMAs toward a radiance cache nobody is refreshing";
+        }
+
+        const f64 relitPerFrame = static_cast<f64>(relitTotal) / static_cast<f64>(kPeriod);
+        const f64 livePct = 100.0 * static_cast<f64>(liveSample) / static_cast<f64>(kCascadeTotalProbes);
+        const f64 relitPct = 100.0 * relitPerFrame / static_cast<f64>(kCascadeTotalProbes);
+        std::cout << "[ddgi-cascades] at 1-in-8 (mean over " << kPeriod << " frames): total=" << kCascadeTotalProbes
+                  << " live=" << liveSample << " (" << livePct << "%)  relit/frame=" << relitPerFrame << " ("
+                  << relitPct << "% of the field)\n";
+
+        ASSERT_GT(liveSample, 0u);
+        EXPECT_EQ(relitTotal, blendedTotal);
+        // Over a full period every live probe relights exactly once, so the mean
+        // is live/8 by construction — assert that rather than a hand-picked
+        // slack, and let the tolerance cover probes entering or leaving the live
+        // set during the 8 frames.
+        const f64 expected = static_cast<f64>(liveSample) / static_cast<f64>(kPeriod);
+        EXPECT_NEAR(relitPerFrame, expected, 0.25 * expected)
+            << "1-in-8 must relight a mean of live/8 probes per frame over one full period; measured "
+            << relitPerFrame << " against an expected " << expected;
+    }
+
+    // Sparsity and the variable update rate are about WHEN probes update, so
+    // their failure mode is temporal: a field that flickers or creeps looks
+    // fine in any single frame. Converge, capture, run more frames from the
+    // same pose, capture again, and compare.
+    TEST_F(DDGICascadeEvidenceTest, CascadeFieldIsTemporallyStableFromAFixedPose)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const glm::vec3 eye{ 0.0f, 3.0f, 6.0f };
+        const glm::vec3 target{ 0.0f, 3.0f, -40.0f };
+
+        // CONVERGE UNTIL THE CAPTURE SCHEDULE HAS CAUGHT UP, not for a fixed
+        // frame count. A fixed count cannot tell "still converging" from "not
+        // stable", and that is not a hypothetical: at 2048 probes and a budget
+        // of 32 the field needs ~200 frames, so the original fixed 140 measured
+        // an RMSE of 2.96 against a 3.0 threshold — a test that would have gone
+        // red on any rig change while reporting nothing about stability.
+        //
+        // `UncapturedLive == 0` is the honest "caught up" signal: no probe that
+        // something is shading from is still waiting for its first capture.
+        auto* warmupPass = Renderer3D::GetDDGIPass();
+        ASSERT_NE(warmupPass, nullptr);
+        constexpr u32 kMaxWarmupIntervals = 12u;
+        u32 warmupFrames = 0;
+        for (; warmupFrames < kMaxWarmupIntervals; ++warmupFrames)
+        {
+            Converge(eye, target, kConvergeFrames / 2u);
+            if (warmupPass->GetProbeStats().UncapturedLive == 0u)
+            {
+                break;
+            }
+        }
+        const DDGIProbeUpdatePass::ProbeStats warm = warmupPass->GetProbeStats();
+        // `warmupFrames` is the index of the iteration that broke, but on the
+        // exhausted path it is the loop LIMIT — so the number that actually ran
+        // is min(warmupFrames + 1, limit). Adding one unconditionally
+        // over-reports by a whole interval exactly when the warm-up failed,
+        // i.e. in the diagnostic that matters most.
+        const u32 warmupIterations = std::min(warmupFrames + 1u, kMaxWarmupIntervals);
+        std::cout << "[ddgi-cascades] warmed up after " << (warmupIterations * (kConvergeFrames / 2u))
+                  << " frames; live=" << warm.LiveProbes << " live-but-uncaptured=" << warm.UncapturedLive << "\n";
+        EXPECT_EQ(warm.UncapturedLive, 0u)
+            << "the capture schedule never caught up, so the RMSE below would measure convergence rather than "
+               "stability — raise the capture budget or the frame count rather than relaxing the threshold";
+
+        // THREE captures, not two, and the assertion is about DRIFT rather than
+        // an absolute threshold.
+        //
+        // A single "RMSE(A,B) < k" cannot tell bounded churn from creep, and it
+        // is the creep that matters: a field that keeps moving in one direction
+        // under a still camera has a feedback term that does not settle, while
+        // one that jitters within a bound is the capture-refresh cycle doing its
+        // job (it re-captures the oldest probes forever, and each recapture
+        // re-enters the visibility EMA). The first version of this test asserted
+        // RMSE < 3.0 against a measured 3.5 — and 3.0 was a number I picked, not
+        // one I measured, which is the mistake live-verification-noise-floor.md
+        // is about. Comparing two intervals makes the pipeline supply its own
+        // noise floor instead.
+        // SUCCESSIVE INCREMENTS, not cumulative differences.
+        //
+        // Two earlier versions of this assertion measured the wrong thing, and
+        // both were wrong in the same direction — they could not tell a field
+        // that is still CONVERGING from one that is DRIFTING:
+        //
+        //   * "RMSE(t, t+45) < k" needs a k, and 3.0 was a number I picked, not
+        //     one I measured. It also made the test ORDER-DEPENDENT: 3.5 inside
+        //     the suite (earlier tests had warmed the process-global atlas)
+        //     versus 18.6 alone. A number that depends on what ran before it is
+        //     a flake with a plausible value.
+        //   * "RMSE(t, t+90) < 1.6 x RMSE(t, t+45)" looks like a drift test but
+        //     is not: while converging toward a fixed point the frame moves
+        //     monotonically, so the cumulative difference grows linearly and the
+        //     ratio sits at ~2 — identical to genuine drift.
+        //
+        // The discriminator is the SHAPE of the successive increments.
+        // Converging shrinks them; drifting holds them constant; flickering
+        // makes them noisy but non-shrinking. So the series is what gets
+        // asserted, and it is printed so a reader can see the shape rather than
+        // trust a single scalar.
+        constexpr u32 kIntervalFrames = 45u;
+        constexpr std::size_t kIntervals = 5;
+
+        std::vector<u8> previous;
+        CaptureView("cascade-stability", eye, target, previous);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        std::vector<f64> increments;
+        increments.reserve(kIntervals);
+        for (std::size_t i = 0; i < kIntervals; ++i)
+        {
+            Converge(eye, target, kIntervalFrames);
+            std::vector<u8> current;
+            CaptureView("cascade-stability", eye, target, current);
+            if (::testing::Test::HasFatalFailure())
+                return;
+            ASSERT_EQ(previous.size(), current.size());
+            increments.push_back(Rgba8Rmse(previous, current));
+            previous.swap(current);
+        }
+
+        std::cout << "[ddgi-cascades] successive " << kIntervalFrames << "-frame RMSE increments:";
+        for (const f64 v : increments)
+        {
+            std::cout << " " << v;
+        }
+        std::cout << "\n";
+
+        const f64 largest = *std::max_element(increments.begin(), increments.end());
+
+        // BOUNDED, not monotonically shrinking — and the difference matters.
+        //
+        // A cascaded field does not converge to a fixed point, and it should not
+        // be asserted to: the capture scheduler re-captures the oldest probes
+        // forever (the budget/8 refresh tier), so with ~515 live probes at ~4
+        // refreshes per frame there is a sweep of period ~130 frames permanently
+        // moving through the field. The increment series therefore oscillates
+        // with roughly that period rather than decaying to zero, and demanding
+        // a strictly shrinking series would be demanding the refresh cycle stop
+        // existing.
+        //
+        // What IS required is that the oscillation stays inside the noise budget
+        // the authored path already meets, and does not grow. Both together rule
+        // out the failure this test is for: a request or update-rate gate that
+        // disagrees with itself produces churn that neither bounds nor repeats.
+        EXPECT_LT(largest, kGoldenRmseThreshold)
+            << "converged-field churn exceeds the golden tolerance the authored DDGI path holds to — the field "
+               "is not settling into the pipeline's own noise budget";
+        EXPECT_LT(increments.back(), 1.5 * increments.front())
+            << "the churn is GROWING across the series, which under a still camera means the field is diverging "
+               "rather than oscillating around a settled state";
+    }
+
+    // Multi-angle evidence. NOT goldens: the cascade layout depends on the
+    // camera position, so these images are for a human to read (and for the PR)
+    // rather than for an RMSE compare that would pin a pose as much as a result.
+    TEST_F(DDGICascadeEvidenceTest, MultiAngleCascadeEvidence)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct View
+        {
+            const char* Name;
+            glm::vec3 Eye;
+            glm::vec3 Target;
+        };
+        const std::array<View, 4> views = { {
+            { "ddgi_cascade_near", { 0.0f, 3.0f, 6.0f }, { 0.0f, 3.0f, -40.0f } },
+            { "ddgi_cascade_mid", { 0.0f, 3.0f, -12.0f }, { 0.0f, 3.0f, -50.0f } },
+            { "ddgi_cascade_far", { 0.0f, 3.0f, -34.0f }, { 0.0f, 3.0f, -58.0f } },
+            { "ddgi_cascade_back", { 0.0f, 3.0f, -34.0f }, { 0.0f, 3.0f, 6.0f } },
+        } };
+
+        for (const View& view : views)
+        {
+            // Re-converge per pose: the cascade windows are centred on the
+            // camera, so moving the camera invalidates a slab in every cascade
+            // and the field genuinely needs frames to settle. Capturing without
+            // this would photograph the transient and read as a cascade bug.
+            Converge(view.Eye, view.Target, kConvergeFrames);
+
+            std::vector<u8> pixels;
+            CaptureView(view.Name, view.Eye, view.Target, pixels);
+            if (::testing::Test::HasFatalFailure())
+                return;
+            WriteEvidencePng(view.Name, pixels);
+
+            auto* pass = Renderer3D::GetDDGIPass();
+            ASSERT_NE(pass, nullptr);
+            const DDGIProbeUpdatePass::ProbeStats stats = pass->GetProbeStats();
+            std::cout << "[ddgi-cascades] " << view.Name << ": live=" << stats.LiveProbes
+                      << " active=" << stats.ActiveProbes << " of " << kCascadeTotalProbes << "\n";
+        }
+    }
+
 } // namespace OloEngine::Tests

@@ -52,6 +52,7 @@ void main()
 #version 460 core
 
 #include "include/DDGICommon.glsl"
+#include "include/DDGIProbeBuffers.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -81,6 +82,10 @@ void main()
     ivec2 atlasTexel = ivec2(gl_FragCoord.xy);
     ivec2 tile = atlasTexel / DDGI_IRRADIANCE_TILE;
     ivec2 local = atlasTexel % DDGI_IRRADIANCE_TILE;
+    ivec3 dims = max(u_DDGIGridDimensions.xyz, ivec3(1));
+    int level = tile.x / dims.x;
+    ivec3 storage = ivec3(tile.x % dims.x, tile.y % dims.y, tile.y / dims.y);
+    int probeIndex = ddgiCascadedProbeIndex(level, storage);
 
     vec4 prev = texelFetch(u_PrevIrradiance, atlasTexel, 0);
     vec4 pdata = texelFetch(u_ProbeData, tile, 0);
@@ -97,6 +102,26 @@ void main()
     {
         o_Irradiance = prev;
         return;
+    }
+
+    // SPARSITY + VARIABLE UPDATE RATE (issue #707): a probe the relight stage
+    // skipped must NOT blend, or its EMA would converge toward a radiance cache
+    // that is no longer being refreshed — a probe that slowly drifts toward a
+    // stale lighting state while every test stays green. The condition is
+    // ddgiProbeUpdatesNow, the SAME predicate DDGI_Relight.glsl uses, precisely
+    // so the two cannot disagree.
+    //
+    // The atlas is ping-ponged, so "skip" means COPY PREV THROUGH, never
+    // discard: discarding would leave this texel holding the write target's
+    // two-frames-old content.
+    if (!ddgiProbeUpdatesNow(probeIndex, uint(max(u_DDGIFrameIndex, 0))))
+    {
+        o_Irradiance = prev;
+        return;
+    }
+    if (local == ivec2(0))
+    {
+        atomicAdd(b_StatBlendedProbes, 1u);
     }
 
     // Border texels replicate their interior source so cross-tile bilinear

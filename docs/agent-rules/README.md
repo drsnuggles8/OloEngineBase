@@ -54,6 +54,7 @@ the drift is silent because each side is individually self-consistent.
 |---|---|
 | [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) | header ↔ bake ↔ GLSL — pinned by a regex parity test |
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | three light evaluators that can render the same scene |
+| [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) | the cascade-shift invalidation is derived INDEPENDENTLY on the CPU and the GPU from the same two lattice origins — on purpose, because the GPU telling the CPU would be the readback #707 exists to delete |
 | [reference-path-tracer.md](reference-path-tracer.md) | a C++ BRDF port against the GLSL it mirrors |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | five exclusion sets, plus generator-vs-coverage-test rosters |
 | [runtime-scene-switching.md](runtime-scene-switching.md) | the build pipeline and the runtime must agree on an asset layout, or scripts never load |
@@ -229,6 +230,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [asset-import-usd-alembic.md](asset-import-usd-alembic.md)
 
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
+[ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) ·
 [lazy-static-release-ownership.md](lazy-static-release-ownership.md) ·
 [gpu-debug-draws.md](gpu-debug-draws.md) ·

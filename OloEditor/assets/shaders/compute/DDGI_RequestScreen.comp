@@ -1,0 +1,87 @@
+#version 460 core
+
+// =============================================================================
+// DDGI_RequestScreen.comp — screen pixels request probes (issue #707, sparsity)
+//
+// The first half of "probes are requested by shaded screen pixels and by probe
+// trace hits, one indirection deep". Each invocation reconstructs the world
+// position behind one screen texel and requests the 8 probes the gather would
+// read there (plus the coarser cascade's 8 when the position is in the blend
+// band, since the gather genuinely reads both).
+//
+// TWO deliberate choices worth not re-deriving:
+//
+// * It reads the PREVIOUS frame's depth, and the previous frame's world inverse
+//   view-projection with it. The DDGI update runs early (right after the shadow
+//   pass, long before anything writes this frame's depth), so declaring a graph
+//   read on scene depth would reorder the whole pass behind the G-buffer — for
+//   a signal that is quantized to probe cells and kept alive for 16 frames
+//   anyway. One frame of latency here is invisible; reordering the frame is not.
+//   The pass passes the matched (depth, inverse-VP) pair so a moving camera does
+//   not skew the reconstruction.
+//
+// * It SUBSAMPLES by u_DDGIComputeParams stride. A probe cell covers a large
+//   screen area, so consecutive pixels request the same 8 probes; sampling every
+//   Nth texel costs a fraction of the atomics for the same request set.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "../include/DDGICommon.glsl"
+#include "../include/DDGIPassData.glsl"
+#include "../include/DDGIProbeBuffers.glsl"
+
+#include "../include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_SceneDepth OLO_HEAP_TEX_2D(0)
+#else
+layout(binding = 0) uniform sampler2D u_SceneDepth;
+#endif
+
+// Screen texels between samples, per axis. 8 keeps a 1920x1080 frame at
+// 240x135 invocations — a rounding error against the probe work it schedules.
+// Mirrors DDGI::kScreenRequestStride (DDGICommon.h); the C++ side sizes the
+// dispatch from it, so a mismatch samples the wrong share of the screen.
+// Pinned by BindlessShaderPipeline.DDGIShaderConstantsMatchTheCppMirrors.
+const int DDGI_SCREEN_REQUEST_STRIDE = 8;
+
+void main()
+{
+    if ((u_DDGIComputeParams.w & DDGI_PASS_FLAG_DEPTH_VALID) == 0)
+    {
+        return;
+    }
+
+    ivec2 screenSize = ivec2(u_DDGIComputeParams.y, u_DDGIComputeParams.z);
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy) * DDGI_SCREEN_REQUEST_STRIDE;
+    if (any(greaterThanEqual(texel, screenSize)))
+    {
+        return;
+    }
+
+    float depth = texelFetch(u_SceneDepth, texel, 0).r;
+    // Far plane / cleared depth: sky, nothing to shade, nothing to request.
+    // >= is deliberate — a reversed-Z or partially-cleared buffer reads 1.0
+    // exactly on the miss, and a request from an unwritten texel would seed the
+    // entire cascade with garbage positions.
+    if (depth >= 1.0 || depth <= 0.0)
+    {
+        return;
+    }
+
+    vec2 uv = (vec2(texel) + 0.5) / vec2(screenSize);
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world = u_DDGIInvViewProjection * clip;
+    if (abs(world.w) < 1e-6)
+    {
+        return;
+    }
+    // The depth was written by render-relative geometry but the matrix is the
+    // WORLD view-projection, so this reconstruction lands in ABSOLUTE world
+    // space (see RenderPipeline.cpp's note on InverseViewProjectionMatrix).
+    // The DDGI UBO is render-origin-relative, hence the subtraction.
+    vec3 worldPos = world.xyz / world.w;
+    vec3 relPos = worldPos - u_DDGIRenderOrigin.xyz;
+
+    ddgiRequestProbesAtPosition(relPos, uint(max(u_DDGIFrameIndex, 0)), true);
+}

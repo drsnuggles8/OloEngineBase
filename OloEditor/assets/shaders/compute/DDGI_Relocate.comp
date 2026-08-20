@@ -1,0 +1,239 @@
+#version 460 core
+
+// =============================================================================
+// DDGI_Relocate.comp — GPU probe relocation + classification (issue #707, #4)
+//
+// Replaces DDGIProbeUpdatePass::RelocateAndClassifyProbe, which read each
+// captured probe's hit tile back with glGetTextureSubImage, ran
+// DDGI::RelocateProbe / ClassifyProbe on the CPU and re-uploaded one texel.
+// That is a GPU->CPU->GPU round trip in the MIDDLE of the frame, immediately
+// after the draw that produced the data it reads — i.e. a full pipeline drain,
+// once per captured probe, every frame. Removing it is acceptance criterion 3.
+//
+// ONE WORK GROUP PER CAPTURED PROBE. The group cooperatively reduces the
+// probe's t x t hit tile into DDGIProbeHitAggregates, then invocation 0 applies
+// the SPRING relocation (see ddgiRelocateProbeSpring / DDGI::RelocateProbeSpring
+// for why it is a force balance rather than RTXGI's closest-face rule),
+// classifies, and writes both the probe-data image the gather samples and the
+// aux record the CPU reads only through the explicit diagnostics path.
+//
+// The reduction is 64-way parallel followed by a SERIAL combine over the 64
+// partials in invocation 0. A tree reduction would be faster and is not worth
+// it: the capture budget is a handful of probes per frame, so this dispatch is
+// tens of microseconds either way, and min/max-with-associated-direction is
+// exactly the kind of reduction that is easy to get subtly wrong in a tree.
+// =============================================================================
+
+#define DDGI_RELOCATE_GROUP 64
+layout(local_size_x = DDGI_RELOCATE_GROUP) in;
+
+#include "../include/DDGICommon.glsl"
+#include "../include/DDGIPassData.glsl"
+#include "../include/DDGIProbeBuffers.glsl"
+
+#include "../include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define u_HitGeo OLO_HEAP_TEX_2D(1) // rg octN, b dist (<0 sky), a flag
+#else
+layout(binding = 1) uniform sampler2D u_HitGeo;
+#endif
+#ifndef OLO_BINDLESS
+layout(rgba16f, binding = 0) uniform image2D u_ProbeDataImage; // xyz = offsetN, w = state
+#endif
+
+// Per-invocation partials.
+shared float s_BackfaceCount[DDGI_RELOCATE_GROUP];
+shared vec4 s_ClosestBack[DDGI_RELOCATE_GROUP];  // xyz = dir, w = dist (< 0 none)
+shared vec4 s_ClosestFront[DDGI_RELOCATE_GROUP]; // xyz = dir, w = dist (< 0 none)
+shared vec4 s_FarthestFront[DDGI_RELOCATE_GROUP];
+shared vec4 s_Free[DDGI_RELOCATE_GROUP];     // xyz = weighted dir sum, w = weight
+shared vec4 s_Crowding[DDGI_RELOCATE_GROUP]; // xyz = weighted dir sum, w = weight
+shared vec2 s_Bounce[DDGI_RELOCATE_GROUP];   // x = weight sum, y = hit count
+
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba16f, OLO_HEAP_IMAGE_RW, image2D, u_ProbeDataImage, 0);
+#endif
+
+    // The probe index arrives per dispatch (one dispatch per captured probe):
+    // the capture stage already issues per-probe work, so there is nothing to
+    // gain from batching and a per-dispatch uniform keeps the CPU side honest
+    // about which probes it captured.
+    int probeIndex = int(u_DDGIProbePosition.w + 0.5);
+    int level = ddgiCascadeOfProbeIndex(probeIndex);
+    ivec3 storage = ddgiStorageCoordOfProbeIndex(probeIndex);
+    ivec2 tile = ddgiCascadedProbeTileCoord(level, storage);
+
+    int t = u_DDGIHitCacheTexels;
+    int texelCount = t * t;
+    vec3 spacing = u_DDGICascadeSpacing[level].xyz;
+    float maxRayDistance = u_DDGICascadeOrigin[level].w;
+    // RTXGI's "comfortable distance to a wall", scaled to this cascade.
+    float minFrontfaceDistance = 0.25 * u_DDGICascadeSpacing[level].w;
+
+    uint lane = gl_LocalInvocationID.x;
+
+    float backCount = 0.0;
+    vec4 closestBack = vec4(0.0, 0.0, 0.0, -1.0);
+    vec4 closestFront = vec4(0.0, 0.0, 0.0, -1.0);
+    vec4 farthestFront = vec4(0.0, 0.0, 0.0, -1.0);
+    vec4 freeAccum = vec4(0.0);
+    vec4 crowdAccum = vec4(0.0);
+    vec2 bounceAccum = vec2(0.0);
+
+    // The probe's CURRENT relocated position — hit distances were captured from
+    // it, and the bounce-coverage diagnostic must score the points the relight
+    // stage will actually evaluate, not the un-relocated lattice point.
+    vec4 pdataPrev = imageLoad(u_ProbeDataImage, tile);
+    vec3 probeRel = ddgiCascadeProbeWorldPosition(storage, level, pdataPrev.xyz);
+
+    for (int i = int(lane); i < texelCount; i += DDGI_RELOCATE_GROUP)
+    {
+        ivec2 local = ivec2(i % t, i / t);
+        vec4 geo = texelFetch(u_HitGeo, tile * t + local, 0);
+        vec3 dir = ddgiTexelDirection(local, t);
+        float dist = geo.b;
+        float flag = geo.a;
+
+        if (dist < 0.0 || flag < 0.25)
+        {
+            // Sky: not a hit at all — but it IS the most open direction there
+            // is, so it carries full weight into the free-direction term. That
+            // is the difference between a probe against a window drifting
+            // outward (wrong) and staying put (right): without the sky sample
+            // the mean free direction would be built only from the far walls.
+            freeAccum += vec4(dir, 1.0);
+            continue;
+        }
+
+        float openness = clamp(dist / max(maxRayDistance, 1e-4), 0.0, 1.0);
+        freeAccum += vec4(dir * openness, openness);
+
+        if (dist < minFrontfaceDistance)
+        {
+            float crowding = 1.0 - (dist / max(minFrontfaceDistance, 1e-6));
+            crowdAccum += vec4(dir * crowding, crowding);
+        }
+
+        if (flag < 0.75)
+        {
+            backCount += 1.0;
+            if (closestBack.w < 0.0 || dist < closestBack.w)
+            {
+                closestBack = vec4(dir, dist);
+            }
+            continue;
+        }
+
+        if (closestFront.w < 0.0 || dist < closestFront.w)
+        {
+            closestFront = vec4(dir, dist);
+        }
+        if (dist > farthestFront.w)
+        {
+            farthestFront = vec4(dir, dist);
+        }
+
+        // Issue #751 diagnostic, cascade-aware: the attenuation the bounce
+        // gather applies at this hit point. Frontface hits only — sky carries
+        // environment radiance rather than a bounce, and backface radiance is
+        // zeroed by the relight stage before the gather is reached.
+        vec3 hitRel = probeRel + dir * dist;
+        bounceAccum += vec2(ddgiBounceCoverageWeight(hitRel), 1.0);
+    }
+
+    s_BackfaceCount[lane] = backCount;
+    s_ClosestBack[lane] = closestBack;
+    s_ClosestFront[lane] = closestFront;
+    s_FarthestFront[lane] = farthestFront;
+    s_Free[lane] = freeAccum;
+    s_Crowding[lane] = crowdAccum;
+    s_Bounce[lane] = bounceAccum;
+
+    barrier();
+    memoryBarrierShared();
+
+    if (lane != 0u)
+    {
+        return;
+    }
+
+    DDGIProbeHitAggregates agg;
+    agg.ClosestBackfaceDir = vec3(0.0);
+    agg.ClosestBackfaceDist = -1.0;
+    agg.ClosestFrontfaceDir = vec3(0.0);
+    agg.ClosestFrontfaceDist = -1.0;
+    agg.FarthestFrontfaceDir = vec3(0.0);
+    agg.FarthestFrontfaceDist = -1.0;
+    agg.FreeDirectionSum = vec3(0.0);
+    agg.FreeDirectionWeight = 0.0;
+    agg.CrowdingSum = vec3(0.0);
+    agg.CrowdingWeight = 0.0;
+
+    float totalBackfaces = 0.0;
+    vec2 totalBounce = vec2(0.0);
+    for (int k = 0; k < DDGI_RELOCATE_GROUP; ++k)
+    {
+        totalBackfaces += s_BackfaceCount[k];
+        totalBounce += s_Bounce[k];
+
+        vec4 cb = s_ClosestBack[k];
+        if (cb.w >= 0.0 && (agg.ClosestBackfaceDist < 0.0 || cb.w < agg.ClosestBackfaceDist))
+        {
+            agg.ClosestBackfaceDist = cb.w;
+            agg.ClosestBackfaceDir = cb.xyz;
+        }
+        vec4 cf = s_ClosestFront[k];
+        if (cf.w >= 0.0 && (agg.ClosestFrontfaceDist < 0.0 || cf.w < agg.ClosestFrontfaceDist))
+        {
+            agg.ClosestFrontfaceDist = cf.w;
+            agg.ClosestFrontfaceDir = cf.xyz;
+        }
+        vec4 ff = s_FarthestFront[k];
+        if (ff.w > agg.FarthestFrontfaceDist)
+        {
+            agg.FarthestFrontfaceDist = ff.w;
+            agg.FarthestFrontfaceDir = ff.xyz;
+        }
+        agg.FreeDirectionSum += s_Free[k].xyz;
+        agg.FreeDirectionWeight += s_Free[k].w;
+        agg.CrowdingSum += s_Crowding[k].xyz;
+        agg.CrowdingWeight += s_Crowding[k].w;
+    }
+    agg.BackfaceFraction = totalBackfaces / float(max(texelCount, 1));
+
+    uint newState = ddgiClassifyProbe(agg.BackfaceFraction);
+    vec3 newOffset = ddgiRelocateProbeSpring(pdataPrev.xyz, agg, spacing, minFrontfaceDistance);
+
+    // A PERIODIC REFRESH MUST NOT RE-PLACE AN ALREADY-SETTLED PROBE.
+    //
+    // The capture scheduler re-captures the oldest probes forever (the
+    // budget/8 refresh tier) so that moved static geometry heals. Running the
+    // spring on those captures too puts a settled probe back into a feedback
+    // loop it had already left: the spring's input is the hit cache captured
+    // FROM the position the spring itself produced, so each refresh nudges the
+    // probe, which changes the next capture, which nudges it again.
+    //
+    // Measured, that is a limit cycle rather than a fixed point — the converged
+    // field kept churning at 3-7 RMSE under a completely still camera, in a
+    // series that plateaued instead of shrinking. Relocation is a PLACEMENT
+    // problem and it converges once; refresh is a GEOMETRY problem and has no
+    // business moving the probe.
+    //
+    // The exception is a probe that now classifies Inactive: it is inside
+    // geometry, staying put is actively harmful, and re-placing it is the whole
+    // point of relocation. A cascade shift resets the probe's record entirely,
+    // so a probe that moves to a new lattice point re-places itself normally.
+    if ((u_DDGIComputeParams.w & DDGI_PASS_FLAG_REFRESH_CAPTURE) != 0 && newState == DDGI_PROBE_STATE_ACTIVE)
+    {
+        newOffset = pdataPrev.xyz;
+    }
+
+    imageStore(u_ProbeDataImage, tile, vec4(newOffset, float(newState)));
+
+    b_ProbeAux[probeIndex].State = newState;
+    b_ProbeAux[probeIndex].Flags |= DDGI_PROBE_FLAG_CAPTURED;
+    b_ProbeAux[probeIndex].BounceWeightSum = totalBounce.x;
+    b_ProbeAux[probeIndex].BounceHitCount = uint(totalBounce.y + 0.5);
+}

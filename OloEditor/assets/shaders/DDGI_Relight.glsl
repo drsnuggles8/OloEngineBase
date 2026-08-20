@@ -65,6 +65,7 @@ void main()
 
 #include "include/PBRCommon.glsl"
 #include "include/DDGICommon.glsl"
+#include "include/DDGIProbeBuffers.glsl"
 
 // Camera UBO (binding 0) — the REAL scene camera (DDGIProbeUpdatePass restores
 // it after the capture stage). Needed for CSM cascade selection: cascades are
@@ -159,8 +160,13 @@ void main()
     ivec2 atlasTexel = ivec2(gl_FragCoord.xy);
     ivec2 tile = atlasTexel / t;
     ivec2 local = atlasTexel % t;
-    ivec3 dims = u_DDGIGridDimensions.xyz;
-    ivec3 coord = ivec3(tile.x, tile.y % dims.y, tile.y / dims.y);
+    ivec3 dims = max(u_DDGIGridDimensions.xyz, ivec3(1));
+    // Cascaded tile -> (level, storage coord). Column = level * DimX + x
+    // (issue #707); with one cascade level is 0 and this is the pre-#707
+    // decomposition unchanged.
+    int level = tile.x / dims.x;
+    ivec3 storage = ivec3(tile.x % dims.x, tile.y % dims.y, tile.y / dims.y);
+    int probeIndex = ddgiCascadedProbeIndex(level, storage);
 
     vec4 pdata = texelFetch(u_ProbeData, tile, 0);
     // Only ACTIVE probes relight — Uncaptured (0) and Inactive (2) keep their
@@ -168,6 +174,21 @@ void main()
     if (pdata.w < 0.5 || pdata.w > 1.5)
     {
         discard;
+    }
+
+    // SPARSITY + VARIABLE UPDATE RATE (issue #707, upgrades 2 and 3). A probe
+    // nothing is shading from, or one whose round-robin turn is not this frame,
+    // keeps the radiance it already has: the hit cache is a CACHE, so leaving
+    // the attachment untouched is the correct no-op, not a hole. This is the
+    // whole per-frame saving — everything below is the expensive part.
+    if (!ddgiProbeUpdatesNow(probeIndex, uint(max(u_DDGIFrameIndex, 0))))
+    {
+        discard;
+    }
+    // Counted once per probe, not once per texel.
+    if (local == ivec2(0))
+    {
+        atomicAdd(b_StatRelitProbes, 1u);
     }
 
     vec4 geo = texelFetch(u_HitGeo, atlasTexel, 0);
@@ -192,7 +213,7 @@ void main()
     // bounds are render-origin-relative, so ddgiProbeWorldPosition already
     // yields a render-relative probe position, consistent with the
     // render-relative light positions in the MultiLight UBO (issue #429).
-    vec3 probeRelPos = ddgiProbeWorldPosition(coord, pdata.xyz);
+    vec3 probeRelPos = ddgiCascadeProbeWorldPosition(storage, level, pdata.xyz);
     vec3 hitPos = probeRelPos + texelDir * geo.b;
     vec3 N = ddgiOctDecode(geo.rg);
     vec3 albedo = texelFetch(u_HitAlbedo, atlasTexel, 0).rgb;
@@ -342,7 +363,7 @@ void main()
     // docs/adr/0007-ddgi-hit-point-cache-gather.md.
     vec3 bounceE = ddgiGatherIrradiance(u_PrevIrradiance, u_CurrVisibility, u_ProbeData,
                                         hitPos, N, -texelDir,
-                                        ddgiBounceMargin(), 1.0);
+                                        ddgiBounceMarginScale(), 1.0);
 
     // Diffuse exitance with the energy-conservation albedo clamp. THIS is
     // what keeps the infinite-bounce feedback contractive (ADR 0007): the

@@ -52,13 +52,7 @@ void main()
 
 #include "include/DDGICommon.glsl"
 
-layout(std140, binding = 7) uniform DDGIPassData
-{
-    mat4 u_DDGIModel;
-    mat4 u_DDGINormalMatrix;
-    vec4 u_DDGIBaseColor;
-    vec4 u_DDGIProbePosition; // w = probe linear index
-};
+#include "include/DDGIPassData.glsl"
 
 #include "include/BindlessHeap.glsl"
 

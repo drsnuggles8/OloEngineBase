@@ -7548,6 +7548,7 @@ namespace OloEngine
                 const auto& rendererSettings = Renderer3D::GetRendererSettings();
                 if (rendererSettings.EnableDDGI && rendererSettings.Deferred.EnableLightProbes)
                 {
+                    bool submitted = false;
                     auto ddgiView = m_Registry.view<LightProbeVolumeComponent>();
                     for (auto entity : ddgiView)
                     {
@@ -7570,6 +7571,21 @@ namespace OloEngine
                         desc.RelightBudget = lpv.m_RelightBudget > 0
                                                  ? std::max(1, static_cast<i32>(std::lround(static_cast<f64>(lpv.m_RelightBudget) * budgetScale)))
                                                  : 0;
+                        // Issue #707: the authored "N probes per frame" budget
+                        // becomes a 1-in-K update rate over the same field, so
+                        // there is ONE mechanism deciding which probes relight
+                        // instead of a row scissor and a rate multiplying each
+                        // other. K is snapped to a supported rate inside
+                        // SubmitVolume; 0 (the default) stays 1-in-1, i.e. the
+                        // pre-#707 "relight everything" behaviour exactly.
+                        if (desc.RelightBudget > 0)
+                        {
+                            i64 const totalProbes = static_cast<i64>(desc.Resolution.x) *
+                                                    static_cast<i64>(desc.Resolution.y) *
+                                                    static_cast<i64>(desc.Resolution.z);
+                            desc.UpdateRateDivisor =
+                                std::max(1, static_cast<i32>((totalProbes + desc.RelightBudget - 1) / desc.RelightBudget));
+                        }
                         desc.Mode = static_cast<u8>(lpv.m_Mode);
                         desc.BakedAvailable = false;
                         if (lpv.m_BakedDataAsset != 0)
@@ -7579,7 +7595,53 @@ namespace OloEngine
                         }
 
                         Renderer3D::SubmitDDGIVolume(desc);
+                        submitted = true;
                         break; // one volume at a time — the engine-wide probe contract
+                    }
+
+                    // Issue #707: camera-centred probe cascades, submitted only
+                    // when NO authored Realtime/Hybrid volume claimed the field.
+                    //
+                    // The precedence is deliberate and it is not "authored wins
+                    // because it came first": an author who placed a volume
+                    // around a specific interior chose its bounds and its
+                    // resolution for that interior, and silently replacing them
+                    // with a camera clipmap would quietly discard that decision
+                    // — the classic "the new system took over" regression. The
+                    // cascades are what covers everywhere nobody authored,
+                    // which is the case the issue is actually about.
+                    if (!submitted && rendererSettings.DDGICascadesEnabled)
+                    {
+                        DDGIVolumeDesc desc;
+                        desc.Cascaded = true;
+                        desc.CascadeCount = std::clamp(rendererSettings.DDGICascadeCount, 1, DDGI::kMaxCascades);
+                        // Clamped at the SUBMISSION boundary, not just in the
+                        // editor slider: a settings file, a script or a quality
+                        // preset reaches here without passing through the UI,
+                        // and the cost is CascadeCount * Resolution^3 probes.
+                        desc.Resolution = glm::ivec3(
+                            std::clamp(rendererSettings.DDGICascadeResolution, 1, DDGI::kMaxCascadeResolution));
+                        desc.BaseProbeSpacing = std::max(rendererSettings.DDGICascadeBaseSpacing, 1e-3f);
+                        desc.CascadeBlendBand = std::clamp(rendererSettings.DDGICascadeBlendBand, 0.0f, 0.9f);
+                        desc.SparsityEnabled = rendererSettings.DDGISparsityEnabled;
+                        desc.UpdateRateDivisor = std::max(rendererSettings.DDGIUpdateRateDivisor, 1);
+                        desc.CameraSeedRadius = std::max(rendererSettings.DDGICameraSeedRadius, 0.0f);
+                        desc.HitCacheTexels = DDGI::kHitCacheResolutionLow;
+                        desc.Hysteresis = 0.9f;
+                        desc.Intensity = 1.0f;
+                        desc.SelfShadowBias = 0.3f;
+                        desc.Mode = static_cast<u8>(LightProbeVolumeComponent::Mode::Realtime);
+                        desc.BakedAvailable = false;
+
+                        // The capture budget scales with the field: a cascaded
+                        // field has orders of magnitude more probes than an
+                        // authored volume, and a budget of 4 would take
+                        // thousands of frames to fill even the sparse live set.
+                        f32 const budgetScale = std::max(rendererSettings.DDGIBudgetScale, 0.0f);
+                        desc.CaptureBudget = std::max(1, static_cast<i32>(std::lround(16.0 * static_cast<f64>(budgetScale))));
+                        desc.RelightBudget = 0; // superseded by UpdateRateDivisor
+
+                        Renderer3D::SubmitDDGIVolume(desc);
                     }
                 }
             }
@@ -10100,6 +10162,20 @@ namespace OloEngine
                     if (vol.m_BakedDataAsset != 0)
                     {
                         probeAsset = AssetManager::GetAsset<LightProbeVolumeAsset>(vol.m_BakedDataAsset);
+                    }
+
+                    // Issue #707: relocation offsets and classification now live
+                    // on the GPU, so the probe records need one explicit sync
+                    // before this gizmo can read them. Done ONCE for the whole
+                    // volume rather than per probe, and only while the debug
+                    // gizmo is switched on — it is a blocking read, which is
+                    // exactly why the frame itself never performs one.
+                    if (vol.m_Mode != LightProbeVolumeComponent::Mode::Baked)
+                    {
+                        if (auto* ddgiPass = Renderer3D::GetDDGIPass(); ddgiPass)
+                        {
+                            ddgiPass->ReadbackProbeDiagnostics();
+                        }
                     }
 
                     glm::vec3 const extent = vol.m_BoundsMax - vol.m_BoundsMin;

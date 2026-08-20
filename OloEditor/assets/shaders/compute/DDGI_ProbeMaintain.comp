@@ -1,0 +1,132 @@
+#version 460 core
+
+// =============================================================================
+// DDGI_ProbeMaintain.comp — per-probe frame maintenance (issue #707)
+//
+// ONE invocation per probe, over every cascade. Three jobs that all need the
+// same per-probe visit, so they share one dispatch:
+//
+//  1. CASCADE-SHIFT INVALIDATION. A cascade's storage is TOROIDAL: when the
+//     camera moves far enough that the window's lattice origin steps by a cell,
+//     one slab of storage coordinates starts holding DIFFERENT world lattice
+//     points, and everything cached for them (hit cache, irradiance,
+//     visibility, relocation offset, classification) is now for the wrong place.
+//     This is the invariant the whole cascade design rests on and it fails
+//     SILENTLY if missed: the probes keep shading, with irradiance from where
+//     they used to be, which reads as GI smearing behind the camera. Detected
+//     by recomputing this probe's lattice coordinate under the PREVIOUS lattice
+//     origin (u_DDGIPrevLattice) and comparing.
+//
+//  2. CAMERA SEED. Requests every probe within u_DDGIRenderOrigin.w of the
+//     camera unconditionally. This is the floor under sparsity: if the screen
+//     request pass produced nothing at all — no depth buffer yet on frame one, a
+//     sky-only view, a stale-resource hiccup — GI around the viewer still
+//     converges instead of going dark. A feature whose failure mode is "no GI,
+//     no error" needs a floor.
+//
+//  3. STATS. The measured numbers issue #707's acceptance criteria ask for:
+//     how many probes are live versus how many exist. Counted here rather than
+//     in the relight compute so the count covers probes relight skips.
+// =============================================================================
+
+layout(local_size_x = 64) in;
+
+#include "../include/DDGICommon.glsl"
+#include "../include/DDGIPassData.glsl"
+#include "../include/DDGIProbeBuffers.glsl"
+
+#include "../include/BindlessHeap.glsl"
+#ifndef OLO_BINDLESS
+layout(rgba16f, binding = 0) uniform image2D u_ProbeDataImage; // xyz = offsetN, w = state
+#endif
+
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba16f, OLO_HEAP_IMAGE_RW, image2D, u_ProbeDataImage, 0);
+#endif
+
+    int probeIndex = int(gl_GlobalInvocationID.x);
+    int totalProbes = u_DDGIComputeParams.x;
+    if (probeIndex >= totalProbes)
+    {
+        return;
+    }
+
+    uint frameIndex = uint(max(u_DDGIFrameIndex, 0));
+    int level = ddgiCascadeOfProbeIndex(probeIndex);
+    ivec3 storage = ddgiStorageCoordOfProbeIndex(probeIndex);
+    ivec2 tile = ddgiCascadedProbeTileCoord(level, storage);
+
+    // ---- 1. cascade-shift invalidation -------------------------------------
+    if ((u_DDGIComputeParams.w & DDGI_PASS_FLAG_CASCADE_SHIFTED) != 0)
+    {
+        ivec3 dims = max(u_DDGIGridDimensions.xyz, ivec3(1));
+        ivec3 prevMin = u_DDGIPrevLattice[level].xyz;
+        ivec3 prevLattice = ivec3(prevMin.x + ddgiWrapIndex(storage.x - prevMin.x, dims.x),
+                                  prevMin.y + ddgiWrapIndex(storage.y - prevMin.y, dims.y),
+                                  prevMin.z + ddgiWrapIndex(storage.z - prevMin.z, dims.z));
+        ivec3 currLattice = ddgiLatticeForStorageCoord(storage, level);
+        if (prevLattice != currLattice)
+        {
+            // The probe now stands somewhere else. Drop it back to Uncaptured
+            // and clear its relocation offset (an offset measured at the old
+            // lattice point is meaningless at the new one), but DELIBERATELY
+            // keep LastRequestFrame: whoever wanted a probe here still wants
+            // one, and clearing it would cost an extra frame of latency before
+            // the capture scheduler could see the demand.
+            b_ProbeAux[probeIndex].State = DDGI_PROBE_STATE_UNCAPTURED;
+            b_ProbeAux[probeIndex].Flags &= ~DDGI_PROBE_FLAG_CAPTURED;
+            b_ProbeAux[probeIndex].BounceWeightSum = 0.0;
+            b_ProbeAux[probeIndex].BounceHitCount = 0u;
+            // State 0 in the probe-data texture makes every gather skip this
+            // probe and renormalize, so the stale irradiance still sitting in
+            // the atlas contributes nothing while it waits for recapture.
+            imageStore(u_ProbeDataImage, tile, vec4(0.0));
+        }
+    }
+
+    // ---- 2. camera-neighbourhood seed ---------------------------------------
+    {
+        float seedRadius = u_DDGIRenderOrigin.w;
+        if (seedRadius > 0.0)
+        {
+            vec3 probeRel = ddgiCascadeProbeGridPosition(storage, level);
+            vec3 d = probeRel - u_DDGICameraPosRel.xyz;
+            // Scaled per cascade: a coarse cascade's probes are further apart,
+            // so a fixed world radius would seed a handful of them and leave the
+            // gather's 8 corners incomplete. One cascade cell past the radius is
+            // what makes the seed a closed set for the trilinear lookup.
+            float reach = seedRadius + length(u_DDGICascadeSpacing[level].xyz);
+            if (dot(d, d) <= reach * reach)
+            {
+                // Counts as a SCREEN request: the seed stands in for the pixels a
+                // not-yet-rendered frame has not produced, so probes near the
+                // camera may raise the one-indirection hop like any shaded pixel.
+                ddgiRequestProbe(probeIndex, frameIndex, true);
+            }
+        }
+    }
+
+    // ---- 3. stats -----------------------------------------------------------
+    {
+        bool live = ddgiProbeIsLive(probeIndex, frameIndex);
+        bool captured = ddgiProbeIsCaptured(probeIndex);
+        if (live)
+        {
+            atomicAdd(b_StatLiveProbes, 1u);
+            if (!captured)
+            {
+                atomicAdd(b_StatUncapturedLive, 1u);
+            }
+        }
+        if (captured)
+        {
+            atomicAdd(b_StatCapturedProbes, 1u);
+            if (b_ProbeAux[probeIndex].State == DDGI_PROBE_STATE_ACTIVE)
+            {
+                atomicAdd(b_StatActiveProbes, 1u);
+            }
+        }
+    }
+}

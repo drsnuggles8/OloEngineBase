@@ -49,13 +49,7 @@ void main()
 
 #include "include/DDGICommon.glsl"
 
-layout(std140, binding = 7) uniform DDGIPassData
-{
-    mat4 u_DDGIModel;
-    mat4 u_DDGINormalMatrix;
-    vec4 u_DDGIBaseColor;
-    vec4 u_DDGIProbePosition; // w = probe linear index
-};
+#include "include/DDGIPassData.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -84,8 +78,19 @@ void main()
     ivec2 src = ddgiBorderSourceTexel(local, DDGI_VISIBILITY_TILE);
     vec3 texelDir = ddgiTexelDirection(src - ivec2(1), DDGI_VISIBILITY_INTERIOR);
 
+    // The hit cache and the visibility atlas share the same TILE grid (issue
+    // #707: column = level * DimX + x, row = z * DimY + y), so one tile
+    // coordinate addresses both — cascades change the mapping in exactly one
+    // place, ddgiCascadedProbeTileCoord.
     int t = u_DDGIHitCacheTexels;
     ivec2 hitOrigin = tile * t;
+
+    // Per-CASCADE distance clamp (issue #707). u_DDGIMaxRayDistance describes
+    // cascade 0 only; a coarse cascade's probes are further apart and their
+    // hit distances are correspondingly longer, so clamping every cascade to
+    // cascade 0's reach would report every coarse probe as "occluder right
+    // here" and Chebyshev would de-weight the entire outer field.
+    float maxRayDistance = u_DDGICascadeOrigin[ddgiCascadeOfProbeIndex(probeIdx)].w;
 
     float sumW = 0.0;
     float mean = 0.0;
@@ -109,8 +114,8 @@ void main()
             // Sky = unoccluded out to the clamp; backface distances are
             // crushed (x0.2, RTXGI convention) so an in-wall direction reads
             // as "occluder right here" instead of averaging away.
-            float dist = sky ? u_DDGIMaxRayDistance : (backface ? geo.b * 0.2 : geo.b);
-            dist = min(dist, u_DDGIMaxRayDistance);
+            float dist = sky ? maxRayDistance : (backface ? geo.b * 0.2 : geo.b);
+            dist = min(dist, maxRayDistance);
             sumW += w;
             mean += w * dist;
             mean2 += w * dist * dist;
@@ -125,6 +130,28 @@ void main()
     }
 
     vec2 newV = vec2(mean / sumW, mean2 / sumW);
+
+    // SEED THE FIRST SAMPLE INSTEAD OF EMA-ING UP FROM THE CLEARED ATLAS.
+    //
+    // Visibility, unlike irradiance, is blended ONLY when a probe is captured
+    // (ADR 0007: hit distances change at capture time, not per frame). At
+    // hysteresis 0.9 an EMA needs ~40 samples to converge — and in a cascaded
+    // field a probe is recaptured only when the refresh tier reaches it, which
+    // at budget/8 over hundreds of live probes is once every ~130 frames. That
+    // is thousands of frames to a correct Chebyshev term, during which the
+    // atlas is permanently mid-transient: measured as a converged field that
+    // would not stop churning at 3-7 RMSE under a still camera.
+    //
+    // An EMA whose history is the CLEAR VALUE is not carrying information, it
+    // is carrying a placeholder — so the first sample replaces it outright and
+    // the EMA starts doing its job from a real value. (0,0) is unambiguous as
+    // "never blended": a probe that sees nothing at all still stores
+    // mean = MaxRayDistance, not zero.
+    //
+    // This is a #632 characteristic that cascades EXPOSE rather than introduce
+    // — the authored path has the same slow start, just with few enough probes
+    // per unit of capture budget that it converges before anyone looks.
+    const bool neverBlended = (prev.r <= 0.0 && prev.g <= 0.0);
     // Mirrors DDGI::BlendEMA; no AdjustHysteresis for visibility.
-    o_MeanMean2 = vec4(mix(newV, prev, u_DDGIHysteresis), 0.0, 1.0);
+    o_MeanMean2 = vec4(neverBlended ? newV : mix(newV, prev, u_DDGIHysteresis), 0.0, 1.0);
 }
