@@ -14,7 +14,8 @@
 //      irradiance is compared against PathTracer::EstimateIrradiance with an
 //      independent seed — generously on magnitude (L2 SH is a low-order
 //      approximation of a non-smooth field), strictly on the FIELD SHAPE
-//      (pairwise ordering, oracle-declared ties skipped) and on the colour
+//      (pairwise ordering of the SH-predicted irradiance — the oracle's own
+//      functional — with oracle-declared ties skipped) and on the colour
 //      signature (a probe facing the red wall reconstructs red-shifted).
 //   3. CONVENTION: the pipeline stores RAW RADIANCE PROJECTIONS
 //      (c_i = ∫ L·Y_i dω, matching LightProbeBaker::ProjectToSH — no cosine
@@ -52,6 +53,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <iterator>
 #include <vector>
@@ -375,13 +377,40 @@ namespace OloEngine::Tests
             EXPECT_LT(ratio, 1.6f) << "point " << i << ": SH irradiance far above ground truth";
         }
 
+        // Diagnostic table so an ordering/magnitude failure is legible without
+        // a re-run (the DDGI parity test does the same).
+        std::printf("  pt | grid      normal     |  shaderEval |     E_SH    |   oracle E  | E_SH/E\n");
+        for (sizet i = 0; i < kPointCount; ++i)
+        {
+            std::printf("  %zu  | (%d %d %d)  (%+.0f %+.0f %+.0f) |   %9.5f |   %9.5f |   %9.5f | %.3f\n",
+                        i, points[i].Grid.x, points[i].Grid.y, points[i].Grid.z,
+                        static_cast<f64>(points[i].Normal.x), static_cast<f64>(points[i].Normal.y),
+                        static_cast<f64>(points[i].Normal.z),
+                        static_cast<f64>(MeanChannel(shaderEval[i])), static_cast<f64>(MeanChannel(shIrradiance[i])),
+                        static_cast<f64>(MeanChannel(oracle[i])),
+                        static_cast<f64>(MeanChannel(shIrradiance[i]) / MeanChannel(oracle[i])));
+        }
+
         // ---- field shape: strict pairwise ordering --------------------------
         // A global scale error passes any magnitude band; it cannot pass an
         // ordering assertion. Pairs the ORACLE itself calls close (within 15%)
-        // are skipped as ties (reference-path-tracer.md §4). The ordering is
-        // asserted on the shader-faithful evaluation — the value the renderer
-        // will actually show — which shares the oracle's ordering because the
-        // per-band convention factors are positive.
+        // are skipped as ties (reference-path-tracer.md §4).
+        //
+        // The ordering is asserted on the cosine-convolved SH irradiance —
+        // the SAME functional the oracle computes — and deliberately NOT on
+        // the shader-faithful radiance reconstruction. The first authoring
+        // ordered shaderEval against E and flipped on every centre-probe
+        // horizontal normal: 0.3 m under the point light the incident field
+        // is a sharp +Y peak, so E(±X) is LARGE (the grazing bright ceiling
+        // enters the cosine integral — oracle measured 1.35–1.55) while the
+        // radiance arriving FROM ±X is small (shader eval 0.13–0.21). Both
+        // numbers are correct; they are different functionals of the same
+        // field, and only same-functional pairs are order-comparable across
+        // mixed normals. Irradiance is also inherently low-frequency (the
+        // cosine kernel's Â_l decay bounds L2 irradiance error at ~9% for
+        // any light field — Ramamoorthi & Hanrahan 2001), which is what
+        // makes a STRICT ordering assertion legitimate on E_SH where it is
+        // over-strict on the radiance reconstruction.
         u32 comparedPairs = 0;
         for (sizet a = 0; a < kPointCount; ++a)
         {
@@ -395,19 +424,19 @@ namespace OloEngine::Tests
                     continue; // oracle-declared tie
                 }
                 ++comparedPairs;
-                f32 const shA = MeanChannel(shaderEval[a]);
-                f32 const shB = MeanChannel(shaderEval[b]);
+                f32 const shA = MeanChannel(shIrradiance[a]);
+                f32 const shB = MeanChannel(shIrradiance[b]);
                 if (oracleA > oracleB)
                 {
                     EXPECT_GT(shA, shB) << "ordering flip: oracle ranks point " << a << " (" << oracleA
                                         << ") above point " << b << " (" << oracleB
-                                        << ") but the baked SH ranks them " << shA << " vs " << shB;
+                                        << ") but the baked SH irradiance ranks them " << shA << " vs " << shB;
                 }
                 else
                 {
                     EXPECT_LT(shA, shB) << "ordering flip: oracle ranks point " << b << " (" << oracleB
                                         << ") above point " << a << " (" << oracleA
-                                        << ") but the baked SH ranks them " << shB << " vs " << shA;
+                                        << ") but the baked SH irradiance ranks them " << shB << " vs " << shA;
                 }
             }
         }
