@@ -10,7 +10,7 @@ avoid.
 > `docs/process/task-loop.md`, which the worker session follows. This command never implements.
 >
 > **Local environment (maintainer's machine).** A few rules below describe one specific setup
-> rather than the project: the **E: drive** two-worktree cap (§4), **VS Code Insiders** as the
+> rather than the project: the **`C:\repos` worktree root** (§4), **VS Code Insiders** as the
 > editor (§5b), and the **Opus 5 / Sonnet 5 / Fable 5** model rubric (§5a). Adapt them if you
 > work somewhere else; everything else is repo-general.
 
@@ -239,16 +239,40 @@ to "claim" it. The step-2 registry already reflects everything in flight (existi
 is always registered before this command is run). Use a DESCRIPTIVE slug so the branch
 name alone explains the work to anyone reading the registry later.
 
-Drive policy (the one genuine local rule): the E: drive is a fast dev drive and is
-PREFERRED, but may hold at most TWO worktrees. **Re-derive the count fresh for every
-worktree** by re-running `git -C $BASE worktree list` — worktrees you created earlier in
-THIS run already count, so the second E: slot fills as you go and the rest land on D:.
-Count the paths beginning "E:\". Pick the PARENT folder the new worktree will sit DIRECTLY
-under:
+Drive policy (the one genuine local rule): **every worktree goes under `C:\repos`.**
 
-- count < 2  → create on E:, under the E: mirror of $ROOT: $PARENT = "E:\" + leaf-of-$ROOT
-                 (if $ROOT is D:\repos then $PARENT is E:\repos)
-- count >= 2 → create on D:, directly under $ROOT: $PARENT = $ROOT
+    $PARENT = 'C:\repos'      # create it if missing; no per-drive count, no cap
+
+There is no two-worktree cap any more and no fallback drive. Both of those existed to
+ration the 50 GB E: partition, and rationing turned out to cost far more than it saved.
+
+**Why this specific path, and why it is not a preference.** The compiler cache only shares
+between worktrees whose absolute paths sit under ccache's `base_dir`, because
+`CompilerCache.cmake` compiles with `/Z7` (embedded debug info), which bakes the source
+path into every object — so the path is part of the hash. ccache accepts exactly ONE
+`base_dir`, and it is set to `C:\repos`. A worktree created anywhere else is an **island**:
+it caches its own rebuilds and shares with nobody.
+
+That was not theoretical. Measured 2026-08-20 with `base_dir = D:\repos` while
+`/start-work` was placing worktrees on E:, using the real flags:
+
+| compile | result |
+|---|---|
+| `D:\repos\treeA` → `D:\repos\treeB` | HIT |
+| `D:\repos` → `E:\repos\treeC` | **MISS** |
+| `E:\repos\treeE1` → `E:\repos\treeE2` (siblings) | **MISS** |
+
+Two pieces of our own tooling disagreed about where worktrees live, so cross-worktree
+caching — the entire point of the `dev-cached` preset — was silently off for every
+worktree this command created. The 12m04s → 3m23s measurement that justified the cache was
+taken between two D: directories and never exercised E:.
+
+**Do not "fix" this by moving worktrees to D:.** D: is a mechanical HDD
+(ST2000DM006); C: and E: are partitions of the same NVMe SSD. C: is therefore exactly as
+fast as E: was, with ~750 GB free against E:'s 50 — which is also why the cap is gone.
+
+If you ever change where worktrees live, change `base_dir` in `ccache.conf` in the same
+move, or you silently reintroduce the island problem.
 
 **Build the worktree path as an ABSOLUTE path and VALIDATE it before creating anything.**
 This is the step that has gone wrong before: a relative / mis-joined path got resolved
@@ -295,7 +319,7 @@ die with the worktree — that stranded 229 files across 143 dead worktrees befo
 junction makes the worktree session **read and write the one shared store**, so it starts with every
 durable fact already known and nothing it learns can be orphaned:
 
-    $slugOf   = { param($p) $p -replace ':','-' -replace '[\\/]','-' }   # E:\repos\OloEngine-foo -> e--repos-OloEngine-foo
+    $slugOf   = { param($p) $p -replace ':','-' -replace '[\\/]','-' }   # C:\repos\OloEngine-foo -> c--repos-OloEngine-foo
     $projects = "$env:USERPROFILE\.claude\projects"
     $base     = Join-Path $projects "$(& $slugOf $BASE)\memory"          # derived from $BASE (§1), not hardcoded
     $dir      = Join-Path $projects  (& $slugOf $WT)

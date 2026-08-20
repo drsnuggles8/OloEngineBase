@@ -1,5 +1,5 @@
 ---
-description: Remove finished/merged OloEngine worktrees and free the E: slot (path-derived)
+description: Remove finished/merged OloEngine worktrees and reclaim their disk (path-derived)
 argument-hint: <branch-slug, optional — omit to sweep ALL completed worktrees>
 ---
 Clean up finished OloEngine worktrees now that their work is merged.
@@ -57,7 +57,7 @@ For anything that fails the gate, leave it and say why. Never silently delete:
 - a branch with an OPEN PR or no PR and unmerged commits.
 Only discard unmerged work if I explicitly tell you to.
 
-## 3. Remove each completed worktree (frees the disk, and the E: slot if it was on E)
+## 3. Remove each completed worktree (reclaims its disk)
 
     git -C $BASE worktree remove <worktreePath>
 If it refuses because of leftover build artifacts / untracked files and you've
@@ -126,7 +126,7 @@ orphaned. Removing the project dir deletes the *junction*, never the target — 
 `Remove-Item -Recurse -Force` and `rm -rf` decline to follow it (verified).
 
 The slug is the worktree's absolute path with `:` → `-` and each `\`/`/` → `-`
-(e.g. `E:\repos\OloEngine-foo` → `e--repos-OloEngine-foo`). For each worktree you removed:
+(e.g. `C:\repos\OloEngine-foo` → `c--repos-OloEngine-foo`). For each worktree you removed:
 
     $slug = "<worktreePath>" -replace ':','-' -replace '[\\/]','-'
     $mem  = "$env:USERPROFILE\.claude\projects\$slug\memory"
@@ -156,6 +156,6 @@ a follow-up PR.
 
     git -C $BASE worktree list
 List what was removed, what was SKIPPED and why (esp. any §2-trap WIP worktrees), and how
-many worktrees remain on E:\ (the cap is 2). Then the §5 loop-closing results: which issues
+many worktrees remain and how much disk they hold. Then the §5 loop-closing results: which issues
 got evidence comments, which you **recommend closing (ask before closing)**, which umbrella
 issues you commented-but-kept-open, and any stale docs/TODOs to fix in a follow-up.
