@@ -75,15 +75,15 @@ namespace OloEngine::Tests
                     vert.Position = n * 0.5f + t * su + b * sv;
                     vert.Normal = n;
                     vert.TexCoord = { su + 0.5f, sv + 0.5f };
-                    vertices.PushBack(vert);
+                    vertices.Add(vert);
                 }
                 // Counter-clockwise when viewed from outside (normal side)
-                indices.PushBack(base + 0);
-                indices.PushBack(base + 1);
-                indices.PushBack(base + 2);
-                indices.PushBack(base + 0);
-                indices.PushBack(base + 2);
-                indices.PushBack(base + 3);
+                indices.Add(base + 0);
+                indices.Add(base + 1);
+                indices.Add(base + 2);
+                indices.Add(base + 0);
+                indices.Add(base + 2);
+                indices.Add(base + 3);
             }
             return Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
         }

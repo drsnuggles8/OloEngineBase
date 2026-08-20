@@ -7501,7 +7501,9 @@ namespace OloEngine
             // guard below. A stale or absent bake uploads Enabled = 0, so the
             // shader falls through to probes/IBL rather than sampling old data.
             {
-                const auto& lightmapRuntime = GetLightmapRuntime();
+                // Non-const binding on purpose: Ref<T> propagates const through
+                // operator->, and Resolve() mutates the runtime.
+                auto& lightmapRuntime = GetLightmapRuntime();
                 if (m_LightmapSettings.LightmapAsset != 0)
                 {
                     lightmapRuntime->Resolve(*this);

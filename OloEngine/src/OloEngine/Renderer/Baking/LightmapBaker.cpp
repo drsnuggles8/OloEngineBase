@@ -242,7 +242,11 @@ namespace OloEngine
                 unwrapFailed[e] = true;
                 continue;
             }
-            if (!LightmapUnwrap::Generate(*input.Mesh, unwrapOptions))
+            // Local non-const Ref copy: the span is const (the INPUT LIST is
+            // immutable) but the unwrap intentionally mutates the referenced
+            // mesh, and Ref<T> propagates const through operator->/operator*.
+            Ref<MeshSource> mesh = input.Mesh;
+            if (!LightmapUnwrap::Generate(*mesh, unwrapOptions))
             {
                 OLO_CORE_WARN("LightmapBaker: unwrap failed for entity {:x}; it will not receive a lightmap",
                               input.EntityUUID);
