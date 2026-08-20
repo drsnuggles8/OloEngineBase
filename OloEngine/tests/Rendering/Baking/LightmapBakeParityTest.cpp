@@ -85,7 +85,25 @@ namespace OloEngine::Tests
                 indices.Add(base + 2);
                 indices.Add(base + 3);
             }
-            return Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
+            const u32 vertexCount = static_cast<u32>(vertices.Num());
+            const u32 indexCount = static_cast<u32>(indices.Num());
+            auto source = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
+
+            // A submesh-less MeshSource draws nothing and traces nothing — both
+            // Scene submission and ReferenceSceneBuilder::AddMeshEntity skip it
+            // (the guard that silently emptied this fixture's reference world in
+            // the first run of this test). Real meshes always carry submeshes;
+            // hand-built ones must too.
+            Submesh submesh;
+            submesh.m_BaseVertex = 0;
+            submesh.m_BaseIndex = 0;
+            submesh.m_MaterialIndex = 0;
+            submesh.m_VertexCount = vertexCount;
+            submesh.m_IndexCount = indexCount;
+            TArray<Submesh> submeshes;
+            submeshes.Add(submesh);
+            source->SetSubmeshes(submeshes);
+            return source;
         }
 
         [[nodiscard]] glm::mat4 MakeTransform(const glm::vec3& translation, const glm::vec3& scale)
@@ -140,7 +158,9 @@ namespace OloEngine::Tests
         {
             TArray<Vertex> vertices = source->GetVertices();
             TArray<u32> indices = source->GetIndices();
-            return Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
+            auto clone = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
+            clone->SetSubmeshes(source->GetSubmeshes()); // the raw ctor creates none
+            return clone;
         }
 
         struct BakedRoom
