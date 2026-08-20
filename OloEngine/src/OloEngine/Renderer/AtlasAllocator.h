@@ -45,12 +45,24 @@ namespace OloEngine
 
         AtlasAllocator() = default;
 
+        // Ceiling on levels (root = level 0). The node table is (4^levels-1)/3
+        // entries, so this bounds worst-case construction cost/memory as well
+        // as keeping LevelStart's `1u << (2*level)` a well-defined 32-bit
+        // shift — at level 16 that shift is already UB (shift amount == the
+        // type's width). 12 levels is (4^12-1)/3 ≈ 5.6M nodes, comfortably
+        // above both current instantiations (shadow atlas: 6; impostor VRAM
+        // budget: 9) with headroom for a finer-grained future one, without
+        // getting anywhere near the UB boundary or an unreasonable allocation.
+        static constexpr u32 kMaxLevelCount = 12;
+
         // atlasSize and minTileSize must both be powers of two, with
-        // minTileSize in [1, atlasSize]. An invalid combination (zero, not a
-        // power of two, minTileSize > atlasSize) yields a zero-capacity
-        // allocator — every Allocate() call then returns kInvalidNode rather
-        // than asserting, so a caller threading through a user/asset-controlled
-        // resolution stays crash-free.
+        // minTileSize in [1, atlasSize], and atlasSize/minTileSize must not
+        // require more than kMaxLevelCount levels. An invalid combination
+        // (zero, not a power of two, minTileSize > atlasSize, or a ratio
+        // past the level ceiling) yields a zero-capacity allocator — every
+        // Allocate() call then returns kInvalidNode rather than asserting or
+        // allocating an unbounded node table, so a caller threading through a
+        // user/asset-controlled resolution stays crash-free.
         AtlasAllocator(u32 atlasSize, u32 minTileSize);
 
         // Allocates a square region of exactly `size` (must be a power of two

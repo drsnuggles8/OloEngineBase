@@ -11,6 +11,7 @@
 
 #include "OloEngine/Renderer/AtlasAllocator.h"
 
+#include <array>
 #include <random>
 #include <tuple>
 #include <unordered_map>
@@ -43,6 +44,28 @@ TEST(AtlasAllocator, InvalidConstructionArgsYieldZeroCapacity)
     EXPECT_EQ(AtlasAllocator(1024, 100).Allocate(100), AtlasAllocator::kInvalidNode);
     EXPECT_EQ(AtlasAllocator(64, 128).Allocate(64), AtlasAllocator::kInvalidNode);
     EXPECT_EQ(AtlasAllocator(0, 1).Allocate(1), AtlasAllocator::kInvalidNode);
+}
+
+TEST(AtlasAllocator, RatioPastTheLevelCeilingYieldsZeroCapacityNotUB)
+{
+    // A ratio requiring more than kMaxLevelCount levels must degrade to
+    // zero-capacity rather than allocate an unreasonable node table or hit
+    // undefined behaviour in LevelStart's shift (UB starts at level 16; this
+    // ratio alone would already ask for level 21).
+    AtlasAllocator huge(1u << 30, 1);
+    EXPECT_EQ(huge.AtlasSize(), 0u) << "over-ceiling ratio should be rejected, not silently accepted";
+    EXPECT_EQ(huge.Allocate(1), AtlasAllocator::kInvalidNode);
+    EXPECT_EQ(huge.Allocate(1u << 30), AtlasAllocator::kInvalidNode);
+
+    // Right at the boundary: exactly kMaxLevelCount levels must still work.
+    const u32 boundaryAtlas = 1u << (AtlasAllocator::kMaxLevelCount - 1u);
+    AtlasAllocator atBoundary(boundaryAtlas, 1);
+    EXPECT_EQ(atBoundary.AtlasSize(), boundaryAtlas);
+    EXPECT_NE(atBoundary.Allocate(boundaryAtlas), AtlasAllocator::kInvalidNode);
+
+    // One level past the boundary must be rejected.
+    const AtlasAllocator pastBoundary(boundaryAtlas * 2u, 1);
+    EXPECT_EQ(pastBoundary.AtlasSize(), 0u);
 }
 
 TEST(AtlasAllocator, AllocateWholeAtlasOnce)
@@ -270,4 +293,55 @@ TEST(AtlasAllocator, FuzzedAllocateFreeSequenceHoldsInvariants)
     EXPECT_EQ(allocator.LiveAllocationCount(), 0u);
     EXPECT_FLOAT_EQ(allocator.Occupancy(), 0.0f);
     EXPECT_NE(allocator.Allocate(kAtlasSize), AtlasAllocator::kInvalidNode);
+}
+
+// A caller that needs several tiles as one atomic unit (ShadowAtlas::
+// PersistentAllocator's point-caster "6 faces or none" guarantee) acquires
+// them one at a time and frees whatever it got the moment one fails. This
+// directly validates the allocate/free pattern that reliance is built on: a
+// partial multi-tile acquisition, once fully rolled back, must leave the
+// allocator indistinguishable from having never attempted it.
+TEST(AtlasAllocator, PartialMultiTileAcquisitionRollsBackCleanly)
+{
+    // 64/8 = 8 per axis -> exactly 64 possible 8x8 slots, tiling the atlas
+    // exactly (64 slots * 64 area each = 4096 = atlas area).
+    AtlasAllocator allocator(64, 8);
+
+    std::vector<u32> preFilled;
+    for (int i = 0; i < 59; ++i)
+    {
+        const u32 node = allocator.Allocate(8);
+        ASSERT_NE(node, AtlasAllocator::kInvalidNode);
+        preFilled.push_back(node);
+    }
+    ASSERT_EQ(allocator.LiveAllocationCount(), 59u);
+
+    // Only 5 of the 64 slots remain — attempting 6 (mirrors a point caster's
+    // 6 cube faces) must fail partway through.
+    std::array<u32, 6> attempt{};
+    u32 acquired = 0;
+    for (; acquired < 6; ++acquired)
+    {
+        const u32 node = allocator.Allocate(8);
+        if (node == AtlasAllocator::kInvalidNode)
+            break;
+        attempt[acquired] = node;
+    }
+    ASSERT_EQ(acquired, 5u) << "test setup didn't leave exactly 5 free slots — tighten preFilled count";
+    EXPECT_EQ(allocator.LiveAllocationCount(), 59u + acquired);
+
+    // Roll back exactly like PersistentAllocator does on a failed attempt.
+    for (u32 i = 0; i < acquired; ++i)
+        EXPECT_TRUE(allocator.Free(attempt[i]));
+
+    // State must be indistinguishable from immediately before the attempt.
+    EXPECT_EQ(allocator.LiveAllocationCount(), 59u);
+    EXPECT_NEAR(allocator.Occupancy(), (59.0 * 64.0) / (64.0 * 64.0), 1e-9);
+
+    // The 5 slots that were genuinely free before the failed attempt must
+    // still be free now — not consumed, not lost.
+    for (int i = 0; i < 5; ++i)
+        EXPECT_NE(allocator.Allocate(8), AtlasAllocator::kInvalidNode)
+            << "slot " << i << " should still have been free after the rollback";
+    EXPECT_EQ(allocator.Allocate(8), AtlasAllocator::kInvalidNode) << "atlas should now be genuinely full";
 }

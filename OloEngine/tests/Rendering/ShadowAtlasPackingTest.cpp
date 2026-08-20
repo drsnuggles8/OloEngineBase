@@ -437,6 +437,20 @@ TEST(ShadowAtlasPersistentAllocator, PreservesSkipWholeCasterAcrossCalls)
     ASSERT_EQ(result.Accepted.size(), 2u);
     EXPECT_EQ(result.Accepted[0].EntryCount, 6u); // point light: 6 contiguous entries, never partial
     EXPECT_EQ(result.Accepted[1].EntryCount, 1u);
+
+    // Same candidates again: the point caster must keep its whole cube (never
+    // a partial one) AND land on the exact same 6 tiles via reuse.
+    const auto second = allocator.Allocate(candidates);
+    ASSERT_EQ(second.Accepted.size(), 2u);
+    EXPECT_EQ(second.Accepted[0].EntryCount, 6u);
+    EXPECT_EQ(second.Accepted[1].EntryCount, 1u);
+    for (u32 face = 0; face < 6; ++face)
+    {
+        EXPECT_EQ(result.EntryRects[result.Accepted[0].BaseEntry + face].X,
+                  second.EntryRects[second.Accepted[0].BaseEntry + face].X);
+        EXPECT_EQ(result.EntryRects[result.Accepted[0].BaseEntry + face].Y,
+                  second.EntryRects[second.Accepted[0].BaseEntry + face].Y);
+    }
 }
 
 TEST(ShadowAtlasPersistentAllocator, TilesNeverOverlapAcrossRepeatedChangingCalls)

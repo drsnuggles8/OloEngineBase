@@ -263,15 +263,27 @@ namespace OloEngine::ShadowAtlas
             // Reuse a held tile set only when identity, type AND size all
             // still match — a rank shift that crosses a tier boundary (a new
             // brighter light pushing this one from large to medium, say)
-            // must free and reallocate at the new size like any other
-            // change. A mismatched-size match is deliberately left in
-            // previousLive (not freed here) — the trailing sweep frees it.
+            // must free and reallocate at the new size like any other change.
             auto prevIt = (candidate.UserData != 0)
                               ? std::ranges::find_if(previousLive, [&](const LiveSlot& s)
                                                      { return s.UserData == candidate.UserData; })
                               : previousLive.end();
             const bool reusable = prevIt != previousLive.end() &&
                                   prevIt->Type == candidate.Type && prevIt->TileSize == tileSize;
+
+            if (prevIt != previousLive.end() && !reusable)
+            {
+                // Identity matched but type/size didn't: this slot can never
+                // be reused by anything else this call (identities are
+                // unique), so free it NOW rather than waiting for the
+                // trailing sweep. Otherwise the caster would briefly hold its
+                // old tile AND attempt to acquire a new one at the same
+                // time, and on a near-full atlas that doubled peak could make
+                // its own reallocation below fail.
+                FreeSlot(*prevIt);
+                previousLive.erase(prevIt);
+                prevIt = previousLive.end();
+            }
 
             std::array<u32, 6> nodes{};
             bool placed = true;

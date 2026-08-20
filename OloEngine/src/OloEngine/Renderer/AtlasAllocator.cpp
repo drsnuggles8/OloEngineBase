@@ -13,9 +13,18 @@ namespace OloEngine
             !IsPowerOfTwo(atlasSize) || !IsPowerOfTwo(minTileSize))
             return; // zero-capacity: every Allocate() fails, never asserts
 
+        // Checked BEFORE touching m_AtlasSize/m_MinTileSize/m_LevelCount, and
+        // before LevelStart() ever sees this value: past kMaxLevelCount its
+        // `1u << (2*level)` shift is undefined behaviour, and well before
+        // that the (4^level-1)/3-sized node table is an unreasonable
+        // allocation for a ratio nothing here legitimately needs.
+        const u32 levelCount = FloorLogTwo(atlasSize / minTileSize) + 1u;
+        if (levelCount > kMaxLevelCount)
+            return; // zero-capacity: same contract as any other invalid input
+
         m_AtlasSize = atlasSize;
         m_MinTileSize = minTileSize;
-        m_LevelCount = FloorLogTwo(atlasSize / minTileSize) + 1u;
+        m_LevelCount = levelCount;
 
         const u32 totalNodes = LevelStart(m_LevelCount);
         m_Nodes.assign(totalNodes, Node{});

@@ -44,10 +44,15 @@ couldn't cleanly factor into rank-then-place stages.
 longer present as a candidate at all (removed, stopped casting) is freed EAGERLY, before
 ranking runs — a cheap upfront pass over the held set catches this common case so a
 legitimate allocation ranked ahead of it in the SAME call isn't blocked by space that
-caster no longer needs. What that pass can't catch: a caster that IS still a candidate
-this call but doesn't make the accepted set (out-ranked, over budget). Whether it's
-accepted is only knowable after the ranking loop actually runs, so that tile frees on the
-trailing sweep and becomes available NEXT call, not this one — under near-capacity atlas
+caster no longer needs. A caster that IS still a candidate but whose rank crossed a tier
+boundary (large → medium, say) is *also* freed eagerly, the instant the size mismatch is
+detected, rather than left holding both its old and new tile until the trailing sweep —
+that specific case IS knowable in advance (the mismatch is checked right before the
+candidate's own allocation attempt), unlike the one case that genuinely isn't: a caster
+that IS still a candidate this call but doesn't make the accepted set at all (out-ranked,
+over budget). Whether THAT candidate is accepted is only knowable after the ranking loop
+actually runs, so its tile frees on the trailing sweep and becomes available NEXT call,
+not this one — under near-capacity atlas
 conditions this can reject a candidate the old from-scratch shelf-packer would have
 placed. Deliberate, not fixed: the atlas is sized with generous headroom relative to the
 entry/light budgets specifically so this stays rare, and a real fix is a two-pass "which
@@ -120,7 +125,7 @@ value. `std::vector::resize()` to a *smaller* size silently destroys the trailin
 `Ref<Texture2D>`, …), is exactly correct (refcounted GPU cleanup). For `BudgetNode` it's a
 leak: the claim is never freed, and because the allocator is a process-wide static, it
 leaks for the rest of the process — a scene-reload loop that keeps removing/re-adding
-foliage layers would eventually starve every future bake. Three call sites needed an
+foliage layers would eventually starve every future bake. Five discard sites needed an
 explicit `ImpostorBaker::Free(atlas)` that nothing in the type system would have forced:
 the two `data.Impostor = ImpostorAtlas{}` resets, the rebake overwrite, the layer-count
 shrink before `m_Layers.resize()`, and — the one that's easy to forget entirely —
@@ -133,8 +138,8 @@ and rejected: a user-declared destructor suppresses the implicit move ctor/assig
 and a naive copy assignment double-frees the just-reserved `BudgetNode` the moment the
 temporary's destructor runs. `AtlasAllocator::Free` being tolerant of a double-free (a
 second `Free()` on an already-free node is a documented no-op, not a crash) is what makes
-this class of mistake survivable rather than a live bug — but the four explicit call sites
-are still what makes it *correct*, not just non-crashing.
+this class of mistake survivable rather than a live bug — but the five explicit discard
+sites are still what makes it *correct*, not just non-crashing.
 
 **The general lesson:** a plain accounting handle embedded in a value type that otherwise
 looks entirely POD (glm vectors, bools, floats, `Ref<T>`s that clean up on their own) is

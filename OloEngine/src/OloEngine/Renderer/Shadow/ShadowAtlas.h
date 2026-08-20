@@ -147,7 +147,12 @@ namespace OloEngine
         // candidate at all (removed, stopped casting) has its held tile(s)
         // freed EAGERLY, before ranking runs, so a legitimate allocation
         // ranked ahead of it this same call isn't blocked by space that
-        // caster no longer needs.
+        // caster no longer needs. A caster that IS still a candidate but
+        // whose rank crossed a tier boundary (a new brighter light pushing
+        // it from large to medium, say) also frees its old tile eagerly, the
+        // moment the size mismatch is detected — otherwise it would briefly
+        // hold both its old AND new tile at once, and on a near-full atlas
+        // that doubled peak could make its own reallocation fail.
         //
         // One case still lags a call: a caster that IS a candidate this call
         // but doesn't make the accepted set (out-ranked, over budget) only
