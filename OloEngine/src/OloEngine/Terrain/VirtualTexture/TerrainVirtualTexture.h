@@ -23,9 +23,9 @@ namespace OloEngine
     class Texture2D;
     class Texture2DArray;
 
-    // @brief Adaptive-virtual-texture surfacing for terrain — slice 1 of issue
-    // #715: a FIXED-GRID virtual image with an uncompressed physical cache and
-    // a mip-chained indirection map.
+    // @brief Adaptive-virtual-texture surfacing for terrain — slices 1 and 2 of
+    // issue #715: a FIXED-GRID virtual image with an uncompressed physical cache
+    // and a mip-chained indirection map published by INCREMENTAL DELTAS.
     //
     // What this replaces: `Terrain_PBR.glsl` blends up to eight splat layers per
     // pixel with triplanar + height blending, so shading cost scales with layer
@@ -53,10 +53,13 @@ namespace OloEngine
     //     what is not, bounded by `MaxTileBakesPerFrame`.
     //  4. **Bake.** One compute dispatch composites every newly-mapped page's
     //     splat blend straight into its physical cache tile.
-    //  5. **Publish.** When the resident set changed, the indirection texture is
-    //     rebuilt: clear, stamp the resident pages at their own mip, then
-    //     propagate coarse→fine so every unmapped texel inherits the nearest
-    //     resident ancestor.
+    //  5. **Publish.** When the resident set changed, this frame's CHANGES are
+    //     stamped into the indirection texture — one entry per changed texel,
+    //     an eviction written as an explicit all-zero entry — and the
+    //     coarse→fine propagation is re-run over the descendants of those
+    //     changes. See `VTIndirectionDelta`; slice 1 rebuilt the whole map
+    //     instead, and that path survives as the fallback for a texture whose
+    //     contents are not yet known.
     //
     // Step 5's propagation is the anti-pop mechanism and the reason the
     // indirection map has a mip chain at all. A lookup that finds no page at the
@@ -71,11 +74,8 @@ namespace OloEngine
     // body, which runs on a Task worker over a plain `std::vector<u32>` copy and
     // touches no renderer state — see `VTFeedbackAnalyzer`.
     //
-    // ── What is NOT here (slices 2-4 of #715) ────────────────────────────────
+    // ── What is NOT here (slices 3-4 of #715) ────────────────────────────────
     //
-    //  - Incremental indirection updates. Slice 1 rebuilds the whole map on any
-    //    residency change, which is ~1.3 * VirtualPagesWide^2 texel writes and
-    //    only on frames where something moved.
     //  - Adaptive / variable-size virtual images (the "A" in AVT). The grid is
     //    uniform over the terrain; per-region density would need the shared
     //    power-of-two atlas allocator tracked as #718.
@@ -103,6 +103,43 @@ namespace OloEngine
             u32 m_ReadbackSlotsInFlight = 0;
             u64 m_CacheBytes = 0;
             u64 m_IndirectionBytes = 0;
+
+            // ── Indirection publishing (slice 2) ─────────────────────────
+            //
+            // The delta path's own instrumentation, and the reason it is here
+            // rather than in a one-off harness: "the delta list is faster" is
+            // unfalsifiable without a before number, and the two figures that
+            // decide whether it matters at all are how MUCH is written per
+            // publish and how OFTEN a publish happens. Both are visible in the
+            // terrain panel.
+            u32 m_IndirectionTexelsWritten = 0; // texels the last publish wrote (clear pass included)
+            u32 m_IndirectionTexelsFilled = 0;  // texels it re-propagated
+            u32 m_IndirectionPublishes = 0;     // frames that published at all
+            u32 m_IndirectionFullRebuilds = 0;  // of those, how many rebuilt everything
+            u32 m_FramesUpdated = 0;            // frames Update() ran — the denominator
+            // GPU time of one publish of each kind, in milliseconds; zero until
+            // a sample has resolved. The timestamps are polled, never waited on,
+            // for the same reason the feedback readback is (see the class
+            // comment), so the figure lags a few frames.
+            //
+            // **The LOWEST sample since Configure(), not the most recent.** A
+            // publish is a handful of small dispatches, and one timestamp pair
+            // around them also catches whatever else the GPU was busy with —
+            // measured here, the same rebuild reported anywhere between 0.05 ms
+            // and 2.9 ms across five runs of the same test. The minimum is the
+            // only one of those that is a statement about the publish rather
+            // than about the frame it happened to land in. For a claim that has
+            // to be exact, prefer the texel counters above: they are
+            // deterministic.
+            //
+            // **Two fields, not one, because this is the A/B.** The rebuild is
+            // the path slice 2 replaced; keeping its cost measured alongside the
+            // delta's — in the same build, against the same traffic — is what
+            // makes "the delta is cheaper" a number rather than a claim.
+            // OLO_TERRAIN_VT_FULL_REBUILD drives the rebuild figure under
+            // ordinary camera movement instead of only at startup.
+            f64 m_IndirectionRebuildGpuMs = 0.0;
+            f64 m_IndirectionDeltaGpuMs = 0.0;
         };
 
         // @brief What `Update()` needs from the terrain being surfaced.
@@ -173,6 +210,13 @@ namespace OloEngine
         // triplanar projection).
         void Invalidate();
 
+        // Publishing through slice 1's whole-map rebuild instead of the delta is
+        // the debug lever `OLO_TERRAIN_VT_FULL_REBUILD`, not a member of this
+        // class — so it is in the startup log's active-lever line, in
+        // olo_debug_levers, and settable by name at runtime from the editor
+        // console and olo_cvar_set. PublishIndirection reads it every frame,
+        // which is what makes it a same-session A/B rather than a relaunch.
+
         // Directory-only page cache: this class owns the payload (the physical
         // cache texture) and uses #704's substrate purely for the page-index
         // allocation, the LRU order and the eviction notification.
@@ -204,9 +248,28 @@ namespace OloEngine
             u64 m_Sequence = 0;
         };
 
+        // One begin/end timestamp pair per in-flight publish. Four slots for the
+        // same reason GPUPassTimerPool uses four: the result is polled a few
+        // frames later and never waited on, so a slot whose turn comes round
+        // again while still pending is DROPPED rather than blocked on.
+        static constexpr u32 kTimingSlots = 4;
+
+        struct TimingSlot
+        {
+            RHI::ResourceHandle m_Begin{};
+            RHI::ResourceHandle m_End{};
+            bool m_Pending = false;
+            // Which of the two publish paths this pair is timing. Recorded at
+            // ISSUE time: by the time it resolves, several more publishes of the
+            // other kind may have happened.
+            bool m_WasFullRebuild = false;
+        };
+
         bool EnsureShaders();
         bool EnsureFeedbackResources(u32 viewportWidth, u32 viewportHeight);
         void DestroyReadbackSlots();
+        void EnsureTimingQueries();
+        void DestroyTimingQueries();
 
         void CaptureFeedback();
         void PollReadback();
@@ -214,6 +277,14 @@ namespace OloEngine
         void ServiceRequests();
         void BakeTiles(const FrameInputs& inputs);
         void PublishIndirection();
+
+        // Resolve any timestamp pair the GPU has finished with. A poll — there is
+        // no wait anywhere in this class.
+        void PollIndirectionTiming();
+        // Returns the slot the pair was issued into, or kTimingSlots when none
+        // was free (or there is no device); pass it back to EndIndirectionTiming.
+        [[nodiscard]] u32 BeginIndirectionTiming();
+        void EndIndirectionTiming(u32 slot, bool wasFullRebuild);
 
         [[nodiscard]] glm::uvec2 TileCoord(u32 tileIndex) const;
 
@@ -251,8 +322,26 @@ namespace OloEngine
         std::vector<u32> m_EvictedThisFrame;     // filled by the eviction listener
 
         std::vector<VTBakeRequest> m_BakeList;
-        std::vector<VTIndirectionUpdate> m_UpdateScratch;
         std::vector<u8> m_UploadScratch;
+
+        // This frame's indirection changes, accumulated by the eviction listener
+        // and by ServiceRequests as they happen, drained by PublishIndirection.
+        // NOT reset per frame: a frame that cannot publish (a shader still
+        // loading) keeps accumulating, and the entries stay unique per texel, so
+        // the deferred publish is still one write per changed texel.
+        VTIndirectionDelta m_IndirectionDelta;
+        // How many VTIndirectionUpdate records the upload buffer can hold. A
+        // delta bigger than this cannot go up in one piece, so it escalates to a
+        // full rebuild instead of being uploaded in halves.
+        u32 m_IndirectionUpdateCapacity = 0;
+        // The indirection texture's contents are UNKNOWN, not merely stale:
+        // freshly created storage is undefined until written, so the first
+        // publish after Configure() has to be the clear-everything path.
+        bool m_IndirectionNeedsFullRebuild = false;
+
+        std::array<TimingSlot, kTimingSlots> m_TimingSlots{};
+        u32 m_NextTimingSlot = 0;
+        bool m_TimingQueriesReady = false;
 
         bool m_IndirectionDirty = false;
         glm::mat4 m_BakedModel{ 1.0f };

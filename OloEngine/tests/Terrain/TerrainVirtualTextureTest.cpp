@@ -30,6 +30,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <random>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 using namespace OloEngine;
@@ -772,4 +775,513 @@ TEST(TerrainVirtualTexture, AFineLookupPrefersTheFinestResidentAncestor)
     const VTIndirectionTexel outside = ResolveWithFallback(config, residentKeys, 0u, 40u, 40u, found);
     ASSERT_TRUE(found);
     EXPECT_EQ(outside.m_Mip, config.MaxMip());
+}
+
+// -----------------------------------------------------------------------------
+// Incremental indirection updates (slice 2). The property that matters is not
+// "the delta is smaller" — it is that the delta produces THE SAME MAP as the
+// rebuild it replaces. Everything below is built around that equivalence,
+// because every way this can be wrong (a missing unmap, a fill rect that stops
+// one level short) leaves a map that renders a plausible frame.
+// -----------------------------------------------------------------------------
+
+namespace
+{
+    // The CPU twin of what the three kernels leave in the indirection texture:
+    // one packed u32 per texel per mip.
+    //
+    // The kernels themselves are three lines each and are transcribed here; what
+    // is NOT transcribed is the part under test — which texels a frame changes
+    // and which rectangles get re-propagated — because that comes out of the
+    // production VTIndirectionDelta. `Publish` is deliberately ONE function used
+    // by both paths, so the rebuild and the delta differ only in the delta they
+    // are handed, exactly as they do in PublishIndirection.
+    class IndirectionMapModel
+    {
+      public:
+        explicit IndirectionMapModel(const TerrainVirtualTextureConfig& config) : m_Config(config)
+        {
+            m_Levels.resize(config.MipCount());
+            for (u32 mip = 0; mip < config.MipCount(); ++mip)
+            {
+                const u32 side = config.VirtualPagesWide >> mip;
+                m_Levels[mip].assign(static_cast<sizet>(side) * side, 0u);
+            }
+        }
+
+        [[nodiscard]] u32 At(u32 mip, u32 x, u32 y) const
+        {
+            const u32 side = m_Config.VirtualPagesWide >> mip;
+            return m_Levels[mip][static_cast<sizet>(y) * side + x];
+        }
+
+        void Publish(const VTIndirectionDelta& delta)
+        {
+            if (delta.WantsFullRebuild())
+            {
+                Clear();
+            }
+            Write(delta);
+            Fill(delta);
+        }
+
+        // Deliberately available on its own so a negative control can publish a
+        // deliberately-incomplete delta and prove the comparison has teeth.
+        void Write(const VTIndirectionDelta& delta)
+        {
+            for (u32 mip = 0; mip < m_Config.MipCount(); ++mip)
+            {
+                const u32 base = delta.GetMipBase(mip);
+                const u32 count = delta.GetMipCountAt(mip);
+                const u32 side = m_Config.VirtualPagesWide >> mip;
+                for (u32 i = 0; i < count; ++i)
+                {
+                    const VTIndirectionUpdate& update = delta.GetUpdates()[base + i];
+                    const u32 x = update.m_TexelCoord & 0xFFFFu;
+                    const u32 y = update.m_TexelCoord >> 16u;
+                    m_Levels[mip][static_cast<sizet>(y) * side + x] = update.m_Packed;
+                }
+            }
+        }
+
+        // `stopAtLevel` exists for the negative control below: propagating down
+        // to level 1 instead of level 0 is what "the fill rect stopped one level
+        // short" looks like, and the comparison has to be able to see it.
+        void Fill(const VTIndirectionDelta& delta, u32 stopAtLevel = 0u)
+        {
+            // Strictly top-down, exactly as the dispatch loop is: level m reads
+            // level m+1 AFTER m+1 has been repaired.
+            for (u32 level = m_Config.MipCount() - 1u; level-- > stopAtLevel;)
+            {
+                const VTIndirectionDelta::Rect& rect = delta.GetFillRect(level);
+                const u32 side = m_Config.VirtualPagesWide >> level;
+                for (u32 dy = 0; dy < rect.m_Height; ++dy)
+                {
+                    for (u32 dx = 0; dx < rect.m_Width; ++dx)
+                    {
+                        const u32 x = rect.m_X + dx;
+                        const u32 y = rect.m_Y + dy;
+                        ASSERT_LT(x, side);
+                        ASSERT_LT(y, side);
+                        u32& texel = m_Levels[level][static_cast<sizet>(y) * side + x];
+                        if (VTUnpackIndirection(texel).m_Direct != 0u)
+                        {
+                            continue; // a direct mapping — the write pass owns it
+                        }
+                        // alpha stays 0 so the inheritance keeps propagating.
+                        texel = At(level + 1u, x >> 1u, y >> 1u) & 0x00FFFFFFu;
+                    }
+                }
+            }
+        }
+
+        void Clear()
+        {
+            for (auto& level : m_Levels)
+            {
+                std::ranges::fill(level, 0u);
+            }
+        }
+
+        // Texel-for-texel, every mip. Returns the first disagreement so a failure
+        // names an address rather than "the maps differ".
+        [[nodiscard]] bool SameAs(const IndirectionMapModel& other, std::string& outWhere) const
+        {
+            for (u32 mip = 0; mip < m_Config.MipCount(); ++mip)
+            {
+                const u32 side = m_Config.VirtualPagesWide >> mip;
+                for (u32 y = 0; y < side; ++y)
+                {
+                    for (u32 x = 0; x < side; ++x)
+                    {
+                        if (At(mip, x, y) != other.At(mip, x, y))
+                        {
+                            outWhere = "mip " + std::to_string(mip) + " texel (" + std::to_string(x) + ", " +
+                                       std::to_string(y) + "): rebuild=" + std::to_string(At(mip, x, y)) +
+                                       " delta=" + std::to_string(other.At(mip, x, y));
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+      private:
+        TerrainVirtualTextureConfig m_Config;
+        std::vector<std::vector<u32>> m_Levels;
+    };
+
+    // The rebuild path, as PublishIndirection builds it: every resident page
+    // stamped, every level's fill rect full. This is the ORACLE — it is a
+    // transcription on purpose, because it is the known-good behaviour slice 1
+    // shipped and the thing the delta has to reproduce.
+    void BuildFullRebuildDelta(VTIndirectionDelta& delta, const TerrainVirtualTextureConfig& config,
+                               const std::unordered_map<u32, u32>& resident)
+    {
+        delta.Reset(config);
+        for (const auto& [key, tile] : resident)
+        {
+            VTRecordMapping(delta, config, key, tile);
+        }
+        delta.MarkEverythingDirty();
+        delta.Finalize();
+    }
+
+    // A feedback buffer for a camera looking at `centre`, at mip `mip`. Random
+    // rather than swept: the fill rectangle is a BOUNDING BOX, so scattered
+    // requests are the case that stresses it.
+    std::vector<u32> MakeFeedback(std::mt19937& rng, const TerrainVirtualTextureConfig& config, glm::uvec2 centre,
+                                  u32 span, u32 texelCount)
+    {
+        std::vector<u32> feedback(texelCount, 0u);
+        std::uniform_int_distribution<u32> offset(0u, span);
+        std::uniform_int_distribution<u32> mipPick(0u, std::min(3u, config.MaxMip()));
+        for (u32 i = 0; i < texelCount; ++i)
+        {
+            const u32 x = std::min(centre.x + offset(rng), config.VirtualPagesWide - 1u);
+            const u32 y = std::min(centre.y + offset(rng), config.VirtualPagesWide - 1u);
+            feedback[i] = VTPackFeedback(x, y, mipPick(rng));
+        }
+        return feedback;
+    }
+} // namespace
+
+TEST(TerrainVirtualTexture, AnEvictionIsWrittenAsAnExplicitAllZeroEntry)
+{
+    // Rule 1 of the delta: with no clear pass, "page P is gone" has to be an
+    // ENTRY. A delta that only ever adds mappings leaves P's texel addressing a
+    // physical tile that another page now owns.
+    const TerrainVirtualTextureConfig config = MakeConfig();
+    VTIndirectionDelta delta;
+    delta.Reset(config);
+
+    VTRecordEviction(delta, VTMakePageKey(2u, 5u, 7u));
+    delta.Finalize();
+
+    ASSERT_EQ(delta.Size(), 1u);
+    ASSERT_EQ(delta.GetMipCountAt(2u), 1u);
+    const VTIndirectionUpdate& update = delta.GetUpdates()[delta.GetMipBase(2u)];
+    EXPECT_EQ(update.m_TexelCoord, (7u << 16u) | 5u);
+    // Byte-for-byte what TerrainVTIndirectionClear.comp writes. Anything else —
+    // "point it at the coarser page" being the tempting one — would disagree
+    // with the rebuild at the coarsest level, where no fill pass follows.
+    EXPECT_EQ(update.m_Packed, 0u);
+}
+
+TEST(TerrainVirtualTexture, ATexelWrittenTwiceInOneFrameKeepsOnlyTheLastWrite)
+{
+    // Rule 3: two updates to one texel in a single dispatch race, and the loser
+    // is not predictable. Same page evicted and re-mapped within one frame.
+    const TerrainVirtualTextureConfig config = MakeConfig();
+    VTIndirectionDelta delta;
+    delta.Reset(config);
+
+    const u32 key = VTMakePageKey(1u, 3u, 4u);
+    VTRecordEviction(delta, key);
+    VTRecordMapping(delta, config, key, /*tileIndex*/ 9u);
+    delta.Finalize();
+
+    ASSERT_EQ(delta.Size(), 1u) << "one texel, one entry";
+    const glm::uvec2 tile = VTTileCoord(config, 9u);
+    EXPECT_EQ(delta.GetUpdates()[0].m_Packed, VTPackIndirection(tile.x, tile.y, 1u, true));
+}
+
+TEST(TerrainVirtualTexture, TheFillRectangleCoversEveryDescendantOfAChangedTexel)
+{
+    // Rule 2, as arithmetic. A texel that changed at mip m invalidates the whole
+    // 2^k x 2^k block below it at mip m-k, because any of those texels may have
+    // inherited from it. A rect that stops one level short is a page that keeps
+    // pointing at a tile that has been reused — which reads as a streaming bug.
+    const TerrainVirtualTextureConfig config = MakeConfig(); // 64 pages, mips 0..6
+    VTIndirectionDelta delta;
+    delta.Reset(config);
+
+    constexpr u32 kMip = 4u;
+    constexpr u32 kPageX = 2u;
+    constexpr u32 kPageY = 1u;
+    VTRecordEviction(delta, VTMakePageKey(kMip, kPageX, kPageY));
+    delta.Finalize();
+
+    for (u32 level = 0; level <= kMip; ++level)
+    {
+        const u32 scale = 1u << (kMip - level);
+        const VTIndirectionDelta::Rect& rect = delta.GetFillRect(level);
+        EXPECT_EQ(rect.m_X, kPageX * scale) << "level " << level;
+        EXPECT_EQ(rect.m_Y, kPageY * scale) << "level " << level;
+        EXPECT_EQ(rect.m_Width, scale) << "level " << level;
+        EXPECT_EQ(rect.m_Height, scale) << "level " << level;
+    }
+    for (u32 level = kMip + 1u; level < config.MipCount(); ++level)
+    {
+        EXPECT_TRUE(delta.GetFillRect(level).IsEmpty())
+            << "nothing coarser than the change can have inherited from it (level " << level << ")";
+    }
+}
+
+TEST(TerrainVirtualTexture, TwoScatteredChangesUniteIntoOneBoundingRectangle)
+{
+    // The documented degeneration: the rect is a bounding box, not an exact set.
+    // Pinned so that a future exact-set implementation has to update the claim
+    // rather than silently change the cost model.
+    const TerrainVirtualTextureConfig config = MakeConfig();
+    VTIndirectionDelta delta;
+    delta.Reset(config);
+
+    VTRecordEviction(delta, VTMakePageKey(0u, 1u, 1u));
+    VTRecordEviction(delta, VTMakePageKey(0u, 60u, 40u));
+    delta.Finalize();
+
+    const VTIndirectionDelta::Rect& rect = delta.GetFillRect(0u);
+    EXPECT_EQ(rect.m_X, 1u);
+    EXPECT_EQ(rect.m_Y, 1u);
+    EXPECT_EQ(rect.m_Width, 60u);
+    EXPECT_EQ(rect.m_Height, 40u);
+}
+
+TEST(TerrainVirtualTexture, AFullRebuildDirtiesEveryLevelEntirely)
+{
+    const TerrainVirtualTextureConfig config = MakeConfig();
+    VTIndirectionDelta delta;
+    delta.Reset(config);
+    delta.MarkEverythingDirty();
+    delta.Finalize();
+
+    EXPECT_TRUE(delta.WantsFullRebuild());
+    for (u32 level = 0; level < config.MipCount(); ++level)
+    {
+        const u32 side = config.VirtualPagesWide >> level;
+        const VTIndirectionDelta::Rect& rect = delta.GetFillRect(level);
+        EXPECT_EQ(rect.m_X, 0u);
+        EXPECT_EQ(rect.m_Y, 0u);
+        EXPECT_EQ(rect.m_Width, side) << "level " << level;
+        EXPECT_EQ(rect.m_Height, side) << "level " << level;
+    }
+}
+
+TEST(TerrainVirtualTexture, TheDeltaProducesTheSameMapAsAFullRebuildOverRandomTraffic)
+{
+    // **The guard this slice exists for.** Equivalence against the known-good
+    // path over a randomised insert/evict sequence, rather than against a
+    // hand-written expected map — because a hand-written expectation encodes the
+    // same misunderstanding twice.
+    //
+    // The cache is deliberately far smaller than the working set, so evictions
+    // are the common case rather than a corner one.
+    TerrainVirtualTextureConfig config = MakeConfig();
+    config.CacheTilesWide = 4u; // 16 tiles
+    config.MaxTileBakesPerFrame = 4u;
+    ASSERT_TRUE(config.IsValid());
+
+    VTPageCache cache;
+    ASSERT_TRUE(cache.Create(0, config.CacheTileCount(), GPUCacheBacking::HostOnly));
+
+    std::unordered_map<u32, u32> resident;
+    VTIndirectionDelta deltaPath;
+    deltaPath.Reset(config);
+    cache.SetEvictionListener(
+        [&resident, &deltaPath](const u32& victim)
+        {
+            resident.erase(victim);
+            VTRecordEviction(deltaPath, victim);
+        });
+
+    IndirectionMapModel rebuiltMap(config);
+    IndirectionMapModel deltaMap(config);
+    VTIndirectionDelta rebuildDelta;
+
+    std::mt19937 rng(0xA71C5EEDu);
+    glm::uvec2 camera(0u, 0u);
+
+    for (u32 frame = 0; frame < 60u; ++frame)
+    {
+        // Drift the camera so pages both arrive and stop being asked for.
+        camera.x = (camera.x + 3u) % (config.VirtualPagesWide - 8u);
+        camera.y = (camera.y + 2u) % (config.VirtualPagesWide - 8u);
+
+        VTFeedbackAnalyzer analyzer;
+        analyzer.Analyze(MakeFeedback(rng, config, camera, 8u, 64u), config.MaxMip());
+        const VTServiceOutcome outcome =
+            VTServicePageRequests(cache, analyzer.GetRequests(), config.CacheTileCount(),
+                                  config.MaxTileBakesPerFrame);
+
+        for (const auto& [pageKey, tile] : outcome.m_Mapped)
+        {
+            resident[pageKey] = tile;
+            VTRecordMapping(deltaPath, config, pageKey, tile);
+        }
+
+        // The oracle: rebuild from the resident set, every frame.
+        BuildFullRebuildDelta(rebuildDelta, config, resident);
+        rebuiltMap.Publish(rebuildDelta);
+
+        // The path under test. Frame 0 rebuilds for the same reason Configure()
+        // sets the flag — texture storage starts undefined, so there is no
+        // "unchanged" state to be incremental against.
+        if (frame == 0u)
+        {
+            deltaPath.Reset(config);
+            for (const auto& [key, tile] : resident)
+            {
+                VTRecordMapping(deltaPath, config, key, tile);
+            }
+            deltaPath.MarkEverythingDirty();
+        }
+        deltaPath.Finalize();
+        deltaMap.Publish(deltaPath);
+        deltaPath.Reset(config);
+
+        std::string where;
+        ASSERT_TRUE(rebuiltMap.SameAs(deltaMap, where)) << "frame " << frame << ": " << where;
+    }
+
+    // Not a vacuous pass: the sequence has to have actually exercised eviction.
+    EXPECT_GT(resident.size(), 0u);
+    cache.SetEvictionListener(nullptr);
+}
+
+TEST(TerrainVirtualTexture, TheEquivalenceCheckFailsWhenTheDeltaOmitsItsUnmaps)
+{
+    // The negative control. The equivalence test above is only worth anything if
+    // it can tell the two paths apart, and the specific mistake it exists to
+    // catch — a delta that records mappings but not evictions — has to make it
+    // fail. Slice 1's own history is the reason this is here: a pin that did not
+    // hold was found by undoing a rule and watching the test stay green.
+    const TerrainVirtualTextureConfig config = MakeConfig();
+
+    std::unordered_map<u32, u32> resident;
+    const u32 evictedKey = VTMakePageKey(0u, 4u, 4u);
+    const u32 replacementKey = VTMakePageKey(0u, 5u, 5u);
+
+    // Frame 1: one page resident, both maps agree.
+    resident[evictedKey] = 3u;
+    VTIndirectionDelta delta;
+    IndirectionMapModel rebuiltMap(config);
+    IndirectionMapModel deltaMap(config);
+
+    BuildFullRebuildDelta(delta, config, resident);
+    rebuiltMap.Publish(delta);
+    deltaMap.Publish(delta);
+    std::string where;
+    ASSERT_TRUE(rebuiltMap.SameAs(deltaMap, where)) << where;
+
+    // Frame 2: that page is evicted and its tile handed to another page. The
+    // honest delta records both halves; this one records only the mapping.
+    resident.erase(evictedKey);
+    resident[replacementKey] = 3u;
+
+    BuildFullRebuildDelta(delta, config, resident);
+    rebuiltMap.Publish(delta);
+
+    VTIndirectionDelta lyingDelta;
+    lyingDelta.Reset(config);
+    VTRecordMapping(lyingDelta, config, replacementKey, 3u);
+    // ...and NOT VTRecordEviction(lyingDelta, evictedKey).
+    lyingDelta.Finalize();
+    deltaMap.Publish(lyingDelta);
+
+    EXPECT_FALSE(rebuiltMap.SameAs(deltaMap, where))
+        << "a delta that drops its evictions must NOT match the rebuild — if it does, the equivalence test "
+           "above proves nothing";
+    // And name the damage: the evicted page's texel still addresses tile 3.
+    const VTIndirectionTexel stale = VTUnpackIndirection(deltaMap.At(0u, 4u, 4u));
+    const glm::uvec2 tile = VTTileCoord(config, 3u);
+    EXPECT_EQ(stale.m_TileX, static_cast<u8>(tile.x));
+    EXPECT_EQ(stale.m_TileY, static_cast<u8>(tile.y));
+    EXPECT_NE(stale.m_Direct, 0u) << "still marked direct, so the fill pass will not repair it either";
+}
+
+TEST(TerrainVirtualTexture, TheEquivalenceCheckFailsWhenThePropagationStopsOneLevelShort)
+{
+    // The second negative control, for rule 2. A delta list that updates only
+    // the changed page and does not re-propagate its descendants is the failure
+    // the handover for this slice named as most likely — and its symptom is a
+    // fine page still addressing a tile that has been handed to somebody else,
+    // which looks like a streaming bug rather than an indirection bug.
+    //
+    // "One level short" rather than "no propagation at all" on purpose: the
+    // partial case is the one a bounding-box walk can produce by accident.
+    const TerrainVirtualTextureConfig config = MakeConfig();
+
+    // A coarse page resident, so mip 0 has something to inherit; plus a fine
+    // page inside its footprint that is about to go away.
+    std::unordered_map<u32, u32> resident;
+    resident[VTMakePageKey(config.MaxMip(), 0u, 0u)] = 0u;
+    const u32 finePage = VTMakePageKey(1u, 2u, 2u);
+    resident[finePage] = 5u;
+
+    VTIndirectionDelta delta;
+    IndirectionMapModel honest(config);
+    IndirectionMapModel truncated(config);
+    BuildFullRebuildDelta(delta, config, resident);
+    honest.Publish(delta);
+    truncated.Publish(delta);
+
+    std::string where;
+    ASSERT_TRUE(honest.SameAs(truncated, where)) << where;
+    // Its two mip-0 children currently inherit the FINE page.
+    ASSERT_EQ(VTUnpackIndirection(honest.At(0u, 4u, 4u)).m_Mip, 1u);
+
+    // Now evict the fine page. Both sides get the same, correct delta; only the
+    // propagation differs.
+    resident.erase(finePage);
+    VTIndirectionDelta eviction;
+    eviction.Reset(config);
+    VTRecordEviction(eviction, finePage);
+    eviction.Finalize();
+
+    honest.Write(eviction);
+    honest.Fill(eviction);
+    truncated.Write(eviction);
+    truncated.Fill(eviction, /*stopAtLevel*/ 1u);
+
+    EXPECT_FALSE(honest.SameAs(truncated, where))
+        << "a propagation that stops one level short must NOT match the honest one";
+    EXPECT_EQ(VTUnpackIndirection(honest.At(0u, 4u, 4u)).m_Mip, config.MaxMip())
+        << "the child falls back to the coarsest resident ancestor";
+    EXPECT_EQ(VTUnpackIndirection(truncated.At(0u, 4u, 4u)).m_Mip, 1u)
+        << "and without it, the child still names a page that is no longer resident — the silent bug";
+}
+
+TEST(TerrainVirtualTexture, TheDeltaWritesFarFewerTexelsThanTheRebuildItReplaces)
+{
+    // The cost claim, as arithmetic rather than as a measurement — the measured
+    // GPU-ms number is in the PR, but this pins the SHAPE: a steady-state frame
+    // touches a handful of texels and re-propagates their subtrees, where the
+    // rebuild touched every texel of every level twice.
+    TerrainVirtualTextureConfig config;
+    config.VirtualPagesWide = 256u;
+    config.PageTexels = 128u;
+    config.BorderTexels = 4u;
+    config.CacheTilesWide = 16u;
+    config.MaxTileBakesPerFrame = 8u;
+    config.FeedbackDownscale = 8u;
+    ASSERT_TRUE(config.IsValid());
+
+    u64 rebuildTexels = 0;
+    for (u32 mip = 0; mip < config.MipCount(); ++mip)
+    {
+        const u64 side = config.VirtualPagesWide >> mip;
+        rebuildTexels += side * side; // the clear, and again the fill
+    }
+
+    // Eight fine pages arriving around one spot: what a frame of ordinary
+    // camera movement looks like.
+    VTIndirectionDelta delta;
+    delta.Reset(config);
+    for (u32 i = 0; i < 8u; ++i)
+    {
+        VTRecordMapping(delta, config, VTMakePageKey(0u, 100u + i, 100u), i);
+    }
+    delta.Finalize();
+
+    u64 deltaTexels = delta.Size();
+    for (u32 level = 0; level + 1u < config.MipCount(); ++level)
+    {
+        const VTIndirectionDelta::Rect& rect = delta.GetFillRect(level);
+        deltaTexels += static_cast<u64>(rect.m_Width) * rect.m_Height;
+    }
+
+    EXPECT_LT(deltaTexels * 1000u, rebuildTexels) << "delta " << deltaTexels << " vs rebuild " << rebuildTexels
+                                                  << " texels (the rebuild pays this twice, clear then fill)";
 }

@@ -5,9 +5,9 @@ Applies to: `OloEngine/src/OloEngine/Terrain/VirtualTexture/`,
 `OloEditor/assets/shaders/include/TerrainVirtualTexture.glsl`,
 `include/TerrainLayerBlend.glsl`, `include/TerrainParamsBlock.glsl`.
 
-Landed with issue #715 slice 1 (fixed grid, uncompressed cache, mip-chained indirection map).
-Slices 2–4 (incremental indirection deltas, adaptive/variable-size virtual images, BC-compressed
-cache tiles) are **not** here; read §7 before starting one.
+Landed with issue #715 slice 1 (fixed grid, uncompressed cache, mip-chained indirection map) and
+slice 2 (incremental indirection deltas — §4). Slices 3–4 (adaptive/variable-size virtual images,
+BC-compressed cache tiles) are **not** here; read §8 before starting one.
 
 **Read this before changing anything in the loop.** Every defect this subsystem can have is a
 *wrong address*, and a wrong address does not look like an error — it looks like the terrain
@@ -29,8 +29,10 @@ pass in `Scene.cpp`, **before** the terrain draws are submitted:
    allocate (evicting via LRU) what is not, bounded by `MaxTileBakesPerFrame`.
 4. **Bake** — one compute dispatch composites every newly-mapped page's splat blend straight into
    its physical cache tile.
-5. **Publish** — when the resident set changed, rebuild the indirection texture: clear, stamp the
-   resident pages at their own mip, then propagate coarse→fine.
+5. **Publish** — when the resident set changed, stamp *this frame's changes* into the indirection
+   texture (an eviction included, as an explicit all-zero entry) and re-propagate coarse→fine over
+   the descendants of those changes. §4. The whole-map rebuild survives as the fallback for a map
+   whose contents are not yet known.
 
 Feedback written on frame *N* is captured on *N+1* and typically consumed on *N+2* or *N+3*. That
 latency is the design, not a defect: it is what buys the loop a readback with no stall.
@@ -105,7 +107,96 @@ resident. Turning the branch on before that samples a zeroed cache, which is not
 
 ---
 
-## 4. Two servicing rules, and only one of them is the pin
+## 4. Publishing is a DELTA, and three things keep it equal to the rebuild
+
+Slice 1 republished the indirection map by rebuilding it: clear every mip, re-stamp every resident
+page, re-propagate every level. Slice 2 replaced that with the reference's delta list
+(`VTIndirectionDelta`), which writes only the texels that changed and re-propagates only their
+descendants. The rebuild is still there — it is the only thing that can define a map whose contents
+are *unknown* rather than merely stale — but it now runs on two occasions and no others: the first
+publish after `Configure()` (texture storage starts undefined), and a delta that outgrew its upload
+buffer. **Anything else reaching the rebuild is a bug in the delta**, and
+`Stats::m_IndirectionFullRebuilds` is how you notice.
+
+The delta is *equivalent* to the rebuild, not merely cheaper, and three rules are what make that
+true. Each one breaks quietly:
+
+**(a) An eviction is an ENTRY, not an absence.** With the clear pass gone, "page P is no longer
+resident" has to be written as an explicit all-zero texel — byte-for-byte what the clear kernel used
+to leave. A delta that only ever adds mappings leaves P's texel pointing at a physical tile some
+other page now owns, and the terrain renders a patch of the wrong material rather than an error.
+There are **two** sources of unmapping and only one of them notifies: the LRU eviction listener, and
+`Invalidate()`, which calls `GPUPagedCache::DeallocateObject` — and *that does not fire the listener*.
+`Invalidate()` therefore writes its own unmaps by hand, before it clears `m_Resident`.
+
+**(b) The propagation still runs, over the DESCENDANTS of every change.** A texel that changed at mip
+*m* invalidates a 2^k × 2^k block at every finer mip *m−k*, because any of those texels may have
+inherited from it. `VTIndirectionDelta::GetFillRect` derives that with one coarse→fine walk: the rect
+at level *l* is (level *l+1*'s rect, doubled) ∪ (the texels that changed at *l* itself). Skipping it,
+or stopping one level short, reintroduces exactly the pop the mip chain exists to prevent — and it
+presents as a streaming bug, not an indirection bug. The reference has this wrong in one place: its
+`AVT_WriteMissingPixels` dispatch is guarded on `maxTouchedMip > 0`, so a frame whose only change is
+at mip 0 never repairs an unmapped mip-0 texel.
+
+**(c) One entry per texel, last write wins.** Two updates to the same texel inside one dispatch race,
+and the loser is not predictable. That is the whole reason the reference's structure carries an index
+map, and it is why the delta does too.
+
+### The bounding box is most of the remaining cost, and that is the measured surprise
+
+The fill rectangle is a **bounding box, not an exact set** — two changes at opposite corners of a
+level cover it entirely. The degenerate case therefore costs what slice 1 cost unconditionally, so
+the delta path can never be the slower one. What the arithmetic suggests, and what actually happens,
+are not the same thing:
+
+| 256 pages wide (the sandbox scene's config) | texels touched per publish | best GPU sample |
+|---|---|---|
+| whole-map rebuild | 174,905 (fixed) | 0.064 ms |
+| delta | 17,053 – 32,763 | 0.029 ms |
+
+Measured on an RTX 4090, Debug, by `TheDeltaPublishesTheSameFrameAsTheFullRebuild` with its map
+temporarily raised to 256 pages; published on ~55% of frames. **~10× the texels of the ideal, because
+LRU evictions scatter.** The pages arriving are camera-local, but the pages *leaving* are wherever the
+least-recently-used ones happen to be, so the union of "what changed" is routinely spread across the
+level and its bounding box is a large fraction of it. A delta whose fill is only ~5× cheaper than a
+rebuild is doing what it was written to do; it is the box that is loose, not the delta.
+
+Two things follow. The publish is **dispatch-bound at these sizes** — 0.064 ms for 175k texels on a
+4090 is not bandwidth — so the win that did show up (2.2× at 32 pages wide, 2.3× at 256) comes from
+issuing ~7 dispatches instead of ~18, not from writing fewer texels. And the obvious refinement,
+tracking N rectangles per level instead of one, would trade those dispatches back: up to one per
+change per level. **Do not "fix" the bounding box without measuring the dispatch count you are buying
+it with** — at this scale it is very likely a regression, and the absolute numbers above (both well
+under a tenth of a millisecond) are the reason this was left alone.
+
+What slice 2 does buy unconditionally is that the cost stops being a function of
+`VirtualPagesWide²` on every residency change — which is what makes slice 3's larger and
+variable-size virtual images affordable at all.
+
+**Two negative controls, because the equivalence test is worthless if it cannot fail.**
+`TheDeltaProducesTheSameMapAsAFullRebuildOverRandomTraffic` drives both paths over a randomised
+insert/evict sequence and compares the resulting maps texel-for-texel; on its own that proves nothing
+about how sensitive the comparison is. `TheEquivalenceCheckFailsWhenTheDeltaOmitsItsUnmaps` and
+`TheEquivalenceCheckFailsWhenThePropagationStopsOneLevelShort` deliberately publish a broken delta and
+require the comparison to *reject* it. If you weaken either rule, those two are what tell you the
+first test has stopped watching.
+
+**And that whole set compares a CPU model of the three kernels, not the kernels.** Slice 2 changed
+two of them, so the GPU half is
+`TerrainVirtualTextureVisualEvidenceTest.TheDeltaPublishesTheSameFrameAsTheFullRebuild`: the same
+scene published both ways, against a floor measured from a second delta-path run through the identical
+invalidate-and-reconverge cycle. `OLO_TERRAIN_VT_FULL_REBUILD` is the lever it flips (settable at
+runtime by name, from the editor console, `olo_cvar_set`, or the terrain panel's checkbox), and it is
+the first thing to reach for when the terrain looks wrong: if forcing the rebuild fixes the frame, the
+bug is in this section; if it does not, it is somewhere else entirely.
+
+**The two kernels share one std430 header and neither declares it for the other.**
+`TerrainVTIndirectionWrite.comp` and `TerrainVTIndirectionFill.comp` are separate programs reading the
+same SSBO (binding 81), whose C++ twin is `VTIndirectionHeader`. A member added to one declaration and
+not the other is a silent misalignment of `b_VTUpdates` — not a link error, because there is no link
+between them. Three places, one layout.
+
+## 5. Two servicing rules, and only one of them is the pin
 
 `VTServicePageRequests` (in `TerrainVirtualTextureTypes.h`, so the headless test drives the real
 function rather than a transcription) has two passes with one non-obvious rule each. **They do
@@ -139,7 +230,7 @@ allocation every frame.
 
 ---
 
-## 5. The bake↔shade coordinate mapping is an exact inverse, including the border
+## 6. The bake↔shade coordinate mapping is an exact inverse, including the border
 
 The shading side maps page-local `[0,1)` to physical texel `border + local * pageTexels`. The bake
 therefore has to fill tile texel `j` with the content at page-local
@@ -165,7 +256,7 @@ is handled by picking a coarser *page*, not a coarser texel.
 
 ---
 
-## 6. Things that invalidate the cache, and are easy to forget
+## 7. Things that invalidate the cache, and are easy to forget
 
 A baked tile is a function of the height field, the splatmaps, the layer arrays **and the terrain's
 world transform** (the triplanar projection is world-anchored). Nothing about changing any of those
@@ -202,7 +293,7 @@ whole cache would be a per-frame stutter.
 
 ---
 
-## 7. The traps around it
+## 8. The traps around it
 
 - **`Update()` runs in the terrain update pass, NOT as a render-graph pass.** It branches on a
   runtime toggle, and a render-graph `Setup()` that does the same is frozen in by the frame-graph
@@ -243,12 +334,10 @@ whole cache would be a per-frame stutter.
 
 ---
 
-## 8. What slice 1 does not do
+## 9. What slices 1–2 do not do
 
 Stated so the next slice does not rediscover it as a bug:
 
-- **Indirection updates are a full rebuild**, not the reference's delta lists. It is
-  ~1.3 × `VirtualPagesWide²` texel writes and only on frames where residency changed. Slice 2.
 - **The virtual image is a uniform grid** over one terrain's UV space. Per-region density needs the
   shared power-of-two atlas allocator tracked as **#718**, whose title already names VT as a
   consumer. Slice 3.

@@ -1,6 +1,7 @@
 // OLO_TEST_LAYER: L8
 //
-// Visual evidence for terrain adaptive virtual texturing (issue #715, slice 1).
+// Visual evidence for terrain adaptive virtual texturing (issue #715, slices 1
+// and 2).
 //
 // TerrainVirtualTextureTest pins the arithmetic — the packings, the fallback
 // resolution, the LRU touch order. None of that proves the LOOP runs: the
@@ -26,6 +27,11 @@
 //     frame-to-frame difference that stays inside the same band the splat path
 //     produces. A page arriving mid-motion must sharpen the surface, not replace
 //     it — and the coarse-mip fallback is the only reason that holds.
+//   * **The delta publishes the same map as the full rebuild** (slice 2). The
+//     headless equivalence test compares a CPU MODEL of the three kernels; this
+//     compares the kernels, which is where a GLSL-only mistake — a fill
+//     rectangle, an std430 header declared differently in two shaders — would
+//     live.
 //
 // SKIPs cleanly without a GL 4.6 context, like every other evidence test here.
 #include "OloEnginePCH.h"
@@ -34,6 +40,7 @@
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Scene/Components.h"
@@ -48,6 +55,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -305,6 +313,137 @@ namespace OloEngine::Tests
             << "the virtual-texture frame differs from the splat frame by " << difference
             << "/255 per channel on average — that is a different SURFACE, not a different sharpness. "
                "Suspect the page key, the physical-UV mapping or the fallback mip.";
+    }
+
+    // ── Slice 2: the delta must publish the same map the rebuild did ──────────
+    //
+    // TerrainVirtualTexture.TheDeltaProducesTheSameMapAsAFullRebuildOverRandomTraffic
+    // pins this headlessly, but against a CPU MODEL of the three kernels. What it
+    // cannot reach is the kernels themselves — and slice 2 changed two of them
+    // (the write list became a delta carrying unmappings; the propagation gained
+    // a sub-rectangle). A rect that is right on the CPU and wrong in GLSL, or an
+    // std430 header whose two declarations drifted apart, passes that test and
+    // renders the wrong terrain.
+    //
+    // So: the same scene, the same pose, published both ways, compared against a
+    // measured noise floor rather than a guessed constant
+    // (docs/agent-rules/live-verification-noise-floor.md). The floor here is a
+    // SECOND delta-path run through the identical invalidate-and-reconverge
+    // cycle, so the only thing that differs between it and the rebuild run is the
+    // publish path — page-to-tile assignment, bake order and analysis-completion
+    // order all vary in both.
+    TEST_F(TerrainVirtualTextureVisualEvidenceTest, TheDeltaPublishesTheSameFrameAsTheFullRebuild)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const glm::vec3 eye{ 512.0f, 200.0f, 880.0f };
+
+        // Restored however the test leaves: the lever is process-wide state, and
+        // a test that leaks it on would silently turn the delta path off for
+        // everything that runs after it.
+        const bool leverWasSet = Levers::TerrainVtFullRebuild();
+        struct LeverGuard
+        {
+            bool m_Restore;
+            ~LeverGuard()
+            {
+                Levers::SetTerrainVtFullRebuild(m_Restore);
+            }
+        } guard{ leverWasSet };
+        Levers::SetTerrainVtFullRebuild(false);
+
+        const auto reconverge = [this, &eye](std::vector<u8>& out)
+        {
+            // Invalidate, not just re-pose: dropping every page is what forces a
+            // full re-publish, and without it a converged camera changes no
+            // residency and the lever below would never actually run.
+            ASSERT_TRUE(Terrain().m_VirtualTexture);
+            Terrain().m_VirtualTexture->Invalidate();
+            ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 0.20f, kWarmupFrames, out));
+            ASSERT_TRUE(Terrain().m_VirtualTexture->IsReadyForShading())
+                << "never reconverged, so the frames being compared are the splat path twice";
+        };
+
+        std::vector<u8> deltaA;
+        std::vector<u8> deltaB;
+        ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 0.20f, kWarmupFrames, deltaA));
+        ASSERT_TRUE(Terrain().m_VirtualTexture && Terrain().m_VirtualTexture->IsReadyForShading());
+        const TerrainVirtualTexture::Stats afterFirst = Terrain().m_VirtualTexture->GetStats();
+
+        ASSERT_NO_FATAL_FAILURE(reconverge(deltaA));
+        ASSERT_NO_FATAL_FAILURE(reconverge(deltaB));
+        const TerrainVirtualTexture::Stats afterDelta = Terrain().m_VirtualTexture->GetStats();
+
+        Levers::SetTerrainVtFullRebuild(true);
+        std::vector<u8> rebuilt;
+        ASSERT_NO_FATAL_FAILURE(reconverge(rebuilt));
+        const TerrainVirtualTexture::Stats afterRebuild = Terrain().m_VirtualTexture->GetStats();
+
+        MaybeWritePng("publish_delta", deltaA);
+        MaybeWritePng("publish_rebuild", rebuilt);
+
+        // Anti-vacuous #1: there is terrain in these frames at all.
+        ASSERT_GT(LitFraction(deltaA), 0.20f) << "the delta frame is almost entirely background";
+        ASSERT_GT(LitFraction(rebuilt), 0.20f) << "the rebuild frame is almost entirely background";
+
+        // Anti-vacuous #2: the two runs really did take different paths. Without
+        // this the test passes just as happily when the lever does nothing, which
+        // is precisely the bug it would be asked to catch.
+        const u32 deltaPublishes = afterDelta.m_IndirectionPublishes - afterFirst.m_IndirectionPublishes;
+        const u32 deltaRebuilds = afterDelta.m_IndirectionFullRebuilds - afterFirst.m_IndirectionFullRebuilds;
+        const u32 forcedPublishes = afterRebuild.m_IndirectionPublishes - afterDelta.m_IndirectionPublishes;
+        const u32 forcedRebuilds = afterRebuild.m_IndirectionFullRebuilds - afterDelta.m_IndirectionFullRebuilds;
+        ASSERT_GT(deltaPublishes, 0u) << "nothing was published on the delta runs";
+        EXPECT_EQ(deltaRebuilds, 0u) << "the delta runs fell back to a rebuild — the comparison below is vacuous";
+        ASSERT_GT(forcedPublishes, 0u) << "nothing was published on the forced-rebuild run";
+        EXPECT_EQ(forcedRebuilds, forcedPublishes)
+            << "OLO_TERRAIN_VT_FULL_REBUILD did not take: " << forcedRebuilds << " of " << forcedPublishes
+            << " publishes rebuilt";
+
+        // The floor: two delta runs through the identical cycle. Not zero —
+        // page-to-tile assignment and bake order depend on when the analysis
+        // worker finishes, so the same pose reconverges to the same SURFACE
+        // through a differently-packed cache.
+        const f32 noiseFloor = MeanAbsoluteDifference(deltaA, deltaB);
+        const f32 difference = MeanAbsoluteDifference(deltaA, rebuilt);
+
+        // 3x the floor, with an absolute term so a run whose floor happens to be
+        // zero does not demand bit-equality of something that is not required to
+        // be bit-equal. An addressing bug is not a near miss: the splat-path
+        // comparison above tolerates 32/255 and a wrong page lands well beyond
+        // even that.
+        const f32 bound = std::max(3.0f * noiseFloor, 1.0f);
+        EXPECT_LT(difference, bound)
+            << "publishing the indirection map by delta and by full rebuild produced different frames: "
+            << difference << "/255 per channel against a measured floor of " << noiseFloor
+            << ". The two paths are required to produce the same map — suspect the fill rectangle "
+               "(TerrainVTIndirectionFill.comp's u_VTFillParams), the unmap entries, or the std430 header "
+               "declaration drifting between the write and fill kernels.";
+
+        // The cost claim, pinned on the GPU path rather than only in arithmetic.
+        // Both counters describe the LAST publish, and the last publish of each
+        // run took the path that run was forcing, so this is like for like.
+        const u64 deltaTexels = static_cast<u64>(afterDelta.m_IndirectionTexelsWritten) +
+                                afterDelta.m_IndirectionTexelsFilled;
+        const u64 rebuildTexels = static_cast<u64>(afterRebuild.m_IndirectionTexelsWritten) +
+                                  afterRebuild.m_IndirectionTexelsFilled;
+        EXPECT_LT(deltaTexels, rebuildTexels)
+            << "a delta publish touched " << deltaTexels << " texels and a rebuild " << rebuildTexels
+            << " — the delta is supposed to be the cheap one";
+
+        // Reported, not asserted. The texel counts are deterministic and the
+        // assertion above uses them; the GPU milliseconds are the LOWEST sample
+        // each path produced during this run, which is the most a timestamp pair
+        // around a handful of small dispatches can honestly say (see the Stats
+        // field's note). Printed because a claim about cost with no number
+        // attached is exactly what this slice was told not to make.
+        std::cout << "[ vt-cost  ] indirection publish, last publish of each run:\n"
+                  << "[ vt-cost  ]   delta   " << deltaTexels << " texels; best GPU sample "
+                  << afterDelta.m_IndirectionDeltaGpuMs << " ms\n"
+                  << "[ vt-cost  ]   rebuild " << rebuildTexels << " texels; best GPU sample "
+                  << afterRebuild.m_IndirectionRebuildGpuMs << " ms\n"
+                  << "[ vt-cost  ] published on " << afterRebuild.m_IndirectionPublishes << " of "
+                  << afterRebuild.m_FramesUpdated << " frames\n";
     }
 
     // ── Criterion 2's second half: no visible pop under movement ──────────────

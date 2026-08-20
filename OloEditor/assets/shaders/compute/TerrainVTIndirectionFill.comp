@@ -1,17 +1,17 @@
 #version 450 core
 
 // =============================================================================
-// Terrain virtual texture — indirection map, pass 3 of 3 (issue #715).
+// Terrain virtual texture — indirection map, propagation pass (issue #715).
 //
 // **THIS PASS IS THE ANTI-POP MECHANISM.** Everything else in the loop decides
 // which pages are resident; this decides what a lookup reads when the page it
 // wanted is not.
 //
-// For one mip: every texel that pass 2 did NOT stamp directly (alpha == 0)
-// inherits the entry of the texel above it in the chain, with alpha left at 0 so
-// the inheritance keeps propagating downwards. Dispatched from the coarsest
-// level to the finest, so an entry can travel any number of levels in a single
-// rebuild without a search.
+// For one mip: every texel that the write pass did NOT stamp directly
+// (alpha == 0) inherits the entry of the texel above it in the chain, with alpha
+// left at 0 so the inheritance keeps propagating downwards. Dispatched from the
+// coarsest level to the finest, so an entry can travel any number of levels in a
+// single publish without a search.
 //
 // The consequence at shading time: a fragment that asks for a fine page that is
 // not resident gets a COARSER resident page's physical address plus that page's
@@ -21,24 +21,59 @@
 //
 // The chain terminates because the analyzer pins the 1x1 coarsest page, which is
 // therefore always a direct entry at the top level.
+//
+// ── Slice 2: this runs over a SUB-RECTANGLE, not the whole level ─────────────
+//
+// Slice 1 dispatched every texel of every level on any residency change. The
+// texels that can actually have changed are the descendants of the handful that
+// did — a change at mip m dirties a 2^k x 2^k block at mip m-k — so the CPU
+// derives one bounding rectangle per level and hands it over in the update
+// buffer's header (VTIndirectionDelta::GetFillRect).
+//
+// `u_VTFillParams.zw` is the rect SIZE and `.xy` its origin, both in texels of
+// THIS mip. A zero size means the CPU skipped the dispatch entirely; the bound
+// check below is what keeps the last, partly-filled work group inside the rect.
+// The imageSize() check is kept as well — the rect is CPU-arithmetic, and one
+// that ran off the level would otherwise scribble outside it in silence.
 // =============================================================================
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-// Read-modify-write: the pass has to see pass 2's direct entries to know which
-// texels to leave alone.
+// Read-modify-write: the pass has to see the write pass's direct entries to know
+// which texels to leave alone.
 layout(rgba8, binding = 0) uniform image2D u_VTIndirectionTarget;
 layout(rgba8, binding = 1) readonly uniform image2D u_VTIndirectionCoarser;
 
+struct VTIndirectionUpdate
+{
+    uint TexelCoord; // x | (y << 16), already at this mip
+    uint Packed;     // tileX | tileY << 8 | residentMip << 16 | direct << 24
+};
+
+// The same block the write pass declares, and it must stay identical: both
+// kernels read the same buffer, so a member added to one is a silent
+// misalignment in the other. C++ twin: VTIndirectionHeader in
+// TerrainVirtualTexture.cpp.
+layout(std430, binding = 81) readonly buffer TerrainVTIndirectionUpdates
+{
+    uvec4 u_VTUpdateParams; // x = base index, y = count, zw = unused
+    uvec4 u_VTFillParams;   // xy = rect origin, zw = rect size, in texels of this mip
+    VTIndirectionUpdate b_VTUpdates[];
+};
+
 void main()
 {
-    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    uvec2 local = gl_GlobalInvocationID.xy;
+    if (any(greaterThanEqual(local, u_VTFillParams.zw)))
+        return;
+
+    ivec2 texel = ivec2(local + u_VTFillParams.xy);
     if (any(greaterThanEqual(texel, imageSize(u_VTIndirectionTarget))))
         return;
 
     vec4 current = imageLoad(u_VTIndirectionTarget, texel);
     if (current.w > 0.5)
-        return; // a direct mapping — pass 2 owns this texel
+        return; // a direct mapping — the write pass owns this texel
 
     // alpha stays 0: an inherited entry must not look direct to the NEXT finer
     // level, or that level would stop inheriting one step short.
