@@ -131,6 +131,10 @@ OloEditor/cmake_test_discovery_*.json
 !.claude/settings.json
 !.claude/skills/
 !.claude/commands/
+# The hook scripts settings.json points at. This exception is load-bearing: without it
+# the files exist locally, everything works on this machine, and the repo silently ships
+# a settings.json referencing scripts nobody else has.
+!.claude/hooks/
 !.claude/.markdownlint-cli2.jsonc
 .claude/skills/**/shots/
 skills-lock.json
@@ -187,3 +191,6 @@ OloEditor/config/renderer.yaml
 
 # C++ coverage artefacts (OpenCppCoverage / Cobertura)
 coverage/
+
+# Machine-local CMake presets (absolute toolchain/cache paths) — never committed
+CMakeUserPresets.json

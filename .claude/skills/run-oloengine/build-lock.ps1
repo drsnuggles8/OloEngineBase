@@ -42,7 +42,7 @@
   and has not been worth it yet.
 
   Bypassing the lock is no longer merely discouraged: a PreToolUse hook in .claude/settings.json
-  (scripts/claude-build-lock-guard.py) denies any agent tool call that starts a build without
+  (.claude/hooks/claude-build-lock-guard.py) denies any agent tool call that starts a build without
   going through this script. A human typing `cmake --build` in their own terminal still
   bypasses it, which is fine — the problem being solved is unattended agent sessions colliding.
 
@@ -62,6 +62,20 @@
   so ~10s at the default -ParentPollSeconds — long enough that a momentary read failure does not
   kill a healthy build.
 
+.PARAMETER Jobs
+  Build parallelism, decided at ACQUIRE time rather than by the caller.
+    0  (default) derive it from measured free memory — see Get-AdaptiveJobs. The value
+       REPLACES whatever --parallel N / -jN the command carries, in either direction: it
+       lowers a caller's -j6 when memory is tight just as readily as it raises it.
+    >0 pin exactly this many jobs.
+    -1 do not touch the command at all; run it verbatim.
+
+.PARAMETER Priority
+  Sort this ticket ahead of every non-priority waiter. It only changes WHOSE TURN IS NEXT —
+  it never preempts a running build, because killing one throws away all its work. FIFO still
+  holds within the priority band. One-shot: it applies to this invocation only, and by policy
+  the user asks for it.
+
 .EXAMPLE
   pwsh -File build-lock.ps1 -Command 'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
 #>
@@ -72,7 +86,13 @@ param(
     [int] $PollSeconds    = 15,
     [switch] $NoParentWatch,
     [int] $ParentPollSeconds = 5,
-    [int] $ParentGracePolls  = 2
+    [int] $ParentGracePolls  = 2,
+    # 0 = derive from free memory at acquire time (see Get-AdaptiveJobs). A positive
+    # value pins it. -1 disables the rewrite entirely and runs $Command verbatim.
+    [int] $Jobs = 0,
+    # Jump ahead of non-priority tickets. NEVER preempts a running build. One-shot:
+    # it applies to this invocation only. Policy: the user asks for it.
+    [switch] $Priority
 )
 
 Set-StrictMode -Version Latest
@@ -87,6 +107,239 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commonDir)) {
 $lockPath = Join-Path $commonDir.Trim() 'olo-build.lock'
 $me       = $PID
 $here     = (Get-Location).Path
+
+# --- metrics ----------------------------------------------------------------
+# One JSONL line per build attempt, in the same shared directory as the lock so
+# every worktree appends to ONE file. This exists to answer questions we have
+# been guessing at: how long builds actually take, how long we actually wait,
+# how often the lock is contended at all, and how much memory is free when a
+# build starts (the input any future concurrent-admission policy needs).
+#
+# Every failure here is swallowed. Instrumentation must never be able to fail a
+# build or, worse, prevent a release — so nothing in this section throws, and
+# the record is written on a best-effort basis only.
+$metricsPath = Join-Path $commonDir.Trim() 'olo-build-metrics.jsonl'
+
+function Write-BuildMetric([hashtable] $Record) {
+    try {
+        $Record['ts'] = (Get-Date).ToString('o')
+        $line  = ($Record | ConvertTo-Json -Compress -Depth 4) + "`n"
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($line)
+        # FileShare.Read excludes other WRITERS, so concurrent appenders serialise
+        # by retrying rather than interleaving a half-written line.
+        for ($attempt = 0; $attempt -lt 5; $attempt++) {
+            try {
+                $fs = [System.IO.File]::Open($metricsPath, [System.IO.FileMode]::Append,
+                                             [System.IO.FileAccess]::Write,
+                                             [System.IO.FileShare]::Read)
+                try { $fs.Write($bytes, 0, $bytes.Length); $fs.Flush() } finally { $fs.Dispose() }
+                return
+            } catch { Start-Sleep -Milliseconds 50 }
+        }
+    } catch { }
+}
+
+# --- adaptive parallelism ---------------------------------------------------
+# -j6 was chosen when NOTHING serialised builds and two could overlap. The mutex now
+# guarantees exclusivity, so the cap and the lock defend the SAME hazard and we pay
+# for it twice. Issue #759 measured -j12 at 1.3-1.6x the speed of -j6 for only ~2 GiB
+# more peak, because a handful of heavy TUs set the peak, not the lane count.
+#
+# Still derived from MEASURED free memory rather than a constant: this box also hosts
+# gh-runners for another repository, so "the mutex is held" does not mean "the machine
+# is idle". Deliberately conservative — it has been OOM-killed once, and the cost of
+# guessing high is losing every session's work, while guessing low is a slower build.
+function Get-AdaptiveJobs {
+    $free = Get-FreeMemoryGB
+    if ($null -eq $free) { return 6 }        # unknown -> the old safe default
+    $cpu = [Environment]::ProcessorCount
+    # ~2.5 GiB per lane is well above the measured steady state and leaves room for
+    # the heavy-TU spikes that actually set the peak.
+    $byMemory = [int][math]::Floor(($free - 8) / 2.5)   # keep 8 GiB for everything else
+    $jobs = [math]::Min([math]::Min($byMemory, 12), $cpu)
+    if ($jobs -lt 2) { return 2 }
+    return $jobs
+}
+
+# Rewrites an explicit --parallel N / -jN so the adaptive value actually takes effect;
+# CMAKE_BUILD_PARALLEL_LEVEL alone cannot, because an explicit flag outranks it.
+# Returns the command unchanged when it carries no such flag (the env var then applies).
+function Set-CommandJobs([string] $Cmd, [int] $N) {
+    # ${1} not $1: a bare $1 followed by the digits of $N reads as ONE group number
+    # ("$2" + "10" -> $210 -> group 21), so the braces are load-bearing.
+    $out = [regex]::Replace($Cmd, '(--parallel)(\s+)(\d+)', "`${1}`${2}$N")
+    $out = [regex]::Replace($out, '(?<![\w-])(-j)\s*(\d+)', "`${1}$N")
+    return $out
+}
+
+function Get-FreeMemoryGB {
+    try {
+        # FreePhysicalMemory is in KB; 1MB (1048576) converts KB -> GB.
+        return [math]::Round((Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).FreePhysicalMemory / 1MB, 1)
+    } catch { return $null }
+}
+
+# --- fair queue (tickets) ---------------------------------------------------
+# The lock itself is still the exclusive file handle — that is what guarantees
+# SAFETY and nothing here weakens it. The queue only decides WHOSE TURN it is to
+# attempt the handle, which is a fairness layer on top.
+#
+# It exists because the previous poll-and-race starved arrivals badly: measured
+# on 2026-08-19, two waiters that arrived at 11:33 were still waiting at 13:55
+# while one that arrived at 11:39 acquired at 13:19 and built. With a 15s race
+# and six contenders, arrival order carried no weight whatsoever.
+#
+# There is no daemon, so every waiter must independently reach the SAME verdict
+# from shared state. The rule is therefore a pure, deterministic function of the
+# ticket files: sort by (enqueued, pid), and only the head attempts the handle.
+#
+# Everything here FAILS OPEN. An unreadable queue, a vanished ticket, a directory
+# we cannot create — all fall back to racing for the handle exactly as before.
+# A fairness layer must never be able to deadlock the thing it is scheduling.
+$queueDir        = Join-Path $commonDir.Trim() 'olo-build-queue'
+$myTicket        = $null
+$myEnqueuedTicks = 0
+
+function Get-MyStartTicks {
+    try { return (Get-Process -Id $PID -ErrorAction Stop).StartTime.Ticks } catch { return $null }
+}
+
+# Both machine-read fields are stored as integer TICKS, never as date strings.
+# ConvertFrom-Json silently coerces anything ISO-8601-shaped into a [DateTime],
+# which broke this twice over: the liveness check compared a string against a
+# DateTime (so every ticket, including our own, read as dead and got reaped), and
+# the ordering key came back locale-formatted to whole seconds — unsortable and
+# tie-prone. Integers survive the round trip untouched. `enqueuedText` is for
+# humans reading the file and is never used for logic.
+function Add-QueueTicket {
+    try {
+        if (-not (Test-Path $queueDir)) { New-Item -ItemType Directory -Path $queueDir -Force | Out-Null }
+        $now  = Get-Date
+        # Name sorts chronologically for humans; ordering is decided by the JSON.
+        $path = Join-Path $queueDir ('{0}-{1}.json' -f $now.ToString('yyyyMMddHHmmssfff'), $me)
+        $rec  = @{ pid           = $me
+                   startTicks    = Get-MyStartTicks
+                   enqueuedTicks = $now.Ticks
+                   enqueuedText  = $now.ToString('o')
+                   worktree      = $here
+                   priority      = [bool] $Priority
+                   command       = $Command } | ConvertTo-Json -Compress
+        Set-Content -LiteralPath $path -Value $rec -Encoding UTF8
+        $script:myEnqueuedTicks = $now.Ticks
+        return $path
+    } catch { return $null }
+}
+
+function Remove-QueueTicket {
+    if ($null -ne $script:myTicket) {
+        try { Remove-Item -LiteralPath $script:myTicket -Force -ErrorAction SilentlyContinue } catch { }
+        $script:myTicket = $null
+    }
+}
+
+# Live tickets ahead of us, or $null when the queue cannot be trusted (caller
+# then races, i.e. old behaviour). Reaps tickets whose owner is gone — pinned by
+# (pid, StartTime) because Windows recycles pids and a recycled owner would keep
+# a dead ticket at the head forever, blocking every real waiter.
+function Get-QueueAhead {
+    $files = $null
+    try { $files = @(Get-ChildItem -LiteralPath $queueDir -Filter '*.json' -File -ErrorAction Stop) }
+    catch { return $null }
+
+    $live = @()
+    foreach ($f in $files) {
+        $rec = $null
+        # An unreadable ticket is skipped but NOT reaped: it is most likely being
+        # written right now, and deleting it would drop a legitimate waiter.
+        try { $rec = Get-Content -LiteralPath $f.FullName -Raw -ErrorAction Stop | ConvertFrom-Json } catch { continue }
+        if ($null -eq $rec) { continue }
+
+        $alive = $true
+        try {
+            $p = Get-Process -Id ([int] $rec.pid) -ErrorAction Stop
+            if ($null -ne $rec.startTicks) {
+                # Unreadable StartTime is not proof of death — treat as alive.
+                try { $alive = ($p.StartTime.Ticks -eq [long] $rec.startTicks) } catch { $alive = $true }
+            }
+        } catch { $alive = $false }
+
+        if (-not $alive) {
+            try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue } catch { }
+            continue
+        }
+        $prio = $false
+        try { if ($null -ne $rec.priority) { $prio = [bool] $rec.priority } } catch { }
+        $live += [pscustomobject]@{ EnqueuedTicks = [long] $rec.enqueuedTicks
+                                    Pid           = [int] $rec.pid
+                                    Worktree      = [string] $rec.worktree
+                                    # Sort key: 0 sorts before 1, so priority first.
+                                    PrioKey       = $(if ($prio) { 0 } else { 1 }) }
+    }
+
+    # Priority first, then arrival. FIFO still holds WITHIN each band, so an override
+    # jumps the queue without turning the rest of it back into a lottery.
+    $sorted = @($live | Sort-Object PrioKey, EnqueuedTicks, Pid)
+    for ($i = 0; $i -lt $sorted.Count; $i++) {
+        if ($sorted[$i].Pid -eq $me) { return $i }
+    }
+    return $null   # our own ticket is gone — fail open rather than wait forever
+}
+
+# True when a NEWER live ticket exists for this same worktree running the SAME command:
+# that session has re-queued an identical build, so ours is a stale snapshot of a tree
+# that has already moved on. Building it wastes the slot and produces a binary nobody
+# wants. The newest request wins; we stand down.
+#
+# The command must match too. Matching on worktree ALONE was the first cut and it is
+# wrong: a session legitimately queues different targets back to back (OloEngine-Tests
+# then OloEditor), and superseding on worktree alone silently cancelled the first one.
+# Only an identical re-queue is genuinely redundant.
+#
+# Cooperative by construction — one process cannot make another exit, so the superseded
+# waiter notices this itself on its next poll. Fails CLOSED (returns $false): if the
+# queue cannot be read we keep waiting rather than abandoning a legitimate build.
+function Test-Superseded {
+    # Standing down means exit 0 — the caller believes the build SUCCEEDED. So every
+    # ambiguity in here must resolve to "not superseded"; a wrongly-skipped build is
+    # far worse than a redundant one.
+    #
+    # First: if we never got a ticket, Add-QueueTicket returned $null and left
+    # $myEnqueuedTicks at 0. Every real ticket's enqueuedTicks exceeds 0, so the
+    # "newer than us" test below would call ANY live sibling a successor and we would
+    # silently exit 0 without building. With no timestamp of our own, never stand down.
+    if ($script:myEnqueuedTicks -le 0) { return $false }
+
+    try { $files = @(Get-ChildItem -LiteralPath $queueDir -Filter '*.json' -File -ErrorAction Stop) }
+    catch { return $false }
+
+    foreach ($f in $files) {
+        $rec = $null
+        try { $rec = Get-Content -LiteralPath $f.FullName -Raw -ErrorAction Stop | ConvertFrom-Json } catch { continue }
+        if ($null -eq $rec -or [int] $rec.pid -eq $me) { continue }
+        if ([string] $rec.worktree -ne $here) { continue }
+        if ([string] $rec.command -ne $Command) { continue }
+        if ([long] $rec.enqueuedTicks -le $myEnqueuedTicks) { continue }
+
+        # Liveness pinned by (pid, startTicks), as in Get-QueueAhead. Pid alone is not
+        # enough — Windows recycles them, so a dead successor whose pid was reused would
+        # read as alive and we would stand down for a build that will never run. Note
+        # this fails the OPPOSITE way to Get-QueueAhead's reaper: there, an unreadable
+        # StartTime means "assume alive" so a healthy ticket is never reaped; here it
+        # means "not a confirmed successor" so a real build is never skipped.
+        $successorAlive = $false
+        try {
+            $p = Get-Process -Id ([int] $rec.pid) -ErrorAction Stop
+            if ($null -eq $rec.startTicks) {
+                $successorAlive = $true          # older ticket format: pid match is all we have
+            } else {
+                try { $successorAlive = ($p.StartTime.Ticks -eq [long] $rec.startTicks) } catch { $successorAlive = $false }
+            }
+        } catch { $successorAlive = $false }
+
+        if ($successorAlive) { return $true }
+    }
+    return $false
+}
 
 # --- parent watch -----------------------------------------------------------
 # Identity of the process that launched us, so an orphaned build can be cleaned
@@ -178,23 +431,98 @@ function Get-LockHandle {
 $deadline  = (Get-Date).AddMinutes($TimeoutMinutes)
 $announced = $false
 $lock      = $null
+$waitStart = Get-Date
+# Who we were first blocked behind, for reconstructing contention chains offline.
+$blockedByPid      = $null
+$blockedByWorktree = $null
+$lastPos           = -1
 
-while ($null -eq ($lock = Get-LockHandle)) {
-    if (-not $announced) {
-        $info = Read-HolderInfo
-        if ($null -ne $info) {
-            Write-Host "[build-lock] waiting — held by pid=$($info.pid) in $($info.worktree)"
-        } else {
-            Write-Host "[build-lock] waiting — held (holder metadata unreadable)"
+# Take a ticket BEFORE the first attempt, so arrival order is recorded even if we
+# get the lock immediately.
+$myTicket          = Add-QueueTicket
+$queueAheadAtStart = Get-QueueAhead
+
+try {
+    while ($null -eq $lock) {
+        $ahead = Get-QueueAhead
+        # Only the head of the queue attempts the handle. $null = the queue could
+        # not be trusted, so we race exactly as the old implementation did.
+        if ($null -eq $ahead -or $ahead -eq 0) {
+            $lock = Get-LockHandle
+            if ($null -ne $lock) { break }
         }
-        $announced = $true
+
+        # Re-announce whenever our position changes, so a waiting session can see
+        # the queue draining instead of staring at one unchanging line. Knowing the
+        # wait is bounded is most of the value of this queue.
+        if (-not $announced -or ($null -ne $ahead -and $ahead -ne $lastPos)) {
+            $info = Read-HolderInfo
+            $posText = if ($null -eq $ahead) { 'position unknown (racing)' }
+                       elseif ($ahead -eq 0)  { 'next in line' }
+                       else                   { "$ahead ahead of us" }
+            if ($null -ne $info) {
+                Write-Host "[build-lock] waiting — $posText; held by pid=$($info.pid) in $($info.worktree)"
+                if (-not $announced) { try { $blockedByPid = $info.pid; $blockedByWorktree = $info.worktree } catch { } }
+            } else {
+                Write-Host "[build-lock] waiting — $posText; held (holder metadata unreadable)"
+            }
+            $announced = $true
+            if ($null -ne $ahead) { $lastPos = $ahead }
+        }
+
+        # Stand down if this worktree has queued a newer request (see Test-Superseded).
+        if (Test-Superseded) {
+            Write-Host "[build-lock] superseded — a newer build was queued for $here; standing down so the slot is not spent on a stale tree"
+            Write-BuildMetric @{ event    = 'superseded'
+                                 pid      = $me
+                                 worktree = $here
+                                 command  = $Command
+                                 wait_s   = [math]::Round(((Get-Date) - $waitStart).TotalSeconds, 1) }
+            Remove-QueueTicket
+            exit 0
+        }
+
+        if ((Get-Date) -gt $deadline) {
+            $info = Read-HolderInfo
+            $who  = if ($null -ne $info) { "pid=$($info.pid) ($($info.worktree))" } else { "an unidentified holder" }
+            Write-BuildMetric @{ event      = 'timeout'
+                                 pid        = $me
+                                 worktree   = $here
+                                 command    = $Command
+                                 wait_s     = [math]::Round(((Get-Date) - $waitStart).TotalSeconds, 1)
+                                 queue_ahead_at_start = $queueAheadAtStart
+                                 queue_ahead_at_end   = $ahead
+                                 blocked_by_pid      = $blockedByPid
+                                 blocked_by_worktree = $blockedByWorktree }
+            throw "[build-lock] timed out after ${TimeoutMinutes}m waiting for $who. A build that has held the lock this long is wedged — investigate it rather than overriding."
+        }
+        Start-Sleep -Seconds $PollSeconds
     }
-    if ((Get-Date) -gt $deadline) {
-        $info = Read-HolderInfo
-        $who  = if ($null -ne $info) { "pid=$($info.pid) ($($info.worktree))" } else { "an unidentified holder" }
-        throw "[build-lock] timed out after ${TimeoutMinutes}m waiting for $who. A build that has held the lock this long is wedged — investigate it rather than overriding."
+} finally {
+    # Our turn is over the moment we hold the handle (or give up) — a ticket left
+    # behind would stall every waiter until the reaper noticed we were gone.
+    Remove-QueueTicket
+}
+
+$waitSeconds  = [math]::Round(((Get-Date) - $waitStart).TotalSeconds, 1)
+$freeGbAtHold = Get-FreeMemoryGB
+$holdStart    = Get-Date
+
+# Parallelism is decided HERE, not by the caller: only at acquire time do we know what
+# the machine actually looks like. -1 opts out entirely and runs $Command verbatim.
+$effectiveCommand = $Command
+$effectiveJobs    = $null
+if ($Jobs -ge 0) {
+    $effectiveJobs = if ($Jobs -gt 0) { $Jobs } else { Get-AdaptiveJobs }
+    $effectiveCommand = Set-CommandJobs $Command $effectiveJobs
+    if ($effectiveCommand -ne $Command) {
+        Write-Host "[build-lock] parallelism: -j$effectiveJobs (free ${freeGbAtHold} GB); rewrote the caller's flag"
+    } else {
+        Write-Host "[build-lock] parallelism: -j$effectiveJobs (free ${freeGbAtHold} GB) via CMAKE_BUILD_PARALLEL_LEVEL"
     }
-    Start-Sleep -Seconds $PollSeconds
+    # Covers commands that carry no explicit flag. An explicit flag outranks it, which
+    # is why the rewrite above exists as well.
+    $env:CMAKE_BUILD_PARALLEL_LEVEL = "$effectiveJobs"
 }
 
 # --- run the build under the lock ------------------------------------------
@@ -212,7 +540,7 @@ $runner     = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileN
 $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) "olo-build-lock-$me.ps1"
 Set-Content -LiteralPath $scriptFile -Encoding UTF8 -Value @"
 `$global:LASTEXITCODE = 0
-$Command
+$effectiveCommand
 exit `$LASTEXITCODE
 "@
 
@@ -246,6 +574,23 @@ try {
     $lock.Dispose()
     Write-Host "[build-lock] released (pid=$me)"
     Remove-Item -LiteralPath $scriptFile -Force -ErrorAction SilentlyContinue
+    # Written AFTER the release so a slow/failed metrics write can never delay it.
+    Write-BuildMetric @{ event    = 'build'
+                         pid      = $me
+                         worktree = $here
+                         command  = $Command
+                         wait_s   = $waitSeconds
+                         hold_s   = [math]::Round(((Get-Date) - $holdStart).TotalSeconds, 1)
+                         exit     = $exit
+                         orphaned = $orphaned
+                         contended           = $announced
+                         queue_ahead_at_start = $queueAheadAtStart
+                         jobs                = $effectiveJobs
+                         priority            = [bool] $Priority
+                         free_gb_at_acquire  = $freeGbAtHold
+                         free_gb_at_release  = (Get-FreeMemoryGB)
+                         blocked_by_pid      = $blockedByPid
+                         blocked_by_worktree = $blockedByWorktree }
 }
 
 # Propagate the BUILD's status, never the release's — see task-loop.md Phase 2.

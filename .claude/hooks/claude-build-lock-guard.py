@@ -15,9 +15,13 @@ a slowdown, it is an OOM.
 The check is biased towards blocking -- a false negative costs a wedged machine,
 a false positive costs one re-issued tool call -- but not blindly: a build tool
 counts only in statement position, a command whose first token never builds
-(``rg``, ``git``, ``Get-Process``, ...) is not inspected at all, and the literal
-marker ``OLO_BUILD_LOCK_BYPASS`` always allows, so an override is explicit and
-greppable rather than silent.
+(``rg``, ``git``, ``Get-Process``, ...) is not inspected at all, and two literal
+markers allow: ``OLO_NOT_A_BUILD`` for a command that merely mentions a build tool,
+and ``OLO_BUILD_LOCK_OVERRIDE`` for a deliberate unlocked build. The second is
+AUDITED to olo-build-metrics.jsonl and, by policy, needs the user's explicit
+permission for that build. Keeping them apart matters: while they were one string,
+the "merely mentions" wording and the "always allows" wording disagreed, and the
+looser reading was taken by accident.
 
 Exit code is always 0; the verdict travels in the JSON on stdout. A crash here
 must not block the session, so anything unexpected falls through to "allow".
@@ -27,9 +31,32 @@ import json
 import os
 import re
 import sys
+import time
 
 LOCK_SCRIPT = ".claude/skills/run-oloengine/build-lock.ps1"
+
+# THREE markers, because one string used to mean two very different things and the
+# looser reading won by accident (2026-08-19: an agent ran a real unlocked build by
+# putting OLO_BUILD_LOCK_BYPASS in a COMMENT — the check is a plain substring test,
+# so a comment satisfies it).
+#
+#   OLO_NOT_A_BUILD          - "this only MENTIONS a build tool". Silent allow.
+#   OLO_BUILD_LOCK_OVERRIDE  - "this really is a build and I am running it unlocked".
+#                              Allowed, but AUDITED. Policy: requires the user's
+#                              explicit permission for THAT build; a past grant does
+#                              not carry forward.
+#   OLO_BUILD_LOCK_BYPASS    - legacy, still honoured so no running session breaks.
+#                              Audited when it wraps an actual build tool.
+#
+# None of this can *prevent* an override — the marker is text and the agent writes
+# the command. What it buys is that the two cases stop being confusable, and that a
+# genuine unlocked build becomes countable instead of invisible (it takes no lock, so
+# it otherwise never reaches olo-build-metrics.jsonl and silently biases the very
+# build-time data we collect to size admission control).
+NOT_A_BUILD_MARKER = "OLO_NOT_A_BUILD"
+OVERRIDE_MARKER = "OLO_BUILD_LOCK_OVERRIDE"
 BYPASS_MARKER = "OLO_BUILD_LOCK_BYPASS"
+METRICS_FILE = "olo-build-metrics.jsonl"
 
 # A build tool only counts when it is in STATEMENT POSITION: at the start, or
 # right after a separator, a call operator or an opening quote. A bare word match
@@ -142,18 +169,80 @@ def leads_with_non_building_tool(command):
     return all(first_token(s) in NON_BUILDING_TOOLS for s in statements)
 
 
-def verdict(command):
-    """The build tool this command would start unlocked, or None to allow it."""
+def classify(command):
+    """(decision, tool) where decision is 'allow', 'override', 'legacy' or 'deny'.
+
+    Order matters: the build tool is detected FIRST, so an override marker around a
+    command that does not actually build stays a silent allow rather than a spurious
+    audit entry.
+    """
     if not isinstance(command, str) or not command.strip():
-        return None
+        return ("allow", None)
     if LOCK_SCRIPT in command.replace("\\", "/"):
-        return None
-    if BYPASS_MARKER in command:
-        return None
+        return ("allow", None)          # properly wrapped — the normal path
+    if NOT_A_BUILD_MARKER in command:
+        return ("allow", None)
+
     shell = strip_heredocs(command)
     if leads_with_non_building_tool(shell):
-        return None
-    return matched_build_tool(shell)
+        return ("allow", None)
+    tool = matched_build_tool(shell)
+
+    if tool is None:
+        return ("allow", None)          # nothing build-like; markers are irrelevant
+    if OVERRIDE_MARKER in command:
+        return ("override", tool)
+    if BYPASS_MARKER in command:
+        return ("legacy", tool)         # honoured for compatibility, but recorded
+    return ("deny", tool)
+
+
+def verdict(command):
+    """The build tool this command would start unlocked, or None to allow it."""
+    decision, tool = classify(command)
+    return tool if decision == "deny" else None
+
+
+def audit(decision, tool, command):
+    """Record an unlocked build next to the lock's own metrics. Never raises.
+
+    Best-effort by design: an audit failure must not block a tool call, and git is
+    only invoked on this rare path so the common case adds no latency.
+    """
+    try:
+        import subprocess
+
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if common.returncode != 0 or not common.stdout.strip():
+            return
+        path = os.path.join(common.stdout.strip(), METRICS_FILE)
+        record = {
+            "event": "unlocked_build",
+            "decision": decision,
+            "tool": tool,
+            "cwd": os.getcwd(),
+            "command": command[:500],
+            "ts": __import__("datetime").datetime.now().astimezone().isoformat(),
+        }
+        line = json.dumps(record) + "\n"
+        # Retry, matching Write-BuildMetric's 5 x 50 ms shape in build-lock.ps1. Both
+        # writers append to the SAME file, and the PowerShell side holds it with
+        # FileShare.Read -- which excludes other WRITERS -- so a concurrent build-lock
+        # append makes this open fail outright. Without the retry the audit record is
+        # silently dropped, and a dropped record defeats the point of auditing at all.
+        # Still gives up quietly after all attempts: an audit must never fail a tool call.
+        for _ in range(5):
+            try:
+                with open(path, "a", encoding="utf-8") as handle:
+                    handle.write(line)
+                return
+            except OSError:
+                time.sleep(0.05)
+    except Exception:
+        return
 
 
 def deny(reason):
@@ -210,7 +299,25 @@ SELF_TEST_CASES = (
     ("git log --oneline -5", False),
     ("build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=VisualScript*", False),
     ("cmake --build build --parallel 6  # " + BYPASS_MARKER, False),
+    ("cmake --build build --parallel 6  # " + NOT_A_BUILD_MARKER, False),
+    ("cmake --build build --parallel 6  # " + OVERRIDE_MARKER, False),
     ("", False),
+)
+
+# The markers do not just allow/deny — they pick WHICH allow, and only two of the
+# four decisions are audited. A marker on a command that does not build must stay a
+# plain allow, or the audit log fills with noise and stops being read.
+DECISION_CASES = (
+    ("cmake --build build --parallel 6", "deny"),
+    ("cmake --build build --parallel 6  # " + OVERRIDE_MARKER, "override"),
+    ("cmake --build build --parallel 6  # " + BYPASS_MARKER, "legacy"),
+    ("cmake --build build --parallel 6  # " + NOT_A_BUILD_MARKER, "allow"),
+    ("pwsh -NoProfile -File " + LOCK_SCRIPT + " -Command 'cmake --build build'", "allow"),
+    # Markers on a non-build must NOT be audited.
+    ('rg -n "cmake --build" docs/  # ' + OVERRIDE_MARKER, "allow"),
+    ('rg -n "cmake --build" docs/  # ' + BYPASS_MARKER, "allow"),
+    ("Get-Process -Name cl,link,MSBuild", "allow"),
+    ("", "allow"),
 )
 
 
@@ -225,7 +332,13 @@ def self_test():
                 "deny" if blocked else "allow",
                 command or "<empty>",
             ))
-    print("{0} case(s), {1} failure(s)".format(len(SELF_TEST_CASES), failures))
+    for command, want in DECISION_CASES:
+        got = classify(command)[0]
+        if got != want:
+            failures += 1
+            print("FAIL decision want={0:9} got={1:9} | {2}".format(want, got, command or "<empty>"))
+    total = len(SELF_TEST_CASES) + len(DECISION_CASES)
+    print("{0} case(s), {1} failure(s)".format(total, failures))
     return 1 if failures else 0
 
 
@@ -246,8 +359,11 @@ def main():
     tool_input = payload.get("tool_input")
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
-    tool = verdict(command)
-    if tool is None:
+    decision, tool = classify(command)
+    if decision == "allow":
+        return 0
+    if decision in ("override", "legacy"):
+        audit(decision, tool, command)
         return 0
 
     quoted = command.replace("'", "''")
@@ -257,9 +373,13 @@ def main():
         "concurrently, so builds must serialise through {lock}.\n\n"
         "Re-run it as:\n"
         "  pwsh -NoProfile -File {lock} -Command '{quoted}'\n\n"
-        "If this command does not actually build (it only mentions the word), use the Grep "
-        "tool instead, or add the literal marker {marker} to the command line.".format(
-            tool=tool, lock=LOCK_SCRIPT, quoted=quoted, marker=BYPASS_MARKER
+        "If this command does NOT actually build (it only mentions the word), add the literal "
+        "marker {notabuild}, or use the Grep tool instead.\n\n"
+        "If you deliberately want to run this build UNLOCKED, that needs the user's explicit "
+        "permission for THIS build (a past grant does not carry forward) — then add the literal "
+        "marker {override}, which allows it and records it to {metrics}.".format(
+            tool=tool, lock=LOCK_SCRIPT, quoted=quoted,
+            notabuild=NOT_A_BUILD_MARKER, override=OVERRIDE_MARKER, metrics=METRICS_FILE,
         )
     )
     return 0

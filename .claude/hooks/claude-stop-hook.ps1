@@ -16,6 +16,16 @@ if (-not $repoRoot) {
 
 Set-Location $repoRoot
 
+# Check availability BEFORE announcing the run — otherwise the output reads
+# "running pre-commit..." immediately followed by "skipping", which is worse than
+# either message alone. On a box without pre-commit this would otherwise emit a raw
+# CommandNotFoundException at the end of every turn, reading like a broken hook
+# rather than a missing tool.
+if (-not (Get-Command pre-commit -ErrorAction SilentlyContinue)) {
+    Write-Host "[claude-stop-hook] pre-commit not found on PATH, skipping (install it with: pip install pre-commit)"
+    exit 0
+}
+
 Write-Host "[claude-stop-hook] running pre-commit on all files..."
 
 # Pre-commit exits non-zero when it auto-fixes files — that's expected, not a

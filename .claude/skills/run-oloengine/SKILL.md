@@ -71,12 +71,24 @@ Behaviour worth knowing:
   keeps the lock, and keeps eating ~47 GiB. Every ambiguous reading fails open, so a healthy
   build is never killed by a momentary hiccup. `-NoParentWatch` opts out.
 - Bypassing it is **blocked, not just discouraged**: a `PreToolUse` hook in
-  `.claude/settings.json` (`scripts/claude-build-lock-guard.py`) denies any agent tool call that
+  `.claude/settings.json` (`.claude/hooks/claude-build-lock-guard.py`) denies any agent tool call that
   runs `cmake --build`, `ninja` or `msbuild` without going through this script, and tells you the
   wrapped command to use instead. A permission rule could not do this — `deny` degrades to a
-  prompt, which an unattended session in auto mode approves. A command that only *mentions* a
-  build tool opts out with the literal marker `OLO_BUILD_LOCK_BYPASS`. A human typing
-  `cmake --build` in their own terminal still bypasses everything, which is fine.
+  prompt, which an unattended session in auto mode approves. Two markers opt out and mean
+  different things: `OLO_NOT_A_BUILD` for a command that only *mentions* a build tool (silent
+  allow), and `OLO_BUILD_LOCK_OVERRIDE` for a build you are deliberately running unlocked —
+  allowed, but **audited** to `olo-build-metrics.jsonl` in the shared `git-common-dir`, and by policy it needs the user's
+  explicit permission for that build. Splitting them matters: while one marker covered both, a
+  real unlocked build went through as a "merely mentions" case. The check is a substring test a
+  comment satisfies, so it stops accidents, not intent. (`OLO_BUILD_LOCK_BYPASS` still works and
+  is audited around a real build.) A human typing `cmake --build` in their own terminal still
+  bypasses everything, which is fine.
+- The lock also sets the **job count** from measured free memory at acquire time, rewriting
+  `--parallel N` / `-jN` in your command. `-Jobs N` pins it; `-Jobs -1` runs the command verbatim.
+- Waiting is a **ticket queue** (`olo-build-queue/` in that same shared `git-common-dir`), not a race: tickets sort by priority then
+  arrival, only the head attempts the lock, and it reports your position. `-Priority` jumps the
+  queue but never preempts a running build. An identical re-queue from the same worktree supersedes
+  the older waiter. Everything fails **open** — an unreadable queue falls back to racing.
 - Serialising builds also reduces the per-user `mspdbsrv` contention that stalls `/Zi` compilation
   across every worktree.
 
