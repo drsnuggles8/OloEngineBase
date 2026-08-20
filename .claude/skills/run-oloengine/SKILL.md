@@ -37,23 +37,34 @@ or after editing a `CMakeLists.txt`):
 cmake --preset msvc
 ```
 
-**Always build through `build-lock.ps1`** — it is a cross-worktree mutex, and it is how the
-"never build two trees at once" rule in `CLAUDE.md` is actually enforced:
+**Always build through `build-lock.ps1`** — it is the cross-worktree build gate, and it is how the
+"never build two trees at once" rule in `CLAUDE.md` is actually enforced. **Prefer the cached
+tree** (`cmake --preset dev-cached` once per worktree): it is ~3.5× faster warm and it is the only
+kind of tree eligible to build concurrently with another.
 
 ```powershell
 pwsh -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
-  'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
+  'cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 6'
 ```
 
 Targets: `OloEditor`, `OloServer`, `OloRuntime`, `OloEngine-Tests`. Always cap `--parallel`
-(see `CLAUDE.md` → *Build & run*).
+(see `CLAUDE.md` → *Build & run*) — though the lock rewrites the number anyway, from measured
+free memory, in either direction.
 
-**Why the lock.** One clean Debug build peaks at **~47 GiB** on this 64 GB host (issue #759), so
-two concurrent builds do not fit — and an agent session running unattended cannot rely on the
-"check for live MSBuild/ninja processes first" rule, because two sessions checking at the same
-moment both see "clear". The lock file lives in the shared `git-common-dir`, which every worktree
-resolves to the same path, so builds serialise across worktrees with no coordination between the
-sessions. A second build **queues**; it does not fail.
+**Why the lock.** One clean Debug build peaks at **~47 GiB** on this 64 GB host (issue #759), and
+an agent session running unattended cannot rely on the "check for live MSBuild/ninja processes
+first" rule, because two sessions checking at the same moment both see "clear". The lock lives in
+the shared `git-common-dir`, which every worktree resolves to the same path, so it coordinates
+across worktrees with no communication between the sessions. A build that cannot start
+**queues**; it does not fail.
+
+**Why you might get a second slot — or not.** Serialising everything was measured costing 43
+minutes of waiting against 58 minutes of building across three worktrees. A second concurrent
+build is now admitted, but only for a cached tree, only when every current holder is also a
+cached tree, and only above a free-memory floor; the lane ceiling is then split between them. A
+`build/` (Visual Studio) tree never qualifies, because that generator ignores the linker launcher,
+the Ninja job pool and the compiler cache alike, so nothing bounds its link steps. If the lock
+prints *"not starting a 2nd concurrent build — …"*, the reason it gives is the actual reason.
 
 Behaviour worth knowing:
 

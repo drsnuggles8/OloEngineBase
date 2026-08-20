@@ -251,6 +251,68 @@
 			]
 		},
 		{
+			// The FAST path, and the only kind of tree eligible for a concurrent build slot.
+			// Configure once; `build-cached/` is separate from `build/` because enabling the
+			// compiler cache force-disables PCH and unity builds.
+			"label": "configure-dev-cached",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--preset",
+				"dev-cached"
+			],
+			"problemMatcher": []
+		},
+		{
+			// Goes through the cross-worktree mutex, unlike the `build/` tasks above: the lock
+			// sizes parallelism from measured free memory and may admit this alongside another
+			// cached build. Measured 12m04s cold vs 3m23s warm in a second worktree.
+			"label": "build-cached-tests-debug",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/.claude/skills/run-oloengine/build-lock.ps1",
+				"-Command",
+				"cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 6"
+			],
+			"group": "build",
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "build-cached-oloeditor-debug",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/.claude/skills/run-oloengine/build-lock.ps1",
+				"-Command",
+				"cmake --build build-cached --target OloEditor --config Debug --parallel 6"
+			],
+			"group": "build",
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "run-cached-tests-debug",
+			"type": "shell",
+			"command": "${workspaceFolder}/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "configure-clangcl",
 			"type": "shell",
 			"command": "cmake",
