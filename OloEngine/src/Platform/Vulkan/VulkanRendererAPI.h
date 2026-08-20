@@ -100,6 +100,29 @@ namespace OloEngine
         bool ColorMask[4] = { true, true, true, true };
         u32 PatchVertexCount = 3;
 
+        // THE COLOUR MASK AND THE BLEND ENABLE COMPOSE DIFFERENTLY HERE, on
+        // purpose — do not "make them consistent" without re-reading this.
+        //
+        // AttachmentColorMask is the lowering's ONLY input: SetColorMask
+        // overwrites every entry (glColorMask is defined as glColorMaski for
+        // every draw buffer) and an indexed call then diverges one. It has to
+        // work that way because CommandDispatch::ApplyRenderState only ever
+        // DISABLES the attachments a command names and relies on the global
+        // call to have re-enabled the rest. Before that fill existed, a
+        // narrowing indexed call was permanent for the PROCESS, and one
+        // Renderer3D::DrawLine killed every G-Buffer attachment above 0 —
+        // issue #823.
+        //
+        // AttachmentBlend does NOT work that way: it ORs on top of `Blend`, so
+        // SetBlendState deliberately leaves it alone. GL would clear it, but
+        // the engine's passes are written against the OR — DecalRenderPass
+        // enables RT2 per-attachment for an Emissive decal whose
+        // PODRenderState carries blendEnabled=false, and matching GL would
+        // delete that additive accumulation on Vulkan without fixing it on GL.
+        // The consequence is that a per-attachment blend DISABLE cannot
+        // override a global enable (OITResolveRenderPass asks for one); that
+        // asymmetry is real, is GL-divergent in the other direction, and is
+        // filed rather than changed here.
         bool AttachmentBlend[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendSrc[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendDst[kMaxAttachments] = {};

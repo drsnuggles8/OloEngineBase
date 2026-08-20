@@ -36,6 +36,7 @@ run is **not** evidence.
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | a position check passes on the scheduler tie-break alone, with the dependency edge missing |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | adding `server/discover` alone keeps every test green — and converts a *working* legacy fallback into a broken modern conversation, because answering it is a client's proof the server is modern |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
+| [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | every Vulkan draw in the process wrote colour attachment 0 alone for a whole phase — the forward path displays only attachment 0, so the editor looked fine |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | every glyph in the engine invisible on AMD, with the font loaded, 189 glyphs packed and 852 quads submitted — bake that and the nightly defends a blank UI forever |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | a merged quad with U and V swapped, or width and height transposed, still merges and still draws — five of the six face directions look right |
@@ -232,6 +233,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
 [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) ·
+[gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) ·
 [lazy-static-release-ownership.md](lazy-static-release-ownership.md) ·
 [gpu-debug-draws.md](gpu-debug-draws.md) ·
 [gpu-scan-compaction.md](gpu-scan-compaction.md) ·

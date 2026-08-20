@@ -612,6 +612,12 @@ namespace OloEngine
                 const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
                 // Integer attachments cannot blend — see the identical mask
                 // in FlushDynamicState (the two routes must agree).
+                // The OR is deliberate and is NOT the colour-mask rule below:
+                // a per-attachment enable is an opt-in LAYERED ON TOP of the
+                // global flag, which is what lets DecalRenderPass blend RT2
+                // additively for an Emissive decal whose PODRenderState carries
+                // blendEnabled=false. Pinned by the Emissive arm of
+                // VulkanPassSuite.DecalGBufferModeMatrixMasksItsTargetRenderTargets.
                 attachment.blendEnable = (!IsIntegerFormat(safeTargets.ColorFormats[i]) &&
                                           (state.AttachmentBlend[i] || state.Blend))
                                              ? VK_TRUE
@@ -624,11 +630,13 @@ namespace OloEngine
                 attachment.dstAlphaBlendFactor =
                     ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstAlpha);
                 attachment.alphaBlendOp = ToVk(state.BlendEquation);
-                const VkColorComponentFlags globalMask = (state.ColorMask[0] ? VK_COLOR_COMPONENT_R_BIT : 0u) |
-                                                         (state.ColorMask[1] ? VK_COLOR_COMPONENT_G_BIT : 0u) |
-                                                         (state.ColorMask[2] ? VK_COLOR_COMPONENT_B_BIT : 0u) |
-                                                         (state.ColorMask[3] ? VK_COLOR_COMPONENT_A_BIT : 0u);
-                attachment.colorWriteMask = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]) & globalMask;
+                // AttachmentColorMask ALONE — the opposite composition to
+                // blendEnable above, deliberately. SetColorMask fills the array
+                // for every attachment (glColorMask semantics), so ANDing the
+                // global field in on top would make a glColorMaski-shaped WIDEN
+                // after a global narrow fail to reach the attachment, which is
+                // the opposite of GL, where the indexed call wins.
+                attachment.colorWriteMask = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]);
             }
         }
 
@@ -784,14 +792,9 @@ namespace OloEngine
         const u32 colorCount = std::min(targets.ColorCount, 8u); // same 8-wide bound as the create path
         if (device != nullptr && device->IsDynamicBlendStateEnabled() && colorCount > 0)
         {
-            // [401] The GLOBAL color mask (SetColorMask) must reach the
-            // dynamic write masks too — a pass that narrows the global mask
-            // and never touches the per-attachment API would otherwise
-            // render with the per-attachment default (all channels).
-            const VkColorComponentFlags globalMask = (state.ColorMask[0] ? VK_COLOR_COMPONENT_R_BIT : 0u) |
-                                                     (state.ColorMask[1] ? VK_COLOR_COMPONENT_G_BIT : 0u) |
-                                                     (state.ColorMask[2] ? VK_COLOR_COMPONENT_B_BIT : 0u) |
-                                                     (state.ColorMask[3] ? VK_COLOR_COMPONENT_A_BIT : 0u);
+            // [401] The GLOBAL color mask (SetColorMask) reaches the dynamic
+            // write masks by FILLING AttachmentColorMask, not by being ANDed in
+            // here — see the identical expression on the baked route.
             std::array<VkBool32, 8> enables{};
             std::array<VkColorBlendEquationEXT, 8> equations{};
             std::array<VkColorComponentFlags, 8> writeMasks{};
@@ -814,6 +817,8 @@ namespace OloEngine
                 // forward/G-buffer family — tripped this on the first live
                 // frame. Masking it here keeps GL's "just ignore it"
                 // behaviour and costs the caller nothing.
+                // Per-attachment enable ORs on top of the global flag — see the
+                // identical expression on the baked route in GetOrCreateGraphics.
                 const bool blendableFormat = !IsIntegerFormat(targets.ColorFormats[i]);
                 const bool enabled = blendableFormat && (state.AttachmentBlend[i] || state.Blend);
                 enables[i] = enabled ? VK_TRUE : VK_FALSE;
@@ -825,7 +830,7 @@ namespace OloEngine
                     .dstAlphaBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstAlpha),
                     .alphaBlendOp = ToVk(state.BlendEquation),
                 };
-                writeMasks[i] = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]) & globalMask;
+                writeMasks[i] = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]);
             }
             vkCmdSetColorBlendEnableEXT(cmd, 0, colorCount, enables.data());
             vkCmdSetColorBlendEquationEXT(cmd, 0, colorCount, equations.data());
