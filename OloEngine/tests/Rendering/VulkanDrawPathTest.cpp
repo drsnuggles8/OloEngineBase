@@ -59,6 +59,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include <volk.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -579,6 +580,219 @@ void main()
         wrongPixels += magentaPixel ? 0u : 1u;
     }
     EXPECT_EQ(wrongPixels, 0u) << "every texel must carry the UBO tint the dispatch stored";
+}
+
+// =============================================================================
+// The GL global-overwrite rule for per-attachment state (issue #823).
+//
+// glColorMask is DEFINED as glColorMaski for every draw buffer, so it clears
+// any divergence an earlier indexed call installed — and
+// CommandDispatch::ApplyRenderState leans on exactly that: it only ever
+// DISABLES attachments named by PODRenderState::colorAttachmentWriteMask and
+// never re-enables one, because the global call preceding it is supposed to
+// have. The Vulkan arm kept its own per-attachment array that the global
+// setter did not touch, so a narrowing indexed call was PERMANENT for the rest
+// of the process: one Renderer3D::DrawLine (mask 0x01) left every G-Buffer
+// attachment above 0 dead, the deferred emissive target kept its cleared
+// alpha=1 "unlit" flag, and every deferred frame came back a light-independent
+// flat grey.
+//
+// Both directions are asserted from ONE recording, because either alone
+// passes on a broken build: phase A proves the indexed mask really acts (a
+// no-op mask would satisfy phase B trivially), phase B proves the global call
+// takes it back.
+// =============================================================================
+TEST_F(VulkanDrawPath, GlobalColorMaskResetsPerAttachmentDivergence)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kSize = 32;
+    constexpr u32 kAttachments = 3;
+
+    // The G-Buffer's shape in miniature: more than one colour attachment, all
+    // written by one fragment stage.
+    constexpr const char* kMrtFragmentSrc = R"(
+#version 460 core
+layout(location = 0) in vec2 v_TexCoord;
+layout(location = 0) out vec4 o_Rt0;
+layout(location = 1) out vec4 o_Rt1;
+layout(location = 2) out vec4 o_Rt2;
+
+layout(std140, binding = 3) uniform TintBlock
+{
+    vec4 u_Tint;
+};
+
+void main()
+{
+    o_Rt0 = u_Tint;
+    o_Rt1 = u_Tint;
+    o_Rt2 = u_Tint;
+}
+)";
+
+    FramebufferSpecification fbSpec;
+    fbSpec.Width = kSize;
+    fbSpec.Height = kSize;
+    fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA8,
+                           FramebufferTextureFormat::RGBA8 };
+    // Three targets, ONE recording — the leak was process-scoped, not
+    // scope-scoped, so the state has to be observed crossing framebuffer binds
+    // rather than reset by a fresh frame between each case.
+    auto masked = Framebuffer::Create(fbSpec);
+    ASSERT_NE(masked, nullptr);
+    auto restored = Framebuffer::Create(fbSpec);
+    ASSERT_NE(restored, nullptr);
+    // The other ordering: a global NARROW followed by an indexed WIDEN.
+    // glColorMaski wins over the preceding glColorMask, so the lowering must
+    // read the array alone — ANDing the recorded global mask on top would make
+    // this attachment stay masked.
+    auto widened = Framebuffer::Create(fbSpec);
+    ASSERT_NE(widened, nullptr);
+
+    const f32 vertices[] = { -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f };
+    auto vertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
+    u32 indices[] = { 0, 1, 2 };
+    auto indexBuffer = IndexBuffer::Create(indices, 3);
+    auto vertexArray = VertexArray::Create();
+    vertexArray->AddVertexBuffer(vertexBuffer);
+    vertexArray->SetIndexBuffer(indexBuffer);
+
+    auto tintUbo = UniformBuffer::Create(16, 3);
+    auto shader = Ref<VulkanShader>::Create("DrawPathMrtMask", kVertexSrc, kMrtFragmentSrc);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    VulkanRendererAPI api;
+
+    // Clear red, first draw green, second draw blue: reading back which of the
+    // three a texel carries says exactly which draw reached that attachment.
+    constexpr f32 kGreen[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    constexpr f32 kBlue[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+
+    const auto transitionAll = [&api](const Ref<Framebuffer>& target, const RHI::Access before,
+                                      const RHI::Access after)
+    {
+        for (u32 i = 0; i < kAttachments; ++i)
+        {
+            RHI::Barrier barrier{};
+            barrier.Resource = target->GetColorAttachmentHandle(i);
+            barrier.Before = before;
+            barrier.After = after;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &barrier, 1 });
+        }
+    };
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    transitionAll(masked, RHI::Access::Undefined, RHI::Access::ColorAttachmentWrite);
+                    transitionAll(restored, RHI::Access::Undefined, RHI::Access::ColorAttachmentWrite);
+                    transitionAll(widened, RHI::Access::Undefined, RHI::Access::ColorAttachmentWrite);
+
+                    shader->Bind();
+                    tintUbo->Bind();
+
+                    // The narrowing indexed call, in the shape
+                    // CommandDispatch::ApplyRenderState emits for a command
+                    // whose colorAttachmentWriteMask excludes an attachment.
+                    masked->Bind();
+                    api.SetViewport(0, 0, kSize, kSize);
+                    api.SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+                    api.Clear();
+                    api.SetColorMaskForAttachment(1, false, false, false, false);
+                    tintUbo->SetData(kGreen, sizeof(kGreen));
+                    api.DrawIndexed(vertexArray, 3);
+                    masked->Unbind();
+
+                    // The global call that must take the narrowing back.
+                    restored->Bind();
+                    api.SetViewport(0, 0, kSize, kSize);
+                    api.SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+                    api.Clear();
+                    api.SetColorMask(true, true, true, true);
+                    tintUbo->SetData(kBlue, sizeof(kBlue));
+                    api.DrawIndexed(vertexArray, 3);
+                    restored->Unbind();
+
+                    // Global mask off for every channel, then attachment 1
+                    // widened back on its own.
+                    widened->Bind();
+                    api.SetViewport(0, 0, kSize, kSize);
+                    api.SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+                    api.Clear();
+                    api.SetColorMask(false, false, false, false);
+                    api.SetColorMaskForAttachment(1, true, true, true, true);
+                    tintUbo->SetData(kGreen, sizeof(kGreen));
+                    api.DrawIndexed(vertexArray, 3);
+                    api.SetColorMask(true, true, true, true);
+                    widened->Unbind();
+
+                    transitionAll(masked, RHI::Access::ColorAttachmentWrite, RHI::Access::ShaderSampleRead);
+                    transitionAll(restored, RHI::Access::ColorAttachmentWrite, RHI::Access::ShaderSampleRead);
+                    transitionAll(widened, RHI::Access::ColorAttachmentWrite, RHI::Access::ShaderSampleRead);
+                });
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the MRT draw path must not fall through to a stub";
+
+    // `target` is deliberately NOT const: Ref<T>::Raw() const-propagates, so a
+    // const Ref hands back a const Framebuffer* and the downcast to the
+    // backend type would have to cast the qualifier away (clang-cl rejects it;
+    // MSVC let it through).
+    const auto centreTexel = [](Ref<Framebuffer>& target, u32 attachmentIndex,
+                                std::array<u8, 4>& out) -> bool
+    {
+        auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(target.Raw());
+        const auto attachment = vkFramebuffer->GetColorAttachmentImage(attachmentIndex);
+        if (attachment == nullptr)
+            return false;
+        std::vector<u8> pixels;
+        if (!attachment->GetData(pixels, 0) || pixels.size() != sizet{ kSize } * kSize * 4)
+            return false;
+        const sizet offset = ((sizet{ kSize } / 2) * kSize + kSize / 2) * 4;
+        out = { pixels[offset + 0], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3] };
+        return true;
+    };
+
+    constexpr std::array<u8, 4> kGreenTexel{ 0x00, 0xFF, 0x00, 0xFF };
+    constexpr std::array<u8, 4> kBlueTexel{ 0x00, 0x00, 0xFF, 0xFF };
+    constexpr std::array<u8, 4> kRedTexel{ 0xFF, 0x00, 0x00, 0xFF };
+
+    // The control: the indexed mask has to have DONE something, or the
+    // assertion below proves nothing — a no-op mask passes it trivially.
+    std::array<u8, 4> texel{};
+    ASSERT_TRUE(centreTexel(masked, 0, texel));
+    EXPECT_EQ(texel, kGreenTexel) << "attachment 0 was never masked and must carry the first draw";
+    ASSERT_TRUE(centreTexel(masked, 1, texel));
+    EXPECT_EQ(texel, kRedTexel) << "SetColorMaskForAttachment(1, false x4) did not mask attachment 1";
+    ASSERT_TRUE(centreTexel(masked, 2, texel));
+    EXPECT_EQ(texel, kGreenTexel) << "attachment 2 was never masked and must carry the first draw";
+
+    // The contract this test exists for: a global colour mask clears the
+    // per-attachment divergence an earlier indexed call installed (issue #823).
+    for (u32 i = 0; i < kAttachments; ++i)
+    {
+        ASSERT_TRUE(centreTexel(restored, i, texel)) << "attachment " << i << " readback failed";
+        EXPECT_EQ(texel, kBlueTexel)
+            << "attachment " << i
+            << " missed the draw after SetColorMask(true x4) — glColorMask is the indexed call for EVERY draw "
+               "buffer, so it must clear a narrowing SetColorMaskForAttachment (issue #823)";
+    }
+
+    // The indexed setter wins over the global one it follows, both ways round.
+    ASSERT_TRUE(centreTexel(widened, 0, texel));
+    EXPECT_EQ(texel, kRedTexel) << "attachment 0 stayed under the global SetColorMask(false x4)";
+    ASSERT_TRUE(centreTexel(widened, 1, texel));
+    EXPECT_EQ(texel, kGreenTexel)
+        << "SetColorMaskForAttachment(1, true x4) after a global SetColorMask(false x4) did not reach "
+           "attachment 1 — glColorMaski overrides the glColorMask before it, so the per-attachment array "
+           "is the lowering's only input";
+    ASSERT_TRUE(centreTexel(widened, 2, texel));
+    EXPECT_EQ(texel, kRedTexel) << "attachment 2 stayed under the global SetColorMask(false x4)";
+
+    // Leave the global mask wide, so a later test in this binary is not handed
+    // a narrowed one — the very leak this test pins.
+    api.SetColorMask(true, true, true, true);
 }
 
 #endif // OLO_WITH_VULKAN

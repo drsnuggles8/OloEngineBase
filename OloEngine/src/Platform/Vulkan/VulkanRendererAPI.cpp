@@ -923,6 +923,16 @@ namespace OloEngine
     }
     void VulkanRendererAPI::SetBlendState(const bool value)
     {
+        // Deliberately does NOT fill AttachmentBlend, unlike SetColorMask below.
+        // GL's glEnable(GL_BLEND) would clear the per-buffer enables, but the
+        // engine's passes are written against OR semantics instead: DecalRenderPass
+        // turns RT2 on with SetBlendStateForAttachment(2, true) for an Emissive
+        // decal whose PODRenderState carries blendEnabled=false, and relies on the
+        // per-attachment enable surviving the global disable that
+        // ApplyPODRenderState then issues. Matching GL here would delete that
+        // additive accumulation on Vulkan without fixing it on GL, so the
+        // divergence is recorded rather than "corrected" — see the note at the
+        // AttachmentBlend declaration.
         m_State.Blend = value;
     }
     void VulkanRendererAPI::SetBlendFunc(const RHI::BlendFactor sfactor, const RHI::BlendFactor dfactor)
@@ -1039,6 +1049,17 @@ namespace OloEngine
         m_State.ColorMask[1] = green;
         m_State.ColorMask[2] = blue;
         m_State.ColorMask[3] = alpha;
+        // glColorMask writes EVERY draw buffer's mask, so it also CLEARS any
+        // divergence a previous glColorMaski installed — the same global-
+        // overwrite rule SetBlendFunc already honours, and the rule
+        // CommandDispatch::ApplyRenderState depends on: that function only ever
+        // DISABLES attachments (`if (!(colorAttachmentWriteMask & bit))`) and
+        // relies on this call to have re-enabled them first. Without the fill a
+        // narrowed attachment stayed masked for the rest of the PROCESS — one
+        // Renderer3D::DrawLine (colorAttachmentWriteMask = 0x01) killed every
+        // G-Buffer attachment above 0 from that frame on, which is issue #823.
+        for (u32 attachment = 0; attachment < VulkanRecordedPipelineState::kMaxAttachments; ++attachment)
+            SetColorMaskForAttachment(attachment, red, green, blue, alpha);
     }
     void VulkanRendererAPI::SetColorMaskForAttachment(const u32 attachment, const bool red, const bool green,
                                                       const bool blue, const bool alpha)
