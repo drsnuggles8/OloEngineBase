@@ -135,6 +135,7 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/PathTracerCornellBoxTest.cpp
 		Rendering/PathTracing/ReferenceSceneBuilderTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
+		Rendering/Baking/LightmapBakeParityTest.cpp
 		Asset/LightmapAssetSerializationTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp

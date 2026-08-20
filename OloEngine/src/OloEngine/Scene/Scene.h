@@ -605,7 +605,9 @@ namespace OloEngine
         }
         // The runtime-resolved lightmap state; created lazily. Never null after
         // this call, but only IsValid() once Resolve() found a non-stale bake.
-        [[nodiscard]] const Ref<SceneLightmapRuntime>& GetLightmapRuntime()
+        // Non-const Ref on purpose: Ref<T> propagates const through operator->,
+        // and callers must Resolve()/Invalidate() the runtime.
+        [[nodiscard]] Ref<SceneLightmapRuntime>& GetLightmapRuntime()
         {
             if (!m_LightmapRuntime)
             {
