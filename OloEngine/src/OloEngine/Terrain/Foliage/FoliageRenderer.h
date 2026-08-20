@@ -58,6 +58,13 @@ namespace OloEngine
     {
       public:
         FoliageRenderer() = default;
+        // Releases every live layer's impostor VRAM budget claim (issue
+        // #718) — ImpostorAtlas has no destructor of its own (its BudgetNode
+        // is a plain accounting handle, not a GPU resource, so giving it RAII
+        // would mean hand-rolling move semantics just to avoid a double-free
+        // on every copy); this is the one place that must not skip freeing
+        // it, or a scene-reload cycle permanently starves the shared budget.
+        ~FoliageRenderer();
 
         // Regenerate all instances for the given layers from terrain data.
         // Call when terrain changes (erosion, sculpting) or layer settings change.

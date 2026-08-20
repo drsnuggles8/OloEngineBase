@@ -41,6 +41,11 @@ namespace OloEngine
         atlasSpec.DepthComparisonMode = true;
         m_AtlasTexture = Texture2DArray::Create(atlasSpec);
 
+        // Persistent tile allocator (issue #718): a no-op when the resolution
+        // is unchanged from a prior Init() (e.g. a Resolution-only re-Init via
+        // SetSettings), so previously-held tile assignments survive it.
+        m_AtlasAllocator.SetAtlasResolution(m_Settings.AtlasResolution);
+
         // Comparison-OFF raw-depth views aliasing the CSM / atlas textures,
         // used by the PCSS blocker search (the hardware comparison sampler
         // can't read raw occluder depth). These alias the same immutable

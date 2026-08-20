@@ -40,6 +40,12 @@ namespace OloEngine
         return static_cast<f32>(h & 0xFFFF) / 65536.0f;
     }
 
+    FoliageRenderer::~FoliageRenderer()
+    {
+        for (auto& layer : m_Layers)
+            ImpostorBaker::Free(layer.Impostor);
+    }
+
     void FoliageRenderer::BuildQuadGeometry(LayerRenderData& data) const
     {
         // Billboard quad: 4 vertices, centered at bottom
@@ -142,6 +148,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // A shrinking layer list drops the trailing LayerRenderData entries
+        // below — free their impostor VRAM budget claims first, or resize()
+        // destroying them silently leaks the claims for the rest of the
+        // process (issue #718; ImpostorAtlas has no destructor of its own).
+        for (sizet i = layers.size(); i < m_Layers.size(); ++i)
+            ImpostorBaker::Free(m_Layers[i].Impostor);
         m_Layers.resize(layers.size());
 
         for (sizet layerIdx = 0; layerIdx < layers.size(); ++layerIdx)
@@ -444,7 +456,9 @@ namespace OloEngine
 
         if (!layer.UseImpostor || layer.MeshPath.empty())
         {
-            // Impostor turned off (or no mesh) — drop any stale atlas.
+            // Impostor turned off (or no mesh) — drop any stale atlas. Free
+            // its VRAM budget claim (issue #718) before discarding it.
+            ImpostorBaker::Free(data.Impostor);
             data.Impostor = ImpostorAtlas{};
             data.ImpostorBakedMeshPath.clear();
             data.ImpostorBakedFrames = 0;
@@ -465,12 +479,17 @@ namespace OloEngine
         {
             OLO_CORE_WARN("FoliageRenderer: impostor layer '{}' mesh '{}' failed to load — impostor disabled for this layer",
                           layer.Name, layer.MeshPath);
+            ImpostorBaker::Free(data.Impostor);
             data.Impostor = ImpostorAtlas{};
             return;
         }
 
         // Bake with the layer albedo (if any) applied to the mesh UVs, tinted by
         // BaseColor. A mesh with its own material texture is a natural follow-up.
+        // Free the OUTGOING atlas's budget claim first — Bake() below reserves
+        // a fresh one, and freeing after would either double-count briefly or,
+        // worse, free the NEW claim if the assignment races the wrong way.
+        ImpostorBaker::Free(data.Impostor);
         const Ref<Mesh> mesh = model.GetMesh(0);
         const Ref<Texture2D> albedo = data.AlbedoTexture; // may be null -> white fallback
         data.Impostor = ImpostorBaker::Bake(

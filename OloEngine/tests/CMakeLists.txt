@@ -179,6 +179,7 @@ add_executable(OloEngine-Tests
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp
 		Rendering/ClusteredLightingMathTest.cpp
+		Rendering/AtlasAllocatorTest.cpp
 		Rendering/ShadowAtlasPackingTest.cpp
 		Rendering/VolumetricFogMathTest.cpp
 		Rendering/VolumetricShadowMapMathTest.cpp
