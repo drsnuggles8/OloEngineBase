@@ -30,6 +30,11 @@ param(
     [Parameter(Mandatory)][string]$BuildDir,
     [Parameter(Mandatory)][string]$Target,
     [Parameter(Mandatory)][string]$Config,
+    # Build parallelism. 0 (default) takes CMAKE_BUILD_PARALLEL_LEVEL -- which build-lock.ps1
+    # exports after sizing it from measured free memory -- and falls back to the safe -j6
+    # floor when this script is run outside the lock. Never emit a bare `--parallel`; see
+    # the note at the cmake invocation below.
+    [int]$Jobs = 0,
     [switch]$Diagnose
 )
 
@@ -140,5 +145,22 @@ foreach ($name in @($clean.Keys)) {
 
 if ($Diagnose) { Write-Host "[BuildCleanEnv] duplicate env entries after:  $(Get-DupCount)" }
 
-& cmake --build $BuildDir --target $Target --config $Config --parallel
+# A BARE `--parallel` is never acceptable here (CLAUDE.md -> "Cap build parallelism").
+# It does not pick a number: it forwards the omission to the native build tool, whose own
+# default applies -- and Ninja's default is `cores + 2`, which is 30 on this host. So
+# dropping the number RAISES the width rather than lowering it, on a box that has already
+# been OOM-killed once by an uncapped build.
+#
+# CMAKE_BUILD_PARALLEL_LEVEL is the value build-lock.ps1 exports after deciding parallelism
+# from measured free memory, so honouring it here is what lets a locked build's adaptive
+# number reach this command. The fallback is the conservative -j6 floor, for the case where
+# this script is run directly rather than under the lock.
+$jobs = $Jobs
+if ($jobs -le 0) {
+    $fromEnv = [Environment]::GetEnvironmentVariable('CMAKE_BUILD_PARALLEL_LEVEL')
+    $parsed  = 0
+    $jobs = if (-not [string]::IsNullOrWhiteSpace($fromEnv) -and [int]::TryParse($fromEnv, [ref] $parsed) -and $parsed -gt 0) { $parsed } else { 6 }
+}
+
+& cmake --build $BuildDir --target $Target --config $Config --parallel $jobs
 exit $LASTEXITCODE
