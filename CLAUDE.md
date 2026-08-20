@@ -173,7 +173,7 @@ A configure without it stops at a guard in the root `CMakeLists.txt` pointing at
 
 **`STEAMWORKS_SDK_ROOT` is optional and developer-supplied** (issue #644). The Steamworks SDK is *not* in this repo and cannot be: its licence forbids redistribution and this repo is public, so there is no vendored copy and no vcpkg port — each developer downloads it themselves (free; the Steamworks SDK Access Agreement, not the $100 Steam Direct publishing fee) and points the variable at the inner `sdk` directory, the one *directly* containing `public/` and `redistributable_bin/`. `OLO_WITH_STEAM` then auto-detects to ON; without the variable it is OFF and the whole engine builds, runs and tests normally. Setup and traps: [docs/ops/build.md](docs/ops/build.md#steamworks-sdk-optional--you-must-obtain-it-yourself). Two consequences worth not re-deriving: **CI can never build the enabled path**, so a hand-written stub SDK (`-DOLO_WITH_STEAM_STUB_SDK=ON`, `.github/workflows/steam-stub.yml`) compiles/links/runs it instead — add any new Steamworks call to the stubs or that job goes red; and **exactly one TU may include a Valve header** (`Platform/Steam/SteamworksBackend.cpp`), enforced by a CI grep, because that is what keeps the logic fake-testable. Everything else talks to `ISteamBackend`.
 
-CMake presets ([CMakePresets.json](CMakePresets.json)) — note all three require **CMake 4.2+** because the `msvc` preset's `Visual Studio 18 2026` generator only exists in CMake 4.2 and the others inherit / share the version requirement at the top of the file:
+CMake presets ([CMakePresets.json](CMakePresets.json)) — note all four require **CMake 4.2+** because the `msvc` preset's `Visual Studio 18 2026` generator only exists in CMake 4.2 and the others inherit / share the version requirement at the top of the file:
 
 - `msvc` (Visual Studio 18 2026, `build/`) — primary; default build dir. Triplet `x64-windows-static-md`.
 - `clangcl` (Ninja Multi-Config, `build-clang/`) — clang-cl warnings with MSVC ABI. Compiles **our** code with clang-cl (chainloaded via `VCPKG_CHAINLOAD_TOOLCHAIN_FILE`) but shares the **`x64-windows-static-md`** ports with the msvc tree — deliberately, see [docs/agent-rules/vcpkg-dependency-management.md](docs/agent-rules/vcpkg-dependency-management.md).
@@ -207,7 +207,7 @@ pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
 [build-lock.ps1](.claude/skills/run-oloengine/build-lock.ps1) runs one build at a time across every worktree of this repo, and kills its own build if the session that launched it dies. A `PreToolUse` hook (`.claude/hooks/claude-build-lock-guard.py`) **blocks** a `cmake --build` / `ninja` / `msbuild` tool call that skips it and replies with the wrapped command to use. Two literal markers opt out, and they are **not** interchangeable:
 
 - `OLO_NOT_A_BUILD` — the command merely *mentions* a build tool (a `Get-Process`, a grep over docs). Silent allow, no permission needed.
-- `OLO_BUILD_LOCK_OVERRIDE` — the command really is a build and you are running it **unlocked**. Allowed, but **recorded** to `.git/olo-build-metrics.jsonl`. This needs the user's explicit permission **for that build**; a past grant does not carry forward.
+- `OLO_BUILD_LOCK_OVERRIDE` — the command really is a build and you are running it **unlocked**. Allowed, but **recorded** to `olo-build-metrics.jsonl` in the shared `git-common-dir` (not `.git/` — in a linked worktree that is a *file*). This needs the user's explicit permission **for that build**; a past grant does not carry forward.
 
 (`OLO_BUILD_LOCK_BYPASS` still works for compatibility and is audited when it wraps a real build. It used to be the only marker, which is how a real unlocked build once slipped through as a "merely mentions" case — the check is a plain substring test that a *comment* satisfies, so the discipline is yours, not the hook's.)
 
@@ -215,7 +215,7 @@ Why it exists, and what it does and does not protect you from: [.claude/skills/r
 
 ### Cap build parallelism — a full-width build can OOM this machine
 
-**Under the mutex this is now automatic.** `build-lock.ps1` derives the job count from **measured free memory at acquire time** and rewrites the `--parallel N` / `-jN` in your command (and exports `CMAKE_BUILD_PARALLEL_LEVEL` for commands that carry no flag). Keep writing `--parallel 6` — it is a floor the lock may raise when the machine has room, and `-Jobs N` pins it, `-Jobs -1` opts out. Deriving it beats a constant because the mutex guaranteeing exclusivity does **not** mean the box is idle: the gh-runners for another repository still share it.
+**Under the mutex this is now automatic.** `build-lock.ps1` derives the job count from **measured free memory at acquire time** and rewrites the `--parallel N` / `-jN` in your command (and exports `CMAKE_BUILD_PARALLEL_LEVEL` for commands that carry no flag). Keep writing `--parallel 6` — the lock **replaces** that number in either direction, raising it when there is headroom and *lowering* it when free memory is tight, so it is a hint rather than a floor. `-Jobs N` pins it, `-Jobs -1` runs your command verbatim. Deriving it beats a constant because the mutex guaranteeing exclusivity does **not** mean the box is idle: the gh-runners for another repository still share it.
 
 The rest of this section still governs any build you run **outside** the lock.
 

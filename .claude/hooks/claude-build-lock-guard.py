@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sys
+import time
 
 LOCK_SCRIPT = ".claude/skills/run-oloengine/build-lock.ps1"
 
@@ -226,8 +227,20 @@ def audit(decision, tool, command):
             "command": command[:500],
             "ts": __import__("datetime").datetime.now().astimezone().isoformat(),
         }
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
+        line = json.dumps(record) + "\n"
+        # Retry, matching Write-BuildMetric's 5 x 50 ms shape in build-lock.ps1. Both
+        # writers append to the SAME file, and the PowerShell side holds it with
+        # FileShare.Read -- which excludes other WRITERS -- so a concurrent build-lock
+        # append makes this open fail outright. Without the retry the audit record is
+        # silently dropped, and a dropped record defeats the point of auditing at all.
+        # Still gives up quietly after all attempts: an audit must never fail a tool call.
+        for _ in range(5):
+            try:
+                with open(path, "a", encoding="utf-8") as handle:
+                    handle.write(line)
+                return
+            except OSError:
+                time.sleep(0.05)
     except Exception:
         return
 

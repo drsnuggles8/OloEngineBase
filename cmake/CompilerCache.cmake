@@ -66,10 +66,22 @@ if(OLO_ENABLE_COMPILER_CACHE)
     # docs/agent-rules/configure-time-variable-visibility.md, inverted: not "unset on
     # the first configure" but "set forever after it".)
     if(NOT OLO_COMPILER_CACHE_TOOL)
-        if(DEFINED ENV{OLO_COMPILER_CACHE_TOOL})
+        # NOT `if(DEFINED ENV{...})`: that is TRUE for a variable that exists with an
+        # EMPTY value, which then sets the tool to "" and silently disables caching
+        # instead of falling through to discovery. An empty value is how a shell
+        # "clears" the variable in practice (PowerShell's SetEnvironmentVariable($null)
+        # leaves it present-but-empty), so the empty case is the common one, not exotic.
+        if(NOT "$ENV{OLO_COMPILER_CACHE_TOOL}" STREQUAL "")
             set(OLO_COMPILER_CACHE_TOOL "$ENV{OLO_COMPILER_CACHE_TOOL}")
         else()
-            find_program(OLO_COMPILER_CACHE_TOOL_DISCOVERED NAMES sccache ccache)
+            # NO_CACHE so the sccache-before-ccache preference is re-evaluated on EVERY
+            # configure. A cached find_program result is sticky: install ccache after a
+            # configure that already found sccache and the switch would never happen —
+            # the same "set forever after the first configure" trap described above, one
+            # level down. The unset() clears an entry written by an earlier revision of
+            # this file, which did let find_program cache it.
+            unset(OLO_COMPILER_CACHE_TOOL_DISCOVERED CACHE)
+            find_program(OLO_COMPILER_CACHE_TOOL_DISCOVERED NAMES sccache ccache NO_CACHE)
             set(OLO_COMPILER_CACHE_TOOL "${OLO_COMPILER_CACHE_TOOL_DISCOVERED}")
         endif()
     endif()

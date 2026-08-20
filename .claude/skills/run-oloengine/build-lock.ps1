@@ -62,6 +62,20 @@
   so ~10s at the default -ParentPollSeconds — long enough that a momentary read failure does not
   kill a healthy build.
 
+.PARAMETER Jobs
+  Build parallelism, decided at ACQUIRE time rather than by the caller.
+    0  (default) derive it from measured free memory — see Get-AdaptiveJobs. The value
+       REPLACES whatever --parallel N / -jN the command carries, in either direction: it
+       lowers a caller's -j6 when memory is tight just as readily as it raises it.
+    >0 pin exactly this many jobs.
+    -1 do not touch the command at all; run it verbatim.
+
+.PARAMETER Priority
+  Sort this ticket ahead of every non-priority waiter. It only changes WHOSE TURN IS NEXT —
+  it never preempts a running build, because killing one throws away all its work. FIFO still
+  holds within the priority band. One-shot: it applies to this invocation only, and by policy
+  the user asks for it.
+
 .EXAMPLE
   pwsh -File build-lock.ps1 -Command 'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
 #>
@@ -285,6 +299,16 @@ function Get-QueueAhead {
 # waiter notices this itself on its next poll. Fails CLOSED (returns $false): if the
 # queue cannot be read we keep waiting rather than abandoning a legitimate build.
 function Test-Superseded {
+    # Standing down means exit 0 — the caller believes the build SUCCEEDED. So every
+    # ambiguity in here must resolve to "not superseded"; a wrongly-skipped build is
+    # far worse than a redundant one.
+    #
+    # First: if we never got a ticket, Add-QueueTicket returned $null and left
+    # $myEnqueuedTicks at 0. Every real ticket's enqueuedTicks exceeds 0, so the
+    # "newer than us" test below would call ANY live sibling a successor and we would
+    # silently exit 0 without building. With no timestamp of our own, never stand down.
+    if ($script:myEnqueuedTicks -le 0) { return $false }
+
     try { $files = @(Get-ChildItem -LiteralPath $queueDir -Filter '*.json' -File -ErrorAction Stop) }
     catch { return $false }
 
@@ -295,8 +319,24 @@ function Test-Superseded {
         if ([string] $rec.worktree -ne $here) { continue }
         if ([string] $rec.command -ne $Command) { continue }
         if ([long] $rec.enqueuedTicks -le $myEnqueuedTicks) { continue }
-        try { $null = Get-Process -Id ([int] $rec.pid) -ErrorAction Stop } catch { continue }  # dead: not a successor
-        return $true
+
+        # Liveness pinned by (pid, startTicks), as in Get-QueueAhead. Pid alone is not
+        # enough — Windows recycles them, so a dead successor whose pid was reused would
+        # read as alive and we would stand down for a build that will never run. Note
+        # this fails the OPPOSITE way to Get-QueueAhead's reaper: there, an unreadable
+        # StartTime means "assume alive" so a healthy ticket is never reaped; here it
+        # means "not a confirmed successor" so a real build is never skipped.
+        $successorAlive = $false
+        try {
+            $p = Get-Process -Id ([int] $rec.pid) -ErrorAction Stop
+            if ($null -eq $rec.startTicks) {
+                $successorAlive = $true          # older ticket format: pid match is all we have
+            } else {
+                try { $successorAlive = ($p.StartTime.Ticks -eq [long] $rec.startTicks) } catch { $successorAlive = $false }
+            }
+        } catch { $successorAlive = $false }
+
+        if ($successorAlive) { return $true }
     }
     return $false
 }
