@@ -48,6 +48,18 @@ if(OLO_ENABLE_COMPILER_CACHE)
     # ccache wants base_dir=<worktree root> + hash_dir=false; sccache's equivalent is
     # SCCACHE_BASEDIRS, which unlike ccache's single base_dir accepts several paths
     # (";"-separated on Windows) — useful if worktrees span more than one drive.
+    #
+    # THAT SINGLE base_dir IS A HARD CONSTRAINT ON WHERE WORKTREES MAY LIVE, and getting it
+    # wrong is silent. base_dir only rewrites absolute paths UNDER it, and the /Z7 override
+    # below bakes the source path into every object — so the path is part of the hash and a
+    # worktree outside base_dir shares with nobody. It still caches its OWN rebuilds, which
+    # is exactly why the failure hides: the cache looks alive, just never warm.
+    #
+    # Measured 2026-08-20 with base_dir=D:\repos while /start-work was placing worktrees on
+    # E:, real flags: D:->D: HIT, D:->E: MISS, and E:->E: SIBLINGS also MISS. Two pieces of
+    # our own tooling disagreed about where worktrees live, so cross-worktree caching was
+    # off for every worktree that command had ever created. base_dir is now C:\repos and
+    # /start-work puts worktrees there; the two MUST be changed together.
     # An ENVIRONMENT variable is honoured between the explicit -D and PATH discovery.
     # This is what lets a machine pin the right binary ONCE and have every worktree
     # inherit it: a CMakeUserPresets.json is gitignored, so it does not propagate to a
