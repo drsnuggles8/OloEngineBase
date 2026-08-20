@@ -255,15 +255,32 @@ function Test-CachedTreeCommand([string] $Cmd) {
     return ($Cmd -match '(?i)build-cached') -or ($Cmd -match '(?i)--preset\s+\S*dev-cached')
 }
 
-# A second slot is admissible only when EVERY occupied slot is throttleable, not just
-# ours. A cached tree starting alongside a Visual Studio tree is still the unsafe pair,
-# and the newcomer is the only party in a position to notice.
+# Concurrency is admissible only when EVERY currently-held slot is throttleable, and so
+# are we. A cached tree starting alongside a Visual Studio tree is still the unsafe pair,
+# and the arriving build is the only party in a position to notice.
 #
-# Conservative on every uncertainty: an unreadable holder record, an unknown free-memory
-# reading, or our own command not being a cached tree all mean "no". The cost of a wrong
-# NO is a queue wait; the cost of a wrong YES is an OOM that loses every session's work.
-function Test-ConcurrencyAdmissible([int] $SlotIndex, [ref] $Reason) {
-    if ($SlotIndex -eq 0) { return $true }                  # the first slot is always fine
+# DERIVED FROM HELD STATE, NEVER FROM THE SLOT INDEX. An earlier cut short-circuited
+# "slot 0 is always fine", which is wrong: slot 0 being free does not mean nothing is
+# building. Let A hold slot 0 and B hold slot 1; when A finishes, slot 0 is free while B
+# is still linking, and an uncached C would have taken it unconditionally — landing
+# exactly the pair this function exists to prevent. Slots are just handles; only the
+# handles say who is running.
+#
+# Conservative on every uncertainty: a held slot whose holder record we cannot read, an
+# unknown free-memory reading, or our own command not being a cached tree all mean "no".
+# The cost of a wrong NO is a queue wait; the cost of a wrong YES is an OOM that loses
+# every session's work.
+function Test-ConcurrencyAdmissible([ref] $Reason) {
+    # Held-ness is the handle, not the file: every slot file outlives its holder.
+    $held = @()
+    foreach ($p in $slotPaths) {
+        if (-not (Test-Path $p)) { continue }
+        if (Test-SlotFree $p)    { continue }
+        $held += $p
+    }
+    # Nothing is building, so this is a lone build and no throttling argument applies —
+    # an uncached tree is perfectly fine on its own, which is the common case.
+    if ($held.Count -eq 0) { return $true }
 
     if (-not (Test-CachedTreeCommand $Command)) {
         $Reason.Value = 'this build does not target the cached (Ninja) tree'
@@ -280,15 +297,22 @@ function Test-ConcurrencyAdmissible([int] $SlotIndex, [ref] $Reason) {
         return $false
     }
 
-    foreach ($p in $slotPaths) {
-        if (-not (Test-Path $p)) { continue }
+    foreach ($p in $held) {
         $info = Read-HolderInfo $p
-        if ($null -eq $info) { continue }                   # not held, or a stale record
-        # Held-ness is the handle, not the file; a readable record for a slot we could
-        # not open means someone IS in it.
-        if (Test-SlotFree $p) { continue }
-        if (-not (Test-CachedTreeCommand $info.command)) {
-            $Reason.Value = "an uncached tree is already building in $($info.worktree)"
+        # A slot that IS held but whose record we cannot read is the ambiguous case, and
+        # ambiguity answers no: we cannot show that holder is throttleable, so we must
+        # not assume it. (Previously this fell through to "continue", i.e. assumed safe.)
+        if ($null -eq $info) {
+            $Reason.Value = 'a slot is held but its holder record is unreadable'
+            return $false
+        }
+        $holderCmd = ''
+        # StrictMode makes a missing property a hard error, and this JSON comes off disk.
+        try { if ($null -ne $info.PSObject.Properties['command']) { $holderCmd = [string] $info.command } } catch { }
+        if (-not (Test-CachedTreeCommand $holderCmd)) {
+            $holderTree = ''
+            try { if ($null -ne $info.PSObject.Properties['worktree']) { $holderTree = [string] $info.worktree } } catch { }
+            $Reason.Value = "an uncached tree is already building$(if ($holderTree) { " in $holderTree" })"
             return $false
         }
     }
@@ -593,22 +617,21 @@ try {
         # attempt a further slot. $null = the queue could not be trusted, so we race
         # exactly as the original implementation did.
         if ($null -eq $ahead -or $ahead -lt $MaxConcurrent) {
-            for ($slot = 0; $slot -lt $slotPaths.Count; $slot++) {
-                # Ask permission BEFORE opening the handle. Doing it the other way round
-                # would mean holding a slot we then have to hand back, and a slot that is
-                # taken-then-released churns every waiter's view of the queue.
-                $reason = ''
-                if (-not (Test-ConcurrencyAdmissible $slot ([ref] $reason))) {
-                    if ($slot -gt 0 -and -not $concurrencyRefused) {
-                        Write-Host "[build-lock] not starting a 2nd concurrent build — $reason"
-                        $concurrencyRefused = $true
-                    }
-                    break        # slots are ordered; if slot N is inadmissible so is N+1
+            # Ask permission BEFORE opening any handle, and ask ONCE: admission is a
+            # property of what is currently building, not of which slot we land in.
+            # Taking a slot and handing it back would churn every waiter's view of the
+            # queue for nothing.
+            $reason = ''
+            if (Test-ConcurrencyAdmissible ([ref] $reason)) {
+                for ($slot = 0; $slot -lt $slotPaths.Count; $slot++) {
+                    $lock = Get-SlotHandle $slotPaths[$slot]
+                    if ($null -ne $lock) { $slotIndex = $slot; break }
                 }
-                $lock = Get-SlotHandle $slotPaths[$slot]
-                if ($null -ne $lock) { $slotIndex = $slot; break }
+                if ($null -ne $lock) { break }
+            } elseif (-not $concurrencyRefused) {
+                Write-Host "[build-lock] not building alongside the current build — $reason"
+                $concurrencyRefused = $true
             }
-            if ($null -ne $lock) { break }
         }
 
         # Re-announce whenever our position changes, so a waiting session can see
