@@ -269,9 +269,15 @@ namespace OloEngine
         auto& forwardPlus = Renderer3D::GetForwardPlus();
         if (forwardPlus.ShouldUseForwardPlus())
         {
+            // Sub-pass bracket (issue #720): isolates LightCulling.comp's GPU-ms
+            // under "ScenePass" instead of leaving it folded into the parent's
+            // total (it previously ran outside both DepthPrepass and Color) —
+            // needed to measure the thread-group swizzle adopted in the shader.
+            gpuSubTimers.BeginSubPass("LightCulling");
             forwardPlus.DispatchCulling(
                 Renderer3D::GetViewMatrix(),
                 Renderer3D::GetProjectionMatrix());
+            gpuSubTimers.EndSubPass();
             forwardPlus.BindForShading();
         }
 

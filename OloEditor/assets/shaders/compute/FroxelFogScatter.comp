@@ -105,6 +105,7 @@ layout(std430, binding = 12) readonly buffer FogLightGridBuf       { uvec2 fogGr
 layout(std430, binding = 18) readonly buffer FogSphereAreaLightBuf { FogSphereAreaLight fogSphereAreaLights[]; };
 
 #include "../include/BindlessHeap.glsl"
+#include "../include/ThreadGroupSwizzle.glsl"
 
 // Heap-bindless conversion of the SAMPLER inputs (issue #691 Phase 3, bucket 1).
 //
@@ -372,7 +373,13 @@ void main()
     OLO_HEAP_IMAGE(rgba16f, writeonly, image3D, u_ScatterVolume, 0);
 #endif
     ivec3 dims = ivec3(u_FroxelDims.xyz);
-    ivec3 gid = ivec3(gl_GlobalInvocationID);
+    // Thread-group swizzle for L2 locality (issue #720). The froxel grid's XY
+    // axes are a screen tile (shared shadow/light-cluster lookups per
+    // neighbouring column); Z is a depth slice with no such locality, so only
+    // XY is swizzled and Z passes through untouched.
+    ivec2 swizzledGroupID = OloSwizzleWorkGroupID2D(ivec2(gl_WorkGroupID.xy), ivec2(gl_NumWorkGroups.xy));
+    ivec3 gid = ivec3(swizzledGroupID * ivec2(gl_WorkGroupSize.xy) + ivec2(gl_LocalInvocationID.xy),
+                       int(gl_GlobalInvocationID.z));
     if (gid.x >= dims.x || gid.y >= dims.y || gid.z >= dims.z)
         return;
 

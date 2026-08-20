@@ -21,6 +21,7 @@ layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) i
 // Metering input: the HDR colour about to be tone-mapped (post-process chain
 // output, linear radiance).
 #include "../include/BindlessHeap.glsl"
+#include "../include/ThreadGroupSwizzle.glsl"
 
 // Heap-bindless conversion (issue #691 Phase 3, bucket 1), converted with
 // ToneMapRenderPass's histogram bind.
@@ -84,7 +85,8 @@ void main()
     s_Histogram[localIndex] = 0u;
     barrier();
 
-    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    // Thread-group swizzle for L2 locality (issue #720) — see ThreadGroupSwizzle.glsl.
+    ivec2 gid = OloSwizzledGlobalInvocationID2D();
     if (gid.x < int(u_MeterSize.x) && gid.y < int(u_MeterSize.y))
     {
         vec2 uv = (vec2(gid) + 0.5) / vec2(u_MeterSize);

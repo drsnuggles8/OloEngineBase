@@ -23,6 +23,8 @@
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
+#include "../include/ThreadGroupSwizzle.glsl"
+
 // ---------------------------------------------------------------------------
 // GPU light structures (must match C++ GPUPointLight / GPUSpotLight)
 // ---------------------------------------------------------------------------
@@ -166,8 +168,14 @@ void buildTileFrustumPlanes(vec2 ndcMin, vec2 ndcMax, out vec4 planes[4])
 
 void main()
 {
-    uvec3 clusterID = gl_WorkGroupID;
+    // Thread-group swizzle for L2 locality (issue #720). One workgroup per
+    // froxel cluster — the swizzle changes WHICH cluster this workgroup
+    // handles, not the set of clusters visited (still exactly one workgroup
+    // per cluster) or the per-cluster result. XY only: Z is a depth slice
+    // with no screen-tile locality to exploit.
     uvec3 clusterCounts = gl_NumWorkGroups; // dispatch = (countX, countY, countZ)
+    ivec2 swizzledXY = OloSwizzleWorkGroupID2D(ivec2(gl_WorkGroupID.xy), ivec2(clusterCounts.xy));
+    uvec3 clusterID = uvec3(swizzledXY, gl_WorkGroupID.z);
     uint clusterIndex = (clusterID.z * clusterCounts.y + clusterID.y) * clusterCounts.x + clusterID.x;
     uint localIndex = gl_LocalInvocationIndex; // 0..255
 
