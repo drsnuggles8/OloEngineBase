@@ -20,11 +20,74 @@
 option(OLO_ENABLE_COMPILER_CACHE "Use sccache/ccache as a compiler launcher when available (Ninja/Makefiles only)" OFF)
 
 if(OLO_ENABLE_COMPILER_CACHE)
-    # Honor an explicit -DOLO_COMPILER_CACHE_TOOL=... ; otherwise prefer sccache
-    # (the only one with a usable GitHub Actions cache backend) and fall back to
-    # ccache for local dev.
+    # Honor an explicit -DOLO_COMPILER_CACHE_TOOL=... ; otherwise prefer sccache and
+    # fall back to ccache.
+    #
+    # The original reason for preferring sccache — "the only one with a usable
+    # GitHub Actions cache backend" — is OBSOLETE: every CI job now uses a
+    # local-disk SCCACHE_DIR persisted as a single actions/cache entry, precisely
+    # because the GHA backend stores one entry PER OBJECT FILE and blew the cache
+    # cap (see asan.yml's header). The order is kept anyway because the Linux CI
+    # jobs and Windows.yml are green on sccache today, and selection order is not
+    # worth destabilising for a preference that only matters locally.
+    #
+    # WINDOWS CAVEAT, worth knowing before you rely on sccache locally: the Windows
+    # sccache server has a real crash mode under clang-cl — asan.yml's Windows job
+    # disables sccache outright for it ("reliably crashes ... removes the crash
+    # entirely"). For local Windows dev prefer ccache, pinned explicitly:
+    #
+    #     -DOLO_COMPILER_CACHE_TOOL=<absolute path to ccache.exe>
+    #
+    # Pin by ABSOLUTE PATH rather than trusting PATH: a bare "ccache" can resolve to
+    # an unrelated bundled copy (on the maintainer's box C:\Strawberry\c\bin — which
+    # also ships ninja/ctest/nasm — precedes LLVM and CMake on PATH). A machine-local
+    # CMakeUserPresets.json is the right place for that absolute path; it is
+    # gitignored.
+    #
+    # Cross-machine/worktree sharing needs the TOOL configured too, not just selected:
+    # ccache wants base_dir=<worktree root> + hash_dir=false; sccache's equivalent is
+    # SCCACHE_BASEDIRS, which unlike ccache's single base_dir accepts several paths
+    # (";"-separated on Windows) — useful if worktrees span more than one drive.
+    # An ENVIRONMENT variable is honoured between the explicit -D and PATH discovery.
+    # This is what lets a machine pin the right binary ONCE and have every worktree
+    # inherit it: a CMakeUserPresets.json is gitignored, so it does not propagate to a
+    # new worktree, and PATH is not trustworthy for this (see the absolute-path note
+    # below). Set OLO_COMPILER_CACHE_TOOL in the user environment and every configure,
+    # in every worktree, picks the same tool without any per-tree setup.
+    # Resolution order: explicit -D  >  environment  >  PATH discovery.
+    #
+    # Discovery deliberately lands in a SEPARATE cache entry. find_program() writes
+    # its result into the cache under the variable it is given, so if it wrote to
+    # OLO_COMPILER_CACHE_TOOL directly, the first configure's PATH pick would make
+    # that variable permanently truthy — and every later configure would skip the
+    # environment branch and silently keep using the stale tool. (Observed exactly
+    # that: a first configure cached C:/Strawberry/c/bin/ccache.exe and the env var
+    # was ignored from then on. Same family as
+    # docs/agent-rules/configure-time-variable-visibility.md, inverted: not "unset on
+    # the first configure" but "set forever after it".)
     if(NOT OLO_COMPILER_CACHE_TOOL)
-        find_program(OLO_COMPILER_CACHE_TOOL NAMES sccache ccache)
+        if(DEFINED ENV{OLO_COMPILER_CACHE_TOOL})
+            set(OLO_COMPILER_CACHE_TOOL "$ENV{OLO_COMPILER_CACHE_TOOL}")
+        else()
+            find_program(OLO_COMPILER_CACHE_TOOL_DISCOVERED NAMES sccache ccache)
+            set(OLO_COMPILER_CACHE_TOOL "${OLO_COMPILER_CACHE_TOOL_DISCOVERED}")
+        endif()
+    endif()
+
+    # Whatever we ended up with must actually exist — an env var pointing at an
+    # upgraded-away path (the winget package directory embeds the VERSION) would
+    # otherwise configure "successfully" and silently build uncached.
+    if(OLO_COMPILER_CACHE_TOOL AND NOT EXISTS "${OLO_COMPILER_CACHE_TOOL}")
+        find_program(_olo_cache_resolved NAMES "${OLO_COMPILER_CACHE_TOOL}")
+        if(_olo_cache_resolved)
+            set(OLO_COMPILER_CACHE_TOOL "${_olo_cache_resolved}")
+        else()
+            message(WARNING
+                "OLO_COMPILER_CACHE_TOOL is set to '${OLO_COMPILER_CACHE_TOOL}' but that does "
+                "not exist and is not on PATH — building WITHOUT a compiler cache. If this is a "
+                "stale absolute path, a tool upgrade probably moved it.")
+            set(OLO_COMPILER_CACHE_TOOL "")
+        endif()
     endif()
 
     if(OLO_COMPILER_CACHE_TOOL)

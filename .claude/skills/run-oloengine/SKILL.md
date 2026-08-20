@@ -71,7 +71,7 @@ Behaviour worth knowing:
   keeps the lock, and keeps eating ~47 GiB. Every ambiguous reading fails open, so a healthy
   build is never killed by a momentary hiccup. `-NoParentWatch` opts out.
 - Bypassing it is **blocked, not just discouraged**: a `PreToolUse` hook in
-  `.claude/settings.json` (`scripts/claude-build-lock-guard.py`) denies any agent tool call that
+  `.claude/settings.json` (`.claude/hooks/claude-build-lock-guard.py`) denies any agent tool call that
   runs `cmake --build`, `ninja` or `msbuild` without going through this script, and tells you the
   wrapped command to use instead. A permission rule could not do this — `deny` degrades to a
   prompt, which an unattended session in auto mode approves. A command that only *mentions* a

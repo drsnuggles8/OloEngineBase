@@ -53,6 +53,16 @@
 			}
 		},
 		{
+			"name": "dev-cached",
+			"displayName": "Dev: Ninja + compiler cache (shared across worktrees)",
+			"description": "The fast local-dev preset. Ninja Multi-Config because CMAKE_<LANG>_COMPILER_LAUNCHER is honoured ONLY by the Ninja and Makefile generators — the Visual Studio generator ignores it, so the 'msvc' preset can never cache however the tools are configured. Measured 2026-08-19 building target OloEngine at b4f7213e: a cold tree took 12m04s (689 TUs, 100% cacheable, 0 hits); a SECOND WORKTREE at the same commit took 3m23s with 689/689 hits, 95% of them ccache direct hits. That cross-worktree sharing is the point — six worktrees otherwise recompile near-identical trees from scratch. Needs the cache tool configured for cross-directory sharing (ccache: base_dir + hash_dir=false; sccache: SCCACHE_BASEDIRS) and pinned via the OLO_COMPILER_CACHE_TOOL environment variable; see cmake/CompilerCache.cmake. Its own binaryDir on purpose: enabling the cache force-disables PCH and unity builds, so it must not share a build tree with 'clangcl'.",
+			"inherits": "clangcl",
+			"binaryDir": "${sourceDir}/build-cached",
+			"cacheVariables": {
+				"OLO_ENABLE_COMPILER_CACHE": "ON"
+			}
+		},
+		{
 			"name": "linux-gcc",
 			"displayName": "Linux GCC (Ninja)",
 			"description": "Base Linux preset using GCC 14 and Ninja Multi-Config. Uses vcpkg's stock x64-linux triplet (static libs, no CRT-linkage concept) rather than a custom one — the static-md triplets exist only to pin the Windows CRT choice.",
@@ -155,6 +165,13 @@
 			"description": "Project uses Debug/Release/Dist (see cmake/SetupConfigurations.cmake); Release already includes PDB debug info on MSVC.",
 			"configurePreset": "clangcl-asan",
 			"configuration": "Release"
+		},
+		{
+			"name": "dev-cached-debug",
+			"displayName": "Dev cached Debug",
+			"description": "Debug build through the compiler cache. Still route it through the build mutex — the cache makes a build cheaper, not free, and a cold tree is a full build.",
+			"configurePreset": "dev-cached",
+			"configuration": "Debug"
 		},
 		{
 			"name": "linux-asan-release",
