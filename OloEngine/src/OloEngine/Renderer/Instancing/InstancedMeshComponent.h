@@ -68,7 +68,7 @@ namespace OloEngine
         // concatenating `Instances` with the placement asset's instances, then
         // reuses it frame-to-frame as long as none of the inputs have changed.
         // Avoids the per-frame `vector<InstanceData>` copy that the merge
-        // requires (dominated by the 224 B / element memcpy for thousands of
+        // requires (dominated by the 240 B / element memcpy for thousands of
         // instances). Internal — do not write from user code; not serialized.
         //
         // Invalidation fingerprint covers: inline `Instances.size()`,

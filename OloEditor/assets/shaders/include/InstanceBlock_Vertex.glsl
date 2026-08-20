@@ -22,6 +22,8 @@ struct InstanceData {
     float Custom;
     int  _instancePad0;
     int  _instancePad1;
+    // Lightmap atlas region (issue #439) — see InstanceBlock.glsl.
+    vec4 LightmapScaleOffset;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

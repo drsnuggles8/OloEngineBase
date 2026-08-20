@@ -21,6 +21,10 @@ struct InstanceData {
     float Custom;
     int  _instancePad0;
     int  _instancePad1;
+    // Lightmap atlas region (issue #439): uv2 * xy + zw addresses this
+    // instance's charts in the scene lightmap atlas. xy == 0 means "no
+    // lightmap" — the ambient ladder falls through to probes/IBL.
+    vec4 LightmapScaleOffset;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

@@ -235,6 +235,7 @@ target_link_libraries(OloEngine
 	sol2
 	spdlog::spdlog
 	stb_image
+	xatlas
 	yaml-cpp::yaml-cpp
 	GameNetworkingSockets::GameNetworkingSockets_s
 	ZLIB::ZLIB

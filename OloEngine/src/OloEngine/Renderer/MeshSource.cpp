@@ -119,6 +119,20 @@ namespace OloEngine
             BuildBoneInfluenceBuffer();
         }
 
+        // Lightmap UV stream (issue #439) — static meshes only. Attribute indices are
+        // assigned by AddVertexBuffer order, so gating on !HasSkeleton() pins
+        // a_TexCoord2 at location 3 for every mesh that has the stream, and keeps
+        // bone IDs/weights at 3/4 for every skinned mesh (which never gets one —
+        // skinned geometry is dynamic and samples probes instead of lightmaps).
+        if (!HasSkeleton() && HasLightmapUVs())
+        {
+            BuildLightmapUVBuffer();
+        }
+        else
+        {
+            m_LightmapUVBuffer = nullptr;
+        }
+
         m_VertexArray = VertexArray::Create();
         m_VertexArray->Bind();
 
@@ -130,6 +144,13 @@ namespace OloEngine
         {
             m_BoneInfluenceBuffer->Bind();
             m_VertexArray->AddVertexBuffer(m_BoneInfluenceBuffer);
+        }
+
+        // Lightmap UV stream rides after the base stream: a_TexCoord2 at location 3
+        if (m_LightmapUVBuffer)
+        {
+            m_LightmapUVBuffer->Bind();
+            m_VertexArray->AddVertexBuffer(m_LightmapUVBuffer);
         }
 
         m_IndexBuffer->Bind();
@@ -170,6 +191,20 @@ namespace OloEngine
 
         m_IndexBuffer = IndexBuffer::Create(m_Indices.GetData(),
                                             static_cast<u32>(m_Indices.Num()));
+    }
+
+    void MeshSource::BuildLightmapUVBuffer()
+    {
+        if (m_LightmapUVs.IsEmpty())
+            return;
+
+        BufferLayout lightmapUVLayout = {
+            { ShaderDataType::Float2, "a_TexCoord2" }
+        };
+
+        m_LightmapUVBuffer = VertexBuffer::Create(static_cast<const void*>(m_LightmapUVs.GetData()),
+                                                  static_cast<u32>(m_LightmapUVs.Num() * sizeof(glm::vec2)));
+        m_LightmapUVBuffer->SetLayout(lightmapUVLayout);
     }
 
     void MeshSource::BuildShadowIndexBuffer()

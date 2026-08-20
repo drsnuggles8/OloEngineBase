@@ -143,6 +143,17 @@ namespace OloEngine::MeshOptimization
             boneInfluences = MoveTemp(remappedBones);
         }
 
+        // 3a. Remap the lightmap UV stream (issue #439) — one vec2 per vertex,
+        // parallel to m_Vertices exactly like bone influences, so it must follow
+        // the same reorder or every lightmap sample reads another vertex's chart.
+        if (meshSource.HasLightmapUVs())
+        {
+            auto& lightmapUVs = meshSource.GetLightmapUVs();
+            TArray<glm::vec2> remappedUVs(static_cast<i32>(remappedVertexCount));
+            meshopt_remapVertexBuffer(remappedUVs.GetData(), lightmapUVs.GetData(), vertexCount, sizeof(glm::vec2), remap.data());
+            lightmapUVs = MoveTemp(remappedUVs);
+        }
+
         // 3b. Remap morph target vertex delta arrays to follow the new vertex ordering
         if (meshSource.HasMorphTargets())
         {

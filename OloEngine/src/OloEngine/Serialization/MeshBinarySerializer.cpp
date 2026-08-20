@@ -642,6 +642,25 @@ namespace OloEngine
             }
         }
 
+        // ── LightmapUVs Section (v6+, optional, issue #439) ──
+        // The per-vertex UV2 lightmap parameterization. Without it every project
+        // re-open would silently discard the unwrap a bake produced, and the next
+        // bake would re-run xatlas on every mesh.
+        if (meshSource.HasLightmapUVs())
+        {
+            const auto& lightmapUVs = meshSource.GetLightmapUVs();
+
+            auto& entry = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::LightmapUVs))];
+            entry.Offset = StreamPos(payload);
+
+            OMeshFormat::LightmapUVsHeader lmHeader;
+            lmHeader.UVCount = static_cast<u32>(lightmapUVs.Num());
+            WriteBytes(payload, &lmHeader, sizeof(lmHeader));
+            WriteBytes(payload, lightmapUVs.GetData(), lightmapUVs.Num() * sizeof(glm::vec2));
+
+            entry.Size = StreamPos(payload) - entry.Offset;
+        }
+
         // ── Patch section directory at start of payload ──
         payload.seekp(0);
         WriteBytes(payload, &directory, sizeof(directory));
@@ -1544,6 +1563,48 @@ namespace OloEngine
                 if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "ImportedMaterials", path))
                 {
                     return nullptr;
+                }
+            }
+        }
+
+        // ── LightmapUVs Section (v6+, optional, issue #439) ──
+        // Pre-v6 files have no directory entry (Size stays 0) and skip this cleanly.
+        // A malformed section costs the lightmap parameterization, not the mesh:
+        // warn and continue without it — the next bake regenerates the unwrap.
+        {
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::LightmapUVs))];
+            if (sec.Size > 0)
+            {
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+
+                OMeshFormat::LightmapUVsHeader lmHeader;
+                ReadBytes(payload, &lmHeader, sizeof(lmHeader));
+
+                const u32 vertexCount = static_cast<u32>(meshSource->GetVertices().Num());
+                if (lmHeader.UVCount != vertexCount ||
+                    static_cast<u64>(lmHeader.UVCount) * sizeof(glm::vec2) != sec.Size - sizeof(lmHeader))
+                {
+                    OLO_CORE_WARN("MeshBinarySerializer::Read: lightmap UV count {} inconsistent with vertex "
+                                  "count {} / section size {} in '{}'; the mesh loads without lightmap UVs",
+                                  lmHeader.UVCount, vertexCount, sec.Size, path.string());
+                }
+                else if (lmHeader.UVCount > 0)
+                {
+                    TArray<glm::vec2> lightmapUVs(static_cast<i32>(lmHeader.UVCount));
+                    if (!ReadBytes(payload, lightmapUVs.GetData(), static_cast<u64>(lmHeader.UVCount) * sizeof(glm::vec2)))
+                    {
+                        OLO_CORE_WARN("MeshBinarySerializer::Read: failed to read the lightmap UV stream from '{}'; "
+                                      "the mesh loads without lightmap UVs",
+                                      path.string());
+                    }
+                    else
+                    {
+                        meshSource->SetLightmapUVs(std::move(lightmapUVs));
+                        if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "LightmapUVs", path))
+                        {
+                            return nullptr;
+                        }
+                    }
                 }
             }
         }

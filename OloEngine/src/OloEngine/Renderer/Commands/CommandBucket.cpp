@@ -685,8 +685,10 @@ namespace OloEngine
             // pressure on the typical scene.
             bool anyNonDefaultColor = false;
             bool anyNonDefaultCustom = false;
+            bool anyNonDefaultLightmapRegion = false;
             constexpr glm::vec4 defaultColor{ 1.0f };
             constexpr f32 defaultCustom = 0.0f;
+            constexpr glm::vec4 defaultLightmapRegion{ 0.0f };
             for (u32 t = 0; t < totalInstances; ++t)
             {
                 auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
@@ -696,7 +698,9 @@ namespace OloEngine
                     anyNonDefaultColor = true;
                 if (!Math::BitwiseEqual(meshCmd->custom, defaultCustom))
                     anyNonDefaultCustom = true;
-                if (anyNonDefaultColor && anyNonDefaultCustom)
+                if (!Math::BitwiseEqual(meshCmd->lightmapScaleOffset, defaultLightmapRegion))
+                    anyNonDefaultLightmapRegion = true;
+                if (anyNonDefaultColor && anyNonDefaultCustom && anyNonDefaultLightmapRegion)
                     break;
             }
 
@@ -724,6 +728,21 @@ namespace OloEngine
                     customOverflowLogged = true;
                 }
             }
+            // Lightmap regions ride the generic vec4 (Colors) stream under their
+            // own offset (issue #439) — a second vec4 stream would duplicate the
+            // allocator for no isolation benefit.
+            u32 lightmapRegionOffset = UINT32_MAX;
+            if (anyNonDefaultLightmapRegion)
+            {
+                lightmapRegionOffset = frameBuffer.AllocateColors(totalInstances);
+                if (lightmapRegionOffset == UINT32_MAX && !colorOverflowLogged)
+                {
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} lightmap regions; baked lighting lost in batched draw. "
+                                  "Subsequent failures this frame will be silent.",
+                                  totalInstances);
+                    colorOverflowLogged = true;
+                }
+            }
 
             // Write each source command's per-instance data contiguously.
             for (u32 t = 0; t < totalInstances; ++t)
@@ -738,6 +757,8 @@ namespace OloEngine
                     frameBuffer.WriteColors(colorOffset + t, &meshCmd->color, 1);
                 if (customOffset != UINT32_MAX)
                     frameBuffer.WriteCustoms(customOffset + t, &meshCmd->custom, 1);
+                if (lightmapRegionOffset != UINT32_MAX)
+                    frameBuffer.WriteColors(lightmapRegionOffset + t, &meshCmd->lightmapScaleOffset, 1);
             }
 
             // Build the instanced command from the first DrawMeshCommand
@@ -762,10 +783,11 @@ namespace OloEngine
             icmd->instanceCount = totalInstances;
             icmd->transformBufferOffset = transformOffset;
             icmd->transformCount = totalInstances;
-            icmd->prevTransformBufferOffset = prevTransformOffset; // UINT32_MAX on alloc failure -> dispatcher aliases current
-            icmd->entityIDBufferOffset = entityIDOffset;           // UINT32_MAX on alloc failure -> dispatcher writes -1
-            icmd->colorBufferOffset = colorOffset;                 // UINT32_MAX when all sources had identity tint
-            icmd->customBufferOffset = customOffset;               // UINT32_MAX when all sources had Custom == 0
+            icmd->prevTransformBufferOffset = prevTransformOffset;   // UINT32_MAX on alloc failure -> dispatcher aliases current
+            icmd->entityIDBufferOffset = entityIDOffset;             // UINT32_MAX on alloc failure -> dispatcher writes -1
+            icmd->colorBufferOffset = colorOffset;                   // UINT32_MAX when all sources had identity tint
+            icmd->customBufferOffset = customOffset;                 // UINT32_MAX when all sources had Custom == 0
+            icmd->lightmapRegionBufferOffset = lightmapRegionOffset; // UINT32_MAX when no source carried a lightmap region
             icmd->shaderHandle = firstCmd->shaderHandle;
             icmd->materialDataIndex = firstCmd->materialDataIndex;
             icmd->renderStateIndex = firstCmd->renderStateIndex;
