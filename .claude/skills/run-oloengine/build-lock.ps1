@@ -1,12 +1,32 @@
 <#
 .SYNOPSIS
-  Cross-worktree build mutex. Runs one build at a time across every OloEngine worktree.
+  Cross-worktree build gate. Admits a bounded number of builds across every OloEngine worktree.
 
 .DESCRIPTION
-  One clean Debug build peaks at ~47 GiB on this 64 GB host (issue #759), so two concurrent
-  builds do not fit — and CLAUDE.md's "never build the msvc and clangcl trees at the same time"
-  rule is currently enforced only by each agent checking for live MSBuild/ninja processes at
-  whatever moment it happens to look. Two sessions checking simultaneously both see "clear".
+  One clean Debug build peaks at ~47 GiB on this 64 GB host (issue #759) — and CLAUDE.md's
+  "never build the msvc and clangcl trees at the same time" rule was previously enforced only
+  by each agent checking for live MSBuild/ninja processes at whatever moment it happened to
+  look. Two sessions checking simultaneously both see "clear".
+
+  CONCURRENCY IS EARNED, NOT DEFAULT. This began as a hard 1-at-a-time mutex, and that is
+  still what an ordinary `build/` tree gets. Measured 2026-08-20 across three worktrees, pure
+  serialisation cost 43 minutes of waiting against 58 minutes of building — including one
+  build that waited 13.8 minutes to run for 1.1. So a SECOND slot is now granted, but only to
+  a build that is genuinely throttleable, and only when every current holder is too:
+
+    * it must target the cached Ninja tree, which carries the cross-tree link semaphore
+      (cmake/LinkSemaphore.cmake) and the compiler cache. The Visual Studio generator ignores
+      CMAKE_<LANG>_LINKER_LAUNCHER, Ninja job pools and CMAKE_<LANG>_COMPILER_LAUNCHER alike,
+      so a `build/` tree has no link bound at all — two of those is exactly the shape that was
+      measured leaving this host 4.7 GiB free;
+    * free memory must be at least -ConcurrentMinFreeGB;
+    * and the per-build lane ceiling is divided among the active builds, so two concurrent
+      builds get 6 lanes each rather than 12 — the number originally chosen for a world where
+      builds could overlap.
+
+  Every uncertainty answers NO. The cost of a wrong no is a queue wait; the cost of a wrong
+  yes is an OOM that loses every session's work. -MaxConcurrent 1 restores the original
+  behaviour exactly.
 
   This makes the rule mechanical. The lock lives in the shared git-common-dir, which every
   worktree resolves to the same path by construction, so it serialises across worktrees without
@@ -76,8 +96,21 @@
   holds within the priority band. One-shot: it applies to this invocation only, and by policy
   the user asks for it.
 
+.PARAMETER MaxConcurrent
+  Ceiling on builds running at once, machine-wide. Default 2. A slot past the first is only
+  granted under the conditions above, so this is an upper bound rather than a target — most
+  builds still run alone. Pass 1 to restore the original hard mutex.
+
+.PARAMETER ConcurrentMinFreeGB
+  Refuse a second concurrent build below this much free memory. Default 24, which leaves room
+  for the measured two-linker working set (avg 43.4 GiB, max 55.3 of 64).
+
 .EXAMPLE
   pwsh -File build-lock.ps1 -Command 'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
+
+.EXAMPLE
+  # The cached tree: ~3.5x faster warm, and the only kind eligible for a concurrent slot.
+  pwsh -File build-lock.ps1 -Command 'cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 6'
 #>
 [CmdletBinding()]
 param(
@@ -92,7 +125,14 @@ param(
     [int] $Jobs = 0,
     # Jump ahead of non-priority tickets. NEVER preempts a running build. One-shot:
     # it applies to this invocation only. Policy: the user asks for it.
-    [switch] $Priority
+    [switch] $Priority,
+    # How many builds may run at once, machine-wide. 1 restores the original hard mutex.
+    # A slot beyond the first is only ever granted under the conditions in
+    # Test-ConcurrencyAdmissible — it is a ceiling, not a promise.
+    [int] $MaxConcurrent = 2,
+    # A second concurrent build is refused below this much free memory. 24 GiB leaves
+    # room for the measured 2-linker working set (avg 43.4 GiB, max 55.3 of 64).
+    [int] $ConcurrentMinFreeGB = 24
 )
 
 Set-StrictMode -Version Latest
@@ -107,6 +147,23 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commonDir)) {
 $lockPath = Join-Path $commonDir.Trim() 'olo-build.lock'
 $me       = $PID
 $here     = (Get-Location).Path
+
+# --- slots ------------------------------------------------------------------
+# Slot 0 keeps the original name so anything that reads the lock file (tooling, a human
+# with `cat`) still finds the same path it always did. Extra slots are siblings.
+#
+# Each slot is an independent exclusive handle, so the SAFETY argument is unchanged from
+# the single-lock design: ownership is the OS handle, a crashed holder releases
+# automatically, and nothing outside the owner can release it. What changed is only HOW
+# MANY handles exist — and a slot past the first is handed out under strict conditions
+# (Test-ConcurrencyAdmissible), because two builds is a memory decision, not a fairness one.
+if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
+$slotPaths = @($lockPath)
+if ($MaxConcurrent -gt 1) {
+    foreach ($i in 1..($MaxConcurrent - 1)) {
+        $slotPaths += (Join-Path $commonDir.Trim() "olo-build.slot$i.lock")
+    }
+}
 
 # --- metrics ----------------------------------------------------------------
 # One JSONL line per build attempt, in the same shared directory as the lock so
@@ -149,14 +206,28 @@ function Write-BuildMetric([hashtable] $Record) {
 # gh-runners for another repository, so "the mutex is held" does not mean "the machine
 # is idle". Deliberately conservative — it has been OOM-killed once, and the cost of
 # guessing high is losing every session's work, while guessing low is a slower build.
-function Get-AdaptiveJobs {
+function Get-AdaptiveJobs([int] $ActiveBuilds = 1) {
     $free = Get-FreeMemoryGB
     if ($null -eq $free) { return 6 }        # unknown -> the old safe default
     $cpu = [Environment]::ProcessorCount
     # ~2.5 GiB per lane is well above the measured steady state and leaves room for
     # the heavy-TU spikes that actually set the peak.
     $byMemory = [int][math]::Floor(($free - 8) / 2.5)   # keep 8 GiB for everything else
-    $jobs = [math]::Min([math]::Min($byMemory, 12), $cpu)
+    # The 12-lane ceiling was measured for a build that owns the machine. Split it
+    # across concurrent builds, which lands two of them on 6 each -- the number chosen
+    # back when builds COULD overlap, and for exactly that reason. Free memory already
+    # reflects a build in progress, but only what it has allocated SO FAR, so it cannot
+    # anticipate the other build's peak; dividing the ceiling is what covers that.
+    #
+    # A build already running is NOT re-capped when a second one joins — it keeps the lanes
+    # it was granted, so the pair can briefly total more than 12. That is deliberate and it
+    # is safe for the reason issue #759 measured: lane count barely moves peak memory (-j12
+    # cost only ~2 GiB more than -j6, because a handful of heavy TUs set the peak). What
+    # actually drives the peak is LINKING, and that is bounded machine-wide by the
+    # semaphore in cmake/LinkSemaphore.cmake, not by this number.
+    if ($ActiveBuilds -lt 1) { $ActiveBuilds = 1 }
+    $ceiling = [int][math]::Floor(12 / $ActiveBuilds)
+    $jobs = [math]::Min([math]::Min($byMemory, $ceiling), $cpu)
     if ($jobs -lt 2) { return 2 }
     return $jobs
 }
@@ -170,6 +241,58 @@ function Set-CommandJobs([string] $Cmd, [int] $N) {
     $out = [regex]::Replace($Cmd, '(--parallel)(\s+)(\d+)', "`${1}`${2}$N")
     $out = [regex]::Replace($out, '(?<![\w-])(-j)\s*(\d+)', "`${1}$N")
     return $out
+}
+
+# --- who may build concurrently --------------------------------------------
+# Concurrency is something a build tree EARNS by being throttleable, and the Visual
+# Studio generator is not: it ignores CMAKE_<LANG>_LINKER_LAUNCHER (so the cross-tree
+# link semaphore never runs) AND Ninja job pools (so OLO_LINK_JOBS does nothing) AND
+# CMAKE_<LANG>_COMPILER_LAUNCHER (so there is no compiler cache either). Two concurrent
+# `build/` trees is precisely the measured 3-linker shape that left this host with
+# 4.7 GiB free. A cached Ninja tree carries both throttles, so two of those fit.
+function Test-CachedTreeCommand([string] $Cmd) {
+    if ([string]::IsNullOrWhiteSpace($Cmd)) { return $false }
+    return ($Cmd -match '(?i)build-cached') -or ($Cmd -match '(?i)--preset\s+\S*dev-cached')
+}
+
+# A second slot is admissible only when EVERY occupied slot is throttleable, not just
+# ours. A cached tree starting alongside a Visual Studio tree is still the unsafe pair,
+# and the newcomer is the only party in a position to notice.
+#
+# Conservative on every uncertainty: an unreadable holder record, an unknown free-memory
+# reading, or our own command not being a cached tree all mean "no". The cost of a wrong
+# NO is a queue wait; the cost of a wrong YES is an OOM that loses every session's work.
+function Test-ConcurrencyAdmissible([int] $SlotIndex, [ref] $Reason) {
+    if ($SlotIndex -eq 0) { return $true }                  # the first slot is always fine
+
+    if (-not (Test-CachedTreeCommand $Command)) {
+        $Reason.Value = 'this build does not target the cached (Ninja) tree'
+        return $false
+    }
+
+    $free = Get-FreeMemoryGB
+    if ($null -eq $free) {
+        $Reason.Value = 'free memory could not be measured'
+        return $false
+    }
+    if ($free -lt $ConcurrentMinFreeGB) {
+        $Reason.Value = "only ${free} GB free (need ${ConcurrentMinFreeGB})"
+        return $false
+    }
+
+    foreach ($p in $slotPaths) {
+        if (-not (Test-Path $p)) { continue }
+        $info = Read-HolderInfo $p
+        if ($null -eq $info) { continue }                   # not held, or a stale record
+        # Held-ness is the handle, not the file; a readable record for a slot we could
+        # not open means someone IS in it.
+        if (Test-SlotFree $p) { continue }
+        if (-not (Test-CachedTreeCommand $info.command)) {
+            $Reason.Value = "an uncached tree is already building in $($info.worktree)"
+            return $false
+        }
+    }
+    return $true
 }
 
 function Get-FreeMemoryGB {
@@ -390,9 +513,9 @@ $parentIdentity = if ($NoParentWatch) { $null } else { Get-ParentIdentity }
 
 # Read the holder's metadata for reporting. Never throws; a null result just means
 # "held, but we could not read who by" — it is NEVER grounds to take the lock.
-function Read-HolderInfo {
+function Read-HolderInfo([string] $Path = $lockPath) {
     try {
-        $fs = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::Open,
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open,
                                      [System.IO.FileAccess]::Read,
                                      [System.IO.FileShare]::ReadWrite)
         try {
@@ -402,11 +525,28 @@ function Read-HolderInfo {
     } catch { return $null }
 }
 
+# Is this slot free? Probe by attempting the same exclusive open the real acquire uses,
+# then immediately closing it. A file's EXISTENCE says nothing — every slot file outlives
+# its holder — so the handle is the only honest answer.
+#
+# Inherently a snapshot: someone can take the slot a microsecond later. That is fine for
+# its one caller (an admission heuristic); it is never used to decide ownership, which
+# remains the single atomic open in Get-SlotHandle.
+function Test-SlotFree([string] $Path) {
+    try {
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::OpenOrCreate,
+                                     [System.IO.FileAccess]::Write,
+                                     [System.IO.FileShare]::Read)
+        $fs.Dispose()
+        return $true
+    } catch { return $false }
+}
+
 # Single atomic acquire: an exclusive write handle. FileShare.Read lets waiters read the
 # metadata but NOT take ownership. Returns the open FileStream, or $null if held.
-function Get-LockHandle {
+function Get-SlotHandle([string] $Path) {
     try {
-        $fs = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate,
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::OpenOrCreate,
                                      [System.IO.FileAccess]::Write,
                                      [System.IO.FileShare]::Read)
     } catch { return $null }
@@ -436,6 +576,10 @@ $waitStart = Get-Date
 $blockedByPid      = $null
 $blockedByWorktree = $null
 $lastPos           = -1
+# Which slot we ended up in (0 = the sole slot under the original mutex behaviour).
+$slotIndex          = 0
+# Announce a concurrency refusal ONCE, not on every 15s poll.
+$concurrencyRefused = $false
 
 # Take a ticket BEFORE the first attempt, so arrival order is recorded even if we
 # get the lock immediately.
@@ -445,10 +589,25 @@ $queueAheadAtStart = Get-QueueAhead
 try {
     while ($null -eq $lock) {
         $ahead = Get-QueueAhead
-        # Only the head of the queue attempts the handle. $null = the queue could
-        # not be trusted, so we race exactly as the old implementation did.
-        if ($null -eq $ahead -or $ahead -eq 0) {
-            $lock = Get-LockHandle
+        # The head of the queue attempts slot 0; the next $MaxConcurrent-1 waiters may
+        # attempt a further slot. $null = the queue could not be trusted, so we race
+        # exactly as the original implementation did.
+        if ($null -eq $ahead -or $ahead -lt $MaxConcurrent) {
+            for ($slot = 0; $slot -lt $slotPaths.Count; $slot++) {
+                # Ask permission BEFORE opening the handle. Doing it the other way round
+                # would mean holding a slot we then have to hand back, and a slot that is
+                # taken-then-released churns every waiter's view of the queue.
+                $reason = ''
+                if (-not (Test-ConcurrencyAdmissible $slot ([ref] $reason))) {
+                    if ($slot -gt 0 -and -not $concurrencyRefused) {
+                        Write-Host "[build-lock] not starting a 2nd concurrent build — $reason"
+                        $concurrencyRefused = $true
+                    }
+                    break        # slots are ordered; if slot N is inadmissible so is N+1
+                }
+                $lock = Get-SlotHandle $slotPaths[$slot]
+                if ($null -ne $lock) { $slotIndex = $slot; break }
+            }
             if ($null -ne $lock) { break }
         }
 
@@ -510,10 +669,20 @@ $holdStart    = Get-Date
 
 # Parallelism is decided HERE, not by the caller: only at acquire time do we know what
 # the machine actually looks like. -1 opts out entirely and runs $Command verbatim.
+#
+# How many builds are live right now, us included — a slot we cannot open is one somebody
+# else is in. Recomputed here rather than reused from admission, because we may have sat
+# in the queue for a while since then.
+$activeBuilds = 1
+foreach ($p in $slotPaths) {
+    if ($p -eq $slotPaths[$slotIndex]) { continue }        # our own, already counted
+    if ((Test-Path $p) -and -not (Test-SlotFree $p)) { $activeBuilds++ }
+}
+
 $effectiveCommand = $Command
 $effectiveJobs    = $null
 if ($Jobs -ge 0) {
-    $effectiveJobs = if ($Jobs -gt 0) { $Jobs } else { Get-AdaptiveJobs }
+    $effectiveJobs = if ($Jobs -gt 0) { $Jobs } else { Get-AdaptiveJobs $activeBuilds }
     $effectiveCommand = Set-CommandJobs $Command $effectiveJobs
     if ($effectiveCommand -ne $Command) {
         Write-Host "[build-lock] parallelism: -j$effectiveJobs (free ${freeGbAtHold} GB); rewrote the caller's flag"
@@ -526,7 +695,21 @@ if ($Jobs -ge 0) {
 }
 
 # --- run the build under the lock ------------------------------------------
-Write-Host "[build-lock] acquired (pid=$me) -> $Command"
+$slotText = if ($slotPaths.Count -gt 1) { " slot=$slotIndex of $($slotPaths.Count), $activeBuilds building" } else { '' }
+Write-Host "[build-lock] acquired (pid=$me)$slotText -> $Command"
+
+# The compiler cache only pays off if you actually build the tree it lives in, and the
+# default path of least resistance is the one that does not. Measured 2026-08-20: three
+# worktrees ran 58 minutes of builds between them at a 0% hit rate, every command aimed
+# at `build/`, while ccache sat at exactly the call count from the previous day. The
+# Visual Studio generator ignores CMAKE_<LANG>_COMPILER_LAUNCHER, so a `build/` tree can
+# never cache however the tools are configured -- it is not a misconfiguration to fix,
+# it is the wrong tree. A nudge rather than a rewrite: switching trees mid-task costs one
+# cold build, so it is the caller's call to make, not ours to force.
+if (-not (Test-CachedTreeCommand $Command)) {
+    Write-Host "[build-lock] note: this targets an uncached tree — no compiler cache (the VS generator ignores launchers), and it can never take a 2nd concurrent slot."
+    Write-Host "[build-lock]       the cached tree is ~3.5x faster warm (12m04s -> 3m23s measured): cmake --preset dev-cached, then build 'build-cached'."
+}
 
 # The build runs as a CHILD process rather than inline, so the parent watch gets
 # to look between waits. $Command reaches it through a temp script file: it
@@ -587,6 +770,9 @@ try {
                          queue_ahead_at_start = $queueAheadAtStart
                          jobs                = $effectiveJobs
                          priority            = [bool] $Priority
+                         slot                = $slotIndex
+                         active_builds       = $activeBuilds
+                         cached_tree         = (Test-CachedTreeCommand $Command)
                          free_gb_at_acquire  = $freeGbAtHold
                          free_gb_at_release  = (Get-FreeMemoryGB)
                          blocked_by_pid      = $blockedByPid
