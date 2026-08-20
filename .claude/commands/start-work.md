@@ -47,12 +47,36 @@ Then refresh the registry:
     gh pr list --state merged --limit 40  # recently FINISHED work — often still looks "open" in docs/TODOs
     gh issue list --state closed --limit 40     # closed issues — ditto
     python "$BASE/scripts/issue_scores.py" rank # scored, ranked backlog — canonical priority for GitHub issues (docs/process/issue-scoring.md)
+    python "$BASE/scripts/issue_scores.py" lint # UNSCORED open issues — absent from `rank`, therefore invisible to this command
 Any topic represented by a worktree, a branch (local OR origin/*), an open PR, or an
 assigned issue is OFF-LIMITS as in-flight. Anything in a recently-merged PR or closed
 issue is OFF-LIMITS as already-done — this is your ground truth that a doc/TODO which
 still reads "open" is actually finished (see step 3). Read the branch / PR titles — they
 tell you what each session did or is doing. Do not duplicate any of it. There is no
 separate hand-maintained list; if it isn't in the registry, treat it as fair game.
+
+**`lint` is not optional, and it is not the same information as `rank`.** `rank` lists only
+issues that carry an `olo-score` block, so an unscored issue is not ranked *low* — it is
+absent, and this command cannot see it at all. New issues are supposed to be born scored
+from the issue templates (both carry a block), but a session filing a follow-up with
+`gh issue create --body ...` **bypasses the template entirely**, and that is the normal way
+worker sessions file findings. So the blind spot lands precisely on the freshest, most
+concrete issues — the ones written by an agent that had just finished proving the problem.
+
+Score whatever `lint` returns **before** picking in step 3, against the anchors in
+[docs/process/issue-scoring.md](../../docs/process/issue-scoring.md) §4, and then treat the
+re-run `rank` as canonical. Write the block into the issue body (that is the single source of
+truth — there is no scores file). Do not skip this on the grounds that the unscored issues
+look minor: measured on 2026-08-20, three issues were unscored and one of them (#847, a test
+that structurally could not fail) scored **6.0 — rank #2**, above everything the sweep had
+surfaced on its own.
+
+> **Windows trap when writing the block:** read the existing body with an explicit
+> `encoding="utf-8"`, never bare `text=True` — `subprocess` decodes gh's output with the
+> locale default (cp1252) and silently mangles every em-dash into `â€"`, which you then write
+> back. Verify by comparing the distinct non-ASCII codepoints against an issue you did not
+> touch: clean bodies show `0x2014`, corrupted ones show equal counts of
+> `0xe2`/`0x20ac`/`0x201d`.
 
 ## 2b. Heal the registry as you sweep — don't let investigation findings evaporate
 
@@ -434,5 +458,7 @@ written.
 the task chosen, its worktree path + branch, its **recommended model + effort** (per the
 rubric above), and its kickoff prompt (a short table or list keyed by task is ideal for
 N > 1) — **plus the stale-registry findings from §2b**: which issues you posted evidence
-comments on, which you recommend closing (and ask before closing them), and any durable facts
-you wrote to memory.
+comments on, which you recommend closing (and ask before closing them), **which unscored
+issues `lint` surfaced and what you scored them** (with their resulting rank — an issue that
+lands high is a candidate you would otherwise have missed, and the user should see that it
+existed even if you did not pick it), and any durable facts you wrote to memory.

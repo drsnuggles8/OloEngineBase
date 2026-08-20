@@ -18,10 +18,11 @@
 				"-Config",
 				"Debug"
 			],
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			},
+			// NOT the default build task any more — build-cached-oloeditor-debug is. This
+			// tree cannot use the compiler cache (the VS generator ignores the launcher) and
+			// can never build concurrently. Both trees emit to the same source-relative
+			// bin/Debug/OloEditor, so run-oloeditor-debug works either way.
+			"group": "build",
 			"problemMatcher": [
 				"$msCompile"
 			]
@@ -249,6 +250,88 @@
 			"problemMatcher": [
 				"$msCompile"
 			]
+		},
+		{
+			// The FAST path, and the only kind of tree eligible for a concurrent build slot.
+			// Configure once; `build-cached/` is separate from `build/` because enabling the
+			// compiler cache force-disables PCH and unity builds.
+			"label": "configure-dev-cached",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--preset",
+				"dev-cached"
+			],
+			"problemMatcher": []
+		},
+		{
+			// Goes through the cross-worktree mutex, unlike the `build/` tasks above: the lock
+			// sizes parallelism from measured free memory and may admit this alongside another
+			// cached build. Measured 12m04s cold vs 3m23s warm in a second worktree.
+			"label": "build-cached-tests-debug",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/.claude/skills/run-oloengine/build-lock.ps1",
+				"-Command",
+				"cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 6"
+			],
+			"group": "build",
+			// Same contract as the clangcl tasks: configure first, so a fresh worktree does
+			// not fail with "no build-cached tree" the first time someone runs this.
+			"dependsOn": [
+				"configure-dev-cached"
+			],
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "build-cached-oloeditor-debug",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/.claude/skills/run-oloengine/build-lock.ps1",
+				"-Command",
+				"cmake --build build-cached --target OloEditor --config Debug --parallel 6"
+			],
+			// THE default build task (Ctrl+Shift+B). The cached tree is ~3.5x faster warm and
+			// is the only kind eligible for a concurrent slot; it writes OloEditor.exe to the
+			// same source-relative bin/Debug/OloEditor as the msvc tree, so the existing
+			// run-oloeditor-debug task picks it up unchanged.
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"dependsOn": [
+				"configure-dev-cached"
+			],
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "run-cached-tests-debug",
+			"type": "shell",
+			"command": "${workspaceFolder}/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			// Mirrors run-tests-debug -> build-tests-debug: running a stale binary because the
+			// build step was forgotten is the failure this prevents.
+			"dependsOn": [
+				"build-cached-tests-debug"
+			],
+			"problemMatcher": []
 		},
 		{
 			"label": "configure-clangcl",

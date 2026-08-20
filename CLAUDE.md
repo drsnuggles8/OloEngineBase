@@ -184,27 +184,41 @@ CMake presets ([CMakePresets.json](CMakePresets.json)) — note all four require
 # Generate VS solution
 scripts\Win-GenerateProjectVS2022.bat   # or VS2026
 
-# Build a target
-cmake --build build --target OloEditor       --config Debug --parallel 6
-cmake --build build --target OloEngine-Tests --config Debug --parallel 6
-cmake --build build --target OloRuntime      --config Debug --parallel 6
-cmake --build build --target OloServer       --config Debug --parallel 6
+# Build a target — PREFER THE CACHED TREE (configure once per worktree)
+cmake --preset dev-cached
+cmake --build build-cached --target OloEditor       --config Debug --parallel 6
+cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 6
+
+# The msvc tree. Still correct, and what the VS solution and the debugger use — but it
+# can never cache and can never build concurrently with anything (see below).
+cmake --build build --target OloRuntime --config Debug --parallel 6
+cmake --build build --target OloServer  --config Debug --parallel 6
 
 # ClangCL (configure once, then build)
 cmake --preset clangcl
 cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6
 ```
 
-### Every build goes through the mutex
+**Default to `build-cached`.** This is not a style preference — it was measured. On 2026-08-20 three worktrees ran **58 minutes of builds between them at a 0% cache hit rate**, every command aimed at `build/`, while ccache sat at exactly the call count from the previous day. The cache had been configured, documented and proven (12m04s → **3m23s**) and delivered nothing, purely because `build/` is what the examples showed. The Visual Studio generator ignores `CMAKE_<LANG>_COMPILER_LAUNCHER`, so a `build/` tree cannot cache however the tools are set up — it is the wrong tree, not a misconfiguration.
+
+### Every build goes through the build lock
 
 Not the bare commands above — wrap them:
 
 ```powershell
 pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
-  'cmake --build build --target OloEngine-Tests --config Debug --parallel 6'
+  'cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 6'
 ```
 
-[build-lock.ps1](.claude/skills/run-oloengine/build-lock.ps1) runs one build at a time across every worktree of this repo, and kills its own build if the session that launched it dies. A `PreToolUse` hook (`.claude/hooks/claude-build-lock-guard.py`) **blocks** a `cmake --build` / `ninja` / `msbuild` tool call that skips it and replies with the wrapped command to use. Two literal markers opt out, and they are **not** interchangeable:
+[build-lock.ps1](.claude/skills/run-oloengine/build-lock.ps1) bounds how many builds run at once across every worktree of this repo, and kills its own build if the session that launched it dies.
+
+**Concurrency is earned, not default.** It began as a hard one-at-a-time mutex, and that is still what an ordinary `build/` tree gets. Pure serialisation was costing real time — measured across three worktrees on 2026-08-20, **43 minutes of waiting against 58 minutes of building**, including one build that waited 13.8 minutes to run for 1.1. So a **second** slot is now granted, but only when all three hold:
+
+- the build targets the **cached Ninja tree**, which carries the cross-tree link semaphore and the compiler cache. A `build/` tree has neither, and two of those is exactly the 3-linker shape that left this host with 4.7 GiB free;
+- **every** current holder is also a cached tree (a cached build starting beside a `build/` build is still the unsafe pair, and the newcomer is the only party positioned to notice);
+- free memory is at least `-ConcurrentMinFreeGB` (default 24).
+
+The per-build lane ceiling is then divided among active builds, so two concurrent builds get **6 lanes each** rather than 12 — the number originally chosen for a world where builds could overlap. Every uncertainty answers *no*: a wrong no costs a queue wait, a wrong yes costs an OOM that loses every session's work. `-MaxConcurrent 1` restores the original behaviour exactly. A `PreToolUse` hook (`.claude/hooks/claude-build-lock-guard.py`) **blocks** a `cmake --build` / `ninja` / `msbuild` tool call that skips it and replies with the wrapped command to use. Two literal markers opt out, and they are **not** interchangeable:
 
 - `OLO_NOT_A_BUILD` — the command merely *mentions* a build tool (a `Get-Process`, a grep over docs). Silent allow, no permission needed.
 - `OLO_BUILD_LOCK_OVERRIDE` — the command really is a build and you are running it **unlocked**. Allowed, but **recorded** to `olo-build-metrics.jsonl` in the shared `git-common-dir` (not `.git/` — in a linked worktree that is a *file*). This needs the user's explicit permission **for that build**; a past grant does not carry forward.
@@ -252,7 +266,13 @@ Link steps are capped separately and automatically: the root `CMakeLists.txt` pu
 | 2 | avg 43.4 GiB, max 55.3 | | **2** |
 | **3** | **59.1 GiB — 4.7 GiB free** | | |
 
-Three linkers took a 64 GB host to within 4.7 GiB of nothing, and a single 15-second sample caught a **+11.3 GiB jump** as the third one started. Peak *compilers* across the whole run was two — so the spike is not about compile lanes at all. Since `OLO_LINK_JOBS` is scoped to one tree, N concurrent trees get up to N×2 linkers and the pool does not see it. Treat "how many links are running across all worktrees" as the real memory constraint; a **cross-tree** link semaphore is the fix and does not exist yet.
+Three linkers took a 64 GB host to within 4.7 GiB of nothing, and a single 15-second sample caught a **+11.3 GiB jump** as the third one started. Peak *compilers* across the whole run was two — so the spike is not about compile lanes at all. Since `OLO_LINK_JOBS` is scoped to one tree, N concurrent trees get up to N×2 linkers and the pool does not see it.
+
+**That gap is now closed** by [cmake/LinkSemaphore.cmake](cmake/LinkSemaphore.cmake), which routes every link through a wrapper holding one permit of a set of **OS-named mutexes** (`OLO_LINK_SEMAPHORE_SLOTS`, default 2 — the measured safe ceiling) that **every build tree on the machine contends for**. It **fails open**: if the permits are unavailable the link runs unthrottled, since a throttle that can fail a build is worse than no throttle.
+
+**N mutexes, not one semaphore — and the difference is the whole design.** A Windows semaphore's count has no owner, so `ReleaseSemaphore` is never implicit and a holder that gets *killed* never gives its permit back. The first version of this used a semaphore, and a test appeared to show the permit being reclaimed after a hard kill — but that test had only one holder, so killing it dropped the last handle, the kernel destroyed the object, and the next process made a fresh one with a full count. Re-measured with a second process keeping the object alive, the permit **leaked** and the next linker waited out the entire fail-open timeout. That is not hypothetical: `build-lock.ps1` kills whole build trees (`Stop-ProcessTree`) when it detects an orphaned build, so each orphan cleanup would have permanently burned a permit until every handle dropped. A mutex *is* owned, so a dead owner hands the next waiter an `AbandonedMutexException` **together with the acquisition** — automatic reclamation, verified at 3.3s where the semaphore version timed out.
+
+The catch that shapes everything else: `CMAKE_<LANG>_LINKER_LAUNCHER` is honoured **only by Ninja and Makefiles**, exactly like the compiler launcher. A Visual Studio `build/` tree therefore has *no* link bound, *no* job pool and *no* compiler cache — which is why the build lock never grants one a concurrent slot (below).
 
 VS Code tasks ([.vscode/tasks.json](.vscode/tasks.json)) wrap the above: `build-oloeditor-debug`, `run-oloeditor-debug`, `build-tests-debug`, `run-tests-debug`, `build-clangcl-tests-debug`, `configure-clangcl`, etc.
 

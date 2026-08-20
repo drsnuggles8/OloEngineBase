@@ -245,6 +245,13 @@ if(CMAKE_GENERATOR MATCHES "Ninja")
     set(CMAKE_JOB_POOL_LINK olo_link)
 endif()
 
+# The pool above is PER BUILD TREE, which is the gap: N concurrent worktrees get up to
+# N x OLO_LINK_JOBS linkers and no pool can see the others. Three concurrent linkers
+# were measured taking this 64 GB host to 4.7 GiB free. LinkSemaphore.cmake closes that
+# with an OS-named semaphore every tree contends for. MUST stay above the
+# add_subdirectory() calls below: a linker launcher is read when a target is created.
+include(cmake/LinkSemaphore.cmake)
+
 # --------------------------------------------------------------------------
 # Heavy-TU compile concurrency (CMake 4.4+, Ninja only — issue #822).
 #
