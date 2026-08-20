@@ -170,6 +170,9 @@ folded in here.
   into the array's declaration, not into the setter.
 - Grep the **callers** for a comment that states the semantic. A caller that only
   ever narrows a state is depending on something to widen it.
-- Ask which attachments a wrong answer would be **visible** on. State that only
-  render target 0 exercises is state no screenshot gate covers, on any path that
-  displays render target 0.
+- Ask which attachments a wrong answer would be **visible** on. A screenshot gate
+  covers only what the path it captures displays, and every forward path here
+  displays render target 0 alone — so a defect confined to attachments above 0
+  passes every such gate. That is the coverage condition this bug lived in for a
+  whole phase, and it is why the deferred path, where those attachments *are* the
+  picture, is the one that finally showed it.
