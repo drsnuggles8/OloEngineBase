@@ -262,7 +262,14 @@ endif()
 
 FetchContent_MakeAvailable(filewatch glad pl_mpeg)
 
-glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
+# REPRODUCIBLE (issue #824) makes glad generate from its OWN bundled spec instead of fetching
+# https://raw.githubusercontent.com/KhronosGroup/OpenGL-Registry/main/xml/gl.xml at configure
+# time. That fetch is unauthenticated, uncached and un-retried, and it has already cost a
+# 15+ minute HTTP 429 on a fresh build tree. Every new worktree and every CI runner configures
+# a fresh tree, so every one of them pays that risk exactly once. We pin a single fixed API
+# surface (gl:core=4.6, stable for years), so generating from the bundled spec costs us
+# nothing but the very latest registry revision.
+glad_add_library(glad STATIC REPRODUCIBLE API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
