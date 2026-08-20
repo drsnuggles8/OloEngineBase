@@ -51,6 +51,16 @@ namespace OloEngine
     {
       public:
         LightmapAsset() = default;
+        // Data-carrying constructor for EditorAssetManager::CreateOrReplaceAsset,
+        // which constructs the stored instance in place — the bake's result moves
+        // straight in, so the first Serialize already writes real data (the
+        // serializer refuses an empty/invalid asset by design).
+        LightmapAsset(u32 width, u32 height, u32 pageCount, u64 bakeKey,
+                      std::vector<f32>&& texelData, std::vector<LightmapEntityEntry>&& entries)
+            : m_Width(width), m_Height(height), m_PageCount(pageCount), m_BakeKey(bakeKey),
+              m_TexelData(std::move(texelData)), m_Entries(std::move(entries))
+        {
+        }
         ~LightmapAsset() override = default;
 
         static AssetType GetStaticType()

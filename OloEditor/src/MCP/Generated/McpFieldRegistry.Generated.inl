@@ -497,6 +497,7 @@ registry.push_back(OLO_GFW_FIELD(MeshCollider3DComponent, "UseComplexAsSimple", 
 
 // MeshComponent
 registry.push_back(OLO_GFW_FIELD(MeshComponent, "Primitive", m_Primitive));
+registry.push_back(OLO_GFW_FIELD(MeshComponent, "LightmapStatic", m_LightmapStatic));
 
 // ModelComponent
 registry.push_back(OLO_GFW_FIELD(ModelComponent, "FilePath", m_FilePath));

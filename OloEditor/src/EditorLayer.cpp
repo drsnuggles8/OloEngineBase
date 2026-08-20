@@ -167,6 +167,12 @@ namespace OloEngine
         {
             m_BuildFuture.wait();
         }
+        // Same contract for an in-flight lightmap bake (issue #439).
+        m_LightmapBakeCancel.store(true);
+        if (m_LightmapBakeFuture.valid())
+        {
+            m_LightmapBakeFuture.wait();
+        }
     }
 
     namespace
@@ -1167,6 +1173,10 @@ namespace OloEngine
         // this function at all, so BOTH freeze — which is exactly the signal.
         m_LastFrameTick = std::chrono::steady_clock::now();
 
+        // Drain the lightmap-bake result mailbox (issue #439) — asset save and
+        // scene-settings update must happen on the game thread.
+        ProcessLightmapBakeCompletion();
+
         // Apply at most ONE frame of queued synthetic input (olo_input_inject, #607).
         // Deliberately before every early-return below (a scene-less editor must still
         // drain, or an injected plan would hang the caller waiting on frames that never
@@ -1793,6 +1803,26 @@ namespace OloEngine
             if (ImGui::MenuItem("Build Shader Pack"))
             {
                 BuildShaderPack();
+            }
+
+            ImGui::Separator();
+
+            // Baked GI (issue #439): bakes indirect lighting for every
+            // lightmap-static entity into the scene lightmap asset.
+            if (m_LightmapBakeInProgress.load())
+            {
+                char label[64];
+                snprintf(label, sizeof(label), "Baking Lightmaps... %.0f%%",
+                         static_cast<f64>(m_LightmapBakeProgress.load()) * 100.0);
+                ImGui::MenuItem(label, nullptr, false, false);
+                if (ImGui::MenuItem("Cancel Lightmap Bake"))
+                {
+                    m_LightmapBakeCancel.store(true);
+                }
+            }
+            else if (ImGui::MenuItem("Bake Lightmaps"))
+            {
+                BakeLightmaps();
             }
 
             ImGui::Separator();
@@ -4981,6 +5011,166 @@ namespace OloEngine
             } }, Tasks::ETaskPriority::BackgroundNormal);
 
         OLO_CORE_INFO("Asset Pack build started asynchronously...");
+    }
+
+    void EditorLayer::BakeLightmaps()
+    {
+        if (m_LightmapBakeInProgress.load())
+        {
+            OLO_CORE_WARN("Lightmap bake already in progress, ignoring request");
+            return;
+        }
+        if (m_SceneState != SceneState::Edit)
+        {
+            OLO_CORE_WARN("Lightmap bake requires Edit mode — stop Play/Simulate first");
+            return;
+        }
+        Ref<Scene> scene = m_ActiveScene;
+        if (!scene)
+        {
+            return;
+        }
+
+        // ── Gather every lightmap-static entity (game thread — reads the ECS) ──
+        std::vector<LightmapBakeInput> inputs;
+        {
+            auto view = scene->GetAllEntitiesWith<IDComponent, MeshComponent>();
+            for (auto entity : view)
+            {
+                const auto& mesh = view.get<MeshComponent>(entity);
+                if (!mesh.m_LightmapStatic || !mesh.m_MeshSource || mesh.m_MeshSource->GetVertices().IsEmpty())
+                {
+                    continue;
+                }
+                LightmapBakeInput input;
+                input.EntityUUID = static_cast<u64>(view.get<IDComponent>(entity).ID);
+                input.Mesh = mesh.m_MeshSource;
+                input.WorldTransform = scene->GetWorldTransform(entity);
+                inputs.push_back(std::move(input));
+            }
+        }
+        if (inputs.empty())
+        {
+            OLO_CORE_WARN("Lightmap bake: no entities are marked Lightmap Static — nothing to bake");
+            return;
+        }
+
+        auto& lmSettings = scene->GetLightmapSettings();
+        LightmapBakeSettings bakeSettings;
+        bakeSettings.AtlasSize = lmSettings.AtlasSize;
+        bakeSettings.SamplesPerTexel = lmSettings.SamplesPerTexel;
+        bakeSettings.MaxBounces = lmSettings.MaxBounces;
+        bakeSettings.TexelsPerMeter = lmSettings.TexelsPerMeter;
+
+        // ── Stage 1 on the game thread: unwrap (mutates meshes the editor is
+        // rendering), atlas layout, texel rasterization ──
+        auto prepared = std::make_shared<LightmapBakePrepared>();
+        if (std::string error; !LightmapBaker::Prepare(inputs, bakeSettings, *prepared, error))
+        {
+            OLO_CORE_ERROR("Lightmap bake failed to prepare: {}", error);
+            return;
+        }
+
+        // Re-Build the unwrapped meshes right away (GL thread) so rendering
+        // picks up the seam-split vertex data while the bake runs.
+        for (const auto& input : inputs)
+        {
+            input.Mesh->Build();
+        }
+
+        // The bake key is computed AFTER the unwrap on purpose: the unwrap
+        // changes vertex counts, and the key must describe the state the
+        // runtime will re-derive at load (the resolve re-unwraps missing UV2
+        // streams deterministically before ITS key check).
+        bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(*scene, lmSettings);
+
+        // ── Capture the reference world (game thread — reads ECS + mesh data) ──
+        PathTracing::ReferenceSceneBuilder builder;
+        builder.AddScene(*scene, [](Entity entity)
+                         { return entity.HasComponent<MeshComponent>() &&
+                                  entity.GetComponent<MeshComponent>().m_LightmapStatic; });
+        auto world = std::make_shared<PathTracing::ReferenceScene>(builder.Build(PathTracing::ReferenceSceneBuildOptions{}));
+
+        // ── Stage 2 in the background: the texel bake reads only `prepared`
+        // and `world`, both frozen from here on ──
+        m_LightmapBakeProgress.store(0.0f);
+        m_LightmapBakeCancel.store(false);
+        m_LightmapBakeInProgress.store(true);
+
+        auto bakeDone = std::make_shared<std::promise<void>>();
+        m_LightmapBakeFuture = bakeDone->get_future();
+
+        OLO_CORE_INFO("Lightmap bake started: {} entities, {} texels, {} spp",
+                      inputs.size(), prepared->Jobs.size(), bakeSettings.SamplesPerTexel);
+
+        Tasks::Launch("BakeLightmaps", [this, prepared, world, bakeSettings, bakeDone]()
+                      {
+            LightmapBakeResult result = LightmapBaker::BakeTexels(*prepared, *world, bakeSettings,
+                                                                  &m_LightmapBakeProgress, &m_LightmapBakeCancel);
+            {
+                std::scoped_lock lock(m_LightmapBakeResultMutex);
+                m_LightmapBakeResult = std::move(result);
+                m_LightmapBakeResultReady = true;
+            }
+            m_LightmapBakeInProgress.store(false);
+            bakeDone->set_value(); }, Tasks::ETaskPriority::BackgroundNormal);
+    }
+
+    void EditorLayer::ProcessLightmapBakeCompletion()
+    {
+        LightmapBakeResult result;
+        {
+            std::scoped_lock lock(m_LightmapBakeResultMutex);
+            if (!m_LightmapBakeResultReady)
+            {
+                return;
+            }
+            result = std::move(m_LightmapBakeResult);
+            m_LightmapBakeResult = {};
+            m_LightmapBakeResultReady = false;
+        }
+
+        if (!result.Success)
+        {
+            OLO_CORE_ERROR("Lightmap bake failed: {}", result.Error);
+            return;
+        }
+
+        // Persist as a REAL registered asset (never AddMemoryOnlyAsset — a
+        // memory-only asset has no file and no registry entry, so the asset
+        // pack would silently omit it).
+        auto editorAssetManager = Project::GetActive() ? Project::GetActive()->GetEditorAssetManager() : nullptr;
+        if (!editorAssetManager)
+        {
+            OLO_CORE_ERROR("Lightmap bake finished but no project is active — result discarded");
+            return;
+        }
+
+        const std::string sceneName = m_ActiveScene ? m_ActiveScene->GetName() : "Scene";
+        const std::filesystem::path assetPath = std::filesystem::path("assets") / "lightmaps" / (sceneName + ".olmap");
+        std::filesystem::create_directories(Project::GetAssetDirectory() / "lightmaps");
+
+        Ref<LightmapAsset> stored = editorAssetManager->CreateOrReplaceAsset<LightmapAsset>(
+            Project::GetAssetDirectory() / "lightmaps" / (sceneName + ".olmap"),
+            result.Asset->GetWidth(), result.Asset->GetHeight(), result.Asset->GetPageCount(),
+            result.Asset->GetBakeKey(),
+            std::move(result.Asset->GetTexelData()),
+            std::move(result.Asset->GetEntries()));
+        if (!stored)
+        {
+            OLO_CORE_ERROR("Lightmap bake finished but the asset could not be stored at {}", assetPath.string());
+            return;
+        }
+
+        if (m_ActiveScene)
+        {
+            auto& lmSettings = m_ActiveScene->GetLightmapSettings();
+            lmSettings.LightmapAsset = stored->GetHandle();
+            m_ActiveScene->GetLightmapRuntime()->Invalidate();
+        }
+
+        OLO_CORE_INFO("Lightmap bake complete: {} entities baked, {} skipped — saved to {} (save the scene to keep the reference)",
+                      result.BakedEntityCount, result.SkippedEntityCount, assetPath.string());
     }
 
     void EditorLayer::BuildShaderPack() const
