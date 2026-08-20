@@ -2,7 +2,7 @@
 #define INSTANCE_BLOCK_GLSL
 
 // Per-draw instance data SSBO. Layout mirrors OloEngine::InstanceData
-// (OloEngine/Renderer/Instancing/InstanceData.h, 224 B std430). Indexed by
+// (OloEngine/Renderer/Instancing/InstanceData.h, 240 B std430). Indexed by
 // gl_InstanceIndex — for non-instanced draws gl_InstanceIndex is 0 and the
 // C++ side uploads a length-1 InstanceBuffer.
 //

@@ -316,6 +316,12 @@ vec2 octEncode(vec3 n)
 // identical so glLinkProgram() succeeds.
 #include "include/InstanceBlock.glsl"
 
+// Probe-volume irradiance (issue #439): skinned meshes are DYNAMIC objects, so
+// their indirect diffuse comes from the baked/realtime probe field — the exact
+// gap this include closes (the skinned forward path previously had no probe
+// branch at all, so characters ignored baked lighting entirely).
+#include "include/LightProbeSampling.glsl"
+
 // =============================================================================
 // MAIN FRAGMENT SHADER
 // =============================================================================
@@ -470,20 +476,57 @@ void main()
         Lo += lightContrib;
     }
 
-    // Calculate ambient lighting. The specular source is parallax-corrected
-    // by the distance-impostor probes exactly like PBR_MultiLight.glsl and
-    // the deferred path (issue #705) — skinned meshes are probe RECEIVERS
-    // even though they are absent from the baked distance fields.
-    vec3 ambient = vec3(0.0);
+    // Specular reflection source — parallax-corrected by the distance-impostor
+    // probes exactly like PBR_MultiLight.glsl and the deferred path (issue
+    // #705); skinned meshes are probe RECEIVERS even though they are absent
+    // from the baked distance fields.
+    vec3 R = reflect(-V, N);
+    vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     if (u_EnableIBL == 1)
     {
-        vec3 R = reflect(-V, N);
-        vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
         float probeViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
         vec4 probeSpecular = oloSampleReflectionProbes(v_WorldPos, N, R,
                                                        roughness * MAX_REFLECTION_LOD, probeViewDepth);
         prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
+    }
 
+    // Calculate ambient lighting — the same four-branch ladder as
+    // PBR_MultiLight.glsl (issue #439): probe irradiance replaces IBL diffuse
+    // for dynamic meshes sitting in a baked/realtime probe volume, keeping the
+    // static (lightmapped) and dynamic (probe-lit) halves of a scene
+    // photometrically continuous.
+    vec3 ambient = vec3(0.0);
+    if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
+    {
+        vec3 probeIrradiance = sampleProbeVolumeIrradiance(v_WorldPos, N, V);
+        if (dot(probeIrradiance, probeIrradiance) > 0.0)
+        {
+            ambient = calculateCombinedAmbientPrefiltered(probeIrradiance, N, V, albedo,
+                                                          metallic, roughness,
+                                                          u_BRDFLutMap, prefilteredColor);
+            ambient *= u_IBLIntensity;
+        }
+        else
+        {
+            ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
+                                              u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
+            ambient *= u_IBLIntensity;
+        }
+    }
+    else if (u_EnableLightProbes == 1)
+    {
+        vec3 probeIrradiance = sampleProbeVolumeIrradiance(v_WorldPos, N, V);
+        if (dot(probeIrradiance, probeIrradiance) > 0.0)
+        {
+            ambient = calculateLightProbeAmbient(probeIrradiance, albedo, metallic, roughness, N, V);
+        }
+        else
+        {
+            ambient = calculateSimpleAmbient(albedo, metallic, ao);
+        }
+    }
+    else if (u_EnableIBL == 1)
+    {
         ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
                                           u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
         ambient *= u_IBLIntensity;

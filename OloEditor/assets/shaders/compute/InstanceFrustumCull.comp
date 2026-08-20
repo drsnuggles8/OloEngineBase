@@ -23,7 +23,7 @@
 layout(local_size_x = 256) in;
 
 // Layout mirrors OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
-// 224 B std430). Drift here vs. InstanceBlock_Vertex.glsl produces silent
+// 240 B std430). Drift here vs. InstanceBlock_Vertex.glsl produces silent
 // rendering corruption; pinned by InstanceDataLayoutTest.
 struct InstanceData {
     mat4 Transform;

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <optional>
 #include <variant>
+#include <vector>
 #include "AssetMetadata.h"
 #include "MeshColliderAsset.h"
 
@@ -34,6 +35,7 @@ namespace OloEngine
     class SoundGraphAsset;
 
     class LightProbeVolumeAsset;
+    class LightmapAsset;
     class ParticleSystemAsset;
     class DialogueTreeAsset;
     class BehaviorTreeAsset;
@@ -474,6 +476,39 @@ namespace OloEngine
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+    };
+
+    // `.olmap` baked GI lightmap atlases (issue #439). Binary format with
+    // magic / version range / CRC32 / zlib-compressed framed sections — see
+    // Serialization/LightmapBinaryFormat.h. Decode is all-or-nothing: any
+    // inconsistency (bad magic, unsupported version, checksum mismatch,
+    // truncation, non-finite texel) rejects the whole file with no
+    // partially-populated asset.
+    class LightmapSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true; // CPU-only: raw texel buffers, no GPU resources
+        }
+
+        // File-level helpers (public so tests and the bake pipeline can
+        // address a .olmap by absolute path without a mounted project).
+        // SerializeToFile refuses — and writes nothing — when the asset fails
+        // LightmapAsset::Validate() (e.g. a non-finite texel) or exceeds the
+        // format caps.
+        [[nodiscard]] static bool SerializeToFile(const std::filesystem::path& path, const Ref<LightmapAsset>& lightmap);
+        [[nodiscard]] static bool DeserializeFromFile(const std::filesystem::path& path, Ref<LightmapAsset>& outLightmap);
+
+        // Byte-stream level — the asset-pack record carries the exact same
+        // .olmap byte stream as the standalone file.
+        [[nodiscard]] static bool EncodeToBytes(const LightmapAsset& lightmap, std::vector<u8>& outBytes, std::string_view sourceName);
+        [[nodiscard]] static bool DecodeFromBytes(const u8* data, sizet size, Ref<LightmapAsset>& outLightmap, std::string_view sourceName);
     };
 
     class DialogueTreeSerializer : public AssetSerializer

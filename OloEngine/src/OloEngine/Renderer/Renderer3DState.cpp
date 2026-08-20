@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
@@ -197,6 +198,30 @@ namespace OloEngine
         }
         // When no SH data is provided, the UBO's Enabled field should already be 0,
         // causing the shader to early-out. The SSBO remains bound from init (zeroed).
+    }
+
+    void Renderer3D::UploadLightmapData(const ShaderBindingLayout::LightmapUBO& uboData,
+                                        const Ref<Texture2D>& atlas)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (s_Data.LightmapUBO)
+        {
+            s_Data.LightmapUBO->SetData(&uboData, ShaderBindingLayout::LightmapUBO::GetSize());
+        }
+
+        // Publish the atlas at TEX_LIGHTMAP for slot-based AND heap-bindless
+        // readers alike (LightmapSampling.glsl is a shared include, so its
+        // sampler stays slot-based and this call is what keeps both routes fed —
+        // the same mechanism the DDGI atlases use). The white placeholder keeps
+        // the sampler valid when no bake exists; uboData.Enabled == 0 gates any
+        // actual sampling then.
+        const Ref<Texture2D>& bound = atlas ? atlas : s_Data.WhiteTexture;
+        if (bound)
+        {
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_LIGHTMAP, bound->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+        }
     }
 
     void Renderer3D::SetGlobalIBL(RHI::ResourceHandle irradianceMap, RHI::ResourceHandle prefilterMap,

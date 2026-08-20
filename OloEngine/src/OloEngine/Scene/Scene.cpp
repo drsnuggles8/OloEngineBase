@@ -512,6 +512,10 @@ namespace OloEngine
         // runtime m_WorldOrigin accumulator is deliberately NOT copied: a fresh
         // Play session starts at the authored coordinates with origin (0,0,0).
         newScene->m_WorldOriginSettings = other->m_WorldOriginSettings;
+        // Baked-lightmap settings (issue #439) — same contract. The runtime
+        // m_LightmapRuntime is deliberately NOT copied: the Play copy
+        // re-resolves the asset (and re-checks the bake key) on first render.
+        newScene->m_LightmapSettings = other->m_LightmapSettings;
 
         auto& srcSceneRegistry = other->m_Registry;
         auto& dstSceneRegistry = newScene->m_Registry;
@@ -6829,7 +6833,8 @@ namespace OloEngine
     // not (issue #629); this one is not going to be the next.
     static void SubmitMeshSourceClassic(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
                                         const Material* overrideMaterial, i32 entityID,
-                                        const LODGroup* lodGroup, bool meshHasActiveShadows)
+                                        const LODGroup* lodGroup, bool meshHasActiveShadows,
+                                        const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f))
     {
         if (!meshSource || meshSource->GetSubmeshes().IsEmpty())
         {
@@ -6843,7 +6848,16 @@ namespace OloEngine
                                                               static_cast<u32>(i), GetDefaultMaterial());
 
             if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup); packet)
+            {
+                // Baked lightmap region (issue #439): patch the draw's atlas
+                // region before submission. All-zero (the default) means "no
+                // lightmap" and costs the shader one vec4 compare.
+                if (lightmapScaleOffset.x > 0.0f)
+                {
+                    packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = lightmapScaleOffset;
+                }
                 Renderer3D::SubmitPacket(packet);
+            }
 
             // Shadow caster for this submesh. Alpha-masked / blended materials are excluded
             // because the shared shadow-depth shader doesn't sample the albedo alpha, so
@@ -7480,6 +7494,28 @@ namespace OloEngine
             // Hand the point/spot/sphere lights gathered above to Forward+ for
             // tile-based culling (no second scene iteration).
             Renderer3D::GetForwardPlus().SetLights(fpPointLights, fpSpotLights, fpSphereAreaLights);
+
+            // Baked lightmap (issue #439): resolve (cheap when nothing changed —
+            // Resolve() early-outs on a matching asset + bake key) and upload the
+            // parameters + atlas every frame, mirroring the probe stale-state
+            // guard below. A stale or absent bake uploads Enabled = 0, so the
+            // shader falls through to probes/IBL rather than sampling old data.
+            {
+                const auto& lightmapRuntime = GetLightmapRuntime();
+                if (m_LightmapSettings.LightmapAsset != 0)
+                {
+                    lightmapRuntime->Resolve(*this);
+                }
+
+                ShaderBindingLayout::LightmapUBO lightmapUBO{};
+                const bool lightmapActive = m_LightmapSettings.Enabled && lightmapRuntime->IsValid();
+                lightmapUBO.Enabled = lightmapActive ? 1 : 0;
+                lightmapUBO.Intensity = m_LightmapSettings.Intensity;
+                lightmapUBO.TexelSize = lightmapRuntime->GetAtlasSize() > 0
+                                            ? 1.0f / static_cast<f32>(lightmapRuntime->GetAtlasSize())
+                                            : 0.0f;
+                Renderer3D::UploadLightmapData(lightmapUBO, lightmapActive ? lightmapRuntime->GetAtlasTexture() : nullptr);
+            }
 
             // Upload light probe volume data if present and dirty
             {
@@ -9373,10 +9409,20 @@ namespace OloEngine
                     }
                 }
 
+                // Baked lightmap region for this entity (issue #439): vec4(0)
+                // — "no lightmap" — unless the entity is lightmap-static AND the
+                // scene's resolved bake covers it. GetScaleOffset already
+                // returns the zero sentinel for stale/absent bakes.
+                glm::vec4 lightmapScaleOffset(0.0f);
+                if (mesh.m_LightmapStatic && m_LightmapRuntime && m_Registry.all_of<IDComponent>(entity))
+                {
+                    lightmapScaleOffset = m_LightmapRuntime->GetScaleOffset(m_Registry.get<IDComponent>(entity).ID);
+                }
+
                 // Draw each submesh with entity ID. Shared with the VirtualMeshComponent
                 // fallback path — see SubmitMeshSourceClassic.
                 SubmitMeshSourceClassic(mesh.m_MeshSource, worldTransform, overrideMaterial, entityID, lodGroup,
-                                        meshHasActiveShadows);
+                                        meshHasActiveShadows, lightmapScaleOffset);
             }
         }
 

@@ -24,6 +24,11 @@ layout(std430, binding = 57) readonly buffer OloVertexPull
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord;
+// Lightmap UV2 (issue #439): a SEPARATE MeshSource stream at attribute 3
+// (static meshes only — skinned VAOs keep bones at 3/4 and never carry it).
+// A VAO without the stream leaves the attribute disabled and GL supplies
+// (0,0), which lands outside every atlas region and samples nothing.
+layout(location = 3) in vec2 a_TexCoord2;
 #endif
 
 // Camera UBO (binding 0)
@@ -53,6 +58,7 @@ layout(location = 2) out vec2 v_TexCoord;
 // objects, matching the deferred G-Buffer path.
 layout(location = 3) out vec4 v_ClipPosCurr;
 layout(location = 4) out vec4 v_ClipPosPrev;
+layout(location = 5) out vec2 v_TexCoord2;
 
 // Depth-prepass contract: the color pass re-tests at GL_LEQUAL against depth
 // written by DepthPrepass*.glsl, which replicates this exact position math.
@@ -66,6 +72,9 @@ void main()
     vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
     vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
     vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
+    // The lightmap UV stream is not pulled on the Vulkan route yet (issue #439
+    // follow-up — it is a second stream, not part of the 8-float engine Vertex).
+    vec2 a_TexCoord2 = vec2(0.0);
 #endif
     OLO_INSTANCE_FORWARD();
     v_WorldPos = vec3(u_Model * vec4(a_Position, 1.0));
@@ -277,6 +286,7 @@ layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
 layout(location = 3) in vec4 v_ClipPosCurr;
 layout(location = 4) in vec4 v_ClipPosPrev;
+layout(location = 5) in vec2 v_TexCoord2;
 
 // Output
 layout(location = 0) out vec4 o_Color;
@@ -303,6 +313,9 @@ vec2 octEncode(vec3 n)
 // between stages; u_PrevModel is unused in fragment but its declaration
 // keeps the two stages' block types identical.
 #include "include/InstanceBlock.glsl"
+
+// Baked lightmap sampling (issue #439): UBO 1 + the atlas sampler at TEX 16.
+#include "include/LightmapSampling.glsl"
 
 // =============================================================================
 // MAIN FRAGMENT SHADER
@@ -477,7 +490,36 @@ void main()
 
     // Calculate ambient lighting
     vec3 ambient = vec3(0.0);
-    if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
+
+    // Baked lightmap first (issue #439): a lightmapped static surface REPLACES
+    // its probe/IBL indirect diffuse with the baked irradiance — the same
+    // replacement semantics the probe ladder already uses, through the same
+    // helpers, so the two sources stay photometrically interchangeable. IBL
+    // specular is kept (the bake is diffuse irradiance only). Deliberately not
+    // gated on u_EnableLightProbes: baked GI is its own source, and the scene
+    // kill switch lives in u_LightmapEnabled (stale bakes upload 0).
+#ifdef OLO_VULKAN
+    // Not wired on the Vulkan route yet: nothing uploads UBO 1 / TEX 16 there,
+    // so the flag would read garbage (issue #439 follow-up).
+    vec3 lightmapIrradiance = vec3(0.0);
+#else
+    vec3 lightmapIrradiance = sampleLightmapIrradiance(v_TexCoord2, instances[v_InstanceIndex].LightmapScaleOffset);
+#endif
+    if (dot(lightmapIrradiance, lightmapIrradiance) > 0.0)
+    {
+        if (u_EnableIBL == 1)
+        {
+            ambient = calculateCombinedAmbientPrefiltered(lightmapIrradiance, N, V, albedo,
+                                                          metallic, roughness,
+                                                          u_BRDFLutMap, prefilteredColor);
+            ambient *= u_IBLIntensity;
+        }
+        else
+        {
+            ambient = calculateLightProbeAmbient(lightmapIrradiance, albedo, metallic, roughness, N, V);
+        }
+    }
+    else if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
     {
         // Combined: probe diffuse + IBL specular. Issue #632: unified probe
         // sampling — realtime DDGI atlases when a Realtime/Hybrid volume is

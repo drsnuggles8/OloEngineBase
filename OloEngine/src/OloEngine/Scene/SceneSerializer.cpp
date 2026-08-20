@@ -27,6 +27,8 @@
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/Effects/GameplayEffect.h"
 
+#include <algorithm>
+#include <bit>
 #include <fstream>
 #include <cmath>
 
@@ -1998,6 +2000,10 @@ namespace OloEngine
                         mc.m_MeshSource = mesh->GetMeshSource();
                     }
                 }
+            }
+            if (meshComponent["LightmapStatic"])
+            {
+                mc.m_LightmapStatic = meshComponent["LightmapStatic"].as<bool>();
             }
         }
 
@@ -4112,6 +4118,11 @@ namespace OloEngine
                 out << YAML::Key << "Primitive" << YAML::Value << std::to_underlying(meshComponent.m_Primitive);
             }
 
+            if (meshComponent.m_LightmapStatic)
+            {
+                out << YAML::Key << "LightmapStatic" << YAML::Value << meshComponent.m_LightmapStatic;
+            }
+
             out << YAML::EndMap; // MeshComponent
         }
 
@@ -6073,6 +6084,21 @@ namespace OloEngine
             out << YAML::EndMap;
         }
 
+        // Baked-lightmap settings (issue #439)
+        {
+            auto const& lm = m_Scene->GetLightmapSettings();
+            out << YAML::Key << "LightmapSettings";
+            out << YAML::BeginMap;
+            out << YAML::Key << "LightmapAsset" << YAML::Value << static_cast<u64>(lm.LightmapAsset);
+            out << YAML::Key << "Enabled" << YAML::Value << lm.Enabled;
+            out << YAML::Key << "Intensity" << YAML::Value << lm.Intensity;
+            out << YAML::Key << "AtlasSize" << YAML::Value << lm.AtlasSize;
+            out << YAML::Key << "SamplesPerTexel" << YAML::Value << lm.SamplesPerTexel;
+            out << YAML::Key << "MaxBounces" << YAML::Value << lm.MaxBounces;
+            out << YAML::Key << "TexelsPerMeter" << YAML::Value << lm.TexelsPerMeter;
+            out << YAML::EndMap;
+        }
+
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         ForEachEntitySorted([&out](Entity entity)
                             { SerializeEntity(out, entity); });
@@ -6249,6 +6275,31 @@ namespace OloEngine
             TrySet(wo.SnapGridSize, woNode["SnapGridSize"]);
 
             SanitizeWorldOriginSettings(wo);
+        }
+
+        // Baked-lightmap settings (issue #439)
+        if (auto lmNode = data["LightmapSettings"]; lmNode && lmNode.IsMap())
+        {
+            auto& lm = scene.GetLightmapSettings();
+            if (lmNode["LightmapAsset"])
+            {
+                lm.LightmapAsset = AssetHandle(lmNode["LightmapAsset"].as<u64>(0));
+            }
+            TrySet(lm.Enabled, lmNode["Enabled"]);
+            TrySet(lm.Intensity, lmNode["Intensity"]);
+            TrySet(lm.AtlasSize, lmNode["AtlasSize"]);
+            TrySet(lm.SamplesPerTexel, lmNode["SamplesPerTexel"]);
+            TrySet(lm.MaxBounces, lmNode["MaxBounces"]);
+            TrySet(lm.TexelsPerMeter, lmNode["TexelsPerMeter"]);
+
+            // Sanitize: floats finite, counts bounded, atlas a power of two.
+            if (!std::isfinite(lm.Intensity) || lm.Intensity < 0.0f)
+                lm.Intensity = 1.0f;
+            if (!std::isfinite(lm.TexelsPerMeter) || lm.TexelsPerMeter <= 0.0f)
+                lm.TexelsPerMeter = 8.0f;
+            lm.AtlasSize = std::clamp(std::bit_ceil(std::max(lm.AtlasSize, 1u)), 64u, 8192u);
+            lm.SamplesPerTexel = std::clamp(lm.SamplesPerTexel, 1u, 4096u);
+            lm.MaxBounces = std::clamp(lm.MaxBounces, 1u, 16u);
         }
     }
 
@@ -6589,6 +6640,21 @@ namespace OloEngine
             out << YAML::Key << "Enabled" << YAML::Value << wo.Enabled;
             out << YAML::Key << "RebaseThreshold" << YAML::Value << wo.RebaseThreshold;
             out << YAML::Key << "SnapGridSize" << YAML::Value << wo.SnapGridSize;
+            out << YAML::EndMap;
+        }
+
+        // Baked-lightmap settings (issue #439)
+        {
+            auto const& lm = m_Scene->GetLightmapSettings();
+            out << YAML::Key << "LightmapSettings";
+            out << YAML::BeginMap;
+            out << YAML::Key << "LightmapAsset" << YAML::Value << static_cast<u64>(lm.LightmapAsset);
+            out << YAML::Key << "Enabled" << YAML::Value << lm.Enabled;
+            out << YAML::Key << "Intensity" << YAML::Value << lm.Intensity;
+            out << YAML::Key << "AtlasSize" << YAML::Value << lm.AtlasSize;
+            out << YAML::Key << "SamplesPerTexel" << YAML::Value << lm.SamplesPerTexel;
+            out << YAML::Key << "MaxBounces" << YAML::Value << lm.MaxBounces;
+            out << YAML::Key << "TexelsPerMeter" << YAML::Value << lm.TexelsPerMeter;
             out << YAML::EndMap;
         }
 

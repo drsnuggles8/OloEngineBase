@@ -298,6 +298,7 @@ namespace OloEngine
             case AssetType::AnimationClip:
             case AssetType::AnimationGraph:
             case AssetType::Model:
+            case AssetType::Lightmap: // like LightProbeVolume: a missing bake just means "no baked GI"
             default:
                 return Ref<GenericPlaceholder>::Create(type);
         }

@@ -418,6 +418,10 @@ if(xatlas_ADDED)
 	add_library(xatlas STATIC "${xatlas_SOURCE_DIR}/source/xatlas/xatlas.cpp")
 	# SYSTEM so the library's own warnings don't count against OloEngine's /W4-ish flags.
 	target_include_directories(xatlas SYSTEM PUBLIC "${xatlas_SOURCE_DIR}/source/xatlas")
+	# Single-threaded on purpose: the lightmap bake's determinism contract (same
+	# scene -> bit-identical unwrap -> bit-identical bake) must not depend on
+	# xatlas's internal task scheduling, and the unwrap is not on a hot path.
+	target_compile_definitions(xatlas PRIVATE XA_MULTITHREADED=0)
 	set_target_properties(xatlas PROPERTIES FOLDER "Utilities/xatlas"
 		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/xatlas-build"
 		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/xatlas-build"

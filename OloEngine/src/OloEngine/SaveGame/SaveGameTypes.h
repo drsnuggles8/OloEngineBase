@@ -66,7 +66,10 @@ namespace OloEngine
     // v17: TerrainComponent gained the virtual-texture block (m_VirtualTextureEnabled plus the
     //      five sizing knobs — issue #715 slice 1; v16 and older saves omit them and keep the
     //      constructor defaults, which have VT OFF, i.e. exactly the pre-#715 splat path)
-    static constexpr u32 kSaveGameFormatVersion = 17;
+    // v18: MeshComponent gained m_LightmapStatic (issue #439; v17 and older saves omit it and
+    //      keep the constructor default false — the entity simply is not lightmapped, which
+    //      also matches the pre-#439 behaviour)
+    static constexpr u32 kSaveGameFormatVersion = 18;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

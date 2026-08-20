@@ -98,6 +98,12 @@ namespace OloEngine
     {
         Ref<MeshSource> m_MeshSource;
         MeshPrimitive m_Primitive = MeshPrimitive::None;
+        // Marks this entity's geometry as static for the baked-GI path (issue
+        // #439): it is baked into the scene lightmap (and acts as an occluder /
+        // bounce surface in the bake) and samples the lightmap instead of
+        // probes at runtime. Moving a lightmap-static entity stales the bake —
+        // the runtime detects the mismatch and falls back to probes/IBL.
+        bool m_LightmapStatic = false;
 
         MeshComponent() = default;
         explicit MeshComponent(const Ref<OloEngine::MeshSource>& meshSource) noexcept : m_MeshSource(meshSource) {}

@@ -55,9 +55,9 @@ namespace OloEngine::Tests
         };
 
         // Walk every declared enum value via static_cast loop. The
-        // current top is `VisualScript = 39`; if more get added,
+        // current top is `Lightmap = 40`; if more get added,
         // bumping this is the only maintenance.
-        constexpr u16 kMaxKnownValue = 39;
+        constexpr u16 kMaxKnownValue = 40;
 
         std::vector<AssetType> uncovered;
         for (u16 raw = 1; raw <= kMaxKnownValue; ++raw)

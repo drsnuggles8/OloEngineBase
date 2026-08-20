@@ -37,7 +37,7 @@
 layout(local_size_x = 256) in;
 
 // Layout mirrors OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
-// 224 B std430). Pinned by InstanceDataLayoutTest.
+// 240 B std430). Pinned by InstanceDataLayoutTest.
 struct InstanceData {
     mat4 Transform;
     mat4 Normal;

@@ -49,13 +49,14 @@ namespace OloEngine
         SkillTreeDatabase = 37,
         CharacterClassDatabase = 38,
         VisualScript = 39,
+        Lightmap = 40,
     };
 
-    // If AssetType grows past VisualScript, bump kMaxKnownValue in
+    // If AssetType grows past Lightmap, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::VisualScript) == 39,
-                  "AssetType::VisualScript moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::Lightmap) == 40,
+                  "AssetType::Lightmap moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -201,6 +202,8 @@ namespace OloEngine
                     return "CharacterClassDatabase";
                 case AssetType::VisualScript:
                     return "VisualScript";
+                case AssetType::Lightmap:
+                    return "Lightmap";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -296,6 +299,8 @@ namespace OloEngine
                 return AssetType::CharacterClassDatabase;
             if (assetType == "VisualScript")
                 return AssetType::VisualScript;
+            if (assetType == "Lightmap")
+                return AssetType::Lightmap;
 
             return AssetType::None;
         }

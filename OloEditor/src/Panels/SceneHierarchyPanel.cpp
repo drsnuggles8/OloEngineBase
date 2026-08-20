@@ -2602,6 +2602,16 @@ namespace OloEngine
                                      {
             ImGui::Text("Mesh Source: %s", component.m_MeshSource ? "Loaded" : "None");
 
+            // Baked GI (issue #439): marks this entity for the scene lightmap
+            // bake. Toggling stales any existing bake (the key covers the
+            // static-entity set), which the runtime detects on its own.
+            ImGui::Checkbox("Lightmap Static", &component.m_LightmapStatic);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Bake this entity's indirect lighting into the scene lightmap.\n"
+                                  "Requires a re-bake (Scene > Bake Lightmaps) after changes.");
+            }
+
             if (component.m_MeshSource)
             {
                 ImGui::Text("Submeshes: %d", component.m_MeshSource->GetSubmeshes().Num());

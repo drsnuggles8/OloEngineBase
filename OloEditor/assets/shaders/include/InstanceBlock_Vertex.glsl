@@ -10,7 +10,7 @@
 // varying.
 //
 // Layout matches OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
-// 224 B std430). For a single-instance / non-instanced draw the C++ side
+// 240 B std430). For a single-instance / non-instanced draw the C++ side
 // uploads a length-1 buffer; gl_InstanceIndex is 0 and the macros resolve to
 // instances[0] just like the fragment-stage include.
 struct InstanceData {

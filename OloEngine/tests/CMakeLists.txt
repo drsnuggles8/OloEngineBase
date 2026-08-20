@@ -133,6 +133,9 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/ReferenceBRDFTest.cpp
 		Rendering/PathTracing/PathTracerFurnaceTest.cpp
 		Rendering/PathTracing/PathTracerCornellBoxTest.cpp
+		Rendering/PathTracing/ReferenceSceneBuilderTest.cpp
+		Rendering/Baking/LightmapUnwrapTest.cpp
+		Asset/LightmapAssetSerializationTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/ShaderReflectionBindingTest.cpp

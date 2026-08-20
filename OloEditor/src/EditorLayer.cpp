@@ -4800,6 +4800,13 @@ namespace OloEngine
                 }
                 break;
             }
+            case AssetType::Lightmap:
+            {
+                // TODO(#439): notify Scene lightmap runtime so entities re-resolve their
+                // atlas regions (the scene-side hook lands in a later change).
+                OLO_TRACE("   → Lightmap asset reloaded");
+                break;
+            }
             case AssetType::AnimationGraph:
             {
                 OLO_TRACE("   → Animation graph asset reloaded - refreshing runtime graphs");

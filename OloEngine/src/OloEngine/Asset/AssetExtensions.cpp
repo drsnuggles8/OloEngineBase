@@ -101,6 +101,7 @@ namespace OloEngine
         s_ExtensionMap["oloskilltree"] = AssetType::SkillTreeDatabase;
         s_ExtensionMap["olocharclass"] = AssetType::CharacterClassDatabase;
         s_ExtensionMap["olovs"] = AssetType::VisualScript;
+        s_ExtensionMap["olmap"] = AssetType::Lightmap;
 
         // Script files
         s_ExtensionMap["cs"] = AssetType::ScriptFile;
