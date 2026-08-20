@@ -921,15 +921,6 @@ namespace OloEngine
     {
         m_State.DepthFunc = func;
     }
-    // VkColorComponentFlags' RGBA bit order, which is what the recorded
-    // per-attachment masks store — shared by the global and the indexed setter
-    // so the two can never pack the same request differently.
-    [[nodiscard]] static constexpr u8 PackColorMask(const bool red, const bool green, const bool blue,
-                                                    const bool alpha)
-    {
-        return static_cast<u8>((red ? 1u : 0u) | (green ? 2u : 0u) | (blue ? 4u : 0u) | (alpha ? 8u : 0u));
-    }
-
     void VulkanRendererAPI::SetBlendState(const bool value)
     {
         // Deliberately does NOT fill AttachmentBlend, unlike SetColorMask below.
@@ -1067,15 +1058,16 @@ namespace OloEngine
         // narrowed attachment stayed masked for the rest of the PROCESS — one
         // Renderer3D::DrawLine (colorAttachmentWriteMask = 0x01) killed every
         // G-Buffer attachment above 0 from that frame on, which is issue #823.
-        for (u8& attachmentMask : m_State.AttachmentColorMask)
-            attachmentMask = PackColorMask(red, green, blue, alpha);
+        for (u32 attachment = 0; attachment < VulkanRecordedPipelineState::kMaxAttachments; ++attachment)
+            SetColorMaskForAttachment(attachment, red, green, blue, alpha);
     }
     void VulkanRendererAPI::SetColorMaskForAttachment(const u32 attachment, const bool red, const bool green,
                                                       const bool blue, const bool alpha)
     {
         if (attachment >= VulkanRecordedPipelineState::kMaxAttachments)
             return;
-        m_State.AttachmentColorMask[attachment] = PackColorMask(red, green, blue, alpha);
+        m_State.AttachmentColorMask[attachment] = static_cast<u8>((red ? 1u : 0u) | (green ? 2u : 0u) |
+                                                                  (blue ? 4u : 0u) | (alpha ? 8u : 0u));
     }
     void VulkanRendererAPI::SetBlendStateForAttachment(const u32 attachment, const bool enabled)
     {
