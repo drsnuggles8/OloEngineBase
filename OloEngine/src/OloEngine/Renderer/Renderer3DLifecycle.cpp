@@ -396,6 +396,7 @@ namespace OloEngine
         s_Data.DecalUBO = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
         s_Data.LightProbeVolumeUBO = UniformBuffer::Create(ShaderBindingLayout::LightProbeVolumeUBO::GetSize(), ShaderBindingLayout::UBO_LIGHT_PROBES);
         s_Data.LightmapUBO = UniformBuffer::Create(ShaderBindingLayout::LightmapUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTMAP);
+        s_Data.LightmapUBOUploaded = false; // fresh buffer — the dirty guard must not skip the first upload
         s_Data.SceneEffectsGPU.DRS = UniformBuffer::Create(DRSUBOData::GetSize(), ShaderBindingLayout::UBO_DRS);
         s_Data.UnderwaterFogBuffer = UniformBuffer::Create(UnderwaterFogUBOData::GetSize(), ShaderBindingLayout::UBO_UNDERWATER);
 

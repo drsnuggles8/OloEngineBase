@@ -112,6 +112,46 @@ namespace OloEngine::Tests
             << "a non-lightmap-static entity is not in the bake; moving it must not stale the lightmap";
     }
 
+    TEST(SceneLightmapStaleness, MovingALightChangesTheKeyAndMovingItBackRestoresIt)
+    {
+        StalenessFixture f = MakeFixture();
+        const SceneLightmapSettings settings = f.World->GetLightmapSettings();
+        const u64 original = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+
+        // The bake consumes the light's RAW TransformComponent::Translation
+        // (ReferenceSceneBuilder parity — not the parent-composed world
+        // position), so that exact value is what the key must track.
+        auto& transform = f.Light.GetComponent<TransformComponent>();
+        const glm::vec3 originalPos = transform.Translation;
+        transform.Translation = originalPos + glm::vec3(0.0f, 1.0f, 0.0f);
+        EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original)
+            << "the bake integrated this light from its raw Translation; moving it must stale the bake";
+
+        transform.Translation = originalPos;
+        EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);
+    }
+
+    TEST(SceneLightmapStaleness, NonContributingLightIsInvisibleToTheKey)
+    {
+        StalenessFixture f = MakeFixture();
+        const SceneLightmapSettings settings = f.World->GetLightmapSettings();
+        const u64 original = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+
+        // Zeroing the intensity removes the light from the bake (the builder
+        // rejects !(intensity > 0)), so it must leave the key too.
+        auto& point = f.Light.GetComponent<PointLightComponent>();
+        point.m_Intensity = 0.0f;
+        const u64 withoutLight = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+        EXPECT_NE(withoutLight, original) << "a light leaving the bake is a key change";
+
+        // While non-contributing, its other fields are invisible: the bake
+        // cannot see them, so neither may the key (else editing a disabled
+        // light's colour would false-stale a bake it never touched).
+        point.m_Color = glm::vec3(0.2f, 0.9f, 0.4f);
+        point.m_Range = 55.0f;
+        EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), withoutLight);
+    }
+
     TEST(SceneLightmapStaleness, LightAndMaterialChangesChangeTheKey)
     {
         StalenessFixture f = MakeFixture();

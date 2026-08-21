@@ -3,6 +3,7 @@
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/Baking/LightmapUnwrap.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -21,23 +22,20 @@ namespace OloEngine
     {
         // Bumping this stales every existing bake — do so whenever the bake's
         // semantics change (integrand, texel layout, key inputs).
-        constexpr u64 kBakeKeyFormatVersion = 1;
+        constexpr u64 kBakeKeyFormatVersion = 2; // v2: lights hash what the bake consumes (raw Translation, per-type)
 
-        constexpr u64 kFnvOffsetBasis = 14695981039346656037ull;
-        constexpr u64 kFnvPrime = 1099511628211ull;
+        // How many Resolve() calls pass between full rechecks. The recheck is
+        // O(scene) (UV2 scan + key hash); a scene edit is still picked up in a
+        // quarter-second at 60 fps, and Invalidate() bypasses the wait.
+        constexpr u32 kResolveRecheckIntervalFrames = 15;
 
         struct BakeKeyHasher
         {
-            u64 Value = kFnvOffsetBasis;
+            u64 Value = Hash::FNV1a64OffsetBasis;
 
             void MixBytes(const void* data, sizet size)
             {
-                const auto* bytes = static_cast<const u8*>(data);
-                for (sizet i = 0; i < size; ++i)
-                {
-                    Value ^= bytes[i];
-                    Value *= kFnvPrime;
-                }
+                Value = Hash::FNV1a64(data, size, Value);
             }
 
             template<typename T>
@@ -58,6 +56,14 @@ namespace OloEngine
     } // namespace
 
     void SceneLightmapRuntime::Invalidate()
+    {
+        ResetResolvedState();
+        m_FramesUntilRecheck = 0;
+        m_WarnedResolveFailure = false;
+        m_FailedUnwraps.clear();
+    }
+
+    void SceneLightmapRuntime::ResetResolvedState()
     {
         m_Resolved = false;
         m_Stale = false;
@@ -82,9 +88,23 @@ namespace OloEngine
         const SceneLightmapSettings& settings = scene.GetLightmapSettings();
         if (settings.LightmapAsset == 0)
         {
-            Invalidate();
+            // Clearing the handle is an explicit "no lightmap" — drop any
+            // resolved state right away. This is why the per-frame call site
+            // must NOT gate on LightmapAsset != 0: the gate would skip exactly
+            // the call that notices the handle went away.
+            if (m_Resolved || m_Stale || m_AtlasTexture)
+                Invalidate();
             return;
         }
+
+        // Throttle: everything below is O(scene). Between rechecks the cached
+        // state (IsValid / regions / atlas) keeps serving.
+        if (m_FramesUntilRecheck > 0)
+        {
+            --m_FramesUntilRecheck;
+            return;
+        }
+        m_FramesUntilRecheck = kResolveRecheckIntervalFrames;
 
         // Self-healing unwrap (see the header): regenerate any lightmap-static
         // mesh's missing UV2 stream deterministically BEFORE the key check, so
@@ -95,11 +115,18 @@ namespace OloEngine
             unwrapOptions.Resolution = kLightmapUnwrapResolution;
             unwrapOptions.Padding = kLightmapUnwrapPadding;
 
-            auto meshView = scene.GetAllEntitiesWith<MeshComponent>();
+            auto meshView = scene.GetAllEntitiesWith<IDComponent, MeshComponent>();
             for (auto entity : meshView)
             {
                 auto& mesh = meshView.get<MeshComponent>(entity);
                 if (!mesh.m_LightmapStatic || !mesh.m_MeshSource || mesh.m_MeshSource->HasLightmapUVs())
+                    continue;
+                // An unwrap that failed once (unchartable faces, chart overflow)
+                // will fail identically on every retry — xatlas runs 100ms+ per
+                // mesh, so retrying each recheck is a recurring frame hitch.
+                // The memo clears on Invalidate() (re-bake, asset change).
+                const UUID uuid = meshView.get<IDComponent>(entity).ID;
+                if (m_FailedUnwraps.contains(uuid))
                     continue;
                 if (LightmapUnwrap::Generate(*mesh.m_MeshSource, unwrapOptions))
                 {
@@ -108,6 +135,10 @@ namespace OloEngine
                         mesh.m_MeshSource->Build();
                     }
                 }
+                else
+                {
+                    m_FailedUnwraps.insert(uuid);
+                }
             }
         }
 
@@ -115,15 +146,22 @@ namespace OloEngine
 
         // Cheap re-resolve: same asset, same live key, texture already built.
         if (m_Resolved && m_ResolvedAsset == settings.LightmapAsset && m_ResolvedBakeKey == liveKey && !m_Stale)
+        {
+            m_WarnedResolveFailure = false;
             return;
+        }
 
-        Invalidate();
+        ResetResolvedState();
 
         const Ref<LightmapAsset> asset = AssetManager::GetAsset<LightmapAsset>(settings.LightmapAsset);
         if (!asset || !asset->HasBakedData() || !asset->Validate())
         {
-            OLO_CORE_WARN("SceneLightmapRuntime: lightmap asset {:x} missing or invalid — baked GI disabled",
-                          static_cast<u64>(settings.LightmapAsset));
+            if (!m_WarnedResolveFailure)
+            {
+                OLO_CORE_WARN("SceneLightmapRuntime: lightmap asset {:x} missing or invalid — baked GI disabled",
+                              static_cast<u64>(settings.LightmapAsset));
+                m_WarnedResolveFailure = true;
+            }
             return;
         }
 
@@ -133,25 +171,50 @@ namespace OloEngine
         // THE staleness gate: a bake whose stored key no longer matches the live
         // scene is never sampled. Falling back to probes/IBL beats rendering
         // confidently from stale data (issue #439's signature failure mode).
+        // Warn once per stale episode — staleness is the NORMAL editing state
+        // after moving a baked entity, and a per-recheck warning would flood
+        // the log for as long as the user keeps editing.
         if (asset->GetBakeKey() != liveKey)
         {
             m_Resolved = true;
             m_Stale = true;
-            OLO_CORE_WARN("SceneLightmapRuntime: bake key mismatch (asset {:x}, live {:x}) — the scene changed "
-                          "since the last bake; baked GI disabled until re-baked",
-                          asset->GetBakeKey(), liveKey);
+            if (!m_WarnedResolveFailure)
+            {
+                OLO_CORE_WARN("SceneLightmapRuntime: bake key mismatch (asset {:x}, live {:x}) — the scene changed "
+                              "since the last bake; baked GI disabled until re-baked",
+                              asset->GetBakeKey(), liveKey);
+                m_WarnedResolveFailure = true;
+            }
             return;
         }
 
+        // v1 bakes always produce one page and the runtime uploads exactly one:
+        // an entry addressing a higher page has no texture to sample and must
+        // not be served (it would read page 0's texels — another entity's
+        // charts — through a valid-looking region).
+        u32 rejectedPages = 0;
         m_Regions.reserve(asset->GetEntries().size());
         for (const auto& entry : asset->GetEntries())
         {
+            if (entry.Page != 0)
+            {
+                ++rejectedPages;
+                continue;
+            }
             m_Regions.emplace(UUID(entry.EntityUUID), entry.ScaleOffset);
+        }
+        if (rejectedPages > 0)
+        {
+            OLO_CORE_WARN("SceneLightmapRuntime: {} entity regions address atlas pages > 0; only page 0 is "
+                          "uploaded — those entities fall back to probes/IBL",
+                          rejectedPages);
         }
         m_AtlasSize = asset->GetWidth();
 
         // GPU atlas — RGBA16F, uploaded from the asset's f32 texels (the GL
         // upload path takes GL_FLOAT client data for RGBA16F and converts).
+        // Upload is bounded to page 0's slice — the texture is Width×Height,
+        // and a (future) multi-page asset's full buffer would overflow it.
         // Headless processes keep the CPU-side region table; there is nothing
         // to sample without a device anyway.
         if (RenderCommand::IsDeviceAvailable())
@@ -163,10 +226,13 @@ namespace OloEngine
             spec.GenerateMips = false;
             m_AtlasTexture = Texture2D::Create(spec);
             const auto& texels = asset->GetTexelData();
-            m_AtlasTexture->SetData(const_cast<f32*>(texels.data()), static_cast<u32>(texels.size() * sizeof(f32)));
+            const sizet pageFloats = static_cast<sizet>(asset->GetWidth()) * asset->GetHeight() * 4u;
+            m_AtlasTexture->SetData(const_cast<f32*>(texels.data()),
+                                    static_cast<u32>(std::min(texels.size(), pageFloats) * sizeof(f32)));
         }
 
         m_Resolved = true;
+        m_WarnedResolveFailure = false;
         OLO_CORE_INFO("SceneLightmapRuntime: resolved lightmap {}x{} with {} entity regions",
                       asset->GetWidth(), asset->GetHeight(), m_Regions.size());
     }
@@ -232,54 +298,73 @@ namespace OloEngine
             }
         }
 
-        // Lights: every photometric field that feeds the bake, in UUID order.
-        std::vector<KeyedEntity> lights;
-        auto collectLights = [&](auto view)
+        // Lights: hash EXACTLY what the bake consumes, per type, in the order
+        // ReferenceSceneBuilder::AddScene gathers them. Two deliberate parity
+        // choices, both mirrored from the builder:
+        //  - positions are the RAW TransformComponent::Translation (the value
+        //    the raster light collection packs — NOT the parent-composed world
+        //    transform), so re-parenting a light under a moved parent neither
+        //    stales nor un-stales a bake the light never changed in;
+        //  - a light the builder rejects (`!(intensity > 0)` — zero, negative
+        //    or NaN) contributes nothing to the bake, so it contributes
+        //    nothing to the key either.
+        // A per-type tag keeps e.g. a point light and a spot light with
+        // coincidentally-equal field bytes from colliding.
+        const auto hashLightsOfType = [&](auto view, auto&& mixEntity)
         {
+            std::vector<KeyedEntity> lights;
             for (auto entity : view)
                 lights.push_back({ static_cast<u64>(view.template get<IDComponent>(entity).ID), entity });
+            std::sort(lights.begin(), lights.end(),
+                      [](const KeyedEntity& a, const KeyedEntity& b)
+                      { return a.Uuid < b.Uuid; });
+            for (const auto& keyed : lights)
+                mixEntity(view, keyed);
         };
-        collectLights(scene.GetAllEntitiesWith<IDComponent, DirectionalLightComponent>());
-        collectLights(scene.GetAllEntitiesWith<IDComponent, PointLightComponent>());
-        collectLights(scene.GetAllEntitiesWith<IDComponent, SpotLightComponent>());
-        std::sort(lights.begin(), lights.end(),
-                  [](const KeyedEntity& a, const KeyedEntity& b)
-                  { return a.Uuid < b.Uuid; });
 
-        for (const auto& keyed : lights)
-        {
-            Entity e{ keyed.Handle, &scene };
-            hasher.Mix(keyed.Uuid);
-            const glm::mat4 transform = scene.GetWorldTransform(keyed.Handle);
-            hasher.Mix(glm::vec3(transform[3])); // light position
-
-            if (e.HasComponent<DirectionalLightComponent>())
-            {
-                const auto& l = e.GetComponent<DirectionalLightComponent>();
-                hasher.Mix(l.m_Direction);
-                hasher.Mix(l.m_Color);
-                hasher.Mix(l.m_Intensity);
-            }
-            if (e.HasComponent<PointLightComponent>())
-            {
-                const auto& l = e.GetComponent<PointLightComponent>();
-                hasher.Mix(l.m_Color);
-                hasher.Mix(l.m_Intensity);
-                hasher.Mix(l.m_Range);
-                hasher.Mix(l.m_Attenuation);
-            }
-            if (e.HasComponent<SpotLightComponent>())
-            {
-                const auto& l = e.GetComponent<SpotLightComponent>();
-                hasher.Mix(l.m_Direction);
-                hasher.Mix(l.m_Color);
-                hasher.Mix(l.m_Intensity);
-                hasher.Mix(l.m_Range);
-                hasher.Mix(l.m_InnerCutoff);
-                hasher.Mix(l.m_OuterCutoff);
-                hasher.Mix(l.m_Attenuation);
-            }
-        }
+        hashLightsOfType(scene.GetAllEntitiesWith<IDComponent, TransformComponent, DirectionalLightComponent>(),
+                         [&](auto& view, const KeyedEntity& keyed)
+                         {
+                             const auto& l = view.template get<DirectionalLightComponent>(keyed.Handle);
+                             if (!(l.m_Intensity > 0.0f))
+                                 return; // invisible to the bake ⇒ invisible to the key
+                             hasher.Mix(1u);
+                             hasher.Mix(keyed.Uuid);
+                             hasher.Mix(l.m_Direction);
+                             hasher.Mix(l.m_Color);
+                             hasher.Mix(l.m_Intensity);
+                         });
+        hashLightsOfType(scene.GetAllEntitiesWith<IDComponent, TransformComponent, PointLightComponent>(),
+                         [&](auto& view, const KeyedEntity& keyed)
+                         {
+                             const auto& l = view.template get<PointLightComponent>(keyed.Handle);
+                             if (!(l.m_Intensity > 0.0f))
+                                 return;
+                             hasher.Mix(2u);
+                             hasher.Mix(keyed.Uuid);
+                             hasher.Mix(view.template get<TransformComponent>(keyed.Handle).Translation);
+                             hasher.Mix(l.m_Color);
+                             hasher.Mix(l.m_Intensity);
+                             hasher.Mix(l.m_Range);
+                             hasher.Mix(l.m_Attenuation);
+                         });
+        hashLightsOfType(scene.GetAllEntitiesWith<IDComponent, TransformComponent, SpotLightComponent>(),
+                         [&](auto& view, const KeyedEntity& keyed)
+                         {
+                             const auto& l = view.template get<SpotLightComponent>(keyed.Handle);
+                             if (!(l.m_Intensity > 0.0f))
+                                 return;
+                             hasher.Mix(3u);
+                             hasher.Mix(keyed.Uuid);
+                             hasher.Mix(view.template get<TransformComponent>(keyed.Handle).Translation);
+                             hasher.Mix(l.m_Direction);
+                             hasher.Mix(l.m_Color);
+                             hasher.Mix(l.m_Intensity);
+                             hasher.Mix(l.m_Range);
+                             hasher.Mix(l.m_InnerCutoff);
+                             hasher.Mix(l.m_OuterCutoff);
+                             hasher.Mix(l.m_Attenuation);
+                         });
 
         return hasher.Value;
     }

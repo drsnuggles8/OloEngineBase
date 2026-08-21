@@ -205,9 +205,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (s_Data.LightmapUBO)
+        // Dirty guard: the caller uploads every frame, the values change only
+        // on resolve/toggle. All LightmapUBO bytes are named members (explicit
+        // pad), so memcmp sees no indeterminate padding.
+        if (s_Data.LightmapUBO &&
+            (!s_Data.LightmapUBOUploaded || std::memcmp(&s_Data.LastLightmapUBO, &uboData, sizeof(uboData)) != 0))
         {
             s_Data.LightmapUBO->SetData(&uboData, ShaderBindingLayout::LightmapUBO::GetSize());
+            s_Data.LastLightmapUBO = uboData;
+            s_Data.LightmapUBOUploaded = true;
         }
 
         // Publish the atlas at TEX_LIGHTMAP for slot-based AND heap-bindless
@@ -215,7 +221,9 @@ namespace OloEngine
         // sampler stays slot-based and this call is what keeps both routes fed —
         // the same mechanism the DDGI atlases use). The white placeholder keeps
         // the sampler valid when no bake exists; uboData.Enabled == 0 gates any
-        // actual sampling then.
+        // actual sampling then. Deliberately NOT dirty-guarded: the publish is
+        // a CPU table update + bind, and re-publishing every frame self-heals
+        // across heap/topology resets (see render-pipeline-caches).
         const Ref<Texture2D>& bound = atlas ? atlas : s_Data.WhiteTexture;
         if (bound)
         {

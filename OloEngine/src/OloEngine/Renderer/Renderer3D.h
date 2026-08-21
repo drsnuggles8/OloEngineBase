@@ -1712,6 +1712,11 @@ namespace OloEngine
             Ref<UniformBuffer> LightProbeVolumeUBO;
             Ref<StorageBuffer> LightProbeSHBuffer;
             Ref<UniformBuffer> LightmapUBO; // scene lightmap parameters (issue #439)
+            // Dirty guard for UploadLightmapData: the caller uploads every
+            // frame but the values only change on resolve/toggle, so skip the
+            // redundant GL buffer write when the bytes match.
+            ShaderBindingLayout::LightmapUBO LastLightmapUBO{};
+            bool LightmapUBOUploaded = false;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             // Inverse of the *world* view-projection (issue #429). The depth was

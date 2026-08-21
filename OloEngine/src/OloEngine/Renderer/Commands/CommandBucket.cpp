@@ -618,6 +618,7 @@ namespace OloEngine
         bool entityIDOverflowLogged = false;
         bool colorOverflowLogged = false;
         bool customOverflowLogged = false;
+        bool lightmapRegionOverflowLogged = false;
 
         for (auto& [key, indices] : groups)
         {
@@ -735,12 +736,15 @@ namespace OloEngine
             if (anyNonDefaultLightmapRegion)
             {
                 lightmapRegionOffset = frameBuffer.AllocateColors(totalInstances);
-                if (lightmapRegionOffset == UINT32_MAX && !colorOverflowLogged)
+                // Own flag: sharing colorOverflowLogged would let an earlier
+                // tint-overflow warning swallow the first (and only) mention
+                // that baked lighting was dropped this frame.
+                if (lightmapRegionOffset == UINT32_MAX && !lightmapRegionOverflowLogged)
                 {
                     OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} lightmap regions; baked lighting lost in batched draw. "
                                   "Subsequent failures this frame will be silent.",
                                   totalInstances);
-                    colorOverflowLogged = true;
+                    lightmapRegionOverflowLogged = true;
                 }
             }
 

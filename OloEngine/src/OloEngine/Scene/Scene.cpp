@@ -57,6 +57,7 @@
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
+#include "OloEngine/Renderer/LightCommon.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/JoltShapes.h"
@@ -6894,21 +6895,6 @@ namespace OloEngine
             UBOStructures::MultiLightUBO multiLightData{};
             i32 lightIndex = 0;
 
-            // Sanitize an authored spot-light direction once, reused by every
-            // downstream consumer (Forward+ SSBO, MultiLight UBO, and the
-            // spot-shadow projection). A zero-length or non-finite direction
-            // would make glm::normalize emit NaNs; fall back to a safe -Z unit.
-            // Valid directions pass through unchanged.
-            const auto sanitizeSpotDir = [](const glm::vec3& dir) -> glm::vec3
-            {
-                const f32 len2 = glm::dot(dir, dir);
-                if (!std::isfinite(len2) || len2 < 1e-8f)
-                {
-                    return glm::vec3(0.0f, 0.0f, -1.0f);
-                }
-                return dir;
-            };
-
             // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
             for (auto entity : dirLightView)
@@ -7046,8 +7032,10 @@ namespace OloEngine
                 const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
 
                 // Sanitized direction shared by the Forward+ SSBO, the
-                // MultiLight UBO, and the spot-shadow projection below.
-                const glm::vec3 spotDir = sanitizeSpotDir(spotLight.m_Direction);
+                // MultiLight UBO, and the spot-shadow projection below —
+                // via the shared helper so the bake's ReferenceSceneBuilder
+                // stays bit-identical to this packing (LightCommon.h).
+                const glm::vec3 spotDir = SanitizeSpotLightDirection(spotLight.m_Direction);
 
                 // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update).
                 // SpotParams.z = -1 (no atlas entry) until the atlas
@@ -7495,19 +7483,21 @@ namespace OloEngine
             // tile-based culling (no second scene iteration).
             Renderer3D::GetForwardPlus().SetLights(fpPointLights, fpSpotLights, fpSphereAreaLights);
 
-            // Baked lightmap (issue #439): resolve (cheap when nothing changed —
-            // Resolve() early-outs on a matching asset + bake key) and upload the
-            // parameters + atlas every frame, mirroring the probe stale-state
-            // guard below. A stale or absent bake uploads Enabled = 0, so the
-            // shader falls through to probes/IBL rather than sampling old data.
+            // Baked lightmap (issue #439): resolve (throttled — Resolve() does
+            // its O(scene) recheck every few frames and returns immediately on
+            // cached state in between) and upload the parameters + atlas every
+            // frame, mirroring the probe stale-state guard below. A stale or
+            // absent bake uploads Enabled = 0, so the shader falls through to
+            // probes/IBL rather than sampling old data. The call is deliberately
+            // UNCONDITIONAL: Resolve() itself handles LightmapAsset == 0 by
+            // dropping resolved state — gating here on the handle would skip
+            // exactly the call that notices the handle was cleared, serving the
+            // old atlas forever.
             {
                 // Non-const binding on purpose: Ref<T> propagates const through
                 // operator->, and Resolve() mutates the runtime.
                 auto& lightmapRuntime = GetLightmapRuntime();
-                if (m_LightmapSettings.LightmapAsset != 0)
-                {
-                    lightmapRuntime->Resolve(*this);
-                }
+                lightmapRuntime->Resolve(*this);
 
                 ShaderBindingLayout::LightmapUBO lightmapUBO{};
                 const bool lightmapActive = m_LightmapSettings.Enabled && lightmapRuntime->IsValid();

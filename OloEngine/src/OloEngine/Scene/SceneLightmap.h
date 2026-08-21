@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 
 #include <unordered_map>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -47,8 +48,13 @@ namespace OloEngine
       public:
         // Loads the settings' LightmapAsset, verifies its bake key against the
         // live scene, builds the UUID→region table, and (when a graphics device
-        // exists) creates the GPU atlas texture. Safe to call repeatedly; cheap
-        // when already resolved against the same asset and key.
+        // exists) creates the GPU atlas texture. Called every frame; the full
+        // recheck (UV2 scan + bake-key recompute over every static entity and
+        // light) runs only every kResolveRecheckIntervalFrames calls — the
+        // frames in between return immediately on cached state, so a scene
+        // edit is picked up within a fraction of a second without paying an
+        // O(scene) hash per frame. Invalidate() forces the next call to do a
+        // full recheck.
         //
         // Self-healing: a lightmap-static mesh that lost its UV2 stream (a
         // procedural primitive recreated at load, or a mesh whose .omesh was
@@ -58,8 +64,9 @@ namespace OloEngine
         // rasterized; only a genuinely-changed scene reads as stale.
         void Resolve(Scene& scene);
 
-        // Drops all resolved state (asset reloaded, bake re-run, scene edited).
-        // The next Resolve() rebuilds from the asset.
+        // Drops all resolved state (asset reloaded, bake re-run, scene edited),
+        // clears the failed-unwrap memo, and forces the next Resolve() to do a
+        // full recheck immediately (no throttle wait).
         void Invalidate();
 
         // True when a non-stale bake is resolved and the atlas texture exists.
@@ -100,6 +107,12 @@ namespace OloEngine
         [[nodiscard]] static u64 ComputeBakeKey(Scene& scene, const SceneLightmapSettings& settings);
 
       private:
+        // Drops the resolved asset state only — keeps the failed-unwrap memo
+        // and the warn-once latch, unlike the public Invalidate(). Used by the
+        // recheck miss path so a persistently-failing unwrap or a stale bake
+        // doesn't retry/re-warn on every recheck.
+        void ResetResolvedState();
+
         bool m_Resolved = false;
         bool m_Stale = false;
         AssetHandle m_ResolvedAsset = 0;
@@ -107,5 +120,11 @@ namespace OloEngine
         u32 m_AtlasSize = 0;
         Ref<Texture2D> m_AtlasTexture;
         std::unordered_map<UUID, glm::vec4> m_Regions;
+
+        // Resolve() throttle + warn-once latch + failed-unwrap memo (see
+        // Resolve()/Invalidate() docs above).
+        u32 m_FramesUntilRecheck = 0;
+        bool m_WarnedResolveFailure = false;
+        std::unordered_set<UUID> m_FailedUnwraps;
     };
 } // namespace OloEngine
