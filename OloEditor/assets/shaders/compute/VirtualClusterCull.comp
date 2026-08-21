@@ -17,7 +17,7 @@
 // side reads directly as the glMultiDrawElementsIndirectCount parameter — the
 // visible count never touches the CPU.
 //
-// Frustum planes are derived from u_ViewProjection with the same row-of-VP
+// Frustum planes are derived from CullViewProjection() with the same row-of-VP
 // technique as InstanceFrustumCull.comp / Frustum::Update() — keeping that
 // math in sync with the C++ side is a load-bearing invariant.
 //
@@ -197,7 +197,33 @@ layout(std140, binding = 69) uniform VirtualClusterCullParams
     int   u_DebugDrawClusters;       // 132 — cluster-bounds debug bit field, 0 = off (issue #725)
     uint  u_DebugDrawClusterStride;  // 136 — emit only every Nth cluster
     int   _vccPad0;                  // 140
+    // ---- Culling-camera override (issue #726) ---------------------------
+    // A FLAGGED override, not an unconditional replacement like the one in
+    // InstanceCullParams: this program is bound by two different views, and the
+    // ortho shadow cascades legitimately want the light matrices the camera UBO
+    // already carries. They leave the value-initialised block alone, so
+    // u_CullCameraPosition.w == 0 and every read below falls back to the camera
+    // UBO exactly as before. The main perspective view always sets it, frozen or
+    // not, so the override is exercised every frame.
+    mat4  u_CullViewProjection;      // 144 - render-origin-relative culling VP
+    vec4  u_CullCameraPosition;      // 208 - xyz relative pos, w = override enable
+    vec4  u_CullProjParams;          // 224 - x = |proj[1][1]|, y = near plane
 };
+
+// The culling camera's view-projection, or the bound camera UBO's when no
+// override was supplied (the shadow-cascade path).
+mat4 CullViewProjection()
+{
+    return (u_CullCameraPosition.w != 0.0) ? u_CullViewProjection : u_ViewProjection;
+}
+
+// The culling camera's position. LOD screen error and the backface cone test
+// both measure distance from it, and both must keep using the frozen camera or
+// flying closer silently refines a cut the frozen camera never made.
+vec3 CullCameraPosition()
+{
+    return (u_CullCameraPosition.w != 0.0) ? u_CullCameraPosition.xyz : u_CameraPosition;
+}
 
 // Hi-Z occlusion (issue #629, made two-phase by #682): reject clusters whose
 // screen-space bounding rectangle is entirely behind a max-reduction scene-depth
@@ -269,6 +295,11 @@ void DebugEmitCluster(uint clusterIndex, vec3 worldCenter, float worldRadius, in
 // produce a zero/negative denominator in the error projection.
 float NearPlane()
 {
+    // Culling-camera override (#726): the frozen projection is not on the GPU
+    // anywhere else, so its near plane arrives pre-extracted rather than being
+    // re-derived from a matrix that now describes the observer.
+    if (u_CullCameraPosition.w != 0.0)
+        return max(u_CullProjParams.y, 1e-4);
     // Reconstruction flavour (#691 Phase 8): the GL-form extraction needs
     // unremapped z rows.
     return max(u_ProjectionForReconstruction[3][2] / (u_ProjectionForReconstruction[2][2] - 1.0), 1e-4);
@@ -280,12 +311,13 @@ float NearPlane()
 // height to [0,1]; * viewport height yields pixels.
 float ProjectErrorPixels(vec3 worldCenter, float worldRadius, float worldError)
 {
-    float dist = length(worldCenter - u_CameraPosition);
+    float dist = length(worldCenter - CullCameraPosition());
     float denom = max(dist - worldRadius, NearPlane());
     // abs(): [1][1] is NEGATIVE on Vulkan (projection-seam y flip, #691
     // Phase 8) — unsigned, every projected error would be negative and no
     // cluster would ever refine. A magnitude is wanted; abs is a no-op on GL.
-    return worldError / denom * (abs(u_Projection[1][1]) * 0.5) * u_ViewportHeight;
+    float proj11 = (u_CullCameraPosition.w != 0.0) ? u_CullProjParams.x : abs(u_Projection[1][1]);
+    return worldError / denom * (proj11 * 0.5) * u_ViewportHeight;
 }
 
 float ProjectGroupErrorPixels(VirtualGroup grp, VirtualInstance inst)
@@ -306,11 +338,12 @@ float ProjectGroupErrorPixels(VirtualGroup grp, VirtualInstance inst)
 // Same row-of-VP plane extraction as InstanceFrustumCull.comp / Frustum::Update().
 vec4 extractPlane(int col, float colSign)
 {
+    mat4 vp = CullViewProjection();
     vec4 p = vec4(
-        u_ViewProjection[0][3] + colSign * u_ViewProjection[0][col],
-        u_ViewProjection[1][3] + colSign * u_ViewProjection[1][col],
-        u_ViewProjection[2][3] + colSign * u_ViewProjection[2][col],
-        u_ViewProjection[3][3] + colSign * u_ViewProjection[3][col]
+        vp[0][3] + colSign * vp[0][col],
+        vp[1][3] + colSign * vp[1][col],
+        vp[2][3] + colSign * vp[2][col],
+        vp[3][3] + colSign * vp[3][col]
     );
     float len = length(p.xyz);
     return p / len;
@@ -411,10 +444,11 @@ void EmitSurvivor(uint instanceIndex, uint clusterIndex, VirtualInstance inst, V
     bool alphaMasked = (inst.Flags & 2u) != 0u;
     if (u_SwRasterThresholdPixels > 0.0 && u_OrthoMode == 0 && !alphaMasked)
     {
-        float dist = length(worldCenter - u_CameraPosition);
+        float dist = length(worldCenter - CullCameraPosition());
         float denom = max(dist - worldRadius, NearPlane());
         // abs(): see ProjectErrorPixels — [1][1] is negative on Vulkan.
-        float projRadiusPixels = worldRadius / denom * (abs(u_Projection[1][1]) * 0.5) * u_ViewportHeight;
+        float swProj11 = (u_CullCameraPosition.w != 0.0) ? u_CullProjParams.x : abs(u_Projection[1][1]);
+        float projRadiusPixels = worldRadius / denom * (swProj11 * 0.5) * u_ViewportHeight;
         // Sphere fully in front of the near plane <=> signed distance exceeds
         // the radius (with margin for w-precision).
         float nearDistance = dot(nearPlane.xyz, worldCenter) + nearPlane.w;
@@ -576,7 +610,7 @@ void main()
     if (u_OrthoMode == 0 && (inst.Flags & 1u) != 0u && !twoSided && cluster.Cone.w < 1.0)
     {
         vec3 worldAxis = normalize(mat3(inst.Transform) * cluster.Cone.xyz);
-        vec3 toCluster = worldCenter - u_CameraPosition;
+        vec3 toCluster = worldCenter - CullCameraPosition();
         if (dot(toCluster, worldAxis) >= cluster.Cone.w * length(toCluster) + worldRadius)
         {
             DebugEmitCluster(clusterIndex, worldCenter, worldRadius, 4, vec3(0.2, 0.4, 1.0));

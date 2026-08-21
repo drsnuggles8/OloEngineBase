@@ -92,11 +92,13 @@ arbitrary order.
 | `OLO_DEBUG_SPACE_MAIN_NDC` | already main-camera NDC | screen-space work (tile grids, cull rectangles) without inverting a projection in the pusher |
 | `OLO_DEBUG_SPACE_OBSERVER_NDC` | NDC of a second, detached camera | inspecting another frustum from the main view |
 
-`ObserverCameraNDC` is **live but degenerate**: the observer camera itself is
-issue #726 and does not exist yet, so the pipeline uploads the *main* camera's
-inverse view-projection. That makes the space an exact identity round-trip to
-`MainCameraNDC` rather than a source of garbage geometry, and leaves one line to
-change (`RenderPipeline::UploadExecutionState`) when #726 lands.
+`ObserverCameraNDC` is now the **culling** camera's NDC (issue #726 landed; the
+one line was `RenderPipeline::UploadExecutionState`). A shader that computes
+something in the space the cull actually ran in pushes it in that space and it
+lands correctly in the observer's view. While nothing is frozen the culling
+camera *is* the main camera, so the space stays an exact identity round-trip to
+`MainCameraNDC` — which is what it was before #726, so no existing pusher
+changed meaning. See [observer-camera.md](observer-camera.md).
 
 ---
 

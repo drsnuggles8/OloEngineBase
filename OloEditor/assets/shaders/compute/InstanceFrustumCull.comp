@@ -15,7 +15,8 @@
 // safety margin into one uniform so the two paths match (verified by
 // FrustumCullParityTest in tests/Rendering/).
 //
-// Frustum planes are derived from `u_ViewProjection` (camera UBO binding 0)
+// Frustum planes are derived from `u_CullViewProjection` (the culling camera,
+// issue #726 — equal to the camera UBO's VP unless the observer is active)
 // using the same row-of-VP technique as `Frustum::Update()` in
 // OloEngine/src/OloEngine/Renderer/Frustum.cpp — keeping the math here in
 // sync with the C++ side is the load-bearing invariant.
@@ -98,6 +99,15 @@ layout(std140, binding = 71) uniform InstanceCullParams
     int   u_WriteRejected;       // 116 — phase 1: append occluded survivors to the reject list
     int   u_Phase2;              // 120 — phase 2: bound the dispatch by the reject-list length
     int   _instCullPad0;         // 124
+    // The CULLING camera's render-origin-relative view-projection (issue #726).
+    // Read UNCONDITIONALLY below in place of the camera UBO's u_ViewProjection:
+    // once the culling camera is frozen the camera UBO describes the free-flying
+    // observer, and a cull that quietly follows the observer produces a
+    // plausible set that is NOT the frozen one — which is worse than no tool at
+    // all, since the tool's whole job is to be the ground truth. Equal to the
+    // camera UBO's relative VP whenever nothing is frozen, so this is the only
+    // path rather than a branch that only runs in debug mode.
+    mat4  u_CullViewProjection;  // 128
 };
 
 // Extract a single frustum plane from a row-of-VP combination.
@@ -106,10 +116,10 @@ layout(std140, binding = 71) uniform InstanceCullParams
 vec4 extractPlane(int col, float colSign)
 {
     vec4 p = vec4(
-        u_ViewProjection[0][3] + colSign * u_ViewProjection[0][col],
-        u_ViewProjection[1][3] + colSign * u_ViewProjection[1][col],
-        u_ViewProjection[2][3] + colSign * u_ViewProjection[2][col],
-        u_ViewProjection[3][3] + colSign * u_ViewProjection[3][col]
+        u_CullViewProjection[0][3] + colSign * u_CullViewProjection[0][col],
+        u_CullViewProjection[1][3] + colSign * u_CullViewProjection[1][col],
+        u_CullViewProjection[2][3] + colSign * u_CullViewProjection[2][col],
+        u_CullViewProjection[3][3] + colSign * u_CullViewProjection[3][col]
     );
     float len = length(p.xyz);
     return p / len;

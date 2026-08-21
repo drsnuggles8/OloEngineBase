@@ -113,6 +113,7 @@ add_executable(OloEngine-Tests
 		Rendering/TextureCompressionTest.cpp
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
+		Rendering/ObserverCameraTest.cpp
 		Rendering/RendererSettingsBootstrapTest.cpp
 		Rendering/ReflectionProbeSelectionTest.cpp
 		Rendering/ReflectionProbeDistanceFieldTest.cpp
@@ -329,6 +330,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BloomVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ObserverCameraVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClusteredLightingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
