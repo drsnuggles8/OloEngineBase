@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <span>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -204,6 +205,181 @@ namespace OloEngine
         u32 m_Packed = 0;     // VTPackIndirection(...)
     };
     static_assert(sizeof(VTIndirectionUpdate) == 8, "VTIndirectionUpdate must match its std430 twin");
+
+    // Physical tile index -> its (x, y) in the cache atlas. A free function
+    // rather than a member of TerrainVirtualTexture because the delta below and
+    // its equivalence test both need it, and this is one of the addresses that
+    // is wrong-but-plausible when it is wrong.
+    [[nodiscard]] constexpr glm::uvec2 VTTileCoord(const TerrainVirtualTextureConfig& config, u32 tileIndex)
+    {
+        return glm::uvec2(tileIndex % config.CacheTilesWide, tileIndex / config.CacheTilesWide);
+    }
+
+    // ── Incremental indirection updates (slice 2 of #715) ────────────────────
+    //
+    // @brief One frame's worth of indirection-texel CHANGES, plus the region the
+    // coarse→fine propagation has to be re-run over because of them.
+    //
+    // Slice 1 republished the indirection map by REBUILDING it: clear every mip,
+    // re-stamp every resident page, re-propagate every level — ~1.33 *
+    // VirtualPagesWide^2 texel writes plus as many again in reads, on every frame
+    // where residency changed at all, to express a change of typically under a
+    // dozen texels. This is the reference's delta-list shape instead
+    // (IndirectionMapDelta.cs / PopulateIndirectionMap.compute in PhotoTerrain,
+    // MIT).
+    //
+    // **Three things make it equivalent to the rebuild rather than merely
+    // cheaper**, and each is a way it goes quietly wrong:
+    //
+    //  1. **An eviction is an ENTRY, not an absence.** The rebuild expressed
+    //     "page P is gone" by clearing the whole map first. With no clear pass, a
+    //     page that stopped being resident has to be written as an explicit
+    //     `Unmap` — a texel of zeroes, exactly what the clear kernel would have
+    //     left. A delta that only ever adds mappings leaves the evicted page's
+    //     texel pointing at a physical tile some other page now owns, which
+    //     renders as a patch of the wrong terrain rather than as an error.
+    //  2. **The propagation still has to run, over the DESCENDANTS of every
+    //     change.** A texel at mip m that changed invalidates the 2^k x 2^k block
+    //     below it at every finer mip m-k, because those texels may have
+    //     inherited from it. `GetFillRect` walks that down: the rect at level l
+    //     is (the rect at level l+1, doubled) united with the texels that changed
+    //     at level l itself. Skipping it reintroduces exactly the page pop the
+    //     mip chain exists to prevent — and it looks like a streaming bug, not an
+    //     indirection bug.
+    //  3. **One entry per texel, last write wins.** Two updates to the same texel
+    //     in one dispatch race, and the loser is not predictable. The index map
+    //     below is why the reference structure exists at all; its comment names
+    //     the case (a page unmapped and then mapped to something else in the same
+    //     frame).
+    //
+    // The rect union is a bounding box, not an exact set — two changes at
+    // opposite corners of a level cover it entirely. That is deliberate: the
+    // degenerate case costs what slice 1 cost unconditionally, so the delta path
+    // is never the slower one.
+    //
+    // **It is also where most of the remaining cost is**, and that was measured
+    // rather than assumed: at 256 pages wide a delta publish touches 17k–33k
+    // texels against the rebuild's fixed 175k, because the pages *arriving* are
+    // camera-local but the pages *leaving* are wherever the LRU tail happens to
+    // be, and the box around both is a large fraction of the level. Tracking N
+    // rectangles per level instead of one would recover that — at up to one
+    // dispatch per change per level, and the publish is dispatch-bound at these
+    // sizes, so it is very likely a regression. See
+    // docs/agent-rules/terrain-virtual-texturing.md §4 before changing it.
+    class VTIndirectionDelta
+    {
+      public:
+        // A half-open texel rectangle at one indirection mip.
+        struct Rect
+        {
+            u32 m_X = 0;
+            u32 m_Y = 0;
+            u32 m_Width = 0;
+            u32 m_Height = 0;
+
+            [[nodiscard]] bool IsEmpty() const
+            {
+                return m_Width == 0u || m_Height == 0u;
+            }
+            bool operator==(const Rect&) const = default;
+        };
+
+        // Drop everything and size the per-mip lists for `config`. Cheap enough
+        // to call every frame: the vectors keep their capacity.
+        void Reset(const TerrainVirtualTextureConfig& config);
+
+        // Page (mip, pageX, pageY) now resolves DIRECTLY to cache tile
+        // (tileX, tileY).
+        void Map(u32 mip, u32 pageX, u32 pageY, u32 tileX, u32 tileY);
+
+        // Page (mip, pageX, pageY) is no longer resident. Writes the same zeroed
+        // texel the clear kernel would have, so the fill pass adopts a coarser
+        // ancestor for it — see rule 1 above.
+        void Unmap(u32 mip, u32 pageX, u32 pageY);
+
+        // Every level is dirty everywhere: the path that reproduces slice 1's
+        // rebuild. Used when the indirection texture's contents are not known
+        // (freshly created storage) or when the delta outgrew its upload buffer.
+        // The caller must also run the clear pass — a full rebuild is the ONLY
+        // thing that needs it.
+        void MarkEverythingDirty();
+
+        [[nodiscard]] bool WantsFullRebuild() const
+        {
+            return m_FullRebuild;
+        }
+
+        // Flatten the per-mip lists into one mip-major array and derive the fill
+        // rectangles. Call once, after the last Map/Unmap of the frame.
+        void Finalize();
+
+        [[nodiscard]] u32 MipCount() const
+        {
+            return static_cast<u32>(m_PerMip.size());
+        }
+        [[nodiscard]] u32 Size() const
+        {
+            return m_Size;
+        }
+        [[nodiscard]] bool IsEmpty() const
+        {
+            return m_Size == 0u;
+        }
+
+        // Valid after Finalize(). The window for `mip` is
+        // [GetMipBase(mip), GetMipBase(mip) + GetMipCountAt(mip)).
+        [[nodiscard]] const std::vector<VTIndirectionUpdate>& GetUpdates() const
+        {
+            return m_Combined;
+        }
+        [[nodiscard]] u32 GetMipBase(u32 mip) const
+        {
+            return m_MipOffsets[mip];
+        }
+        [[nodiscard]] u32 GetMipCountAt(u32 mip) const
+        {
+            return m_MipOffsets[mip + 1u] - m_MipOffsets[mip];
+        }
+        // The region the fill kernel must re-propagate at `mip`. Empty means
+        // nothing at that level can have changed.
+        [[nodiscard]] const Rect& GetFillRect(u32 mip) const
+        {
+            return m_FillRects[mip];
+        }
+
+      private:
+        void Write(u32 mip, u32 pageX, u32 pageY, u32 packed);
+
+        u32 m_PagesWide = 0;
+        std::vector<std::vector<VTIndirectionUpdate>> m_PerMip;
+        // Page key -> index within ITS mip's list. A page key carries the mip, so
+        // one key can only ever appear in one of those lists. An unordered_map
+        // rather than the analyzer's open-addressed vector because the delta is
+        // three orders of magnitude smaller than a feedback buffer — the
+        // allocation it avoids is not worth the hand-rolled probe.
+        std::unordered_map<u32, u32> m_Index;
+        std::vector<VTIndirectionUpdate> m_Combined;
+        std::vector<u32> m_MipOffsets;
+        std::vector<Rect> m_ChangeBounds; // per mip, bbox of the texels written
+        std::vector<Rect> m_FillRects;    // per mip, after the coarse→fine walk
+        u32 m_Size = 0;
+        bool m_FullRebuild = false;
+    };
+
+    // Fold one residency change into the delta. The runtime's eviction listener
+    // and its newly-mapped loop call these, and so does the equivalence test —
+    // the page-key -> texel-coordinate decomposition is exactly the kind of
+    // address a transcription gets subtly wrong and then proves anyway.
+    inline void VTRecordEviction(VTIndirectionDelta& delta, u32 pageKey)
+    {
+        delta.Unmap(VTPageKeyMip(pageKey), VTPageKeyX(pageKey), VTPageKeyY(pageKey));
+    }
+    inline void VTRecordMapping(VTIndirectionDelta& delta, const TerrainVirtualTextureConfig& config, u32 pageKey,
+                                u32 tileIndex)
+    {
+        const glm::uvec2 coord = VTTileCoord(config, tileIndex);
+        delta.Map(VTPageKeyMip(pageKey), VTPageKeyX(pageKey), VTPageKeyY(pageKey), coord.x, coord.y);
+    }
 
     // @brief One tile the bake kernel must composite.
     // std430 twin is VTBakeRequest in compute/TerrainVTTileBake.comp.

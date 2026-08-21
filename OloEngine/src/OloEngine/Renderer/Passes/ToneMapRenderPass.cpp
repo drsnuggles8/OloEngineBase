@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/AutoExposure.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -183,6 +184,12 @@ namespace OloEngine
         m_HistogramBuffer->ClearData();
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
 
+        // Sub-pass bracket (issue #720): isolates AutoExposureHistogram.comp's
+        // GPU-ms under "ToneMapPass" instead of leaving it folded together
+        // with the (unswizzled) single-workgroup average pass below — needed
+        // to measure the thread-group swizzle adopted in the shader.
+        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
+        gpuSubTimers.BeginSubPass("AutoExposureHistogram");
         m_HistogramShader->Bind();
         // FrameTransient: graph-resolved HDR colour (issue #691 Phase 3).
         context.BindTextureOrHeapOffset(0, hdrTextureID, RHI::HeapSlotLifetime::FrameTransient);
@@ -192,6 +199,7 @@ namespace OloEngine
         RenderCommand::DispatchCompute((meterW + kLocalSize - 1u) / kLocalSize,
                                        (meterH + kLocalSize - 1u) / kLocalSize, 1u);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+        gpuSubTimers.EndSubPass();
 
         // --- Average pass: reduce histogram -> adapt -> exposure (1 workgroup) ---
         m_AverageShader->Bind();

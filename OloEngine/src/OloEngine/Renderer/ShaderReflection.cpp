@@ -71,11 +71,15 @@ namespace OloEngine
                 for (u32 i = 0; i < type.member_types.size(); ++i)
                 {
                     const auto& memberType = compiler.get_type(type.member_types[i]);
-                    const std::string& memberName = compiler.get_member_name(resource.type_id, i);
+                    // spirv-cross keeps a UBO's member names/decorations on
+                    // base_type_id, not type_id -- see #847. get_type(resource.type_id)
+                    // above is unaffected: member count and struct size are correct
+                    // off either id.
+                    const std::string& memberName = compiler.get_member_name(resource.base_type_id, i);
 
                     ShaderUniformDeclaration variable;
                     variable.Name = memberName;
-                    variable.Offset = compiler.get_member_decoration(resource.type_id, i, spv::DecorationOffset);
+                    variable.Offset = compiler.get_member_decoration(resource.base_type_id, i, spv::DecorationOffset);
 
                     // Convert SPIR-V type to ShaderDataType
                     variable.Type = ConvertSPIRVType(memberType);

@@ -1,15 +1,24 @@
 #version 450 core
 
 // =============================================================================
-// Terrain virtual texture — indirection map, pass 2 of 3 (issue #715).
+// Terrain virtual texture — indirection map, write pass (issue #715).
 //
-// Stamp the resident pages of ONE mip into that mip of the indirection texture.
-// The CPU sorts the update list by mip and hands each dispatch its [base, count)
+// Stamp ONE mip's changed texels into that mip of the indirection texture. The
+// CPU sorts the update list by mip and hands each dispatch its [base, count)
 // window, so the whole list is uploaded once and read by up to `mipCount`
 // dispatches — one per level, because a storage image binds a single level.
 //
-// alpha = 255 marks the texel as a DIRECT mapping. Pass 3 leaves those alone and
-// fills everything else from the coarser level.
+// alpha = 255 marks the texel as a DIRECT mapping; the propagation pass leaves
+// those alone and fills everything else from the coarser level.
+//
+// ── Slice 2: the list is a DELTA, and it carries unmappings too ──────────────
+//
+// Slice 1 handed this pass every resident page after clearing the whole map.
+// Since slice 2 it is the frame's *changes* — and an eviction is one of them,
+// written as an all-zero texel (alpha = 0), exactly what the clear pass used to
+// leave behind. That is the entry that stops an evicted page's stale physical
+// address surviving into a tile some other page now owns; without it the
+// terrain samples the wrong cache tile and looks merely different, not broken.
 //
 // C++ twin of the record: VTIndirectionUpdate in
 // OloEngine/Terrain/VirtualTexture/TerrainVirtualTextureTypes.h.
@@ -25,9 +34,14 @@ struct VTIndirectionUpdate
     uint Packed;     // tileX | tileY << 8 | residentMip << 16 | direct << 24
 };
 
+// The same block the propagation pass declares, and it must stay identical:
+// both kernels read the same buffer, so a member added to one is a silent
+// misalignment in the other. C++ twin: VTIndirectionHeader in
+// TerrainVirtualTexture.cpp.
 layout(std430, binding = 81) readonly buffer TerrainVTIndirectionUpdates
 {
     uvec4 u_VTUpdateParams; // x = base index, y = count, zw = unused
+    uvec4 u_VTFillParams;   // xy = rect origin, zw = rect size, in texels of this mip
     VTIndirectionUpdate b_VTUpdates[];
 };
 

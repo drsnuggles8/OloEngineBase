@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/VirtualTexture/TerrainVirtualTexture.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
@@ -14,8 +15,10 @@
 #include <glm/gtc/epsilon.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <memory>
+#include <span>
 #include <utility>
 
 namespace OloEngine
@@ -54,12 +57,30 @@ namespace OloEngine
         };
         static_assert(sizeof(VTBakeHeader) == 192, "VTBakeHeader must match the std430 header of TerrainVTBake");
 
-        // std430 header of the indirection update buffer.
+        // std430 header of the indirection update buffer. Declared IDENTICALLY by
+        // both kernels that read the buffer (compute/TerrainVTIndirectionWrite
+        // and ...Fill) — they are separate programs reading one buffer, so a
+        // member added to one declaration and not the other is a silent
+        // misalignment of `b_VTUpdates`, not a link error.
         struct VTIndirectionHeader
         {
-            glm::uvec4 m_Params{ 0u }; // baseIndex, count, unused, unused
+            glm::uvec4 m_WriteParams{ 0u }; // baseIndex, count, unused, unused
+            glm::uvec4 m_FillParams{ 0u };  // originX, originY, sizeX, sizeY (texels of the bound mip)
         };
-        static_assert(sizeof(VTIndirectionHeader) == 16, "VTIndirectionHeader must match its std430 twin");
+        static_assert(sizeof(VTIndirectionHeader) == 32, "VTIndirectionHeader must match its std430 twin");
+
+        // Byte offsets of the two header vectors, for the partial uploads in
+        // PublishIndirection. Spelled out rather than taken with offsetof: a
+        // glm::uvec4 is a class type, so offsetof on this struct is only
+        // conditionally supported (and SonarCloud rejects it outright). The
+        // std430 layout is the contract either way, and the assert below pins
+        // these two constants to the struct rather than leaving them a
+        // hand-maintained second copy of it.
+        constexpr u32 kWriteParamsOffset = 0u;
+        constexpr u32 kFillParamsOffset = static_cast<u32>(sizeof(glm::uvec4));
+        static_assert(kFillParamsOffset + sizeof(glm::uvec4) == sizeof(VTIndirectionHeader),
+                      "the header's two uvec4s must exactly tile it — a member added to either end "
+                      "moves b_VTUpdates and both GLSL declarations with it");
 
         [[nodiscard]] u32 DivRoundUp(u32 value, u32 divisor)
         {
@@ -156,11 +177,16 @@ namespace OloEngine
                               m_Config.MaxTileBakesPerFrame * static_cast<u32>(sizeof(VTBakeRequest));
         m_BakeBuffer = StorageBuffer::Create(bakeBytes, SBL::SSBO_TERRAIN_VT_BAKE, StorageBufferUsage::DynamicDraw);
 
-        // One update per resident tile is the hard ceiling: the map is rebuilt
-        // from the resident set, and the cache cannot hold more pages than it
-        // has tiles.
+        // TWICE the tile count, because the worst case is not the resident set.
+        // A full rebuild uploads one entry per resident page, so tile count is
+        // the ceiling there. A DELTA can hold an unmap for every page that was
+        // resident plus a map for every page that replaced one — which is what
+        // an Invalidate() followed by servicing in the same frame produces. A
+        // delta past this ceiling escalates to a rebuild rather than being
+        // uploaded in pieces (see PublishIndirection).
+        m_IndirectionUpdateCapacity = 2u * m_Config.CacheTileCount();
         const u32 updateBytes = static_cast<u32>(sizeof(VTIndirectionHeader)) +
-                                m_Config.CacheTileCount() * static_cast<u32>(sizeof(VTIndirectionUpdate));
+                                m_IndirectionUpdateCapacity * static_cast<u32>(sizeof(VTIndirectionUpdate));
         m_IndirectionUpdateBuffer =
             StorageBuffer::Create(updateBytes, SBL::SSBO_TERRAIN_VT_INDIRECTION, StorageBufferUsage::DynamicDraw);
 
@@ -188,11 +214,28 @@ namespace OloEngine
             [this](const u32& victim)
             {
                 // Runs mid-allocation and must not re-enter the cache — dropping
-                // our own record and flagging the map is all it does.
+                // our own record, recording the unmap and flagging the map is all
+                // it does.
+                //
+                // **The unmap is the whole reason this listener is load-bearing
+                // in slice 2.** Slice 1 could get away with only setting the
+                // dirty flag, because the rebuild cleared everything first. With
+                // no clear pass, a page that leaves the cache without an entry
+                // here keeps its old physical address in the indirection map and
+                // the terrain goes on sampling a tile some other page now owns.
                 m_Resident.erase(victim);
+                VTRecordEviction(m_IndirectionDelta, victim);
                 m_IndirectionDirty = true;
                 ++m_Stats.m_EvictionsTotal;
             });
+
+        m_IndirectionDelta.Reset(m_Config);
+        // Freshly created texture storage holds undefined bytes, not zeroes, so
+        // the first publish has to be the clear-everything path — there is no
+        // "unchanged" state to be incremental against yet.
+        m_IndirectionNeedsFullRebuild = true;
+        m_IndirectionDirty = true;
+        EnsureTimingQueries();
 
         m_Stats = Stats{};
         m_Stats.m_CacheTileCount = m_Config.CacheTileCount();
@@ -222,13 +265,21 @@ namespace OloEngine
         m_PendingAnalyses.clear();
 
         DestroyReadbackSlots();
+        DestroyTimingQueries();
 
+        // Before the listener is dropped, not after: DeallocateObject does not
+        // notify (only an LRU eviction does), so clearing the cache below would
+        // not have produced the unmaps anyway — but a listener still installed
+        // while the cache tears down would push entries into a delta that is
+        // about to be reset, which reads as a leak when it is not.
         m_PageCache.SetEvictionListener(nullptr);
         m_PageCache.Destroy();
         m_Resident.clear();
         m_BakeList.clear();
         m_Requests.clear();
-        m_UpdateScratch.clear();
+        m_IndirectionDelta.Reset(TerrainVirtualTextureConfig{});
+        m_IndirectionUpdateCapacity = 0;
+        m_IndirectionNeedsFullRebuild = false;
         m_UploadScratch.clear();
 
         m_IndirectionTexture = nullptr;
@@ -281,9 +332,16 @@ namespace OloEngine
         // Deallocate rather than Destroy: the physical tiles keep their storage,
         // they just stop being claimed by anyone, so the next frame re-bakes into
         // them.
+        //
+        // **The unmap has to be written HERE, by hand.** DeallocateObject does
+        // not fire the eviction listener — only an LRU eviction does — so
+        // dropping every page without recording it would leave the whole
+        // indirection map pointing into a cache nothing owns any more. This is
+        // the one residency change in the class with no notification behind it.
         for (const auto& [key, tile] : m_Resident)
         {
             (void)tile;
+            VTRecordEviction(m_IndirectionDelta, key);
             m_PageCache.DeallocateObject(key);
         }
         m_Resident.clear();
@@ -326,7 +384,149 @@ namespace OloEngine
 
     glm::uvec2 TerrainVirtualTexture::TileCoord(u32 tileIndex) const
     {
-        return glm::uvec2(tileIndex % m_Config.CacheTilesWide, tileIndex / m_Config.CacheTilesWide);
+        // Delegates rather than duplicates: the delta and its equivalence test
+        // reach the same arithmetic through VTTileCoord, and a second copy here
+        // is a second thing to get wrong.
+        return VTTileCoord(m_Config, tileIndex);
+    }
+
+    void TerrainVirtualTexture::EnsureTimingQueries()
+    {
+        if (m_TimingQueriesReady || !RenderCommand::IsDeviceAvailable())
+        {
+            return;
+        }
+
+        std::array<RHI::ResourceHandle, kTimingSlots * 2u> queries{};
+        RenderCommand::CreateQueries(RHI::QueryType::Timestamp, queries);
+
+        // Validated BEFORE anything is adopted, and released out of the array
+        // rather than out of the slots. Timing is instrumentation, not a feature
+        // — a backend that cannot hand out queries just leaves the GPU-ms fields
+        // at zero — but a PARTIAL failure would otherwise strand every handle
+        // past the first bad one, which no later call can reach.
+        const bool allValid = std::ranges::all_of(queries, [](const RHI::ResourceHandle& q)
+                                                  { return q.IsValid(); });
+        if (!allValid)
+        {
+            std::array<RHI::ResourceHandle, kTimingSlots * 2u> created{};
+            u32 count = 0;
+            for (const RHI::ResourceHandle& query : queries)
+            {
+                if (query.IsValid())
+                {
+                    created[count++] = query;
+                }
+            }
+            if (count > 0)
+            {
+                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(created.data(), count));
+            }
+            return;
+        }
+
+        for (u32 slot = 0; slot < kTimingSlots; ++slot)
+        {
+            m_TimingSlots[slot].m_Begin = queries[slot * 2u];
+            m_TimingSlots[slot].m_End = queries[slot * 2u + 1u];
+            m_TimingSlots[slot].m_Pending = false;
+        }
+        m_NextTimingSlot = 0;
+        m_TimingQueriesReady = true;
+    }
+
+    void TerrainVirtualTexture::DestroyTimingQueries()
+    {
+        if (RenderCommand::IsDeviceAvailable())
+        {
+            std::array<RHI::ResourceHandle, kTimingSlots * 2u> queries{};
+            u32 count = 0;
+            for (const auto& slot : m_TimingSlots)
+            {
+                if (slot.m_Begin.IsValid())
+                {
+                    queries[count++] = slot.m_Begin;
+                }
+                if (slot.m_End.IsValid())
+                {
+                    queries[count++] = slot.m_End;
+                }
+            }
+            if (count > 0)
+            {
+                RenderCommand::DeleteQueries(std::span<const RHI::ResourceHandle>(queries.data(), count));
+            }
+        }
+        m_TimingSlots = {};
+        m_NextTimingSlot = 0;
+        m_TimingQueriesReady = false;
+    }
+
+    void TerrainVirtualTexture::PollIndirectionTiming()
+    {
+        if (!m_TimingQueriesReady)
+        {
+            return;
+        }
+
+        // A poll, never a wait — the same rule the feedback readback lives by.
+        // A slot the GPU has not finished is simply left for a later frame.
+        for (auto& slot : m_TimingSlots)
+        {
+            if (!slot.m_Pending || !RenderCommand::IsQueryResultAvailable(slot.m_End))
+            {
+                continue;
+            }
+            const u64 begin = RenderCommand::GetQueryResultU64(slot.m_Begin);
+            const u64 end = RenderCommand::GetQueryResultU64(slot.m_End);
+            slot.m_Pending = false;
+            // Timestamps are NANOSECONDS on both backends (RHI::QueryType docs).
+            // The guard is not paranoia: a driver that reorders the two stamps
+            // would otherwise wrap the unsigned subtraction into a plausible
+            // multi-second reading.
+            if (end >= begin)
+            {
+                const f64 ms = static_cast<f64>(end - begin) / 1.0e6;
+                f64& best = slot.m_WasFullRebuild ? m_Stats.m_IndirectionRebuildGpuMs
+                                                  : m_Stats.m_IndirectionDeltaGpuMs;
+                // Minimum, not latest — see the field's note. `!(best > 0.0)` is
+                // "no sample yet"; an equality test against 0.0 is forbidden here
+                // (cpp-coding-quality.md §2) and would read worse anyway.
+                if (!(best > 0.0) || ms < best)
+                {
+                    best = ms;
+                }
+            }
+        }
+    }
+
+    u32 TerrainVirtualTexture::BeginIndirectionTiming()
+    {
+        if (!m_TimingQueriesReady)
+        {
+            return kTimingSlots;
+        }
+        const u32 slot = m_NextTimingSlot;
+        if (m_TimingSlots[slot].m_Pending)
+        {
+            // The GPU is more than kTimingSlots publishes behind. Skip the
+            // measurement rather than stall for it; the number is diagnostics.
+            return kTimingSlots;
+        }
+        RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_Begin);
+        return slot;
+    }
+
+    void TerrainVirtualTexture::EndIndirectionTiming(u32 slot, bool wasFullRebuild)
+    {
+        if (slot >= kTimingSlots)
+        {
+            return;
+        }
+        RenderCommand::WriteTimestamp(m_TimingSlots[slot].m_End);
+        m_TimingSlots[slot].m_Pending = true;
+        m_TimingSlots[slot].m_WasFullRebuild = wasFullRebuild;
+        m_NextTimingSlot = (slot + 1u) % kTimingSlots;
     }
 
     bool TerrainVirtualTexture::EnsureShaders()
@@ -557,6 +757,10 @@ namespace OloEngine
             m_Resident[pageKey] = tile;
             const glm::uvec2 coord = TileCoord(tile);
             m_BakeList.push_back(VTBakeRequest{ pageKey, coord.x, coord.y, 0u });
+            // Recorded AFTER the allocation that may have evicted somebody: the
+            // listener above already wrote that page's unmap, so the delta ends
+            // the frame with both halves of the swap in the right order.
+            VTRecordMapping(m_IndirectionDelta, m_Config, pageKey, tile);
             m_IndirectionDirty = true;
         }
 
@@ -685,6 +889,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Outside the dirty check on purpose: a publish's timestamps resolve
+        // several frames after it was issued, so the poll has to run on frames
+        // that publish nothing.
+        PollIndirectionTiming();
+
         if (!m_IndirectionDirty || !m_IndirectionClearShader || !m_IndirectionWriteShader ||
             !m_IndirectionFillShader || !m_IndirectionUpdateBuffer)
         {
@@ -695,96 +904,167 @@ namespace OloEngine
         const u32 mipCount = m_Config.MipCount();
         const RHI::ResourceHandle indirection = m_IndirectionTexture->GetRHIHandle();
 
-        // Build the update list, mip-major, so each mip's dispatch is a window
-        // [base, count) into one uploaded array.
-        m_UpdateScratch.clear();
-        m_UpdateScratch.reserve(m_Resident.size());
-        std::vector<u32> mipOffsets(mipCount + 1u, 0u);
-        for (u32 mip = 0; mip < mipCount; ++mip)
+        // Slice 1's whole-map rebuild, kept as the fallback for the cases a
+        // delta cannot express. Neither of the two real ones is "the map is
+        // stale" — a stale map is precisely what a delta IS for — they are both
+        // "the map's contents are not known":
+        //
+        //  - freshly created texture storage, whose bytes are undefined until
+        //    something writes them (Configure sets the flag);
+        //  - a delta that outgrew its upload buffer, which needs frame after
+        //    frame of residency changes with no publish in between (a shader
+        //    still loading). Uploading it in halves would leave the map
+        //    self-inconsistent between the two dispatches.
+        //
+        // The third trigger is the A/B lever, which is not a fallback at all —
+        // it exists so the path this slice replaced can still be measured and
+        // bisected against. It is applied first, so it wins over the capacity
+        // check rather than racing it.
+        //
+        // Expressing the rebuild AS a delta — every resident page mapped, every
+        // level's fill rect full — rather than as a second code path is what
+        // keeps the two in step: there is one write loop and one fill loop below,
+        // and all the flag changes is the clear pass and the rectangles.
+        m_IndirectionNeedsFullRebuild = m_IndirectionNeedsFullRebuild || Levers::TerrainVtFullRebuild();
+        if (m_IndirectionDelta.Size() > m_IndirectionUpdateCapacity)
         {
-            mipOffsets[mip] = static_cast<u32>(m_UpdateScratch.size());
+            OLO_CORE_WARN("TerrainVirtualTexture: {} indirection updates accumulated past the {}-entry upload "
+                          "buffer — rebuilding the map instead",
+                          m_IndirectionDelta.Size(), m_IndirectionUpdateCapacity);
+            m_IndirectionNeedsFullRebuild = true;
+        }
+        if (m_IndirectionNeedsFullRebuild)
+        {
+            m_IndirectionDelta.Reset(m_Config);
             for (const auto& [key, tile] : m_Resident)
             {
-                if (VTPageKeyMip(key) != mip)
-                {
-                    continue;
-                }
-                const glm::uvec2 coord = TileCoord(tile);
-                VTIndirectionUpdate update;
-                update.m_TexelCoord = (VTPageKeyY(key) << 16u) | VTPageKeyX(key);
-                update.m_Packed = VTPackIndirection(coord.x, coord.y, mip, /*direct*/ true);
-                m_UpdateScratch.push_back(update);
+                VTRecordMapping(m_IndirectionDelta, m_Config, key, tile);
             }
+            m_IndirectionDelta.MarkEverythingDirty();
         }
-        mipOffsets[mipCount] = static_cast<u32>(m_UpdateScratch.size());
 
-        if (!m_UpdateScratch.empty())
+        m_IndirectionDelta.Finalize();
+        const bool fullRebuild = m_IndirectionDelta.WantsFullRebuild();
+
+        if (m_IndirectionDelta.IsEmpty() && !fullRebuild)
         {
-            m_IndirectionUpdateBuffer->SetData(m_UpdateScratch.data(),
-                                               static_cast<u32>(m_UpdateScratch.size() * sizeof(VTIndirectionUpdate)),
+            // Dirty with nothing to write: Invalidate() on an already-empty
+            // resident set is the reachable case. The map is already correct.
+            m_IndirectionDelta.Reset(m_Config);
+            m_IndirectionDirty = false;
+            return;
+        }
+
+        const u32 timingSlot = BeginIndirectionTiming();
+
+        // One upload for the whole list; each mip's dispatch reads its own
+        // [base, count) window out of it.
+        if (!m_IndirectionDelta.IsEmpty())
+        {
+            const auto& updates = m_IndirectionDelta.GetUpdates();
+            m_IndirectionUpdateBuffer->SetData(updates.data(),
+                                               static_cast<u32>(updates.size() * sizeof(VTIndirectionUpdate)),
                                                static_cast<u32>(sizeof(VTIndirectionHeader)));
         }
         RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_VT_INDIRECTION, m_IndirectionUpdateBuffer->GetRHIHandle());
 
-        // Pass 1 — clear every mip. An entry the write pass does not re-stamp
-        // must read as unmapped, or an evicted page's stale physical address
-        // survives and the terrain samples a tile some other page now owns.
-        m_IndirectionClearShader->Bind();
-        for (u32 mip = 0; mip < mipCount; ++mip)
+        // Pass 1 — clear every mip, on a full rebuild ONLY. On the delta path an
+        // evicted page is an explicit all-zero ENTRY in the list below, which is
+        // the same texel this pass would have written; that equivalence is what
+        // lets the clear go away rather than merely shrink.
+        u32 texelsWritten = 0;
+        if (fullRebuild)
         {
-            const u32 size = m_Config.VirtualPagesWide >> mip;
-            HeapBinding::BindImageOrOffset(kImageUnitTarget, indirection, mip, /*layered*/ false, 0,
-                                           RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm, Persistent);
-            const u32 groups = DivRoundUp(size, kIndirectionClearGroupSize);
-            RenderCommand::DispatchCompute(groups, groups, 1);
+            m_IndirectionClearShader->Bind();
+            for (u32 mip = 0; mip < mipCount; ++mip)
+            {
+                const u32 size = m_Config.VirtualPagesWide >> mip;
+                HeapBinding::BindImageOrOffset(kImageUnitTarget, indirection, mip, /*layered*/ false, 0,
+                                               RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm, Persistent);
+                const u32 groups = DivRoundUp(size, kIndirectionClearGroupSize);
+                RenderCommand::DispatchCompute(groups, groups, 1);
+                // Counted, because it is a texel this publish wrote. Leaving it
+                // out made the reported cost of the path this slice replaced
+                // roughly half of what it is.
+                texelsWritten += size * size;
+            }
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
         }
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
 
-        // Pass 2 — stamp the resident pages, one dispatch per non-empty mip.
+        // Pass 2 — stamp the changed texels, one dispatch per non-empty mip.
         m_IndirectionWriteShader->Bind();
         for (u32 mip = 0; mip < mipCount; ++mip)
         {
-            const u32 count = mipOffsets[mip + 1u] - mipOffsets[mip];
+            const u32 count = m_IndirectionDelta.GetMipCountAt(mip);
             if (count == 0u)
             {
                 continue;
             }
             // A 16-byte CPU write between two dispatches that read the same
-            // buffer. GL orders it correctly (the earlier dispatch still sees
-            // the old bytes), and the alternative — a bound RANGE per mip —
-            // needs a glBindBufferRange the RHI facade does not expose. It is
-            // affordable because the whole rebuild only runs on frames where
-            // residency changed, and slice 2's delta updates replace this path
-            // outright.
-            VTIndirectionHeader header;
-            header.m_Params = glm::uvec4(mipOffsets[mip], count, 0u, 0u);
-            m_IndirectionUpdateBuffer->SetData(&header, static_cast<u32>(sizeof(header)), 0);
+            // buffer. GL orders it correctly (the earlier dispatch still sees the
+            // old bytes) and the Vulkan backend gives the same guarantee through
+            // #691 Phase 8's write snapshots — see
+            // docs/agent-rules/vulkan-command-ordered-buffer-writes.md. The
+            // alternative, a bound RANGE per mip, needs a glBindBufferRange the
+            // RHI facade does not expose.
+            const glm::uvec4 writeParams(m_IndirectionDelta.GetMipBase(mip), count, 0u, 0u);
+            m_IndirectionUpdateBuffer->SetData(&writeParams, static_cast<u32>(sizeof(writeParams)),
+                                               kWriteParamsOffset);
 
             HeapBinding::BindImageOrOffset(kImageUnitTarget, indirection, mip, /*layered*/ false, 0,
                                            RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm, Persistent);
             RenderCommand::DispatchCompute(DivRoundUp(count, kIndirectionWriteGroupSize), 1, 1);
+            texelsWritten += count;
         }
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
 
         // Pass 3 — propagate coarse to fine. STRICTLY top-down and one dispatch
         // per level with a barrier between: level m reads level m+1's OUTPUT, so
         // batching them would let a level inherit a half-written parent.
+        //
+        // Slice 2's change is the EXTENT, not the order: each level runs over the
+        // descendants of what changed above it plus what changed at it, and a
+        // level with an empty rect is skipped outright. The top-down walk is what
+        // makes one rect per level enough — level m+1 is already repaired by the
+        // time level m reads it.
+        u32 texelsFilled = 0;
         m_IndirectionFillShader->Bind();
         for (i32 mip = static_cast<i32>(mipCount) - 2; mip >= 0; --mip)
         {
             const u32 level = static_cast<u32>(mip);
-            const u32 size = m_Config.VirtualPagesWide >> level;
+            const VTIndirectionDelta::Rect& rect = m_IndirectionDelta.GetFillRect(level);
+            if (rect.IsEmpty())
+            {
+                continue;
+            }
+            const glm::uvec4 fillParams(rect.m_X, rect.m_Y, rect.m_Width, rect.m_Height);
+            m_IndirectionUpdateBuffer->SetData(&fillParams, static_cast<u32>(sizeof(fillParams)),
+                                               kFillParamsOffset);
+
             HeapBinding::BindImageOrOffset(kImageUnitTarget, indirection, level, /*layered*/ false, 0,
                                            RHI::Access::StorageReadWrite, RHI::Format::RGBA8UNorm, Persistent);
             HeapBinding::BindImageOrOffset(kImageUnitCoarser, indirection, level + 1u, /*layered*/ false, 0,
                                            RHI::Access::StorageRead, RHI::Format::RGBA8UNorm, Persistent);
-            const u32 groups = DivRoundUp(size, kIndirectionFillGroupSize);
-            RenderCommand::DispatchCompute(groups, groups, 1);
+            RenderCommand::DispatchCompute(DivRoundUp(rect.m_Width, kIndirectionFillGroupSize),
+                                           DivRoundUp(rect.m_Height, kIndirectionFillGroupSize), 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
+            texelsFilled += rect.m_Width * rect.m_Height;
         }
 
         // The terrain fragment stage texelFetches this texture.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureFetch);
+        EndIndirectionTiming(timingSlot, fullRebuild);
+
+        m_Stats.m_IndirectionTexelsWritten = texelsWritten;
+        m_Stats.m_IndirectionTexelsFilled = texelsFilled;
+        ++m_Stats.m_IndirectionPublishes;
+        if (fullRebuild)
+        {
+            ++m_Stats.m_IndirectionFullRebuilds;
+        }
+
+        m_IndirectionDelta.Reset(m_Config);
+        m_IndirectionNeedsFullRebuild = false;
         m_IndirectionDirty = false;
     }
 
@@ -793,6 +1073,10 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_ShadingReady = false;
+        // The denominator for "how often does a publish actually happen", which
+        // is half of what decides whether the publish cost matters at all.
+        // Counted before the early-outs so it means "frames the loop ran".
+        ++m_Stats.m_FramesUpdated;
 
         if (!m_Created || inputs.m_Material == nullptr || !inputs.m_Material->IsBuilt() ||
             inputs.m_Material->GetLayerCount() == 0u || !inputs.m_Heightmap.IsValid())

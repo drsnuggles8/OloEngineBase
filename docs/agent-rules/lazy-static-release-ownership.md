@@ -400,3 +400,33 @@ GL branch silently**. The test passed. It would have kept passing with the leak
 reinstated. The scratch copy had the corrected indices, so only running the real
 binary against a deliberately broken tree found it. Being a source-scan test makes
 that cheap: delete the release, re-run the already-built binary, no rebuild needed.
+
+## #841 resolved: not a species this document's scan covers, and not a code bug at all
+
+The 115-shader survivor named above turned out to be neither scan 1's territory
+(no owning static was misplaced) nor scan 2's (no missing `Shutdown()` call) — it
+was `ShaderResourceRegistry::m_Shader`, a **member of a member**: `OpenGLShader`
+embeds a `ShaderResourceRegistry` by value, and that registry's `SetShader()` had
+been storing a strong `Ref<Shader>` back to the very `OpenGLShader` that owns it.
+A shader's own resource registry keeping a strong reference to the shader is a
+self-cycle neither scan can see — scan 1 only inspects *direct* static/lazy-handle
+declarations, and this Ref lives two structs deep, reached only via
+`Shader::Create()` → `InitializeResourceRegistry()`. Fixed by storing a non-owning
+`const Shader*` instead (the registry can never outlive its enclosing shader — it
+is not separately heap-allocated — so a raw back-pointer is safe by construction).
+See `docs/agent-rules/component-serializer-codegen.md`-style "member of a member"
+reasoning generalizes: scan 1's declaration-only reach is a documented limit, not
+a bug in the guard.
+
+**The much longer story was verifying it.** The fix read correct on every
+re-derivation, yet four live rebuild-and-relaunch rounds each seemed to disprove
+it — the survivor count didn't move, then live refcount tracing showed every
+survivor pinned at exactly 1 with no reachable second owner, then a *different*
+shader started reproducibly double-freeing on close. All of it was stale
+incremental-build state, not the fix — see
+[incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) for the
+full shape and the rule it generalizes to. The lesson worth carrying forward
+specifically for *this* document's territory: a self-referential `Ref` through an
+embedded member is now a fourth thing to check, beyond the three scans already
+documented above, when a GPU-owning object survives every release call you can
+find.

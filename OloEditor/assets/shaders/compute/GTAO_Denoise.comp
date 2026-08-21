@@ -48,6 +48,7 @@ layout(std140, binding = 28) uniform GTAOParams
 // Resources
 // ---------------------------------------------------------------------------
 #include "../include/BindlessHeap.glsl"
+#include "../include/ThreadGroupSwizzle.glsl"
 
 // Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
 // declarations move into main() as locals built from the heap descriptors at
@@ -81,7 +82,8 @@ void main()
     OLO_HEAP_IMAGE(r8, writeonly, image2D, o_AOOutput, 1);
     OLO_HEAP_IMAGE(r8, OLO_HEAP_IMAGE_RW, image2D, i_Edges, 2);
 #endif
-    ivec2 pixCoord = ivec2(gl_GlobalInvocationID.xy);
+    // Thread-group swizzle for L2 locality (issue #720) — see ThreadGroupSwizzle.glsl.
+    ivec2 pixCoord = OloSwizzledGlobalInvocationID2D();
 
     if (pixCoord.x >= u_ScreenWidth || pixCoord.y >= u_ScreenHeight)
     {

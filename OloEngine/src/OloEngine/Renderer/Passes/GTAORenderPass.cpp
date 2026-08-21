@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/AOTargetIdentity.h"
@@ -349,18 +350,33 @@ namespace OloEngine
         // to trace AO inputs again, drop a one-shot OLO_CORE_TRACE here.)
 
         // Step 1: Generate HZB from scene depth
+        //
+        // Sub-pass brackets (issue #720) isolate each dispatch's GPU-ms under
+        // GPUPassTimerPool's "GTAOPass" bracket instead of folding HZB, GTAO
+        // and denoise into one undifferentiated number. This is what let the
+        // per-shader thread-group swizzle measurement find that GTAO.comp and
+        // HZB.comp regress under the swizzle (see ThreadGroupSwizzle.glsl) —
+        // both dispatches below are therefore UNSWIZZLED; only GTAO_Denoise
+        // adopted it. The brackets stay regardless, for future profiling.
+        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
+        gpuSubTimers.BeginSubPass("HZB");
         m_HZBGenerator.Generate(depthID);
+        gpuSubTimers.EndSubPass();
 
         // Step 2: Upload GTAO uniforms
         UploadGTAOUniforms();
 
         // Step 3: Dispatch GTAO main pass
+        gpuSubTimers.BeginSubPass("GTAO");
         DispatchGTAO(denoisePingTexID, normalsID, edgeTexID);
+        gpuSubTimers.EndSubPass();
 
         // Step 4: Denoise (if enabled)
         if (willDispatchDenoise)
         {
+            gpuSubTimers.BeginSubPass("GTAO_Denoise");
             DispatchDenoise(edgeTexID, denoisePingTexID, denoisePongTexID);
+            gpuSubTimers.EndSubPass();
         }
 
         const RHI::ResourceHandle finalAOTextureID = (willDispatchDenoise && (m_Settings.GTAODenoisePasses % 2 != 0))

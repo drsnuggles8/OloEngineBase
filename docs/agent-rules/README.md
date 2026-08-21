@@ -78,6 +78,9 @@ No crash, no error, no log line. Work or data disappears and the system keeps ru
 [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) (a stale wall between two chunks,
 when a carve does not rebuild the neighbours it uncovered) ·
 [component-serializer-codegen.md](component-serializer-codegen.md) (a field, from every save) ·
+[terrain-virtual-texturing.md](terrain-virtual-texturing.md) §4 (an *unmapping*, once publishing
+became incremental — the eviction that used to be expressed by clearing the whole map now has to be
+an explicit entry, and one of its two sources fires no notification at all) ·
 [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) (a
 settings struct, on entering Play) ·
 [light-path-photometric-parity.md](light-path-photometric-parity.md) (an authored light parameter →
@@ -129,6 +132,7 @@ Read before trusting any measurement.
 | [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) | `LNK1248` reports the offset where the archive crossed 4 GiB, not its size — two readings both looked ~0.5 MB over when the real overshoot was ~1.1 GB |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e | the CI job that said `--config Release` was building no config at all, and grepping for `--parallel` finds four sites of which only one is a runaway — the generator, not the flag, decides |
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close is not evidence of a clean teardown — the same leak was silent there for the backend's whole life |
+| [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | a correct fix, re-derived and re-read four times, that a live rebuild-and-relaunch kept "disproving" — the binary, not the source, was the thing lying |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument *must*
 fail on before trusting a case it passes.
@@ -148,7 +152,7 @@ previous-frame depth) ·
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) (clearing the LRU bit one step
 early evicts the whole cache every frame; §8 — a perspective light face cannot be culled by
 projecting AABB corners and dividing by w, and the caster vanishes only when it gets close) ·
-[terrain-virtual-texturing.md](terrain-virtual-texturing.md) (§4 — LRU moves to the front and evicts
+[terrain-virtual-texturing.md](terrain-virtual-texturing.md) (§5 — LRU moves to the front and evicts
 from the tail, so touching a priority-ordered list front-to-back evicts the highest-priority page
 first; §3a — the coarse-to-fine fill must be one dispatch per level, barriers between) · [render-pass-published-state.md](render-pass-published-state.md) (publish
 last, restore deliberately) · [cluster-lod-simplification.md](cluster-lod-simplification.md) (a lock
@@ -232,7 +236,8 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) ·
 [configure-time-variable-visibility.md](configure-time-variable-visibility.md) ·
 [vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·
-[asset-import-usd-alembic.md](asset-import-usd-alembic.md)
+[asset-import-usd-alembic.md](asset-import-usd-alembic.md) ·
+[incremental-build-odr-staleness.md](incremental-build-odr-staleness.md)
 
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
 [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) ·

@@ -41,9 +41,17 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-// Per-draw info (binding 49 = UBO_VIRTUAL_DRAW): this stage reads only the
-// instance index, but shares the one block spelling with every other
-// virtual-geometry pipeline.
+// Per-draw info (binding 49 = UBO_VIRTUAL_DRAW). This stage reads ONLY
+// u_VirtualInstanceIndex; it never reads the viewport dimensions, and
+// VirtualGeometryShadow.cpp uploads zero for every field it does not use.
+//
+// That "unused here" fact used to be expressed by naming the two slots
+// `_vdPad0`/`_vdPad1` locally (#856), which kept the disagreement with
+// VirtualVisibilityResolve.glsl — where the same bytes are real, populated
+// viewport fields — from tripping the cross-shader layout test. #813 removed
+// the disagreement itself instead: there is now one block, declared once in
+// the include, so a stage that ignores a field simply ignores it and no local
+// renaming is needed to keep the mirrors apart.
 #include "include/VirtualDrawInfo.glsl"
 
 void main()

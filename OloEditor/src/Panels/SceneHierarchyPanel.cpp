@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "SceneHierarchyPanel.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scripting/VisualScript/VisualScriptGraph.h"
 #include "OloEngine/Animation/Retargeting/HumanoidBone.h"
@@ -6062,6 +6063,44 @@ namespace OloEngine
                     ImGui::Text("GPU memory: %.1f MB cache + %.2f MB indirection",
                                 static_cast<f64>(stats.m_CacheBytes) / (1024.0 * 1024.0),
                                 static_cast<f64>(stats.m_IndirectionBytes) / (1024.0 * 1024.0));
+
+                    // ── Indirection publishing (#715 slice 2) ─────────────
+                    //
+                    // Both halves of the A/B, side by side. The publish only
+                    // happens on frames where residency changed, so the rate is
+                    // as much of the cost as the per-publish time is — printing
+                    // one without the other invites reading a 0.4 ms figure as
+                    // a per-frame cost when it is a once-every-N-frames one.
+                    ImGui::Separator();
+                    const f64 publishRate =
+                        stats.m_FramesUpdated > 0
+                            ? (100.0 * static_cast<f64>(stats.m_IndirectionPublishes) / stats.m_FramesUpdated)
+                            : 0.0;
+                    ImGui::Text("Indirection publishes: %u of %u frames (%.1f%%), %u full rebuilds",
+                                stats.m_IndirectionPublishes, stats.m_FramesUpdated, publishRate,
+                                stats.m_IndirectionFullRebuilds);
+                    ImGui::Text("Last publish: %u texels stamped, %u re-propagated",
+                                stats.m_IndirectionTexelsWritten, stats.m_IndirectionTexelsFilled);
+                    ImGui::Text("Indirection GPU (best sample): %.4f ms delta / %.4f ms rebuild",
+                                stats.m_IndirectionDeltaGpuMs, stats.m_IndirectionRebuildGpuMs);
+
+                    // The checkbox and OLO_TERRAIN_VT_FULL_REBUILD are one
+                    // switch, not two: the lever registry IS the state, so a
+                    // session started with the environment variable shows the
+                    // box already ticked instead of silently disagreeing with
+                    // it.
+                    bool forceRebuild = Levers::TerrainVtFullRebuild();
+                    if (ImGui::Checkbox("Force full indirection rebuild (A/B)", &forceRebuild))
+                    {
+                        Levers::SetTerrainVtFullRebuild(forceRebuild);
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("Publishes through slice 1's whole-map rebuild instead of the delta.\n"
+                                          "The two are required to produce the same map, so the frame must not\n"
+                                          "change — only the 'rebuild' timing above should.\n"
+                                          "Same switch as OLO_TERRAIN_VT_FULL_REBUILD / olo_cvar_set.");
+                    }
 
                     if (ImGui::Button("Rebake VT Cache"))
                     {

@@ -77,16 +77,42 @@ namespace OloEngine
             return m_Initialized;
         }
 
-        // @brief Set the associated shader for this registry
+        // @brief Set the associated shader for this registry.
+        //
+        // Stores a non-owning back-pointer, deliberately NOT a Ref<Shader>: this
+        // registry is always a BY-VALUE member of the OpenGLShader it describes
+        // (OpenGLShader::m_ResourceRegistry), so its lifetime is strictly bounded
+        // by the shader's — it is constructed and destroyed as part of the shader
+        // object and can never outlive it or be reused for a different one. A
+        // Ref<Shader> here would be a self-referential strong cycle (the shader
+        // owning a strong reference to itself through its own member), which
+        // inflates every shader's refcount by one for its entire life: no amount
+        // of external Ref<Shader>::Reset() at teardown can ever bring the count to
+        // zero, so the shader is never destroyed and its GL program never deleted
+        // (issue #841 — 115 OpenGL shader programs surviving Renderer::Shutdown()
+        // while the identical Vulkan path, whose VulkanShader never calls
+        // InitializeResourceRegistry, released the same set cleanly).
         void SetShader(const Ref<Shader>& shader)
         {
-            m_Shader = shader;
+            m_Shader = shader.get();
         }
 
-        // @brief Get the associated shader
+        // @brief Get the associated shader.
+        //
+        // Goes through WeakRef<Shader>::Lock() rather than constructing a
+        // Ref<Shader> from m_Shader directly: Lock() atomically checks that
+        // the object is still live (under the same mutex Ref<T>::DecRef's
+        // release path uses) before incrementing, so a caller that reached
+        // this registry via the raw-pointer-keyed ShaderResourceRegistry::Find()
+        // map — as CommandDispatch::SetShaderResource already does — can never
+        // resurrect a Ref during the shader's own release. A plain
+        // Ref<Shader>(m_Shader) would skip that check entirely (see
+        // docs/agent-rules/intrusive-refcount-weakref-races.md, case 2).
+        // const_cast is safe: m_Shader is const only because SetShader() takes
+        // its Ref<Shader> by const&, not because the pointee is actually const.
         Ref<Shader> GetShader() const
         {
-            return m_Shader;
+            return m_Shader ? WeakRef<Shader>(const_cast<Shader*>(m_Shader)).Lock() : nullptr;
         }
 
         // Resource discovery from reflection
@@ -203,7 +229,8 @@ namespace OloEngine
         static bool IsStandardTextureBinding(u32 binding, const std::string& name);
 
       private:
-        Ref<Shader> m_Shader;
+        // Non-owning — see SetShader() above for why this must not be a Ref<Shader>.
+        const Shader* m_Shader = nullptr;
         std::unordered_map<std::string, ResourceBinding> m_Bindings;
         Ref<InflightFrameManager> m_FrameManager;
         u32 m_CurrentFrame = 0;

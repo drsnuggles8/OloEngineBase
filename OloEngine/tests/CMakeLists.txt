@@ -143,6 +143,7 @@ add_executable(OloEngine-Tests
 		Rendering/ShaderStageContractTest.cpp
 		Rendering/ShaderPackTest.cpp
 		Rendering/ShaderBinaryCacheRoundTripTest.cpp
+		Rendering/ShaderResourceRegistrySelfRefTest.cpp
 		Rendering/GLDebugMessageParseTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
@@ -177,6 +178,7 @@ add_executable(OloEngine-Tests
 		Rendering/RCASMathTest.cpp
 		Rendering/SSAOMathTest.cpp
 		Rendering/GTAOMathTest.cpp
+		Rendering/ThreadGroupSwizzleTest.cpp
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp
 		Rendering/ClusteredLightingMathTest.cpp
