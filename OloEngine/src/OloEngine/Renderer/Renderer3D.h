@@ -27,6 +27,7 @@
 #include "OloEngine/Renderer/TerrainVTBindings.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -82,6 +83,13 @@ namespace OloEngine
         glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
         glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
         glm::vec3 ViewPosition = glm::vec3(0.0f);
+        // Culling camera position (issue #726). Equal to ViewPosition unless
+        // the culling camera is frozen. LOD selection reads THIS, not
+        // ViewPosition — a frozen cut must keep the LOD levels it was cut with,
+        // or flying closer silently swaps in a different mesh and the "frozen"
+        // picture stops being the one the culler saw.
+        glm::vec3 CullViewPosition = glm::vec3(0.0f);
+        // Frustum of the CULLING camera (frozen when the observer is active).
         Frustum ViewFrustum;
         bool FrustumCullingEnabled = true;
         bool DynamicCullingEnabled = true;
@@ -729,6 +737,52 @@ namespace OloEngine
         static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
         static bool IsVisibleInFrustum(const BoundingSphere& sphere);
         static bool IsVisibleInFrustum(const BoundingBox& box);
+
+        // ---- Observer camera / frozen culling camera (issue #726) ----------
+        //
+        // THE ONE RULE: everything that DECIDES WHAT IS DRAWN reads the
+        // *culling* camera; everything that decides HOW IT LOOKS ON SCREEN
+        // reads the *render* camera. They are the same matrices until the
+        // freeze is toggled on, at which point the culling camera stops
+        // following the render camera and the viewport becomes a free-flying
+        // observer looking at the frozen cut from outside.
+        //
+        // The property that makes this a diagnostic instead of a curiosity:
+        // anything the frozen camera culled STAYS culled, so it is visibly
+        // missing when you fly around it. Every site that quietly reads "the
+        // camera" without saying which one is therefore a latent lie — the
+        // enumeration of what is frozen and what deliberately is not lives in
+        // docs/agent-rules/observer-camera.md.
+        static void SetCullingCameraFrozen(bool frozen);
+        [[nodiscard]] static bool IsCullingCameraFrozen();
+        // World-space culling camera. Equal to the render camera's matrices
+        // while unfrozen; pinned to the freeze-time values while frozen.
+        [[nodiscard]] static const glm::mat4& GetCullViewMatrix();
+        [[nodiscard]] static const glm::mat4& GetCullProjectionMatrix();
+        [[nodiscard]] static const glm::mat4& GetCullViewProjectionMatrix();
+        [[nodiscard]] static const glm::vec3& GetCullViewPosition();
+        [[nodiscard]] static f32 GetCullNearClip();
+        [[nodiscard]] static f32 GetCullFarClip();
+        // Render-origin-relative forms, for the GPU cull dispatches (which read
+        // render-relative instance transforms). Valid from PrepareFrame onward.
+        [[nodiscard]] static const glm::mat4& GetCullViewProjectionRelative();
+        [[nodiscard]] static const glm::vec3& GetCullViewPositionRelative();
+        // x = |cull projection[1][1]|, y = cull near-plane distance.
+        [[nodiscard]] static const glm::vec2& GetCullProjParams();
+        // The eight world-space corners of a view-projection's frustum, indexed
+        // by the ShaderDebugDrawBox corner convention (bit0 = +x, bit1 = +y,
+        // bit2 = +z in NDC) so the debug-draw expansion recovers the 12 edges as
+        // "every pair differing in exactly one bit". Unprojects the GL-convention
+        // NDC cube through inverse(viewProjection), so it is exact for
+        // perspective and orthographic alike rather than re-deriving from a
+        // fov/aspect the projection may not have come from.
+        [[nodiscard]] static std::array<glm::vec3, 8> ComputeFrustumCorners(const glm::mat4& viewProjection);
+        // Draw a view-projection's frustum as a wireframe box through the
+        // shader-debug-draw channel (issue #725). Requires
+        // RendererSettings::ShaderDebugDrawEnabled — the pass that consumes the
+        // channel is not declared otherwise.
+        static void DrawFrustumWireframe(const glm::mat4& viewProjection,
+                                         const glm::vec3& color = glm::vec3(1.0f, 0.85f, 0.2f));
 
         // Debug culling methods
         static void SetForceDisableCulling(bool disable);
@@ -1625,6 +1679,12 @@ namespace OloEngine
         [[nodiscard]] static GPUFrustumCuller::HZBOcclusionInputs GetRetainedOcclusionHZB();
 
       private:
+        // Copy render camera -> culling camera unless the culling camera is
+        // frozen (issue #726). Called from every BeginScene overload BEFORE
+        // PrepareFrame, which is what derives ViewFrustum and uploads the cull
+        // camera UBO from these fields.
+        static void RefreshCullingCamera();
+
         [[nodiscard]] static GPUDrivenOcclusionPass* GetGPUOcclusionPass();
         // Deferred two-phase occlusion (#486). Exposes the deferred phase-2 pass
         // for submission-side routing; mirrors GetGPUOcclusionPass for the
@@ -1739,6 +1799,8 @@ namespace OloEngine
             // the renderer reverts to exact pre-#429 world-space behaviour.
             bool CameraRelativeEnabled = true;
 
+            // Frustum of the CULLING camera — derived from
+            // CullViewProjectionMatrix, NOT ViewProjectionMatrix (issue #726).
             Frustum ViewFrustum;
             bool FrustumCullingEnabled = true;
             bool DynamicCullingEnabled = true;
@@ -1753,6 +1815,41 @@ namespace OloEngine
             glm::vec3 PrimaryDirectionalLightDir = glm::vec3(0.0f, -1.0f, 0.0f);
             f32 CameraNearClip = 0.1f;
             f32 CameraFarClip = 1000.0f;
+
+            // ---- Culling camera (issue #726) ------------------------------
+            // Mirrors the render camera above one-for-one. RefreshCullingCamera()
+            // copies render -> cull every frame while CullingCameraFrozen is
+            // false, so these are the same matrices in the normal case and the
+            // frozen ones the moment the observer is switched on. World space,
+            // like their render twins; the render-relative copies are derived
+            // where they are uploaded.
+            bool CullingCameraFrozen = false;
+            glm::mat4 CullViewMatrix = glm::mat4(1.0f);
+            glm::mat4 CullProjectionMatrix = glm::mat4(1.0f);
+            glm::mat4 CullViewProjectionMatrix = glm::mat4(1.0f);
+            glm::vec3 CullViewPos = glm::vec3(0.0f);
+            f32 CullNearClip = 0.1f;
+            f32 CullFarClip = 1000.0f;
+            // The culling camera's PREVIOUS-frame view-projection, i.e. the VP
+            // the retained Hi-Z pyramid was rendered with. Deliberately NOT
+            // PrevViewProjectionMatrix: that one is motion-vector history and
+            // must keep tracking the render camera or TAA / motion blur break.
+            // Frozen together with the pyramid itself — see
+            // GenerateOcclusionHZB(), which stops regenerating while frozen so
+            // the depth the occlusion cull tests against stays the depth the
+            // frozen camera actually rendered.
+            glm::mat4 CullPrevViewProjectionMatrix = glm::mat4(1.0f);
+            // Render-origin-relative derivations of the above, recomputed once
+            // per frame in PrepareFrame and consumed by the GPU cull dispatches
+            // (which read render-relative instance transforms, issue #429).
+            // Derived centrally rather than at each dispatch so the three cull
+            // shaders cannot disagree about which origin they were shifted by.
+            glm::mat4 CullViewProjectionRelative = glm::mat4(1.0f);
+            glm::vec3 CullViewPosRelative = glm::vec3(0.0f);
+            // x = |CullProjectionMatrix[1][1]| (cot(fovY/2)), y = near-plane
+            // distance. The virtual-geometry cull's screen-error math needs both
+            // and has no other route to the frozen projection.
+            glm::vec2 CullProjParams = glm::vec2(1.0f, 0.1f);
 
             Statistics Stats;
             u32 CommandCounter = 0;

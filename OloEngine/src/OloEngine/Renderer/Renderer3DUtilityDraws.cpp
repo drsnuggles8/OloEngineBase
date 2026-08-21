@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -1706,5 +1707,47 @@ namespace OloEngine
                 }
             }
         }
+    }
+
+    std::array<glm::vec3, 8> Renderer3D::ComputeFrustumCorners(const glm::mat4& viewProjection)
+    {
+        // Unproject the NDC cube rather than rebuilding the frustum from a
+        // fov/aspect/near/far quadruple. The culling camera's projection is
+        // whatever the scene camera handed us — perspective, orthographic, an
+        // asymmetric off-centre frustum from a reflection or a portal — and the
+        // only description guaranteed to match what the plane extraction in
+        // Frustum::Update() actually culled with is the matrix itself.
+        const glm::mat4 inverseVP = glm::inverse(viewProjection);
+
+        std::array<glm::vec3, 8> corners{};
+        for (u32 i = 0; i < 8; ++i)
+        {
+            // ShaderDebugDrawBox corner convention: bit0 = +x, bit1 = +y,
+            // bit2 = +z. GL-convention NDC, so z spans [-1, 1] — the Cull*
+            // matrices are deliberately kept GL-shaped (the A8 seam is applied
+            // only where a matrix becomes GPU-visible).
+            const glm::vec4 ndc((i & 1u) ? 1.0f : -1.0f,
+                                (i & 2u) ? 1.0f : -1.0f,
+                                (i & 4u) ? 1.0f : -1.0f,
+                                1.0f);
+            const glm::vec4 world = inverseVP * ndc;
+            // A degenerate / uninitialised projection can produce w == 0 here.
+            // Fall back to the origin rather than emitting an inf corner, which
+            // would blow the debug-draw expansion's screen-space quad up to
+            // cover the whole viewport and read as "the tool is broken".
+            corners[i] = (std::abs(world.w) > 1e-6f) ? glm::vec3(world) / world.w : glm::vec3(0.0f);
+        }
+        return corners;
+    }
+
+    void Renderer3D::DrawFrustumWireframe(const glm::mat4& viewProjection, const glm::vec3& color)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // ONE box push per frame, so the channel (4096 entries) cannot overflow
+        // from this consumer — no stride gate needed, unlike the per-cluster
+        // consumer in VirtualClusterCull.comp. See docs/agent-rules/gpu-debug-draws.md §2c.
+        ShaderDebugDraw::DrawBox(ComputeFrustumCorners(viewProjection), color,
+                                 ShaderDebugDrawSpace::World);
     }
 } // namespace OloEngine

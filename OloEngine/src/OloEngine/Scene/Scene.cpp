@@ -6888,6 +6888,16 @@ namespace OloEngine
 
         glm::mat4 viewProjection = projectionMatrix * viewMatrix;
 
+        // The CULLING camera (issue #726). Identical to the matrices above
+        // unless the observer camera has frozen it, at which point everything
+        // that decides WHAT IS DRAWN has to keep using the frozen values while
+        // the arguments to this function describe the free-flying observer.
+        // Read from Renderer3D rather than threaded through the signature
+        // because BeginScene already owns the freeze, and one source of truth is
+        // the point -- a second copy is a second thing to forget to freeze.
+        const glm::mat4& cullViewProjection = Renderer3D::GetCullViewProjectionMatrix();
+        const glm::vec3& cullCameraPosition = Renderer3D::GetCullViewPosition();
+
         // Collect all scene lights into MultiLight UBO and set up shadows
         glm::vec3 directionalLightDir(0.0f, -1.0f, 0.0f);
         bool hasDirectionalShadow = false;
@@ -7139,12 +7149,19 @@ namespace OloEngine
 
             if (hasDirectionalShadow && shadowMap.IsEnabled())
             {
+                // Cascades are fitted to the CULLING camera's frustum (#726).
+                // A cascade is a cull volume: fitting it to the observer would
+                // re-render shadows for geometry the frozen camera never
+                // considered, and the #652 class of bug (shadow cull using the
+                // wrong frustum) is exactly what this tool has to be able to
+                // show. The visible consequence while frozen -- shadows only
+                // inside the frozen frustum -- is the honest picture.
                 shadowMap.ComputeCSMCascades(
                     directionalLightDir,
-                    viewMatrix,
-                    projectionMatrix,
-                    cameraNearClip,
-                    cameraFarClip);
+                    Renderer3D::GetCullViewMatrix(),
+                    Renderer3D::GetCullProjectionMatrix(),
+                    Renderer3D::GetCullNearClip(),
+                    Renderer3D::GetCullFarClip());
             }
 
             // ---------------------------------------------------------------
@@ -7995,8 +8012,12 @@ namespace OloEngine
                     if (terrain.m_TessellationEnabled && terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
                     {
                         const auto& terrainTransform = terrainView.get<TransformComponent>(entity);
+                        // Culling camera (#726): the quadtree descent is LOD
+                        // selection AND frustum culling in one, so both halves
+                        // must stay frozen or the terrain silently re-tessellates
+                        // around the observer.
                         const TerrainLocalCullInputs local = MakeTerrainLocalCullInputs(
-                            terrainTransform.GetTransform(), cameraPosition, viewProjection);
+                            terrainTransform.GetTransform(), cullCameraPosition, cullViewProjection);
 
                         // GPU descent first (issue #714): it does the whole
                         // selection + seam resolution on the GPU and leaves an
@@ -8210,12 +8231,12 @@ namespace OloEngine
                         auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
-                                                   &hasActiveShadows, &cameraPosition, &viewProjection](const TerrainChunkManager& chunkMgr,
-                                                                                                        const TerrainData* terrainData,
-                                                                                                        const TerrainMaterial* tileMaterial,
-                                                                                                        f32 worldSizeX, f32 worldSizeZ,
-                                                                                                        f32 heightScale,
-                                                                                                        const glm::vec3& tileWorldOrigin)
+                                                   &hasActiveShadows, &cullCameraPosition, &cullViewProjection](const TerrainChunkManager& chunkMgr,
+                                                                                                                const TerrainData* terrainData,
+                                                                                                                const TerrainMaterial* tileMaterial,
+                                                                                                                f32 worldSizeX, f32 worldSizeZ,
+                                                                                                                f32 heightScale,
+                                                                                                                const glm::vec3& tileWorldOrigin)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -8239,7 +8260,7 @@ namespace OloEngine
                             // single-tile path (WorldOrigin = 0) tileModel == the entity
                             // transform, so this is identical to the pre-#613 frustum.
                             const TerrainLocalCullInputs tileCull =
-                                MakeTerrainLocalCullInputs(tileModel, cameraPosition, viewProjection);
+                                MakeTerrainLocalCullInputs(tileModel, cullCameraPosition, cullViewProjection);
 
                             RHI::ResourceHandle heightmapID{};
                             if (terrainData && terrainData->GetGPUHeightmap())

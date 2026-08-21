@@ -190,6 +190,12 @@ namespace OloEngine
         // frustum-only path (u_OcclusionEnabled == 0), exactly as the old
         // "just don't call Set*" code behaved.
         UBOStructures::InstanceCullUBO cullParams{};
+        // The culling camera, render-origin-relative and in the rasterizer
+        // flavour the camera UBO's u_ViewProjection uses -- the shader's plane
+        // extraction reads this instead of the camera UBO (issue #726). Filled
+        // on every dispatch, frozen or not, so this is the only path.
+        cullParams.CullViewProjection =
+            RHI::AdjustProjectionForBackend(Renderer3D::GetCullViewProjectionRelative());
         cullParams.InstanceCount = inputCount;
         cullParams.LocalBoundingSphere = localBoundingSphere;
         cullParams.RadiusExpansion = radiusExpansion;
@@ -328,6 +334,12 @@ namespace OloEngine
         shader->Bind();
         // One std140 refill per dispatch (issue #691 Phase 7).
         UBOStructures::InstanceCullUBO cullParams{};
+        // The culling camera, render-origin-relative and in the rasterizer
+        // flavour the camera UBO's u_ViewProjection uses -- the shader's plane
+        // extraction reads this instead of the camera UBO (issue #726). Filled
+        // on every dispatch, frozen or not, so this is the only path.
+        cullParams.CullViewProjection =
+            RHI::AdjustProjectionForBackend(Renderer3D::GetCullViewProjectionRelative());
         cullParams.InstanceCount = inputCount;
         cullParams.LocalBoundingSphere = localBoundingSphere;
         cullParams.RadiusExpansion = radiusExpansion;
@@ -423,6 +435,12 @@ namespace OloEngine
         // Dispatch the worst case (whole batch); the shader clamps to the live
         // reject count read from binding 19.
         UBOStructures::InstanceCullUBO cullParams{};
+        // The culling camera, render-origin-relative and in the rasterizer
+        // flavour the camera UBO's u_ViewProjection uses -- the shader's plane
+        // extraction reads this instead of the camera UBO (issue #726). Filled
+        // on every dispatch, frozen or not, so this is the only path.
+        cullParams.CullViewProjection =
+            RHI::AdjustProjectionForBackend(Renderer3D::GetCullViewProjectionRelative());
         cullParams.InstanceCount = result.InputCount;
         cullParams.LocalBoundingSphere = result.LocalBoundingSphere;
         cullParams.RadiusExpansion = result.RadiusExpansion;

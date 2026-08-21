@@ -178,6 +178,19 @@ namespace OloEngine
             }
         }
 
+        // Observer camera (issue #726). Here as well as in the Renderer Settings
+        // panel for the same reason as the debug draws above: the F3 overlay is
+        // what a shipped/runtime build has, and "is this thing culled or just
+        // off-screen?" is a runtime question too.
+        ImGui::Checkbox("Observer Camera (freeze culling)", &settings.ObserverCameraEnabled);
+        if (settings.ObserverCameraEnabled)
+        {
+            const glm::vec3& cullPos = Renderer3D::GetCullViewPosition();
+            ImGui::Text("  frozen at %.1f, %.1f, %.1f", cullPos.x, cullPos.y, cullPos.z);
+            if (!settings.ShaderDebugDrawEnabled)
+                ImGui::TextDisabled("  (enable Shader Debug Draws to see the frustum)");
+        }
+
         ImGui::BeginDisabled();
         bool showEntityNames = false;
         ImGui::Checkbox("Entity Names", &showEntityNames);

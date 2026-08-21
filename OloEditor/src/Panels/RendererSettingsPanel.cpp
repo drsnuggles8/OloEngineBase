@@ -159,6 +159,8 @@ namespace OloEngine
             AppendChange(changes, "ShowBoundingBoxes", before.ShowBoundingBoxes, after.ShowBoundingBoxes);
             AppendChange(changes, "DebugVelocityOverlayForward", before.DebugVelocityOverlayForward, after.DebugVelocityOverlayForward);
             AppendChange(changes, "ShaderDebugDrawEnabled", before.ShaderDebugDrawEnabled, after.ShaderDebugDrawEnabled);
+            AppendChange(changes, "ObserverCameraEnabled", before.ObserverCameraEnabled, after.ObserverCameraEnabled);
+            AppendChange(changes, "ObserverCameraDrawFrustum", before.ObserverCameraDrawFrustum, after.ObserverCameraDrawFrustum);
             AppendChange(changes, "ShaderDebugDrawClusterBounds", before.ShaderDebugDrawClusterBounds, after.ShaderDebugDrawClusterBounds);
 
             SettingsChangeLog::EmitLog("RendererSettingsPanel", changes);
@@ -1181,6 +1183,39 @@ namespace OloEngine
                         }
                     }
                 }
+                ImGui::Unindent();
+            }
+
+            // --- Observer camera (issue #726) ---
+            ImGui::Separator();
+            if (ImGui::Checkbox("Observer Camera (freeze culling)", &settings.ObserverCameraEnabled))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Freeze the camera used for culling, LOD selection and Hi-Z at its\n"
+                                  "current pose, then fly the viewport away to look at the frozen cut\n"
+                                  "from outside. Anything the frozen camera culled stays culled, so a\n"
+                                  "wrongly-culled object is visibly missing instead of invisible.");
+            }
+            if (settings.ObserverCameraEnabled)
+            {
+                ImGui::Indent();
+                if (ImGui::Checkbox("Draw frozen frustum", &settings.ObserverCameraDrawFrustum))
+                {
+                    m_DebugSettingsChanged = true;
+                }
+                if (!settings.ShaderDebugDrawEnabled && settings.ObserverCameraDrawFrustum)
+                {
+                    // Not an error, and worth saying out loud: the pass that
+                    // consumes the channel is not declared at all while shader
+                    // debug draws are off, so the frustum silently never appears.
+                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                                       "Enable \"Shader Debug Draws\" above to see the frustum.");
+                }
+                const glm::vec3& cullPos = Renderer3D::GetCullViewPosition();
+                ImGui::Text("Frozen at: %.2f, %.2f, %.2f", cullPos.x, cullPos.y, cullPos.z);
                 ImGui::Unindent();
             }
 

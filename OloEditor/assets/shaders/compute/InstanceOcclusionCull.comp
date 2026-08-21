@@ -132,6 +132,15 @@ layout(std140, binding = 71) uniform InstanceCullParams
     int   u_WriteRejected;       // 116 — phase 1: append occluded survivors to the reject list
     int   u_Phase2;              // 120 — phase 2: bound the dispatch by the reject-list length
     int   _instCullPad0;         // 124
+    // The CULLING camera's render-origin-relative view-projection (issue #726).
+    // Read UNCONDITIONALLY below in place of the camera UBO's u_ViewProjection:
+    // once the culling camera is frozen the camera UBO describes the free-flying
+    // observer, and a cull that quietly follows the observer produces a
+    // plausible set that is NOT the frozen one — which is worse than no tool at
+    // all, since the tool's whole job is to be the ground truth. Equal to the
+    // camera UBO's relative VP whenever nothing is frozen, so this is the only
+    // path rather than a branch that only runs in debug mode.
+    mat4  u_CullViewProjection;  // 128
 };
 
 // Occlusion controls. When u_OcclusionEnabled == 0 the shader behaves exactly
@@ -149,10 +158,10 @@ layout(std140, binding = 71) uniform InstanceCullParams
 vec4 extractPlane(int col, float colSign)
 {
     vec4 p = vec4(
-        u_ViewProjection[0][3] + colSign * u_ViewProjection[0][col],
-        u_ViewProjection[1][3] + colSign * u_ViewProjection[1][col],
-        u_ViewProjection[2][3] + colSign * u_ViewProjection[2][col],
-        u_ViewProjection[3][3] + colSign * u_ViewProjection[3][col]
+        u_CullViewProjection[0][3] + colSign * u_CullViewProjection[0][col],
+        u_CullViewProjection[1][3] + colSign * u_CullViewProjection[1][col],
+        u_CullViewProjection[2][3] + colSign * u_CullViewProjection[2][col],
+        u_CullViewProjection[3][3] + colSign * u_CullViewProjection[3][col]
     );
     float len = length(p.xyz);
     return p / len;

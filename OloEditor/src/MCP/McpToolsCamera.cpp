@@ -3,6 +3,7 @@
 #include "MCP/McpCaptureRegion.h"
 #include "MCP/McpEditorLiveness.h"
 #include "MCP/McpSchemaBuilder.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -397,6 +398,61 @@ namespace OloEngine::MCP
             return result;
         }
 
+        // ---- olo_camera_freeze_culling (main-marshaled; mutates renderer state) ----
+        // The observer camera (issue #726). Freezing is a renderer-wide state
+        // change rather than a camera move, so it is deliberately NOT folded into
+        // olo_camera_set_pose: the point is that the two cameras then diverge, and
+        // an agent driving this needs to pose the observer many times against ONE
+        // frozen cut.
+        ToolResult Handle_CameraFreezeCulling(McpServer& server, const Json& args)
+        {
+            const bool wantsFreeze = args.contains("frozen") && args["frozen"].is_boolean();
+            const bool freeze = wantsFreeze && args["frozen"].get<bool>();
+            const bool wantsDrawFrustum = args.contains("drawFrustum") && args["drawFrustum"].is_boolean();
+            const bool drawFrustum = wantsDrawFrustum && args["drawFrustum"].get<bool>();
+
+            const Json result = server.MarshalRead(
+                [wantsFreeze, freeze, wantsDrawFrustum, drawFrustum]() -> Json
+                {
+                    auto& settings = Renderer3D::GetRendererSettings();
+                    if (wantsDrawFrustum)
+                        settings.ObserverCameraDrawFrustum = drawFrustum;
+                    if (wantsFreeze)
+                    {
+                        // Through Renderer3D, not by writing the settings bool:
+                        // SetCullingCameraFrozen owns the freeze-time snapshot of
+                        // the camera and of the Hi-Z pyramid's matching VP, and
+                        // writes the bool back itself.
+                        Renderer3D::SetCullingCameraFrozen(freeze);
+                    }
+
+                    const glm::vec3& cullPos = Renderer3D::GetCullViewPosition();
+                    const glm::mat4& cullView = Renderer3D::GetCullViewMatrix();
+                    // Column 2 of the view matrix's rotation part is the camera's
+                    // +Z (backwards) axis in world space, so forward is -that.
+                    const glm::vec3 cullForward{ -cullView[0][2], -cullView[1][2], -cullView[2][2] };
+
+                    Json out;
+                    out["frozen"] = Renderer3D::IsCullingCameraFrozen();
+                    out["drawFrustum"] = settings.ObserverCameraDrawFrustum;
+                    out["shaderDebugDrawEnabled"] = settings.ShaderDebugDrawEnabled;
+                    out["cullCameraPosition"] = { cullPos.x, cullPos.y, cullPos.z };
+                    out["cullCameraForward"] = { cullForward.x, cullForward.y, cullForward.z };
+                    out["cullNearClip"] = Renderer3D::GetCullNearClip();
+                    out["cullFarClip"] = Renderer3D::GetCullFarClip();
+
+                    Json corners = Json::array();
+                    for (const glm::vec3& corner :
+                         Renderer3D::ComputeFrustumCorners(Renderer3D::GetCullViewProjectionMatrix()))
+                    {
+                        corners.push_back({ corner.x, corner.y, corner.z });
+                    }
+                    out["cullFrustumCorners"] = std::move(corners);
+                    return out;
+                });
+            return ToolResult::Structured(result);
+        }
+
         // ---- shared pose output schema -----------------------------------------
         // The 11-key pose object PoseToJson (McpToolsCommon.h) emits — the result
         // shape of olo_camera_get/set_pose/orbit, extended by frame_entity.
@@ -569,6 +625,44 @@ namespace OloEngine::MCP
                                                 "viewportHeight", "framedEntity" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraFrameEntity;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_camera_freeze_culling";
+            tool.Toolset = "camera";
+            tool.Title = "Freeze culling camera (observer camera)";
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Freeze the camera used for CULLING, LOD selection and Hi-Z occlusion at its current "
+                "pose, leaving the viewport free to fly elsewhere (issue #726). This is the instrument "
+                "for 'is that object culled, or is it just not there?': anything the frozen camera "
+                "culled STAYS culled, so once you move away with olo_camera_set_pose / olo_camera_orbit "
+                "it is visibly missing from the frame while everything else is still drawn. The frozen "
+                "frustum draws as a wireframe box, but ONLY when shader debug draws are on - the reply's "
+                "'shaderDebugDrawEnabled' tells you; turn it on with olo_shader_debug_draw {enabled:true}. "
+                "Call with no arguments to read the current state. Freezing snapshots the camera at the "
+                "instant of the call, so freeze FIRST and pose afterwards. Unfreeze when done, or every "
+                "later screenshot keeps showing a stale cut.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("frozen", Schema::Bool().Desc("True freezes the culling camera at the current pose; false unfreezes. Omit to read the current state without changing it."))
+                                   .Prop("drawFrustum", Schema::Bool().Desc("Draw the frozen frustum as a wireframe box (default true). Needs shader debug draws enabled to be visible."))
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("frozen", Schema::Bool().Desc("Whether the culling camera is now frozen."))
+                                    .Prop("drawFrustum", Schema::Bool().Desc("Whether the frozen frustum wireframe is requested."))
+                                    .Prop("shaderDebugDrawEnabled", Schema::Bool().Desc("Whether the shader-debug-draw channel is on. FALSE means the frustum wireframe will not appear, however 'drawFrustum' is set."))
+                                    .Prop("cullCameraPosition", Schema::Vec3("World position of the culling camera [x, y, z]."))
+                                    .Prop("cullCameraForward", Schema::Vec3("Unit forward vector of the culling camera [x, y, z]."))
+                                    .Prop("cullNearClip", Schema::Number())
+                                    .Prop("cullFarClip", Schema::Number())
+                                    .Prop("cullFrustumCorners", Schema::Array(Schema::Vec3("World-space frustum corner [x, y, z].")).Desc("The 8 world-space corners of the culling frustum, indexed by (bit0 = +x, bit1 = +y, bit2 = +z) in NDC. Use these to pose the observer somewhere that sees the whole frozen volume."))
+                                    .Required({ "frozen", "drawFrustum", "shaderDebugDrawEnabled",
+                                                "cullCameraPosition", "cullCameraForward", "cullNearClip",
+                                                "cullFarClip", "cullFrustumCorners" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_CameraFreezeCulling;
             server.RegisterTool(std::move(tool));
         }
 
