@@ -76,6 +76,20 @@ by the Newport Loft HDR environment + a soft fill directional. Camera at
 
 ---
 
+### [LightmapTest.olo](LightmapTest.olo)
+
+**Purpose**: The baked-GI acceptance scene (issue #439) — static geometry lit by a baked lightmap, a dynamic object lit by baked probes, and the staleness gate demonstrable in one room.
+**Contents**: A matte corridor (grey floor/ceiling/back wall, RED wall at −X, GREEN wall at +X, an orange pillar occluder), all marked **Lightmap Static**; a dynamic sphere (not static) covered by a Baked `LightProbeVolume`; two white point lights.
+**Pass** — on the **Forward** path:
+- Before baking: the room shows direct lighting only (dark ceiling, black shadowed pillar side, no colour bleed).
+- **Build > Bake Lightmaps**, wait for the log's "Lightmap bake complete", then: the floor beside the red wall picks up a visible red indirect tint, beside the green wall a green one; the ceiling brightens; the pillar's shadowed side is no longer black.
+- **Bake Light Probes (Path Traced)** on the Probe Volume entity: the dynamic sphere picks up ambient consistent with its surroundings.
+- Move any static entity → the log warns "bake key mismatch … baked GI disabled" and the room falls back to direct-only rendering (no stale lightmap is ever sampled). Re-bake restores it.
+- Save the scene after baking so `LightmapSettings.LightmapAsset` persists.
+**Fail**: no visual change after a bake (check the log for unwrap/bake errors); colour bleed on the WRONG sides (a UV/region mapping regression); the lightmap still rendering after moving a static entity (the staleness gate is broken — the worst failure this feature can have).
+
+---
+
 ## Animation / Procedural
 
 ### [AnimationNoiseTest.olo](AnimationNoiseTest.olo)

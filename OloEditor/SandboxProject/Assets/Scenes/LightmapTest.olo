@@ -18,10 +18,12 @@ LightmapSettings:
   LightmapAsset: 0
   Enabled: true
   Intensity: 1
-  AtlasSize: 1024
-  SamplesPerTexel: 128
+  # Sized for a fast in-editor bake of this small room (a Debug-build editor
+  # traces ~40x slower than Release); raise for production-quality bakes.
+  AtlasSize: 512
+  SamplesPerTexel: 64
   MaxBounces: 4
-  TexelsPerMeter: 8
+  TexelsPerMeter: 4
 Entities:
   - Entity: 439000000000001
     TagComponent:
