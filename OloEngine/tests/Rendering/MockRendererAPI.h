@@ -44,6 +44,14 @@ namespace OloEngine::Testing
             m_SupportsInt64Atomics = supported;
         }
 
+        // Mesh-shader capability gate (issue #813) — default false, matching
+        // a backend without VK_EXT_mesh_shader, so tests opt IN to the
+        // supported path exactly as they do for int64 atomics.
+        void SetSupportsMeshShaders(bool supported)
+        {
+            m_SupportsMeshShaders = supported;
+        }
+
         // ----------------------------------------------------------------
         // Recording accessors
         // ----------------------------------------------------------------
@@ -331,6 +339,20 @@ namespace OloEngine::Testing
         void DispatchCompute(u32 /*x*/, u32 /*y*/, u32 /*z*/) override
         {
             Record("DispatchCompute");
+        }
+        void DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ) override
+        {
+            // Facade contract: zero groups in any dimension is a legal no-op
+            // that both real backends return from BEFORE any bookkeeping — the
+            // mock must not certify call-count semantics the backends lack.
+            if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+                return;
+            RecordedCall c{ "DrawMeshTasks" };
+            c.ParamU32_0 = groupsX;
+            c.ParamU32_1 = groupsY;
+            c.ParamU32_2 = groupsZ;
+            m_Calls.push_back(c);
+            ++m_DrawCallCount;
         }
         void MemoryBarrier(MemoryBarrierFlags /*flags*/) override
         {
@@ -774,6 +796,10 @@ namespace OloEngine::Testing
         [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override
         {
             return m_SupportsInt64Atomics;
+        }
+        [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override
+        {
+            return m_SupportsMeshShaders;
         }
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override
         {
@@ -1257,6 +1283,7 @@ namespace OloEngine::Testing
         u64 m_NextFenceHandle = 1;
         u32 m_MaxUniformBlockSize = 65536u;
         bool m_SupportsInt64Atomics = false;
+        bool m_SupportsMeshShaders = false;
         Viewport m_Viewport{ 0, 0, 1920, 1080 };
         bool m_StencilEnabled = false;
     };

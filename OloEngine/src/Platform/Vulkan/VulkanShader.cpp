@@ -44,6 +44,10 @@ namespace OloEngine
                     return ".cached_vulkan14.tesc";
                 case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
                     return ".cached_vulkan14.tese";
+                case VK_SHADER_STAGE_TASK_BIT_EXT:
+                    return ".cached_vulkan14.task";
+                case VK_SHADER_STAGE_MESH_BIT_EXT:
+                    return ".cached_vulkan14.mesh";
                 default:
                     OLO_CORE_ASSERT(false, "Unsupported shader stage");
                     return ".cached_vulkan14.unknown";
@@ -62,7 +66,16 @@ namespace OloEngine
                     return shaderc_glsl_tess_control_shader;
                 case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
                     return shaderc_glsl_tess_evaluation_shader;
+                case VK_SHADER_STAGE_TASK_BIT_EXT:
+                    return shaderc_glsl_task_shader;
+                case VK_SHADER_STAGE_MESH_BIT_EXT:
+                    return shaderc_glsl_mesh_shader;
                 default:
+                    // The ERROR is not redundant with the assert: OLO_ENABLE_ASSERTS
+                    // is Debug-only, and without it an unknown stage would silently
+                    // compile as a vertex shader and fail somewhere far downstream.
+                    OLO_CORE_ERROR("VulkanShader: no shaderc kind for stage {:#x} — compiling as vertex will fail",
+                                   static_cast<u32>(stage));
                     OLO_CORE_ASSERT(false, "Unsupported shader stage");
                     return shaderc_glsl_vertex_shader;
             }
@@ -80,6 +93,10 @@ namespace OloEngine
                     return "tess_control";
                 case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
                     return "tess_evaluation";
+                case VK_SHADER_STAGE_TASK_BIT_EXT:
+                    return "task";
+                case VK_SHADER_STAGE_MESH_BIT_EXT:
+                    return "mesh";
                 default:
                     return "unknown";
             }
@@ -87,7 +104,12 @@ namespace OloEngine
 
         // #type splitting — mirrors OpenGLShader::PreProcess's marker set
         // (vertex, fragment|pixel, tess_control|tesscontrol,
-        // tess_evaluation|tesseval; no geometry, compute lives elsewhere).
+        // tess_evaluation|tesseval; no geometry, compute lives elsewhere),
+        // plus the two Vulkan-only markers task|mesh (VK_EXT_mesh_shader,
+        // issue #813). The GL tier deliberately REJECTS those two — a
+        // mesh-stage shader is only ever loaded behind the
+        // RenderCommand::SupportsMeshShaders() gate, so it never reaches
+        // OpenGLShader.
         [[nodiscard]] std::unordered_map<VkShaderStageFlagBits, std::string> SplitStages(const std::string& source)
         {
             std::unordered_map<VkShaderStageFlagBits, std::string> stages;
@@ -127,6 +149,10 @@ namespace OloEngine
                     stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
                 else if (type == "tess_evaluation" || type == "tesseval")
                     stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+                else if (type == "task")
+                    stage = VK_SHADER_STAGE_TASK_BIT_EXT;
+                else if (type == "mesh")
+                    stage = VK_SHADER_STAGE_MESH_BIT_EXT;
                 else
                 {
                     OLO_CORE_ERROR("VulkanShader: unknown #type '{}'", type);
@@ -439,6 +465,7 @@ namespace OloEngine
         // Commit — nothing below can fail.
         m_SPIRV = std::move(spirv);
         m_Modules = std::move(newModules);
+        m_HasMeshStage = m_Modules.contains(VK_SHADER_STAGE_MESH_BIT_EXT);
         // The bindings just changed hands: any cached root layout describes
         // the OLD reflection and must rebuild on next use (#691 Phase 7).
         m_RootLayout.reset();
@@ -446,9 +473,16 @@ namespace OloEngine
         // Identity: minted once, survives Reload (amendment (12) — the
         // reverse-index key and every cached reference stay valid while the
         // modules behind them are replaced).
-        const auto vertexIt = m_Modules.find(VK_SHADER_STAGE_VERTEX_BIT);
-        const u64 native = vertexIt != m_Modules.end() ? VkHandleToKey(vertexIt->second)
-                                                       : VkHandleToKey(m_Modules.begin()->second);
+        // Preference order vertex → mesh → whatever exists: a mesh-pipeline
+        // shader (#813) has no vertex stage, and "first entry of an unordered
+        // map" is not a stable identity source across Reloads.
+        auto identityIt = m_Modules.find(VK_SHADER_STAGE_VERTEX_BIT);
+        if (identityIt == m_Modules.end())
+        {
+            identityIt = m_Modules.find(VK_SHADER_STAGE_MESH_BIT_EXT);
+        }
+        const u64 native = identityIt != m_Modules.end() ? VkHandleToKey(identityIt->second)
+                                                         : VkHandleToKey(m_Modules.begin()->second);
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, native, RHI::Backend::Vulkan);
         // Root-object registration so BindShaderProgram packets can resolve
         // the handle back to this shader (#691 Phase 7). Identity survives

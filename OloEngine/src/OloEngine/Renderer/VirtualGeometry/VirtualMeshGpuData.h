@@ -18,6 +18,25 @@ namespace OloEngine
     // Convention follows Instancing/InstanceData.h: explicit pad fields, 16-byte
     // multiple total size, static_assert-pinned.
 
+    // Mesh-shader raster path limits (issue #813). One mesh workgroup renders one
+    // cluster, and VirtualMeshletGBuffer.glsl declares these as its
+    // `max_vertices` / `max_primitives` layout constants — they must stay in
+    // sync. Chosen to match the default cook config (VirtualMeshBuildConfig:
+    // 128/128) and comfortably inside VK_EXT_mesh_shader's guaranteed 256/256
+    // minima. A mesh cooked with a larger config is routed to the classic MDI
+    // path per instance (MeshEntry::MeshletCompatible) rather than split.
+    inline constexpr u32 kMeshletMaxVertices = 128;
+    inline constexpr u32 kMeshletMaxTriangles = 128;
+    // Launch ceiling for one instance's mesh-tasks grid: the task stage emits
+    // one mesh workgroup per visible cluster in a single grid dimension, and
+    // VK_EXT_mesh_shader guarantees only 65535 workgroups per dimension. An
+    // instance whose cluster count could exceed that is routed to the MDI
+    // path (which has no such ceiling) rather than clamped — a clamp would
+    // silently drop clusters. The dev RTX 4090 reports 4M+, so this only ever
+    // bites on min-spec drivers, which is exactly why it must be the SPEC
+    // minimum and not a queried value baked on a generous device.
+    inline constexpr u32 kMeshletMaxClustersPerInstance = 65535;
+
     // One packed vertex, cluster-owned (clusters own their vertices so a later
     // streaming slice can page whole clusters without a shared indirection).
     // offset  size  field
@@ -39,7 +58,9 @@ namespace OloEngine
     //     40     4  IndexCount   (TriangleCount * 3)
     //     44     4  GroupIndex   (pooled group index — mesh base already applied)
     //     48     4  RefinedGroup (pooled; ~0u for LOD-0 clusters)
-    //     52    12  _Pad0..2
+    //     52     4  Lod
+    //     56     4  VertexCount  (cluster-owned vertex window; mesh path SetMeshOutputsEXT, #813)
+    //     60     4  _Pad2
     struct VirtualClusterGpuRecord
     {
         glm::vec4 CullSphere{ 0.0f };
@@ -50,7 +71,11 @@ namespace OloEngine
         u32 GroupIndex = 0;
         u32 RefinedGroup = kNoRefinedGroup;
         u32 Lod = 0; // DAG level of the member group (0 = finest); for debug LOD viz (#629)
-        u32 _Pad1 = 0;
+        // Number of cluster-owned vertices (VertexBase..VertexBase+VertexCount).
+        // Was padding until #813; only VirtualMeshletGBuffer.glsl reads it (for
+        // SetMeshOutputsEXT), so shaders that still declare it as _Pad1 are
+        // layout-identical and stay untouched.
+        u32 VertexCount = 0;
         u32 _Pad2 = 0;
 
         static constexpr u32 kNoRefinedGroup = 0xFFFFFFFFu;
@@ -197,4 +222,10 @@ namespace OloEngine
     // Expands a built VirtualMesh into the GPU layout above. Pure CPU — headless
     // unit tests cover window tiling, index bounds, and bounds/cone fidelity.
     [[nodiscard]] VirtualMeshGpuData PackVirtualMeshForGpu(const VirtualMesh& mesh);
+
+    // Mesh-shader raster eligibility (#813): true when EVERY cluster fits one
+    // mesh workgroup's declared output limits (kMeshletMaxVertices /
+    // kMeshletMaxTriangles). Pure CPU; the registry stamps the result onto
+    // MeshEntry::MeshletCompatible at registration.
+    [[nodiscard]] bool IsMeshletCompatible(const VirtualMeshGpuData& data);
 } // namespace OloEngine

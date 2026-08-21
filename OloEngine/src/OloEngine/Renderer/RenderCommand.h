@@ -324,6 +324,13 @@ namespace OloEngine
             s_RendererAPI->DispatchComputeIndirect(argsBuffer, offsetBytes);
         }
 
+        // Task/mesh-pipeline dispatch (issue #813) — gate on
+        // SupportsMeshShaders(); see RendererAPI::DrawMeshTasks.
+        static void DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ)
+        {
+            s_RendererAPI->DrawMeshTasks(groupsX, groupsY, groupsZ);
+        }
+
         // Draws from the ALREADY-BOUND vertex array — used by the GPU
         // frustum-cull path (Triangles) and the GPU-driven terrain path
         // (PatchList), whose callers have just run BindVAOIfNeeded.
@@ -444,6 +451,13 @@ namespace OloEngine
         [[nodiscard("Store this!")]] static bool SupportsInt64ShaderAtomics()
         {
             return s_RendererAPI->SupportsInt64ShaderAtomics();
+        }
+
+        // The DrawMeshTasks capability gate (issue #813) — see
+        // RendererAPI::SupportsMeshShaders.
+        [[nodiscard("Store this!")]] static bool SupportsMeshShaders()
+        {
+            return s_RendererAPI->SupportsMeshShaders();
         }
 
         // =====================================================================

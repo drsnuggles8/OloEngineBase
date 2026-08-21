@@ -238,7 +238,8 @@ namespace OloEngine
             {
                 return GL_TESS_EVALUATION_SHADER;
             }
-
+            // (mesh/task never reach here: PreProcess rejects those markers
+            // and fails the whole load before consulting this map — #813.)
             OLO_CORE_ERROR("Unknown shader type: '{0}' (length: {1})", std::string(type), type.length());
             OLO_CORE_ASSERT(false, "Unknown shader type!");
             return 0;
@@ -1202,6 +1203,23 @@ namespace OloEngine
             }
 
             std::string typeStr = sourceStr.substr(typeStart, typeEnd - typeStart);
+
+            // Vulkan-only stages (VK_EXT_mesh_shader, issue #813): fail the
+            // WHOLE load deterministically in every build config — not an
+            // assert (a Debug abort for a content-shaped mistake), and not a
+            // stage skip (GL links partial programs, so a skipped stage can
+            // come back Ready and render garbage). An empty map fails
+            // CompileOrGetVulkanBinaries, which is the same IsReady()==false
+            // demotion path a compile error takes.
+            if (typeStr == "mesh" || typeStr == "task")
+            {
+                OLO_CORE_ERROR("OpenGLShader: '#type {0}' is a Vulkan-only mesh-shading stage; this shader "
+                               "must only be loaded behind RenderCommand::SupportsMeshShaders() — load failed",
+                               typeStr);
+                shaderSources.clear();
+                return shaderSources;
+            }
+
             GLenum shaderType = Utils::ShaderTypeFromString(typeStr);
             OLO_CORE_ASSERT(shaderType != 0, "Invalid shader type specified");
 
@@ -1230,6 +1248,16 @@ namespace OloEngine
 
     bool OpenGLShader::CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources)
     {
+        // No stages is a failed LOAD, never a vacuous success: PreProcess
+        // returns an empty map when it rejects the file outright (a Vulkan-only
+        // mesh/task stage, issue #813), and an empty program must not link and
+        // report Ready.
+        if (shaderSources.empty())
+        {
+            OLO_CORE_ERROR("Shader '{0}' produced no compilable stages — load failed", m_Name);
+            return false;
+        }
+
         // Store original preprocessed source code for debugging
         m_OriginalSourceCode = shaderSources;
 

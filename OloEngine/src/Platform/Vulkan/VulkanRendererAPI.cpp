@@ -182,6 +182,15 @@ namespace OloEngine
         }
         if (!device->IsGeometryShaderEnabled())
             m_EnabledStageMask &= ~VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT;
+        // Same VUID family for the mesh-pipeline stages (issue #813): no
+        // barrier names them today (per-resource barriers use precise
+        // classic-stage or catch-all bits), but a mask that claims to be
+        // "every enabled stage" must stay true when one does.
+        if (!device->IsMeshShaderEnabled())
+        {
+            m_EnabledStageMask &= ~(VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT |
+                                    VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT);
+        }
 
         m_LimitsCached = true;
     }
@@ -879,6 +888,16 @@ namespace OloEngine
     {
         const_cast<VulkanRendererAPI*>(this)->CacheDeviceLimits();
         return m_SupportsInt64Atomics;
+    }
+
+    bool VulkanRendererAPI::SupportsMeshShaders() const
+    {
+        // ENABLED on the logical device, not merely supported by the physical
+        // one (the SupportsInt64ShaderAtomics rule): VulkanDevice turned
+        // VK_EXT_mesh_shader's taskShader+meshShader on only when the driver
+        // had both, and DrawMeshTasks refuses without them (issue #813).
+        const auto* device = VulkanDevice::Get();
+        return device != nullptr && device->IsMeshShaderEnabled();
     }
 
     u32 VulkanRendererAPI::GetMaxFramebufferSamples() const
@@ -1651,6 +1670,20 @@ namespace OloEngine
 
     bool VulkanRendererAPI::PrepareDraw(const VulkanVertexArray* vao, const VkPrimitiveTopology topology)
     {
+        if (!PrepareDrawCommon(vao, /*meshPipeline=*/false))
+        {
+            return false;
+        }
+        // FlushDynamicState's topology is the pilot's TRIANGLE_LIST; the
+        // draw knows better — later set wins. Lives in this wrapper rather
+        // than the common part because a mesh pipeline has no input assembly
+        // and setting the topology against one is invalid (issue #813).
+        vkCmdSetPrimitiveTopology(m_Cmd, topology);
+        return true;
+    }
+
+    bool VulkanRendererAPI::PrepareDrawCommon(const VulkanVertexArray* vao, const bool meshPipeline)
+    {
         if (m_Cmd == VK_NULL_HANDLE)
         {
             Phase6Stub("Draw(outside recording bracket)", StubKind::OutsideRecording);
@@ -1674,6 +1707,30 @@ namespace OloEngine
             {
                 s_Warned = true;
                 OLO_CORE_WARN("[RHI/Vulkan] draw with no ready shader bound — dropped");
+            }
+            ++m_DroppedDrawsThisRecording;
+            return false;
+        }
+
+        // The pipeline KIND is the bound shader's stage set (issue #813): a
+        // task/mesh shader under a classic vkCmdDraw*, or a vertex shader
+        // under vkCmdDrawMeshTasksEXT, is invalid usage either way
+        // (VUID-vkCmdDraw-stage-06481 / VUID-vkCmdDrawMeshTasksEXT-stage-
+        // 06480), so the entry point and the shader must agree — drop loudly
+        // on a mismatch instead of recording an invalid draw.
+        if (shader->HasMeshStage() != meshPipeline)
+        {
+            // Warn-once bool, not a per-shader set: a stage/entry-point
+            // mismatch is a programming error fixed at the first occurrence,
+            // and a name-keyed set grows across hot-reload churn for no
+            // diagnostic gain (the established warn-once shape in this file).
+            static bool s_WarnedStageMismatch = false;
+            if (!s_WarnedStageMismatch)
+            {
+                s_WarnedStageMismatch = true;
+                OLO_CORE_ERROR("[RHI/Vulkan] '{}' {} — draw dropped", shader->GetName(),
+                               meshPipeline ? "has no mesh stage but was dispatched via DrawMeshTasks"
+                                            : "is a task/mesh shader but was dispatched via a classic draw");
             }
             ++m_DroppedDrawsThisRecording;
             return false;
@@ -1704,9 +1761,6 @@ namespace OloEngine
 
         vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         VulkanPipelineBuilder::FlushDynamicState(m_Cmd, m_State, m_ScopeTargets);
-        // FlushDynamicState's topology is the pilot's TRIANGLE_LIST; the
-        // draw knows better — later set wins.
-        vkCmdSetPrimitiveTopology(m_Cmd, topology);
 
         // The pipelines declare VIEWPORT/SCISSOR_WITH_COUNT dynamic state —
         // the plain setters cannot satisfy it, so the draw front-end emits
@@ -2314,6 +2368,46 @@ namespace OloEngine
         {
             vkCmdDrawIndexedIndirectCount(m_Cmd, indirect, indirectOffsetBytes, parameter, parameterOffsetBytes,
                                           maxDrawCount, strideBytes);
+        }
+    }
+
+    void VulkanRendererAPI::DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ)
+    {
+        // Facade contract: a zero group count in any dimension is a legal
+        // no-op — before every guard, so an empty launch is neither a drop
+        // nor a warn (the DispatchComputeIndirect "no survivors cost
+        // nothing" shape).
+        if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+            return;
+
+        // vkCmdDrawMeshTasksEXT is a VK_EXT_mesh_shader entry point — volk
+        // leaves the pointer null when the device did not enable the
+        // extension, so this gate is a null-call guard as much as a
+        // capability check. SupportsMeshShaders() exists so callers route
+        // away BEFORE reaching here; a call that lands anyway drops loudly
+        // (the MultiDrawElementsIndirectCountRaw shape).
+        if (const auto* device = VulkanDevice::Get(); device == nullptr || !device->IsMeshShaderEnabled())
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_ERROR("[RHI/Vulkan] DrawMeshTasks needs VK_EXT_mesh_shader (task+mesh), which this "
+                               "device did not enable — the capability gate should have routed this away; "
+                               "draw dropped");
+            }
+            ++m_DroppedDrawsThisRecording;
+            return;
+        }
+
+        // The common front-end minus the two input-assembly dynamic states
+        // (topology, primitive restart) — both invalid against a mesh
+        // pipeline. vao == nullptr: a mesh pipeline pulls nothing through
+        // the vertex-pull pair, so bindings 57/63 resolve to the arena null
+        // block, exactly as compute dispatches do.
+        if (PrepareDrawCommon(nullptr, /*meshPipeline=*/true))
+        {
+            vkCmdDrawMeshTasksEXT(m_Cmd, groupsX, groupsY, groupsZ);
         }
     }
 

@@ -5550,6 +5550,24 @@ TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
     Renderer3D::SetGlobalIBL(prevIrradiance, prevPrefilter, prevBrdfLut, prevEnvironment, prevIblIntensity);
 }
 
+namespace
+{
+    // The registry's 32-byte MDI command record (DrawElementsIndirectCommand +
+    // 12 pad bytes — VkDrawIndexedIndirectCommand is the same 5-field prefix).
+    // ONE spelling shared by both VirtualGeometry tenants below, so a stride or
+    // field-order change cannot desynchronize them.
+    struct VgMdiCommand
+    {
+        u32 IndexCount = 0;
+        u32 InstanceCount = 0;
+        u32 FirstIndex = 0;
+        i32 BaseVertex = 0;
+        u32 BaseInstance = 0;
+        u32 _Pad[3] = { 0, 0, 0 };
+    };
+    static_assert(sizeof(VgMdiCommand) == 32, "the registry's MDI stride is 32 bytes");
+} // namespace
+
 // =============================================================================
 // VirtualGeometry (#691 Wave C item 5): the MDI-count indirect-draw entry.
 //
@@ -5645,19 +5663,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
     auto vao = VertexArray::Create();
     vao->SetIndexBuffer(indexBuffer);
 
-    // The registry's 32-byte command records (DrawElementsIndirectCommand +
-    // 12 pad bytes — VkDrawIndexedIndirectCommand is the same 5-field prefix).
-    struct MdiCommand
-    {
-        u32 IndexCount = 0;
-        u32 InstanceCount = 0;
-        u32 FirstIndex = 0;
-        i32 BaseVertex = 0;
-        u32 BaseInstance = 0;
-        u32 _Pad[3] = { 0, 0, 0 };
-    };
-    static_assert(sizeof(MdiCommand) == 32, "the registry's MDI stride is 32 bytes");
-    std::array<MdiCommand, 2> commands{};
+    std::array<VgMdiCommand, 2> commands{};
     commands[0] = { 6u, 1u, 0u, 0, 0u, {} };
     commands[1] = { 6u, 1u, 6u, 4, 1u, {} }; // BaseInstance 1 -> v_DbgSlot record 1
     auto commandSSBO = StorageBuffer::Create(sizeof(commands), ShaderBindingLayout::SSBO_VIRTUAL_DRAW_COMMANDS);
@@ -5818,6 +5824,282 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
 
     EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
         << "MDI-count + TextureBarrier must ride real implementations, not stubs";
+}
+
+// =============================================================================
+// VirtualGeometry mesh-shader raster path (issue #813): the SAME hand-authored
+// cluster set drawn through BOTH hardware raster pipelines, images compared.
+//
+// This is the acceptance contract at tenant level: the mesh path is an
+// alternative ENCODING of the hardware cluster draw, so its image must match
+// the MDI path's — pixel for pixel, since the fragment stage is the shared
+// include and the geometry math is replicated expression-for-expression.
+// Pinned here:
+//   * task+mesh stages compile through shaderc (GL_EXT_mesh_shader) and build
+//     a [task, mesh, fragment] VkPipeline (no vertex input / input assembly);
+//   * the task stage reads VirtualDrawArgs.DrawCount (UBO49.z = args slot) and
+//     fans out one mesh workgroup per visible cluster — count 1 with two
+//     authored clusters must drop the second, exactly like the MDI parameter
+//     buffer (the "COUNT drives" contract, mesh spelling);
+//   * the mesh stage's visible[]-record addressing replaces gl_BaseInstanceARB
+//     (UBO49.y = segment base + gl_WorkGroupID.x);
+//   * the two pipelines produce the SAME image on albedo AND entity-id.
+// SKIPs (not fails) where the device lacks VK_EXT_mesh_shader — same rule as
+// every capability-gated tenant.
+// =============================================================================
+TEST_F(VulkanPassSuite, VirtualGeometryMeshTasksMatchTheMdiPath)
+{
+    if (!RenderCommand::SupportsMeshShaders())
+    {
+        GTEST_SKIP() << "VK_EXT_mesh_shader (task+mesh) not enabled on this device";
+    }
+
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetPhase6StubHitCount();
+
+    auto mdiShader = Shader::Create("assets/shaders/VirtualMeshGBuffer.glsl");
+    ASSERT_TRUE(mdiShader);
+    ASSERT_EQ(mdiShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    auto meshShader = Shader::Create("assets/shaders/VirtualMeshletGBuffer.glsl");
+    ASSERT_TRUE(meshShader);
+    ASSERT_EQ(meshShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+        << "VirtualMeshletGBuffer.glsl must compile through shaderc (GL_EXT_mesh_shader task+mesh)";
+
+    // --- the same two quad clusters as the MDI tenant, plus the REAL cluster /
+    // visible records the mesh path reads as geometry (the MDI tenant only
+    // needed them as zeroed debug stand-ins) ---------------------------------
+    std::array<VirtualGpuVertex, 8> vertices{};
+    const auto quad = [&](sizet base, f32 x0, f32 x1)
+    {
+        vertices[base + 0].PositionU = { x0, -0.4f, 0.5f, 0.0f };
+        vertices[base + 1].PositionU = { x1, -0.4f, 0.5f, 1.0f };
+        vertices[base + 2].PositionU = { x1, 0.4f, 0.5f, 1.0f };
+        vertices[base + 3].PositionU = { x0, 0.4f, 0.5f, 0.0f };
+        for (sizet i = 0; i < 4; ++i)
+            vertices[base + i].NormalV = { 0.0f, 0.0f, 1.0f, 0.0f };
+    };
+    quad(0, -0.9f, -0.1f);
+    quad(4, 0.1f, 0.9f);
+    auto vertexSSBO = StorageBuffer::Create(static_cast<u32>(vertices.size() * sizeof(VirtualGpuVertex)),
+                                            ShaderBindingLayout::SSBO_VIRTUAL_VERTICES);
+    vertexSSBO->SetData(vertices.data(), static_cast<u32>(vertices.size() * sizeof(VirtualGpuVertex)));
+    vertexSSBO->Bind();
+
+    VirtualInstanceGpuRecord instance{};
+    instance.EntityID = 7;
+    auto instanceSSBO = StorageBuffer::Create(sizeof(VirtualInstanceGpuRecord),
+                                              ShaderBindingLayout::SSBO_VIRTUAL_INSTANCES);
+    instanceSSBO->SetData(&instance, sizeof(instance));
+    instanceSSBO->Bind();
+
+    std::array<VirtualClusterGpuRecord, 2> clusters{};
+    clusters[0].VertexBase = 0;
+    clusters[0].IndexBase = 0;
+    clusters[0].IndexCount = 6;
+    clusters[0].VertexCount = 4;
+    clusters[1].VertexBase = 4;
+    clusters[1].IndexBase = 6;
+    clusters[1].IndexCount = 6;
+    clusters[1].VertexCount = 4;
+    auto clusterSSBO = StorageBuffer::Create(sizeof(clusters), ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS);
+    clusterSSBO->SetData(clusters.data(), sizeof(clusters));
+    clusterSSBO->Bind();
+
+    std::array<VirtualVisibleCluster, 2> visible{};
+    visible[0] = { 0u, 0u, 0u, 0u };
+    visible[1] = { 0u, 1u, 0u, 0u };
+    auto visibleSSBO = StorageBuffer::Create(sizeof(visible), ShaderBindingLayout::SSBO_VIRTUAL_VISIBLE);
+    visibleSSBO->SetData(visible.data(), sizeof(visible));
+    visibleSSBO->Bind();
+
+    // Cluster-LOCAL indices, once as the MDI element buffer and once as the
+    // mesh stage's pooled index SSBO — identical values by construction.
+    u32 indices[] = { 0u, 1u, 2u, 2u, 3u, 0u, 0u, 1u, 2u, 2u, 3u, 0u };
+    auto indexBuffer = IndexBuffer::Create(indices, 12);
+    auto vao = VertexArray::Create();
+    vao->SetIndexBuffer(indexBuffer);
+    auto indexSSBO = StorageBuffer::Create(sizeof(indices), ShaderBindingLayout::SSBO_VIRTUAL_INDICES);
+    indexSSBO->SetData(indices, sizeof(indices));
+    indexSSBO->Bind();
+
+    std::array<VgMdiCommand, 2> commands{};
+    commands[0] = { 6u, 1u, 0u, 0, 0u, {} };
+    commands[1] = { 6u, 1u, 6u, 4, 1u, {} };
+    auto commandSSBO = StorageBuffer::Create(sizeof(commands), ShaderBindingLayout::SSBO_VIRTUAL_DRAW_COMMANDS);
+    commandSSBO->SetData(commands.data(), sizeof(commands));
+    commandSSBO->Bind();
+
+    auto argsSSBO = StorageBuffer::Create(sizeof(VirtualDrawArgs), ShaderBindingLayout::SSBO_VIRTUAL_DRAW_ARGS);
+    argsSSBO->Bind();
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.Position = glm::vec3(0.0f, 0.0f, 1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    MotionBlurUBOData mbData{};
+    mbData.InverseViewProjection = glm::mat4(1.0f);
+    mbData.PrevViewProjection = glm::mat4(1.0f);
+    auto mbUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    mbUbo->SetData(&mbData, sizeof(mbData));
+
+    ShaderBindingLayout::PBRMaterialUBO material{};
+    material.BaseColorFactor = glm::vec4(0.8f, 0.2f, 0.1f, 1.0f);
+    material.EmissiveFactor = glm::vec4(0.0f);
+    material.MetallicFactor = 0.0f;
+    material.RoughnessFactor = 1.0f;
+    material.NormalScale = 1.0f;
+    material.OcclusionStrength = 1.0f;
+    auto materialUbo = UniformBuffer::Create(sizeof(ShaderBindingLayout::PBRMaterialUBO),
+                                             ShaderBindingLayout::UBO_MATERIAL);
+    materialUbo->SetData(&material, sizeof(material));
+
+    // {instance 0, segment base 0, args slot 0, max clusters 2} serves BOTH
+    // paths: the MDI vertex stage reads .x/.y, the task stage reads .z (its
+    // args slot) and .w (the launch clamp — the mesh twin of MDI's
+    // maxDrawCount; 0 here would clamp every launch to nothing).
+    const u32 drawInfo[4] = { 0u, 0u, 0u, 2u };
+    auto drawInfoUbo = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+    drawInfoUbo->SetData(drawInfo, sizeof(drawInfo));
+
+    const u32 debugInfo[4] = { 0u, 0u, 0u, 0u }; // debug mode OFF
+    auto debugInfoUbo = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DEBUG);
+    debugInfoUbo->SetData(debugInfo, sizeof(debugInfo));
+
+    auto whiteTexture = MakeSolidTexture(4, 255, 255, 255, 255);
+    ASSERT_TRUE(whiteTexture);
+
+    FramebufferSpecification gbufferSpec;
+    gbufferSpec.Width = kSize;
+    gbufferSpec.Height = kSize;
+    gbufferSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F,
+                                FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F,
+                                FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
+    Ref<Framebuffer> gbufferFB = Framebuffer::Create(gbufferSpec);
+    ASSERT_TRUE(gbufferFB);
+
+    const auto runChain = [&](bool meshPath, u32 gpuDrawCount)
+    {
+        // Chain-local, not shared closure state: a chain that forgot to set
+        // DrawCount must read as an immediately-visible zero-count blank image,
+        // never inherit the previous chain's value.
+        VirtualDrawArgs args{};
+        args.DrawCount = gpuDrawCount;
+        argsSSBO->SetData(&args, sizeof(args));
+
+        SubmitFrame(
+            [&]()
+            {
+                gbufferFB->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                RenderCommand::Clear();
+                RenderCommand::SetDepthTest(true);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                RenderCommand::SetDepthMask(true);
+                RenderCommand::SetBlendState(false);
+                RenderCommand::DisableCulling();
+
+                (meshPath ? meshShader : mdiShader)->Bind();
+                for (const u32 slot : { 0u, 1u, 2u, 4u, 5u })
+                    RenderCommand::BindTexture(slot, whiteTexture->GetRHIHandle());
+
+                if (meshPath)
+                {
+                    // One task workgroup; it reads args[0].DrawCount and fans
+                    // out that many mesh workgroups — the count never touches
+                    // the CPU, same property as the MDI parameter buffer.
+                    RenderCommand::DrawMeshTasks(1u, 1u, 1u);
+                }
+                else
+                {
+                    RenderCommand::MultiDrawElementsIndirectCountRaw(
+                        vao->GetRHIHandle(), commandSSBO->GetRHIHandle(), 0u,
+                        argsSSBO->GetRHIHandle(), 0u, 2u, 32u);
+                }
+
+                RenderCommand::TextureBarrier();
+
+                for (const u32 attachment : { 0u, 4u })
+                {
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = gbufferFB->GetColorAttachmentHandle(attachment);
+                    toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                }
+            });
+
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u)
+            << (meshPath ? "the one DrawMeshTasks launch" : "the one MDI-count draw");
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+    };
+
+    auto* vkGbuffer = static_cast<VulkanFramebuffer*>(gbufferFB.Raw());
+    const auto capture = [&](std::vector<u8>& albedo, std::vector<i32>& entities)
+    {
+        std::vector<u8> entityBytes;
+        ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(0)->GetData(albedo, 0));
+        ASSERT_TRUE(vkGbuffer->GetColorAttachmentImage(4)->GetData(entityBytes, 0));
+        const auto* raw = reinterpret_cast<const i32*>(entityBytes.data());
+        entities.assign(raw, raw + (entityBytes.size() / sizeof(i32)));
+    };
+
+    // --- chain 1: MDI, count 2 — the reference image ------------------------
+    std::vector<u8> mdiAlbedo;
+    std::vector<i32> mdiEntities;
+    runChain(/*meshPath=*/false, 2u);
+    capture(mdiAlbedo, mdiEntities);
+    ASSERT_EQ(mdiEntities[static_cast<sizet>(64) * kSize + 32], 7) << "MDI reference must actually draw";
+    ASSERT_EQ(mdiEntities[static_cast<sizet>(64) * kSize + 96], 7);
+
+    // --- chain 2: mesh path, count 2 — must produce the SAME image ----------
+    std::vector<u8> meshAlbedo;
+    std::vector<i32> meshEntities;
+    runChain(/*meshPath=*/true, 2u);
+    capture(meshAlbedo, meshEntities);
+
+    ASSERT_EQ(meshAlbedo.size(), mdiAlbedo.size());
+    ASSERT_EQ(meshEntities.size(), mdiEntities.size());
+    u32 albedoDiffs = 0;
+    sizet const albedoCount = mdiAlbedo.size();
+    for (sizet i = 0; i < albedoCount; ++i)
+    {
+        if (std::abs(static_cast<int>(mdiAlbedo[i]) - static_cast<int>(meshAlbedo[i])) > 1)
+            ++albedoDiffs;
+    }
+    EXPECT_EQ(albedoDiffs, 0u)
+        << "the mesh-shader path must rasterize the identical image (same vertices, same fragment include)";
+    u32 entityDiffs = 0;
+    sizet const entityCount = mdiEntities.size();
+    for (sizet i = 0; i < entityCount; ++i)
+    {
+        if (mdiEntities[i] != meshEntities[i])
+            ++entityDiffs;
+    }
+    EXPECT_EQ(entityDiffs, 0u) << "entity-id coverage must match exactly — a differing pixel is a "
+                                  "differing rasterized footprint, not a shading tolerance";
+
+    // --- chain 3: mesh path, count 1 — the task stage must honour the count -
+    runChain(/*meshPath=*/true, 1u);
+    {
+        std::vector<u8> albedo;
+        std::vector<i32> entities;
+        capture(albedo, entities);
+        EXPECT_EQ(entities[static_cast<sizet>(64) * kSize + 32], 7) << "cluster 0 survives the count cut";
+        EXPECT_EQ(entities[static_cast<sizet>(64) * kSize + 96], 0)
+            << "args.DrawCount (read by the TASK stage) must bound the launch — cluster 1 must vanish";
+    }
+
+    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+        << "DrawMeshTasks must ride a real implementation, not stubs";
 }
 
 namespace

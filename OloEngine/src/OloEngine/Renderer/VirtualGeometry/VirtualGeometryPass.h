@@ -100,6 +100,14 @@ namespace OloEngine
         Ref<ComputeShader> m_RasterShaderInt64; // single-pass 64-bit atomic-min variant (null if unsupported)
         bool m_Int64AtomicsSupported = false;   // driver exposes GL_ARB_gpu_shader_int64 + GL_NV_shader_atomic_int64
         Ref<Shader> m_GBufferShader;
+        // Mesh-shader raster path (issue #813, VK_EXT_mesh_shader): a
+        // task+mesh+fragment pipeline that replays the same per-instance
+        // visible-cluster segments the MDI path draws, one mesh workgroup per
+        // cluster. Nullness IS the "path unavailable" encoding (the
+        // m_RasterShaderInt64 convention): null unless
+        // RenderCommand::SupportsMeshShaders() AND the shader compiled — the
+        // capability is decided ONCE at Init and logged, never silently.
+        Ref<Shader> m_MeshletShader;
         Ref<Shader> m_ResolveShader;         // fullscreen visibility-buffer -> G-Buffer material resolve
         Ref<ComputeShader> m_ColorizeShader; // overdraw count -> heat colour (debug capture)
         Ref<SceneRenderPass> m_ScenePass;

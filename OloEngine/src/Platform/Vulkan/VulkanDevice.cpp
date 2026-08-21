@@ -401,6 +401,12 @@ namespace OloEngine
         // synchronization2: core in 1.3 and MANDATORY for 1.3+ devices, so no
         // capability-gate entry — but it still defaults OFF at device creation.
         vulkan13Features.dynamicRendering = VK_TRUE;
+        // maintenance4 backs OpExecutionMode LocalSizeId, which glslang emits
+        // for any workgroup-sized stage at SPIR-V 1.6 (the vulkan_1_4 tier's
+        // level) — surfaced by the first task/mesh modules (issue #813,
+        // VUID-RuntimeSpirv-LocalSizeId-06434). Same class again: core in 1.3
+        // and MANDATORY there, default OFF at device creation.
+        vulkan13Features.maintenance4 = VK_TRUE;
         vulkan13Features.pNext = &untypedFeatures;
 
         // Phase 6 (#691): two more core-promoted-but-default-OFF features, both
@@ -448,6 +454,13 @@ namespace OloEngine
         VkPhysicalDeviceFaultFeaturesEXT supportedFault{};
         supportedFault.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
         bool hasDeviceFaultExtension = false;
+        // VK_EXT_mesh_shader (issue #813): OPTIONAL, same when-supported rule
+        // as EDS3 / device-fault — never an ADR 0010 gate row (requiring it
+        // would silently widen the contract; the facade's SupportsMeshShaders
+        // exists precisely so callers can refuse-or-degrade explicitly).
+        VkPhysicalDeviceMeshShaderFeaturesEXT supportedMeshShader{};
+        supportedMeshShader.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+        bool hasMeshShaderExtension = false;
         {
             u32 extCount = 0;
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, nullptr);
@@ -457,7 +470,9 @@ namespace OloEngine
                                                    { return std::string_view(p.extensionName) == VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME; });
             hasDeviceFaultExtension = std::ranges::any_of(available, [](const VkExtensionProperties& p)
                                                           { return std::string_view(p.extensionName) == VK_EXT_DEVICE_FAULT_EXTENSION_NAME; });
-            if (hasEds3Extension || hasDeviceFaultExtension)
+            hasMeshShaderExtension = std::ranges::any_of(available, [](const VkExtensionProperties& p)
+                                                         { return std::string_view(p.extensionName) == VK_EXT_MESH_SHADER_EXTENSION_NAME; });
+            if (hasEds3Extension || hasDeviceFaultExtension || hasMeshShaderExtension)
             {
                 VkPhysicalDeviceFeatures2 probe{};
                 probe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -467,8 +482,14 @@ namespace OloEngine
                     supportedFault.pNext = probe.pNext;
                     probe.pNext = &supportedFault;
                 }
+                if (hasMeshShaderExtension)
+                {
+                    supportedMeshShader.pNext = probe.pNext;
+                    probe.pNext = &supportedMeshShader;
+                }
                 vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probe);
                 supportedFault.pNext = nullptr;
+                supportedMeshShader.pNext = nullptr;
             }
         }
         const bool wantDynamicBlend = hasEds3Extension &&
@@ -587,12 +608,40 @@ namespace OloEngine
             // vendor blob dump we have no decoder for.
         }
 
+        // Mesh shaders (issue #813): OPTIONAL — enabled when the extension is
+        // listed AND the driver supports both stages; never an ADR 0010 gate
+        // row (the gate list must not widen — a device without mesh shaders
+        // still satisfies the contract, and the facade routes mesh-pipeline
+        // work away via SupportsMeshShaders). Only meshShader + taskShader
+        // are enabled; multiview / primitiveFragmentShadingRate /
+        // meshShaderQueries stay FALSE — feature bits nothing uses are dead
+        // weight the validation layer still has to reason about (the EDS3
+        // rule above). VkPhysicalDeviceMeshShaderFeaturesEXT is not
+        // version-promoted, so it stays a standalone chained struct (no
+        // VUID-VkDeviceCreateInfo-pNext-02830 fold into VulkanNNFeatures).
+        VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{};
+        meshShaderFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+        const bool wantMeshShader = hasMeshShaderExtension &&
+                                    supportedMeshShader.meshShader == VK_TRUE &&
+                                    supportedMeshShader.taskShader == VK_TRUE;
+        if (wantMeshShader)
+        {
+            deviceExtensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+            meshShaderFeatures.meshShader = VK_TRUE;
+            meshShaderFeatures.taskShader = VK_TRUE;
+        }
+
         void* featureChainHead = wantDynamicBlend ? static_cast<void*>(&eds3Features)
                                                   : static_cast<void*>(&vulkan11Features);
         if (wantDeviceFault)
         {
             faultFeatures.pNext = featureChainHead;
             featureChainHead = &faultFeatures;
+        }
+        if (wantMeshShader)
+        {
+            meshShaderFeatures.pNext = featureChainHead;
+            featureChainHead = &meshShaderFeatures;
         }
 
         VkDeviceCreateInfo deviceInfo{};
@@ -610,8 +659,46 @@ namespace OloEngine
         // device — commit the flag the pipeline builder branches on.
         m_DynamicBlendStateEnabled = wantDynamicBlend;
         m_DeviceFaultEnabled = wantDeviceFault;
+        // Same commit-after-create rule: the flag describes the LOGICAL
+        // device's enabled features, which exist only once the create returns.
+        m_MeshShaderEnabled = wantMeshShader;
         volkLoadDevice(m_Device);
         vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
+
+        // Mesh-shader limits + the loud capability verdict (issue #813). The
+        // vkGetPhysicalDeviceProperties2 probe is this backend's first —
+        // everything else gets by on plain vkGetPhysicalDeviceProperties,
+        // which cannot chain extension structs — and runs only when the
+        // extension is present (chaining an extension's properties struct on
+        // a device that does not advertise it is undefined).
+        if (hasMeshShaderExtension)
+        {
+            m_MeshShaderProperties = VkPhysicalDeviceMeshShaderPropertiesEXT{};
+            m_MeshShaderProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
+            VkPhysicalDeviceProperties2 props2{};
+            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            props2.pNext = &m_MeshShaderProperties;
+            vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &props2);
+            m_MeshShaderProperties.pNext = nullptr;
+        }
+        // The capability decision must be loudly observable either way — the
+        // whole mesh-shader design is refuse-or-degrade, decided explicitly,
+        // never silent (issue #813).
+        if (m_MeshShaderEnabled)
+        {
+            OLO_CORE_INFO("[Vulkan] Mesh shaders: enabled (task+mesh; maxMeshOutputVertices={}, "
+                          "maxMeshOutputPrimitives={}, maxPreferredMeshWorkGroupInvocations={})",
+                          m_MeshShaderProperties.maxMeshOutputVertices,
+                          m_MeshShaderProperties.maxMeshOutputPrimitives,
+                          m_MeshShaderProperties.maxPreferredMeshWorkGroupInvocations);
+        }
+        else
+        {
+            OLO_CORE_INFO("[Vulkan] Mesh shaders: unavailable ({}) — DrawMeshTasks will drop loudly; "
+                          "callers must route mesh-pipeline work to the classic path",
+                          hasMeshShaderExtension ? "VK_EXT_mesh_shader present but taskShader/meshShader unsupported"
+                                                 : "VK_EXT_mesh_shader not present");
+        }
 
         // --- VMA (vendoring proof + the allocator Phase 5's VMA-backed --------
         // transient resources allocate from, reached via VulkanDevice::Get())

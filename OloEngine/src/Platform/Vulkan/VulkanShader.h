@@ -156,6 +156,13 @@ namespace OloEngine
 
         // --- Pipeline-builder material -------------------------------------
         [[nodiscard]] VkShaderModule GetModule(VkShaderStageFlagBits stage) const;
+        // Cached per compile/Reload: the draw front-end asks this on EVERY
+        // draw (entry-point/stage-set agreement, issue #813), so it must not
+        // be a per-draw map lookup.
+        [[nodiscard]] bool HasMeshStage() const
+        {
+            return m_HasMeshStage;
+        }
         [[nodiscard]] const std::vector<VulkanShaderBinding>& GetBindings() const
         {
             return m_Bindings;
@@ -210,6 +217,7 @@ namespace OloEngine
         std::vector<std::string> m_IncludedFilePaths;
         std::unordered_map<VkShaderStageFlagBits, std::vector<u32>> m_SPIRV;
         std::unordered_map<VkShaderStageFlagBits, VkShaderModule> m_Modules;
+        bool m_HasMeshStage = false; // mirrors m_Modules at commit time (#813)
         std::vector<VulkanShaderBinding> m_Bindings;
         // Lazily-built root layout (see GetRootDataLayout); reset whenever a
         // rebuild replaces m_Bindings. unique_ptr of a forward-declared type

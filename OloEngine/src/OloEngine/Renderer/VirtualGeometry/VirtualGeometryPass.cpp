@@ -91,6 +91,36 @@ namespace OloEngine
                 OLO_CORE_INFO("VirtualGeometryPass: using single-pass 64-bit atomic software rasterizer");
             }
         }
+
+        // Mesh-shader hardware raster path (issue #813). Same three-layer
+        // demotion shape as the int64 variant above: capability says no → never
+        // built; capability says yes but the shader fails → loud warn + MDI;
+        // runtime override (VirtualHwRasterMode::ForceMdi) → per-frame routing
+        // in Execute. The decision must be loudly observable — a silent
+        // fallback here would make every later measurement a measurement of
+        // the wrong path.
+        if (RenderCommand::SupportsMeshShaders())
+        {
+            m_MeshletShader = Shader::Create("assets/shaders/VirtualMeshletGBuffer.glsl");
+            if (!m_MeshletShader || !m_MeshletShader->IsReady())
+            {
+                OLO_CORE_WARN("VirtualGeometryPass: mesh shaders advertised but VirtualMeshletGBuffer.glsl failed "
+                              "to compile; hardware raster falls back to the MDI vertex pipeline");
+                m_MeshletShader = nullptr;
+            }
+            else
+            {
+                OLO_CORE_INFO("VirtualGeometryPass: hardware raster path = mesh shaders (VK_EXT_mesh_shader)");
+            }
+        }
+        else
+        {
+            OLO_CORE_INFO("VirtualGeometryPass: hardware raster path = MDI vertex pipeline "
+                          "(device/backend has no mesh-shader support)");
+        }
+        // Publish the EFFECTIVE route so observers (the MCP stats echo, an A/B
+        // harness) see the demotion above, not just the raw device capability.
+        VirtualMeshRegistry::Get().SetMeshRasterAvailable(m_MeshletShader != nullptr);
     }
 
     void VirtualGeometryPass::UploadCullParams(const UBOStructures::VirtualClusterCullUBO& params)
@@ -290,6 +320,17 @@ namespace OloEngine
             // first — since issue #682 the phase-1 MDI happens BEFORE that block.
             if (registry.GetVertexBuffer())
                 registry.GetVertexBuffer()->Bind();
+            // Same rule for the cluster-local index pool at SSBO 42 (#813): the
+            // MESH-shader raster path reads it during the hardware phases, and
+            // the only other bind lives in the software-raster block — which
+            // runs after phase 1 and not at all under swRasterMode=disabled, so
+            // relying on it is exactly the stale-binding accident the comment
+            // above exists to prevent for binding 39.
+            if (registry.GetIndexBuffer().IsValid())
+            {
+                RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
+                                                 registry.GetIndexBuffer());
+            }
             CommandDispatch::BindSceneResources(); // camera UBO at binding 0
         };
         bindCullResources();
@@ -471,9 +512,20 @@ namespace OloEngine
             }
         };
 
-        // One MDI-count call per instance over one phase's command region.
-        // `commandSlotBase` / `argsInstanceBase` select the region: 0/0 for phase
-        // 1, the frame's cluster/instance counts for phase 2.
+        // Mesh-shader routing (issue #813), decided once per frame and loudly
+        // logged at Init: on a capable device the hardware raster replays each
+        // instance's visible-cluster segment through the task/mesh pipeline
+        // (one task workgroup reads the cull's DrawCount and launches one mesh
+        // workgroup per visible cluster) instead of the MDI vertex pipeline.
+        // Per-INSTANCE, not per-cluster: a mesh cooked beyond the meshlet
+        // limits (kMeshletMaxVertices/kMeshletMaxTriangles) stays on MDI.
+        // ForceMdi is the A/B + parity-test lever.
+        bool const meshRaster = m_MeshletShader && registry.GetHwRasterMode() == VirtualHwRasterMode::Auto;
+
+        // One indirect draw per instance over one phase's command region —
+        // MDI-count for the vertex pipeline, a single task launch for the mesh
+        // pipeline. `commandSlotBase` / `argsInstanceBase` select the region:
+        // 0/0 for phase 1, the frame's cluster/instance counts for phase 2.
         const auto drawHardwarePhase = [&](u32 commandSlotBase, u32 argsInstanceBase)
         {
             m_GBufferShader->Bind();
@@ -500,14 +552,39 @@ namespace OloEngine
 
             const RHI::ResourceHandle commandBuffer = registry.GetCommandBuffer()->GetRHIHandle();
             const RHI::ResourceHandle argsBuffer = registry.GetArgsBuffer()->GetRHIHandle();
-            for (sizet i = 0; i < instances.size(); ++i)
+            // Which G-Buffer program is bound right now. Instances can route
+            // to different pipelines (a non-meshlet-compatible mesh stays on
+            // MDI), so the loop re-binds only when the route actually changes.
+            bool meshShaderBound = false;
+            sizet const instanceCount = instances.size();
+            for (sizet i = 0; i < instanceCount; ++i)
             {
+                // Per-instance route. The cluster-count ceiling mirrors the MDI
+                // arm's maxDrawCount clamp at the LAUNCH level: the task stage
+                // clamps its EmitMeshTasksEXT count to .w (below), and
+                // VK_EXT_mesh_shader only guarantees 65535 workgroups per grid
+                // dimension — an instance that could legally exceed that stays
+                // on MDI, which has no such ceiling.
+                bool const useMesh = meshRaster && instances[i].MeshletCompatible &&
+                                     instances[i].Gpu.ClusterCount <= kMeshletMaxClustersPerInstance;
+                if (useMesh != meshShaderBound)
+                {
+                    (useMesh ? m_MeshletShader : m_GBufferShader)->Bind();
+                    meshShaderBound = useMesh;
+                }
+
                 const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
                     static_cast<u16>(instances[i].MaterialDataIndex));
                 CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
 
                 u32 const segmentBase = commandSlotBase + instances[i].Gpu.CommandBase;
-                u32 const drawInfo[4] = { static_cast<u32>(i), segmentBase, 0u, 0u };
+                // .z is the instance's args slot (the TASK stage reads its
+                // DrawCount there; the MDI vertex stage simply never reads .z),
+                // .w the launch clamp — both uploaded identically on both
+                // routes so the two paths see the same block contents.
+                u32 const drawInfo[4] = { static_cast<u32>(i), segmentBase,
+                                          static_cast<u32>(argsInstanceBase + i),
+                                          instances[i].Gpu.ClusterCount };
                 m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
 
                 // Two-sided materials must not backface-cull. Foliage is a single sheet of quads
@@ -524,12 +601,23 @@ namespace OloEngine
                     RenderCommand::EnableCulling();
                 }
 
-                RenderCommand::MultiDrawElementsIndirectCountRaw(
-                    registry.GetVao(), commandBuffer,
-                    segmentBase * 32u, // this instance's command segment, in this phase's region
-                    argsBuffer,
-                    static_cast<u32>((argsInstanceBase + i) * sizeof(VirtualDrawArgs)),
-                    instances[i].Gpu.ClusterCount, 32u);
+                if (useMesh)
+                {
+                    // One task workgroup: it reads args[drawInfo.z].DrawCount
+                    // and launches one mesh workgroup per visible cluster —
+                    // the GPU-side count never touches the CPU, same property
+                    // as the MDI parameter buffer.
+                    RenderCommand::DrawMeshTasks(1u, 1u, 1u);
+                }
+                else
+                {
+                    RenderCommand::MultiDrawElementsIndirectCountRaw(
+                        registry.GetVao(), commandBuffer,
+                        segmentBase * 32u, // this instance's command segment, in this phase's region
+                        argsBuffer,
+                        static_cast<u32>((argsInstanceBase + i) * sizeof(VirtualDrawArgs)),
+                        instances[i].Gpu.ClusterCount, 32u);
+                }
             }
             RenderCommand::EnableCulling(); // restore the pass-wide default
         };

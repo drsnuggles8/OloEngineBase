@@ -30,7 +30,7 @@ One `.glsl` file contains multiple stages separated by `#type` markers:
 // fragment stage...
 ```
 
-Supported stages: `vertex`, `fragment`, `tess_control` (or `tesscontrol`), `tess_evaluation` (or `tesseval`).
+Supported stages: `vertex`, `fragment` (or `pixel`), `tess_control` (or `tesscontrol`), `tess_evaluation` (or `tesseval`), plus the **Vulkan-only** `task` and `mesh` (VK_EXT_mesh_shader, issue #813). A file with task/mesh stages compiles only through the Vulkan tier and must only be loaded behind `RenderCommand::SupportsMeshShaders()` — `OpenGLShader` rejects those markers with an error (`VirtualMeshletGBuffer.glsl` is the worked example, loaded solely by `VirtualGeometryPass` under that gate).
 
 ---
 

@@ -2826,3 +2826,70 @@ motivating symptom, say both things. The gap-closing still ships (it is
 correct on its own terms); the symptom gets filed with what was *ruled out*,
 which is the expensive half of the next person's work — the ruled-out path is
 worth as much as the suspected one.
+
+---
+
+## 14. Mesh shaders (#813): a new stage family's actual cost, and what the first full frame flushed out
+
+`VK_EXT_mesh_shader` for virtual geometry landed as a Tier-2 optional
+capability with a task+mesh+fragment pipeline replaying the same
+visible-cluster segments the MDI path draws. What follows is what the port
+actually cost and found, because most of it was NOT mesh-shader work.
+
+### 14a. The thin-PSO design absorbed the new pipeline kind almost for free
+
+§5's "no vertex input at all" decision (vertex pulling) meant a mesh pipeline
+differs from a classic one by exactly: the stage array, `pVertexInputState` /
+`pInputAssemblyState` both null, and the two input-assembly dynamic states
+(topology, primitive restart) **absent from the declaration** — declaring
+them against a mesh pipeline is itself a validation error, not just setting
+them. No new PSO key axis: the shader's stage set IS the pipeline kind, and a
+reload that changes it runs `InvalidateShader` first. The capability is ONE
+predicate (`RenderCommand::SupportsMeshShaders()`, the §13c rule), enabled
+Tier-2-style (never an ADR 0010 gate row), and `VirtualGeometryPass` logs the
+raster-path decision at Init — a silent fallback here would make every later
+measurement a measurement of the wrong path.
+
+### 14b. glslang at SPIR-V 1.6 emits `LocalSizeId`, and the first new stage family finds the missing feature bit
+
+The first task/mesh modules failed `VUID-RuntimeSpirv-LocalSizeId-06434`:
+glslang lowers any workgroup-sized stage to `OpExecutionMode LocalSizeId` at
+SPIR-V 1.6 (the vulkan_1_4 tier), which requires `maintenance4` — core in
+1.3, MANDATORY there, and **still default-OFF at device creation** (the
+synchronization2/dynamicRendering class, one more member). §9e said the
+feature-bit list grows with every shader family a port reaches; this is the
+worked example — the sweep tests compile SPIR-V and cannot see a device
+enable-bit, so it surfaced only at the first `vkCreateShaderModule`.
+
+### 14c. The first full frame of a subsystem is an audit of that subsystem, not of your change
+
+Virtual geometry had never rendered a full frame on Vulkan (its primitives
+were tenant-pinned, its shaders compiled — no full-pass evidence). The first
+live frame found, in order: `VirtualVisibilityResolve.glsl` still consuming
+vertex ATTRIBUTES (no `OLO_VULKAN` pull branch — pipeline creation fails
+VUID-07904 and the SW-raster resolve silently never draws; the §5f sweep was
+keyed on shaders a Vulkan session had actually reached, the §11 shadow rule
+replayed); a device fault (`VK_EXT_device_fault`: READ of invalid address)
+somewhere in the software-raster path; and a stale baked-layout warning
+(VUID-09600) on a sampled image. None of these involve mesh shaders — the
+fault reproduces bit-for-bit with the mesh path forced off.
+
+**The runtime mode levers are what made that attributable in minutes.** The
+`hwRasterMode` / `swRasterMode` pair let the whole fault matrix be walked
+live over MCP without a rebuild: {mesh, MDI} × {sw-auto, sw-off} — both
+sw-auto cells fault, both sw-off cells run. Give every alternative GPU path a
+runtime lever; it is the difference between a bisect and an afternoon of
+rebuilds.
+
+### 14d. Measure before believing the new path is faster
+
+On the one resolvable VG scene (~4.1k drawn clusters of ≤128 tris, Debug,
+RTX 4090), `GPUPassTimerPool` medians over 12 samples: mesh 0.061 ms, MDI
+0.053 ms — the mesh path is marginally SLOWER at this scale, and both are
+noise at frame level. The issue's crossover question stays open; what ships
+is the lever and the honest number, not a claimed win. The parity evidence
+that matters: mesh-vs-MDI live frames differ by ZERO pixels at three camera
+poses (noise floor also zero), over a frame the VG-on/off toggle proves is
+full of virtual-geometry content — and the device-gated tenant pins the same
+property headlessly (identical albedo + entity-id images, and the task stage
+honouring a GPU-written count cut).

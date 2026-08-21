@@ -466,6 +466,14 @@ namespace OloEngine
         // baked, so it joins the key.
         const bool tessellated = shader.GetModule(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != VK_NULL_HANDLE;
         key.PatchControlPoints = tessellated ? std::max(state.PatchVertexCount, 1u) : 0u;
+        // Mesh pipeline (issue #813): the shader's stage set IS the
+        // detection — a module at VK_SHADER_STAGE_MESH_BIT_EXT makes this a
+        // [task?, mesh, fragment] pipeline with no vertex input and no input
+        // assembly. Deliberately NOT a key axis: ShaderKey identifies the
+        // shader, a shader is mesh or classic but never both at once, and a
+        // reload that changes its stage set runs InvalidateShader first — so
+        // the key cannot alias a stale kind.
+        const bool meshPipeline = shader.HasMeshStage();
         if (!dynamicBlend)
         {
             // Blend is a baked axis only where EDS3 is absent (§5's fallback
@@ -511,10 +519,22 @@ namespace OloEngine
         mappingInfo.mappingCount = static_cast<u32>(mappings.size());
         mappingInfo.pMappings = mappings.data();
 
+        // The classic stage set, or [task?, mesh, fragment] for a mesh
+        // pipeline (issue #813) — GetModule returning null skips a stage, so
+        // the OPTIONAL task stage falls out naturally. The same mappingInfo
+        // chains onto EVERY stage present, task and mesh included: each
+        // stage create info must carry the §4 binding mappings with the
+        // per-kind resourceMask discipline (VUID-11244 keys on (set,
+        // binding, mask), not on stage kind).
+        const std::initializer_list<VkShaderStageFlagBits> classicStages = {
+            VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+            VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT
+        };
+        const std::initializer_list<VkShaderStageFlagBits> meshStages = {
+            VK_SHADER_STAGE_TASK_BIT_EXT, VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT
+        };
         std::vector<VkPipelineShaderStageCreateInfo> stages;
-        for (const VkShaderStageFlagBits stageBit :
-             { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
-               VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT })
+        for (const VkShaderStageFlagBits stageBit : (meshPipeline ? meshStages : classicStages))
         {
             const VkShaderModule module = shader.GetModule(stageBit);
             if (module == VK_NULL_HANDLE)
@@ -646,7 +666,6 @@ namespace OloEngine
             VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT,
             VK_DYNAMIC_STATE_CULL_MODE,
             VK_DYNAMIC_STATE_FRONT_FACE,
-            VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY,
             VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE,
             VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,
             VK_DYNAMIC_STATE_DEPTH_COMPARE_OP,
@@ -659,8 +678,16 @@ namespace OloEngine
             VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE,
             VK_DYNAMIC_STATE_DEPTH_BIAS,
             VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE,
-            VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE,
         };
+        if (!meshPipeline)
+        {
+            // Input-assembly dynamic state exists only where input assembly
+            // does: DECLARING topology / primitive-restart on a mesh pipeline
+            // is itself a validation error (issue #813), not merely setting
+            // them — FlushDynamicState mirrors this split on the record side.
+            dynamicStates.push_back(VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY);
+            dynamicStates.push_back(VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE);
+        }
         if (dynamicBlend)
         {
             dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
@@ -699,8 +726,12 @@ namespace OloEngine
         pipelineInfo.pNext = &createFlags;
         pipelineInfo.stageCount = static_cast<u32>(stages.size());
         pipelineInfo.pStages = stages.data();
-        pipelineInfo.pVertexInputState = &vertexInput;
-        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        // A mesh pipeline has no vertex input and no input assembly — both
+        // pointers MUST be null when the mesh stage is present (issue #813);
+        // the classic path keeps its empty vertex-input state (§5 vertex
+        // pulling removed the contents, mesh shading removes the struct).
+        pipelineInfo.pVertexInputState = meshPipeline ? nullptr : &vertexInput;
+        pipelineInfo.pInputAssemblyState = meshPipeline ? nullptr : &inputAssembly;
         pipelineInfo.pTessellationState = key.PatchControlPoints != 0 ? &tessellation : nullptr;
         pipelineInfo.pViewportState = &viewport;
         pipelineInfo.pRasterizationState = &raster;
@@ -744,6 +775,11 @@ namespace OloEngine
     void VulkanPipelineBuilder::FlushDynamicState(VkCommandBuffer cmd, const VulkanRecordedPipelineState& state,
                                                   const VulkanRenderTargetDesc& targets)
     {
+        // Derived, not passed: the pipeline bound for the current shader is a
+        // mesh pipeline exactly when that shader carries a mesh stage, and a
+        // flag parameter would let a call site claim otherwise (issue #813).
+        const VulkanShader* boundShader = VulkanShader::GetCurrentlyBound();
+        const bool meshPipeline = boundShader != nullptr && boundShader->HasMeshStage();
         vkCmdSetCullMode(cmd, ToVk(state.CullFace, state.Culling));
         // A1/A8 (issue #691 Phase 7): the recorded GL winding translates to the
         // SAME VkFrontFace — no swap.
@@ -772,7 +808,14 @@ namespace OloEngine
         // the mirrored replay) then means exactly what it means on GL.
         vkCmdSetFrontFace(cmd, state.FrontFaceWinding == RHI::FrontFace::Clockwise ? VK_FRONT_FACE_CLOCKWISE
                                                                                    : VK_FRONT_FACE_COUNTER_CLOCKWISE);
-        vkCmdSetPrimitiveTopology(cmd, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        if (!meshPipeline)
+        {
+            // Input-assembly dynamic state — a mesh pipeline declares
+            // neither this nor primitive restart (below), and setting a
+            // dynamic state the pipeline did not declare is invalid
+            // (issue #813).
+            vkCmdSetPrimitiveTopology(cmd, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        }
         vkCmdSetDepthTestEnable(cmd, state.DepthTest ? VK_TRUE : VK_FALSE);
         vkCmdSetDepthWriteEnable(cmd, state.DepthWrite ? VK_TRUE : VK_FALSE);
         vkCmdSetDepthCompareOp(cmd, ToVk(state.DepthFunc));
@@ -786,7 +829,10 @@ namespace OloEngine
         vkCmdSetDepthBiasEnable(cmd, state.PolygonOffsetEnabled ? VK_TRUE : VK_FALSE);
         vkCmdSetDepthBias(cmd, state.PolygonOffsetUnits, 0.0f, state.PolygonOffsetFactor);
         vkCmdSetRasterizerDiscardEnable(cmd, VK_FALSE);
-        vkCmdSetPrimitiveRestartEnable(cmd, VK_FALSE);
+        if (!meshPipeline)
+        {
+            vkCmdSetPrimitiveRestartEnable(cmd, VK_FALSE);
+        }
 
         auto* device = VulkanDevice::Get();
         const u32 colorCount = std::min(targets.ColorCount, 8u); // same 8-wide bound as the create path

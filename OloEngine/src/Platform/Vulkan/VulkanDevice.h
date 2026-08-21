@@ -145,6 +145,25 @@ namespace OloEngine
         {
             return m_DynamicBlendStateEnabled;
         }
+        // VK_EXT_mesh_shader (issue #813): OPTIONAL, enabled when the driver
+        // supports BOTH taskShader and meshShader — never an ADR 0010 gate
+        // row (requiring it would silently widen the capability contract).
+        // TRUE → the facade's SupportsMeshShaders answers yes and
+        // DrawMeshTasks records vkCmdDrawMeshTasksEXT; FALSE → mesh-pipeline
+        // work is refused loudly upstream (refuse-or-degrade, decided
+        // explicitly, never silent).
+        [[nodiscard]] bool IsMeshShaderEnabled() const
+        {
+            return m_MeshShaderEnabled;
+        }
+        // The physical device's VK_EXT_mesh_shader limits, cached at Init via
+        // the backend's one vkGetPhysicalDeviceProperties2 probe. Meaningful
+        // only when the extension is present (all-zero otherwise) — gate on
+        // IsMeshShaderEnabled before consuming the limits.
+        [[nodiscard]] const VkPhysicalDeviceMeshShaderPropertiesEXT& GetMeshShaderProperties() const
+        {
+            return m_MeshShaderProperties;
+        }
 
         // VK_EXT_device_fault (enabled when the driver has it): after a
         // VK_ERROR_DEVICE_LOST, logs the driver's fault report — fault type
@@ -184,6 +203,10 @@ namespace OloEngine
         bool m_MultiDrawIndirectEnabled = false;
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
+        bool m_MeshShaderEnabled = false;
+        // Cached at Init when VK_EXT_mesh_shader is present; all-zero
+        // otherwise (see GetMeshShaderProperties).
+        VkPhysicalDeviceMeshShaderPropertiesEXT m_MeshShaderProperties{};
     };
 } // namespace OloEngine
 

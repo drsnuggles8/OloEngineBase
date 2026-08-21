@@ -99,6 +99,10 @@ namespace OloEngine
 
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes) override;
+        // Warn-once + no-op: SupportsMeshShaders() is false here, so a call
+        // landing on this backend means the capability gate failed upstream
+        // (issue #813).
+        void DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;
         void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) override;
 
@@ -272,6 +276,14 @@ namespace OloEngine
         [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override
         {
             return m_SupportsInt64Atomics;
+        }
+        // Always false (issue #813): GL_NV_mesh_shader is deliberately out of
+        // scope — a vendor-specific extension with no core/ARB promotion, so
+        // the engine's mesh-pipeline work is Vulkan-only and routes to the
+        // classic vertex-pipeline path on this backend via this gate.
+        [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override
+        {
+            return false;
         }
 
       private:
