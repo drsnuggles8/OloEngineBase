@@ -815,7 +815,16 @@ if ($exit -eq 0 -and -not $orphaned -and (Test-CachedTreeCommand $Command)) {
     $depsCheck = Join-Path $here 'scripts/Check-NinjaHeaderDeps.ps1'
     $cachedDir = Join-Path $here 'build-cached'
     if ((Test-Path -LiteralPath $depsCheck) -and (Test-Path -LiteralPath $cachedDir)) {
-        try { & $runner -NoProfile -File $depsCheck -BuildDir $cachedDir | Out-Host }
+        # Pass the config we actually built. The tree is Ninja MULTI-CONFIG, so the check
+        # has to load the matching build-<Config>.ninja: `ninja -t deps` dumps the whole
+        # log either way, but the per-object `ninja -t query` it uses to trace a zero-dep
+        # record back to its source only finds edges present in the loaded file. Reading
+        # build-Debug.ninja after a Release build would fail to trace every Release object
+        # and report them as broken. Fall back to the check's own Debug default.
+        $cfgMatch = [regex]::Match($Command, '(?i)(?:^|\s)--config[\s=]+([A-Za-z0-9_]+)')
+        $depsArgs = @('-NoProfile', '-File', $depsCheck, '-BuildDir', $cachedDir)
+        if ($cfgMatch.Success) { $depsArgs += @('-Config', $cfgMatch.Groups[1].Value) }
+        try { & $runner @depsArgs | Out-Host }
         catch { Write-Host "[build-lock] header-dependency check could not run: $($_.Exception.Message)" }
     }
 }

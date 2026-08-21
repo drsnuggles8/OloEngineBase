@@ -824,10 +824,26 @@ It does not simply count `#deps 0`, because that number is not zero even on a
 healthy tree — a TU including only standard headers legitimately records none. Nor
 does it allowlist the file by name, which would go stale the day that file grows a
 project include and nobody notices. Each zero-dep object is traced back to its
-source through `ninja -t query`, and cleared only if that source has no quoted
-`#include "…"` at all — a property that stops holding the moment the file changes.
-Above 25 zero-dep records it skips the tracing and fails outright: at that point
-the failure is systemic, not a question about individual files.
+source through `ninja -t query` and cleared only if that source depends on nothing
+we own: no quoted `#include "…"`, **and** no angle include that resolves under
+`OloEngine/src`, the vendor trees or `vcpkg_installed/*/include`. That second half
+matters — `<Jolt/Jolt.h>`, `<MaterialXCore/Document.h>` and `<Alembic/Abc/All.h>`
+are angle-included here and are very much our dependencies, so "no quoted includes"
+alone would clear a genuinely broken record. Above 25 zero-dep records it skips the
+tracing and fails outright: at that point the failure is systemic, not a question
+about individual files.
+
+Two things it deliberately refuses to treat as success: a non-zero exit from
+`ninja -t deps` (an unreadable log prints nothing, exactly like a clean tree — so
+the exit status is checked before the empty result is interpreted), and a zero-dep
+object it cannot trace back to a source. Both fail. A check whose broken state
+looks like its passing state is the bug it was written to catch, one level up.
+
+The `-Config` argument is load-bearing on this multi-config tree: `-t deps` dumps
+the whole log regardless, but the per-object `ninja -t query` only finds edges in
+the ninja file it loaded, so checking a Release build against `build-Debug.ninja`
+reports every object as untraceable. `build-lock.ps1` parses `--config` out of the
+build command and passes it through.
 
 Two call sites: `build-lock.ps1` runs it after every **successful** build of a
 cached tree (about a second, and it never changes the build's exit status), so an

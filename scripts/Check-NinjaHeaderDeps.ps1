@@ -50,6 +50,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSScriptRoot
 
 function Write-Explanation {
     Write-Host ""
@@ -87,8 +88,20 @@ if ($Config -and (Test-Path -LiteralPath (Join-Path $BuildDir "build-$Config.nin
 
 # `ninja -t deps` prints one "<output>: #deps N, deps mtime ... (VALID|STALE)" header
 # per recorded output, followed by the dependency lines.
-$records = & $ninja @baseArgs -t deps 2>$null |
-    Select-String -Pattern '^(?<out>\S.*): #deps (?<n>\d+),'
+#
+# Check the exit status before reading anything into "no records". A ninja that fails
+# (unreadable log, wrong -f, a build directory mid-regeneration) also prints nothing,
+# and treating that as "nothing to check, exit 0" would turn every future breakage of
+# this script into a silent pass — the same shape as the bug it exists to catch.
+$depsOutput = & $ninja @baseArgs -t deps 2>$null
+$depsExit   = $LASTEXITCODE
+if ($depsExit -ne 0) {
+    Write-Host "[deps-check] FAIL - 'ninja -t deps' exited $depsExit in $BuildDir; the tree's dependency records could not be read." -ForegroundColor Red
+    Write-Host "             Not treating an unreadable log as a pass. Re-run the build, or check the -Config/-BuildDir arguments."
+    exit 1
+}
+
+$records = $depsOutput | Select-String -Pattern '^(?<out>\S.*): #deps (?<n>\d+),'
 if (-not $records) {
     Write-Host "[deps-check] no dependency records in $BuildDir - nothing to check."
     exit 0
@@ -114,7 +127,35 @@ if ($zero.Count -gt $MaxTrace) {
 }
 
 # Few enough to explain individually. A zero-dep record is fine only if the source
-# genuinely has no quoted include; anything else lost its dependencies.
+# genuinely depends on nothing but system headers; anything else lost its dependencies.
+#
+# A quoted include settles it immediately. An ANGLE include does not: `<Jolt/Jolt.h>`,
+# `<MaterialXCore/Document.h>` and `<Alembic/Abc/All.h>` are angle-included here and are
+# very much our dependencies, so "no quoted includes" alone would clear a genuinely
+# broken record. Resolve each angle include against the roots that hold headers we own
+# or vendor; anything found there counts as a dependency the record should have had.
+# Only unresolvable angle includes (the standard library, the Windows SDK) are system.
+$searchRoots = @(
+    (Join-Path $repoRoot 'OloEngine/src'),
+    (Join-Path $repoRoot 'OloEngine/vendor'),
+    (Join-Path $repoRoot 'OloEditor/src')
+) + @(Get-ChildItem -LiteralPath (Join-Path $BuildDir 'vcpkg_installed') -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Join-Path $_.FullName 'include' }) +
+    # The FetchContent trees sit a level deeper (OloEngine/vendor/<toolchain>/<name>-src),
+    # which is where an angle-included <imgui.h> actually lives.
+    @(Get-ChildItem -Path (Join-Path $repoRoot 'OloEngine/vendor/*/*-src') -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName })
+$searchRoots = @($searchRoots | Where-Object { Test-Path -LiteralPath $_ })
+
+# Resolves to a header we own or vendor? Depth-limited on purpose: these roots are large,
+# and a full recursive walk per include would cost more than the build step this follows.
+function Resolve-OwnedInclude([string] $Name) {
+    foreach ($root in $searchRoots) {
+        if (Test-Path -LiteralPath (Join-Path $root $Name)) { return $true }
+    }
+    return $false
+}
+
 $benign = @()
 $broken = @()
 foreach ($out in $zero) {
@@ -133,6 +174,14 @@ foreach ($out in $zero) {
         if (Test-Path -LiteralPath $srcPath) {
             if (Select-String -LiteralPath $srcPath -Pattern '^\s*#\s*include\s*"' -Quiet) {
                 $broken += "$out  (source $src has quoted includes but no recorded deps)"
+                continue
+            }
+            $owned = @(Select-String -LiteralPath $srcPath -Pattern '^\s*#\s*include\s*<([^>]+)>' |
+                ForEach-Object { $_.Matches[0].Groups[1].Value } |
+                Where-Object { Resolve-OwnedInclude $_ } |
+                Select-Object -Unique -First 3)
+            if ($owned.Count -gt 0) {
+                $broken += "$out  (source $src includes $($owned -join ', ') but recorded no deps)"
             } else {
                 $benign += "$out  (source $src includes only system headers)"
             }
