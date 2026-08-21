@@ -80,6 +80,7 @@ void main()
     v_WorldPos = vec3(u_Model * vec4(a_Position, 1.0));
     v_Normal = mat3(u_Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
+    v_TexCoord2 = a_TexCoord2;
 
     vec4 clipCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
     vec4 prevWorldPos = u_PrevModel * vec4(a_Position, 1.0);
