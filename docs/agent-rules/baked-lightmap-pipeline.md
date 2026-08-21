@@ -57,8 +57,13 @@ re-unwrapped *before* the key check, with the same shared parameters (`kLightmap
 `LightmapUnwrap.h`). That only works because the unwrap is deterministic, which is why the vendor
 CMake pins `XA_MULTITHREADED=0`: same mesh in, bit-identical parameterization out, so the
 regenerated stream lands exactly on the layout the bake rasterized. Change the unwrap parameters
-in one place and not the other and every scene goes permanently stale; that is why they are one
-constant, not two defaults.
+in one place and not the other and every scene goes permanently stale — worse, a *different pack
+resolution* can shift chart UVs without changing the seam-split counts, so the key MATCHES and
+every sample reads another chart's texels silently. That is why the unwrap parameters are **not
+settings at all**: `LightmapBakeSettings` deliberately has no `UnwrapResolution`/`UnwrapPadding`
+fields (the first draft had them; self-review deleted them), and both `Prepare()` and the resolve
+hard-code the shared `kLightmapUnwrap*` constants. Do not re-add the knobs without making the
+resolve able to re-derive whatever a caller passed.
 
 The generalisable rule: **a staleness key over derived state must hash the state the loader will
 actually re-derive, and the loader must be able to re-derive it.** A key over pre-derivation state
@@ -118,8 +123,33 @@ reference-path-tracer.md §2, now load-bearing in an asset pipeline.
 - **`Ref<T>` propagates const through `operator->`** — `for (const auto& input : inputs)
   input.Mesh->Build();` is a compile error that a syntax-only check catches but an unbuilt target
   hides. It shipped in the first editor-side draft and was caught by a sibling agent's review, not
-  a build. When a change spans targets, remember which of them the verifying build actually
-  compiled.
+  a build. It then shipped AGAIN in the self-review batch (`const Ref<Scene> bakedScene`) and was
+  caught by the same syntax-only preflight. When a change spans targets, remember which of them
+  the verifying build actually compiled.
+- **The shader branches on COVERAGE (`sampleLightmapIrradiance(...).a`), never on the colour.**
+  The atlas alpha exists precisely to separate "validly baked pure black" (an enclosed surface no
+  indirect light reaches — must KEEP its darkness) from "never baked" (must fall through to
+  probes/IBL). A `dot(rgb, rgb) > 0` branch collapses the two and the enclosed room glows with
+  sky IBL — the exact leak class the bake exists to kill. The first draft had that bug; the vec4
+  return with `.a` as the branch signal is the fix, and the `.rgb` is un-premultiplied by the
+  sampled alpha so bilinear taps at chart edges don't darken.
+- **The ambient ladder has ONE definition** (`include/AmbientLadder.glsl`), shared by
+  `PBR_MultiLight` and `PBR_MultiLight_Skinned` — static receivers pass the lightmap sample,
+  skinned/dynamic shaders pass `vec4(0.0)` and enter at the probe rung. Structural parity is
+  exact; PHOTOMETRIC parity is not (the §3 SH radiance-vs-E divergence) — the include's units
+  caveat says so, and no comment may claim continuity until that ledger row is fixed.
+- **The bake key hashes what the bake CONSUMES, not what looks equivalent.** Lights are hashed
+  per type in `ReferenceSceneBuilder::AddScene`'s exact consumption terms: point/spot positions
+  are the raw `TransformComponent::Translation` (the builder never composes the parent chain —
+  hashing the composed `transform[3]` false-stales on re-parenting and misses nothing the bake
+  sees), and a light the builder rejects (`!(intensity > 0)`) is invisible to the key too.
+  `SceneLightmapStalenessTest` pins both directions.
+- **`Resolve()` is throttled and memoized**: the O(scene) recheck (UV2 scan + key hash) runs
+  every `kResolveRecheckIntervalFrames`, a mesh whose unwrap failed once is memoized until
+  `Invalidate()` (xatlas is 100ms+ per mesh — retrying per recheck is a recurring hitch), and the
+  stale/missing warnings are once-per-episode latches. `Invalidate()` is the "recheck NOW" lever;
+  the editor calls it on bake completion and on `.olmap` hot-reload (the runtime's cheap path
+  never re-reads the asset, so an externally replaced file needs that push).
 
 ## 6. Deliberately deferred (so nobody re-derives the gap as a bug)
 
