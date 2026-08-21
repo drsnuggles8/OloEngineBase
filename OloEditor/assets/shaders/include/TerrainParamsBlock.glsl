@@ -43,6 +43,14 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_TerrainVTParams0; // x = pagesWide, y = pageTexels, z = borderTexels, w = tileTexels
     vec4 u_TerrainVTParams1; // x = cacheTexels, y = maxMip, zw = feedback dimensions
     vec4 u_TerrainVTParams2; // x = enabled, y = feedback frame slot, z = downscale, w = log2(downscale)
+    vec4 u_TerrainVTParams3; // x = sectorsWide, y = trilinear, zw = reserved
+    // The adaptive sector table (issue #715 slice 3): two vec4s per sector,
+    // row-major, decoded by oloVTDecodeSector(). Rides this UBO because the
+    // SSBO namespace has exactly one free binding under the 84 minimum and a
+    // 2 KB fixed array does not earn it.
+    //   [2i]     = (uvPosX, uvPosY, uvSize, derivativeScale)
+    //   [2i + 1] = (maxMip, ready, reserved, reserved)
+    vec4 u_TerrainVTSectors[128]; // 2 * kTerrainVTMaxSectors
 };
 
 #endif // TERRAIN_PARAMS_BLOCK_GLSL

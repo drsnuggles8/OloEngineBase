@@ -7946,6 +7946,11 @@ namespace OloEngine
                         vtConfig.BorderTexels = terrain.m_VTBorderTexels;
                         vtConfig.CacheTilesWide = terrain.m_VTCacheTilesWide;
                         vtConfig.MaxTileBakesPerFrame = terrain.m_VTMaxTileBakesPerFrame;
+                        vtConfig.AdaptiveEnabled = terrain.m_VTAdaptiveEnabled;
+                        vtConfig.SectorsWide = terrain.m_VTSectorsWide;
+                        vtConfig.MaxImagePagesWide = terrain.m_VTMaxImagePagesWide;
+                        vtConfig.TrilinearEnabled = terrain.m_VTTrilinearEnabled;
+                        vtConfig.CompressedCache = terrain.m_VTCompressedCache;
 
                         (void)terrain.m_VirtualTexture->Configure(vtConfig);
 
@@ -8309,7 +8314,14 @@ namespace OloEngine
                             if (terrain.m_VirtualTexture && terrain.m_VirtualTexture->IsReadyForShading())
                             {
                                 terrain.m_VirtualTexture->FillShaderParams(
-                                    terrainUBOData.VTParams0, terrainUBOData.VTParams1, terrainUBOData.VTParams2);
+                                    terrainUBOData.VTParams0, terrainUBOData.VTParams1, terrainUBOData.VTParams2,
+                                    terrainUBOData.VTParams3);
+                                // The adaptive sector table (slice 3): per-sector
+                                // atlas rects + ready flags, which is what lets an
+                                // unready sector's pixels fall back to the splat
+                                // path while its neighbours shade from the cache.
+                                terrain.m_VirtualTexture->FillShaderSectorTable(
+                                    std::span<glm::vec4>(terrainUBOData.VTSectors));
                                 vtBindings.indirectionTextureID = terrain.m_VirtualTexture->GetIndirectionHandle();
                                 vtBindings.cacheTextureID = terrain.m_VirtualTexture->GetCacheHandle();
                                 vtBindings.feedbackBufferID = terrain.m_VirtualTexture->GetFeedbackBufferHandle();

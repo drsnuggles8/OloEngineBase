@@ -972,6 +972,10 @@ namespace OloEngine
 
     static_assert(std::is_trivially_copyable_v<DrawWaterCommand>, "DrawWaterCommand must be trivially copyable for radix sort");
 
-    // Maximum command size for allocation purposes - increased for PBR and bone matrices
-    constexpr sizet MAX_COMMAND_SIZE = 1024;
+    // Maximum command size for allocation purposes. 1024 (PBR + bone
+    // matrices) until issue #715 slice 3 grew DrawTerrainPatchCommand's
+    // inlined TerrainUBO by the adaptive sector table. Commands are packed at
+    // their exact size, so this is a sanity bound, not a per-command cost.
+    // Mirrored in Commands/CommandAllocator.h — keep the two identical.
+    constexpr sizet MAX_COMMAND_SIZE = 4096;
 } // namespace OloEngine

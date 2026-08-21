@@ -1,0 +1,335 @@
+#version 450 core
+
+// =============================================================================
+// Terrain virtual texture — BC7 tile compression (issue #715, slice 4).
+//
+// One invocation per 4x4 block: the baked RGBA8 scratch tiles are compressed to
+// BC7 on the GPU each frame, so the physical cache can hold BC7 instead of raw
+// RGBA8 (4x VRAM reduction) without a CPU round trip.
+//
+// **Mode 6 only, on purpose.** BC7 mode 6 is one subset with RGBA 7.7.7.7
+// endpoints, a per-endpoint P-bit and 4-bit indices — full-precision endpoints
+// with no partition search, which is the standard shape for a fast single-pass
+// GPU encoder. It handles the cache's content well (smooth splat blends, packed
+// normal/roughness data) and the whole block is a single 128-bit write. The
+// multi-subset modes buy quality on hard two-material edges at the cost of a
+// partition search this per-frame path cannot afford.
+//
+// Addressing contract (the C++ side dispatches against exactly this):
+//   - gl_GlobalInvocationID.xy = block coord within one tile,
+//     gl_GlobalInvocationID.z  = slot * 2 + layer.
+//   - Scratch tile slot i occupies texels x in [i*tileTexels, (i+1)*tileTexels),
+//     y in [0, tileTexels), layers 0 and 1 (albedo+AO / normal+rough+metal —
+//     same layer meaning as the bake kernel's cache).
+//   - Block (bx,by) of slot i, layer L lands at texel (i*tileBlocks + bx, by, L)
+//     of the rgba32ui target, tileBlocks = tileTexels / 4.
+//
+// Output bit order: bits 0..127 of the BC7 block map to (x, y, z, w) of the
+// stored uvec4, x = bits 0..31, byte 0 = the low byte of x. That is exactly the
+// little-endian byte stream bc7enc's set_block_bits writes and bcdec consumes,
+// so a CPU readback of the uvec4 memcpy'd to 16 bytes decodes with bcdec_bc7
+// unchanged.
+//
+// Encoder shape (bounding box -> inset -> one least-squares refine -> pick):
+// two candidate endpoint pairs are fully evaluated and the lower-error one is
+// packed, so the refinement step can never regress a block — the same
+// keep-only-if-better contract as the CPU BC6H encoder in
+// TextureCompression.cpp.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// The baked tiles, laid out as a strip of tile slots along x (see contract).
+layout(rgba8, binding = 0) uniform readonly image2DArray u_VTScratch;
+
+// One uvec4 = one 128-bit BC7 block.
+layout(rgba32ui, binding = 1) uniform writeonly uimage2DArray u_VTBlocks;
+
+// Same SSBO as TerrainVTTileBake.comp — this kernel runs on the bake list the
+// bake kernel just filled, so it reads the same header rather than growing a
+// second parameter block. Declared VERBATIM: two GLSL declarations plus the C++
+// VTBakeHeader are three mirrors of one std430 layout, and a member added to
+// one and not the others silently shifts every field after it.
+struct VTBakeRequest
+{
+    uint PageKey; // mip << 24 | y << 12 | x
+    uint TileX;
+    uint TileY;
+    uint Pad;
+    // Terrain-UV rect of the page content. Unread here, but the STRIDE is the
+    // contract: omitting it would make every b_VTBakeRequests[i] with i >= 1
+    // read at half the real stride the moment anyone indexes the array.
+    vec4 UVRect;
+};
+
+layout(std430, binding = 80) readonly buffer TerrainVTBake
+{
+    uvec4 u_VTBakeConfig0; // x = pagesWide, y = pageTexels, z = borderTexels, w = requestCount
+    uvec4 u_VTBakeConfig1; // x = layerCount, y = tileTexels, z = layerResolution, w = unused
+    vec4  u_VTBakeWorld;   // x = worldSizeX, y = worldSizeZ, z = heightScale, w = triplanarSharpness
+    vec4  u_VTBakeTexel;   // x = heightmap texel size, yzw = unused
+    mat4  u_VTBakeModel;   // terrain-local -> ABSOLUTE world
+    vec4  u_VTBakeTiling0;
+    vec4  u_VTBakeTiling1;
+    vec4  u_VTBakeSharp0;
+    vec4  u_VTBakeSharp1;
+    VTBakeRequest b_VTBakeRequests[];
+};
+
+// The standard BC7 4-bit index weight table. Symmetric (w[15-i] == 64 - w[i]),
+// which is what makes the anchor fixup below an EXACT rewrite rather than an
+// approximation.
+const uint kWeights4[16] =
+    uint[16](0u, 4u, 9u, 13u, 17u, 21u, 26u, 30u, 34u, 38u, 43u, 47u, 51u, 55u, 60u, 64u);
+
+// Decoder-exact interpolation: (a*(64-w) + b*w + 32) >> 6 on 0..255 integers.
+// Everything downstream measures error against THIS value, not the ideal float
+// lerp, so the packed block's real decode error is what gets minimized.
+uvec4 Bc7Interpolate(uvec4 a, uvec4 b, uint w)
+{
+    return (a * (64u - w) + b * w + 32u) >> 6u;
+}
+
+// Quantize one RGBA endpoint (exact 0..255 integers in float) to 7 bits plus a
+// P-bit. The P-bit is chosen PER ENDPOINT, independently, minimizing that
+// endpoint's own squared reconstruction error — mode 6's two P-bits are not
+// shared, so the two halves of a pair owe each other nothing. Trying both
+// parities matters: (q << 1) | p spans every 8-bit value, so an exact integer
+// endpoint (a flat block) reconstructs EXACTLY under the right parity.
+void QuantizeEndpoint(vec4 e, out uvec4 outQ, out uint outP)
+{
+    float bestErr = 1e30;
+    outQ = uvec4(0u);
+    outP = 0u;
+    for (uint p = 0u; p < 2u; ++p)
+    {
+        vec4 q = clamp(floor((e - float(p)) * 0.5 + 0.5), vec4(0.0), vec4(127.0));
+        vec4 reconstructed = q * 2.0 + float(p);
+        vec4 diff = reconstructed - e;
+        float err = dot(diff, diff);
+        if (err < bestErr)
+        {
+            bestErr = err;
+            outQ = uvec4(q);
+            outP = p;
+        }
+    }
+}
+
+// Per-texel 4-bit index selection against DEQUANTIZED endpoints; returns the
+// block's total squared error so candidates can be compared.
+//
+// The index is estimated by projecting the texel onto the endpoint axis and
+// mapping t in [0,1] to the nearest table entry as round(t * 15) — the table's
+// largest deviation from that uniform spacing is under half a weight step, so
+// the estimate is always within one index of optimal. The +-1 neighbourhood is
+// then scored against the exact decoded values, which both repairs the estimate
+// and accounts for the interpolator's integer rounding.
+float SelectIndices(uvec4 e0, uvec4 e1, in vec4 texels[16], out uint outIdx[16])
+{
+    vec4 f0 = vec4(e0);
+    vec4 d = vec4(e1) - f0;
+    float len2 = dot(d, d);
+    float total = 0.0;
+    for (int t = 0; t < 16; ++t)
+    {
+        int estimate = 0;
+        if (len2 > 0.0)
+        {
+            float proj = clamp(dot(texels[t] - f0, d) / len2, 0.0, 1.0);
+            estimate = int(proj * 15.0 + 0.5);
+        }
+        float bestErr = 1e30;
+        uint bestIdx = 0u;
+        for (int k = -1; k <= 1; ++k)
+        {
+            int c = clamp(estimate + k, 0, 15);
+            vec4 decoded = vec4(Bc7Interpolate(e0, e1, kWeights4[c]));
+            vec4 diff = decoded - texels[t];
+            float err = dot(diff, diff);
+            if (err < bestErr)
+            {
+                bestErr = err;
+                bestIdx = uint(c);
+            }
+        }
+        outIdx[t] = bestIdx;
+        total += bestErr;
+    }
+    return total;
+}
+
+// One least-squares endpoint fit against fixed indices. interp is linear in the
+// two endpoints, so this is a single 2x2 normal-equation solve — and because
+// mode 6 shares one index across all four channels, the four right-hand sides
+// solve simultaneously as vec4s. Same pattern as the CPU BC6H encoder's
+// refinement loop (TextureCompression.cpp), one iteration.
+void RefineEndpoints(in vec4 texels[16], in uint indices[16], inout vec4 e0, inout vec4 e1)
+{
+    float a00 = 0.0;
+    float a01 = 0.0;
+    float a11 = 0.0;
+    vec4 rhs0 = vec4(0.0);
+    vec4 rhs1 = vec4(0.0);
+    for (int t = 0; t < 16; ++t)
+    {
+        float w = float(kWeights4[indices[t]]) / 64.0;
+        float s = 1.0 - w;
+        a00 += s * s;
+        a01 += s * w;
+        a11 += w * w;
+        rhs0 += texels[t] * s;
+        rhs1 += texels[t] * w;
+    }
+    float det = a00 * a11 - a01 * a01;
+    // Degenerate (every index identical — a flat block): the solve has no
+    // second point to fit, so keep the bounding-box endpoints.
+    if (abs(det) < 1e-6)
+        return;
+    e0 = clamp((rhs0 * a11 - rhs1 * a01) / det, vec4(0.0), vec4(255.0));
+    e1 = clamp((rhs1 * a00 - rhs0 * a01) / det, vec4(0.0), vec4(255.0));
+}
+
+// LSB-first bit writer over the uvec4 block, the same order bc7enc's
+// set_block_bits writes bytes: bit offset N lands in word N>>5 at bit N&31.
+// Handles a field straddling a word boundary (mode 6 has exactly one: G1 at
+// bits 28..34).
+void PutBits(inout uvec4 block, inout uint ofs, uint value, uint bits)
+{
+    uint word = ofs >> 5u;
+    uint bit = ofs & 31u;
+    block[word] |= (value << bit);
+    if (bit + bits > 32u)
+        block[word + 1u] |= (value >> (32u - bit));
+    ofs += bits;
+}
+
+void main()
+{
+    uint requestCount = u_VTBakeConfig0.w;
+    uint z = gl_GlobalInvocationID.z;
+    if (z >= requestCount * 2u)
+        return;
+
+    uint tileTexels = u_VTBakeConfig1.y; // guaranteed % 4 == 0 by config sanitize
+    uint tileBlocks = tileTexels / 4u;
+    uvec2 blockCoord = gl_GlobalInvocationID.xy;
+    if (blockCoord.x >= tileBlocks || blockCoord.y >= tileBlocks)
+        return;
+
+    uint slot = z >> 1u;
+    uint layer = z & 1u;
+
+    // Load the 16 texels as exact 0..255 integers carried in float. rgba8
+    // imageLoad returns v/255, so *255 + round reproduces the stored byte
+    // exactly; all error math below is therefore in decoded-byte units.
+    vec4 texels[16];
+    ivec2 srcBase = ivec2(int(slot * tileTexels + blockCoord.x * 4u), int(blockCoord.y * 4u));
+    for (int j = 0; j < 4; ++j)
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            vec4 texel = imageLoad(u_VTScratch, ivec3(srcBase.x + i, srcBase.y + j, int(layer)));
+            texels[j * 4 + i] = floor(texel * 255.0 + 0.5);
+        }
+    }
+
+    // 1. Per-channel bounding box, inset by the standard 1/16 of its extent.
+    //    The extremes of a block are usually noise; pulling the endpoints in
+    //    trades a little clamping error at the extremes for less quantization
+    //    error across the interior. The least-squares candidate below recovers
+    //    exact endpoints where insetting was the wrong call (e.g. a clean
+    //    two-colour edge block).
+    vec4 boxMin = texels[0];
+    vec4 boxMax = texels[0];
+    for (int t = 1; t < 16; ++t)
+    {
+        boxMin = min(boxMin, texels[t]);
+        boxMax = max(boxMax, texels[t]);
+    }
+    vec4 inset = (boxMax - boxMin) * (1.0 / 16.0);
+
+    // 2. Candidate A: the inset bounding box, quantized.
+    uvec4 qa0;
+    uvec4 qa1;
+    uint pa0;
+    uint pa1;
+    QuantizeEndpoint(boxMin + inset, qa0, pa0);
+    QuantizeEndpoint(boxMax - inset, qa1, pa1);
+    uvec4 da0 = (qa0 << 1u) | uvec4(pa0);
+    uvec4 da1 = (qa1 << 1u) | uvec4(pa1);
+    uint idxA[16];
+    float errA = SelectIndices(da0, da1, texels, idxA);
+
+    // 3. Candidate B: one least-squares pass against candidate A's indices,
+    //    re-quantized and re-scored.
+    vec4 r0 = vec4(da0);
+    vec4 r1 = vec4(da1);
+    RefineEndpoints(texels, idxA, r0, r1);
+    uvec4 qb0;
+    uvec4 qb1;
+    uint pb0;
+    uint pb1;
+    QuantizeEndpoint(r0, qb0, pb0);
+    QuantizeEndpoint(r1, qb1, pb1);
+    uvec4 db0 = (qb0 << 1u) | uvec4(pb0);
+    uvec4 db1 = (qb1 << 1u) | uvec4(pb1);
+    uint idxB[16];
+    float errB = SelectIndices(db0, db1, texels, idxB);
+
+    // 4. Keep whichever candidate actually decodes better — refinement is never
+    //    allowed to regress a block.
+    uvec4 q0 = qa0;
+    uvec4 q1 = qa1;
+    uint p0 = pa0;
+    uint p1 = pa1;
+    uint indices[16] = idxA;
+    if (errB < errA)
+    {
+        q0 = qb0;
+        q1 = qb1;
+        p0 = pb0;
+        p1 = pb1;
+        indices = idxB;
+    }
+
+    // 5. Anchor constraint: index 0's MSB is implicit-0 in the bitstream (it is
+    //    stored in 3 bits), so it must be < 8. If not, swap the endpoint pair
+    //    (P-bits travel with their endpoints — mode 6's are per-endpoint) and
+    //    invert every index. The weight table's w[15-i] == 64 - w[i] symmetry
+    //    makes the swapped block decode BIT-IDENTICALLY, so no re-selection is
+    //    needed.
+    if (indices[0] >= 8u)
+    {
+        uvec4 tq = q0;
+        q0 = q1;
+        q1 = tq;
+        uint tp = p0;
+        p0 = p1;
+        p1 = tp;
+        for (int t = 0; t < 16; ++t)
+            indices[t] = 15u - indices[t];
+    }
+
+    // 6. Pack the mode-6 bitstream, LSB first:
+    //      [0..6]    mode (0b1000000 — six zeros then the set bit at bit 6)
+    //      [7..62]   endpoints, R0 R1 G0 G1 B0 B1 A0 A1, 7 bits each
+    //      [63..64]  P0, P1
+    //      [65..127] indices: index 0 in 3 bits (anchor), 1..15 in 4 bits each
+    uvec4 block = uvec4(0u);
+    uint ofs = 0u;
+    PutBits(block, ofs, 64u, 7u);
+    for (int c = 0; c < 4; ++c)
+    {
+        PutBits(block, ofs, q0[c], 7u);
+        PutBits(block, ofs, q1[c], 7u);
+    }
+    PutBits(block, ofs, p0, 1u);
+    PutBits(block, ofs, p1, 1u);
+    PutBits(block, ofs, indices[0], 3u);
+    for (int t = 1; t < 16; ++t)
+        PutBits(block, ofs, indices[t], 4u);
+
+    ivec3 dst = ivec3(int(slot * tileBlocks + blockCoord.x), int(blockCoord.y), int(layer));
+    imageStore(u_VTBlocks, dst, block);
+}

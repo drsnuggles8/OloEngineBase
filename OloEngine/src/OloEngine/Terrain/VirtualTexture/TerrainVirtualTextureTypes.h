@@ -1,10 +1,12 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Memory/AlignmentTemplates.h"
 
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <utility>
@@ -12,9 +14,9 @@
 
 namespace OloEngine
 {
-    // @brief The CPU half of terrain virtual texturing (issue #715, slice 1):
-    // every packing, every coordinate transform, and the feedback reduction —
-    // with no GPU dependency at all.
+    // @brief The CPU half of terrain virtual texturing (issue #715): every
+    // packing, every coordinate transform, the feedback reduction, and the
+    // adaptive image sizing/remap policy — with no GPU dependency at all.
     //
     // Deliberately separated from TerrainVirtualTexture (which owns the GL
     // resources) for two reasons. The packings are MIRRORED IN GLSL — the same
@@ -30,23 +32,60 @@ namespace OloEngine
     // ── Limits, all of them dictated by a packing rather than chosen ──────────
 
     // Virtual page coordinates get 12 bits each in both the feedback word and
-    // the page key, so a virtual image is at most 4096 pages on a side.
+    // the page key, so the virtual ATLAS is at most 4096 pages on a side.
     inline constexpr u32 kVTMaxPagesWide = 4096u;
     // Mip gets 4 bits in the same two words.
     inline constexpr u32 kVTMaxMipCount = 16u;
     // The indirection texel stores the physical tile coordinate in two RGBA8
     // bytes, so the physical cache is at most 256 tiles on a side.
     inline constexpr u32 kVTMaxCacheTilesWide = 256u;
+    // The per-sector table rides the TerrainParams UBO as a fixed array (the
+    // UBO namespace has no free binding to spend on an SSBO — see
+    // ShaderBindingLayout), so the sector grid is capped at compile time.
+    // 8x8 = 64 entries x 2 vec4s = 2 KB of UBO, and 64 per-sector pinned
+    // pages still leave three quarters of the default 256-tile cache free.
+    inline constexpr u32 kVTMaxSectorsWide = 8u;
+    inline constexpr u32 kVTMaxSectorCount = kVTMaxSectorsWide * kVTMaxSectorsWide;
 
     // @brief How a terrain's virtual texture is shaped. Sizes are texels unless
     // the name says pages/tiles.
     struct TerrainVirtualTextureConfig
     {
-        // Pages across the terrain at mip 0. Power of two — the indirection
-        // texture's mip chain halves it each level, and the shader's
-        // `virtualUV * (pagesWide >> mip)` only lands on page boundaries when it
-        // is.
+        // Pages across the virtual ATLAS at mip 0. Power of two — the
+        // indirection texture's mip chain halves it each level, and the
+        // shader's `virtualUV * (pagesWide >> mip)` only lands on page
+        // boundaries when it is. With AdaptiveEnabled this is an ADDRESS
+        // SPACE the per-sector images are allocated from, not the terrain's
+        // texel density; without it the whole atlas is one fixed image over
+        // the terrain (slices 1-2 exactly).
         u32 VirtualPagesWide = 256u;
+        // ── Adaptive (slice 3): variable-size virtual images ──
+        //
+        // The terrain is cut into SectorsWide^2 equal sectors; each sector
+        // owns a square power-of-two image allocated from the atlas, sized by
+        // what the feedback loop reports the camera actually resolves. The
+        // whole slices-1-2 machinery (feedback words, page keys, indirection
+        // map, delta publish) keeps operating in atlas page space unchanged;
+        // adaptivity only changes how a terrain UV finds its virtual UV.
+        bool AdaptiveEnabled = true;
+        // Power of two in [1, kVTMaxSectorsWide]. 1 sector spanning the whole
+        // atlas at a pinned size IS the fixed grid, through the same code.
+        u32 SectorsWide = 8u;
+        // Per-image size bounds, pages, powers of two. The min is also the
+        // atlas allocator's granularity: AtlasAllocator caps its level count
+        // at 12, so VirtualPagesWide / MinImagePagesWide must stay <= 2048 or
+        // the allocator silently constructs with zero capacity.
+        u32 MinImagePagesWide = 1u;
+        u32 MaxImagePagesWide = 64u;
+        // Blend two virtual mips per sample (4 cache taps instead of 2) so a
+        // page-mip transition is a cross-fade rather than a density step.
+        bool TrilinearEnabled = true;
+        // ── Compression (slice 4): BC7 cache tiles ──
+        //
+        // Tiles bake into an RGBA8 scratch, a compute pass packs BC7 blocks
+        // into an RGBA32UI staging image, and a block-compatible copy lands
+        // them in the BC7 cache — 1 byte per texel per layer instead of 4.
+        bool CompressedCache = true;
         // Unique texels per page edge (the part that is NOT border).
         u32 PageTexels = 128u;
         // Texels of duplicated neighbourhood on each side of a cache tile. This
@@ -94,11 +133,34 @@ namespace OloEngine
         {
             return MipCount() - 1u;
         }
-        // Virtual texels across the terrain at mip 0 — the density figure that
-        // is compared against the splatmap path.
+        // Virtual texels across the ATLAS at mip 0. With adaptivity the
+        // terrain-density figure is per sector: EffectiveMaxImagePagesWide()
+        // * PageTexels * EffectiveSectorsWide() texels across the terrain when
+        // every sector is at maximum size.
         [[nodiscard]] u64 VirtualTexelsWide() const
         {
             return static_cast<u64>(VirtualPagesWide) * PageTexels;
+        }
+
+        // The values the runtime actually uses: with adaptivity off the grid
+        // degenerates to ONE image pinned at the full atlas size, which makes
+        // the fixed-grid path a config of the adaptive code rather than a
+        // second code path.
+        [[nodiscard]] u32 EffectiveSectorsWide() const
+        {
+            return AdaptiveEnabled ? SectorsWide : 1u;
+        }
+        [[nodiscard]] u32 EffectiveSectorCount() const
+        {
+            return EffectiveSectorsWide() * EffectiveSectorsWide();
+        }
+        [[nodiscard]] u32 EffectiveMinImagePagesWide() const
+        {
+            return AdaptiveEnabled ? MinImagePagesWide : VirtualPagesWide;
+        }
+        [[nodiscard]] u32 EffectiveMaxImagePagesWide() const
+        {
+            return AdaptiveEnabled ? MaxImagePagesWide : VirtualPagesWide;
         }
 
         [[nodiscard]] bool IsValid() const;
@@ -145,18 +207,31 @@ namespace OloEngine
     //
     //   bits  0..11 : page x AT MIP 0 (i.e. before the >> mip)
     //   bits 12..23 : page y AT MIP 0
-    //   bits 24..27 : the mip the pixel wanted
+    //   bits 24..27 : the mip the pixel wanted, PLUS ONE
     //   bit  31     : written this frame
     //
     // Storing the MIP-0 coordinate rather than the already-shifted one is what
     // lets the analysis derive both the wanted page and its parent without ever
     // reconstructing a finer coordinate from a coarser one.
+    //
+    // The +1 bias reserves the field value 0 for "the pixel wanted a mip FINER
+    // than the sector's image provides" (a computed mip below zero) — the
+    // signal the adaptive layer grows an image on. The reference encodes this
+    // and then discards it (AVTFeedbackAnalyzeJob clamps it away, with a
+    // comment planning exactly this use); closing that loop is what makes the
+    // image sizes feedback-driven rather than camera-distance-banded.
 
     inline constexpr u32 kVTFeedbackWrittenBit = 1u << 31u;
 
-    [[nodiscard]] constexpr u32 VTPackFeedback(u32 mip0X, u32 mip0Y, u32 mip)
+    [[nodiscard]] constexpr u32 VTPackFeedback(u32 mip0X, u32 mip0Y, i32 wantedMip)
     {
-        return kVTFeedbackWrittenBit | ((mip & 0xFu) << 24u) | ((mip0Y & 0xFFFu) << 12u) | (mip0X & 0xFFFu);
+        const u32 biased = static_cast<u32>(std::clamp(wantedMip + 1, 0, 15));
+        return kVTFeedbackWrittenBit | (biased << 24u) | ((mip0Y & 0xFFFu) << 12u) | (mip0X & 0xFFFu);
+    }
+    // -1 means "finer than the image has" — the grow signal, not a mip.
+    [[nodiscard]] constexpr i32 VTFeedbackMip(u32 word)
+    {
+        return static_cast<i32>((word >> 24u) & 0xFu) - 1;
     }
     [[nodiscard]] constexpr bool VTFeedbackWasWritten(u32 word)
     {
@@ -214,6 +289,161 @@ namespace OloEngine
     {
         return glm::uvec2(tileIndex % config.CacheTilesWide, tileIndex / config.CacheTilesWide);
     }
+
+    // ── Adaptive virtual images (slice 3 of #715) ────────────────────────────
+    //
+    // The atlas allocator hands each sector a power-of-two square at a
+    // power-of-two-ALIGNED origin (AtlasAllocator's buddy structure guarantees
+    // X and Y are multiples of Size). That alignment is what lets variable-size
+    // images share one indirection mip chain: at atlas mip m the image occupies
+    // exactly (origin >> m, size >> m), still aligned, so no two images ever
+    // share an indirection texel at any mip up to their own coarsest level —
+    // and the fill kernel's parent-inheritance can never cross an image
+    // boundary below that level. ABOVE its own coarsest level an image's texels
+    // ARE shared with its allocator siblings, which is why the shader clamps
+    // every lookup to the sector's MaxMip and why nothing is ever requested
+    // coarser than it.
+
+    // @brief One sector's allocation as the analyzer and the bake path see it.
+    // A SNAPSHOT: the analysis job runs on a Task worker over feedback the GPU
+    // wrote two-plus frames ago, so it judges those words against the table as
+    // it was when the analysis launched; servicing re-validates every request
+    // against the live table before allocating.
+    struct VTSectorSnapshot
+    {
+        u16 m_OriginX = 0; // pages, atlas space, multiple of m_SizePages
+        u16 m_OriginY = 0;
+        u16 m_SizePages = 0; // power of two; 0 = unallocated
+        u16 m_MaxMip = 0;    // log2(m_SizePages) — the image's own 1x1 level
+
+        [[nodiscard]] bool IsAllocated() const
+        {
+            return m_SizePages != 0u;
+        }
+        // Whether an atlas page key addresses a texel INSIDE this image, at a
+        // level the image actually has. The validity check every stale
+        // feedback word is filtered through: after a resize moves an image,
+        // in-flight feedback still names pages of the old rect, and a request
+        // that no live image owns must be dropped, not baked.
+        [[nodiscard]] constexpr bool Contains(u32 pageKey) const
+        {
+            const u32 mip = VTPageKeyMip(pageKey);
+            if (m_SizePages == 0u || mip > m_MaxMip)
+            {
+                return false;
+            }
+            const u32 sizeAtMip = static_cast<u32>(m_SizePages) >> mip;
+            const u32 localX = VTPageKeyX(pageKey) - (static_cast<u32>(m_OriginX) >> mip);
+            const u32 localY = VTPageKeyY(pageKey) - (static_cast<u32>(m_OriginY) >> mip);
+            return localX < sizeAtMip && localY < sizeAtMip; // unsigned wrap catches below-origin
+        }
+        // The page every fallback chain inside this image terminates in. Kept
+        // permanently requested at maximum priority (the per-sector equivalent
+        // of slices 1-2's single pinned page).
+        [[nodiscard]] constexpr u32 PinKey() const
+        {
+            return VTMakePageKey(m_MaxMip, static_cast<u32>(m_OriginX) >> m_MaxMip,
+                                 static_cast<u32>(m_OriginY) >> m_MaxMip);
+        }
+
+        bool operator==(const VTSectorSnapshot&) const = default;
+    };
+
+    // @brief What one analysis saw of one sector — the signals the sizing
+    // policy runs on. Requests carry the camera's actual resolve; nothing here
+    // is a distance heuristic.
+    struct VTSectorFeedback
+    {
+        u32 m_Requests = 0;                        // feedback texels that landed in this sector
+        u32 m_UnderResolved = 0;                   // of those, how many wanted a mip finer than mip 0
+        u32 m_FinestMipRequested = kVTMaxMipCount; // min wanted mip (>= 0) this analysis
+
+        bool operator==(const VTSectorFeedback&) const = default;
+    };
+
+    // @brief Per-sector sizing state persisted across analyses. Streaks and a
+    // cooldown are the hysteresis the reference left unwired (its
+    // LastRegionResizeFrame is written and never read): a resize costs a
+    // remap of every resident page plus indirection churn, so a sector must
+    // WANT a size for several consecutive analyses before it gets it, and
+    // cannot flap back for kVTResizeCooldownAnalyses afterwards.
+    struct VTSectorSizingState
+    {
+        u32 m_GrowStreak = 0;
+        u32 m_ShrinkStreak = 0;
+        u32 m_IdleAnalyses = 0;
+        u32 m_CooldownAnalyses = 0;
+    };
+
+    // Deliberately constants, not config: sizing knobs breed thrash bugs, and
+    // these are counted in ANALYSES (one adopted feedback reduction), not
+    // frames, so they are independent of frame rate and readback latency.
+    inline constexpr u32 kVTResizeCooldownAnalyses = 8u;
+    inline constexpr u32 kVTGrowStreakAnalyses = 3u;
+    // Shrinking discards the finest level's baked pages, so it takes far more
+    // evidence than growing, and only fires when the finest request sits at
+    // least this many mips above the image's floor.
+    inline constexpr u32 kVTShrinkStreakAnalyses = 24u;
+    inline constexpr u32 kVTShrinkSlackMips = 2u;
+    // A sector nothing looked at (off-screen, behind the camera) steps toward
+    // the minimum so its atlas space and cache tiles go where the camera is.
+    inline constexpr u32 kVTIdleShrinkAnalyses = 48u;
+    // Requests below this are treated as noise for the GROW signal: one
+    // grazing-angle pixel at the sector's far corner should not double the
+    // image.
+    inline constexpr u32 kVTGrowMinRequests = 4u;
+
+    // @brief One analysis step of the sizing policy for one sector. Returns
+    // the size the sector should have (== currentSize when nothing changes)
+    // and updates the streak state. Pure, so the policy is headlessly
+    // testable against synthetic feedback histories.
+    [[nodiscard]] u32 VTDesiredImageSize(u32 currentSize, const VTSectorFeedback& feedback,
+                                         VTSectorSizingState& state, u32 minSize, u32 maxSize);
+
+    // @brief Where a resident page of a resized image lives in the new
+    // allocation. A resize is a REMAP, not a rebake (the reference's central
+    // trick): the power-of-two pyramids nest, so the page covering a given
+    // world rect at a given texel density exists in both — one mip-index
+    // shift plus an origin translation, with the physical tile untouched.
+    // Returns std::nullopt when the page's density falls off the new pyramid
+    // (the finest level of an image that shrank), in which case the caller
+    // evicts it.
+    [[nodiscard]] constexpr std::optional<u32> VTRemapPageKey(u32 pageKey, const VTSectorSnapshot& oldImage,
+                                                              const VTSectorSnapshot& newImage)
+    {
+        // A remap from or to an unallocated image is meaningless — and the
+        // doubling walks below would never terminate on a zero size, so this
+        // guard is a hang prevention, not a nicety.
+        if (!oldImage.IsAllocated() || !newImage.IsAllocated())
+        {
+            return std::nullopt;
+        }
+        const u32 mip = VTPageKeyMip(pageKey);
+        // Grow doubles the size: every old level shifts one coarser in the new
+        // pyramid (old mip 0 at 64 pages == new mip 1 at 128 — same page
+        // count, same world rect, same density).
+        const i32 deltaMip =
+            static_cast<i32>(FloorLogTwo(newImage.m_SizePages)) - static_cast<i32>(FloorLogTwo(oldImage.m_SizePages));
+        const i32 newMip = static_cast<i32>(mip) + deltaMip;
+        if (newMip < 0 || newMip > static_cast<i32>(newImage.m_MaxMip))
+        {
+            return std::nullopt;
+        }
+        const u32 localX = VTPageKeyX(pageKey) - (static_cast<u32>(oldImage.m_OriginX) >> mip);
+        const u32 localY = VTPageKeyY(pageKey) - (static_cast<u32>(oldImage.m_OriginY) >> mip);
+        const u32 newMipU = static_cast<u32>(newMip);
+        return VTMakePageKey(newMipU, (static_cast<u32>(newImage.m_OriginX) >> newMipU) + localX,
+                             (static_cast<u32>(newImage.m_OriginY) >> newMipU) + localY);
+    }
+
+    // @brief Terrain-UV rect of one page's CONTENT (no border), derived from
+    // its owning sector. This is what the bake composites: under adaptivity a
+    // page's terrain footprint depends on which sector owns it and how big
+    // that sector's image currently is, so the CPU resolves it per request
+    // and the bake kernel just samples the rect it is handed.
+    // sectorIndex is row-major in the sector grid.
+    [[nodiscard]] glm::vec4 VTPageTerrainUVRect(const TerrainVirtualTextureConfig& config,
+                                                const VTSectorSnapshot& sector, u32 sectorIndex, u32 pageKey);
 
     // ── Incremental indirection updates (slice 2 of #715) ────────────────────
     //
@@ -382,15 +612,25 @@ namespace OloEngine
     }
 
     // @brief One tile the bake kernel must composite.
-    // std430 twin is VTBakeRequest in compute/TerrainVTTileBake.comp.
+    // std430 twin is VTBakeRequest in compute/TerrainVTTileBake.comp — and in
+    // compute/TerrainVTCompressBC7.comp, which declares the same SSBO. Three
+    // declarations, one layout.
     struct VTBakeRequest
     {
         u32 m_PageKey = 0; // VTMakePageKey(mip, x, y)
-        u32 m_TileX = 0;   // destination tile in the physical cache
+        u32 m_TileX = 0;   // destination tile in the physical cache — or the
+                           // scratch slot when the compressed path stages the
+                           // bake (slot i at x = i * tileTexels, y = 0)
         u32 m_TileY = 0;
         u32 m_Padding = 0;
+        // Terrain-UV rect of the page CONTENT: xy = min, z = span, w unused.
+        // The kernel used to derive this from a uniform grid; under adaptivity
+        // the footprint depends on the owning sector's current image size, so
+        // the CPU resolves it (VTPageTerrainUVRect) and the kernel just
+        // samples what it is handed.
+        glm::vec4 m_UVRect{ 0.0f };
     };
-    static_assert(sizeof(VTBakeRequest) == 16, "VTBakeRequest must match its std430 twin");
+    static_assert(sizeof(VTBakeRequest) == 32, "VTBakeRequest must match its std430 twin");
 
     // ── Feedback analysis ────────────────────────────────────────────────────
 
@@ -404,35 +644,51 @@ namespace OloEngine
     };
 
     // @brief Reduce a raw feedback buffer to a unique, priority-ordered page
-    // request list. Runs on a Task worker — pure CPU, no renderer state.
+    // request list plus per-sector sizing signals. Runs on a Task worker —
+    // pure CPU, no renderer state.
     //
-    // Two behaviours here are load-bearing rather than incidental:
+    // Three behaviours here are load-bearing rather than incidental:
     //
-    //  - **Each written texel requests its page AND that page's parent.** The
-    //    parent is what a lookup falls back to while the fine page is still
-    //    being composited, so not requesting it means the fallback chain has a
-    //    hole exactly where the camera is looking — which shows up as the page
-    //    pop this design exists to avoid.
-    //  - **The coarsest mip is always requested**, at the highest possible
-    //    count, so it is never the LRU victim. Every unresolved lookup
-    //    ultimately inherits from that one page; evicting it would leave the
-    //    whole terrain with nothing to fall back to for a frame.
+    //  - **Each written texel requests its page AND that page's parent** (the
+    //    parent clamped to the owning sector's coarsest level). The parent is
+    //    what a lookup falls back to while the fine page is still being
+    //    composited, so not requesting it means the fallback chain has a hole
+    //    exactly where the camera is looking — which shows up as the page pop
+    //    this design exists to avoid.
+    //  - **Every allocated sector's coarsest page is always requested**, at
+    //    the highest possible count, before any camera-driven request — even
+    //    on a frame where the terrain drew nothing. Every unresolved lookup
+    //    inside a sector ultimately inherits from that one page; evicting it
+    //    would leave the sector with nothing to fall back to.
+    //  - **A word no live sector owns is dropped, and counted.** Feedback is
+    //    two-plus frames stale, so after a resize moves an image the buffer
+    //    still names pages of the old rect; baking those would composite
+    //    terrain content into pages of whatever image now occupies that atlas
+    //    space.
     //
-    // Ordering is by (coarser mip first, then descending count): a coarse page
-    // both covers more screen and is the prerequisite for its children's
-    // fallback, so spending a limited per-frame bake budget on it first
-    // converges the image faster than chasing the finest requests.
+    // Ordering is (pins first, then coarser mip first, then descending
+    // count): a coarse page both covers more screen and is the prerequisite
+    // for its children's fallback. Pins can no longer ride the mip sort
+    // alone — a 1-page image's pin lives at atlas mip 0, the FINEST band, and
+    // would otherwise be starved behind every other sector's requests.
     class VTFeedbackAnalyzer
     {
       public:
-        // `feedback` is the raw ring-slot copy; `maxMip` clamps the requested
-        // mip (a feedback word from a stale frame can name a mip the current
-        // config no longer has).
-        void Analyze(std::span<const u32> feedback, u32 maxMip);
+        // `feedback` is the raw ring-slot copy; `sectors` is the sector-table
+        // snapshot taken when this analysis launched (EffectiveSectorCount()
+        // entries, row-major); `atlasMaxMip` clamps a stale word's mip field
+        // to something the current config can express at all.
+        void Analyze(std::span<const u32> feedback, std::span<const VTSectorSnapshot> sectors, u32 atlasMaxMip);
 
         [[nodiscard]] const std::vector<VTPageRequest>& GetRequests() const
         {
             return m_Requests;
+        }
+        // Per-sector aggregates, index-matched to the snapshot. What the
+        // sizing policy runs on.
+        [[nodiscard]] const std::vector<VTSectorFeedback>& GetSectorFeedback() const
+        {
+            return m_SectorFeedback;
         }
         // Feedback texels that carried a written flag. Reported for inspection
         // (acceptance criterion 3) and to tell "nothing asked" apart from
@@ -441,18 +697,32 @@ namespace OloEngine
         {
             return m_WrittenTexels;
         }
+        // Written texels whose page no live sector owned — normal for a frame
+        // or two after a resize; persistent growth means an addressing bug.
+        [[nodiscard]] u32 GetStaleTexelCount() const
+        {
+            return m_StaleTexels;
+        }
 
         void Clear();
 
       private:
         void AddRequest(u32 pageKey, u32 count);
+        // Owning sector of an atlas mip-0 page coordinate, or nullopt. Linear
+        // scan over the snapshot with a last-hit cache: neighbouring feedback
+        // texels overwhelmingly share a sector (the reference measured its
+        // identical scheme at ~10x over a cold scan).
+        [[nodiscard]] std::optional<u32> FindSector(std::span<const VTSectorSnapshot> sectors, u32 mip0X, u32 mip0Y);
 
         std::vector<VTPageRequest> m_Requests;
         // Open-addressed pageKey -> index into m_Requests. A plain vector keyed
         // by a mask of the key: the request count per frame is bounded by the
         // feedback texel count (a few thousand), so this never grows.
         std::vector<u32> m_Slots;
+        std::vector<VTSectorFeedback> m_SectorFeedback;
+        u32 m_LastSectorHit = 0;
         u32 m_WrittenTexels = 0;
+        u32 m_StaleTexels = 0;
     };
 
     // ── Page residency policy ────────────────────────────────────────────────
@@ -551,8 +821,10 @@ namespace OloEngine
 
     // ── Coordinate math, mirrored in GLSL ────────────────────────────────────
 
-    // The [0,1]^2 sub-rect of the terrain a page covers, WITHOUT its border.
-    // GLSL twin: oloVTPageUVRect().
+    // The [0,1]^2 sub-rect of the ATLAS a page covers, WITHOUT its border.
+    // Atlas UV, not terrain UV — under adaptivity the two coincide only for
+    // the degenerate one-sector config; the terrain-side rect is
+    // VTPageTerrainUVRect above.
     [[nodiscard]] glm::vec4 VTPageUVRect(const TerrainVirtualTextureConfig& config, u32 mip, u32 pageX, u32 pageY);
 
     // The same rect grown by the border, i.e. what the bake kernel actually

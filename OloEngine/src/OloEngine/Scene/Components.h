@@ -4035,6 +4035,34 @@ namespace OloEngine
         OLO_PROPERTY(Name = "VTMaxTileBakesPerFrame")
         OLO_SERIALIZE(Clamp, Min = 1, Max = 64)
         u32 m_VTMaxTileBakesPerFrame = 8;
+        // ── Slices 3+4 (issue #715): adaptive images, compressed tiles ──
+        //
+        // With adaptivity on, VTVirtualPagesWide above becomes the virtual
+        // ATLAS size and each of SectorsWide^2 terrain sectors owns a
+        // variable-size image inside it, sized by what the feedback loop
+        // reports the camera actually resolves — density follows the camera
+        // instead of being uniform.
+        OLO_PROPERTY(Name = "VTAdaptiveEnabled")
+        bool m_VTAdaptiveEnabled = true;
+        // Power of two. Capped at 8 (the sector table rides the terrain UBO
+        // as a fixed 64-entry array), and further by the cache size: each
+        // sector pins one tile.
+        OLO_PROPERTY(Name = "VTSectorsWide")
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 8)
+        u32 m_VTSectorsWide = 8;
+        // Power of two. The finest image a sector can earn; the density
+        // ceiling near the camera is this times VTPageTexels per sector.
+        OLO_PROPERTY(Name = "VTMaxImagePagesWide")
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 4096)
+        u32 m_VTMaxImagePagesWide = 64;
+        // Blend two virtual mips per sample so a page-mip transition is a
+        // cross-fade rather than a density step. Costs two extra cache taps.
+        OLO_PROPERTY(Name = "VTTrilinearEnabled")
+        bool m_VTTrilinearEnabled = true;
+        // BC7 cache tiles, GPU-compressed at bake time: a quarter of the
+        // VRAM of the RGBA8 cache for a small quality cost.
+        OLO_PROPERTY(Name = "VTCompressedCache")
+        bool m_VTCompressedCache = true;
 
         // Voxel override settings (serialized)
         bool m_VoxelEnabled = false;

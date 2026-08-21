@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/AtlasAllocator.h"
 #include "OloEngine/Renderer/GPUCache/GPUCachePolicy.h"
 #include "OloEngine/Renderer/GPUCache/GPUPagedCache.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
@@ -12,6 +13,7 @@
 
 #include <array>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -23,9 +25,12 @@ namespace OloEngine
     class Texture2D;
     class Texture2DArray;
 
-    // @brief Adaptive-virtual-texture surfacing for terrain — slices 1 and 2 of
-    // issue #715: a FIXED-GRID virtual image with an uncompressed physical cache
-    // and a mip-chained indirection map published by INCREMENTAL DELTAS.
+    // @brief Adaptive-virtual-texture surfacing for terrain — issue #715, all
+    // four slices: a mip-chained indirection map over a shared virtual ATLAS,
+    // published by INCREMENTAL DELTAS; per-sector VARIABLE-SIZE images
+    // allocated from that atlas by what the feedback loop reports the camera
+    // actually resolves; and a physical cache of BC7-COMPRESSED tiles packed
+    // on the GPU.
     //
     // What this replaces: `Terrain_PBR.glsl` blends up to eight splat layers per
     // pixel with triplanar + height blending, so shading cost scales with layer
@@ -74,13 +79,21 @@ namespace OloEngine
     // body, which runs on a Task worker over a plain `std::vector<u32>` copy and
     // touches no renderer state — see `VTFeedbackAnalyzer`.
     //
-    // ── What is NOT here (slices 3-4 of #715) ────────────────────────────────
+    // ── The adaptive layer (slice 3), in one paragraph ───────────────────────
     //
-    //  - Adaptive / variable-size virtual images (the "A" in AVT). The grid is
-    //    uniform over the terrain; per-region density would need the shared
-    //    power-of-two atlas allocator tracked as #718.
-    //  - BC-compressed cache tiles, which need the GPU compressor from item 3 of
-    //    #624. The cache is uncompressed RGBA8 here, by design.
+    // The terrain is cut into SectorsWide^2 sectors; each owns a square
+    // power-of-two image allocated from the atlas by AtlasAllocator (#718),
+    // whose buddy alignment is what lets differently-sized images share one
+    // indirection mip chain without ever sharing a texel below their own
+    // coarsest level. Image sizes are FEEDBACK-driven: the shader encodes
+    // wantedMip + 1 so that 0 survives as "finer than the image has" (the
+    // grow signal the reference stubbed out), and VTDesiredImageSize turns
+    // per-sector aggregates into grow/shrink steps under streak + cooldown
+    // hysteresis. A resize REMAPS resident pages (a mip-index shift plus an
+    // origin translation — GPUPagedCache::MoveObject, the delta records the
+    // texel moves) rather than rebaking them; only a shrink's finest level is
+    // dropped. Requests from stale feedback that no live image owns are
+    // filtered before servicing.
     class TerrainVirtualTexture : public RefCounted
     {
       public:
@@ -140,6 +153,20 @@ namespace OloEngine
             // ordinary camera movement instead of only at startup.
             f64 m_IndirectionRebuildGpuMs = 0.0;
             f64 m_IndirectionDeltaGpuMs = 0.0;
+
+            // ── Adaptive images (slice 3) ────────────────────────────────
+            u32 m_SectorCount = 0;  // sectors the terrain is cut into
+            u32 m_SectorsReady = 0; // whose coarsest page is resident + published
+            u32 m_ImageResizesTotal = 0;
+            u32 m_PagesRemappedTotal = 0;   // pages carried across a resize, unbaked
+            u32 m_PagesDroppedOnShrink = 0; // finest-level pages a shrink discarded
+            u32 m_StaleFeedbackTexels = 0;  // last analysis' words no live image owned
+            u32 m_AtlasPagesAllocated = 0;  // sum of sizePages^2 — over VirtualPagesWide^2
+            u32 m_ImageAllocFailures = 0;   // atlas full: a sector kept its old size
+
+            // ── Compressed cache (slice 4) ───────────────────────────────
+            bool m_CacheCompressed = false;
+            u32 m_TilesCompressedTotal = 0;
         };
 
         // @brief What `Update()` needs from the terrain being surfaced.
@@ -200,10 +227,17 @@ namespace OloEngine
             return m_Stats;
         }
 
-        // The three vec4s the terrain shaders read out of the terrain UBO. Kept
+        // The four vec4s the terrain shaders read out of the terrain UBO. Kept
         // here rather than at the call site so the packing has one owner; the
         // GLSL twin is oloVTUnpackParams() in include/TerrainVirtualTexture.glsl.
-        void FillShaderParams(glm::vec4& outParams0, glm::vec4& outParams1, glm::vec4& outParams2) const;
+        void FillShaderParams(glm::vec4& outParams0, glm::vec4& outParams1, glm::vec4& outParams2,
+                              glm::vec4& outParams3) const;
+
+        // The adaptive sector table, two vec4s per sector, into the terrain
+        // UBO's fixed VTSectors array (size 2 * kTerrainVTMaxSectors; entries
+        // past the configured sector count are zeroed, which decodes as
+        // unready). GLSL twin: oloVTDecodeSector().
+        void FillShaderSectorTable(std::span<glm::vec4> outSectors) const;
 
         // Drop every resident page. Used when the baked content's inputs change
         // (material rebuild, sculpt, a transform that moves the world-anchored
@@ -244,8 +278,24 @@ namespace OloEngine
             std::shared_ptr<VTFeedbackAnalyzer> m_Analyzer;
             // Which capture this reduces. Task completion order is NOT launch
             // order, so "the last one in the vector" is not "the newest" — see
-            // RetireAnalysis.
+            // RetireAnalysis. (The sector-table snapshot the analysis judges
+            // its words against is owned by the task lambda's capture.)
             u64 m_Sequence = 0;
+        };
+
+        // @brief One sector's live image. The allocator node is a NON-RAII
+        // u32 handle whose value 0 is the atlas ROOT, so it must default to
+        // kInvalidNode — and it is only ever released together with the
+        // allocator itself (Destroy()/Configure() reset both as a pair), so
+        // no per-element free-on-discard sites exist to forget.
+        struct SectorImage
+        {
+            u32 m_AllocNode = AtlasAllocator::kInvalidNode;
+            VTSectorSnapshot m_Snapshot{};
+            VTSectorSizingState m_Sizing{};
+            // Coarsest page resident AND published — the shader-side gate for
+            // this sector's VT branch. Recomputed every frame from residency.
+            bool m_Ready = false;
         };
 
         // One begin/end timestamp pair per in-flight publish. Four slots for the
@@ -274,9 +324,26 @@ namespace OloEngine
         void CaptureFeedback();
         void PollReadback();
         void RetireAnalysis();
+        // Apply the adopted per-sector feedback to the sizing policy and
+        // execute at most kVTMaxResizesPerFrame resizes (each a remap of the
+        // sector's resident pages, never a rebake).
+        void ApplyAdaptiveSizing();
         void ServiceRequests();
         void BakeTiles(const FrameInputs& inputs);
+        // Compressed path: the batch just baked into the scratch array is
+        // BC7-packed into the staging array and block-copied into the cache.
+        void CompressAndCopyTiles();
         void PublishIndirection();
+        void UpdateSectorReadiness();
+
+        // Allocate/resize one sector's image and remap its resident pages
+        // into the new rect. Allocate-new-then-free-old, so a full atlas
+        // degrades to keeping the old size rather than losing the image.
+        void ResizeSectorImage(u32 sectorIndex, u32 newSize);
+        // The live table flattened for an analysis launch / the bake path.
+        [[nodiscard]] std::shared_ptr<std::vector<VTSectorSnapshot>> SnapshotSectors() const;
+        // Which sector's image owns an atlas page key, or kVTMaxSectorCount.
+        [[nodiscard]] u32 FindOwningSector(u32 pageKey) const;
 
         // Resolve any timestamp pair the GPU has finished with. A poll — there is
         // no wait anywhere in this class.
@@ -294,17 +361,38 @@ namespace OloEngine
 
         Ref<Texture2D> m_IndirectionTexture;
         Ref<Texture2DArray> m_CacheTexture;
+        // Compressed path only (slice 4): the bake lands in the RGBA8 scratch
+        // (one slot per bake-budget entry, side by side in x), the compress
+        // kernel packs BC7 blocks into the RGBA32UI staging, and a
+        // block-compatible copy places each tile in the BC7 cache.
+        Ref<Texture2DArray> m_ScratchTexture;
+        Ref<Texture2DArray> m_StagingTexture;
 
         Ref<StorageBuffer> m_FeedbackBuffer;
         Ref<StorageBuffer> m_BakeBuffer;
         Ref<StorageBuffer> m_IndirectionUpdateBuffer;
 
         Ref<ComputeShader> m_TileBakeShader;
+        Ref<ComputeShader> m_CompressShader;
         Ref<ComputeShader> m_IndirectionClearShader;
         Ref<ComputeShader> m_IndirectionWriteShader;
         Ref<ComputeShader> m_IndirectionFillShader;
         bool m_ShadersLoaded = false;
         bool m_ShaderLoadFailed = false;
+
+        // The adaptive layer: the atlas the images are allocated from and the
+        // per-sector table. Reset together in Configure()/Destroy() — the
+        // non-RAII allocator nodes in m_Sectors die with the allocator, so
+        // they are never freed per element.
+        AtlasAllocator m_AtlasAllocator;
+        std::vector<SectorImage> m_Sectors;
+        // The per-sector aggregates of the most recent ADOPTED analysis,
+        // consumed by ApplyAdaptiveSizing.
+        std::vector<VTSectorFeedback> m_SectorFeedback;
+        bool m_HasSectorFeedback = false;
+        // Round-robin start of the sizing walk, so the per-frame resize cap
+        // cannot starve high-index sectors behind low-index ones.
+        u32 m_NextSizingSector = 0;
 
         glm::uvec2 m_FeedbackDims{ 0u };
         u32 m_FeedbackWords = 0;

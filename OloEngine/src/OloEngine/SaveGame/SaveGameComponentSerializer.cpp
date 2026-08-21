@@ -2087,6 +2087,16 @@ namespace OloEngine
             ar << c.m_VTCacheTilesWide << c.m_VTMaxTileBakesPerFrame;
         }
 
+        // ── Format v19: adaptive images + compressed tiles (issue #715, slices 3+4) ──
+        // Appended at the end when kSaveGameFormatVersion was bumped 18->19. A
+        // save written before v19 omits the block and keeps the constructor
+        // defaults (adaptive path on), the same config a fresh scene gets.
+        if (HasFieldsSince(ar, 19))
+        {
+            ar << c.m_VTAdaptiveEnabled << c.m_VTSectorsWide << c.m_VTMaxImagePagesWide;
+            ar << c.m_VTTrilinearEnabled << c.m_VTCompressedCache;
+        }
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
@@ -2125,6 +2135,8 @@ namespace OloEngine
             c.m_VTBorderTexels = std::clamp(c.m_VTBorderTexels, 1u, 32u);
             c.m_VTCacheTilesWide = std::clamp(c.m_VTCacheTilesWide, 2u, 256u);
             c.m_VTMaxTileBakesPerFrame = std::clamp(c.m_VTMaxTileBakesPerFrame, 1u, 64u);
+            c.m_VTSectorsWide = std::clamp(c.m_VTSectorsWide, 1u, 8u);
+            c.m_VTMaxImagePagesWide = std::clamp(c.m_VTMaxImagePagesWide, 1u, 4096u);
             for (TerrainLayerRule& r : c.m_LayerRules)
             {
                 if (r.LayerIndex >= MAX_TERRAIN_LAYERS)
