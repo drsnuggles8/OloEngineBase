@@ -178,6 +178,19 @@ jobs:
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
+    # Issue #858: a compiler-cache launcher that restores the object but not its
+    # dependency file leaves ninja with no header dependencies for that object, so the
+    # TU is never rebuilt when a header it includes changes -- silently, with the build
+    # staying green. This job is the one place in CI where a launcher sits in front of
+    # the compiler, so it is where the check belongs. It passes today (cl.exe uses
+    # /showIncludes, which sccache replays); the point is that it would stop passing if
+    # the dependency scanning were ever switched to a form the launcher cannot see.
+    - name: Check ninja recorded header dependencies
+      shell: pwsh
+      run: >
+        & "${{github.workspace}}/scripts/Check-NinjaHeaderDeps.ps1"
+        -BuildDir "${{github.workspace}}/build" -Config "${{env.BUILD_TYPE}}"
+
     # Read the cache hit rate. On a cold cache (first run / after a real source
     # change) this is mostly writes; on a warm cache a high hit rate means the
     # build step did almost no compiling.

@@ -802,5 +802,23 @@ try {
                          blocked_by_worktree = $blockedByWorktree }
 }
 
+# A cached tree that came back green still has to prove it recorded header dependencies.
+# Issue #858: a compiler-cache hit that restores the object but not its dependency file
+# leaves ninja with a `#deps 0` record, and that TU is then never rebuilt when a header it
+# includes changes -- silently, forever, with the build staying green the whole time. The
+# check is a `ninja -t deps` read, costs about a second, and runs only after a SUCCESSFUL
+# build of a cached tree (a failed build's records are not meaningful, and an uncached
+# `build/` tree has no launcher in front of the compiler to lose anything). It never
+# changes the exit status: the build's own status is what callers act on, and a warning
+# that could fail an otherwise-good build would just get worked around.
+if ($exit -eq 0 -and -not $orphaned -and (Test-CachedTreeCommand $Command)) {
+    $depsCheck = Join-Path $here 'scripts/Check-NinjaHeaderDeps.ps1'
+    $cachedDir = Join-Path $here 'build-cached'
+    if ((Test-Path -LiteralPath $depsCheck) -and (Test-Path -LiteralPath $cachedDir)) {
+        try { & $runner -NoProfile -File $depsCheck -BuildDir $cachedDir | Out-Host }
+        catch { Write-Host "[build-lock] header-dependency check could not run: $($_.Exception.Message)" }
+    }
+}
+
 # Propagate the BUILD's status, never the release's — see task-loop.md Phase 2.
 exit $exit

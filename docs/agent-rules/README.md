@@ -134,6 +134,7 @@ Read before trusting any measurement.
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e | the CI job that said `--config Release` was building no config at all, and grepping for `--parallel` finds four sites of which only one is a runaway — the generator, not the flag, decides |
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close is not evidence of a clean teardown — the same leak was silent there for the backend's whole life |
 | [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | a correct fix, re-derived and re-read four times, that a live rebuild-and-relaunch kept "disproving" — the binary, not the source, was the thing lying |
+| [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §6 | a compiler-cache hit restored the object but not its dependency file, so 699 of 701 objects had no header deps recorded and a header edit rebuilt nothing — every build green, the whole time, and the better the cache worked the more of the tree was frozen |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument *must*
 fail on before trusting a case it passes.

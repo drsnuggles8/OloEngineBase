@@ -142,6 +142,58 @@ if(OLO_ENABLE_COMPILER_CACHE)
             set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,Release>:Embedded>")
         endif()
 
+        # Dependency scanning MUST go through /showIncludes when a launcher is in
+        # front of clang-cl. This is issue #858, and it is the reason the cached tree
+        # could serve a stale object forever.
+        #
+        # CMake's Platform/Windows-Clang.cmake deliberately prefers clang-cl's
+        # gcc-style depfile over cl-style /showIncludes:
+        #
+        #     set(CMAKE_DEPFILE_FLAGS_<lang> "-clang:-MD -clang:-MT<DEP_TARGET> -clang:-MF<DEP_FILE>")
+        #     unset(CMAKE_<lang>_DEPFILE_FORMAT)
+        #
+        # which makes ninja use `deps = gcc` and read the .d file the compiler writes.
+        # ccache does not understand the `-clang:` PASS-THROUGH spelling of -MD/-MF, so
+        # it never learns that the compile produces a dependency file, never stores one
+        # in the cache entry, and never writes one back on a hit. Ninja then finds no
+        # depfile, records the object with ZERO header dependencies, and that TU is
+        # never rebuilt again when a header it includes changes.
+        #
+        # Measured in this worktree BEFORE the fix: 699 of 701 dependency records in
+        # .ninja_deps carried `#deps 0` — a warm cache means almost every object is a
+        # direct hit, so almost the whole tree was frozen. The lucky outcome is a link
+        # error; the normal one is objects compiled against different versions of the
+        # same header (see docs/agent-rules/incremental-build-odr-staleness.md).
+        #
+        # Reduced to a two-file ninja project, the two spellings behave like this
+        # (clang-cl 21, ccache 4.13.6, cold miss then the same object served from cache):
+        #
+        #     -clang:-MD -clang:-MF<file>  ->  cold `#deps 2`, from cache `#deps 0`   BROKEN
+        #     /showIncludes                ->  cold `#deps 1`, from cache `#deps 1`   OK
+        #
+        # ccache's `depend_mode = true` — the direction the issue guessed at — does NOT
+        # help: it was measured on that same harness and still yields `#deps 0` from
+        # cache, because depend mode also relies on ccache recognising the depfile
+        # option it cannot parse. Do not re-try it.
+        #
+        # /showIncludes is what ccache and sccache both already handle (they parse and
+        # replay that output, which is how the MSVC cl.exe path — the one CI uses — has
+        # always been correct). Set it for every MSVC-frontend compiler; for real cl.exe
+        # these two lines are what Windows-MSVC.cmake already set, so this is a no-op
+        # there and an actual fix only for clang-cl.
+        #
+        # Only meaningful under a generator that honours the launcher: the Visual Studio
+        # generator does not run ccache at all, so leave its dependency scanning alone.
+        if(NOT CMAKE_GENERATOR MATCHES "Visual Studio")
+            foreach(_olo_dep_lang C CXX)
+                if(CMAKE_${_olo_dep_lang}_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+                    set(CMAKE_DEPFILE_FLAGS_${_olo_dep_lang} "/showIncludes")
+                    set(CMAKE_${_olo_dep_lang}_DEPFILE_FORMAT msvc)
+                endif()
+            endforeach()
+            unset(_olo_dep_lang)
+        endif()
+
         # Disable precompiled headers while caching. sccache/ccache CANNOT cache a
         # compile that consumes a PCH (it reports the TU non-cacheable for /Fp /Yu),
         # so with PCH on the whole engine + editor + runtime + tests — the bulk of
