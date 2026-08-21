@@ -6,8 +6,7 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
 #include "OloEngine/Serialization/LightmapBinaryFormat.h"
-
-#include <zlib.h>
+#include "OloEngine/Serialization/ZlibSection.h"
 
 #include <cmath>
 #include <cstring>
@@ -25,68 +24,9 @@ namespace OloEngine
 
     namespace
     {
-        // zlib helpers, mirrored from MeshBinarySerializer.cpp — those live in
-        // that TU's anonymous namespace by design (each binary-format consumer
-        // keeps its own file-local copies; SaveGameFile has its own too), so
-        // there is nothing shared to include.
-
-        // Compress a byte buffer using zlib deflate (level 6 = good balance).
-        // Returns empty vector on failure.
-        std::vector<u8> ZlibCompress(const void* data, sizet size)
-        {
-            if (!data || size == 0)
-            {
-                return {};
-            }
-
-            auto bound = ::compressBound(static_cast<uLong>(size));
-            std::vector<u8> compressed(bound);
-            uLongf compressedSize = bound;
-
-            if (auto ret = ::compress2(compressed.data(), &compressedSize,
-                                       static_cast<const Bytef*>(data),
-                                       static_cast<uLong>(size), 6);
-                ret != Z_OK)
-            {
-                OLO_CORE_ERROR("LightmapSerializer: compress2 failed (error {})", ret);
-                return {};
-            }
-
-            compressed.resize(compressedSize);
-            return compressed;
-        }
-
-        // Decompress a zlib-compressed buffer. Caller must provide the exact
-        // uncompressed size (stored in the file header) and must have capped
-        // it against OLmapFormat::MaxUncompressedPayloadSize already.
-        std::vector<u8> ZlibDecompress(const void* compressedData, sizet compressedSize, sizet uncompressedSize)
-        {
-            if (!compressedData || compressedSize == 0 || uncompressedSize == 0)
-            {
-                return {};
-            }
-
-            std::vector<u8> decompressed(uncompressedSize);
-            auto destLen = static_cast<uLongf>(uncompressedSize);
-
-            if (auto ret = ::uncompress(decompressed.data(), &destLen,
-                                        static_cast<const Bytef*>(compressedData),
-                                        static_cast<uLong>(compressedSize));
-                ret != Z_OK)
-            {
-                OLO_CORE_ERROR("LightmapSerializer: uncompress failed (error {})", ret);
-                return {};
-            }
-
-            if (destLen != uncompressedSize)
-            {
-                OLO_CORE_ERROR("LightmapSerializer: decompressed size {} does not match header claim {}",
-                               static_cast<u64>(destLen), static_cast<u64>(uncompressedSize));
-                return {};
-            }
-
-            return decompressed;
-        }
+        // zlib deflate/inflate lives in the shared, allocation-hardened
+        // Serialization/ZlibSection helper (also used by the .omesh/.oanim
+        // serializers). SaveGameFile keeps its own copy by decision.
 
         void AppendBytes(std::vector<u8>& out, const void* data, sizet size)
         {
@@ -224,7 +164,7 @@ namespace OloEngine
         }
 
         // ── Compress + header ──
-        auto compressed = ZlibCompress(payload.data(), payload.size());
+        auto compressed = ZlibSection::Compress(payload.data(), payload.size(), "LightmapSerializer");
         if (compressed.empty())
         {
             OLO_CORE_ERROR("LightmapSerializer: failed to compress payload for '{}'", sourceName);
@@ -305,8 +245,14 @@ namespace OloEngine
         BufferReader reader;
         if ((header.Flags & OLmapFormat::FlagCompressed) != 0)
         {
-            decompressed = ZlibDecompress(storedPayload, storedPayloadSize,
-                                          static_cast<sizet>(header.UncompressedPayloadSize));
+            // The helper re-validates the claimed size against the format cap
+            // AND against the deflate ratio bound before sizing the
+            // destination buffer, so a tiny hostile file claiming a huge
+            // uncompressed payload allocates nothing.
+            decompressed = ZlibSection::Decompress(storedPayload, storedPayloadSize,
+                                                   header.UncompressedPayloadSize,
+                                                   OLmapFormat::MaxUncompressedPayloadSize,
+                                                   "LightmapSerializer");
             if (decompressed.empty())
             {
                 OLO_CORE_ERROR("LightmapSerializer: failed to decompress payload of '{}'", sourceName);
@@ -357,6 +303,20 @@ namespace OloEngine
                            sourceName);
             return false;
         }
+        // frame.ByteCount == expectedTexelBytes is necessary but NOT
+        // sufficient to size an allocation: both values derive from the
+        // untrusted payload. Atlas parameters at the caps imply a 32 GiB
+        // texel buffer (MaxDimension^2 * MaxPageCount * 16), while the
+        // payload itself is capped at MaxUncompressedPayloadSize — so bound
+        // the allocation by the bytes actually present BEFORE any vector is
+        // sized from header-derived values.
+        if (expectedTexelBytes > reader.Remaining())
+        {
+            OLO_CORE_ERROR("LightmapSerializer: '{}' Texels section claims {} bytes but only {} payload "
+                           "bytes remain — corrupt or hostile header, refusing to allocate",
+                           sourceName, expectedTexelBytes, reader.Remaining());
+            return false;
+        }
         std::vector<f32> texels(static_cast<sizet>(expectedTexelBytes / sizeof(f32)));
         if (!reader.Read(texels.data(), static_cast<sizet>(expectedTexelBytes)))
         {
@@ -394,6 +354,16 @@ namespace OloEngine
         if (frame.ByteCount != sizeof(tableHeader) + entryBytes)
         {
             OLO_CORE_ERROR("LightmapSerializer: '{}' EntityTable size does not match its entry count", sourceName);
+            return false;
+        }
+        // Same allocation-bound rule as the Texels section: the declared
+        // entry count must fit in the bytes actually present before the
+        // entries vector is sized from it.
+        if (entryBytes > reader.Remaining())
+        {
+            OLO_CORE_ERROR("LightmapSerializer: '{}' EntityTable claims {} entry bytes but only {} payload "
+                           "bytes remain — corrupt or hostile header, refusing to allocate",
+                           sourceName, entryBytes, reader.Remaining());
             return false;
         }
         std::vector<LightmapEntityEntry> entries(tableHeader.EntryCount);

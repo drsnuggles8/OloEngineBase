@@ -118,11 +118,16 @@ namespace OloEngine::PathTracing
 
         // Mirror one scene light. Packing matches Scene.cpp's MultiLight UBO
         // fill exactly — same attenuation parameterisation, same cone cosines,
-        // same direction conventions — because ReferenceBRDF's
+        // same direction conventions (the spot direction goes through the
+        // SHARED SanitizeSpotLightDirection in Renderer/LightCommon.h, the
+        // same function Scene.cpp's packing calls) — because ReferenceBRDF's
         // CalculateAttenuation / CalculateSpotIntensity are ports of the
         // shader functions that consume that packing. Lights with zero (or
-        // negative, or non-finite) intensity are skipped: they contribute
-        // nothing in either world.
+        // negative) intensity are skipped silently: they contribute nothing
+        // in either world. Lights carrying any OTHER non-finite value
+        // (position, color, intensity, attenuation, range, cone angles, a
+        // directional direction) are skipped with a warning — a single NaN
+        // here would silently poison every traced texel.
         //
         // `position` is the light entity's TransformComponent::Translation —
         // the value Scene.cpp packs (NOT the hierarchy-composed world
@@ -172,18 +177,6 @@ namespace OloEngine::PathTracing
         }
 
       private:
-        // Factor-only mirror of the resolved Material — everything
-        // ReferenceMaterial needs except LambertianDiffuseOnly, which is a
-        // Build-time option rather than a per-material property here.
-        struct PendingMaterial
-        {
-            glm::vec3 BaseColor{ 0.8f };
-            f32 Metallic = 0.0f;
-            f32 Roughness = 1.0f;
-            glm::vec3 Emissive{ 0.0f };
-            bool TwoSidedEmission = false;
-        };
-
         struct PendingGeometry
         {
             std::vector<Vertex> Vertices;
@@ -209,7 +202,10 @@ namespace OloEngine::PathTracing
         // valid triangles (the failure is cached too, so it warns once).
         [[nodiscard]] u32 GetOrAddSharedGeometry(const MeshSource& meshSource, u32 submeshIndex);
 
-        std::vector<PendingMaterial> m_Materials;
+        // Resolved materials, stored directly as ReferenceMaterial. Their
+        // LambertianDiffuseOnly stays at its default here — that is a
+        // Build-time option, stamped onto every entry when Build() runs.
+        std::vector<ReferenceMaterial> m_Materials;
         std::vector<PendingGeometry> m_Geometries;
         std::vector<PendingInstance> m_Instances;
         std::vector<ReferenceLight> m_Lights;

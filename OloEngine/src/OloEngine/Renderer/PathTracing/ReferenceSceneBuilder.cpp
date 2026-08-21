@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Renderer/LightCommon.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <limits>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 namespace OloEngine::PathTracing
@@ -35,18 +37,9 @@ namespace OloEngine::PathTracing
             return true;
         }
 
-        // Scene.cpp's sanitizeSpotDir, verbatim: a zero-length or non-finite
-        // authored spot direction falls back to -Z; valid directions pass
-        // through UNnormalized (the consumer normalizes, both in the shader
-        // and in ReferenceBRDF::CalculateSpotIntensity).
-        [[nodiscard]] glm::vec3 SanitizeSpotDirection(const glm::vec3& dir)
+        [[nodiscard]] bool IsFinite(const glm::vec3& v)
         {
-            const f32 len2 = glm::dot(dir, dir);
-            if (!std::isfinite(len2) || len2 < 1e-8f)
-            {
-                return glm::vec3(0.0f, 0.0f, -1.0f);
-            }
-            return dir;
+            return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
         }
 
         // Extract one submesh's triangle soup in MESH-LOCAL space.
@@ -147,7 +140,9 @@ namespace OloEngine::PathTracing
             return it->second;
         }
 
-        PendingMaterial pending;
+        // Stored directly as ReferenceMaterial; LambertianDiffuseOnly keeps
+        // its default until Build() stamps the Build-time option onto it.
+        ReferenceMaterial pending;
         pending.BaseColor = glm::vec3(material.GetBaseColorFactor());
         pending.Metallic = material.GetMetallicFactor();
         pending.Roughness = material.GetRoughnessFactor();
@@ -323,8 +318,19 @@ namespace OloEngine::PathTracing
             OLO_CORE_ERROR("ReferenceSceneBuilder::AddDirectionalLight on a consumed builder");
             return;
         }
+        // A single NaN/Inf in a light poisons every texel the tracer touches,
+        // silently — reject at the seam so both the AddScene walk and direct
+        // callers are covered. A raster frame lit by such a light is garbage
+        // anyway, so skipping it here costs no meaningful parity.
+        if (!IsFinite(light.m_Direction) || !IsFinite(light.m_Color) || !std::isfinite(light.m_Intensity))
+        {
+            OLO_CORE_WARN("ReferenceSceneBuilder::AddDirectionalLight: non-finite direction {}, "
+                          "color {}, or intensity {} — light skipped",
+                          light.m_Direction, light.m_Color, light.m_Intensity);
+            return;
+        }
         // Zero-intensity contributes nothing in either world. `!(x > 0)` also
-        // drops negative and NaN intensities.
+        // drops negative intensities.
         if (!(light.m_Intensity > 0.0f))
         {
             return;
@@ -355,6 +361,15 @@ namespace OloEngine::PathTracing
             OLO_CORE_ERROR("ReferenceSceneBuilder::AddPointLight on a consumed builder");
             return;
         }
+        // Non-finite rejection at the seam — see AddDirectionalLight.
+        if (!IsFinite(position) || !IsFinite(light.m_Color) || !std::isfinite(light.m_Intensity) ||
+            !std::isfinite(light.m_Attenuation) || !std::isfinite(light.m_Range))
+        {
+            OLO_CORE_WARN("ReferenceSceneBuilder::AddPointLight: non-finite position {}, color {}, "
+                          "intensity {}, attenuation {}, or range {} — light skipped",
+                          position, light.m_Color, light.m_Intensity, light.m_Attenuation, light.m_Range);
+            return;
+        }
         if (!(light.m_Intensity > 0.0f))
         {
             return;
@@ -382,6 +397,20 @@ namespace OloEngine::PathTracing
             OLO_CORE_ERROR("ReferenceSceneBuilder::AddSpotLight on a consumed builder");
             return;
         }
+        // Non-finite rejection at the seam — see AddDirectionalLight.
+        // m_Direction is deliberately NOT rejected: SanitizeSpotLightDirection
+        // owns that case (non-finite/zero falls back to -Z, matching
+        // Scene.cpp's packing bit-for-bit).
+        if (!IsFinite(position) || !IsFinite(light.m_Color) || !std::isfinite(light.m_Intensity) ||
+            !std::isfinite(light.m_Attenuation) || !std::isfinite(light.m_Range) ||
+            !std::isfinite(light.m_InnerCutoff) || !std::isfinite(light.m_OuterCutoff))
+        {
+            OLO_CORE_WARN("ReferenceSceneBuilder::AddSpotLight: non-finite position {}, color {}, "
+                          "intensity {}, attenuation {}, range {}, or cutoffs ({}, {}) — light skipped",
+                          position, light.m_Color, light.m_Intensity, light.m_Attenuation, light.m_Range,
+                          light.m_InnerCutoff, light.m_OuterCutoff);
+            return;
+        }
         if (!(light.m_Intensity > 0.0f))
         {
             return;
@@ -393,9 +422,10 @@ namespace OloEngine::PathTracing
         refLight.Color = light.m_Color;
         refLight.Intensity = light.m_Intensity;
         refLight.AttenuationParams = glm::vec4(1.0f, 0.0f, light.m_Attenuation, light.m_Range);
-        // Sanitized like Scene.cpp, and passed UNnormalized like the UBO —
+        // Sanitized by the SAME function Scene.cpp's packing uses
+        // (Renderer/LightCommon.h), and passed UNnormalized like the UBO —
         // CalculateSpotIntensity normalizes, same as the shader.
-        refLight.Direction = SanitizeSpotDirection(light.m_Direction);
+        refLight.Direction = SanitizeSpotLightDirection(light.m_Direction);
         // Cone params as COSINES, inner then outer, falloff 1 — the x/y/z the
         // UBO carries. The UBO's w is the light-type tag (2 = spot), which
         // ReferenceLight expresses through Type instead; its w is the
@@ -494,45 +524,39 @@ namespace OloEngine::PathTracing
         // hierarchy, so neither does the reference (light-model parity beats
         // "correctness" here, by the §4 rule).
         {
-            std::vector<GatheredEntity> lights;
-            auto view = scene.GetAllEntitiesWith<TransformComponent, DirectionalLightComponent>();
-            for (const auto entityHandle : view)
+            // One shape shared by all three per-type loops: view over
+            // (TransformComponent, LightComponent), UUID-sort, add in sorted
+            // order. The translation handed to `addOne` is the raw
+            // TransformComponent::Translation (see the note above); the
+            // directional callback ignores it, mirroring Scene.cpp's packing.
+            const auto addLightsOfType = [&]<typename LightComponent>(std::type_identity<LightComponent>,
+                                                                      auto&& addOne)
             {
-                lights.push_back({ sortKeyFor(entityHandle), entityHandle });
-            }
-            std::sort(lights.begin(), lights.end(), byKey);
-            for (const GatheredEntity& gathered : lights)
-            {
-                AddDirectionalLight(view.get<DirectionalLightComponent>(gathered.Handle));
-            }
-        }
-        {
-            std::vector<GatheredEntity> lights;
-            auto view = scene.GetAllEntitiesWith<TransformComponent, PointLightComponent>();
-            for (const auto entityHandle : view)
-            {
-                lights.push_back({ sortKeyFor(entityHandle), entityHandle });
-            }
-            std::sort(lights.begin(), lights.end(), byKey);
-            for (const GatheredEntity& gathered : lights)
-            {
-                AddPointLight(view.get<PointLightComponent>(gathered.Handle),
-                              view.get<TransformComponent>(gathered.Handle).Translation);
-            }
-        }
-        {
-            std::vector<GatheredEntity> lights;
-            auto view = scene.GetAllEntitiesWith<TransformComponent, SpotLightComponent>();
-            for (const auto entityHandle : view)
-            {
-                lights.push_back({ sortKeyFor(entityHandle), entityHandle });
-            }
-            std::sort(lights.begin(), lights.end(), byKey);
-            for (const GatheredEntity& gathered : lights)
-            {
-                AddSpotLight(view.get<SpotLightComponent>(gathered.Handle),
-                             view.get<TransformComponent>(gathered.Handle).Translation);
-            }
+                std::vector<GatheredEntity> lights;
+                auto view = scene.GetAllEntitiesWith<TransformComponent, LightComponent>();
+                for (const auto entityHandle : view)
+                {
+                    lights.push_back({ sortKeyFor(entityHandle), entityHandle });
+                }
+                std::sort(lights.begin(), lights.end(), byKey);
+                for (const GatheredEntity& gathered : lights)
+                {
+                    addOne(view.template get<LightComponent>(gathered.Handle),
+                           view.template get<TransformComponent>(gathered.Handle).Translation);
+                }
+            };
+
+            // Type order is part of the packing contract: directional, then
+            // point, then spot — the order Scene.cpp fills the MultiLight UBO.
+            addLightsOfType(std::type_identity<DirectionalLightComponent>{},
+                            [this](const DirectionalLightComponent& light, const glm::vec3&)
+                            { AddDirectionalLight(light); });
+            addLightsOfType(std::type_identity<PointLightComponent>{},
+                            [this](const PointLightComponent& light, const glm::vec3& position)
+                            { AddPointLight(light, position); });
+            addLightsOfType(std::type_identity<SpotLightComponent>{},
+                            [this](const SpotLightComponent& light, const glm::vec3& position)
+                            { AddSpotLight(light, position); });
         }
     }
 
@@ -552,14 +576,11 @@ namespace OloEngine::PathTracing
         }
         m_Consumed = true;
 
-        for (const PendingMaterial& pending : m_Materials)
+        for (ReferenceMaterial& material : m_Materials)
         {
-            ReferenceMaterial material;
-            material.BaseColor = pending.BaseColor;
-            material.Metallic = pending.Metallic;
-            material.Roughness = pending.Roughness;
-            material.Emissive = pending.Emissive;
-            material.TwoSidedEmission = pending.TwoSidedEmission;
+            // LambertianDiffuseOnly is a Build-time option, not a per-material
+            // property here — stamp it on the way out (the builder is consumed
+            // anyway, so mutating in place is fine).
             material.LambertianDiffuseOnly = options.LambertianDiffuseOnly;
             scene.AddMaterial(material);
         }

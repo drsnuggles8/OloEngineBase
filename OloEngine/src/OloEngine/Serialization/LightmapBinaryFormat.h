@@ -55,6 +55,15 @@ namespace OloEngine
         // buffer is sized from a header field. Bounds practical v1 atlases
         // (an 8192² f32 RGBA page is 1 GiB); a hostile header cannot ask for
         // more. Raising it is a reader-side change, not a format change.
+        //
+        // NOTE for the reader: the per-value caps above do NOT bound the
+        // texel-buffer product on their own — MaxDimension² x MaxPageCount
+        // x 16 bytes is 32 GiB, far beyond MaxUncompressedPayloadSize. The
+        // reader must therefore also bound every section-sized allocation by
+        // the payload bytes ACTUALLY remaining (and the decompression helper
+        // rejects an uncompressed-size claim exceeding zlib's 1032:1 inflate
+        // ceiling) before allocating — see LightmapSerializer::DecodeFromBytes
+        // and Serialization/ZlibSection.h.
         constexpr u64 MaxUncompressedPayloadSize = 2'000'000'000; // 2 GB
         constexpr u64 MaxCompressedPayloadSize = 2'000'000'000;   // 2 GB
 

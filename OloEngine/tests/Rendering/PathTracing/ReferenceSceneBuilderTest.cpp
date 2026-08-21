@@ -53,6 +53,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -516,6 +517,125 @@ namespace OloEngine::Tests
             SurfaceInteraction hit;
             EXPECT_FALSE(built.Intersect(Ray(glm::vec3(0.0f, 15.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)), hit))
                 << "the predicate-excluded entity is present in the built world";
+        }
+    }
+
+    // =========================================================================
+    // 5. Non-finite LIGHTS are rejected at the Add* seams; finite lights
+    //    still land.
+    //
+    // A single NaN in a light's position or intensity would poison every
+    // texel the tracer touches — silently, because NaN propagates through the
+    // whole estimate rather than crashing. The builder must skip such a light
+    // (with a warning) and keep the finite ones.
+    // =========================================================================
+    TEST(ReferenceSceneBuilderTest, NonFiniteLightsAreSkippedFiniteLightsSurvive)
+    {
+        constexpr f32 kNaN = std::numeric_limits<f32>::quiet_NaN();
+
+        auto scene = Ref<Scene>::Create();
+        {
+            Entity lightEntity = scene->CreateEntity("NaN Position Light");
+            lightEntity.GetComponent<TransformComponent>().Translation = { kNaN, 3.0f, 0.0f };
+            auto& pointLight = lightEntity.AddComponent<PointLightComponent>();
+            pointLight.m_Intensity = 5.0f;
+        }
+        {
+            Entity lightEntity = scene->CreateEntity("NaN Intensity Light");
+            lightEntity.GetComponent<TransformComponent>().Translation = { 0.0f, 3.0f, 0.0f };
+            auto& pointLight = lightEntity.AddComponent<PointLightComponent>();
+            pointLight.m_Intensity = kNaN;
+        }
+        {
+            Entity lightEntity = scene->CreateEntity("Finite Light");
+            lightEntity.GetComponent<TransformComponent>().Translation = { 1.0f, 3.0f, 0.0f };
+            auto& pointLight = lightEntity.AddComponent<PointLightComponent>();
+            pointLight.m_Intensity = 5.0f;
+        }
+
+        ReferenceSceneBuilder builder;
+        builder.AddScene(*scene, {});
+
+        EXPECT_EQ(builder.GetPendingLightCount(), 1u)
+            << "exactly the ONE finite light must survive — a NaN position or intensity light leaked in, "
+               "or the finite light was dropped with them";
+
+        ReferenceSceneBuildOptions options;
+        ReferenceScene built = builder.Build(options);
+        ASSERT_TRUE(built.IsBuilt());
+        ASSERT_EQ(built.GetLights().size(), 1u);
+
+        // The survivor is the FINITE light, not merely "some light": its
+        // position is the finite entity's translation.
+        const ReferenceLight& survivor = built.GetLights()[0];
+        EXPECT_NEAR(survivor.Position.x, 1.0f, 1e-6f);
+        EXPECT_NEAR(survivor.Position.y, 3.0f, 1e-6f);
+        EXPECT_NEAR(survivor.Position.z, 0.0f, 1e-6f);
+        EXPECT_NEAR(survivor.Intensity, 5.0f, 1e-6f);
+    }
+
+    // =========================================================================
+    // 6. A mesh entity with a non-finite TRANSFORM is rejected; finite
+    //    entities still land.
+    //
+    // A NaN translation makes every world-space vertex position NaN, which
+    // poisons the BVH bounds and every ray query that touches them. The
+    // builder must skip the entity (with a warning) rather than feed it to
+    // the tracer.
+    // =========================================================================
+    TEST(ReferenceSceneBuilderTest, NonFiniteTransformMeshEntityIsSkipped)
+    {
+        constexpr f32 kNaN = std::numeric_limits<f32>::quiet_NaN();
+
+        auto scene = Ref<Scene>::Create();
+
+        Ref<Mesh> cube = MeshPrimitives::CreateCube();
+        ASSERT_TRUE(cube);
+        Ref<MeshSource> sharedSource = cube->GetMeshSource();
+        ASSERT_TRUE(sharedSource);
+
+        {
+            Entity entity = scene->CreateEntity("NaN Transform");
+            entity.GetComponent<TransformComponent>().Translation = { kNaN, 0.0f, 0.0f };
+            auto& mesh = entity.AddComponent<MeshComponent>();
+            mesh.m_Primitive = MeshPrimitive::Cube;
+            mesh.m_MeshSource = sharedSource;
+        }
+        {
+            Entity entity = scene->CreateEntity("Finite");
+            entity.GetComponent<TransformComponent>().Translation = { 2.0f, 0.0f, 0.0f };
+            auto& mesh = entity.AddComponent<MeshComponent>();
+            mesh.m_Primitive = MeshPrimitive::Cube;
+            mesh.m_MeshSource = sharedSource;
+        }
+
+        ReferenceSceneBuilder builder;
+        builder.AddScene(*scene, {});
+
+        EXPECT_EQ(builder.GetPendingInstanceCount(), 1u)
+            << "exactly the ONE finite-transform entity must survive";
+        EXPECT_EQ(builder.GetPendingGeometryCount(), 1u);
+
+        ReferenceSceneBuildOptions options;
+        ReferenceScene built = builder.Build(options);
+        ASSERT_TRUE(built.IsBuilt());
+        ASSERT_EQ(built.GetInstances().size(), 1u);
+
+        // The survivor sits where the FINITE entity was authored: the unit
+        // cube at (2, 0, 0) has its top face at y = 0.5, so a ray down from
+        // (2, 5, 0) hits at t = 4.5.
+        {
+            SurfaceInteraction hit;
+            ASSERT_TRUE(built.Intersect(Ray(glm::vec3(2.0f, 5.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)), hit))
+                << "the finite-transform entity is missing from the built world";
+            EXPECT_NEAR(hit.Distance, 4.5f, 1e-3f);
+        }
+        // And nothing occupies the NaN entity's neighbourhood (the world
+        // origin, where its finite components would have placed it).
+        {
+            SurfaceInteraction hit;
+            EXPECT_FALSE(built.Intersect(Ray(glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)), hit))
+                << "the NaN-transform entity leaked into the built world";
         }
     }
 } // namespace OloEngine::Tests

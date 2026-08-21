@@ -5,7 +5,7 @@
 // LightmapAssetSerializationTest — the `.olmap` baked-lightmap round-trip and
 // hardening contract (issue #439).
 //
-// Pins four things:
+// Pins five things:
 //   1. A full disk round-trip through LightmapSerializer::Serialize ->
 //      TryLoadData preserves every field and every texel BIT-exactly (memcmp,
 //      not float comparison — the atlas is physical irradiance data and any
@@ -18,6 +18,12 @@
 //      a NaN texel is refused (error return, no file) — chosen over patching a
 //      NaN into the compressed payload, which would be fiddly to aim; the
 //      loader independently re-validates finiteness on every read.
+//   5. Hostile-header hardening: a tiny file whose header/section fields claim
+//      huge sizes (32 GiB of texels via atlas parameters at the caps, an
+//      entity table far beyond the actual payload, a 2 GB uncompressed-size
+//      claim on a few-KB compressed stream) is rejected cleanly BEFORE any
+//      allocation is sized from those untrusted values — the tests below run
+//      in milliseconds precisely because nothing giant is ever allocated.
 //
 // The CPU-only serializer creates no GPU resources, so none of this needs a
 // GL context. Serialize/TryLoadData resolve metadata.FilePath against the
@@ -31,15 +37,18 @@
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
 #include "OloEngine/Serialization/LightmapBinaryFormat.h"
+#include "OloEngine/Serialization/ZlibSection.h"
 
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <utility>
 #include <vector>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
@@ -82,6 +91,31 @@ namespace
         lightmap->SetEntries(std::move(entries));
 
         return lightmap;
+    }
+
+    void AppendRaw(std::vector<u8>& out, const void* data, sizet size)
+    {
+        const auto* bytes = static_cast<const u8*>(data);
+        out.insert(out.end(), bytes, bytes + size);
+    }
+
+    // Wraps a hand-crafted payload in a syntactically valid UNCOMPRESSED
+    // .olmap byte stream: correct magic/version, Flags = 0, CRC32 over the
+    // payload bytes and UncompressedPayloadSize == payload size. Every outer
+    // header check passes, so the decode reaches the framed sections and the
+    // hostile values under test.
+    std::vector<u8> WrapUncompressedPayload(const std::vector<u8>& payload)
+    {
+        OLmapFormat::FileHeader header;
+        header.Flags = 0;
+        header.Checksum = Hash::CRC32(payload.data(), payload.size());
+        header.UncompressedPayloadSize = payload.size();
+
+        std::vector<u8> bytes;
+        bytes.reserve(sizeof(header) + payload.size());
+        AppendRaw(bytes, &header, sizeof(header));
+        AppendRaw(bytes, payload.data(), payload.size());
+        return bytes;
     }
 } // namespace
 
@@ -245,4 +279,131 @@ TEST_F(LightmapAssetSerializationTest, SerializeRefusesNonFiniteTexels)
     LightmapSerializer serializer;
     serializer.Serialize(m_Metadata, source);
     EXPECT_FALSE(fs::exists(AbsolutePath()));
+}
+
+// -----------------------------------------------------------------------------
+// 5a. Hostile atlas parameters: a ~100-byte file whose Info section sits at
+//     the format caps (16384 x 16384 x 8 pages) implies a 32 GiB texel
+//     buffer. The load must fail cleanly and FAST — before the allocation
+//     guard, this reached `std::vector<f32> texels(...)` and asked the
+//     allocator for 32 GiB (bad_alloc at best, a machine-freezing zero-fill
+//     at worst). This test completing in milliseconds is itself the proof
+//     that no giant allocation happens.
+// -----------------------------------------------------------------------------
+TEST_F(LightmapAssetSerializationTest, HostileAtlasDimensionsAreRejectedWithoutAllocation)
+{
+    std::vector<u8> payload;
+
+    OLmapFormat::SectionFrame infoFrame;
+    infoFrame.SectionId = std::to_underlying(OLmapFormat::SectionType::Info);
+    infoFrame.ByteCount = sizeof(OLmapFormat::InfoSection);
+    AppendRaw(payload, &infoFrame, sizeof(infoFrame));
+
+    OLmapFormat::InfoSection info;
+    info.Width = OLmapFormat::MaxDimension;
+    info.Height = OLmapFormat::MaxDimension;
+    info.PageCount = OLmapFormat::MaxPageCount;
+    info.BakeKey = kBakeKey;
+    AppendRaw(payload, &info, sizeof(info));
+
+    // Texels frame whose ByteCount matches the (hostile) atlas parameters
+    // exactly — 32 GiB claimed — with zero payload bytes actually present.
+    u64 const hugeTexelBytes = static_cast<u64>(info.PageCount) * info.Width * info.Height * 4u * sizeof(f32);
+    ASSERT_GT(hugeTexelBytes, u64{ 32 } * 1024u * 1024u * 1024u - 1u)
+        << "caps changed — this test should keep claiming a multi-GiB buffer";
+    OLmapFormat::SectionFrame texelFrame;
+    texelFrame.SectionId = std::to_underlying(OLmapFormat::SectionType::Texels);
+    texelFrame.ByteCount = hugeTexelBytes;
+    AppendRaw(payload, &texelFrame, sizeof(texelFrame));
+
+    auto const bytes = WrapUncompressedPayload(payload);
+
+    Ref<LightmapAsset> loaded;
+    EXPECT_FALSE(LightmapSerializer::DecodeFromBytes(bytes.data(), bytes.size(), loaded, "hostile-dimensions"))
+        << "A texel section claiming more bytes than the file holds must be rejected";
+    EXPECT_FALSE(loaded) << "Rejection must not return a partially-populated asset";
+}
+
+// -----------------------------------------------------------------------------
+// 5b. Hostile section ByteCount: an EntityTable frame declaring the maximum
+//     entry count (32 MB of entries) in a file that carries none of those
+//     bytes. The declared ByteCount is internally consistent with its
+//     EntryCount — only the comparison against the bytes ACTUALLY remaining
+//     can reject it, and it must do so before the entries vector is sized.
+// -----------------------------------------------------------------------------
+TEST_F(LightmapAssetSerializationTest, HostileEntityTableByteCountIsRejected)
+{
+    constexpr u32 kTinyDim = 2;
+    std::vector<u8> payload;
+
+    OLmapFormat::SectionFrame infoFrame;
+    infoFrame.SectionId = std::to_underlying(OLmapFormat::SectionType::Info);
+    infoFrame.ByteCount = sizeof(OLmapFormat::InfoSection);
+    AppendRaw(payload, &infoFrame, sizeof(infoFrame));
+
+    OLmapFormat::InfoSection info;
+    info.Width = kTinyDim;
+    info.Height = kTinyDim;
+    info.PageCount = 1;
+    info.BakeKey = kBakeKey;
+    AppendRaw(payload, &info, sizeof(info));
+
+    // Valid, fully present texels (all zeroes = finite).
+    u64 const texelBytes = static_cast<u64>(info.PageCount) * info.Width * info.Height * 4u * sizeof(f32);
+    OLmapFormat::SectionFrame texelFrame;
+    texelFrame.SectionId = std::to_underlying(OLmapFormat::SectionType::Texels);
+    texelFrame.ByteCount = texelBytes;
+    AppendRaw(payload, &texelFrame, sizeof(texelFrame));
+    std::vector<u8> const zeroTexels(static_cast<sizet>(texelBytes), 0);
+    AppendRaw(payload, zeroTexels.data(), zeroTexels.size());
+
+    // EntityTable frame claiming MaxEntryCount entries — none present.
+    u64 const claimedEntryBytes = static_cast<u64>(OLmapFormat::MaxEntryCount) * sizeof(LightmapEntityEntry);
+    OLmapFormat::SectionFrame tableFrame;
+    tableFrame.SectionId = std::to_underlying(OLmapFormat::SectionType::EntityTable);
+    tableFrame.ByteCount = sizeof(OLmapFormat::EntityTableHeader) + claimedEntryBytes;
+    AppendRaw(payload, &tableFrame, sizeof(tableFrame));
+
+    OLmapFormat::EntityTableHeader tableHeader;
+    tableHeader.EntryCount = OLmapFormat::MaxEntryCount;
+    AppendRaw(payload, &tableHeader, sizeof(tableHeader));
+
+    auto const bytes = WrapUncompressedPayload(payload);
+
+    Ref<LightmapAsset> loaded;
+    EXPECT_FALSE(LightmapSerializer::DecodeFromBytes(bytes.data(), bytes.size(), loaded, "hostile-entity-table"))
+        << "An entity table claiming more bytes than the file holds must be rejected";
+    EXPECT_FALSE(loaded);
+}
+
+// -----------------------------------------------------------------------------
+// 5c. Hostile UncompressedPayloadSize: the CRC only covers the stored
+//     (compressed) payload, so a header patched to claim the full 2 GB cap
+//     sails past the checksum. The size-plausibility gate must catch it
+//     instead — a few-KB compressed stream cannot inflate to 2 GB (deflate's
+//     hard ceiling is 1032:1) — and reject BEFORE a 2 GB destination buffer
+//     is allocated.
+// -----------------------------------------------------------------------------
+TEST_F(LightmapAssetSerializationTest, HostileUncompressedSizeClaimIsRejected)
+{
+    auto source = MakeBakedLightmap();
+
+    std::vector<u8> bytes;
+    ASSERT_TRUE(LightmapSerializer::EncodeToBytes(*source, bytes, "hostile-size-claim"));
+    ASSERT_GT(bytes.size(), sizeof(OLmapFormat::FileHeader));
+    // Sanity: the compressed payload is small enough that a 2 GB claim is
+    // physically impossible under deflate's 1032:1 ceiling.
+    ASSERT_LT(bytes.size() - sizeof(OLmapFormat::FileHeader),
+              static_cast<sizet>(OLmapFormat::MaxUncompressedPayloadSize / ZlibSection::MaxInflateRatio));
+
+    // Patch FileHeader::UncompressedPayloadSize (u64 at byte offset 16) to
+    // the format cap — the largest value that passes the plain cap check.
+    u64 const hostileClaim = OLmapFormat::MaxUncompressedPayloadSize;
+    std::memcpy(bytes.data() + offsetof(OLmapFormat::FileHeader, UncompressedPayloadSize),
+                &hostileClaim, sizeof(hostileClaim));
+
+    Ref<LightmapAsset> loaded;
+    EXPECT_FALSE(LightmapSerializer::DecodeFromBytes(bytes.data(), bytes.size(), loaded, "hostile-size-claim"))
+        << "An implausible uncompressed-size claim must be rejected";
+    EXPECT_FALSE(loaded);
 }

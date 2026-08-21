@@ -3,6 +3,7 @@
 #include "MeshBinaryFormat.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Serialization/ImportedMaterialCodec.h"
+#include "OloEngine/Serialization/ZlibSection.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -11,8 +12,6 @@
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Debug/Instrumentor.h"
-
-#include <zlib.h>
 
 #include <algorithm>
 #include <cmath>
@@ -146,64 +145,11 @@ namespace OloEngine
         }
 
         // ── zlib compression ────────────────────────────────────────
-
-        // Compress a byte buffer using zlib deflate (level 6 = good balance).
-        // Returns empty vector on failure.
-        std::vector<u8> ZlibCompress(const void* data, sizet size)
-        {
-            if (!data || size == 0)
-            {
-                return {};
-            }
-
-            auto bound = ::compressBound(static_cast<uLong>(size));
-            std::vector<u8> compressed(bound);
-            uLongf compressedSize = bound;
-
-            if (auto ret = ::compress2(compressed.data(), &compressedSize,
-                                       static_cast<const Bytef*>(data),
-                                       static_cast<uLong>(size), 6);
-                ret != Z_OK)
-            {
-                OLO_CORE_ERROR("ZlibCompress: compress2 failed (error {})", ret);
-                return {};
-            }
-
-            compressed.resize(compressedSize);
-            return compressed;
-        }
-
-        // Decompress a zlib-compressed buffer. Caller must provide the
-        // exact uncompressed size (stored in the file header).
-        std::vector<u8> ZlibDecompress(const void* compressedData, sizet compressedSize, sizet uncompressedSize)
-        {
-            if (!compressedData || compressedSize == 0 || uncompressedSize == 0)
-            {
-                return {};
-            }
-
-            // Guard against corrupt headers claiming unreasonable sizes
-            if (constexpr sizet MAX_UNCOMPRESSED_SIZE = 512u * 1024u * 1024u; uncompressedSize > MAX_UNCOMPRESSED_SIZE) // 512 MiB
-            {
-                OLO_CORE_ERROR("ZlibDecompress: claimed uncompressed size {} exceeds limit {}", uncompressedSize, MAX_UNCOMPRESSED_SIZE);
-                return {};
-            }
-
-            std::vector<u8> decompressed(uncompressedSize);
-            auto destLen = static_cast<uLongf>(uncompressedSize);
-
-            if (auto ret = ::uncompress(decompressed.data(), &destLen,
-                                        static_cast<const Bytef*>(compressedData),
-                                        static_cast<uLong>(compressedSize));
-                ret != Z_OK)
-            {
-                OLO_CORE_ERROR("ZlibDecompress: uncompress failed (error {})", ret);
-                return {};
-            }
-
-            decompressed.resize(destLen);
-            return decompressed;
-        }
+        // Deflate/inflate lives in the shared, allocation-hardened
+        // Serialization/ZlibSection helper (also used by the .olmap
+        // serializer). Only the cap on the whole decompressed payload is
+        // format-specific and stays here.
+        constexpr u64 kMaxUncompressedPayloadSize = 512ull * 1024u * 1024u; // 512 MiB
     } // anonymous namespace
 
     // ========================================================================
@@ -669,7 +615,7 @@ namespace OloEngine
         auto payloadStr = payload.str();
         auto const uncompressedSize = payloadStr.size();
 
-        auto compressed = ZlibCompress(payloadStr.data(), uncompressedSize);
+        auto compressed = ZlibSection::Compress(payloadStr.data(), uncompressedSize, "MeshBinarySerializer::Write");
         if (compressed.empty())
         {
             OLO_CORE_ERROR("MeshBinarySerializer::Write: Failed to compress payload for '{}'", path.string());
@@ -798,8 +744,10 @@ namespace OloEngine
                 return nullptr;
             }
 
-            auto decompressed = ZlibDecompress(compressedData.data(), compressedData.size(),
-                                               header.UncompressedPayloadSize);
+            auto decompressed = ZlibSection::Decompress(compressedData.data(), compressedData.size(),
+                                                        header.UncompressedPayloadSize,
+                                                        kMaxUncompressedPayloadSize,
+                                                        "MeshBinarySerializer::Read");
             if (decompressed.empty())
             {
                 OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to decompress payload in '{}'", path.string());
@@ -1599,7 +1547,26 @@ namespace OloEngine
                     }
                     else
                     {
-                        meshSource->SetLightmapUVs(std::move(lightmapUVs));
+                        // The UV2 stream is raw f32 pairs off disk — scan for
+                        // NaN/Inf before adopting it. A poisoned value costs
+                        // only the lightmap parameterization, never the mesh:
+                        // drop the stream and the next bake re-unwraps.
+                        bool uvsFinite = true;
+                        const glm::vec2* uvData = lightmapUVs.GetData();
+                        for (u32 v = 0; v < lmHeader.UVCount && uvsFinite; ++v)
+                        {
+                            uvsFinite = std::isfinite(uvData[v].x) && std::isfinite(uvData[v].y);
+                        }
+                        if (!uvsFinite)
+                        {
+                            OLO_CORE_WARN("MeshBinarySerializer::Read: non-finite lightmap UV in '{}'; "
+                                          "the mesh loads without lightmap UVs",
+                                          path.string());
+                        }
+                        else
+                        {
+                            meshSource->SetLightmapUVs(std::move(lightmapUVs));
+                        }
                         if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "LightmapUVs", path))
                         {
                             return nullptr;
@@ -1780,7 +1747,7 @@ namespace OloEngine
         auto payloadStr = payload.str();
         auto const uncompressedSize = payloadStr.size();
 
-        auto compressed = ZlibCompress(payloadStr.data(), uncompressedSize);
+        auto compressed = ZlibSection::Compress(payloadStr.data(), uncompressedSize, "AnimationBinarySerializer::Write");
         if (compressed.empty())
         {
             OLO_CORE_ERROR("AnimationBinarySerializer::Write: Failed to compress payload for '{}'", path.string());
@@ -1888,8 +1855,10 @@ namespace OloEngine
                 return {};
             }
 
-            auto decompressed = ZlibDecompress(compressedData.data(), compressedData.size(),
-                                               header.UncompressedPayloadSize);
+            auto decompressed = ZlibSection::Decompress(compressedData.data(), compressedData.size(),
+                                                        header.UncompressedPayloadSize,
+                                                        kMaxUncompressedPayloadSize,
+                                                        "AnimationBinarySerializer::Read");
             if (decompressed.empty())
             {
                 OLO_CORE_ERROR("AnimationBinarySerializer::Read: Failed to decompress payload in '{}'", path.string());
