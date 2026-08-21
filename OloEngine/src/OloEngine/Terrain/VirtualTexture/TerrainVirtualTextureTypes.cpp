@@ -153,7 +153,14 @@ namespace OloEngine
         }
         // Pinned pages (one per sector) must leave at least half the cache
         // evictable.
-        while (AdaptiveEnabled && SectorsWide > 1u && SectorsWide * SectorsWide > CacheTileCount() / 2u)
+        // Unconditional like the three repairs above, and for the same reason:
+        // IsValid() checks this rule only when the toggle is on, so a guard
+        // here would let a disabled config keep a SectorsWide that goes invalid
+        // the instant the checkbox is ticked — the exact "discovered broken at
+        // that moment" case the comment above exists to prevent. Both inputs
+        // (SectorsWide, CacheTileCount) are normalized unconditionally, so the
+        // rule is already well-defined with adaptivity off.
+        while (SectorsWide > 1u && SectorsWide * SectorsWide > CacheTileCount() / 2u)
         {
             SectorsWide >>= 1u;
         }
@@ -289,8 +296,9 @@ namespace OloEngine
                 // signal. The page it gets is the finest that exists.
                 ++agg.m_UnderResolved;
             }
+            const u32 sectorMaxMip = sector.MaxMip();
             const u32 mip =
-                std::min(static_cast<u32>(std::max(wantedMip, 0)), std::min<u32>(sector.m_MaxMip, clampedAtlasMaxMip));
+                std::min(static_cast<u32>(std::max(wantedMip, 0)), std::min<u32>(sectorMaxMip, clampedAtlasMaxMip));
             agg.m_FinestMipRequested = std::min(agg.m_FinestMipRequested, mip);
 
             AddRequest(VTMakePageKey(mip, mip0X >> mip, mip0Y >> mip), 1u);
@@ -300,7 +308,7 @@ namespace OloEngine
             // sector's own coarsest level — coarser atlas texels belong to
             // other images — AND to the atlas chain, so a corrupt snapshot's
             // maxMip cannot emit a key the config has no level for.
-            if (mip < sector.m_MaxMip && mip < clampedAtlasMaxMip)
+            if (mip < sectorMaxMip && mip < clampedAtlasMaxMip)
             {
                 const u32 parentMip = mip + 1u;
                 AddRequest(VTMakePageKey(parentMip, mip0X >> parentMip, mip0Y >> parentMip), 1u);
@@ -338,8 +346,11 @@ namespace OloEngine
     }
 
     u32 VTDesiredImageSize(u32 currentSize, const VTSectorFeedback& feedback, VTSectorSizingState& state, u32 minSize,
-                           u32 maxSize)
+                           u32 maxSize, bool canResize)
     {
+        // Everything above the three commit points is a per-ANALYSIS tick and
+        // runs whether or not the caller has budget left, so a sector the
+        // budget skipped does not fall behind on cooldown/idle/streaks.
         if (state.m_CooldownAnalyses > 0u)
         {
             --state.m_CooldownAnalyses;
@@ -354,7 +365,7 @@ namespace OloEngine
             state.m_GrowStreak = 0u;
             state.m_ShrinkStreak = 0u;
             ++state.m_IdleAnalyses;
-            if (state.m_IdleAnalyses >= kVTIdleShrinkAnalyses && state.m_CooldownAnalyses == 0u &&
+            if (canResize && state.m_IdleAnalyses >= kVTIdleShrinkAnalyses && state.m_CooldownAnalyses == 0u &&
                 currentSize > minSize)
             {
                 state.m_IdleAnalyses = 0u;
@@ -386,7 +397,7 @@ namespace OloEngine
             state.m_ShrinkStreak = 0u;
         }
 
-        if (state.m_CooldownAnalyses > 0u)
+        if (!canResize || state.m_CooldownAnalyses > 0u)
         {
             return currentSize;
         }

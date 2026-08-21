@@ -324,9 +324,11 @@ namespace OloEngine
         void CaptureFeedback();
         void PollReadback();
         void RetireAnalysis();
-        // Apply the adopted per-sector feedback to the sizing policy and
-        // execute at most kVTMaxResizesPerFrame resizes (each a remap of the
-        // sector's resident pages, never a rebake).
+        // Run the sizing policy over EVERY allocated sector (the streak and
+        // cooldown constants are counted in analyses, so all of them must tick
+        // together) and execute at most kVTMaxResizesPerFrame of the resizes it
+        // asks for — each a remap of the sector's resident pages, never a
+        // rebake. A resize deferred for budget is not lost.
         void ApplyAdaptiveSizing();
         void ServiceRequests();
         void BakeTiles(const FrameInputs& inputs);

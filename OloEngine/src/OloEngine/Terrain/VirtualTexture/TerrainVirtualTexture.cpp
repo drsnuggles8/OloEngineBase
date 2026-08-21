@@ -478,6 +478,14 @@ namespace OloEngine
 
     void TerrainVirtualTexture::FillShaderSectorTable(std::span<glm::vec4> outSectors) const
     {
+        // A short span is silent by construction: the clamp below would just
+        // drop the tail sectors, and a dropped sector decodes as unready, so
+        // its pixels take the splat path and the frame looks merely coarse
+        // rather than wrong. Fail loudly in debug instead — the only way to get
+        // here is a UBO array that no longer matches kTerrainVTMaxSectors.
+        OLO_CORE_ASSERT(outSectors.size() >= 2u * m_Sectors.size(),
+                        "TerrainVirtualTexture: sector-table span too small for the configured sector count");
+
         // Zero first: entries past the configured sector count decode as
         // unready, so a shader indexing a stale slot falls back to the splat
         // path rather than sampling through a dead rect.
@@ -501,7 +509,7 @@ namespace OloEngine
                                            static_cast<f32>(sector.m_Snapshot.m_OriginY) / atlasPages,
                                            sizePages / atlasPages, sizePages * static_cast<f32>(m_Config.PageTexels));
             outSectors[2u * i + 1u] =
-                glm::vec4(static_cast<f32>(sector.m_Snapshot.m_MaxMip), sector.m_Ready ? 1.0f : 0.0f, 0.0f, 0.0f);
+                glm::vec4(static_cast<f32>(sector.m_Snapshot.MaxMip()), sector.m_Ready ? 1.0f : 0.0f, 0.0f, 0.0f);
         }
     }
 
@@ -911,13 +919,11 @@ namespace OloEngine
         }
         const AtlasAllocator::Region region = m_AtlasAllocator.GetRegion(newNode);
 
-        const u16 maxMip = static_cast<u16>(FloorLogTwo(newSize));
         const VTSectorSnapshot oldSnapshot = sector.m_Snapshot;
         VTSectorSnapshot newSnapshot;
         newSnapshot.m_OriginX = static_cast<u16>(region.X);
         newSnapshot.m_OriginY = static_cast<u16>(region.Y);
         newSnapshot.m_SizePages = static_cast<u16>(newSize);
-        newSnapshot.m_MaxMip = maxMip;
 
         if (oldSnapshot.IsAllocated())
         {
@@ -976,19 +982,35 @@ namespace OloEngine
         // cooldown constants are counted in analyses, so re-running the policy
         // on a frame with no new feedback would just re-walk the same
         // aggregates.
-        if (!m_Config.AdaptiveEnabled || !m_HasSectorFeedback)
+        if (!m_Config.AdaptiveEnabled)
+        {
+            // Drop what was adopted while adaptivity was off. RetireAnalysis
+            // keeps setting the flag regardless of the toggle, so leaving it
+            // set would let a later tick-on consume aggregates from whenever
+            // analyses last ran — a camera pose that no longer exists — and
+            // resize from it before the first fresh analysis lands.
+            m_HasSectorFeedback = false;
+            return;
+        }
+        if (!m_HasSectorFeedback)
         {
             return;
         }
         m_HasSectorFeedback = false;
 
-        // A resize remaps every resident page of the image and dirties the
-        // indirection map, so it is budgeted like the bake is. Round-robin
-        // start so the cap cannot starve high-index sectors.
-        constexpr u32 kMaxResizesPerFrame = 2u;
+        // Every allocated sector gets a policy step, because the streak and
+        // cooldown constants are counted in analyses and only mean anything if
+        // all of them tick at the same rate. What is budgeted is the RESIZE:
+        // each one remaps every resident page of the image and dirties the
+        // indirection map. A sector that wants a resize it has no budget for
+        // keeps its streak (VTDesiredImageSize commits nothing when it is told
+        // it cannot resize) and gets it on a later analysis; the round-robin
+        // cursor resumes past the last sector served so a low-index sector
+        // that keeps wanting one cannot hold the budget forever.
         u32 resizes = 0;
+        u32 served = 0;
         const u32 sectorCount = static_cast<u32>(m_Sectors.size());
-        for (u32 step = 0; step < sectorCount && resizes < kMaxResizesPerFrame; ++step)
+        for (u32 step = 0; step < sectorCount; ++step)
         {
             const u32 index = (m_NextSizingSector + step) % sectorCount;
             SectorImage& sector = m_Sectors[index];
@@ -998,16 +1020,17 @@ namespace OloEngine
             }
             const VTSectorFeedback feedback =
                 index < m_SectorFeedback.size() ? m_SectorFeedback[index] : VTSectorFeedback{};
-            const u32 wanted =
-                VTDesiredImageSize(sector.m_Snapshot.m_SizePages, feedback, sector.m_Sizing,
-                                   m_Config.EffectiveMinImagePagesWide(), m_Config.EffectiveMaxImagePagesWide());
+            const u32 wanted = VTDesiredImageSize(
+                sector.m_Snapshot.m_SizePages, feedback, sector.m_Sizing, m_Config.EffectiveMinImagePagesWide(),
+                m_Config.EffectiveMaxImagePagesWide(), resizes < kVTMaxResizesPerFrame);
             if (wanted != sector.m_Snapshot.m_SizePages)
             {
                 ResizeSectorImage(index, wanted);
                 ++resizes;
+                served = step + 1u;
             }
         }
-        m_NextSizingSector = (m_NextSizingSector + 1u) % std::max(sectorCount, 1u);
+        m_NextSizingSector = (m_NextSizingSector + std::max(served, 1u)) % std::max(sectorCount, 1u);
     }
 
     void TerrainVirtualTexture::UpdateSectorReadiness()

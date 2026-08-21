@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -314,11 +315,20 @@ namespace OloEngine
         u16 m_OriginX = 0; // pages, atlas space, multiple of m_SizePages
         u16 m_OriginY = 0;
         u16 m_SizePages = 0; // power of two; 0 = unallocated
-        u16 m_MaxMip = 0;    // log2(m_SizePages) — the image's own 1x1 level
 
         [[nodiscard]] bool IsAllocated() const
         {
             return m_SizePages != 0u;
+        }
+        // The image's own 1x1 level. DERIVED, not stored: a stored copy is a
+        // second source of truth for the same pyramid, and the struct is
+        // aggregate-initialized in several places, so nothing would stop a
+        // snapshot from carrying a level that disagrees with m_SizePages.
+        // Contains()/PinKey() and VTRemapPageKey would then answer from two
+        // different pyramids — the remap targeting a level Contains() rejects.
+        [[nodiscard]] constexpr u32 MaxMip() const
+        {
+            return m_SizePages == 0u ? 0u : FloorLogTwo(static_cast<u32>(m_SizePages));
         }
         // Whether an atlas page key addresses a texel INSIDE this image, at a
         // level the image actually has. The validity check every stale
@@ -328,7 +338,7 @@ namespace OloEngine
         [[nodiscard]] constexpr bool Contains(u32 pageKey) const
         {
             const u32 mip = VTPageKeyMip(pageKey);
-            if (m_SizePages == 0u || mip > m_MaxMip)
+            if (m_SizePages == 0u || mip > MaxMip())
             {
                 return false;
             }
@@ -342,8 +352,9 @@ namespace OloEngine
         // of slices 1-2's single pinned page).
         [[nodiscard]] constexpr u32 PinKey() const
         {
-            return VTMakePageKey(m_MaxMip, static_cast<u32>(m_OriginX) >> m_MaxMip,
-                                 static_cast<u32>(m_OriginY) >> m_MaxMip);
+            const u32 maxMip = MaxMip();
+            return VTMakePageKey(maxMip, static_cast<u32>(m_OriginX) >> maxMip,
+                                 static_cast<u32>(m_OriginY) >> maxMip);
         }
 
         bool operator==(const VTSectorSnapshot&) const = default;
@@ -392,13 +403,28 @@ namespace OloEngine
     // grazing-angle pixel at the sector's far corner should not double the
     // image.
     inline constexpr u32 kVTGrowMinRequests = 4u;
+    // A resize remaps every resident page of the image and dirties the
+    // indirection map, so it is budgeted per analysis like the bake is.
+    inline constexpr u32 kVTMaxResizesPerFrame = 2u;
 
     // @brief One analysis step of the sizing policy for one sector. Returns
     // the size the sector should have (== currentSize when nothing changes)
     // and updates the streak state. Pure, so the policy is headlessly
     // testable against synthetic feedback histories.
+    //
+    // canResize is the caller's per-analysis resize BUDGET, and it is a
+    // parameter rather than something the caller decides after the fact
+    // because this function COMMITS as it answers: returning a new size zeroes
+    // the streak and arms the cooldown. A caller that asked for a decision and
+    // then declined to act on it would throw that resize away AND penalise the
+    // sector with a full cooldown. With canResize false the per-analysis
+    // counters still tick — that is the whole point, the constants above are
+    // counted in analyses and only mean something if every sector ticks at the
+    // same rate — but nothing is committed and the answer is always
+    // currentSize, so the sector keeps its streak and resizes once budget
+    // frees up.
     [[nodiscard]] u32 VTDesiredImageSize(u32 currentSize, const VTSectorFeedback& feedback,
-                                         VTSectorSizingState& state, u32 minSize, u32 maxSize);
+                                         VTSectorSizingState& state, u32 minSize, u32 maxSize, bool canResize = true);
 
     // @brief Where a resident page of a resized image lives in the new
     // allocation. A resize is a REMAP, not a rebake (the reference's central
@@ -422,10 +448,9 @@ namespace OloEngine
         // Grow doubles the size: every old level shifts one coarser in the new
         // pyramid (old mip 0 at 64 pages == new mip 1 at 128 — same page
         // count, same world rect, same density).
-        const i32 deltaMip =
-            static_cast<i32>(FloorLogTwo(newImage.m_SizePages)) - static_cast<i32>(FloorLogTwo(oldImage.m_SizePages));
+        const i32 deltaMip = static_cast<i32>(newImage.MaxMip()) - static_cast<i32>(oldImage.MaxMip());
         const i32 newMip = static_cast<i32>(mip) + deltaMip;
-        if (newMip < 0 || newMip > static_cast<i32>(newImage.m_MaxMip))
+        if (newMip < 0 || newMip > static_cast<i32>(newImage.MaxMip()))
         {
             return std::nullopt;
         }
@@ -631,6 +656,13 @@ namespace OloEngine
         glm::vec4 m_UVRect{ 0.0f };
     };
     static_assert(sizeof(VTBakeRequest) == 32, "VTBakeRequest must match its std430 twin");
+    // The size alone does not pin the layout: std430 aligns a vec4 to 16 bytes,
+    // so a member added or reordered ahead of m_UVRect can keep the struct at
+    // 32 bytes while moving the rect the two kernels read at offset 16. That
+    // failure is a bake sampling the wrong terrain rect — plausible pixels,
+    // wrong content — so pin the offset, not just the stride.
+    static_assert(offsetof(VTBakeRequest, m_UVRect) == 16,
+                  "VTBakeRequest::m_UVRect must stay at std430 offset 16 — both bake kernels read it there");
 
     // ── Feedback analysis ────────────────────────────────────────────────────
 

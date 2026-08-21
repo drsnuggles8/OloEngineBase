@@ -70,14 +70,8 @@ namespace
     // deleted: their survival IS the proof of that equivalence.
     VTSectorSnapshot MakeAtlasSpanningSector(u32 atlasPagesWide)
     {
-        u16 maxMip = 0;
-        for (u32 wide = atlasPagesWide; wide > 1u; wide >>= 1u)
-        {
-            ++maxMip;
-        }
         VTSectorSnapshot sector;
         sector.m_SizePages = static_cast<u16>(atlasPagesWide);
-        sector.m_MaxMip = maxMip;
         return sector;
     }
 
@@ -363,6 +357,29 @@ TEST(TerrainVirtualTexture, ImageSizeBoundsMustBePowersOfTwoNestedInsideTheAtlas
     EXPECT_TRUE(notPow2.IsValid());
 }
 
+TEST(TerrainVirtualTexture, TheAdaptiveFieldsAreRepairedEvenWhileAdaptivityIsOff)
+{
+    // IsValid() checks the adaptive rules only when the toggle is on, so a
+    // config sanitized with adaptivity OFF and left unrepaired reads as valid
+    // right up to the moment somebody ticks the checkbox — and then it is
+    // invalid, in the editor, with no obvious cause. Sanitize therefore
+    // normalizes the adaptive fields unconditionally: they must already be
+    // expressible when the toggle flips, not discovered broken at that moment.
+    TerrainVirtualTextureConfig off;
+    off.AdaptiveEnabled = false;
+    off.CacheTilesWide = 8; // 64 tiles, so the pin budget is 32 sectors
+    off.SectorsWide = 8;    // ...but this asks for 64 of them
+    EXPECT_TRUE(off.IsValid()) << "with adaptivity off the rule is not checked";
+
+    EXPECT_FALSE(off.Sanitize()) << "Sanitize must report that it changed the sector count";
+    EXPECT_LE(off.SectorsWide * off.SectorsWide, off.CacheTileCount() / 2u);
+
+    // The point of the repair: flipping the toggle on must not produce an
+    // invalid config.
+    off.AdaptiveEnabled = true;
+    EXPECT_TRUE(off.IsValid()) << "a sanitized config must stay valid when adaptivity is enabled";
+}
+
 TEST(TerrainVirtualTexture, TheAllocatorsTwelveLevelCeilingRaisesTheMinimumImageSize)
 {
     // AtlasAllocator preallocates its whole quadtree and caps the level count
@@ -578,7 +595,7 @@ TEST(TerrainVirtualTexture, ASectorOwnsExactlyThePagesOfItsOwnPyramid)
     // serviced request is filtered through: after a resize moves an image,
     // in-flight feedback still names pages of the OLD rect, and a request no
     // live image owns must be dropped, not baked.
-    const VTSectorSnapshot sector{ 32, 32, 32, 5 };
+    const VTSectorSnapshot sector{ 32, 32, 32 };
 
     // Inside, at several levels of the pyramid.
     EXPECT_TRUE(sector.Contains(VTMakePageKey(0u, 32u, 32u)));
@@ -616,13 +633,13 @@ TEST(TerrainVirtualTexture, ThePinKeyNamesTheImagesOwnCoarsestPage)
     // always a multiple of the size (AtlasAllocator's buddy structure
     // guarantees it), so origin >> maxMip lands exactly on the coarsest
     // level's grid rather than between two of its pages.
-    const VTSectorSnapshot sector{ 64, 32, 32, 5 };
+    const VTSectorSnapshot sector{ 64, 32, 32 };
     EXPECT_EQ(sector.PinKey(), VTMakePageKey(5u, 2u, 1u));
     EXPECT_TRUE(sector.Contains(sector.PinKey()));
 
     // A single-page image pins ITSELF, at atlas mip 0 — the finest band. This
     // is the case the analyzer's pins-first sort exists for (pinned below).
-    const VTSectorSnapshot tiny{ 7, 3, 1, 0 };
+    const VTSectorSnapshot tiny{ 7, 3, 1 };
     EXPECT_EQ(tiny.PinKey(), VTMakePageKey(0u, 7u, 3u));
 
     // The degenerate whole-atlas image pins the same page slices 1-2 pinned
@@ -643,10 +660,10 @@ TEST(TerrainVirtualTexture, GrowingAnImageKeepsEveryPageOverTheSameWorldRectAndD
     config.SectorsWide = 4;
     constexpr u32 kSectorIndex = 6;
 
-    const VTSectorSnapshot oldImage{ 32, 0, 32, 5 };
-    const VTSectorSnapshot newImage{ 0, 64, 64, 6 };
+    const VTSectorSnapshot oldImage{ 32, 0, 32 };
+    const VTSectorSnapshot newImage{ 0, 64, 64 };
 
-    for (u32 mip = 0; mip <= oldImage.m_MaxMip; ++mip)
+    for (u32 mip = 0; mip <= oldImage.MaxMip(); ++mip)
     {
         const u32 pages = static_cast<u32>(oldImage.m_SizePages) >> mip;
         for (u32 ly = 0; ly < pages; ++ly)
@@ -693,8 +710,8 @@ TEST(TerrainVirtualTexture, ShrinkingAnImageDropsExactlyTheFinestLevel)
     config.SectorsWide = 4;
     constexpr u32 kSectorIndex = 9;
 
-    const VTSectorSnapshot oldImage{ 0, 0, 64, 6 };
-    const VTSectorSnapshot newImage{ 96, 32, 32, 5 };
+    const VTSectorSnapshot oldImage{ 0, 0, 64 };
+    const VTSectorSnapshot newImage{ 96, 32, 32 };
 
     for (u32 y = 0; y < 64u; ++y)
     {
@@ -705,7 +722,7 @@ TEST(TerrainVirtualTexture, ShrinkingAnImageDropsExactlyTheFinestLevel)
         }
     }
 
-    for (u32 mip = 1; mip <= oldImage.m_MaxMip; ++mip)
+    for (u32 mip = 1; mip <= oldImage.MaxMip(); ++mip)
     {
         const u32 pages = static_cast<u32>(oldImage.m_SizePages) >> mip;
         for (u32 ly = 0; ly < pages; ++ly)
@@ -744,10 +761,10 @@ TEST(TerrainVirtualTexture, MovingAnImageTranslatesEveryPageWithoutChangingItsLe
     config.SectorsWide = 4;
     constexpr u32 kSectorIndex = 3;
 
-    const VTSectorSnapshot oldImage{ 0, 0, 32, 5 };
-    const VTSectorSnapshot newImage{ 64, 64, 32, 5 };
+    const VTSectorSnapshot oldImage{ 0, 0, 32 };
+    const VTSectorSnapshot newImage{ 64, 64, 32 };
 
-    for (u32 mip = 0; mip <= oldImage.m_MaxMip; ++mip)
+    for (u32 mip = 0; mip <= oldImage.MaxMip(); ++mip)
     {
         const u32 pages = static_cast<u32>(oldImage.m_SizePages) >> mip;
         for (u32 ly = 0; ly < pages; ++ly)
@@ -815,13 +832,13 @@ TEST(TerrainVirtualTexture, ASectorsPageRectsTileItsShareOfTheTerrainExactly)
     // size, so this is where a resize would first show a seam.
     TerrainVirtualTextureConfig config = MakeConfig();
     config.SectorsWide = 4;
-    constexpr u32 kSectorIndex = 5;                // row 1, column 1 of the 4x4 grid
-    const VTSectorSnapshot sector{ 32, 0, 16, 4 }; // atlas placement is the allocator's business, not the grid's
+    constexpr u32 kSectorIndex = 5;             // row 1, column 1 of the 4x4 grid
+    const VTSectorSnapshot sector{ 32, 0, 16 }; // atlas placement is the allocator's business, not the grid's
 
     const f32 sectorSpan = 1.0f / 4.0f;
     const glm::vec2 sectorMin(0.25f, 0.25f);
 
-    for (u32 mip = 0; mip <= sector.m_MaxMip; ++mip)
+    for (u32 mip = 0; mip <= sector.MaxMip(); ++mip)
     {
         const u32 pages = static_cast<u32>(sector.m_SizePages) >> mip;
         const auto rectAt = [&](u32 lx, u32 ly)
@@ -1017,9 +1034,9 @@ TEST(TerrainVirtualTexture, AnalyzerAttributesEveryWordToTheSectorThatOwnsItsAdd
     // whichever image now occupies that space, while a persistently growing
     // stale count is how an addressing bug announces itself.
     const std::vector<VTSectorSnapshot> sectors{
-        VTSectorSnapshot{ 0, 0, 64, 6 },  // sector 0: a 64-page image at the atlas origin
-        VTSectorSnapshot{ 64, 0, 32, 5 }, // sector 1: a 32-page neighbour
-        VTSectorSnapshot{},               // sector 2: freed
+        VTSectorSnapshot{ 0, 0, 64 },  // sector 0: a 64-page image at the atlas origin
+        VTSectorSnapshot{ 64, 0, 32 }, // sector 1: a 32-page neighbour
+        VTSectorSnapshot{},            // sector 2: freed
     };
 
     std::vector<u32> feedback;
@@ -1083,8 +1100,8 @@ TEST(TerrainVirtualTexture, AOnePageImagesPinSortsBeforeEveryCameraRequest)
     // page that sector's every lookup falls back to. This test fails under
     // the old sort.
     const std::vector<VTSectorSnapshot> sectors{
-        VTSectorSnapshot{ 0, 0, 1, 0 },   // an idle far-away sector, shrunk to one page
-        VTSectorSnapshot{ 64, 0, 64, 6 }, // a busy neighbour
+        VTSectorSnapshot{ 0, 0, 1 },   // an idle far-away sector, shrunk to one page
+        VTSectorSnapshot{ 64, 0, 64 }, // a busy neighbour
     };
 
     std::vector<u32> feedback;
@@ -1286,6 +1303,69 @@ TEST(TerrainVirtualTexture, TheSizingPolicyNeverLeavesItsConfiguredBounds)
     {
         EXPECT_EQ(VTDesiredImageSize(1u, VTSectorFeedback{}, atMinIdle, 1u, 64u), 1u)
             << "idleness at the minimum must change nothing (analysis " << analysis << ")";
+    }
+}
+
+TEST(TerrainVirtualTexture, ASectorWithNoResizeBudgetStillTicksAndKeepsItsStreak)
+{
+    // ApplyAdaptiveSizing runs the policy for EVERY sector but executes at most
+    // kVTMaxResizesPerFrame of the resizes, so most sectors are told "not this
+    // analysis". That has to be a deferral, not a loss: the function commits as
+    // it answers (a returned new size zeroes the streak and arms the cooldown),
+    // so a caller that asked and then declined would throw the resize away AND
+    // penalise the sector with a full cooldown it never earned.
+    VTSectorSizingState budgeted;
+    for (u32 analysis = 0; analysis < kVTGrowStreakAnalyses * 3u; ++analysis)
+    {
+        EXPECT_EQ(VTDesiredImageSize(8u, UnderResolvedSignal(), budgeted, 1u, 64u, /*canResize*/ false), 8u)
+            << "with no budget the answer is always the current size (analysis " << analysis << ")";
+    }
+    // Nothing was consumed, so the accumulated evidence is still there and the
+    // very next analysis with budget grows immediately.
+    EXPECT_EQ(budgeted.m_CooldownAnalyses, 0u) << "a deferred resize must not arm the cooldown";
+    EXPECT_EQ(VTDesiredImageSize(8u, UnderResolvedSignal(), budgeted, 1u, 64u, /*canResize*/ true), 16u)
+        << "the streak survived the budget-starved analyses";
+}
+
+TEST(TerrainVirtualTexture, TheCooldownTicksDownWithoutBudgetSoEverySectorAgesTogether)
+{
+    // The counters are named in ANALYSES precisely so they are independent of
+    // frame rate and readback latency. That only holds if a sector the resize
+    // budget skipped ages at the same rate as one it reached — otherwise a
+    // burst of resizing silently freezes the hysteresis of every other sector.
+    VTSectorSizingState resized;
+    for (u32 analysis = 0; analysis < kVTGrowStreakAnalyses; ++analysis)
+    {
+        (void)VTDesiredImageSize(8u, UnderResolvedSignal(), resized, 1u, 64u);
+    }
+    ASSERT_EQ(resized.m_CooldownAnalyses, kVTResizeCooldownAnalyses) << "the grow armed the cooldown";
+
+    for (u32 analysis = 0; analysis < kVTResizeCooldownAnalyses; ++analysis)
+    {
+        (void)VTDesiredImageSize(16u, UnderResolvedSignal(), resized, 1u, 64u, /*canResize*/ false);
+    }
+    EXPECT_EQ(resized.m_CooldownAnalyses, 0u)
+        << "the cooldown must expire on analyses the sector had no budget for, not stall";
+}
+
+TEST(TerrainVirtualTexture, AnImagesCoarsestLevelIsDerivedFromItsSizeNotStoredBesideIt)
+{
+    // m_MaxMip used to be a second field, and Contains()/PinKey() trusted it
+    // while VTRemapPageKey recomputed the level from m_SizePages — so a
+    // snapshot whose two disagreed would have had the remap target a level
+    // Contains() rejects. Deriving makes that unrepresentable; this pins the
+    // derivation itself.
+    EXPECT_EQ(VTSectorSnapshot{}.MaxMip(), 0u) << "an unallocated image has no pyramid";
+    for (u32 sizePages = 1u; sizePages <= 4096u; sizePages <<= 1u)
+    {
+        VTSectorSnapshot image;
+        image.m_SizePages = static_cast<u16>(sizePages);
+        EXPECT_EQ(1u << image.MaxMip(), sizePages) << "size " << sizePages;
+        // The level the pin lives at, and the last one Contains() accepts, are
+        // the same level — the property the two used to be able to disagree on.
+        EXPECT_EQ(VTPageKeyMip(image.PinKey()), image.MaxMip());
+        EXPECT_TRUE(image.Contains(image.PinKey()));
+        EXPECT_FALSE(image.Contains(VTMakePageKey(image.MaxMip() + 1u, 0u, 0u)));
     }
 }
 

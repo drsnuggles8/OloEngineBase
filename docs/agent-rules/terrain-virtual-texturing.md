@@ -402,6 +402,22 @@ rediscovering:
   ready flag (pin resident AND published); an unready sector's pixels take the splat arm while
   still writing feedback — that is what converges it. `IsReadyForShading()` is now "any sector
   ready", and it only gates whether the VT resources are bound at all.
+- **`VTDesiredImageSize` COMMITS as it answers, so it cannot be asked speculatively.** Returning a
+  size other than the current one zeroes the streak and arms the cooldown *in the same call*. The
+  obvious refactor — run the policy for every sector, then execute only the first
+  `kVTMaxResizesPerFrame` of what it asked for — therefore throws the deferred resizes away AND
+  penalises those sectors with a full cooldown they never earned. That is why the budget is a
+  **parameter** (`canResize`) instead of a decision the caller makes afterwards: with it false the
+  per-analysis counters still tick (they are counted in analyses, which only means anything if
+  every sector ticks at the same rate) but nothing is committed and the answer is always
+  `currentSize`. Any function that mutates hysteresis state on its way out has this shape; check
+  before adding a second caller.
+- **An image's coarsest mip is DERIVED from its size, never stored beside it.** `m_MaxMip` was a
+  second `u16` next to `m_SizePages` for exactly one review cycle. `Contains()`/`PinKey()` read the
+  stored field while `VTRemapPageKey` recomputed the level from the size, so a snapshot whose two
+  disagreed would have had the remap target a level `Contains()` rejects — and the struct is
+  aggregate-initialized in a dozen places, so nothing enforced the pairing. `MaxMip()` is now a
+  method; the invariant is unrepresentable rather than documented.
 
 ## 10. BC7 cache tiles (slice 4) — the bake is unchanged, the destination moved
 
