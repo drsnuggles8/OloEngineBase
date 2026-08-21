@@ -40,15 +40,10 @@ layout(local_size_x = 1) in;
 layout(std430, binding = 37) readonly buffer VirtualDrawArgsBuf { VirtualDrawArgs args[]; };
 
 // Per-draw info (binding 49 = UBO_VIRTUAL_DRAW) — same block and same uploaded
-// contents as the MDI path; see the include for the field contract. Declared
-// locally rather than via VirtualGBufferVertexStage.glsl because the task
-// stage needs none of the vertex machinery.
-layout(std140, binding = 49) uniform VirtualDrawInfo {
-    uint u_VirtualInstanceIndex;
-    uint u_VirtualCommandBase;
-    uint u_VirtualArgsSlot;
-    uint u_VirtualMaxClusters;
-};
+// contents as the MDI path. Included directly rather than via
+// VirtualGBufferVertexStage.glsl because the task stage needs none of the
+// vertex machinery.
+#include "include/VirtualDrawInfo.glsl"
 
 void main()
 {

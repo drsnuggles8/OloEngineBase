@@ -49,6 +49,37 @@ TEST(VirtualMeshletEligibility, DefaultCookConfigMatchesTheDeclaredMeshletLimits
     EXPECT_EQ(defaults.MaxClusterTriangles, kMeshletMaxTriangles);
 }
 
+// The launch ceiling is a PER-FRAME gate, not a per-part one, and these pin
+// which is which. VK_EXT_mesh_shader guarantees only 65535 workgroups per grid
+// dimension, and the task stage emits one per cluster the instance selected
+// THIS FRAME — so the bound belongs on that live count. Folding it into
+// IsMeshletCompatible (a per-part stamp over the whole cooked cluster set)
+// would permanently demote large meshes that never select more than a few
+// thousand clusters in any one frame, i.e. exactly the content the mesh path
+// exists to serve. Boundary cases both ways, so neither the ceiling nor the
+// comparison's strictness can drift silently.
+TEST(VirtualMeshletEligibility, TheLaunchCeilingGatesTheFrameCountNotThePart)
+{
+    // At the ceiling: still the mesh path. One past it: MDI, no clamping and
+    // therefore no silently dropped clusters.
+    EXPECT_TRUE(ShouldUseMeshRaster(true, true, kMeshletMaxClustersPerInstance));
+    EXPECT_FALSE(ShouldUseMeshRaster(true, true, kMeshletMaxClustersPerInstance + 1));
+
+    // The ceiling is the SPEC minimum, not a queried device value: a generous
+    // dev GPU must not be what decides whether min-spec content renders.
+    EXPECT_EQ(kMeshletMaxClustersPerInstance, 65535u);
+
+    // Zero clusters is a legal frame (nothing selected); it must not be treated
+    // as an overflow, and EmitMeshTasksEXT(0) is a legal no-op launch.
+    EXPECT_TRUE(ShouldUseMeshRaster(true, true, 0u));
+
+    // Either of the other two gates alone still routes to MDI, whatever the
+    // count — the availability flag is the effective route (mesh shader present
+    // AND its program compiled), not raw device capability.
+    EXPECT_FALSE(ShouldUseMeshRaster(false, true, 1u));
+    EXPECT_FALSE(ShouldUseMeshRaster(true, false, 1u));
+}
+
 // The GLSL leg of the three-way contract: parse the OLO_MESHLET_MAX_* defines
 // out of include/VirtualGeometryGpuStructs.glsl (the ONE GLSL spelling — the
 // mesh stage's layout(max_vertices/max_primitives) consumes them) and pin them

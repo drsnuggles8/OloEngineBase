@@ -60,7 +60,7 @@ namespace OloEngine::VirtualGeometryShadow
         }
         if (!s_DrawInfoUBO)
         {
-            s_DrawInfoUBO = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+            s_DrawInfoUBO = UniformBuffer::Create(sizeof(VirtualDrawInfoGpu), ShaderBindingLayout::UBO_VIRTUAL_DRAW);
         }
         if (!s_CullShader || !s_DepthShader)
             return;
@@ -127,8 +127,10 @@ namespace OloEngine::VirtualGeometryShadow
         {
             if (!instances[i].CastShadows)
                 continue;
-            u32 const drawInfo[4] = { static_cast<u32>(i), instances[i].Gpu.CommandBase, 0u, 0u };
-            s_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
+            VirtualDrawInfoGpu drawInfo{};
+            drawInfo.InstanceIndex = static_cast<u32>(i);
+            drawInfo.CommandBase = instances[i].Gpu.CommandBase;
+            s_DrawInfoUBO->SetData(&drawInfo, sizeof(drawInfo));
             RenderCommand::MultiDrawElementsIndirectCountRaw(
                 registry.GetVao(), commandBuffer,
                 instances[i].Gpu.CommandBase * 32u,

@@ -41,12 +41,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-layout(std140, binding = 49) uniform VirtualDrawInfo {
-    uint u_VirtualInstanceIndex;
-    uint u_VirtualCommandBase;
-    uint u_VirtualViewportWidth;
-    uint u_VirtualViewportHeight;
-};
+// Per-draw info (binding 49 = UBO_VIRTUAL_DRAW): this stage reads only the
+// instance index, but shares the one block spelling with every other
+// virtual-geometry pipeline.
+#include "include/VirtualDrawInfo.glsl"
 
 void main()
 {

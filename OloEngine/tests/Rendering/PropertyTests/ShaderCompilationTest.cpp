@@ -318,8 +318,20 @@ namespace OloEngine::Tests
                     // system shaderc (Linux CI) lacks the NAME but the encoding
                     // is fixed (VK_MAKE_API_VERSION(0, 1, 4, 0)).
                     constexpr auto kShadercEnvVulkan14 = static_cast<shaderc_env_version>((1u << 22) | (4u << 12));
-                    static_assert(kShadercEnvVulkan14 == ((1u << 22) | (4u << 12)));
+                    static_assert(static_cast<u32>(kShadercEnvVulkan14) == 0x00404000u,
+                                  "VK_MAKE_API_VERSION(0, 1, 4, 0) is a fixed encoding");
                     options.SetTargetEnvironment(shaderc_target_env_vulkan, kShadercEnvVulkan14);
+                    // ...and pin the SPIR-V dialect explicitly, exactly as
+                    // VulkanShader::Compile does. Without this the sweep is a
+                    // no-op on any shaderc that predates Vulkan 1.4 (Ubuntu's
+                    // libshaderc 2023.8 on the sanitizer runners): the env is
+                    // accepted, not recognised, and silently downgraded to a
+                    // SPIR-V too old to permit GL_EXT_mesh_shader — so the very
+                    // stages this branch exists to cover fail to compile.
+                    constexpr auto kShadercSpirv16 = static_cast<shaderc_spirv_version>((1u << 16) | (6u << 8));
+                    static_assert(static_cast<u32>(kShadercSpirv16) == 0x00010600u,
+                                  "SPIR-V version words are (major << 16) | (minor << 8)");
+                    options.SetTargetSpirv(kShadercSpirv16);
                     options.AddMacroDefinition("OLO_VULKAN", "1");
                 }
                 else

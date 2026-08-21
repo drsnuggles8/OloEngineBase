@@ -371,8 +371,27 @@ namespace OloEngine
             // whose toolchain predates the 1.4 SDK, so those builds only need
             // to COMPILE (the device-gated tests SKIP).
             constexpr auto kShadercEnvVulkan14 = static_cast<shaderc_env_version>((1u << 22) | (4u << 12));
-            static_assert(kShadercEnvVulkan14 == ((1u << 22) | (4u << 12)));
+            static_assert(static_cast<u32>(kShadercEnvVulkan14) == 0x00404000u,
+                          "VK_MAKE_API_VERSION(0, 1, 4, 0) is a fixed encoding; if this trips, the "
+                          "hand-encoding above no longer names Vulkan 1.4");
             options.SetTargetEnvironment(shaderc_target_env_vulkan, kShadercEnvVulkan14);
+            // Pin the SPIR-V dialect EXPLICITLY rather than letting it be derived
+            // from the env above. An older shaderc (Ubuntu's libshaderc 2023.8 on
+            // the sanitizer runners) predates Vulkan 1.4 entirely: it accepts the
+            // hand-encoded env version, fails to recognise it, and silently falls
+            // back to a much older SPIR-V — which is a DIFFERENT dialect than the
+            // one production ships, and too old to permit GL_EXT_mesh_shader at
+            // all ("not supported for current targeted SPIR-V version"). Setting
+            // the dialect directly is a no-op wherever the env is understood
+            // (Vulkan 1.4 lowers to SPIR-V 1.6 anyway) and repairs the silent
+            // divergence everywhere else. Hand-encoded for a WEAKER reason than
+            // the env above — shaderc_spirv_version_1_6 does exist that far back
+            // — purely so no toolchain floor can turn this into a build break;
+            // SPIR-V version words are (major << 16) | (minor << 8).
+            constexpr auto kShadercSpirv16 = static_cast<shaderc_spirv_version>((1u << 16) | (6u << 8));
+            static_assert(static_cast<u32>(kShadercSpirv16) == 0x00010600u,
+                          "SPIR-V version words are (major << 16) | (minor << 8)");
+            options.SetTargetSpirv(kShadercSpirv16);
             options.SetPreserveBindings(true);
             options.SetAutoBindUniforms(false);
             options.SetGenerateDebugInfo();

@@ -128,12 +128,7 @@ layout(std140, binding = 8) uniform MotionBlurMatrices {
 
 // Per-draw info (binding 49 = UBO_VIRTUAL_DRAW): which instance this resolve
 // draw shades, plus the visibility-buffer dimensions.
-layout(std140, binding = 49) uniform VirtualDrawInfo {
-    uint u_VirtualInstanceIndex;
-    uint u_VirtualCommandBase;
-    uint u_VirtualViewportWidth;
-    uint u_VirtualViewportHeight;
-};
+#include "include/VirtualDrawInfo.glsl"
 
 // PBR Material UBO (binding 2) — identical layout to PBR_GBuffer
 layout(std140, binding = 2) uniform PBRMaterialProperties {

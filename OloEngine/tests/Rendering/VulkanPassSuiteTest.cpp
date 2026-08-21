@@ -5710,9 +5710,9 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
                                              ShaderBindingLayout::UBO_MATERIAL);
     materialUbo->SetData(&material, sizeof(material));
 
-    const u32 drawInfo[4] = { 0u, 0u, 0u, 0u }; // instance 0, segment base 0
-    auto drawInfoUbo = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DRAW);
-    drawInfoUbo->SetData(drawInfo, sizeof(drawInfo));
+    VirtualDrawInfoGpu drawInfo{}; // instance 0, segment base 0
+    auto drawInfoUbo = UniformBuffer::Create(sizeof(VirtualDrawInfoGpu), ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+    drawInfoUbo->SetData(&drawInfo, sizeof(drawInfo));
 
     const u32 debugInfo[4] = { 0u, 0u, 0u, 0u }; // debug mode OFF
     auto debugInfoUbo = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DEBUG);
@@ -5961,13 +5961,14 @@ TEST_F(VulkanPassSuite, VirtualGeometryMeshTasksMatchTheMdiPath)
                                              ShaderBindingLayout::UBO_MATERIAL);
     materialUbo->SetData(&material, sizeof(material));
 
-    // {instance 0, segment base 0, args slot 0, max clusters 2} serves BOTH
-    // paths: the MDI vertex stage reads .x/.y, the task stage reads .z (its
-    // args slot) and .w (the launch clamp — the mesh twin of MDI's
-    // maxDrawCount; 0 here would clamp every launch to nothing).
-    const u32 drawInfo[4] = { 0u, 0u, 0u, 2u };
-    auto drawInfoUbo = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DRAW);
-    drawInfoUbo->SetData(drawInfo, sizeof(drawInfo));
+    // One block serves BOTH paths: the MDI vertex stage reads InstanceIndex /
+    // CommandBase, the task stage reads ArgsSlot and MaxClusters (the launch
+    // clamp — the mesh twin of MDI's maxDrawCount; 0 here would clamp every
+    // launch to nothing, which is what made this tenant fail once already).
+    VirtualDrawInfoGpu drawInfo{};
+    drawInfo.MaxClusters = 2u;
+    auto drawInfoUbo = UniformBuffer::Create(sizeof(VirtualDrawInfoGpu), ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+    drawInfoUbo->SetData(&drawInfo, sizeof(drawInfo));
 
     const u32 debugInfo[4] = { 0u, 0u, 0u, 0u }; // debug mode OFF
     auto debugInfoUbo = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DEBUG);
@@ -6072,7 +6073,11 @@ TEST_F(VulkanPassSuite, VirtualGeometryMeshTasksMatchTheMdiPath)
     sizet const albedoCount = mdiAlbedo.size();
     for (sizet i = 0; i < albedoCount; ++i)
     {
-        if (std::abs(static_cast<int>(mdiAlbedo[i]) - static_cast<int>(meshAlbedo[i])) > 1)
+        // Byte-exact, no tolerance: both routes run the same vertex transform
+        // and the same fragment include over the same clusters, so the claim
+        // being tested is bit-for-bit identity, not visual similarity. A +/-1
+        // slack would quietly accept a genuinely different rasterization.
+        if (mdiAlbedo[i] != meshAlbedo[i])
             ++albedoDiffs;
     }
     EXPECT_EQ(albedoDiffs, 0u)

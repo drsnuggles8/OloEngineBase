@@ -37,6 +37,61 @@ namespace OloEngine
     // minimum and not a queried value baked on a generous device.
     inline constexpr u32 kMeshletMaxClustersPerInstance = 65535;
 
+    // The per-instance route decision, as ONE named predicate rather than an
+    // expression inlined in the draw loop (§13c: one predicate, one owner).
+    //
+    // The two gates are deliberately of different KINDS, which is why the
+    // cluster ceiling is not folded into IsMeshletCompatible below:
+    //   * meshletCompatible is a PER-PART property, stamped once at
+    //     registration from the cooked cluster geometry;
+    //   * frameClusterCount is a PER-FRAME property — how many clusters this
+    //     instance's LOD selection actually produced this frame, which is what
+    //     the task stage turns into workgroups.
+    // A part with more than 65535 clusters in total may still select far fewer
+    // in any given frame, so demoting it statically would throw away the mesh
+    // path for exactly the large meshes it exists to serve. Bounding the live
+    // count is both necessary and sufficient: the launch never exceeds the
+    // dimension guarantee, and no cluster is ever silently dropped.
+    [[nodiscard]] constexpr bool ShouldUseMeshRaster(bool meshRasterAvailable, bool meshletCompatible,
+                                                     u32 frameClusterCount) noexcept
+    {
+        return meshRasterAvailable && meshletCompatible &&
+               frameClusterCount <= kMeshletMaxClustersPerInstance;
+    }
+
+    // Per-draw info UBO (binding 49 = UBO_VIRTUAL_DRAW), mirroring the ONE GLSL
+    // spelling in OloEditor/assets/shaders/include/VirtualDrawInfo.glsl. Every
+    // virtual-geometry pipeline — G-Buffer, meshlet, visbuffer resolve, shadow
+    // depth — uploads this whole struct; a pass with no use for a field writes 0.
+    // Until #813 the G-Buffer stage declared offsets 8/12 as pads while the
+    // resolve/shadow stages declared them as the viewport size, i.e. two structs
+    // sharing one binding. Giving every field its own offset here (and in the
+    // shared include) is what stops that from being expressible.
+    // offset  size  field
+    //      0     4  InstanceIndex
+    //      4     4  CommandBase
+    //      8     8  ViewportWidth / ViewportHeight (resolve + shadow)
+    //     16     8  ArgsSlot / MaxClusters         (mesh task stage, #813)
+    //     24     8  Pad0 / Pad1
+    struct VirtualDrawInfoGpu
+    {
+        u32 InstanceIndex = 0;
+        u32 CommandBase = 0;
+        u32 ViewportWidth = 0;
+        u32 ViewportHeight = 0;
+        u32 ArgsSlot = 0;
+        u32 MaxClusters = 0;
+        // Spelled without the leading underscore the neighbouring GPU mirrors
+        // use: `_Pad0` is a reserved identifier (underscore + uppercase is
+        // reserved in every scope), and new code should not add more of them.
+        u32 Pad0 = 0;
+        u32 Pad1 = 0;
+    };
+    static_assert(sizeof(VirtualDrawInfoGpu) == 32,
+                  "std140 mirror in include/VirtualDrawInfo.glsl expects a 32-byte block");
+    static_assert(sizeof(VirtualDrawInfoGpu) % 16 == 0,
+                  "std140 block size must be a 16-byte multiple");
+
     // One packed vertex, cluster-owned (clusters own their vertices so a later
     // streaming slice can page whole clusters without a shared indirection).
     // offset  size  field

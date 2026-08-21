@@ -466,7 +466,7 @@ namespace OloEngine
 
         if (!m_DrawInfoUBO)
         {
-            m_DrawInfoUBO = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+            m_DrawInfoUBO = UniformBuffer::Create(sizeof(VirtualDrawInfoGpu), ShaderBindingLayout::UBO_VIRTUAL_DRAW);
         }
 
         // Bind the G-Buffer target + the raster state every draw block needs.
@@ -559,14 +559,11 @@ namespace OloEngine
             sizet const instanceCount = instances.size();
             for (sizet i = 0; i < instanceCount; ++i)
             {
-                // Per-instance route. The cluster-count ceiling mirrors the MDI
-                // arm's maxDrawCount clamp at the LAUNCH level: the task stage
-                // clamps its EmitMeshTasksEXT count to .w (below), and
-                // VK_EXT_mesh_shader only guarantees 65535 workgroups per grid
-                // dimension — an instance that could legally exceed that stays
-                // on MDI, which has no such ceiling.
-                bool const useMesh = meshRaster && instances[i].MeshletCompatible &&
-                                     instances[i].Gpu.ClusterCount <= kMeshletMaxClustersPerInstance;
+                // Per-instance route — see ShouldUseMeshRaster for why the
+                // cluster ceiling is a per-FRAME gate here and not folded into
+                // the per-part IsMeshletCompatible stamp.
+                bool const useMesh = ShouldUseMeshRaster(meshRaster, instances[i].MeshletCompatible,
+                                                         instances[i].Gpu.ClusterCount);
                 if (useMesh != meshShaderBound)
                 {
                     (useMesh ? m_MeshletShader : m_GBufferShader)->Bind();
@@ -578,14 +575,17 @@ namespace OloEngine
                 CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
 
                 u32 const segmentBase = commandSlotBase + instances[i].Gpu.CommandBase;
-                // .z is the instance's args slot (the TASK stage reads its
-                // DrawCount there; the MDI vertex stage simply never reads .z),
-                // .w the launch clamp — both uploaded identically on both
-                // routes so the two paths see the same block contents.
-                u32 const drawInfo[4] = { static_cast<u32>(i), segmentBase,
-                                          static_cast<u32>(argsInstanceBase + i),
-                                          instances[i].Gpu.ClusterCount };
-                m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
+                // ArgsSlot is where the TASK stage reads its DrawCount (the MDI
+                // vertex stage never reads it) and MaxClusters is its launch
+                // clamp — both uploaded identically on both routes so the two
+                // paths see the same block contents. The viewport fields belong
+                // to the resolve/shadow stages and stay 0 here.
+                VirtualDrawInfoGpu drawInfo{};
+                drawInfo.InstanceIndex = static_cast<u32>(i);
+                drawInfo.CommandBase = segmentBase;
+                drawInfo.ArgsSlot = static_cast<u32>(argsInstanceBase + i);
+                drawInfo.MaxClusters = instances[i].Gpu.ClusterCount;
+                m_DrawInfoUBO->SetData(&drawInfo, sizeof(drawInfo));
 
                 // Two-sided materials must not backface-cull. Foliage is a single sheet of quads
                 // meant to be seen from both sides, so culling drops half of every leaf — which is
@@ -774,9 +774,12 @@ namespace OloEngine
                         static_cast<u16>(instances[i].MaterialDataIndex));
                     CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
 
-                    u32 const drawInfo[4] = { static_cast<u32>(i), instances[i].Gpu.CommandBase,
-                                              registry.GetVisbufferWidth(), registry.GetVisbufferHeight() };
-                    m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
+                    VirtualDrawInfoGpu drawInfo{};
+                    drawInfo.InstanceIndex = static_cast<u32>(i);
+                    drawInfo.CommandBase = instances[i].Gpu.CommandBase;
+                    drawInfo.ViewportWidth = registry.GetVisbufferWidth();
+                    drawInfo.ViewportHeight = registry.GetVisbufferHeight();
+                    m_DrawInfoUBO->SetData(&drawInfo, sizeof(drawInfo));
 
                     fullscreen->Bind();
                     // UploadMaterialForDirectDraw above writes this instance's

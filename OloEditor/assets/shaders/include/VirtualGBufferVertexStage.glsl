@@ -39,20 +39,9 @@ layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex 
 layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };
 
 // Per-draw info (binding 49 = UBO_VIRTUAL_DRAW), uploaded identically for both
-// hardware raster routes:
-//   .x  instance every draw/workgroup of this call belongs to
-//   .y  the instance's global visible-slot base for the current phase region
-//       (what the cull wrote into each MDI command's BaseInstance)
-//   .z  the instance's VirtualDrawArgs slot for the current phase (read by the
-//       TASK stage as its launch count; the MDI stages never read it)
-//   .w  the instance's ClusterCount — the task stage's launch clamp, mirroring
-//       the MDI arm's maxDrawCount bound against a corrupt GPU count
-layout(std140, binding = 49) uniform VirtualDrawInfo {
-    uint u_VirtualInstanceIndex;
-    uint u_VirtualCommandBase;
-    uint u_VirtualArgsSlot;
-    uint u_VirtualMaxClusters;
-};
+// hardware raster routes. One shared spelling — see the include for the field
+// contract and for why it is not declared here.
+#include "VirtualDrawInfo.glsl"
 
 struct VirtualVertexOutputs {
     vec3 WorldPos;
