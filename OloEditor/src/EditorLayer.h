@@ -312,6 +312,13 @@ namespace OloEngine
         std::mutex m_LightmapBakeResultMutex;
         LightmapBakeResult m_LightmapBakeResult; // guarded by m_LightmapBakeResultMutex
         bool m_LightmapBakeResultReady = false;  // guarded by m_LightmapBakeResultMutex
+        // Which scene the running bake belongs to, pinned at bake start (game
+        // thread only): completion runs frames later, and the active scene may
+        // have been switched — or swapped for the Play copy — by then. The
+        // result must attach to THIS scene or be reported as orphaned, never
+        // silently attached to whatever is active at completion.
+        Ref<Scene> m_LightmapBakeScene;
+        std::filesystem::path m_LightmapBakeScenePath;
 
         enum class SceneState
         {

@@ -16,6 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image_write.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
@@ -55,6 +56,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/Interchange/MeshExporterRegistry.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 #include "OloEngine/Scene/SceneLightmap.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
@@ -4834,9 +4836,24 @@ namespace OloEngine
             }
             case AssetType::Lightmap:
             {
-                // TODO(#439): notify Scene lightmap runtime so entities re-resolve their
-                // atlas regions (the scene-side hook lands in a later change).
-                OLO_TRACE("   → Lightmap asset reloaded");
+                OLO_TRACE("   → Lightmap asset reloaded - invalidating scene lightmap runtimes");
+                // The lightmap runtime caches a GPU atlas built from the OLD
+                // asset data, and its cheap resolve path (same handle, same
+                // bake key) never re-reads the asset — an externally replaced
+                // .olmap would keep rendering from the stale texture forever
+                // without this.
+                auto invalidateIfUsing = [&e](Ref<Scene> scene)
+                {
+                    if (scene && scene->GetLightmapSettings().LightmapAsset == e.GetHandle())
+                    {
+                        scene->GetLightmapRuntime()->Invalidate();
+                    }
+                };
+                invalidateIfUsing(m_EditorScene);
+                if (m_ActiveScene != m_EditorScene)
+                {
+                    invalidateIfUsing(m_ActiveScene);
+                }
                 break;
             }
             case AssetType::AnimationGraph:
@@ -5104,6 +5121,11 @@ namespace OloEngine
         auto bakeDone = std::make_shared<std::promise<void>>();
         m_LightmapBakeFuture = bakeDone->get_future();
 
+        // Pin the bake to THIS scene (we are in Edit mode, so scene ==
+        // m_EditorScene). Completion attaches the result to the pinned scene.
+        m_LightmapBakeScene = scene;
+        m_LightmapBakeScenePath = m_EditorScenePath;
+
         OLO_CORE_INFO("Lightmap bake started: {} entities, {} texels, {} spp",
                       inputs.size(), prepared->Jobs.size(), bakeSettings.SamplesPerTexel);
 
@@ -5134,6 +5156,16 @@ namespace OloEngine
             m_LightmapBakeResultReady = false;
         }
 
+        // The bake belongs to the scene pinned at start — NOT whatever is
+        // active now (the user may have opened another scene, or entered Play,
+        // mid-bake). Release the pin regardless of outcome. Non-const binding
+        // on purpose: Ref<T> propagates const through operator->, and the
+        // settings write + Invalidate() below mutate the scene.
+        Ref<Scene> bakedScene = m_LightmapBakeScene;
+        const std::filesystem::path bakedScenePath = m_LightmapBakeScenePath;
+        m_LightmapBakeScene = nullptr;
+        m_LightmapBakeScenePath.clear();
+
         if (!result.Success)
         {
             OLO_CORE_ERROR("Lightmap bake failed: {}", result.Error);
@@ -5154,12 +5186,27 @@ namespace OloEngine
             return;
         }
 
-        const std::string sceneName = m_ActiveScene ? m_ActiveScene->GetName() : "Scene";
-        const std::filesystem::path assetPath = std::filesystem::path("assets") / "lightmaps" / (sceneName + ".olmap");
+        const std::string sceneName = bakedScene ? bakedScene->GetName() : "Scene";
+        // Disambiguate scenes that share a display name: suffix the file with
+        // a hash of the scene's asset path, so two "Level.olo" in different
+        // folders don't overwrite each other's bake. Deterministic per path —
+        // a re-bake of the same scene replaces its own file. An unsaved scene
+        // has no path and falls back to the bare name.
+        std::string fileStem = sceneName;
+        if (!bakedScenePath.empty())
+        {
+            const std::string scenePathUtf8 = bakedScenePath.generic_string();
+            const u64 pathHash = Hash::FNV1a64(scenePathUtf8.data(), scenePathUtf8.size());
+            char pathTag[12];
+            (void)snprintf(pathTag, sizeof(pathTag), "%08x", static_cast<unsigned>(pathHash ^ (pathHash >> 32)));
+            fileStem += '-';
+            fileStem += pathTag;
+        }
+        const std::filesystem::path assetPath = std::filesystem::path("assets") / "lightmaps" / (fileStem + ".olmap");
         std::filesystem::create_directories(Project::GetAssetDirectory() / "lightmaps");
 
         Ref<LightmapAsset> stored = editorAssetManager->CreateOrReplaceAsset<LightmapAsset>(
-            Project::GetAssetDirectory() / "lightmaps" / (sceneName + ".olmap"),
+            Project::GetAssetDirectory() / "lightmaps" / (fileStem + ".olmap"),
             result.Asset->GetWidth(), result.Asset->GetHeight(), result.Asset->GetPageCount(),
             result.Asset->GetBakeKey(),
             std::move(result.Asset->GetTexelData()),
@@ -5170,11 +5217,19 @@ namespace OloEngine
             return;
         }
 
-        if (m_ActiveScene)
+        if (bakedScene)
         {
-            auto& lmSettings = m_ActiveScene->GetLightmapSettings();
+            auto& lmSettings = bakedScene->GetLightmapSettings();
             lmSettings.LightmapAsset = stored->GetHandle();
-            m_ActiveScene->GetLightmapRuntime()->Invalidate();
+            bakedScene->GetLightmapRuntime()->Invalidate();
+        }
+        if (bakedScene != m_EditorScene)
+        {
+            OLO_CORE_WARN("Lightmap bake completed for scene '{}', which is no longer the open scene — the .olmap "
+                          "was saved, but the open scene was not touched. Reopen '{}' and re-bake (or assign {} "
+                          "manually) to use it.",
+                          sceneName, sceneName, assetPath.string());
+            return;
         }
 
         OLO_CORE_INFO("Lightmap bake complete: {} entities baked, {} skipped — saved to {} (save the scene to keep the reference)",
