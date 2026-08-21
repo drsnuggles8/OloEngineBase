@@ -121,15 +121,33 @@ saw. Locked vertices survive it — `computeVertexIds` gives each a unique id so
 
 ## 5. Measuring a builder change
 
-- **The cook is not reachable from a plain editor run.** `VirtualGeometrySponza.olo`'s
-  `VirtualMeshComponent` handle does not resolve in a clean checkout, so the editor loads the scene
-  and settles without registering a virtual mesh or writing any `.omesh`. Drive
-  `VirtualMeshBuilder::BuildSet` directly instead (see `VirtualMeshRealAssetCookTest`).
+- **~~The cook is not reachable from a plain editor run.~~ CORRECTED 2026-08-21 (issue #864).**
+  This used to say `VirtualGeometrySponza.olo`'s `VirtualMeshComponent` handle "does not resolve in
+  a clean checkout". It does. Verified live over MCP on a clean worktree: the scene opens, registers
+  the mesh, and reports **1 enabled component → 1 submitted, 25 instances (Sponza's 25 submeshes),
+  5018 clusters**. `Sponza.gltf` and `Sponza.bin` are committed and have been since #629. Drive
+  `VirtualMeshBuilder::BuildSet` directly (`VirtualMeshRealAssetCookTest`) when you want the builder
+  in isolation — but not because the editor path is broken, because it isn't.
+
+  The reason this wrong claim survived: **virtual geometry only submits on the Deferred path**, and
+  the editor starts on Forward. Open a VG scene without switching the render path and every counter
+  reads zero — which looks exactly like an unresolvable handle. Switch first:
+  `olo_renderer_settings_set { setting: 'renderpath', value: 'deferred' }`.
 - **Instrument on both sides of the A/B.** Timing added *by* the change cannot measure the
   baseline. Stash the change **selectively**, leaving the instrumentation applied to both.
-- **Stale registry entries lie.** `AssetRegistry.oar` lists `Models/Stanford/xyzrgb_dragon.ply`
-  (the #651 asset) but the file is not committed; a benchmark keyed on it silently SKIPs. Check the
-  file exists, and prefer a procedural stand-in for the pathological shape.
+- **~~Stale registry entries lie.~~ That entry is not stale — it is fetch-on-demand** (corrected
+  2026-08-21, issue #864). `AssetRegistry.oar` lists `Models/Stanford/xyzrgb_dragon.ply` and the
+  file is not committed, but that is **deliberate and permanent**: it is the 7.2 M-triangle,
+  137 MB asset declared in `scripts/assets/asset-manifest.json`, absent until someone runs
+  `scripts/Fetch-Assets.ps1 -Name xyzrgb-dragon`. The registry entry is what lets the handle
+  resolve *once fetched*, and `AssetContentValidityTest` allowlists it on purpose — deleting it
+  would silently unregister the Nanite stress scene for everyone. Do **not** "clean" it, and do
+  **not** repoint the scene at a smaller committed mesh: `VirtualGeometryStress.olo` places 24 of
+  them, so that throws away 24 × 7.2 M ≈ 173 M triangles of stress case to fix a machine that had
+  merely never run the fetch.
+
+  Reading that entry as staleness is what produced issue #864's incorrect premise. Check the
+  manifest before concluding a registry entry is dead.
 - **An editor run rewrites `AssetRegistry.oar`** as a side effect — revert it, and any `.oloproj`
   you patched to change `StartScene`.
 - Bumping `kVirtualMeshBuilderVersion` is **not** optional when geometry changes, and any new

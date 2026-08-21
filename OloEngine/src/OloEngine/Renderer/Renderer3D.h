@@ -241,10 +241,14 @@ namespace OloEngine
         // overrideMaterial: an explicit MaterialComponent, or nullptr to shade each submesh
         // with the material it was imported with. defaultMaterial is the last resort for a
         // submesh that carries none.
-        static void SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
-                                      const glm::mat4& modelMatrix, const Material* overrideMaterial,
-                                      const Material& defaultMaterial, i32 entityID,
-                                      f32 errorThresholdPixels, bool castShadows);
+        // Returns true when the mesh was actually queued. It is dropped — silently, from the
+        // caller's point of view — when the cluster DAG will not build, and this function is
+        // the only place that knows that. Scene's submission loop needs the answer to report
+        // a scene that draws no virtual geometry at all (issue #864).
+        [[nodiscard]] static bool SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
+                                                    const glm::mat4& modelMatrix, const Material* overrideMaterial,
+                                                    const Material& defaultMaterial, i32 entityID,
+                                                    f32 errorThresholdPixels, bool castShadows);
         // Flatten a Material into the exact POD record the frame material table
         // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL
         // texture id per slot, incl. the global-IBL fallback). Public because it
