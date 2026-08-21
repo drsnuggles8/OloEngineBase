@@ -75,7 +75,7 @@ namespace OloEngine
         glBindVertexArray(0);
     }
 
-    void OpenGLVertexArray::AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer)
+    void OpenGLVertexArray::AddVertexBufferWithStride(const Ref<VertexBuffer>& vertexBuffer, u32 stride)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -97,7 +97,7 @@ namespace OloEngine
                 case Mat4:
                 {
                     glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
-                    glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.offset, layout.GetStride());
+                    glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.offset, static_cast<GLsizei>(stride));
                     glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, static_cast<GLint>(element.GetComponentCount()), ShaderDataTypeToOpenGLBaseType(element.dataType), element.normalized ? GL_TRUE : GL_FALSE, 0);
 
                     glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
@@ -118,7 +118,7 @@ namespace OloEngine
                     // (the *float* variant) which converts integers to float — wrong for
                     // ivec4/int shader inputs.  glVertexArrayAttribIFormat is the correct
                     // DSA function that preserves integer representation.
-                    glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.offset, layout.GetStride());
+                    glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.offset, static_cast<GLsizei>(stride));
                     glVertexArrayAttribIFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.dataType), 0);
 
                     glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
@@ -133,6 +133,20 @@ namespace OloEngine
         }
 
         m_VertexBuffers.push_back(vertexBuffer);
+    }
+
+    void OpenGLVertexArray::AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer)
+    {
+        AddVertexBufferWithStride(vertexBuffer, vertexBuffer->GetLayout().GetStride());
+    }
+
+    void OpenGLVertexArray::AddConstantVertexBuffer(const Ref<VertexBuffer>& vertexBuffer)
+    {
+        // Stride 0 under the separate-attrib-format API is literal: every
+        // vertex of every instance fetches from `element.offset`, so a buffer
+        // holding a single element backs the attribute for any draw size. See
+        // VertexArray::AddConstantVertexBuffer for why this exists.
+        AddVertexBufferWithStride(vertexBuffer, 0);
     }
 
     void OpenGLVertexArray::AddInstanceBuffer(const Ref<VertexBuffer>& vertexBuffer)

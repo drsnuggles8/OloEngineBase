@@ -25,7 +25,7 @@ vertex), exactly the shape bone influences already use. `Vertex` unchanged, only
 meshes pay, the Vulkan pull path untouched (its lightmap support is a follow-up second pull
 buffer, compiled out until wired).
 
-Two obligations come with a parallel stream, and both fail silently if missed:
+Three obligations come with a parallel stream, and each fails silently (or merely slowly) if missed:
 
 - **`MeshOptimization::OptimizeMesh` reorders vertices**; every parallel array must ride the same
   `meshopt_remapVertexBuffer` call or its data silently belongs to other vertices afterwards.
@@ -35,6 +35,15 @@ Two obligations come with a parallel stream, and both fail silently if missed:
   counter, not a declaration). The lightmap stream is only ever added when `!HasSkeleton()`, which
   pins `a_TexCoord2` at location 3 for static meshes and leaves bones at 3/4 for skinned ones. Add
   a stream in a different order on one path and the shader reads the wrong buffer with no error.
+- **An OPTIONAL stream consumed by a shared program must be constant-stubbed on the meshes that
+  lack it.** Leaving the attribute disabled on some static VAOs while others buffer-back it makes
+  NVIDIA specialize a vertex-shader variant per attribute-layout permutation — logged as GL debug
+  id 131218 ("recompiled based on GL state"; the engine warns + captures a draw-site stack on the
+  *repeat* recompile of a program, and the first mixed frame after a bake triggered exactly that).
+  The fix is `VertexArray::AddConstantVertexBuffer`: a stride-0 DSA binding is literal, so an
+  8-byte zero buffer backs the attribute for any vertex/instance count, and every static VAO
+  exposes one identical layout. Vulkan implements it as a recorded-nowhere no-op on purpose —
+  appending the stub to the VAO's buffer list would shadow pull stream 1, the bone-pull slot.
 
 ## 2. The unwrap seam-splits vertices — so the staleness key must be computed AFTER it, and the resolve must be able to re-derive it
 

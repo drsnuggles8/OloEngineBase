@@ -392,6 +392,15 @@ namespace OloEngine
 
         void AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
         void AddInstanceBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
+        // Deliberate no-op, and deliberately NOT recorded in m_VertexBuffers:
+        // the constant-attribute stub exists only to keep GL attribute-layout
+        // permutations uniform (see VertexArray::AddConstantVertexBuffer).
+        // The Vulkan pull path stubs optional streams in-shader, and recording
+        // the 8-byte buffer here would make it stream 1 of the pull PAIR,
+        // shadowing the bone-pull slot with garbage.
+        void AddConstantVertexBuffer(const Ref<VertexBuffer>& /*vertexBuffer*/) override
+        {
+        }
         void SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) override;
 
         [[nodiscard]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override

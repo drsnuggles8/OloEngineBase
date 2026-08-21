@@ -597,6 +597,13 @@ namespace OloEngine
         Ref<IndexBuffer> m_IndexBuffer;
         Ref<VertexBuffer> m_BoneInfluenceBuffer;
         Ref<VertexBuffer> m_LightmapUVBuffer;
+        // 8-byte constant stub bound at a_TexCoord2's location when a STATIC
+        // mesh has no UV2 stream, so every static VAO exposes the same
+        // attribute layout — a program reading an attribute that is enabled
+        // on one mesh and disabled on the next makes NVIDIA specialize a
+        // vertex-shader variant per layout (GL debug id 131218). See
+        // VertexArray::AddConstantVertexBuffer.
+        Ref<VertexBuffer> m_LightmapUVStubBuffer;
         // Shadow rendering (depth-only pass with position-merged indices)
         TArray<u32> m_ShadowIndices;
         Ref<VertexArray> m_ShadowVertexArray;

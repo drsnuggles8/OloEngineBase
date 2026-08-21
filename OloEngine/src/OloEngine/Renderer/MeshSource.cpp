@@ -151,6 +151,29 @@ namespace OloEngine
         {
             m_LightmapUVBuffer->Bind();
             m_VertexArray->AddVertexBuffer(m_LightmapUVBuffer);
+            m_LightmapUVStubBuffer = nullptr;
+        }
+        else if (!HasSkeleton())
+        {
+            // Static mesh with no UV2 stream: back location 3 with an 8-byte
+            // stride-0 constant buffer instead of leaving the attribute
+            // disabled. The forward PBR program reads a_TexCoord2
+            // unconditionally, and drawing it with the attribute enabled on
+            // one mesh and disabled on the next makes NVIDIA specialize a
+            // vertex-shader variant per attribute-layout permutation (GL
+            // debug id 131218, the "recompiled based on GL state"
+            // warning + stack capture at the draw site). The value is never
+            // consumed — InstanceData's all-zero LightmapScaleOffset gates
+            // sampling — only the layout parity matters. Skinned meshes are
+            // untouched: locations 3/4 are their bone streams, present on
+            // every skinned VAO alike.
+            if (!m_LightmapUVStubBuffer)
+            {
+                constexpr f32 kZeroUV2[2] = { 0.0f, 0.0f };
+                m_LightmapUVStubBuffer = VertexBuffer::Create(static_cast<const void*>(kZeroUV2), sizeof(kZeroUV2));
+                m_LightmapUVStubBuffer->SetLayout({ { ShaderDataType::Float2, "a_TexCoord2" } });
+            }
+            m_VertexArray->AddConstantVertexBuffer(m_LightmapUVStubBuffer);
         }
 
         m_IndexBuffer->Bind();

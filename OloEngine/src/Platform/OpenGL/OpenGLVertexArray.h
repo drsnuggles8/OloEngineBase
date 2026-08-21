@@ -16,6 +16,7 @@ namespace OloEngine
 
         void AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
         void AddInstanceBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
+        void AddConstantVertexBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
         void SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) override;
 
         [[nodiscard("Store this!")]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override
@@ -38,6 +39,13 @@ namespace OloEngine
         }
 
       private:
+        // Shared body of AddVertexBuffer / AddConstantVertexBuffer: attaches
+        // every layout element at the given binding stride. A stride of 0 is
+        // the GL separate-attrib-format constant-fetch case (every vertex of
+        // every instance reads offset `element.offset`) — see
+        // VertexArray::AddConstantVertexBuffer.
+        void AddVertexBufferWithStride(const Ref<VertexBuffer>& vertexBuffer, u32 stride);
+
         u32 m_RendererID{};
         // Generation-checked identity for m_RendererID above, kept in
         // lockstep by m_RHIHandle.Sync() at every site that assigns the
