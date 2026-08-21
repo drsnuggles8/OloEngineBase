@@ -2893,3 +2893,48 @@ poses (noise floor also zero), over a frame the VG-on/off toggle proves is
 full of virtual-geometry content — and the device-gated tenant pins the same
 property headlessly (identical albedo + entity-id images, and the task stage
 honouring a GPU-written count cut).
+
+### 14e. A hand-encoded target env is accepted, not validated — pin the dialect too
+
+The Vulkan tier hand-encodes `shaderc_env_version_vulkan_1_4` as
+`(1<<22)|(4<<12)` because the *enumerator* is absent from any shaderc that
+predates the 1.4 SDK, and the comment reasoned that runtime behaviour on such
+a box is moot — no contract device exists there, so those builds only need to
+compile. That reasoning was sound and the conclusion was still wrong, because
+"only needs to compile" is precisely what stopped working.
+
+`SetTargetEnvironment` takes the integer. An older shaderc — Ubuntu 24.04's
+`libshaderc 2023.8`, which is what the sanitizer runners install — **accepts
+the value, fails to recognise it, and silently falls back to a much older
+SPIR-V**. There is no diagnostic: the API has no "unsupported version" return.
+The first visible symptom was `GL_EXT_mesh_shader : not supported for current
+targeted SPIR-V version` on all three Linux sanitizer jobs, while the same
+commit compiled clean on the SDK-current Windows toolchain — the platform
+split is the tell.
+
+The narrow bug was the mesh stages. The real one is that **every** Vulkan-tier
+shader on that toolchain was being compiled in a different SPIR-V dialect than
+production ships, which is exactly what the sweep test's own comment says must
+not happen. A dialect is not a detail: it decides which extensions are
+permitted and which execution modes glslang emits (§14b is the same axis from
+the other side).
+
+The fix is one line and generalises: **when you hand-encode a version because
+the name is too new, pin the thing that version was standing in for as well.**
+`options.SetTargetSpirv(...)` is a no-op wherever the env is understood
+(Vulkan 1.4 lowers to SPIR-V 1.6 anyway) and repairs the silent downgrade
+everywhere else. Verify the mechanism in seconds rather than through a build —
+`glslc --target-env=vulkan1.0 --target-spv=spv1.6` compiles a mesh shader that
+`--target-env=vulkan1.0` alone rejects, which is the whole claim.
+
+Two smaller things this turned up, both worth copying:
+
+* `static_assert(kShadercEnvVulkan14 == ((1u << 22) | (4u << 12)))` asserts
+  **nothing** — it compares the constant to its own definition, so it is true
+  by construction and would survive any typo made in both places at once. An
+  encoding assert has to name the expected *value* (`== 0x00404000u`).
+* A red "Sanitizer" job is not evidence of a sanitizer finding. Those jobs run
+  the whole suite under instrumentation, so an ordinary failing test turns them
+  red with no ASan/UBSan/TSan report anywhere in the log. Grep the log for
+  `ERROR: AddressSanitizer` / `runtime error:` / `WARNING: ThreadSanitizer`
+  before you start hunting for a memory bug that was never reported.
