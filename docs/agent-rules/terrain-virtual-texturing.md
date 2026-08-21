@@ -113,10 +113,17 @@ Slice 1 republished the indirection map by rebuilding it: clear every mip, re-st
 page, re-propagate every level. Slice 2 replaced that with the reference's delta list
 (`VTIndirectionDelta`), which writes only the texels that changed and re-propagates only their
 descendants. The rebuild is still there — it is the only thing that can define a map whose contents
-are *unknown* rather than merely stale — but it now runs on two occasions and no others: the first
-publish after `Configure()` (texture storage starts undefined), and a delta that outgrew its upload
-buffer. **Anything else reaching the rebuild is a bug in the delta**, and
-`Stats::m_IndirectionFullRebuilds` is how you notice.
+are *unknown* rather than merely stale — and it runs on exactly three triggers:
+
+- the first publish after `Configure()`, because texture storage starts undefined;
+- a delta that outgrew its upload buffer, which needs frame after frame of residency changes with no
+  publish in between;
+- `OLO_TERRAIN_VT_FULL_REBUILD`, the A/B lever below — **not** a fallback, and a rebuild while it is
+  set is the point rather than a symptom.
+
+**Anything else reaching the rebuild is a bug in the delta**, and
+`Stats::m_IndirectionFullRebuilds` is how you notice — so check the lever before reading a rebuild
+count as one.
 
 The delta is *equivalent* to the rebuild, not merely cheaper, and three rules are what make that
 true. Each one breaks quietly:
@@ -145,9 +152,15 @@ map, and it is why the delta does too.
 ### The bounding box is most of the remaining cost, and that is the measured surprise
 
 The fill rectangle is a **bounding box, not an exact set** — two changes at opposite corners of a
-level cover it entirely. The degenerate case therefore costs what slice 1 cost unconditionally, so
-the delta path can never be the slower one. What the arithmetic suggests, and what actually happens,
-are not the same thing:
+level cover it entirely, and the fill is then O(`VirtualPagesWide²`) again, exactly as the rebuild
+was. It is worth being precise about what survives that degenerate case rather than waving at it:
+the delta still skips the clear pass outright and still issues fewer dispatches, so it does *less*
+GPU work than a rebuild of the same map, but the two are the same order and the difference is no
+longer interesting. The one thing the delta adds is up to `MipCount - 1` extra 16-byte header writes
+between fill dispatches, which the rebuild's fill loop does not need — nothing next to a skipped
+clear, but it is why "never slower" is a claim about this workload rather than a theorem.
+
+What the arithmetic suggests, and what actually happens, are not the same thing:
 
 | 256 pages wide (the sandbox scene's config) | texels touched per publish | best GPU sample |
 |---|---|---|
@@ -169,9 +182,14 @@ change per level. **Do not "fix" the bounding box without measuring the dispatch
 it with** — at this scale it is very likely a regression, and the absolute numbers above (both well
 under a tenth of a millisecond) are the reason this was left alone.
 
-What slice 2 does buy unconditionally is that the cost stops being a function of
-`VirtualPagesWide²` on every residency change — which is what makes slice 3's larger and
-variable-size virtual images affordable at all.
+What slice 2 buys **unconditionally** is narrower than it first looks, and worth stating exactly: the
+clear pass is gone from every publish, which was `1.33 × VirtualPagesWide²` texel writes on its own.
+The *fill* is now a function of what changed rather than of the map size — but only down to its
+bounding box, so the worst case is still `VirtualPagesWide²` and the guarantee is "no longer
+proportional to the map on every residency change", not "no longer proportional to the map". That
+distinction is what slice 3 has to plan against: a larger or variable-size virtual image makes the
+degenerate box more expensive, not less, so if scattered evictions turn out to dominate there, the
+N-rectangles refinement stops being a pessimisation and becomes the fix.
 
 **Two negative controls, because the equivalence test is worthless if it cannot fail.**
 `TheDeltaProducesTheSameMapAsAFullRebuildOverRandomTraffic` drives both paths over a randomised

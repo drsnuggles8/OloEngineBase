@@ -16,7 +16,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
 #include <cstring>
 #include <memory>
 #include <span>
@@ -69,6 +68,19 @@ namespace OloEngine
             glm::uvec4 m_FillParams{ 0u };  // originX, originY, sizeX, sizeY (texels of the bound mip)
         };
         static_assert(sizeof(VTIndirectionHeader) == 32, "VTIndirectionHeader must match its std430 twin");
+
+        // Byte offsets of the two header vectors, for the partial uploads in
+        // PublishIndirection. Spelled out rather than taken with offsetof: a
+        // glm::uvec4 is a class type, so offsetof on this struct is only
+        // conditionally supported (and SonarCloud rejects it outright). The
+        // std430 layout is the contract either way, and the assert below pins
+        // these two constants to the struct rather than leaving them a
+        // hand-maintained second copy of it.
+        constexpr u32 kWriteParamsOffset = 0u;
+        constexpr u32 kFillParamsOffset = static_cast<u32>(sizeof(glm::uvec4));
+        static_assert(kFillParamsOffset + sizeof(glm::uvec4) == sizeof(VTIndirectionHeader),
+                      "the header's two uvec4s must exactly tile it — a member added to either end "
+                      "moves b_VTUpdates and both GLSL declarations with it");
 
         [[nodiscard]] u32 DivRoundUp(u32 value, u32 divisor)
         {
@@ -997,7 +1009,7 @@ namespace OloEngine
             // RHI facade does not expose.
             const glm::uvec4 writeParams(m_IndirectionDelta.GetMipBase(mip), count, 0u, 0u);
             m_IndirectionUpdateBuffer->SetData(&writeParams, static_cast<u32>(sizeof(writeParams)),
-                                               static_cast<u32>(offsetof(VTIndirectionHeader, m_WriteParams)));
+                                               kWriteParamsOffset);
 
             HeapBinding::BindImageOrOffset(kImageUnitTarget, indirection, mip, /*layered*/ false, 0,
                                            RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm, Persistent);
@@ -1027,7 +1039,7 @@ namespace OloEngine
             }
             const glm::uvec4 fillParams(rect.m_X, rect.m_Y, rect.m_Width, rect.m_Height);
             m_IndirectionUpdateBuffer->SetData(&fillParams, static_cast<u32>(sizeof(fillParams)),
-                                               static_cast<u32>(offsetof(VTIndirectionHeader, m_FillParams)));
+                                               kFillParamsOffset);
 
             HeapBinding::BindImageOrOffset(kImageUnitTarget, indirection, level, /*layered*/ false, 0,
                                            RHI::Access::StorageReadWrite, RHI::Format::RGBA8UNorm, Persistent);

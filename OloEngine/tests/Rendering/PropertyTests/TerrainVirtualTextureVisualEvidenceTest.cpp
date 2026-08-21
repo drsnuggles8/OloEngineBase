@@ -385,6 +385,11 @@ namespace OloEngine::Tests
         // Anti-vacuous #1: there is terrain in these frames at all.
         ASSERT_GT(LitFraction(deltaA), 0.20f) << "the delta frame is almost entirely background";
         ASSERT_GT(LitFraction(rebuilt), 0.20f) << "the rebuild frame is almost entirely background";
+        // deltaB is the NOISE FLOOR, so a blank one is worse than a blank
+        // subject: it inflates the bound instead of failing, and a genuinely
+        // wrong rebuild frame then passes underneath it.
+        ASSERT_GT(LitFraction(deltaB), 0.20f) << "the second delta frame — the noise floor — is almost "
+                                                 "entirely background, so the bound below is meaningless";
 
         // Anti-vacuous #2: the two runs really did take different paths. Without
         // this the test passes just as happily when the lever does nothing, which

@@ -1077,11 +1077,13 @@ TEST(TerrainVirtualTexture, TheDeltaProducesTheSameMapAsAFullRebuildOverRandomTr
     ASSERT_TRUE(cache.Create(0, config.CacheTileCount(), GPUCacheBacking::HostOnly));
 
     std::unordered_map<u32, u32> resident;
+    u32 evictions = 0;
     VTIndirectionDelta deltaPath;
     deltaPath.Reset(config);
     cache.SetEvictionListener(
-        [&resident, &deltaPath](const u32& victim)
+        [&resident, &deltaPath, &evictions](const u32& victim)
         {
+            ++evictions;
             resident.erase(victim);
             VTRecordEviction(deltaPath, victim);
         });
@@ -1135,7 +1137,12 @@ TEST(TerrainVirtualTexture, TheDeltaProducesTheSameMapAsAFullRebuildOverRandomTr
         ASSERT_TRUE(rebuiltMap.SameAs(deltaMap, where)) << "frame " << frame << ": " << where;
     }
 
-    // Not a vacuous pass: the sequence has to have actually exercised eviction.
+    // Not a vacuous pass. `resident` being non-empty only proves pages were
+    // MAPPED; the rule this test exists for is rule 1, and an eviction is the
+    // only thing that exercises it. A config change that stopped the cache
+    // overflowing would leave every assertion above passing on a delta that
+    // never had to express a removal.
+    EXPECT_GT(evictions, 0u) << "no page was ever evicted, so the unmap half of the delta went untested";
     EXPECT_GT(resident.size(), 0u);
     cache.SetEvictionListener(nullptr);
 }
