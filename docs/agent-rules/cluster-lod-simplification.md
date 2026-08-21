@@ -137,12 +137,13 @@ saw. Locked vertices survive it — `computeVertexIds` gives each a unique id so
   baseline. Stash the change **selectively**, leaving the instrumentation applied to both.
 - **~~Stale registry entries lie.~~ That entry is not stale — it is fetch-on-demand** (corrected
   2026-08-21, issue #864). `AssetRegistry.oar` lists `Models/Stanford/xyzrgb_dragon.ply` and the
-  file is not committed, but that is **deliberate and permanent**: it is a 137 MB asset declared in
-  `scripts/assets/asset-manifest.json`, absent until someone runs `scripts/Fetch-Assets.ps1 -Name
-  xyzrgb-dragon`. The registry entry is what lets the handle resolve *once fetched*, and
-  `AssetContentValidityTest` allowlists it on purpose — deleting it would silently unregister the
-  Nanite stress scene for everyone. Do **not** "clean" it, and do **not** repoint the scene at a
-  smaller committed mesh: that throws away the 173M-triangle stress case to fix a machine that had
+  file is not committed, but that is **deliberate and permanent**: it is the 7.2 M-triangle,
+  137 MB asset declared in `scripts/assets/asset-manifest.json`, absent until someone runs
+  `scripts/Fetch-Assets.ps1 -Name xyzrgb-dragon`. The registry entry is what lets the handle
+  resolve *once fetched*, and `AssetContentValidityTest` allowlists it on purpose — deleting it
+  would silently unregister the Nanite stress scene for everyone. Do **not** "clean" it, and do
+  **not** repoint the scene at a smaller committed mesh: `VirtualGeometryStress.olo` places 24 of
+  them, so that throws away 24 × 7.2 M ≈ 173 M triangles of stress case to fix a machine that had
   merely never run the fetch.
 
   Reading that entry as staleness is what produced issue #864's incorrect premise. Check the

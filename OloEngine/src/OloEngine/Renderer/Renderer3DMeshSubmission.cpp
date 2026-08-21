@@ -116,7 +116,7 @@ namespace OloEngine
                matches(s_Data.DecalGBufferRMAShader) || matches(s_Data.DecalGBufferEmissiveShader);
     }
 
-    void Renderer3D::SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
+    bool Renderer3D::SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                        const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                        const Material& defaultMaterial, i32 entityID,
                                        f32 errorThresholdPixels, bool castShadows)
@@ -125,19 +125,19 @@ namespace OloEngine
 
         if (static_cast<u64>(meshHandle) == 0 || !meshSource)
         {
-            return;
+            return false;
         }
 
         auto& registry = VirtualMeshRegistry::Get();
         if (!registry.IsRegistered(meshHandle) && !registry.RegisterMeshSource(meshHandle, *meshSource))
         {
-            return; // unsupported source — warned once at registration
+            return false; // unsupported source — warned once at registration
         }
 
         VirtualMeshRegistry::MeshParts const parts = registry.FindParts(meshHandle);
         if (!parts.Valid)
         {
-            return;
+            return false;
         }
 
         VirtualMeshSubmission submission;
@@ -179,6 +179,7 @@ namespace OloEngine
         }
 
         registry.Submit(submission);
+        return true;
     }
 
     auto Renderer3D::CreatePODMaterialDataForMaterial(const Material& material, RHI::ResourceHandle shaderRendererID) -> PODMaterialData

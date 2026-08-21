@@ -9518,13 +9518,14 @@ namespace OloEngine
 
                 // Count what actually landed rather than what we asked for:
                 // SubmitVirtualMesh drops the entity when the cluster DAG will not
-                // build, and it is the only place that knows that.
-                const sizet submissionsBefore = VirtualMeshRegistry::Get().GetSubmissions().size();
-                Renderer3D::SubmitVirtualMesh(virtualMesh.m_MeshSource, meshSource,
-                                              worldTransform, overrideMaterial,
-                                              GetDefaultMaterial(), entityID,
-                                              virtualMesh.m_ErrorThresholdPixels, castsShadow);
-                if (VirtualMeshRegistry::Get().GetSubmissions().size() > submissionsBefore)
+                // build, and it is the only place that knows that — so it reports
+                // the outcome directly rather than us inferring it from a queue-size
+                // delta, which would silently mis-count if it ever queued zero or
+                // more than one submission per call.
+                const bool queued = Renderer3D::SubmitVirtualMesh(
+                    virtualMesh.m_MeshSource, meshSource, worldTransform, overrideMaterial,
+                    GetDefaultMaterial(), entityID, virtualMesh.m_ErrorThresholdPixels, castsShadow);
+                if (queued)
                 {
                     ++vgDiagnostics.Submitted;
                 }

@@ -210,7 +210,20 @@ namespace OloEngine
         // panel and the MCP olo_virtual_geometry_stats tool — can say WHICH of
         // the several very different causes produced a zero instead of guessing.
         // Counting happens on the Deferred path only, because that is the only
-        // path on which the submission loop runs at all.
+        // path on which the submission loop runs at all. (When the path is not
+        // Deferred these all stay 0, so the editor's Statistics panel asks the
+        // scene directly rather than reporting a misleading nothing.)
+        //
+        // Lifetime is exactly that of m_FrameInstances / m_TotalFrameClusterCount:
+        // BeginFrame resets all three, and BeginFrame runs per Renderer3D::BeginScene
+        // — so an off-screen capture pass that renders the scene again (the cubemap
+        // face loops in ReflectionProbeBaker / LightProbeBaker) resets and refills
+        // these too. That is deliberate, not an oversight: every field here is
+        // VIEW-INDEPENDENT (the submission loop walks all entities and never
+        // frustum-culls; the GPU cull does that later), so a capture pass produces
+        // identical counts. Scoping these to the primary render alone would make the
+        // panel internally inconsistent — diagnostics from one render, the instance
+        // and cluster counts printed beside them from another.
         struct SubmissionDiagnostics
         {
             // Components seen this frame that asked to render: m_Enabled with a

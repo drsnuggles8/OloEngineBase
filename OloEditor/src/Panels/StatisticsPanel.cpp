@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Debug/DebugUtils.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -180,11 +181,58 @@ namespace OloEngine
             // documentation tells you to go and read. Show it whenever the scene ASKED
             // for virtual geometry, and let the panel explain the zero.
             const auto& vgDiagnostics = vgRegistry.GetSubmissionDiagnostics();
-            if (residency.TotalPages > 0 || frameInstances > 0 || vgDiagnostics.EnabledComponents > 0)
+
+            // The diagnostics are filled by the Scene submission loop, which runs on the
+            // DEFERRED path only — so on Forward/Forward+ every field stays 0 and the
+            // section would vanish for a scene that is full of virtual meshes. That is the
+            // same silent-zero in a different disguise, so ask the scene directly when the
+            // path cannot answer. Only when the counters are empty: a frame that is already
+            // drawing needs no scan.
+            u32 sceneVirtualMeshes = 0;
+            const bool pathIsDeferred = Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred;
+            if (!pathIsDeferred && m_Context && frameInstances == 0)
+            {
+                auto virtualMeshView = m_Context->GetAllEntitiesWith<VirtualMeshComponent>();
+                for (auto entity : virtualMeshView)
+                {
+                    const auto& vm = virtualMeshView.get<VirtualMeshComponent>(entity);
+                    // A zero handle is a component with no mesh assigned yet — normal
+                    // authoring state, and the same exclusion the Scene loop applies.
+                    if (vm.m_Enabled && static_cast<u64>(vm.m_MeshSource) != 0)
+                    {
+                        ++sceneVirtualMeshes;
+                    }
+                }
+            }
+
+            if (residency.TotalPages > 0 || frameInstances > 0 || vgDiagnostics.EnabledComponents > 0 ||
+                sceneVirtualMeshes > 0)
             {
                 if (ImGui::CollapsingHeader("Virtual Geometry (Nanite)", ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    if (vgDiagnostics.SilentlyDrewNothing())
+                    // Wrong render path: the geometry is not being drawn virtually at all, and
+                    // no counter below can say so because none of them ever ran.
+                    if (sceneVirtualMeshes > 0)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f),
+                                           "%u VirtualMeshComponent(s) present, but the render path is not Deferred",
+                                           sceneVirtualMeshes);
+                        ImGui::TextWrapped("Virtual geometry submits on the Deferred path only, so every counter "
+                                           "below reads 0. Switch to Deferred in Renderer Settings to exercise it.");
+                        ImGui::Separator();
+                    }
+                    // Master switch off: the same geometry IS drawing, through the classic
+                    // mesh path. Zero VG counters are the intended A/B baseline, not a fault.
+                    else if (vgDiagnostics.FellBackToClassic && vgDiagnostics.EnabledComponents > 0)
+                    {
+                        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
+                                           "Virtual geometry is OFF — %u component(s) drawn via the classic path",
+                                           vgDiagnostics.EnabledComponents);
+                        ImGui::TextWrapped("Zero counters below are expected: this is the baseline half of the "
+                                           "A/B, not a broken scene.");
+                        ImGui::Separator();
+                    }
+                    else if (vgDiagnostics.SilentlyDrewNothing())
                     {
                         ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f),
                                            "%u VirtualMeshComponent(s) submitted NOTHING",
