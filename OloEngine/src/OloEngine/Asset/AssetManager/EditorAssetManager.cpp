@@ -404,9 +404,17 @@ namespace OloEngine
             metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
             if (!ec)
             {
-                // Thread-safe update of the metadata in the registry
-                TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
-                m_AssetRegistry.UpdateMetadata(assetHandle, metadata);
+                {
+                    // Thread-safe update of the metadata in the registry
+                    TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
+                    m_AssetRegistry.UpdateMetadata(assetHandle, metadata);
+                }
+                // OUTSIDE the lock scope: SerializeAssetRegistry takes
+                // m_RegistryMutex itself, and FSharedMutex is non-recursive —
+                // calling it while holding the lock self-deadlocked the game
+                // thread on every hot-reload of an existing tracked asset
+                // (found by cracking a wedged editor with cdb during the #439
+                // lightmap re-bake, which modifies its .olmap in place).
                 SerializeAssetRegistry(); // Persist the updated timestamp
             }
             else
