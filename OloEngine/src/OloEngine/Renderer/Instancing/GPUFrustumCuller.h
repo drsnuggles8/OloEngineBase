@@ -222,7 +222,8 @@ namespace OloEngine
         // before the dispatch, and quoting the ALLOCATION would let a slot that
         // grew for an earlier, larger batch hand the shader a bound larger than
         // the one this batch's rejects were sized against.
-        [[nodiscard]] u32 ResolveOutputCapacity(u32 inputCount) const;
+        [[nodiscard("this computes the bound; it does not apply it to anything")]] u32
+        ResolveOutputCapacity(u32 inputCount) const;
 
         Ref<ComputeShader> m_CullShader;
         // Frustum + Hi-Z occlusion variant (#431). Null until EnsureInitialised

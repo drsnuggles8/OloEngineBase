@@ -61,12 +61,23 @@ namespace OloEngine
     // Same trap, same fix, as ShaderDebugDraw::StageStatsForReadback and
     // VirtualMeshRegistry::ReadFrameCullStats.
     //
-    // THREAD SAFETY: render-thread only, with one exception -- `IsEnabled()` and
-    // `GetLatest()` are readable from the UI/MCP thread, so the enable flag is
-    // atomic and the published frame is a plain value swapped under the render
-    // thread's own ordering (a torn read of a `u32[12]` POD is the one risk, and
-    // it is accepted: the consumer is a diagnostic overlay, and the alternative
-    // is a lock on the render thread's per-frame path).
+    // THREAD SAFETY: main/render-thread only, and every consumer today really is
+    // on it -- the F3 overlay is a Layer, and the MCP handler runs inside
+    // `server.MarshalRead(...)`, which is defined as "the main (game) thread at a
+    // frame boundary". So `GetLatest()` hands back a reference to a plain struct
+    // with no synchronisation, which is correct precisely because nothing reads
+    // it concurrently.
+    //
+    // DO NOT READ `GetLatest()` FROM ANOTHER THREAD without adding some. It is a
+    // ~60-byte POD the render thread rewrites in place during `BeginFrame`; a
+    // concurrent reader is a data race under the C++ memory model, and the
+    // symptom would be a counter set that mixes two frames -- individually
+    // plausible numbers that never coexisted, which is this channel's worst
+    // failure mode rather than a benign one.
+    //
+    // `Enabled` and `Initialised` are atomic anyway, because `SetEnabled` is the
+    // one entry point a future caller might plausibly reach from elsewhere and a
+    // plain bool written from two threads is UB however benign the codegen looks.
     class GPUReadbackStats
     {
       public:
@@ -79,13 +90,13 @@ namespace OloEngine
 
         static void Init();
         static void Shutdown();
-        [[nodiscard]] static bool IsInitialised();
+        [[nodiscard("querying init state has no side effect; this does not initialise")]] static bool IsInitialised();
 
         // Master switch. Off: the GLSL helpers early-out on one scalar load, the
         // live buffer is not cleared, no copy is issued and no fence is created.
         // Takes effect at the next BeginFrame().
         static void SetEnabled(bool enabled);
-        [[nodiscard]] static bool IsEnabled();
+        [[nodiscard("querying the gate has no side effect; use SetEnabled to change it")]] static bool IsEnabled();
 
         // ---- Frame lifecycle ------------------------------------------------
         static void BeginFrame();
@@ -94,19 +105,19 @@ namespace OloEngine
         // ---- Consumers -------------------------------------------------------
         // The newest frame that has actually come back. `Valid` is false until
         // the first slot retires (frame ~3 after enabling).
-        [[nodiscard]] static const GPUReadbackStatsFrame& GetLatest();
+        [[nodiscard("this drains nothing; it hands back the frame the ring already retired")]] static const GPUReadbackStatsFrame& GetLatest();
 
         // The frame the LIVE block is accumulating into — i.e. the one EndFrame()
         // is about to capture. Always ahead of `GetLatest().FrameIndex` by the
         // ring latency. Exposed so a consumer can tell "the channel has not
         // caught up yet" from "the channel has stopped", which are the same
         // bytes if you only ever see the retired frame.
-        [[nodiscard]] static u64 GetFrameIndex();
+        [[nodiscard("returns the live frame index; it does not advance it")]] static u64 GetFrameIndex();
 
         // Slots still executing on the GPU right now. Diagnostic for the overlay:
         // a persistently full ring means the CPU is running far ahead and the
         // numbers on screen are older than `Latency` last reported.
-        [[nodiscard]] static u32 GetSlotsInFlight();
+        [[nodiscard("returns the in-flight count; it does not retire anything")]] static u32 GetSlotsInFlight();
 
         // ---- Producers -------------------------------------------------------
         // Re-bind the stats SSBO at ShaderBindingLayout::SSBO_GPU_STATS. Call
@@ -169,7 +180,7 @@ namespace OloEngine
             bool WasArmed = false;
         };
 
-        static Data& Get();
+        [[nodiscard("returns the singleton; calling it for effect does nothing")]] static Data& Get();
         static void RetireCompletedSlots(Data& data);
         static void ReleaseRing(Data& data);
     };

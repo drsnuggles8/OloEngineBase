@@ -362,6 +362,46 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // (main thread) Flatten the channel's live state into the engine-free
+        // snapshot McpGpuReadbackStats.h shapes. A named function rather than a
+        // lambda inside the handler: it is the whole body of the read, and the
+        // handler reads better as "optionally write, then report".
+        [[nodiscard("builds the report; it does not send it")]] Json GpuReadbackStatsReportJson()
+        {
+            namespace Stats = OloEngine::MCP::GpuReadbackStats;
+            Stats::StatsSnapshot snapshot;
+            snapshot.Enabled = GPUReadbackStats::IsEnabled();
+            snapshot.RingSlots = GPUReadbackStats::kRingSlots;
+            snapshot.SlotsInFlight = GPUReadbackStats::GetSlotsInFlight();
+
+            const auto& frame = GPUReadbackStats::GetLatest();
+            snapshot.Valid = frame.Valid;
+            snapshot.FrameIndex = frame.FrameIndex;
+            snapshot.LatencyFrames = frame.Latency;
+
+            snapshot.Counters.reserve(kGPUStatCounterCount);
+            for (u32 i = 0; i < kGPUStatCounterCount; ++i)
+            {
+                const auto counter = static_cast<GPUStatCounter>(i);
+                snapshot.Counters.emplace_back(std::string{ GPUStatCounterName(counter) },
+                                               std::string{ GPUStatCounterDescription(counter) },
+                                               frame.Get(counter));
+            }
+
+            // Only the flags that FIRED. A list of every flag with a boolean
+            // beside it makes "nothing is wrong" and "three things are wrong" the
+            // same shape, and an agent has to scan to tell them apart.
+            for (u32 i = 0; i < kGPUStatFlagCount; ++i)
+            {
+                if (const auto flag = static_cast<GPUStatFlag>(i); frame.Overflowed(flag))
+                {
+                    snapshot.Overflows.emplace_back(std::string{ GPUStatFlagName(flag) },
+                                                    std::string{ GPUStatFlagDescription(flag) });
+                }
+            }
+            return Stats::BuildStatsReport(snapshot);
+        }
+
         // ---- olo_gpu_readback_stats (main-marshaled) ---------------------------
         // The structured GPU readback-stats channel (issue #721). Read-only, and
         // read-only in the strong sense: it drains what the channel has ALREADY
@@ -375,18 +415,17 @@ namespace OloEngine::MCP
             // mutating annotations and goes through the consent gate. Without it
             // an agent cannot A/B the channel's own cost — which is the question
             // most likely to be asked of a diagnostic that is on by default.
-            const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean();
-            if (hasEnabled)
+            if (const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean(); hasEnabled)
             {
                 const bool enabled = args["enabled"].get<bool>();
-                server.MarshalRead(
-                    [enabled]() -> Json
+                (void)server.MarshalRead(
+                    [enabled]
                     {
                         // The SETTING, not GPUReadbackStats::SetEnabled directly:
-                        // UploadExecutionState pushes the setting into the channel
-                        // every frame, so writing the channel would be reverted on
-                        // the very next frame and the tool would report a change
-                        // that silently did not stick.
+                        // PrepareFrame pushes the setting into the channel every
+                        // frame, so writing the channel would be reverted on the
+                        // very next frame and the tool would report a change that
+                        // silently did not stick.
                         Renderer3D::GetRendererSettings().GPUReadbackStatsEnabled = enabled;
                         return Json::object();
                     });
@@ -397,42 +436,8 @@ namespace OloEngine::MCP
                     (void)ForceFreshFrame(server, kVirtualDebugSettleFrames);
             }
 
-            Json result = server.MarshalRead(
-                []() -> Json
-                {
-                    namespace Stats = OloEngine::MCP::GpuReadbackStats;
-                    Stats::StatsSnapshot snapshot;
-                    snapshot.Enabled = GPUReadbackStats::IsEnabled();
-                    snapshot.RingSlots = GPUReadbackStats::kRingSlots;
-                    snapshot.SlotsInFlight = GPUReadbackStats::GetSlotsInFlight();
-
-                    const auto& frame = GPUReadbackStats::GetLatest();
-                    snapshot.Valid = frame.Valid;
-                    snapshot.FrameIndex = frame.FrameIndex;
-                    snapshot.LatencyFrames = frame.Latency;
-
-                    for (u32 i = 0; i < kGPUStatCounterCount; ++i)
-                    {
-                        const auto counter = static_cast<GPUStatCounter>(i);
-                        snapshot.Counters.push_back({ std::string{ GPUStatCounterName(counter) },
-                                                      std::string{ GPUStatCounterDescription(counter) },
-                                                      frame.Get(counter) });
-                    }
-                    // Only the flags that FIRED. A list of every flag with a
-                    // boolean beside it makes "nothing is wrong" and "three things
-                    // are wrong" the same shape, and an agent has to scan to tell
-                    // them apart.
-                    for (u32 i = 0; i < kGPUStatFlagCount; ++i)
-                    {
-                        const auto flag = static_cast<GPUStatFlag>(i);
-                        if (frame.Overflowed(flag))
-                        {
-                            snapshot.Overflows.push_back(
-                                { std::string{ GPUStatFlagName(flag) }, std::string{ GPUStatFlagDescription(flag) } });
-                        }
-                    }
-                    return Stats::BuildStatsReport(snapshot);
-                });
+            Json result = server.MarshalRead([]
+                                             { return GpuReadbackStatsReportJson(); });
             return ToolResult::Structured(result);
         }
 

@@ -63,7 +63,8 @@ namespace OloEngine::MCP::GpuReadbackStats
         std::vector<OverflowEntry> Overflows; // only the flags that fired
     };
 
-    [[nodiscard]] inline Json BuildStatsReport(const StatsSnapshot& snapshot)
+    [[nodiscard("this builds the response; it does not send it")]] inline Json
+    BuildStatsReport(const StatsSnapshot& snapshot)
     {
         Json out;
         out["enabled"] = snapshot.Enabled;
@@ -106,6 +107,12 @@ namespace OloEngine::MCP::GpuReadbackStats
         {
             out["note"] = "No frame has returned from the readback ring yet. The channel reads N frames late "
                           "by design; retry after a few frames have rendered.";
+        }
+        else
+        {
+            // Enabled and valid: the counters speak for themselves, so no note.
+            // Spelled out rather than left implicit because a reader checking
+            // "when is `note` absent?" should not have to invert two conditions.
         }
         return out;
     }

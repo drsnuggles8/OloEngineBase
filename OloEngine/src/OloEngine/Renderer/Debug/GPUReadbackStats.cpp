@@ -111,17 +111,17 @@ namespace OloEngine
 
     bool GPUReadbackStats::IsInitialised()
     {
-        return Get().Initialised.load(std::memory_order_relaxed);
+        return Get().Initialised.load();
     }
 
     void GPUReadbackStats::SetEnabled(bool enabled)
     {
-        Get().Enabled.store(enabled, std::memory_order_relaxed);
+        Get().Enabled.store(enabled);
     }
 
     bool GPUReadbackStats::IsEnabled()
     {
-        return Get().Enabled.load(std::memory_order_relaxed);
+        return Get().Enabled.load();
     }
 
     u64 GPUReadbackStats::GetFrameIndex()
@@ -215,10 +215,9 @@ namespace OloEngine
         // rather than left pending forever.
         RetireCompletedSlots(data);
 
-        const bool enabled = data.Enabled.load(std::memory_order_relaxed);
-        if (!enabled)
+        if (const bool enabled = data.Enabled.load(); !enabled)
         {
-            // Steady-state disabled costs ONE relaxed atomic load and nothing
+            // Steady-state disabled costs ONE atomic load and nothing
             // else -- no upload, no clear, no bind, no copy, no fence. That is
             // the contract this header, RendererSettings and the MCP tool schema
             // all advertise, and it is the claim the tool's `enabled` argument
@@ -243,7 +242,7 @@ namespace OloEngine
         GPUStatsBlock header{};
         header.Flags = 0;
         header.Enabled = 1u;
-        header.FrameIndexLo = static_cast<u32>(data.FrameIndex & 0xFFFFFFFFull);
+        header.FrameIndexLo = static_cast<u32>(data.FrameIndex & 0xFFFFFFFFULL);
         header.FrameIndexHi = static_cast<u32>(data.FrameIndex >> 32);
         // A full-block upload, not a header-only one: this is what ZEROES the
         // counters for the new frame. A per-frame counter that is not cleared
