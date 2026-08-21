@@ -35,22 +35,31 @@ layout(std140, binding = 1) uniform LightmapData {
 
 layout(binding = 16) uniform sampler2D u_LightmapAtlas; // TEX_LIGHTMAP
 
-// Returns the baked indirect irradiance E for this fragment, or vec3(0.0) when
-// the scene has no valid bake or this draw carries no lightmap region. Callers
-// route a non-zero result through the same ambient helpers as probe irradiance.
-vec3 sampleLightmapIrradiance(vec2 lightmapUV, vec4 scaleOffset)
+// Returns baked indirect irradiance E in .rgb and COVERAGE in .a: a > 0.5
+// means this fragment has a valid baked texel — possibly legitimately pure
+// black (an enclosed surface no indirect light reaches within MaxBounces) —
+// and the caller must use the lightmap INSTEAD of the probe/IBL diffuse
+// ladder. a == 0.0 means no bake covers this fragment (scene kill switch off,
+// no region on this draw, or a never-baked texel) and the caller falls
+// through. Coverage must be the branch signal, never dot(rgb, rgb): branching
+// on the colour makes baked darkness indistinguishable from "no bake" and the
+// enclosed room glows with sky IBL — exactly the leak the bake exists to kill.
+vec4 sampleLightmapIrradiance(vec2 lightmapUV, vec4 scaleOffset)
 {
     if (u_LightmapEnabled == 0 || scaleOffset.x <= 0.0)
-        return vec3(0.0);
+        return vec4(0.0);
 
     vec2 atlasUV = lightmapUV * scaleOffset.xy + scaleOffset.zw;
     vec4 texel = texture(u_LightmapAtlas, atlasUV);
-    // Alpha 0 = never-baked texel (outside every chart, beyond dilation reach):
-    // fall through to probes/IBL rather than shading from the clear colour.
-    if (texel.a <= 0.0)
-        return vec3(0.0);
+    // Alpha marks baked/dilated texels (1.0) vs never-written ones (0.0). A
+    // bilinear tap straddling the coverage edge blends both; below one-half
+    // the tap is dominated by unwritten texels — fall through. Above it,
+    // un-premultiply by the sampled alpha so the empty neighbours' black
+    // doesn't darken the chart edge.
+    if (texel.a <= 0.5)
+        return vec4(0.0);
 
-    return texel.rgb * u_LightmapIntensity;
+    return vec4(texel.rgb * (u_LightmapIntensity / texel.a), 1.0);
 }
 
 #endif // LIGHTMAP_SAMPLING_GLSL

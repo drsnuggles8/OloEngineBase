@@ -317,6 +317,7 @@ vec2 octEncode(vec3 n)
 
 // Baked lightmap sampling (issue #439): UBO 1 + the atlas sampler at TEX 16.
 #include "include/LightmapSampling.glsl"
+#include "include/AmbientLadder.glsl"
 
 // =============================================================================
 // MAIN FRAGMENT SHADER
@@ -489,81 +490,22 @@ void main()
         prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
     }
 
-    // Calculate ambient lighting
-    vec3 ambient = vec3(0.0);
-
-    // Baked lightmap first (issue #439): a lightmapped static surface REPLACES
-    // its probe/IBL indirect diffuse with the baked irradiance — the same
-    // replacement semantics the probe ladder already uses, through the same
-    // helpers, so the two sources stay photometrically interchangeable. IBL
-    // specular is kept (the bake is diffuse irradiance only). Deliberately not
-    // gated on u_EnableLightProbes: baked GI is its own source, and the scene
-    // kill switch lives in u_LightmapEnabled (stale bakes upload 0).
+    // Calculate ambient lighting — the shared source ladder (AmbientLadder.glsl,
+    // issue #439). A lightmapped static surface enters at the baked rung: its
+    // probe/IBL indirect diffuse is REPLACED by the baked irradiance through
+    // the same helpers, and IBL specular is kept (the bake is diffuse-only).
+    // The branch signal is the sample's coverage (.a), never its colour — a
+    // validly-baked pure-black texel keeps its darkness.
 #ifdef OLO_VULKAN
     // Not wired on the Vulkan route yet: nothing uploads UBO 1 / TEX 16 there,
     // so the flag would read garbage (issue #439 follow-up).
-    vec3 lightmapIrradiance = vec3(0.0);
+    vec4 lightmapSample = vec4(0.0);
 #else
-    vec3 lightmapIrradiance = sampleLightmapIrradiance(v_TexCoord2, instances[v_InstanceIndex].LightmapScaleOffset);
+    vec4 lightmapSample = sampleLightmapIrradiance(v_TexCoord2, instances[v_InstanceIndex].LightmapScaleOffset);
 #endif
-    if (dot(lightmapIrradiance, lightmapIrradiance) > 0.0)
-    {
-        if (u_EnableIBL == 1)
-        {
-            ambient = calculateCombinedAmbientPrefiltered(lightmapIrradiance, N, V, albedo,
-                                                          metallic, roughness,
-                                                          u_BRDFLutMap, prefilteredColor);
-            ambient *= u_IBLIntensity;
-        }
-        else
-        {
-            ambient = calculateLightProbeAmbient(lightmapIrradiance, albedo, metallic, roughness, N, V);
-        }
-    }
-    else if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
-    {
-        // Combined: probe diffuse + IBL specular. Issue #632: unified probe
-        // sampling — realtime DDGI atlases when a Realtime/Hybrid volume is
-        // bound, baked SH otherwise.
-        vec3 probeIrradiance = sampleProbeVolumeIrradiance(v_WorldPos, N, V);
-        if (dot(probeIrradiance, probeIrradiance) > 0.0)
-        {
-            ambient = calculateCombinedAmbientPrefiltered(probeIrradiance, N, V, albedo,
-                                                          metallic, roughness,
-                                                          u_BRDFLutMap, prefilteredColor);
-            ambient *= u_IBLIntensity;
-        }
-        else
-        {
-            // Outside probe volume — fall back to IBL
-            ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
-                                              u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
-            ambient *= u_IBLIntensity;
-        }
-    }
-    else if (u_EnableLightProbes == 1)
-    {
-        // Probes only, no IBL specular
-        vec3 probeIrradiance = sampleProbeVolumeIrradiance(v_WorldPos, N, V);
-        if (dot(probeIrradiance, probeIrradiance) > 0.0)
-        {
-            ambient = calculateLightProbeAmbient(probeIrradiance, albedo, metallic, roughness, N, V);
-        }
-        else
-        {
-            ambient = calculateSimpleAmbient(albedo, metallic, ao);
-        }
-    }
-    else if (u_EnableIBL == 1)
-    {
-        ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
-                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
-        ambient *= u_IBLIntensity;
-    }
-    else
-    {
-        ambient = calculateSimpleAmbient(albedo, metallic, ao);
-    }
+    vec3 ambient = evaluateAmbientLadder(lightmapSample, v_WorldPos, N, V, albedo,
+                                         metallic, roughness, ao,
+                                         u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
 
     // Combine lighting — AO attenuates ambient only
     vec3 color = ambient * ao + Lo + emissive;
