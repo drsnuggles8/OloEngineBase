@@ -87,11 +87,15 @@ namespace OloEngine
         // Path-traced twin of BakeVolume: same probe-grid derivation from the
         // component's bounds/resolution (the grid is authored in WORLD space,
         // exactly as BakeVolume reads it — no volume transform participates),
-        // same asset population and validity-flag convention. Runs on the
-        // calling thread; deterministic (per-probe seeds derive from the
-        // probe's linear grid index and settings.Seed, samples are summed in
-        // ascending order). Returns false when `asset` is null, `world` was
-        // not Build()t, or the grid is empty.
+        // same asset population and validity-flag convention. Probes bake in
+        // parallel over engine tasks (each probe writes only its own asset
+        // slot); still deterministic, because per-probe seeds derive from the
+        // probe's linear grid index and settings.Seed, and samples are summed
+        // in ascending order WITHIN each probe. `progress` may be invoked from
+        // worker threads, but calls are serialized under an internal lock and
+        // report a strictly increasing completed-probe count ending at
+        // (total, total). Returns false when `asset` is null, `world` was not
+        // Build()t, or the grid is empty.
         [[nodiscard]] static bool BakeVolumePathTraced(
             const PathTracing::ReferenceScene& world,
             LightProbeVolumeComponent& volume,

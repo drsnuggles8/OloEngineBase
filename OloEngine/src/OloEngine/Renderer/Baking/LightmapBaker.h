@@ -2,7 +2,6 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
-#include "OloEngine/Renderer/Baking/LightmapUnwrap.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
@@ -12,6 +11,7 @@
 #include <atomic>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace OloEngine
 {
@@ -28,12 +28,15 @@ namespace OloEngine
         f32 TexelsPerMeter = 8.0f; // world-space texel density target
         u32 DilationPasses = 4;    // chart-edge dilation iterations after the bake
         u32 Seed = 0x439u;         // global bake seed (texel seeds derive from it)
-        // Per-mesh unwrap parameters. MUST stay at the shared defaults the
-        // runtime resolve re-unwraps with (kLightmapUnwrap* in
-        // LightmapUnwrap.h), or a reloaded scene's regenerated UV2 stream will
-        // not match the baked layout. Overridable only for tests.
-        u32 UnwrapResolution = kLightmapUnwrapResolution;
-        u32 UnwrapPadding = kLightmapUnwrapPadding;
+        // NOTE: the per-mesh unwrap parameters are deliberately NOT settings.
+        // Prepare() always unwraps with the shared constants
+        // (kLightmapUnwrap{Resolution,Padding} in LightmapUnwrap.h) because the
+        // runtime's self-healing re-unwrap (SceneLightmapRuntime::Resolve)
+        // hard-codes the same constants — a bake with different values would
+        // produce UV2 the resolve can never reproduce, silently mis-addressing
+        // every lightmap sample (the bake key hashes counts/bounds, not UV
+        // values, so it would not catch the mismatch).
+
         // The staleness key the caller computed over the scene state this bake
         // captures (static entities, lights, environment, settings). Stored in
         // the asset verbatim; the runtime refuses to sample when it no longer
@@ -70,6 +73,16 @@ namespace OloEngine
         glm::vec3 WorldNormal{ 0.0f };
     };
 
+    // One entity's square atlas region in texel coordinates. Dilation is
+    // restricted to the owning rect so one entity's lighting never bleeds
+    // into a neighbouring entity's border texels.
+    struct LightmapAtlasRegion
+    {
+        u32 X = 0;
+        u32 Y = 0;
+        u32 Size = 0;
+    };
+
     // The game-thread product of Prepare(): everything the background texel
     // bake needs, with no reference back to any MeshSource. Immutable once
     // handed to BakeTexels — that is what makes the split thread-safe (the
@@ -79,6 +92,7 @@ namespace OloEngine
     {
         std::vector<LightmapTexelJob> Jobs;
         std::vector<LightmapEntityEntry> Entries;
+        std::vector<LightmapAtlasRegion> Regions; // parallel to Entries (same order)
         u32 AtlasSize = 0;
         u32 BakedEntityCount = 0;
         u32 SkippedEntityCount = 0;
@@ -105,7 +119,10 @@ namespace OloEngine
         // Stage 1 — GAME THREAD. Unwraps every input mesh (in place; caller
         // re-Build()s them afterwards so rendering picks up the seam-split
         // vertex data), sizes and packs atlas regions, and rasterizes every
-        // chart into texel jobs. Returns false with `outError` set on failure.
+        // chart into texel jobs. Entities with a non-finite or singular world
+        // transform are skipped with a warning (a NaN would defeat every
+        // downstream degeneracy check). Returns false with `outError` set on
+        // failure.
         [[nodiscard]] static bool Prepare(std::span<const LightmapBakeInput> entities,
                                           const LightmapBakeSettings& settings,
                                           LightmapBakePrepared& outPrepared,

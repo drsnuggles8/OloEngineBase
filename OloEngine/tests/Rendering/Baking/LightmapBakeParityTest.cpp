@@ -32,11 +32,11 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/Baking/LightmapBaker.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/PathTracing/PathSampler.h"
 #include "OloEngine/Renderer/PathTracing/PathTracer.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
-#include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/glm.hpp>
@@ -49,61 +49,17 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        // A unit cube (24 vertices, 36 indices, outward normals, per-face UVs)
-        // centred at the origin — the same shape DDGIReferenceParityTest builds
-        // its room from. Scaled/positioned via the entity transform.
-        Ref<MeshSource> MakeUnitCube()
+        // A fresh unit cube MeshSource per call, via the engine's own
+        // primitive factory (24 vertices, 36 indices, outward normals,
+        // per-face UVs, one submesh). Headless-safe: MeshSource::Build()
+        // defers GPU buffer creation when no graphics device exists and the
+        // CPU-side data stays complete — the same way
+        // SceneLightmapStalenessTest uses it. Every call yields a DISTINCT
+        // MeshSource, so each entity's UV2 unwrap never aliases another's.
+        Ref<MeshSource> MakeCube()
         {
-            static const glm::vec3 kFaceNormals[6] = {
-                { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
-            };
-
-            TArray<Vertex> vertices;
-            TArray<u32> indices;
-            for (u32 f = 0; f < 6; ++f)
-            {
-                const glm::vec3 n = kFaceNormals[f];
-                // Build a tangent basis per face
-                const glm::vec3 t = (std::abs(n.y) > 0.5f) ? glm::vec3(1, 0, 0) : glm::normalize(glm::cross(glm::vec3(0, 1, 0), n));
-                const glm::vec3 b = glm::cross(n, t);
-                const u32 base = static_cast<u32>(vertices.Num());
-                for (u32 v = 0; v < 4; ++v)
-                {
-                    const f32 su = (v == 1 || v == 2) ? 0.5f : -0.5f;
-                    const f32 sv = (v >= 2) ? 0.5f : -0.5f;
-                    Vertex vert;
-                    vert.Position = n * 0.5f + t * su + b * sv;
-                    vert.Normal = n;
-                    vert.TexCoord = { su + 0.5f, sv + 0.5f };
-                    vertices.Add(vert);
-                }
-                // Counter-clockwise when viewed from outside (normal side)
-                indices.Add(base + 0);
-                indices.Add(base + 1);
-                indices.Add(base + 2);
-                indices.Add(base + 0);
-                indices.Add(base + 2);
-                indices.Add(base + 3);
-            }
-            const u32 vertexCount = static_cast<u32>(vertices.Num());
-            const u32 indexCount = static_cast<u32>(indices.Num());
-            auto source = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
-
-            // A submesh-less MeshSource draws nothing and traces nothing — both
-            // Scene submission and ReferenceSceneBuilder::AddMeshEntity skip it
-            // (the guard that silently emptied this fixture's reference world in
-            // the first run of this test). Real meshes always carry submeshes;
-            // hand-built ones must too.
-            Submesh submesh;
-            submesh.m_BaseVertex = 0;
-            submesh.m_BaseIndex = 0;
-            submesh.m_MaterialIndex = 0;
-            submesh.m_VertexCount = vertexCount;
-            submesh.m_IndexCount = indexCount;
-            TArray<Submesh> submeshes;
-            submeshes.Add(submesh);
-            source->SetSubmeshes(submeshes);
-            return source;
+            Ref<Mesh> cube = MeshPrimitives::CreateCube();
+            return cube ? cube->GetMeshSource() : nullptr;
         }
 
         [[nodiscard]] glm::mat4 MakeTransform(const glm::vec3& translation, const glm::vec3& scale)
@@ -124,7 +80,6 @@ namespace OloEngine::Tests
                 glm::vec3 BaseColor;
             };
             std::vector<Piece> Pieces;
-            Ref<MeshSource> SharedCube; // deliberately shared: exercises unwrap idempotence
             PointLightComponent Light;
             glm::vec3 LightPosition{ 0.0f, 1.6f, 0.0f };
         };
@@ -132,7 +87,6 @@ namespace OloEngine::Tests
         BleedRoom MakeBleedRoom()
         {
             BleedRoom room;
-            room.SharedCube = MakeUnitCube();
 
             // Floor: 6 x 0.2 x 4 at y = -0.1 (top surface at y = 0)
             room.Pieces.push_back({ 0x1001, MakeTransform({ 0.0f, -0.1f, 0.0f }, { 6.0f, 0.2f, 4.0f }), { 0.6f, 0.6f, 0.6f } });
@@ -150,19 +104,6 @@ namespace OloEngine::Tests
             return room;
         }
 
-        // Every piece needs its own MeshSource clone when the bake inputs are
-        // built twice (a shared cube unwraps once and the second bake must see
-        // the SAME post-unwrap data to be comparable — cloning per bake keeps
-        // the two bakes fully independent instead).
-        Ref<MeshSource> CloneCube(const Ref<MeshSource>& source)
-        {
-            TArray<Vertex> vertices = source->GetVertices();
-            TArray<u32> indices = source->GetIndices();
-            auto clone = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
-            clone->SetSubmeshes(source->GetSubmeshes()); // the raw ctor creates none
-            return clone;
-        }
-
         struct BakedRoom
         {
             LightmapBakeResult Result;
@@ -172,8 +113,8 @@ namespace OloEngine::Tests
         };
 
         // One full pipeline run. `sharedMesh == true` shares one MeshSource
-        // across all pieces (the editor's real shape for primitive rooms);
-        // false clones per piece.
+        // across all pieces (the editor's real shape for primitive rooms —
+        // exercises unwrap idempotence); false gives each piece its own.
         BakedRoom BakeRoom(const BleedRoom& room, bool sharedMesh)
         {
             BakedRoom baked;
@@ -184,11 +125,12 @@ namespace OloEngine::Tests
             baked.Settings.MaxBounces = 3;
             baked.Settings.TexelsPerMeter = 1.5f;
             baked.Settings.DilationPasses = 2;
-            baked.Settings.UnwrapResolution = 128;
-            baked.Settings.UnwrapPadding = 2;
             baked.Settings.BakeKey = 0xB4CE'0439u;
 
-            Ref<MeshSource> shared = sharedMesh ? CloneCube(room.SharedCube) : nullptr;
+            // Fresh MeshSources per bake (the second bake must see the same
+            // PRE-unwrap data as the first to be comparable — the unwrap
+            // mutates the mesh in place).
+            Ref<MeshSource> shared = sharedMesh ? MakeCube() : nullptr;
 
             std::vector<LightmapBakeInput> inputs;
             PathTracing::ReferenceSceneBuilder builder;
@@ -196,7 +138,7 @@ namespace OloEngine::Tests
             {
                 LightmapBakeInput input;
                 input.EntityUUID = piece.Uuid;
-                input.Mesh = sharedMesh ? shared : CloneCube(room.SharedCube);
+                input.Mesh = sharedMesh ? shared : MakeCube();
                 input.WorldTransform = piece.Transform;
                 inputs.push_back(input);
             }
@@ -409,5 +351,137 @@ namespace OloEngine::Tests
                                   sizeof(LightmapEntityEntry)),
                       0);
         }
+    }
+
+    TEST(LightmapBakeParity, DilationNeverBleedsAcrossAtlasRegions)
+    {
+        // Two colour-isolated floor+wall pairs, 60 m apart, with the coloured
+        // walls placed BETWEEN the pairs so no sight line connects them: every
+        // photon arriving at floor A bounced off the RED wall (albedo
+        // 0.7/0.05/0.05) and every photon at floor B off the GREEN wall (both
+        // lights are white, so only wall albedo can create an r/g asymmetry).
+        // Every legitimately baked OR dilated texel in A's atlas region is
+        // therefore strongly red-dominant and every one in B's strongly
+        // green-dominant, and no texel outside either region may carry data.
+        // Regression for the pre-region-aware dilation, which pulled an empty
+        // border texel from ANY neighbouring texel — including another
+        // entity's region and unallocated atlas space.
+        constexpr u64 kRedFloorUuid = 0x2001;
+        constexpr u64 kGreenFloorUuid = 0x2002;
+
+        LightmapBakeSettings settings;
+        settings.AtlasSize = 32;
+        settings.MinRegionSize = 8;
+        settings.SamplesPerTexel = 16; // colour DOMINANCE is the signal — cheap suffices
+        settings.MaxBounces = 2;
+        settings.TexelsPerMeter = 1.5f;
+        settings.DilationPasses = 3; // extra passes push any bleed deeper into a region
+        settings.BakeKey = 0xB1ED'0439u;
+
+        std::vector<LightmapBakeInput> inputs;
+        {
+            LightmapBakeInput red;
+            red.EntityUUID = kRedFloorUuid;
+            red.Mesh = MakeCube();
+            red.WorldTransform = MakeTransform({ -30.0f, -0.1f, 0.0f }, { 2.0f, 0.2f, 2.0f });
+            inputs.push_back(red);
+
+            LightmapBakeInput green;
+            green.EntityUUID = kGreenFloorUuid;
+            green.Mesh = MakeCube();
+            green.WorldTransform = MakeTransform({ 30.0f, -0.1f, 0.0f }, { 2.0f, 0.2f, 2.0f });
+            inputs.push_back(green);
+        }
+
+        // Reference world: the two baked floors plus WORLD-ONLY coloured walls
+        // (not bake inputs) and one white range-limited light per pair. The
+        // walls sit between the pairs (inner faces at x = -28.9 / +28.9), so
+        // each wall also occludes the other pair from its floor — rays that
+        // clear a wall's top rise far above the distant pair, and a ray
+        // skirting a wall's z-edge diverges monotonically out of the ±1 m
+        // corridor both pairs live in.
+        PathTracing::ReferenceSceneBuilder builder;
+        std::vector<Ref<Material>> materials; // keep alive until Build()
+        auto addPiece = [&](const Ref<MeshSource>& mesh, const glm::mat4& transform, const glm::vec3& baseColor)
+        {
+            Ref<Material> material = Material::CreatePBR("RegionBleedPiece", baseColor, 0.0f, 0.9f);
+            materials.push_back(material);
+            builder.AddMeshEntity(mesh, transform, material.get());
+        };
+        addPiece(inputs[0].Mesh, inputs[0].WorldTransform, { 0.6f, 0.6f, 0.6f });
+        addPiece(inputs[1].Mesh, inputs[1].WorldTransform, { 0.6f, 0.6f, 0.6f });
+        addPiece(MakeCube(), MakeTransform({ -28.8f, 1.4f, 0.0f }, { 0.2f, 3.0f, 2.0f }), { 0.7f, 0.05f, 0.05f });
+        addPiece(MakeCube(), MakeTransform({ 28.8f, 1.4f, 0.0f }, { 0.2f, 3.0f, 2.0f }), { 0.05f, 0.7f, 0.05f });
+
+        PointLightComponent light;
+        light.m_Color = { 1.0f, 1.0f, 1.0f };
+        light.m_Intensity = 12.0f;
+        light.m_Range = 10.0f; // far below the 60 m pair separation
+        light.m_Attenuation = 2.0f;
+        builder.AddPointLight(light, { -30.0f, 1.5f, 0.0f });
+        builder.AddPointLight(light, { 30.0f, 1.5f, 0.0f });
+
+        PathTracing::ReferenceScene world = builder.Build(PathTracing::ReferenceSceneBuildOptions{});
+
+        LightmapBakePrepared prepared;
+        std::string error;
+        ASSERT_TRUE(LightmapBaker::Prepare(inputs, settings, prepared, error)) << error;
+        ASSERT_EQ(prepared.Entries.size(), 2u);
+        ASSERT_EQ(prepared.Regions.size(), 2u);
+
+        const LightmapBakeResult result = LightmapBaker::BakeTexels(prepared, world, settings);
+        ASSERT_TRUE(result.Success) << result.Error;
+
+        const auto& texels = result.Asset->GetTexelData();
+        const u32 atlasSize = prepared.AtlasSize;
+
+        auto insideRegion = [](const LightmapAtlasRegion& region, u32 x, u32 y)
+        {
+            return x >= region.X && x < region.X + region.Size && y >= region.Y && y < region.Y + region.Size;
+        };
+
+        u32 checkedTexels[2] = { 0, 0 };
+        for (u32 y = 0; y < atlasSize; ++y)
+        {
+            for (u32 x = 0; x < atlasSize; ++x)
+            {
+                const sizet t = (static_cast<sizet>(y) * atlasSize + x) * 4;
+                if (texels[t + 3] <= 0.0f)
+                    continue;
+
+                // 1. Region-restricted dilation: data may only exist inside a
+                //    baked entity's own rect.
+                i32 owner = -1;
+                for (sizet e = 0; e < prepared.Regions.size(); ++e)
+                {
+                    if (insideRegion(prepared.Regions[e], x, y))
+                        owner = static_cast<i32>(e);
+                }
+                ASSERT_GE(owner, 0) << "baked/dilated texel (" << x << "," << y << ") lies outside every atlas region";
+                ++checkedTexels[owner];
+
+                // 2. Colour purity: every non-zero path contribution passed
+                //    through the pair's wall albedo at least once, so the true
+                //    minority:majority channel ratio is <= 1:14 per region. A
+                //    factor-2 violation can only be the other region's colour
+                //    family, dilated across the rect border.
+                const f32 r = texels[t + 0];
+                const f32 g = texels[t + 1];
+                if (prepared.Entries[static_cast<sizet>(owner)].EntityUUID == kRedFloorUuid)
+                {
+                    EXPECT_LE(g, r * 0.5f + 1e-6f)
+                        << "green-family texel inside the red floor's region at (" << x << "," << y << "): r=" << r << " g=" << g;
+                }
+                else
+                {
+                    EXPECT_LE(r, g * 0.5f + 1e-6f)
+                        << "red-family texel inside the green floor's region at (" << x << "," << y << "): r=" << r << " g=" << g;
+                }
+            }
+        }
+        // Both regions must actually hold data or the assertions above are
+        // vacuous (a raster/unwrap regression, not a dilation pass).
+        EXPECT_GT(checkedTexels[0], 4u);
+        EXPECT_GT(checkedTexels[1], 4u);
     }
 } // namespace OloEngine::Tests

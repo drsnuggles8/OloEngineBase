@@ -438,8 +438,9 @@ namespace OloEngine::Tests
         bakeSettings.TexelsPerMeter = lmSettings.TexelsPerMeter;
         bakeSettings.MinRegionSize = 8;
         bakeSettings.DilationPasses = 2;
-        bakeSettings.UnwrapResolution = 128; // test-only unwrap overrides — resolve never
-        bakeSettings.UnwrapPadding = 2;      // re-unwraps these meshes (UV2 stays present)
+        // Unwrap parameters are no longer settings: Prepare() hard-codes the
+        // shared kLightmapUnwrap* constants so the runtime's self-healing
+        // re-unwrap can always reproduce the baked layout.
 
         // ── Stage 1: unwrap (mutates the MeshSources in place) + rasterize ──
         LightmapBakePrepared prepared;

@@ -7,12 +7,16 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/PathTracing/PathTracer.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceBRDF.h"
+#include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -313,22 +317,15 @@ namespace OloEngine
     // Sobol' PathSampler(probeSeed, s) — direction from the first 2D
     // dimension, the path's scatter decisions from the following dimensions,
     // mirroring EstimateIrradiance's layout — and samples are accumulated in
-    // ascending order on the calling thread, so two bakes are bit-identical.
+    // ascending order WITHIN each probe, so two bakes are bit-identical
+    // regardless of how probes are scheduled across threads.
+    //
+    // The sphere directions come from the shared
+    // PathTracing::UniformSampleSphere (ReferenceBRDF.h) — bit-identical to
+    // the local copy this file used to carry (kTwoPi rounds to the same f32 as
+    // 2.0f * glm::pi<f32>()). ToUnitFloat keeps xi < 1, so z ∈ (-1, 1] and
+    // the result is always unit length (SHBasis::Evaluate asserts that).
     // =========================================================================
-
-    namespace
-    {
-        // Uniform direction on the unit sphere from a [0,1)^2 sample.
-        // pdf = 1 / 4π. ToUnitFloat keeps xi < 1, so z ∈ (-1, 1] and the
-        // result is always unit length (SHBasis::Evaluate asserts that).
-        [[nodiscard]] glm::vec3 UniformSampleSphere(const glm::vec2& xi)
-        {
-            f32 const z = 1.0f - 2.0f * xi.x;
-            f32 const r = std::sqrt(std::max(0.0f, 1.0f - z * z));
-            f32 const phi = 2.0f * glm::pi<f32>() * xi.y;
-            return glm::vec3(r * std::cos(phi), r * std::sin(phi), z);
-        }
-    } // namespace
 
     SHCoefficients LightProbeBaker::BakeProbeAtPositionPathTraced(
         const PathTracing::ReferenceScene& world,
@@ -366,7 +363,7 @@ namespace OloEngine
         for (u32 sample = 0; sample < settings.SamplesPerProbe; ++sample)
         {
             PathTracing::PathSampler sampler(probeSeed, sample);
-            glm::vec3 const direction = UniformSampleSphere(sampler.Get2D());
+            glm::vec3 const direction = PathTracing::UniformSampleSphere(sampler.Get2D());
             // The probe floats in air — no surface, so no normal-offset
             // epsilon at the origin (unlike EstimateIrradiance's shading
             // point).
@@ -439,43 +436,71 @@ namespace OloEngine
         }
 
         glm::vec3 const extent = volume.m_BoundsMax - volume.m_BoundsMin;
+        glm::ivec3 const res = volume.m_Resolution;
 
-        for (i32 z = 0; z < volume.m_Resolution.z; ++z)
-        {
-            for (i32 y = 0; y < volume.m_Resolution.y; ++y)
+        // Probes are independent (per-probe seeds, per-probe asset slots, no
+        // shared sampler state — BakeProbeAtPositionPathTraced builds a fresh
+        // stateless PathSampler per sample), so the outer loop parallelizes
+        // over engine tasks. Determinism is untouched: each probe's value
+        // depends only on its seed and the built world, never on scheduling.
+        // MinBatchSize 1 because a single probe is SamplesPerProbe full paths.
+        std::atomic<i32> completedProbes{ 0 };
+        std::mutex progressMutex;
+        constexpr i32 kProbeLogInterval = 64;
+
+        ParallelFor(
+            "LightProbeBaker::BakeVolumePathTraced",
+            totalProbes,
+            1,
+            [&](i32 probeIndex)
             {
-                for (i32 x = 0; x < volume.m_Resolution.x; ++x)
+                // Decompose the z-major linear index (the GridIndex
+                // convention: idx = z*ny*nx + y*nx + x), so probeIndex IS the
+                // linear grid index the seed contract keys on.
+                i32 const x = probeIndex % res.x;
+                i32 const y = (probeIndex / res.x) % res.y;
+                i32 const z = probeIndex / (res.x * res.y);
+
+                // Probe world position — the SAME derivation as BakeVolume
+                // (bounds are authored in world space; single-slice axes
+                // sit at BoundsMin), so the two bake modes place every
+                // probe identically.
+                glm::vec3 t(0.0f);
+                if (res.x > 1)
+                    t.x = static_cast<f32>(x) / static_cast<f32>(res.x - 1);
+                if (res.y > 1)
+                    t.y = static_cast<f32>(y) / static_cast<f32>(res.y - 1);
+                if (res.z > 1)
+                    t.z = static_cast<f32>(z) / static_cast<f32>(res.z - 1);
+
+                glm::vec3 const probePos = volume.m_BoundsMin + extent * t;
+
+                // Per-probe sampler seed from the linear grid index — the
+                // bake's determinism contract.
+                u32 const probeSeed = PathTracing::MakePixelSeed(static_cast<u32>(probeIndex), 0u, settings.Seed);
+
+                bool valid = true;
+                SHCoefficients const sh = BakeProbeAtPositionPathTraced(world, probePos, settings, probeSeed, &valid);
+                asset->SetProbeData(probeIndex, sh, valid ? 1.0f : 0.0f);
+
+                if (progress)
                 {
-                    // Probe world position — the SAME derivation as BakeVolume
-                    // (bounds are authored in world space; single-slice axes
-                    // sit at BoundsMin), so the two bake modes place every
-                    // probe identically.
-                    glm::vec3 t(0.0f);
-                    if (volume.m_Resolution.x > 1)
-                        t.x = static_cast<f32>(x) / static_cast<f32>(volume.m_Resolution.x - 1);
-                    if (volume.m_Resolution.y > 1)
-                        t.y = static_cast<f32>(y) / static_cast<f32>(volume.m_Resolution.y - 1);
-                    if (volume.m_Resolution.z > 1)
-                        t.z = static_cast<f32>(z) / static_cast<f32>(volume.m_Resolution.z - 1);
-
-                    glm::vec3 const probePos = volume.m_BoundsMin + extent * t;
-
-                    i32 const linearIdx = volume.GridIndex(x, y, z);
-                    // Per-probe sampler seed from the linear grid index — the
-                    // bake's determinism contract.
-                    u32 const probeSeed = PathTracing::MakePixelSeed(static_cast<u32>(linearIdx), 0u, settings.Seed);
-
-                    bool valid = true;
-                    SHCoefficients const sh = BakeProbeAtPositionPathTraced(world, probePos, settings, probeSeed, &valid);
-                    asset->SetProbeData(linearIdx, sh, valid ? 1.0f : 0.0f);
-
-                    if (progress)
-                    {
-                        progress(linearIdx + 1, totalProbes);
-                    }
+                    // Increment under the lock so the callback sees a strictly
+                    // increasing completed count with the final call carrying
+                    // (totalProbes, totalProbes), whatever the thread timing.
+                    std::scoped_lock lock(progressMutex);
+                    i32 const done = completedProbes.fetch_add(1, std::memory_order_relaxed) + 1;
+                    if (done % kProbeLogInterval == 0 || done == totalProbes)
+                        OLO_CORE_INFO("LightProbeBaker: path-traced bake completed {}/{} probes", done, totalProbes);
+                    progress(done, totalProbes);
                 }
-            }
-        }
+                else
+                {
+                    i32 const done = completedProbes.fetch_add(1, std::memory_order_relaxed) + 1;
+                    if (done % kProbeLogInterval == 0 || done == totalProbes)
+                        OLO_CORE_INFO("LightProbeBaker: path-traced bake completed {}/{} probes", done, totalProbes);
+                }
+            });
 
         volume.m_Dirty = true;
         return true;

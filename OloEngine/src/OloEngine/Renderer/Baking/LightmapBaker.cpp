@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <span>
 #include <vector>
 
 namespace OloEngine
@@ -59,6 +60,28 @@ namespace OloEngine
             return v <= 1 ? 1u : std::bit_ceil(v);
         }
 
+        // A NaN anywhere in the world transform defeats every downstream
+        // degeneracy check (NaN comparisons are false, so `len < 1e-6f` style
+        // guards pass NaN through), and a collapsed scale bakes zero-area
+        // charts from garbage positions. Reject both up front.
+        [[nodiscard]] bool IsWorldTransformBakeable(const glm::mat4& m)
+        {
+            for (glm::length_t c = 0; c < 4; ++c)
+            {
+                for (glm::length_t r = 0; r < 4; ++r)
+                {
+                    if (!std::isfinite(m[c][r]))
+                        return false;
+                }
+            }
+            // Upper-3x3 determinant ~0 means the scale collapsed (a flat or
+            // point transform): |det| = sx*sy*sz for an axis-aligned scale, so
+            // 1e-12 tolerates ~1e-4 uniform scale while rejecting true collapse.
+            const f32 det = glm::determinant(glm::mat3(m));
+            constexpr f32 kMinUpper3x3Determinant = 1e-12f;
+            return std::isfinite(det) && std::abs(det) >= kMinUpper3x3Determinant;
+        }
+
         // Rasterizes one entity's triangles in atlas texel space, appending a
         // job per covered texel. Coverage is a texel-centre test; chart padding
         // plus post-bake dilation covers the conservative edge band, and
@@ -73,6 +96,18 @@ namespace OloEngine
 
             const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(worldTransform)));
             const f32 atlasSizeF = static_cast<f32>(atlasSize);
+
+            // Transform every vertex exactly once per entity instead of once
+            // per triangle corner. The expressions match the previous
+            // per-corner ones exactly, so baked values are bit-identical.
+            const i32 vertexCount = vertices.Num();
+            std::vector<glm::vec3> worldPositions(static_cast<sizet>(vertexCount));
+            std::vector<glm::vec3> worldNormals(static_cast<sizet>(vertexCount));
+            for (i32 v = 0; v < vertexCount; ++v)
+            {
+                worldPositions[static_cast<sizet>(v)] = glm::vec3(worldTransform * glm::vec4(vertices[v].Position, 1.0f));
+                worldNormals[static_cast<sizet>(v)] = normalMatrix * vertices[v].Normal;
+            }
 
             auto emitTexel = [&](u32 x, u32 y, const glm::vec3& pos, const glm::vec3& normal)
             {
@@ -94,13 +129,13 @@ namespace OloEngine
                 const glm::vec2 a1 = (lightmapUVs[i1] * glm::vec2(scaleOffset.x, scaleOffset.y) + glm::vec2(scaleOffset.z, scaleOffset.w)) * atlasSizeF;
                 const glm::vec2 a2 = (lightmapUVs[i2] * glm::vec2(scaleOffset.x, scaleOffset.y) + glm::vec2(scaleOffset.z, scaleOffset.w)) * atlasSizeF;
 
-                const glm::vec3 w0 = glm::vec3(worldTransform * glm::vec4(vertices[i0].Position, 1.0f));
-                const glm::vec3 w1 = glm::vec3(worldTransform * glm::vec4(vertices[i1].Position, 1.0f));
-                const glm::vec3 w2 = glm::vec3(worldTransform * glm::vec4(vertices[i2].Position, 1.0f));
+                const glm::vec3& w0 = worldPositions[static_cast<sizet>(i0)];
+                const glm::vec3& w1 = worldPositions[static_cast<sizet>(i1)];
+                const glm::vec3& w2 = worldPositions[static_cast<sizet>(i2)];
 
-                const glm::vec3 n0 = normalMatrix * vertices[i0].Normal;
-                const glm::vec3 n1 = normalMatrix * vertices[i1].Normal;
-                const glm::vec3 n2 = normalMatrix * vertices[i2].Normal;
+                const glm::vec3& n0 = worldNormals[static_cast<sizet>(i0)];
+                const glm::vec3& n1 = worldNormals[static_cast<sizet>(i1)];
+                const glm::vec3& n2 = worldNormals[static_cast<sizet>(i2)];
 
                 const f32 denom = (a1.x - a0.x) * (a2.y - a0.y) - (a2.x - a0.x) * (a1.y - a0.y);
                 constexpr f32 kDegenerateArea = 1e-8f;
@@ -158,48 +193,103 @@ namespace OloEngine
         // Pull-dilation: each pass fills empty texels bordering baked ones with
         // the average of their baked neighbours, so bilinear sampling at chart
         // edges never blends toward the atlas clear colour.
-        void DilateAtlas(std::vector<f32>& texels, u32 atlasSize, u32 passes)
+        //
+        // REGION-AWARE: each entity's atlas region dilates independently, with
+        // neighbour reads clamped to its own rect, so one entity's lighting can
+        // never bleed into another entity's border texels (the regions are
+        // disjoint, which also makes the per-region order irrelevant). Texels
+        // outside every region are never written.
+        //
+        // PING-PONG: every pass reads only the previous pass's state and writes
+        // a separate buffer, so the result is a pure function of the input —
+        // iteration order within a pass cannot affect it.
+        void DilateAtlas(std::vector<f32>& texels, u32 atlasSize, u32 passes,
+                         std::span<const LightmapAtlasRegion> regions)
         {
-            const sizet texelCount = static_cast<sizet>(atlasSize) * atlasSize;
-            std::vector<f32> previous;
-            for (u32 pass = 0; pass < passes; ++pass)
-            {
-                previous = texels;
-                for (sizet t = 0; t < texelCount; ++t)
-                {
-                    if (previous[t * 4 + 3] > 0.0f)
-                        continue;
+            if (passes == 0)
+                return;
 
-                    const i32 x = static_cast<i32>(t % atlasSize);
-                    const i32 y = static_cast<i32>(t / atlasSize);
-                    glm::vec3 sum(0.0f);
-                    i32 validNeighbours = 0;
-                    for (i32 dy = -1; dy <= 1; ++dy)
+            std::vector<f32> read;
+            std::vector<f32> write;
+            for (const LightmapAtlasRegion& region : regions)
+            {
+                if (region.Size == 0 || region.X + region.Size > atlasSize || region.Y + region.Size > atlasSize)
+                    continue;
+
+                const i32 size = static_cast<i32>(region.Size);
+                const sizet rowFloats = static_cast<sizet>(region.Size) * 4;
+
+                // Lift the region into a local rect buffer.
+                read.resize(static_cast<sizet>(region.Size) * rowFloats);
+                write.resize(read.size());
+                for (u32 y = 0; y < region.Size; ++y)
+                {
+                    const sizet src = (static_cast<sizet>(region.Y + y) * atlasSize + region.X) * 4;
+                    std::copy_n(texels.data() + src, rowFloats, write.data() + static_cast<sizet>(y) * rowFloats);
+                }
+                std::swap(read, write); // `read` now holds the pre-dilation state
+
+                for (u32 pass = 0; pass < passes; ++pass)
+                {
+                    for (i32 y = 0; y < size; ++y)
                     {
-                        for (i32 dx = -1; dx <= 1; ++dx)
+                        for (i32 x = 0; x < size; ++x)
                         {
-                            if (dx == 0 && dy == 0)
-                                continue;
-                            const i32 nx = x + dx;
-                            const i32 ny = y + dy;
-                            if (nx < 0 || ny < 0 || nx >= static_cast<i32>(atlasSize) || ny >= static_cast<i32>(atlasSize))
-                                continue;
-                            const sizet n = static_cast<sizet>(ny) * atlasSize + nx;
-                            if (previous[n * 4 + 3] > 0.0f)
+                            const sizet t = (static_cast<sizet>(y) * region.Size + static_cast<sizet>(x)) * 4;
+                            if (read[t + 3] > 0.0f)
                             {
-                                sum += glm::vec3(previous[n * 4 + 0], previous[n * 4 + 1], previous[n * 4 + 2]);
-                                ++validNeighbours;
+                                write[t + 0] = read[t + 0];
+                                write[t + 1] = read[t + 1];
+                                write[t + 2] = read[t + 2];
+                                write[t + 3] = read[t + 3];
+                                continue;
+                            }
+
+                            glm::vec3 sum(0.0f);
+                            i32 validNeighbours = 0;
+                            for (i32 dy = -1; dy <= 1; ++dy)
+                            {
+                                for (i32 dx = -1; dx <= 1; ++dx)
+                                {
+                                    if (dx == 0 && dy == 0)
+                                        continue;
+                                    const i32 nx = x + dx;
+                                    const i32 ny = y + dy;
+                                    if (nx < 0 || ny < 0 || nx >= size || ny >= size)
+                                        continue; // never pull from outside this entity's rect
+                                    const sizet n = (static_cast<sizet>(ny) * region.Size + static_cast<sizet>(nx)) * 4;
+                                    if (read[n + 3] > 0.0f)
+                                    {
+                                        sum += glm::vec3(read[n + 0], read[n + 1], read[n + 2]);
+                                        ++validNeighbours;
+                                    }
+                                }
+                            }
+                            if (validNeighbours > 0)
+                            {
+                                const glm::vec3 average = sum / static_cast<f32>(validNeighbours);
+                                write[t + 0] = average.x;
+                                write[t + 1] = average.y;
+                                write[t + 2] = average.z;
+                                write[t + 3] = 1.0f;
+                            }
+                            else
+                            {
+                                write[t + 0] = 0.0f;
+                                write[t + 1] = 0.0f;
+                                write[t + 2] = 0.0f;
+                                write[t + 3] = 0.0f; // still empty this pass
                             }
                         }
                     }
-                    if (validNeighbours > 0)
-                    {
-                        const glm::vec3 average = sum / static_cast<f32>(validNeighbours);
-                        texels[t * 4 + 0] = average.x;
-                        texels[t * 4 + 1] = average.y;
-                        texels[t * 4 + 2] = average.z;
-                        texels[t * 4 + 3] = 1.0f;
-                    }
+                    std::swap(read, write);
+                }
+
+                // Store the final state (`read` after the last swap) back.
+                for (u32 y = 0; y < region.Size; ++y)
+                {
+                    const sizet dst = (static_cast<sizet>(region.Y + y) * atlasSize + region.X) * 4;
+                    std::copy_n(read.data() + static_cast<sizet>(y) * rowFloats, rowFloats, texels.data() + dst);
                 }
             }
         }
@@ -229,9 +319,13 @@ namespace OloEngine
 
         // ── 1. Unwrap: every distinct mesh gets a lightmap parameterization ──
         // Generate() is idempotent, so entities sharing a MeshSource unwrap once.
+        // ALWAYS at the shared constants: the runtime's self-healing re-unwrap
+        // (SceneLightmapRuntime::Resolve) hard-codes kLightmapUnwrap*, so a
+        // bake with any other values would produce UV2 the resolve can never
+        // reproduce — silently mis-addressing every lightmap sample.
         LightmapUnwrapOptions unwrapOptions;
-        unwrapOptions.Resolution = settings.UnwrapResolution;
-        unwrapOptions.Padding = settings.UnwrapPadding;
+        unwrapOptions.Resolution = kLightmapUnwrapResolution;
+        unwrapOptions.Padding = kLightmapUnwrapPadding;
 
         std::vector<bool> unwrapFailed(entities.size(), false);
         for (sizet e = 0; e < entities.size(); ++e)
@@ -239,6 +333,13 @@ namespace OloEngine
             const auto& input = entities[e];
             if (!input.Mesh || input.Mesh->GetVertices().IsEmpty())
             {
+                unwrapFailed[e] = true;
+                continue;
+            }
+            if (!IsWorldTransformBakeable(input.WorldTransform))
+            {
+                OLO_CORE_WARN("LightmapBaker: entity {:x} has a non-finite or singular world transform; it will not receive a lightmap",
+                              input.EntityUUID);
                 unwrapFailed[e] = true;
                 continue;
             }
@@ -338,6 +439,7 @@ namespace OloEngine
             entry.Page = 0;
             entry.ScaleOffset = scaleOffset;
             outPrepared.Entries.push_back(entry);
+            outPrepared.Regions.push_back(LightmapAtlasRegion{ plan.Region.X, plan.Region.Y, plan.RegionSize });
             ++outPrepared.BakedEntityCount;
         }
 
@@ -429,7 +531,7 @@ namespace OloEngine
         ReportProgress(progress, 0.95f);
 
         // ── Dilation + asset assembly ──
-        DilateAtlas(texels, prepared.AtlasSize, settings.DilationPasses);
+        DilateAtlas(texels, prepared.AtlasSize, settings.DilationPasses, prepared.Regions);
 
         auto asset = Ref<LightmapAsset>::Create();
         asset->SetDimensions(prepared.AtlasSize, prepared.AtlasSize, 1);
