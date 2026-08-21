@@ -788,6 +788,31 @@ namespace OloEngine
         glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, 0);
     }
 
+    void OpenGLRendererAPI::DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ)
+    {
+        // Facade contract first: a zero group count in any dimension is a
+        // legal no-op on EVERY backend (the Vulkan twin returns before its
+        // own capability guard too) — a caller that computes an empty launch
+        // must not trip the gate warning below, which would then mask a
+        // later genuine violation behind the warn-once latch.
+        if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+            return;
+
+        // SupportsMeshShaders() is false on this backend (GL_NV_mesh_shader
+        // is deliberately out of scope — vendor-specific, never promoted), so
+        // a call landing here means the capability gate upstream did not
+        // route the work away. Loud once, never silent (issue #813; the
+        // MultiDrawElementsIndirectCountRaw warn-once shape on the Vulkan
+        // twin).
+        static bool s_Warned = false;
+        if (!s_Warned)
+        {
+            s_Warned = true;
+            OLO_CORE_ERROR("[RHI/OpenGL] mesh-shader draw reached the OpenGL backend — the capability gate "
+                           "should have routed this away; draw dropped");
+        }
+    }
+
     void OpenGLRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
         OLO_PROFILE_FUNCTION();

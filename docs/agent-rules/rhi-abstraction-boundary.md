@@ -2826,3 +2826,115 @@ motivating symptom, say both things. The gap-closing still ships (it is
 correct on its own terms); the symptom gets filed with what was *ruled out*,
 which is the expensive half of the next person's work — the ruled-out path is
 worth as much as the suspected one.
+
+---
+
+## 14. Mesh shaders (#813): a new stage family's actual cost, and what the first full frame flushed out
+
+`VK_EXT_mesh_shader` for virtual geometry landed as a Tier-2 optional
+capability with a task+mesh+fragment pipeline replaying the same
+visible-cluster segments the MDI path draws. What follows is what the port
+actually cost and found, because most of it was NOT mesh-shader work.
+
+### 14a. The thin-PSO design absorbed the new pipeline kind almost for free
+
+§5's "no vertex input at all" decision (vertex pulling) meant a mesh pipeline
+differs from a classic one by exactly: the stage array, `pVertexInputState` /
+`pInputAssemblyState` both null, and the two input-assembly dynamic states
+(topology, primitive restart) **absent from the declaration** — declaring
+them against a mesh pipeline is itself a validation error, not just setting
+them. No new PSO key axis: the shader's stage set IS the pipeline kind, and a
+reload that changes it runs `InvalidateShader` first. The capability is ONE
+predicate (`RenderCommand::SupportsMeshShaders()`, the §13c rule), enabled
+Tier-2-style (never an ADR 0010 gate row), and `VirtualGeometryPass` logs the
+raster-path decision at Init — a silent fallback here would make every later
+measurement a measurement of the wrong path.
+
+### 14b. glslang at SPIR-V 1.6 emits `LocalSizeId`, and the first new stage family finds the missing feature bit
+
+The first task/mesh modules failed `VUID-RuntimeSpirv-LocalSizeId-06434`:
+glslang lowers any workgroup-sized stage to `OpExecutionMode LocalSizeId` at
+SPIR-V 1.6 (the vulkan_1_4 tier), which requires `maintenance4` — core in
+1.3, MANDATORY there, and **still default-OFF at device creation** (the
+synchronization2/dynamicRendering class, one more member). §9e said the
+feature-bit list grows with every shader family a port reaches; this is the
+worked example — the sweep tests compile SPIR-V and cannot see a device
+enable-bit, so it surfaced only at the first `vkCreateShaderModule`.
+
+### 14c. The first full frame of a subsystem is an audit of that subsystem, not of your change
+
+Virtual geometry had never rendered a full frame on Vulkan (its primitives
+were tenant-pinned, its shaders compiled — no full-pass evidence). The first
+live frame found, in order: `VirtualVisibilityResolve.glsl` still consuming
+vertex ATTRIBUTES (no `OLO_VULKAN` pull branch — pipeline creation fails
+VUID-07904 and the SW-raster resolve silently never draws; the §5f sweep was
+keyed on shaders a Vulkan session had actually reached, the §11 shadow rule
+replayed); a device fault (`VK_EXT_device_fault`: READ of invalid address)
+somewhere in the software-raster path; and a stale baked-layout warning
+(VUID-09600) on a sampled image. None of these involve mesh shaders — the
+fault reproduces bit-for-bit with the mesh path forced off.
+
+**The runtime mode levers are what made that attributable in minutes.** The
+`hwRasterMode` / `swRasterMode` pair let the whole fault matrix be walked
+live over MCP without a rebuild: {mesh, MDI} × {sw-auto, sw-off} — both
+sw-auto cells fault, both sw-off cells run. Give every alternative GPU path a
+runtime lever; it is the difference between a bisect and an afternoon of
+rebuilds.
+
+### 14d. Measure before believing the new path is faster
+
+On the one resolvable VG scene (~4.1k drawn clusters of ≤128 tris, Debug,
+RTX 4090), `GPUPassTimerPool` medians over 12 samples: mesh 0.061 ms, MDI
+0.053 ms — the mesh path is marginally SLOWER at this scale, and both are
+noise at frame level. The issue's crossover question stays open; what ships
+is the lever and the honest number, not a claimed win. The parity evidence
+that matters: mesh-vs-MDI live frames differ by ZERO pixels at three camera
+poses (noise floor also zero), over a frame the VG-on/off toggle proves is
+full of virtual-geometry content — and the device-gated tenant pins the same
+property headlessly (identical albedo + entity-id images, and the task stage
+honouring a GPU-written count cut).
+
+### 14e. A hand-encoded target env is accepted, not validated — pin the dialect too
+
+The Vulkan tier hand-encodes `shaderc_env_version_vulkan_1_4` as
+`(1<<22)|(4<<12)` because the *enumerator* is absent from any shaderc that
+predates the 1.4 SDK, and the comment reasoned that runtime behaviour on such
+a box is moot — no contract device exists there, so those builds only need to
+compile. That reasoning was sound and the conclusion was still wrong, because
+"only needs to compile" is precisely what stopped working.
+
+`SetTargetEnvironment` takes the integer. An older shaderc — Ubuntu 24.04's
+`libshaderc 2023.8`, which is what the sanitizer runners install — **accepts
+the value, fails to recognise it, and silently falls back to a much older
+SPIR-V**. There is no diagnostic: the API has no "unsupported version" return.
+The first visible symptom was `GL_EXT_mesh_shader : not supported for current
+targeted SPIR-V version` on all three Linux sanitizer jobs, while the same
+commit compiled clean on the SDK-current Windows toolchain — the platform
+split is the tell.
+
+The narrow bug was the mesh stages. The real one is that **every** Vulkan-tier
+shader on that toolchain was being compiled in a different SPIR-V dialect than
+production ships, which is exactly what the sweep test's own comment says must
+not happen. A dialect is not a detail: it decides which extensions are
+permitted and which execution modes glslang emits (§14b is the same axis from
+the other side).
+
+The fix is one line and generalises: **when you hand-encode a version because
+the name is too new, pin the thing that version was standing in for as well.**
+`options.SetTargetSpirv(...)` is a no-op wherever the env is understood
+(Vulkan 1.4 lowers to SPIR-V 1.6 anyway) and repairs the silent downgrade
+everywhere else. Verify the mechanism in seconds rather than through a build —
+`glslc --target-env=vulkan1.0 --target-spv=spv1.6` compiles a mesh shader that
+`--target-env=vulkan1.0` alone rejects, which is the whole claim.
+
+Two smaller things this turned up, both worth copying:
+
+* `static_assert(kShadercEnvVulkan14 == ((1u << 22) | (4u << 12)))` asserts
+  **nothing** — it compares the constant to its own definition, so it is true
+  by construction and would survive any typo made in both places at once. An
+  encoding assert has to name the expected *value* (`== 0x00404000u`).
+* A red "Sanitizer" job is not evidence of a sanitizer finding. Those jobs run
+  the whole suite under instrumentation, so an ordinary failing test turns them
+  red with no ASan/UBSan/TSan report anywhere in the log. Grep the log for
+  `ERROR: AddressSanitizer` / `runtime error:` / `WARNING: ThreadSanitizer`
+  before you start hunting for a memory bug that was never reported.

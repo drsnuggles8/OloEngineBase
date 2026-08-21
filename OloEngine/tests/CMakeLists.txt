@@ -128,6 +128,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualMeshCookIdentityTest.cpp
 		Rendering/VirtualClusterCullParityTest.cpp
 		Rendering/VirtualClusterTwoPhaseOcclusionTest.cpp
+		Rendering/VirtualMeshletEligibilityTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PathTracing/ReferenceBRDFTest.cpp

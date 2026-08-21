@@ -16,6 +16,30 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// #691 Phase 6 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// the pipeline has no vertex-input state at all, so an attribute-consuming
+// stage fails pipeline creation (VUID-VkGraphicsPipelineCreateInfo-Input-07904;
+// found by the first full virtual-geometry frame on Vulkan, issue #813).
+// Binding 57 is the engine-wide vertex-pull binding; the stream is
+// MeshPrimitives::GetFullscreenTriangle's 5-float {vec3 position, vec2 uv},
+// and the uv is deliberately IGNORED here — the GL branch below derives
+// v_TexCoord from position, and the two branches must compute identically.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+
+layout(location = 0) out vec2 v_TexCoord;
+
+void main()
+{
+    int base = gl_VertexIndex * 5;
+    vec2 positionXY = vec2(b_Vertices.v[base + 0], b_Vertices.v[base + 1]);
+    v_TexCoord = positionXY * 0.5 + 0.5;
+    gl_Position = vec4(positionXY, 0.0, 1.0);
+}
+#else
 layout(location = 0) in vec3 a_Position;
 
 layout(location = 0) out vec2 v_TexCoord;
@@ -25,6 +49,7 @@ void main()
     v_TexCoord = a_Position.xy * 0.5 + 0.5;
     gl_Position = vec4(a_Position.xy, 0.0, 1.0);
 }
+#endif
 
 #type fragment
 #version 460 core
@@ -103,12 +128,7 @@ layout(std140, binding = 8) uniform MotionBlurMatrices {
 
 // Per-draw info (binding 49 = UBO_VIRTUAL_DRAW): which instance this resolve
 // draw shades, plus the visibility-buffer dimensions.
-layout(std140, binding = 49) uniform VirtualDrawInfo {
-    uint u_VirtualInstanceIndex;
-    uint u_VirtualCommandBase;
-    uint u_VirtualViewportWidth;
-    uint u_VirtualViewportHeight;
-};
+#include "include/VirtualDrawInfo.glsl"
 
 // PBR Material UBO (binding 2) — identical layout to PBR_GBuffer
 layout(std140, binding = 2) uniform PBRMaterialProperties {

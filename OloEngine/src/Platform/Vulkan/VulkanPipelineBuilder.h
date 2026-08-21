@@ -81,6 +81,14 @@ namespace OloEngine
         // axis (#691 Phase 8): the mappings source the sampler half from the
         // SAMPLER heap, indexed per draw from root data — the embedded
         // per-pipeline sampler retired with the sampler heap.
+        //
+        // A shader whose module map carries VK_SHADER_STAGE_MESH_BIT_EXT
+        // builds a MESH pipeline (issue #813): stages [task?, mesh, fragment],
+        // no vertex-input / input-assembly state, and no topology /
+        // primitive-restart dynamic states (declaring either against a mesh
+        // pipeline is a validation error). Mesh-ness needs no key axis of its
+        // own — ShaderKey identifies the shader, and a reload that changes
+        // its stage set runs through InvalidateShader first.
         [[nodiscard]] VkPipeline GetOrCreateGraphics(VulkanShader& shader, const VulkanRootDataLayout& layout,
                                                      const VulkanRecordedPipelineState& state,
                                                      const VulkanRenderTargetDesc& targets);
@@ -98,7 +106,12 @@ namespace OloEngine
 
         // Issue every vkCmdSet* for the states the pipelines above declare
         // dynamic, from the recorded state. Must run after vkCmdBindPipeline,
-        // before the draw.
+        // before the draw. The pipeline KIND is derived from the currently
+        // bound VulkanShader (a mesh-stage shader's pipeline declares neither
+        // primitive topology nor primitive-restart dynamic, and setting an
+        // undeclared dynamic state is invalid — issue #813); deriving it here
+        // rather than taking a flag means no call site can pass the wrong
+        // kind for the pipeline that was just bound from that same shader.
         static void FlushDynamicState(VkCommandBuffer cmd, const VulkanRecordedPipelineState& state,
                                       const VulkanRenderTargetDesc& targets);
 

@@ -73,7 +73,16 @@ namespace OloEngine
     {
         Auto = 0,          // route small-coverage clusters to the SW rasterizer
         ForceSoftware = 1, // route every (near-plane-safe) cluster through the SW rasterizer
-        Disabled = 2       // hardware MDI only
+        Disabled = 2       // hardware raster only
+    };
+
+    // Routing control for the HARDWARE half of the raster split (issue #813).
+    // Orthogonal to VirtualSwRasterMode: this decides how hardware-routed
+    // clusters are drawn, not which clusters are hardware-routed.
+    enum class VirtualHwRasterMode : u8
+    {
+        Auto = 0,    // mesh-shader pipeline where the device + mesh support it, MDI otherwise
+        ForceMdi = 1 // classic vertex-pipeline MDI only (the A/B + parity-test lever)
     };
 
     // Debug visualization written into the "VirtualGeometryDebug" capture target
@@ -172,6 +181,11 @@ namespace OloEngine
             u32 SourceTriangleCount = 0;
             u32 SubmeshIndex = 0; // submesh this part was built from
             bool Valid = false;   // false = build failed (unsupported source); submissions are skipped
+            // Every cluster fits one mesh workgroup (kMeshletMaxVertices /
+            // kMeshletMaxTriangles), so the mesh-shader raster path (#813) can
+            // draw this part. False for meshes cooked with an oversized
+            // VirtualMeshBuildConfig — those stay on the classic MDI path.
+            bool MeshletCompatible = false;
         };
 
         // The contiguous run of MeshEntry parts belonging to one mesh asset.
@@ -189,7 +203,8 @@ namespace OloEngine
             VirtualInstanceGpuRecord Gpu;
             u32 MaterialDataIndex = 0;
             bool CastShadows = true;
-            bool TwoSided = false; // material is TwoSided — the hardware draw must not backface-cull
+            bool TwoSided = false;          // material is TwoSided — the hardware draw must not backface-cull
+            bool MeshletCompatible = false; // copied from MeshEntry — mesh-shader path eligibility (#813)
         };
 
         static VirtualMeshRegistry& Get();
@@ -242,6 +257,31 @@ namespace OloEngine
         [[nodiscard]] VirtualSwRasterMode GetSwRasterMode() const
         {
             return m_SwRasterMode;
+        }
+        // Hardware-raster routing control (#813): Auto lets VirtualGeometryPass
+        // pick the mesh-shader pipeline on capable devices; ForceMdi pins the
+        // classic MDI path for A/B measurement and the raster parity test.
+        void SetHwRasterMode(VirtualHwRasterMode mode)
+        {
+            m_HwRasterMode = mode;
+        }
+        [[nodiscard]] VirtualHwRasterMode GetHwRasterMode() const
+        {
+            return m_HwRasterMode;
+        }
+        // The pass's EFFECTIVE mesh-raster availability, published by
+        // VirtualGeometryPass::Init: true only when the device supports mesh
+        // shaders AND VirtualMeshletGBuffer.glsl compiled. Distinct from the
+        // raw device capability — a compile-failure demotion would otherwise
+        // be invisible outside a log line, and an A/B driven off the raw
+        // capability would measure MDI against MDI without knowing it.
+        void SetMeshRasterAvailable(bool available)
+        {
+            m_MeshRasterAvailable = available;
+        }
+        [[nodiscard]] bool GetMeshRasterAvailable() const
+        {
+            return m_MeshRasterAvailable;
         }
         [[nodiscard]] f32 GetSwRasterThresholdPixels() const
         {
@@ -515,8 +555,10 @@ namespace OloEngine
         u32 m_VisbufferHeight = 0;
 
         VirtualSwRasterMode m_SwRasterMode = VirtualSwRasterMode::Auto;
-        f32 m_SwRasterThresholdPixels = 24.0f; // Auto-mode projected-radius routing threshold
-        bool m_ForcePortableSwRaster = false;  // debug/test: force the two-pass 2x32 path
+        f32 m_SwRasterThresholdPixels = 24.0f;                          // Auto-mode projected-radius routing threshold
+        bool m_ForcePortableSwRaster = false;                           // debug/test: force the two-pass 2x32 path
+        VirtualHwRasterMode m_HwRasterMode = VirtualHwRasterMode::Auto; // mesh-shader vs MDI (#813)
+        bool m_MeshRasterAvailable = false;                             // published by VirtualGeometryPass::Init (#813)
 
         // Debug visualization targets (raw GL, sized to the viewport). Colour is
         // RGBA8 (imported into the graph + captured); count is R32UI (overdraw

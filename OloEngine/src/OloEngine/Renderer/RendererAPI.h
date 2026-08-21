@@ -177,6 +177,18 @@ namespace OloEngine
         // never round-trip through the CPU. A zero group count is legal and does
         // nothing — that is how a level with no survivors costs nothing.
         virtual void DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes) = 0;
+
+        // Task/mesh-pipeline dispatch (issue #813): launches the
+        // currently-bound task/mesh GRAPHICS pipeline with a
+        // groupsX x groupsY x groupsZ grid of task workgroups. Requires the
+        // bound shader to carry task+mesh stages and the backend to answer
+        // SupportsMeshShaders() — callers gate on that capability and take a
+        // classic vertex-pipeline path when it says no; a call that reaches
+        // an unsupported backend anyway is a LOUD dropped draw, never a
+        // silent one. A zero group count in any dimension is a legal no-op.
+        // Deliberately NOT named "DrawMesh": that name is the mesh-ASSET draw
+        // path in Renderer/Commands/RenderCommand.h.
+        virtual void DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ) = 0;
         virtual void MemoryBarrier(MemoryBarrierFlags flags) = 0;
 
         // The render graph's pre-pass barrier batch, carrying BOTH barrier
@@ -565,6 +577,14 @@ namespace OloEngine
         // visibility buffer with a single atomicMin on a packed uint64_t instead
         // of the portable two-pass 2x32 scheme (issue #629). Cached at Init.
         [[nodiscard("Store this!")]] virtual bool SupportsInt64ShaderAtomics() const = 0;
+        // True when the backend can run task/mesh-shader graphics pipelines
+        // right now — the capability gate for DrawMeshTasks (issue #813).
+        // Vulkan answers from the logical device's ENABLED VK_EXT_mesh_shader
+        // features (taskShader AND meshShader, the SupportsInt64ShaderAtomics
+        // enabled-not-just-supported rule); OpenGL always answers false —
+        // GL_NV_mesh_shader is deliberately out of scope. The decision is
+        // refuse-or-degrade, made explicitly by the caller, never silent.
+        [[nodiscard("Store this!")]] virtual bool SupportsMeshShaders() const = 0;
 
         [[nodiscard("Store this!")]] static API GetAPI()
         {

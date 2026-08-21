@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 
+#include <algorithm>
 #include <limits>
 #include <vector>
 
@@ -38,6 +39,7 @@ namespace OloEngine
             record.VertexBase = static_cast<u32>(data.Vertices.size());
             record.IndexBase = static_cast<u32>(data.Indices.size());
             record.IndexCount = cluster.TriangleCount * 3;
+            record.VertexCount = cluster.VertexCount;
             record.GroupIndex = static_cast<u32>(cluster.GroupIndex);
             record.RefinedGroup = cluster.RefinedGroup >= 0 ? static_cast<u32>(cluster.RefinedGroup)
                                                             : VirtualClusterGpuRecord::kNoRefinedGroup;
@@ -96,5 +98,13 @@ namespace OloEngine
         }
 
         return data;
+    }
+
+    bool IsMeshletCompatible(const VirtualMeshGpuData& data)
+    {
+        return data.IsValid() &&
+               std::ranges::all_of(data.Clusters, [](const VirtualClusterGpuRecord& cluster)
+                                   { return cluster.VertexCount <= kMeshletMaxVertices &&
+                                            cluster.IndexCount <= kMeshletMaxTriangles * 3u; });
     }
 } // namespace OloEngine

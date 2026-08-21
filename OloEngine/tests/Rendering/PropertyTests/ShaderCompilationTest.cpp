@@ -96,6 +96,13 @@ namespace OloEngine::Tests
                 return shaderc_glsl_tess_evaluation_shader;
             if (tok == "compute")
                 return shaderc_glsl_compute_shader;
+            // VK_EXT_mesh_shader stages (issue #813). Vulkan-tier only at
+            // runtime (VulkanShader), but the sweep still compiles them so a
+            // broken mesh/task stage fails here instead of at editor launch.
+            if (tok == "task")
+                return shaderc_glsl_task_shader;
+            if (tok == "mesh")
+                return shaderc_glsl_mesh_shader;
             return static_cast<shaderc_shader_kind>(-1);
         }
 
@@ -297,6 +304,35 @@ namespace OloEngine::Tests
                 {
                     options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
                     options.SetAutoMapLocations(true);
+                }
+                else if (kind == shaderc_glsl_task_shader || kind == shaderc_glsl_mesh_shader)
+                {
+                    // Mesh-shading stages never travel the GL tier's vulkan_1_2
+                    // env — they are compiled only by VulkanShader's vulkan_1_4
+                    // tier with OLO_VULKAN defined. Mirror that tier EXACTLY,
+                    // including the SPIR-V dialect: 1.4 lowers to SPIR-V 1.6,
+                    // which is where glslang emits LocalSizeId (the §14b class)
+                    // — sweeping at a lower env would validate a different
+                    // dialect than production ships. Same hand-encoded
+                    // enumerator + static_assert as VulkanShader.cpp: an older
+                    // system shaderc (Linux CI) lacks the NAME but the encoding
+                    // is fixed (VK_MAKE_API_VERSION(0, 1, 4, 0)).
+                    constexpr auto kShadercEnvVulkan14 = static_cast<shaderc_env_version>((1u << 22) | (4u << 12));
+                    static_assert(static_cast<u32>(kShadercEnvVulkan14) == 0x00404000u,
+                                  "VK_MAKE_API_VERSION(0, 1, 4, 0) is a fixed encoding");
+                    options.SetTargetEnvironment(shaderc_target_env_vulkan, kShadercEnvVulkan14);
+                    // ...and pin the SPIR-V dialect explicitly, exactly as
+                    // VulkanShader::Compile does. Without this the sweep is a
+                    // no-op on any shaderc that predates Vulkan 1.4 (Ubuntu's
+                    // libshaderc 2023.8 on the sanitizer runners): the env is
+                    // accepted, not recognised, and silently downgraded to a
+                    // SPIR-V too old to permit GL_EXT_mesh_shader — so the very
+                    // stages this branch exists to cover fail to compile.
+                    constexpr auto kShadercSpirv16 = static_cast<shaderc_spirv_version>((1u << 16) | (6u << 8));
+                    static_assert(static_cast<u32>(kShadercSpirv16) == 0x00010600u,
+                                  "SPIR-V version words are (major << 16) | (minor << 8)");
+                    options.SetTargetSpirv(kShadercSpirv16);
+                    options.AddMacroDefinition("OLO_VULKAN", "1");
                 }
                 else
                 {

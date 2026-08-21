@@ -4265,6 +4265,29 @@ namespace OloEngine::MCP
             return true;
         }
 
+        const char* VirtualHwRasterModeToken(VirtualHwRasterMode mode)
+        {
+            switch (mode)
+            {
+                case VirtualHwRasterMode::Auto:
+                    return "auto";
+                case VirtualHwRasterMode::ForceMdi:
+                    return "forcemdi";
+            }
+            return "auto";
+        }
+
+        bool ParseVirtualHwRasterMode(const std::string& token, VirtualHwRasterMode& out)
+        {
+            if (token == "auto")
+                out = VirtualHwRasterMode::Auto;
+            else if (token == "forcemdi")
+                out = VirtualHwRasterMode::ForceMdi;
+            else
+                return false;
+            return true;
+        }
+
         // (main thread) The live knob state, echoed by both virtual-geometry tools.
         Json VirtualGeometrySettingsJson()
         {
@@ -4277,6 +4300,15 @@ namespace OloEngine::MCP
             j["swRasterMode"] = VirtualSwRasterModeToken(registry.GetSwRasterMode());
             j["swRasterThresholdPixels"] = registry.GetSwRasterThresholdPixels();
             j["forcePortableSwRaster"] = registry.GetForcePortableSwRaster();
+            // Mesh-shader hardware raster path (#813). `meshShadersSupported` is
+            // the raw DEVICE capability; `meshRasterAvailable` is the pass's
+            // EFFECTIVE availability (device capability AND the meshlet shader
+            // compiled — published by VirtualGeometryPass::Init). An A/B must
+            // key on the latter, or a compile-failure demotion silently turns
+            // the comparison into MDI-vs-MDI.
+            j["hwRasterMode"] = VirtualHwRasterModeToken(registry.GetHwRasterMode());
+            j["meshShadersSupported"] = RenderCommand::SupportsMeshShaders();
+            j["meshRasterAvailable"] = registry.GetMeshRasterAvailable();
             j["debugTargetAvailable"] = registry.GetDebugColorTexture().IsValid();
             return j;
         }
@@ -4292,6 +4324,9 @@ namespace OloEngine::MCP
                 .Prop("swRasterMode", Schema::String().Enum({ "auto", "forcesoftware", "disabled" }))
                 .Prop("swRasterThresholdPixels", Schema::Number())
                 .Prop("forcePortableSwRaster", Schema::Bool())
+                .Prop("hwRasterMode", Schema::String().Enum({ "auto", "forcemdi" }).Desc("How hardware-routed clusters draw: 'auto' = mesh-shader pipeline where supported, 'forcemdi' = classic MDI (the A/B lever)."))
+                .Prop("meshShadersSupported", Schema::Bool().Desc("Device/backend exposes VK_EXT_mesh_shader (task+mesh). False on OpenGL."))
+                .Prop("meshRasterAvailable", Schema::Bool().Desc("The pass's EFFECTIVE mesh-raster availability: device capability AND the meshlet shader compiled. Key any mesh-vs-MDI A/B on THIS, not on meshShadersSupported."))
                 .Prop("debugTargetAvailable", Schema::Bool().Desc("True when the 'VirtualGeometryDebug' target has GPU backing this frame."));
         }
 
@@ -4299,6 +4334,7 @@ namespace OloEngine::MCP
         {
             const bool hasDebugMode = args.contains("debugMode") && args["debugMode"].is_string();
             const bool hasSwRasterMode = args.contains("swRasterMode") && args["swRasterMode"].is_string();
+            const bool hasHwRasterMode = args.contains("hwRasterMode") && args["hwRasterMode"].is_string();
             const bool hasThreshold = args.contains("swRasterThresholdPixels") && args["swRasterThresholdPixels"].is_number();
             const bool hasForcePortable = args.contains("forcePortableSwRaster") && args["forcePortableSwRaster"].is_boolean();
             const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean();
@@ -4312,6 +4348,10 @@ namespace OloEngine::MCP
             if (hasSwRasterMode && !ParseVirtualSwRasterMode(args["swRasterMode"].get<std::string>(), swRasterMode))
                 return ToolResult::Error("Unknown 'swRasterMode'. Valid: auto, forcesoftware, disabled.");
 
+            VirtualHwRasterMode hwRasterMode{};
+            if (hasHwRasterMode && !ParseVirtualHwRasterMode(args["hwRasterMode"].get<std::string>(), hwRasterMode))
+                return ToolResult::Error("Unknown 'hwRasterMode'. Valid: auto, forcemdi.");
+
             f32 threshold = 0.0f;
             if (hasThreshold)
             {
@@ -4321,13 +4361,14 @@ namespace OloEngine::MCP
             }
 
             const bool anyChange =
-                hasDebugMode || hasSwRasterMode || hasThreshold || hasForcePortable || hasEnabled || hasDebugToViewport;
+                hasDebugMode || hasSwRasterMode || hasHwRasterMode || hasThreshold || hasForcePortable || hasEnabled || hasDebugToViewport;
             const bool forcePortable = hasForcePortable && args["forcePortableSwRaster"].get<bool>();
             const bool enabled = hasEnabled && args["enabled"].get<bool>();
             const bool debugToViewport = hasDebugToViewport && args["debugToViewport"].get<bool>();
 
             const Json applied = server.MarshalRead(
-                [hasDebugMode, debugMode, hasSwRasterMode, swRasterMode, hasThreshold, threshold,
+                [hasDebugMode, debugMode, hasSwRasterMode, swRasterMode, hasHwRasterMode, hwRasterMode,
+                 hasThreshold, threshold,
                  hasForcePortable, forcePortable, hasEnabled, enabled, hasDebugToViewport, debugToViewport]() -> Json
                 {
                     auto& registry = VirtualMeshRegistry::Get();
@@ -4336,6 +4377,8 @@ namespace OloEngine::MCP
                         ApplyVirtualDebugMode(debugMode); // shared with olo_render_set_debug_view's vg* modes
                     if (hasSwRasterMode)
                         registry.SetSwRasterMode(swRasterMode);
+                    if (hasHwRasterMode)
+                        registry.SetHwRasterMode(hwRasterMode);
                     if (hasThreshold)
                         registry.SetSwRasterThresholdPixels(threshold);
                     if (hasForcePortable)
@@ -6360,7 +6403,15 @@ namespace OloEngine::MCP
                 "safe cluster does, 'disabled' = hardware MDI only) and 'swRasterThresholdPixels' moves "
                 "the auto-mode projected-radius cutoff — together they are the SW-vs-HW parity A/B. "
                 "'forcePortableSwRaster' forces the portable two-pass 2x32 visibility path even on a "
-                "driver with 64-bit atomics. 'enabled' is the MASTER SWITCH: turning it off draws every "
+                "driver with 64-bit atomics. 'hwRasterMode' picks how the HARDWARE-routed clusters draw: "
+                "'auto' = the mesh-shader pipeline where the device supports VK_EXT_mesh_shader (Vulkan "
+                "backend only), 'forcemdi' = the classic vertex-pipeline MDI — this is the "
+                "mesh-shader-vs-MDI A/B (#813). Key that A/B on 'meshRasterAvailable' in the echoed "
+                "settings, which reports the EFFECTIVE route: 'meshShadersSupported' is raw device "
+                "capability, and the pass still demotes to MDI if VirtualMeshletGBuffer.glsl failed to "
+                "compile — in which case 'auto' and 'forcemdi' both draw MDI and the A/B silently "
+                "measures nothing against itself. "
+                "'enabled' is the MASTER SWITCH: turning it off draws every "
                 "VirtualMeshComponent through the CLASSIC mesh path instead (same geometry, same "
                 "materials, no cluster LOD), which is the virtual-vs-classic A/B — the scene is "
                 "unchanged and only the renderer differs. 'debugToViewport' composites the active "
@@ -6375,6 +6426,7 @@ namespace OloEngine::MCP
                                    .Prop("swRasterMode", Schema::String().Enum({ "auto", "forcesoftware", "disabled" }).Desc("Software-rasterizer routing: 'auto' (coverage-based, default), 'forcesoftware' (every near-plane-safe cluster), 'disabled' (hardware MDI only)."))
                                    .Prop("swRasterThresholdPixels", Schema::Number().Min(0).Max(4096).Desc("Auto-mode cutoff: a cluster whose projected screen radius is below this many pixels is software-rasterized (default 24)."))
                                    .Prop("forcePortableSwRaster", Schema::Bool().Desc("Force the portable two-pass 2x32 SW visibility path even where 64-bit atomics exist (exercises both rasterizers on capable hardware)."))
+                                   .Prop("hwRasterMode", Schema::String().Enum({ "auto", "forcemdi" }).Desc("Hardware-raster routing (#813): 'auto' = mesh-shader pipeline where the device supports it (Vulkan only), 'forcemdi' = classic vertex-pipeline MDI. The mesh-shader-vs-MDI A/B lever."))
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("changed", Schema::Bool().Desc("True when any knob argument was present."))

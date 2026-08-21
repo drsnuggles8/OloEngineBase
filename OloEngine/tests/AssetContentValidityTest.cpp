@@ -1428,9 +1428,15 @@ namespace OloEngine::Tests
             // they are dead weight, not a hazard (nothing constructs the old
             // name any more). `pipeline_cache.vkpc` is the process-wide
             // VkPipelineCache blob (shader/vulkan/, §3(c)).
+            // `task`/`mesh` are the VK_EXT_mesh_shader stages (issue #813) —
+            // valid ONLY under the Vulkan backend's own `.cached_vulkan14`
+            // tier, deliberately not added to the shared alternation: a stray
+            // `.cached_opengl.mesh` would mean the GL tier tried to cache a
+            // stage it must reject, which is exactly the cache species this
+            // whitelist exists to flag.
             { "shader",
-              std::regex(R"((?:.+?(\.glsl)?\.cached_(opengl|vulkan(12|14)?)(\.bindless)?\.(vert|frag|comp|tesc|tese|geom|pgr))|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc))"),
-              "<name>[.glsl].cached_{opengl|vulkan12|vulkan14}[.bindless].{stage|pgr}, program_binary_driver_stamp.txt, or pipeline_cache.vkpc" },
+              std::regex(R"((?:.+?(\.glsl)?\.cached_(?:(?:opengl|vulkan(?:12)?)(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|pgr)|vulkan14(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|task|mesh|pgr)))|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc))"),
+              "<name>[.glsl].cached_{opengl|vulkan12}[.bindless].{stage|pgr} or .cached_vulkan14[.bindless].{stage|task|mesh|pgr}, program_binary_driver_stamp.txt, or pipeline_cache.vkpc" },
             { "ibl",
               std::regex(R"([0-9a-fA-F]+_(irradiance|prefilter|brdf)\.iblcache)"),
               "<hash>_{irradiance|prefilter|brdf}.iblcache" },

@@ -41,17 +41,18 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
 };
 
-// The last two members are unused here (this pass never reads viewport
-// dimensions) and the CPU side always uploads zero for them; named as
-// padding to match VirtualMeshGBuffer.glsl's convention rather than the
-// real, populated `u_VirtualViewportWidth`/`Height` fields in
-// VirtualVisibilityResolve.glsl, which this block is not.
-layout(std140, binding = 49) uniform VirtualDrawInfo {
-    uint u_VirtualInstanceIndex;
-    uint u_VirtualCommandBase;
-    uint _vdPad0;
-    uint _vdPad1;
-};
+// Per-draw info (binding 49 = UBO_VIRTUAL_DRAW). This stage reads ONLY
+// u_VirtualInstanceIndex; it never reads the viewport dimensions, and
+// VirtualGeometryShadow.cpp uploads zero for every field it does not use.
+//
+// That "unused here" fact used to be expressed by naming the two slots
+// `_vdPad0`/`_vdPad1` locally (#856), which kept the disagreement with
+// VirtualVisibilityResolve.glsl — where the same bytes are real, populated
+// viewport fields — from tripping the cross-shader layout test. #813 removed
+// the disagreement itself instead: there is now one block, declared once in
+// the include, so a stage that ignores a field simply ignores it and no local
+// renaming is needed to keep the mirrors apart.
+#include "include/VirtualDrawInfo.glsl"
 
 void main()
 {

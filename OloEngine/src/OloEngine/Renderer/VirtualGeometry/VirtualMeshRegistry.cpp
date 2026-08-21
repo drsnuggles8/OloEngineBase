@@ -76,6 +76,13 @@ namespace OloEngine
                 entry.LevelCount = part.Dag.LevelCount;
                 entry.SourceTriangleCount = part.Dag.SourceTriangleCount;
                 entry.Valid = entry.Packed.IsValid();
+                // Mesh-shader path eligibility (#813): one mesh workgroup
+                // renders one cluster, so EVERY cluster must fit the declared
+                // output limits. Decided per part at registration — the draw
+                // loop routes per instance, never per cluster. (Invalid/empty
+                // packed data is incompatible by IsMeshletCompatible's own
+                // IsValid() guard — no external pre-check needed.)
+                entry.MeshletCompatible = IsMeshletCompatible(entry.Packed);
             }
             parts.Valid = parts.Valid || entry.Valid;
             m_PoolsDirty = m_PoolsDirty || entry.Valid;
@@ -833,6 +840,7 @@ namespace OloEngine
                 instance.CastShadows = submission.CastShadows && !partAlphaMasked;
                 instance.TwoSided = partIndex < submission.PartTwoSided.size() &&
                                     submission.PartTwoSided[partIndex] != 0u;
+                instance.MeshletCompatible = entry.MeshletCompatible;
 
                 VirtualInstanceGpuRecord& gpu = instance.Gpu;
                 gpu.Transform = submission.Transform;

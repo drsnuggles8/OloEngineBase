@@ -418,6 +418,7 @@ namespace OloEngine
         void MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer, u32 indirectOffsetBytes, RHI::ResourceHandle parameterBuffer, u32 parameterOffsetBytes, u32 maxDrawCount, u32 strideBytes) override;
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes) override;
+        void DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;
         void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) override;
         void BindDefaultFramebuffer() override;
@@ -527,6 +528,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] bool IsDeviceAvailable() const override;
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override;
         [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override;
+        [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override;
 
       private:
         // Const: several facade getters are const-qualified and still must
@@ -662,6 +664,16 @@ namespace OloEngine
         // array, arena-push it, and vkCmdPushDataEXT the 8-byte address.
         // Returns false (warn-once, dropped draw) on any missing piece.
         [[nodiscard]] bool PrepareDraw(const VulkanVertexArray* vao, VkPrimitiveTopology topology);
+        // The topology-free common part of PrepareDraw, shared with the
+        // task/mesh path (issue #813): everything above EXCEPT
+        // vkCmdSetPrimitiveTopology and the primitive-restart dynamic state
+        // — a mesh pipeline has no input assembly, and setting either is
+        // invalid against one. `meshPipeline` must match the bound shader's
+        // stage set (a mesh shader under vkCmdDraw*, or a vertex shader
+        // under vkCmdDrawMeshTasksEXT, is invalid either way — mismatches
+        // drop loudly here). Counts prepared/dropped draws exactly as
+        // PrepareDraw always did.
+        [[nodiscard]] bool PrepareDrawCommon(const VulkanVertexArray* vao, bool meshPipeline);
         // Bind the VAO's index buffer if it changed (redundant-bind cache,
         // reset per recording). False when the VAO has no index buffer.
         [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
