@@ -201,3 +201,78 @@ TEST_F(SyntheticInputTest, NoInjectionMeansNoOffsetAtAll)
     EXPECT_FLOAT_EQ(Input::GetMousePosition().x, 0.0f);
     EXPECT_FLOAT_EQ(Input::GetMousePosition().y, 0.0f);
 }
+
+// ---- issue #854: a drag must leave nothing behind ---------------------------
+//
+// #854 reported that after a `drag`, every later `click` in the session was inert
+// while still reporting ok, and named this overlay as the prime suspect: it carries
+// both an absolute cursor override and a persistent relative offset, and the override
+// wins outright while set, so an override left latched by a drag would explain both
+// halves at once.
+//
+// It was not the cause. The real one is a layer up, in the ImGui GLFW backend, which
+// re-injects the HARDWARE cursor position after the injected one whenever the window
+// is focused and the physical mouse is not over it — see McpInputInjectTest and
+// EditorLayer::AssertSyntheticCursorOverWindow. This test exists anyway, and says so
+// out loud, for two reasons: the suspicion is a natural one that will be raised again,
+// and the property it describes is one this overlay genuinely owes its callers. A
+// drag's whole event sequence — position, press, interpolated moves, release — must
+// leave the overlay bit-for-bit as it found it, or the next injection starts from a
+// state nobody asked for.
+
+TEST_F(SyntheticInputTest, ADragLeavesTheOverlayExactlyAsItFoundIt)
+{
+    // Snapshot the pre-plan state. With no Application the hardware fallback is a zero
+    // position, so this is exact rather than approximate.
+    const glm::vec2 before = Input::GetMousePosition();
+    ASSERT_FALSE(SyntheticInput::IsMouseButtonDown(Mouse::ButtonLeft));
+    ASSERT_FALSE(SyntheticInput::AnyKeyDown());
+
+    // Replay what a `drag` plan feeds the overlay: move to the start, press, walk the
+    // interpolated steps with the button held, release, then the plan drains.
+    SyntheticInput::SetMousePosition({ 100.0f, 200.0f });
+    SyntheticInput::SetMouseButton(Mouse::ButtonLeft, true);
+    for (int step = 1; step <= 8; ++step)
+    {
+        const auto t = static_cast<f32>(step) / 8.0f;
+        SyntheticInput::SetMousePosition({ 100.0f + (400.0f * t), 200.0f + (150.0f * t) });
+    }
+    // Mid-drag the overlay must report the button as held, or the drag is not a drag.
+    EXPECT_TRUE(SyntheticInput::IsMouseButtonDown(Mouse::ButtonLeft));
+    SyntheticInput::SetMouseButton(Mouse::ButtonLeft, false);
+    SyntheticInput::ClearMousePosition();
+
+    // State after the drag == state before it. A latched override here would make
+    // every later injected click resolve to the drag's end point instead of its own.
+    const glm::vec2 after = Input::GetMousePosition();
+    EXPECT_FLOAT_EQ(after.x, before.x);
+    EXPECT_FLOAT_EQ(after.y, before.y);
+    EXPECT_FALSE(SyntheticInput::IsMouseButtonDown(Mouse::ButtonLeft));
+    glm::vec2 position{ 0.0f };
+    EXPECT_FALSE(SyntheticInput::TryGetMousePosition(position))
+        << "the absolute override outlived the plan that set it";
+    // A drag emits no relative displacement at all, so the one piece of state that is
+    // ALLOWED to outlive a plan must not have moved either.
+    EXPECT_FLOAT_EQ(SyntheticInput::GetMouseOffset().x, 0.0f);
+    EXPECT_FLOAT_EQ(SyntheticInput::GetMouseOffset().y, 0.0f);
+}
+
+TEST_F(SyntheticInputTest, AnAbandonedDragDoesNotLeaveAButtonHeld)
+{
+    // The teardown path, which is the one that actually needed a guard. A plan that is
+    // cut short between its press and its release leaves the button logically down,
+    // and a mouse button nothing will ever release is not a cosmetic leak: ImGui pins
+    // its ActiveId while a button is held, which makes IsWindowHovered() false for
+    // every panel and swallows every subsequent click. Reset() is what the editor
+    // calls to guarantee that cannot outlive the plan.
+    SyntheticInput::SetMousePosition({ 640.0f, 360.0f });
+    SyntheticInput::SetMouseButton(Mouse::ButtonLeft, true);
+    ASSERT_TRUE(SyntheticInput::IsMouseButtonDown(Mouse::ButtonLeft));
+
+    SyntheticInput::Reset(); // the plan is abandoned mid-flight
+
+    EXPECT_FALSE(SyntheticInput::IsMouseButtonDown(Mouse::ButtonLeft));
+    glm::vec2 position{ 0.0f };
+    EXPECT_FALSE(SyntheticInput::TryGetMousePosition(position));
+    EXPECT_FLOAT_EQ(Input::GetMousePosition().x, 0.0f);
+}

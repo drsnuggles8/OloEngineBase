@@ -154,7 +154,23 @@ namespace
                 result.Available = true;
                 result.Ok = true;
                 result.FrameCount = static_cast<u32>(plan.Frames.size());
-                const McpInputStateSnapshot state;
+
+                // Model a LIVE editor reporting back where the injected cursor landed
+                // (issue #854). By default it landed exactly where the plan asked, so
+                // every pre-existing expectation of ok == true still exercises the
+                // verification rather than skipping it. m_CursorLandingOffset makes
+                // the editor report the position being overridden, which is the real
+                // failure this test file has to keep pinned.
+                McpInputStateSnapshot state;
+                state.Available = true;
+                if (Inject::ActionMovesTheCursor(request.Act))
+                {
+                    state.CursorLandingValid = m_ReportCursorLanding;
+                    state.CursorAskedX = end.WindowX;
+                    state.CursorAskedY = end.WindowY;
+                    state.CursorLandedX = end.WindowX + m_CursorLandingOffsetX;
+                    state.CursorLandedY = end.WindowY + m_CursorLandingOffsetY;
+                }
                 return ToolResult::Text(
                     Inject::ToJson(result, state, m_ViewportInfo, request, start, end, /*timedOut*/ false).dump());
             };
@@ -162,6 +178,11 @@ namespace
         }
 
         McpInputViewportInfo m_ViewportInfo = MakeViewportInfo();
+        // How far the editor reports the cursor ACTUALLY landed from where the plan
+        // aimed it, and whether it measured at all (a host with no window does not).
+        bool m_ReportCursorLanding = true;
+        f32 m_CursorLandingOffsetX = 0.0f;
+        f32 m_CursorLandingOffsetY = 0.0f;
         int m_InjectCount = 0;
         McpInputPlan m_LastPlan;
         Inject::ResolvedPoint m_LastStart;
@@ -204,6 +225,151 @@ TEST_F(McpInputInjectTest, GateOnInjectsAndReportsResolvedPoint)
     // origin of the viewport is (300, 100); +(640, 360) => (940, 460).
     EXPECT_FLOAT_EQ(payload["resolved"]["windowX"].get<f32>(), 940.0f);
     EXPECT_FLOAT_EQ(payload["resolved"]["windowY"].get<f32>(), 460.0f);
+}
+
+// ---- issue #854: a position that did not take must never report ok ----------
+//
+// The bug this pins is not a crash, it is a CONFIDENT WRONG ANSWER, which is the most
+// expensive kind here. An injected cursor position is a REQUEST to the ImGui GLFW
+// backend, and the backend can overrule it: ImGui_ImplGlfw_UpdateMouseData()
+// re-injects the HARDWARE cursor position whenever the window is focused and the
+// physical mouse is not over it — the normal state for an agent-driven session. That
+// runs inside ImGui_ImplGlfw_NewFrame, i.e. AFTER the editor has drained the plan, so
+// the hardware position was the last word: every injected click landed wherever the
+// physical mouse happened to be, while the tool reported ok: true and echoed back a
+// resolved point it never actually used.
+//
+// Measured live before the fix, the same call twice with only the physical mouse
+// moving:
+//   physical mouse INSIDE  the window -> ImGui cursor (60, 155)   == asked, click landed
+//   physical mouse OUTSIDE the window -> ImGui cursor (927, 1313) != asked, click inert
+// Both replies said ok: true. That also explains the "latch": the condition is a
+// property of where the physical mouse is sitting, not of the drag that appeared to
+// start it, so every LATER injection in the session was equally inert.
+//
+// EditorLayer now holds the backend's cursor-enter latch for the duration of a plan so
+// the injected position wins, and MEASURES where it landed. These tests pin the second
+// half, which is the part that must survive: "we believe the first half works" is
+// exactly the reasoning that produced a lying tool, so a landing that disagrees has to
+// fail loudly no matter WHY it disagreed.
+
+TEST_F(McpInputInjectTest, CursorThatDidNotLandWhereAskedIsNotReportedOk)
+{
+    m_Server.SetAllowWrites(true);
+    // The editor reports ImGui's cursor hundreds of pixels away — the measured
+    // signature of the position being overridden by the hardware one.
+    m_CursorLandingOffsetX = 867.0f;
+    m_CursorLandingOffsetY = 853.0f;
+
+    const Json response = m_Server.HandleMessage(
+        MakeCallRequest(70, "olo_input_inject", Json{ { "action", "click" }, { "x", 640 }, { "y", 360 } }));
+
+    ASSERT_TRUE(response.contains("result"));
+    const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+
+    // The point: the events WERE injected and the frames WERE rendered, and it still
+    // must not claim success.
+    EXPECT_EQ(m_InjectCount, 1);
+    EXPECT_FALSE(payload["ok"].get<bool>());
+    EXPECT_NE(payload["message"].get<std::string>().find("did not go where the injection asked"),
+              std::string::npos)
+        << payload["message"].get<std::string>();
+
+    // ...and it must be readable rather than merely asserted, so an agent can tell
+    // this apart from "the click landed and the UI ignored it".
+    ASSERT_TRUE(payload["after"].contains("cursorLanding"));
+    const Json& landing = payload["after"]["cursorLanding"];
+    EXPECT_FALSE(landing["landed"].get<bool>());
+    EXPECT_FLOAT_EQ(landing["askedX"].get<f32>(), 940.0f);
+    EXPECT_FLOAT_EQ(landing["landedX"].get<f32>(), 1807.0f);
+}
+
+TEST_F(McpInputInjectTest, DragIsVerifiedAgainstItsEndPointNotItsStart)
+{
+    m_Server.SetAllowWrites(true);
+
+    // A drag that lands back on its start point has not dragged: the press registered
+    // and the moves did not. Verifying against the START would call that a success —
+    // which is precisely the reported symptom (ok: true, no wire created).
+    const Json arguments{ { "action", "drag" }, { "fromX", 100 }, { "fromY", 100 }, { "toX", 500 }, { "toY", 400 } };
+    m_CursorLandingOffsetX = -400.0f;
+    m_CursorLandingOffsetY = -300.0f;
+
+    const Json response = m_Server.HandleMessage(MakeCallRequest(71, "olo_input_inject", arguments));
+    const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_FALSE(payload["ok"].get<bool>());
+
+    // The same drag, landing on its end point, is the success case.
+    m_CursorLandingOffsetX = 0.0f;
+    m_CursorLandingOffsetY = 0.0f;
+    const Json good = m_Server.HandleMessage(MakeCallRequest(72, "olo_input_inject", arguments));
+    const Json goodPayload = Json::parse(good["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_TRUE(goodPayload["ok"].get<bool>());
+    EXPECT_TRUE(goodPayload["after"]["cursorLanding"]["landed"].get<bool>());
+}
+
+TEST_F(McpInputInjectTest, SubPixelLandingErrorIsStillASuccess)
+{
+    m_Server.SetAllowWrites(true);
+    // Round-tripping a position through ImGui's screen-space conversion costs a
+    // fraction of a pixel (measured live: asked 880.5, landed 880.0). If that tripped
+    // the check the tool would cry wolf on every successful call, and a check nobody
+    // believes is worse than no check at all.
+    m_CursorLandingOffsetX = 0.5f;
+    m_CursorLandingOffsetY = -1.0f;
+
+    const Json response = m_Server.HandleMessage(
+        MakeCallRequest(73, "olo_input_inject", Json{ { "action", "click" }, { "x", 640 }, { "y", 360 } }));
+    const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_TRUE(payload["ok"].get<bool>());
+    EXPECT_TRUE(payload["after"]["cursorLanding"]["landed"].get<bool>());
+}
+
+TEST_F(McpInputInjectTest, ActionsThatInjectNoPositionAreNotLandingChecked)
+{
+    m_Server.SetAllowWrites(true);
+    // key / text / mouseDelta deliberately never move ImGui's cursor (mouseDelta drives
+    // the poll-based Input:: API only), so there is nothing to verify and a stale
+    // measurement must not be turned into a failure.
+    m_CursorLandingOffsetX = 999.0f;
+    m_CursorLandingOffsetY = 999.0f;
+
+    for (const Json& arguments : { Json{ { "action", "key" }, { "key", "s" } },
+                                   Json{ { "action", "text" }, { "text", "hi" } },
+                                   Json{ { "action", "mouseDelta" }, { "dx", 40 }, { "dy", 0 } } })
+    {
+        const Json response = m_Server.HandleMessage(MakeCallRequest(74, "olo_input_inject", arguments));
+        const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+        EXPECT_TRUE(payload["ok"].get<bool>()) << arguments.dump();
+        EXPECT_FALSE(payload["after"].contains("cursorLanding")) << arguments.dump();
+    }
+}
+
+TEST_F(McpInputInjectTest, AHostThatCannotMeasureTheLandingStillReportsOk)
+{
+    m_Server.SetAllowWrites(true);
+    // A host with no editor window measures nothing. Treating "no measurement" as "did
+    // not land" would make the tool unusable there; treating it as landed is the honest
+    // reading, because nothing claimed otherwise.
+    m_ReportCursorLanding = false;
+    m_CursorLandingOffsetX = 500.0f;
+
+    const Json response = m_Server.HandleMessage(
+        MakeCallRequest(75, "olo_input_inject", Json{ { "action", "click" }, { "x", 640 }, { "y", 360 } }));
+    const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_TRUE(payload["ok"].get<bool>());
+    EXPECT_FALSE(payload["after"].contains("cursorLanding"));
+}
+
+TEST(McpInputInjectLanding, ToleranceCatchesTheRealFailureAndForgivesFloatNoise)
+{
+    // Pin both edges, so a future widening that would let the real failure through has
+    // to change this test on purpose.
+    EXPECT_TRUE(Inject::CursorLanded(940.0f, 460.0f, 940.0f, 460.0f));
+    EXPECT_TRUE(Inject::CursorLanded(940.0f, 460.0f, 938.0f, 462.0f));
+    EXPECT_FALSE(Inject::CursorLanded(940.0f, 460.0f, 937.9f, 460.0f));
+    // The measured live failure: off by hundreds of pixels in both axes.
+    EXPECT_FALSE(Inject::CursorLanded(60.0f, 155.0f, 927.0f, 1313.0f));
 }
 
 // ---- server-side inputSchema enforcement ------------------------------------

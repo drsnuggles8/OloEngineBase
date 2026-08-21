@@ -729,6 +729,8 @@ namespace OloEngine
         // #607) — the overlay is process-wide static state, so a key left "down" here
         // would outlive the editor layer.
         m_McpInputQueue.clear();
+        ReleaseSyntheticMouseButtons();
+        RestoreCursorOverWindowState();
         SyntheticInput::Reset();
 
         // Properly stop the scene if still in play/simulate mode
@@ -846,6 +848,12 @@ namespace OloEngine
 
     void EditorLayer::DrainMcpInputQueue()
     {
+        // ImGui applies its event queue in NewFrame, which runs AFTER this drain, so
+        // the position fed in last tick is only observable now. Sampling here — on
+        // every tick, in flight or not — is what lets the tool answer "did the
+        // injected position actually take?" instead of guessing (issue #854).
+        SampleMcpCursorLanding();
+
         if (m_McpInputQueue.empty())
         {
             // Nothing in flight: make sure a previous plan left no key stuck down.
@@ -855,8 +863,27 @@ namespace OloEngine
                 m_McpSyntheticShift = false;
                 m_McpSyntheticAlt = false;
             }
+            // ...and hand the cursor back a few quiet frames after the plan ended, not
+            // on the frame it ended. Restoring immediately would blank ImGui's cursor
+            // (the physical mouse is elsewhere) BEFORE the tool reads the state change
+            // the injection caused, so every reply's `after.viewportHovered` /
+            // `hoveredEntity` would come back empty — trading one wrong answer for
+            // another. The countdown is short and unconditional: the plan always ends
+            // with trailing settle frames, the caller reads one frame past the plan,
+            // and this fires shortly after that. OnDetach restores without waiting.
+            if (m_McpCursorRestoreCountdown > 0 && --m_McpCursorRestoreCountdown == 0)
+                RestoreCursorOverWindowState();
             return;
         }
+        // A new plan supersedes any pending hand-back: it is about to re-assert the
+        // latch anyway, and letting the countdown fire mid-plan would drop it.
+        m_McpCursorRestoreCountdown = 0;
+
+        // Hold the backend's cursor-enter latch for as long as the plan runs, and
+        // re-assert it every frame: a real cursor-LEAVE arriving mid-plan (the human
+        // moves the physical mouse off the window) would otherwise drop it and hand
+        // the rest of the plan back to the hardware cursor half way through.
+        AssertSyntheticCursorOverWindow();
 
         const std::vector<MCP::McpInputEvent> frame = std::move(m_McpInputQueue.front());
         m_McpInputQueue.pop_front();
@@ -880,10 +907,112 @@ namespace OloEngine
             io.AddKeyEvent(ImGuiMod_Alt, true);
 
         // The last frame of the plan has drained: release the cursor override so the
-        // real mouse takes over again. Any key/button the plan left held stays held —
-        // that is the documented contract of keyAction "press".
+        // real mouse takes over again. Any KEY the plan left held stays held — that is
+        // the documented contract of keyAction "press". A mouse BUTTON is different:
+        // no action leaves one held on purpose, so one still down here means the plan
+        // was half applied, and a button ImGui believes is held pins its ActiveId and
+        // makes IsWindowHovered() false for every panel — i.e. it silently swallows
+        // every later click in the session (issue #854). Teardown restores it.
         if (m_McpInputQueue.empty())
+        {
             SyntheticInput::ClearMousePosition();
+            ReleaseSyntheticMouseButtons();
+            // Arm the hand-back rather than doing it here: see the countdown at the
+            // top of this function for why it must not land before the caller reads
+            // the state the plan produced.
+            m_McpCursorRestoreCountdown = s_McpCursorRestoreDelayFrames;
+        }
+    }
+
+    // Assert to the ImGui GLFW backend that the cursor is inside this window.
+    //
+    // Why this is needed at all (issue #854). ImGui_ImplGlfw_UpdateMouseData(), called
+    // from ImGui_ImplGlfw_NewFrame(), contains a fallback: when the window is FOCUSED
+    // and bd->MouseWindow is null — i.e. the physical mouse is not over any editor
+    // window, the normal state for an agent-driven session — it polls glfwGetCursorPos
+    // and queues the HARDWARE position. The drain above runs before ImGuiLayer::Begin,
+    // so our synthetic position is queued FIRST and the hardware one LAST, and ImGui
+    // applies its queue in order. The injected position was therefore discarded on
+    // every single frame, and the click landed wherever the physical mouse happened to
+    // be — while the tool reported ok. Both halves of #854 are that one fact: the drag
+    // never reached the pins, and every LATER injection was equally inert, because the
+    // condition is a property of where the physical mouse is sitting, not of the drag.
+    //
+    // Asserting the enter is not a fiction: InputInject::ResolvePoint has already
+    // refused any point outside this window's client area, so the synthetic cursor
+    // genuinely is inside it. The callback also queues bd->LastValidMousePos, which the
+    // position event we send immediately afterwards supersedes within the same frame.
+    void EditorLayer::AssertSyntheticCursorOverWindow()
+    {
+        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        if (!window)
+            return;
+        ::ImGui_ImplGlfw_CursorEnterCallback(window, GLFW_TRUE);
+        m_McpSyntheticCursorEntered = true;
+    }
+
+    // ...and hand it back when the plan ends, so an injected plan leaves the backend
+    // exactly as it found it. Left asserted, the editor would keep hovering the last
+    // injected point long after the plan finished, which is the same genre of latch
+    // this issue is about. GLFW_HOVERED is the ground truth we defer to; when it says
+    // the mouse really is outside, the leave callback's sentinel position is picked up
+    // and replaced by the fallback above on the very next frame, which IS the
+    // pre-injection behaviour.
+    void EditorLayer::RestoreCursorOverWindowState()
+    {
+        if (!m_McpSyntheticCursorEntered)
+            return;
+        m_McpSyntheticCursorEntered = false;
+
+        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        if (!window)
+            return;
+        if (::glfwGetWindowAttrib(window, GLFW_HOVERED) == 0)
+            ::ImGui_ImplGlfw_CursorEnterCallback(window, GLFW_FALSE);
+    }
+
+    // Release every mouse button an in-flight plan pressed and did not release.
+    // Mirrors the press into BOTH sinks the press went to, so neither the poll-based
+    // Input:: overlay nor ImGui is left believing a button is down.
+    void EditorLayer::ReleaseSyntheticMouseButtons()
+    {
+        // The two tables index the same GLFW button space; if the overlay ever grows a
+        // button this one has not, a plan could press one we never track and therefore
+        // never release.
+        static_assert(std::tuple_size_v<decltype(m_McpSyntheticButtonsDown)> == SyntheticInput::s_MouseButtonCount,
+                      "the tracked-button table must cover exactly the buttons SyntheticInput accepts");
+
+        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        for (sizet button = 0; button < m_McpSyntheticButtonsDown.size(); ++button)
+        {
+            if (!m_McpSyntheticButtonsDown[button])
+                continue;
+            m_McpSyntheticButtonsDown[button] = false;
+            SyntheticInput::SetMouseButton(static_cast<MouseCode>(button), false);
+            if (window)
+            {
+                ::ImGui_ImplGlfw_MouseButtonCallback(window, static_cast<i32>(button), GLFW_RELEASE, 0);
+            }
+            OLO_CORE_WARN("[MCP] Injected plan ended with mouse button {} still down; released it.", button);
+        }
+    }
+
+    // Read back where the previous tick's injected position actually landed. ImGui's
+    // NewFrame has run since, so io.MousePos now reflects it — or does not, which is
+    // the whole point.
+    void EditorLayer::SampleMcpCursorLanding()
+    {
+        if (!m_McpCursorProbeArmed)
+            return;
+        m_McpCursorProbeArmed = false;
+
+        // Same ImGui-screen -> window-client correction GetMcpInputState applies, so
+        // asked and landed are directly comparable.
+        const MCP::McpInputViewportInfo info = GetMcpInputViewportInfo();
+        const ImVec2 mouse = ImGui::GetMousePos();
+        m_McpCursorLandedX = mouse.x - info.WindowX;
+        m_McpCursorLandedY = mouse.y - info.WindowY;
+        m_McpCursorLandingValid = true;
     }
 
     void EditorLayer::ApplyMcpInputEvent(const MCP::McpInputEvent& event)
@@ -913,6 +1042,13 @@ namespace OloEngine
                 // coordinate without us duplicating that math.
                 SyntheticInput::SetMousePosition({ event.X, event.Y });
                 ::ImGui_ImplGlfw_CursorPosCallback(window, static_cast<f64>(event.X), static_cast<f64>(event.Y));
+                // Arm the landing probe: next tick, once ImGui's NewFrame has applied
+                // its queue, SampleMcpCursorLanding checks whether this position is
+                // where the cursor actually ended up (issue #854).
+                m_McpCursorAskedX = event.X;
+                m_McpCursorAskedY = event.Y;
+                m_McpCursorProbeArmed = true;
+                m_McpCursorLandingValid = false;
                 break;
             }
             case MCP::McpInputEvent::Kind::MouseDelta:
@@ -946,6 +1082,17 @@ namespace OloEngine
             {
                 SyntheticInput::SetMouseButton(static_cast<MouseCode>(event.Code), event.Down);
                 ::ImGui_ImplGlfw_MouseButtonCallback(window, event.Code, event.Down ? GLFW_PRESS : GLFW_RELEASE, mods);
+                // Remember what this plan is holding, so its teardown can put back
+                // anything the plan itself failed to release.
+                if (event.Code >= 0 && static_cast<sizet>(event.Code) < m_McpSyntheticButtonsDown.size())
+                    m_McpSyntheticButtonsDown[static_cast<sizet>(event.Code)] = event.Down;
+                // Re-arm the landing probe WITHOUT changing what was asked for. A press
+                // trails its cursor move by several frames, so measuring only after the
+                // move would miss a cursor stolen in between — and a press that lands
+                // somewhere else is precisely the "reported ok, did nothing" this issue
+                // is about. Re-arming here makes the last measurement the one taken
+                // after the button actually acted.
+                m_McpCursorProbeArmed = true;
                 break;
             }
             case MCP::McpInputEvent::Kind::Key:
@@ -1054,6 +1201,16 @@ namespace OloEngine
         const glm::vec2 offset = SyntheticInput::GetMouseOffset();
         state.MouseOffsetX = offset.x;
         state.MouseOffsetY = offset.y;
+
+        // Where the last injected position was aimed and where it actually landed
+        // (issue #854). Reported separately from MouseX/MouseY above, which is a
+        // live read and by this point may legitimately have moved back to the
+        // hardware cursor as the plan's teardown handed hover back.
+        state.CursorLandingValid = m_McpCursorLandingValid;
+        state.CursorAskedX = m_McpCursorAskedX;
+        state.CursorAskedY = m_McpCursorAskedY;
+        state.CursorLandedX = m_McpCursorLandedX;
+        state.CursorLandedY = m_McpCursorLandedY;
         return state;
     }
 

@@ -563,6 +563,24 @@ namespace OloEngine::MCP
         // can leave behind, and a drifting value is how you notice you did.
         f32 MouseOffsetX = 0.0f;
         f32 MouseOffsetY = 0.0f;
+        // Where the LAST injected cursor position actually landed in ImGui (issue
+        // #854), in window-client logical pixels, alongside the position that was
+        // asked for. Sampled by the editor on the frame after the event was fed to
+        // the backend — i.e. once ImGui's NewFrame has applied its event queue —
+        // rather than read out of `MouseX` after the plan, because by then the
+        // backend may legitimately have moved the cursor back to the hardware one.
+        //
+        // This exists because "the injected position was silently discarded" used to
+        // be indistinguishable from "the click landed and the UI ignored it": the
+        // GLFW backend re-injects the HARDWARE position after ours whenever the
+        // window is focused and the physical mouse is not over it, which is the
+        // normal state for an agent-driven session. The tool compares these two and
+        // refuses to report ok when they disagree.
+        bool CursorLandingValid = false;
+        f32 CursorAskedX = 0.0f;
+        f32 CursorAskedY = 0.0f;
+        f32 CursorLandedX = 0.0f;
+        f32 CursorLandedY = 0.0f;
     };
 
     // Editor liveness + window state (issue #607) — the answer to "is the editor
