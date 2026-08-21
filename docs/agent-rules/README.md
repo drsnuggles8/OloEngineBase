@@ -77,6 +77,9 @@ No crash, no error, no log line. Work or data disappears and the system keeps ru
 [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) (a stale wall between two chunks,
 when a carve does not rebuild the neighbours it uncovered) ·
 [component-serializer-codegen.md](component-serializer-codegen.md) (a field, from every save) ·
+[terrain-virtual-texturing.md](terrain-virtual-texturing.md) §4 (an *unmapping*, once publishing
+became incremental — the eviction that used to be expressed by clearing the whole map now has to be
+an explicit entry, and one of its two sources fires no notification at all) ·
 [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) (a
 settings struct, on entering Play) ·
 [light-path-photometric-parity.md](light-path-photometric-parity.md) (an authored light parameter →
@@ -147,7 +150,7 @@ previous-frame depth) ·
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) (clearing the LRU bit one step
 early evicts the whole cache every frame; §8 — a perspective light face cannot be culled by
 projecting AABB corners and dividing by w, and the caster vanishes only when it gets close) ·
-[terrain-virtual-texturing.md](terrain-virtual-texturing.md) (§4 — LRU moves to the front and evicts
+[terrain-virtual-texturing.md](terrain-virtual-texturing.md) (§5 — LRU moves to the front and evicts
 from the tail, so touching a priority-ordered list front-to-back evicts the highest-priority page
 first; §3a — the coarse-to-fine fill must be one dispatch per level, barriers between) · [render-pass-published-state.md](render-pass-published-state.md) (publish
 last, restore deliberately) · [cluster-lod-simplification.md](cluster-lod-simplification.md) (a lock

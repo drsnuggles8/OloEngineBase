@@ -233,4 +233,150 @@ namespace OloEngine
         // and clamp() would propagate the NaN rather than absorb it.
         return (lenSq > 0.0f) ? 0.5f * std::log2(lenSq) : 0.0f;
     }
+
+    // ── VTIndirectionDelta ───────────────────────────────────────────────────
+
+    namespace
+    {
+        using Rect = VTIndirectionDelta::Rect;
+
+        [[nodiscard]] Rect UnionRect(const Rect& a, const Rect& b)
+        {
+            if (a.IsEmpty())
+            {
+                return b;
+            }
+            if (b.IsEmpty())
+            {
+                return a;
+            }
+            const u32 x0 = std::min(a.m_X, b.m_X);
+            const u32 y0 = std::min(a.m_Y, b.m_Y);
+            const u32 x1 = std::max(a.m_X + a.m_Width, b.m_X + b.m_Width);
+            const u32 y1 = std::max(a.m_Y + a.m_Height, b.m_Y + b.m_Height);
+            return Rect{ x0, y0, x1 - x0, y1 - y0 };
+        }
+    } // namespace
+
+    void VTIndirectionDelta::Reset(const TerrainVirtualTextureConfig& config)
+    {
+        const u32 mipCount = config.MipCount();
+        m_PagesWide = config.VirtualPagesWide;
+
+        m_PerMip.resize(mipCount);
+        for (auto& list : m_PerMip)
+        {
+            list.clear();
+        }
+        m_Index.clear();
+        m_Combined.clear();
+        m_MipOffsets.assign(static_cast<sizet>(mipCount) + 1u, 0u);
+        m_ChangeBounds.assign(mipCount, Rect{});
+        m_FillRects.assign(mipCount, Rect{});
+        m_Size = 0u;
+        m_FullRebuild = false;
+    }
+
+    void VTIndirectionDelta::Map(u32 mip, u32 pageX, u32 pageY, u32 tileX, u32 tileY)
+    {
+        Write(mip, pageX, pageY, VTPackIndirection(tileX, tileY, mip, /*direct*/ true));
+    }
+
+    void VTIndirectionDelta::Unmap(u32 mip, u32 pageX, u32 pageY)
+    {
+        // Zeroes rather than "whatever the coarser level says": byte-for-byte
+        // what slice 1's clear kernel left behind, which is what makes the two
+        // paths agree even at the COARSEST level, where there is no finer-level
+        // fill pass afterwards to repair the texel.
+        Write(mip, pageX, pageY, VTPackIndirection(0u, 0u, 0u, /*direct*/ false));
+    }
+
+    void VTIndirectionDelta::MarkEverythingDirty()
+    {
+        m_FullRebuild = true;
+    }
+
+    void VTIndirectionDelta::Write(u32 mip, u32 pageX, u32 pageY, u32 packed)
+    {
+        // A page key can outlive the config that produced it — Configure() can
+        // shrink the map while a page from the old shape is still in the cache.
+        // Dropping the update is right: the whole map is rebuilt on a reconfigure
+        // anyway.
+        if (mip >= m_PerMip.size())
+        {
+            return;
+        }
+        const u32 side = m_PagesWide >> mip;
+        if (pageX >= side || pageY >= side)
+        {
+            OLO_CORE_ASSERT(false, "VTIndirectionDelta: page ({}, {}) is outside mip {} ({} wide)", pageX, pageY, mip,
+                            side);
+            return;
+        }
+
+        VTIndirectionUpdate update;
+        update.m_TexelCoord = (pageY << 16u) | pageX;
+        update.m_Packed = packed;
+
+        // One entry per texel. Two updates to the same texel in one dispatch race
+        // — see rule 3 in the class comment.
+        const u32 key = VTMakePageKey(mip, pageX, pageY);
+        auto& list = m_PerMip[mip];
+        if (const auto it = m_Index.find(key); it != m_Index.end())
+        {
+            list[it->second] = update;
+        }
+        else
+        {
+            m_Index.emplace(key, static_cast<u32>(list.size()));
+            list.push_back(update);
+            ++m_Size;
+        }
+
+        // Idempotent on the rewrite path: a texel written twice is dirty once.
+        m_ChangeBounds[mip] = UnionRect(m_ChangeBounds[mip], Rect{ pageX, pageY, 1u, 1u });
+    }
+
+    void VTIndirectionDelta::Finalize()
+    {
+        const u32 mipCount = MipCount();
+        if (mipCount == 0u)
+        {
+            return;
+        }
+
+        m_Combined.clear();
+        m_Combined.reserve(m_Size);
+        for (u32 mip = 0; mip < mipCount; ++mip)
+        {
+            m_MipOffsets[mip] = static_cast<u32>(m_Combined.size());
+            m_Combined.insert(m_Combined.end(), m_PerMip[mip].begin(), m_PerMip[mip].end());
+        }
+        m_MipOffsets[mipCount] = static_cast<u32>(m_Combined.size());
+
+        if (m_FullRebuild)
+        {
+            for (u32 mip = 0; mip < mipCount; ++mip)
+            {
+                const u32 side = m_PagesWide >> mip;
+                m_FillRects[mip] = Rect{ 0u, 0u, side, side };
+            }
+            return;
+        }
+
+        // Coarse to fine. The texels whose INHERITED value can have changed at
+        // level l are the descendants of everything that changed at level l+1 and
+        // above — which is level l+1's rect, doubled — united with whatever
+        // changed at level l itself. Walking it this way costs one pass and needs
+        // no per-entry subtree enumeration; the recurrence is what keeps a change
+        // at a coarse mip from being missed three levels down.
+        Rect running{};
+        for (u32 level = mipCount; level-- > 0;)
+        {
+            Rect rect{ running.m_X << 1u, running.m_Y << 1u, running.m_Width << 1u, running.m_Height << 1u };
+            rect = UnionRect(rect, m_ChangeBounds[level]);
+            m_FillRects[level] = rect;
+            running = rect;
+        }
+    }
 } // namespace OloEngine
