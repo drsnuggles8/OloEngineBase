@@ -177,6 +177,7 @@ add_executable(OloEngine-Tests
 		Rendering/RCASMathTest.cpp
 		Rendering/SSAOMathTest.cpp
 		Rendering/GTAOMathTest.cpp
+		Rendering/ThreadGroupSwizzleTest.cpp
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp
 		Rendering/ClusteredLightingMathTest.cpp

@@ -31,6 +31,7 @@ layout(std140, binding = 46) uniform FroxelFogData
 };
 
 #include "../include/BindlessHeap.glsl"
+#include "../include/ThreadGroupSwizzle.glsl"
 
 // Sampler input converted alongside the C++ bind — see FroxelFogScatter.comp for
 // why the two cannot move separately (issue #691 Phase 3, bucket 1).
@@ -53,7 +54,8 @@ void main()
     OLO_HEAP_IMAGE(rgba16f, writeonly, image3D, u_IntegratedVolume, 0);
 #endif
     ivec3 dims = ivec3(u_FroxelDims.xyz);
-    ivec2 column = ivec2(gl_GlobalInvocationID.xy);
+    // Thread-group swizzle for L2 locality (issue #720) — see ThreadGroupSwizzle.glsl.
+    ivec2 column = OloSwizzledGlobalInvocationID2D();
     if (column.x >= dims.x || column.y >= dims.y)
         return;
 

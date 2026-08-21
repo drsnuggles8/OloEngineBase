@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -206,6 +207,12 @@ namespace OloEngine
         // so the fog was silently unshadowed rather than visibly broken). Found
         // while chasing the same defect in the material path; see
         // HeapBinding::ShadowDepthSampler.
+        //
+        // Sub-pass brackets (issue #720) isolate Scatter's and Integrate's GPU-ms
+        // under GPUPassTimerPool's "VolumetricFogPass" bracket, needed to measure
+        // the thread-group swizzle adopted in each shader independently.
+        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
+        gpuSubTimers.BeginSubPass("FroxelFogScatter");
         const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
         HeapBinding::BindTextureOrOffset(0, csmID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
                                          RHI::NullSamplerKind::Texture2DArrayShadow);
@@ -221,8 +228,10 @@ namespace OloEngine
         HeapBinding::FlushOffsets();
         RenderCommand::DispatchCompute((kVolumeWidth + 3) / 4, (kVolumeHeight + 3) / 4, (kVolumeDepth + 3) / 4);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
+        gpuSubTimers.EndSubPass();
 
         // --- Integrate (front-to-back accumulation per column) ---
+        gpuSubTimers.BeginSubPass("FroxelFogIntegrate");
         m_IntegrateShader->Bind();
         // Pass-owned froxel volume sampled as a texture — Persistent, same as above.
         HeapBinding::BindTextureOrOffset(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(),
@@ -235,6 +244,7 @@ namespace OloEngine
         // The composite pass samples the integrated volume as a texture.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
         m_IntegrateShader->Unbind();
+        gpuSubTimers.EndSubPass();
 
         if (clusteredActive)
             forwardPlus.UnbindAfterShading();
