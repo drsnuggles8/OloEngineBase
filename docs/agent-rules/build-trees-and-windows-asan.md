@@ -839,6 +839,14 @@ the exit status is checked before the empty result is interpreted), and a zero-d
 object it cannot trace back to a source. Both fail. A check whose broken state
 looks like its passing state is the bug it was written to catch, one level up.
 
+That second rule earns its keep immediately, and shows what to do when it fires.
+CI failed the first time it ran: `OloEditor.rc.res` and `OloRuntime.rc.res` are
+recorded edges too, and the source-detection list held only C/C++ extensions, so
+they traced to nothing and were reported as broken. They were not — both `.rc`
+files are a single `ICON` line with no `#include` at all. The fix is to teach the
+check the output kind (`.rc` is in the list now) so those sources go through the
+same include analysis as any other, **not** to wave through what it cannot explain.
+
 The `-Config` argument is load-bearing on this multi-config tree: `-t deps` dumps
 the whole log regardless, but the per-object `ninja -t query` only finds edges in
 the ninja file it loaded, so checking a Release build against `build-Debug.ninja`

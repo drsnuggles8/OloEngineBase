@@ -163,9 +163,17 @@ foreach ($out in $zero) {
     try {
         # `ninja -t query <out>` lists the edge's inputs; the source is the one that
         # looks like a compiland rather than an order-only dependency.
+        #
+        # `.rc` is in this list because the compiled `.res` outputs are recorded
+        # dependency edges too, and CI found them the hard way: with only C/C++
+        # extensions here, OloEditor.rc.res and OloRuntime.rc.res traced to nothing and
+        # were reported as broken. They are not — both .rc files are a single ICON line
+        # with no `#include` at all, so no header dependencies is the correct record.
+        # They go through the same include analysis as any other source rather than
+        # being waved through as "not a compiland".
         $src = & $ninja @baseArgs -t query $out 2>$null |
             ForEach-Object { $_.Trim() } |
-            Where-Object { $_ -match '\.(c|cc|cpp|cxx|m|mm)$' } |
+            Where-Object { $_ -match '\.(c|cc|cpp|cxx|m|mm|rc)$' } |
             Select-Object -First 1
     } catch { }
 
