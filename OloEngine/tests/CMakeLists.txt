@@ -133,6 +133,11 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/ReferenceBRDFTest.cpp
 		Rendering/PathTracing/PathTracerFurnaceTest.cpp
 		Rendering/PathTracing/PathTracerCornellBoxTest.cpp
+		Rendering/PathTracing/ReferenceSceneBuilderTest.cpp
+		Rendering/Baking/LightmapUnwrapTest.cpp
+		Rendering/Baking/LightmapBakeParityTest.cpp
+		Rendering/Baking/LightProbePathTracedBakeTest.cpp
+		Asset/LightmapAssetSerializationTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/ShaderReflectionBindingTest.cpp
@@ -375,6 +380,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualMeshRegistryRejectionTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
+		Rendering/PropertyTests/LightmapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClothVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClothCapeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/LocomotionVisualEvidenceTest.cpp
@@ -543,6 +549,7 @@ add_executable(OloEngine-Tests
 		TransformComponentTest.cpp
 		Scene/WorldTransformPropagationBenchmarkTest.cpp
 		# System scheduler dependency-graph derivation (issue #453)
+		Scene/SceneLightmapStalenessTest.cpp
 		Scene/SystemSchedulerTest.cpp
 		# Floating-origin / origin-rebasing math (issue #429)
 		Scene/WorldOriginRebaseTest.cpp

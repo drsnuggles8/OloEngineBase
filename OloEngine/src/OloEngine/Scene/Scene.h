@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Scene/WorldOriginSettings.h"
+#include "OloEngine/Scene/SceneLightmap.h"
 #include "OloEngine/Scene/SpatialAcceleration.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Navigation/NavMesh.h"
@@ -586,6 +587,35 @@ namespace OloEngine
             return m_PostProcessSettings;
         }
 
+        void SetLightmapSettings(const SceneLightmapSettings& settings)
+        {
+            m_LightmapSettings = settings;
+            if (m_LightmapRuntime)
+            {
+                m_LightmapRuntime->Invalidate();
+            }
+        }
+        [[nodiscard]] const SceneLightmapSettings& GetLightmapSettings() const
+        {
+            return m_LightmapSettings;
+        }
+        [[nodiscard]] SceneLightmapSettings& GetLightmapSettings()
+        {
+            return m_LightmapSettings;
+        }
+        // The runtime-resolved lightmap state; created lazily. Never null after
+        // this call, but only IsValid() once Resolve() found a non-stale bake.
+        // Non-const Ref on purpose: Ref<T> propagates const through operator->,
+        // and callers must Resolve()/Invalidate() the runtime.
+        [[nodiscard]] Ref<SceneLightmapRuntime>& GetLightmapRuntime()
+        {
+            if (!m_LightmapRuntime)
+            {
+                m_LightmapRuntime = Ref<SceneLightmapRuntime>::Create();
+            }
+            return m_LightmapRuntime;
+        }
+
         void SetSnowSettings(const SnowSettings& settings)
         {
             m_SnowSettings = settings;
@@ -1133,6 +1163,11 @@ namespace OloEngine
         PrecipitationSettings m_PrecipitationSettings;         // Precipitation system settings
         StreamingSettings m_StreamingSettings;                 // Scene streaming settings
         WorldOriginSettings m_WorldOriginSettings;             // Floating-origin / rebase config (issue #429)
+        SceneLightmapSettings m_LightmapSettings;              // Baked-GI lightmap settings (issue #439)
+        // Runtime-resolved lightmap state (atlas texture + per-entity regions).
+        // Deliberately NOT copied by Scene::Copy() — the runtime copy
+        // re-resolves at Play start so stale state cannot survive a transition.
+        Ref<SceneLightmapRuntime> m_LightmapRuntime;
         // Runtime-only origin accumulator: absolute = rebased + m_WorldOrigin.
         // Reset to (0,0,0) at OnRuntimeStart; never serialized or copied.
         glm::vec3 m_WorldOrigin{ 0.0f };

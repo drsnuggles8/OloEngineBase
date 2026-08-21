@@ -395,6 +395,8 @@ namespace OloEngine
         s_Data.SceneEffectsGPU.FogVolumesData = FogVolumesUBOData{};
         s_Data.DecalUBO = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
         s_Data.LightProbeVolumeUBO = UniformBuffer::Create(ShaderBindingLayout::LightProbeVolumeUBO::GetSize(), ShaderBindingLayout::UBO_LIGHT_PROBES);
+        s_Data.LightmapUBO = UniformBuffer::Create(ShaderBindingLayout::LightmapUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTMAP);
+        s_Data.LightmapUBOUploaded = false; // fresh buffer — the dirty guard must not skip the first upload
         s_Data.SceneEffectsGPU.DRS = UniformBuffer::Create(DRSUBOData::GetSize(), ShaderBindingLayout::UBO_DRS);
         s_Data.UnderwaterFogBuffer = UniformBuffer::Create(UnderwaterFogUBOData::GetSize(), ShaderBindingLayout::UBO_UNDERWATER);
 
@@ -403,6 +405,10 @@ namespace OloEngine
         {
             ShaderBindingLayout::LightProbeVolumeUBO disabledProbeUBO{};
             s_Data.LightProbeVolumeUBO->SetData(&disabledProbeUBO, ShaderBindingLayout::LightProbeVolumeUBO::GetSize());
+            // Same guarantee for the lightmap block (issue #439): a renderer that
+            // never sees a baked scene reads Enabled == 0, never garbage.
+            ShaderBindingLayout::LightmapUBO disabledLightmapUBO{};
+            s_Data.LightmapUBO->SetData(&disabledLightmapUBO, ShaderBindingLayout::LightmapUBO::GetSize());
             constexpr u32 dummySSBOSize = 16; // Minimum valid SSBO (one vec4)
             s_Data.LightProbeSHBuffer = StorageBuffer::Create(dummySSBOSize, ShaderBindingLayout::SSBO_LIGHT_PROBES);
             std::array<u8, dummySSBOSize> zeros{};

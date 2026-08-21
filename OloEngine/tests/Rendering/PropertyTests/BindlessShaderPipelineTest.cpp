@@ -272,7 +272,13 @@ void main()
                 // physical page pool, published+bound every frame by
                 // VirtualShadowMap::BindForSampling for the bindless-route lit
                 // shaders and the slot-based MSAA variant alike.
-                binding == ShaderBindingLayout::TEX_VSM_PHYSICAL;
+                binding == ShaderBindingLayout::TEX_VSM_PHYSICAL ||
+                // include/LightmapSampling.glsl (issue #439) — the scene lightmap
+                // atlas, published+bound every frame by
+                // Renderer3D::UploadLightmapData via PublishTextureOffsetAndBind
+                // (the white placeholder when no bake is resolved, so the slot is
+                // never incomplete).
+                binding == ShaderBindingLayout::TEX_LIGHTMAP;
         }
 
         [[nodiscard]] std::string ReadWholeFile(const std::filesystem::path& path)
@@ -950,6 +956,9 @@ void main()
               "shared header; the three DDGI atlases are published+bound in DDGIProbeUpdatePass" },
             { "include/WindSampling.glsl",
               "shared header; TEX_WIND_FIELD is bound directly by WindSystem::BindWindTexture" },
+            { "include/LightmapSampling.glsl",
+              "shared header (issue #439); TEX_LIGHTMAP is published+bound every frame by "
+              "Renderer3D::UploadLightmapData" },
             { "include/VirtualShadowSampling.glsl",
               "shared header (issue #702); TEX_VSM_PHYSICAL is published+bound every frame in "
               "VirtualShadowMap::BindForSampling" },

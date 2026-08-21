@@ -316,6 +316,13 @@ vec2 octEncode(vec3 n)
 // identical so glLinkProgram() succeeds.
 #include "include/InstanceBlock.glsl"
 
+// Probe-volume irradiance (issue #439): skinned meshes are DYNAMIC objects, so
+// their indirect diffuse comes from the baked/realtime probe field — the exact
+// gap this include closes (the skinned forward path previously had no probe
+// branch at all, so characters ignored baked lighting entirely).
+#include "include/LightProbeSampling.glsl"
+#include "include/AmbientLadder.glsl"
+
 // =============================================================================
 // MAIN FRAGMENT SHADER
 // =============================================================================
@@ -470,28 +477,32 @@ void main()
         Lo += lightContrib;
     }
 
-    // Calculate ambient lighting. The specular source is parallax-corrected
-    // by the distance-impostor probes exactly like PBR_MultiLight.glsl and
-    // the deferred path (issue #705) — skinned meshes are probe RECEIVERS
-    // even though they are absent from the baked distance fields.
-    vec3 ambient = vec3(0.0);
+    // Specular reflection source — parallax-corrected by the distance-impostor
+    // probes exactly like PBR_MultiLight.glsl and the deferred path (issue
+    // #705); skinned meshes are probe RECEIVERS even though they are absent
+    // from the baked distance fields.
+    vec3 R = reflect(-V, N);
+    vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     if (u_EnableIBL == 1)
     {
-        vec3 R = reflect(-V, N);
-        vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
         float probeViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
         vec4 probeSpecular = oloSampleReflectionProbes(v_WorldPos, N, R,
                                                        roughness * MAX_REFLECTION_LOD, probeViewDepth);
         prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
+    }
 
-        ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
-                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
-        ambient *= u_IBLIntensity;
-    }
-    else
-    {
-        ambient = calculateSimpleAmbient(albedo, metallic, ao);
-    }
+    // Calculate ambient lighting — the shared source ladder (AmbientLadder.glsl,
+    // issue #439). Skinned meshes are DYNAMIC: they carry no lightmap (the
+    // vec4(0.0) sample skips the baked rung) and enter at the probe rung, so
+    // characters sit in the same baked/realtime probe field the static world
+    // was lit against. Structural parity with PBR_MultiLight is exact (one
+    // definition); PHOTOMETRIC parity is not yet — the SH probe store is
+    // band-limited radiance while the lightmap stores irradiance E, a
+    // deliberate pre-existing π-scale divergence (see AmbientLadder.glsl's
+    // units caveat and LightProbeBaker.cpp).
+    vec3 ambient = evaluateAmbientLadder(vec4(0.0), v_WorldPos, N, V, albedo,
+                                         metallic, roughness, ao,
+                                         u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
 
     // Combine lighting — AO attenuates ambient only
     vec3 color = ambient * ao + Lo + emissive;

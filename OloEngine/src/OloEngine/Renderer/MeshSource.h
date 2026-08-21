@@ -353,6 +353,31 @@ namespace OloEngine
             return m_BoneInfluences;
         }
 
+        // Lightmap UV channel (issue #439). A SEPARATE per-vertex stream, deliberately
+        // not a Vertex member: only lightmapped static meshes pay for it, and the
+        // 32-byte Vertex contract (with every Vulkan vertex-pull stride mirroring it)
+        // stays untouched. Parallel to m_Vertices — one vec2 per vertex, remapped by
+        // MeshOptimization alongside bone influences. Empty = no lightmap
+        // parameterization; LightmapUnwrap generates one at bake time.
+        const TArray<glm::vec2>& GetLightmapUVs() const
+        {
+            return m_LightmapUVs;
+        }
+        TArray<glm::vec2>& GetLightmapUVs()
+        {
+            return m_LightmapUVs;
+        }
+        void SetLightmapUVs(TArray<glm::vec2>&& lightmapUVs)
+        {
+            m_LightmapUVs = MoveTemp(lightmapUVs);
+        }
+        // True only when the stream is complete: a partial stream (count mismatch after
+        // an external edit) is treated as absent rather than sampled out of range.
+        bool HasLightmapUVs() const
+        {
+            return !m_LightmapUVs.IsEmpty() && m_LightmapUVs.Num() == m_Vertices.Num();
+        }
+
         // Add bone influence for a specific vertex
         void SetVertexBoneData(u32 vertexIndex, const BoneInfluence& influence)
         {
@@ -544,6 +569,7 @@ namespace OloEngine
         void BuildVertexBuffer();
         void BuildIndexBuffer();
         void BuildBoneInfluenceBuffer(); // New: build separate bone influence buffer
+        void BuildLightmapUVBuffer();    // Lightmap UV2 stream (issue #439)
         void BuildShadowIndexBuffer();   // Build shadow IBO + VAO for depth-only passes
 
       private:
@@ -562,11 +588,22 @@ namespace OloEngine
         // Morph target data
         Ref<MorphTargetSet> m_MorphTargets;
 
+        // Lightmap UV channel (issue #439) — see the accessors above for the contract
+        TArray<glm::vec2> m_LightmapUVs;
+
         // GPU resources (similar to current Mesh class)
         Ref<VertexArray> m_VertexArray;
         Ref<VertexBuffer> m_VertexBuffer;
         Ref<IndexBuffer> m_IndexBuffer;
         Ref<VertexBuffer> m_BoneInfluenceBuffer;
+        Ref<VertexBuffer> m_LightmapUVBuffer;
+        // 8-byte constant stub bound at a_TexCoord2's location when a STATIC
+        // mesh has no UV2 stream, so every static VAO exposes the same
+        // attribute layout — a program reading an attribute that is enabled
+        // on one mesh and disabled on the next makes NVIDIA specialize a
+        // vertex-shader variant per layout (GL debug id 131218). See
+        // VertexArray::AddConstantVertexBuffer.
+        Ref<VertexBuffer> m_LightmapUVStubBuffer;
         // Shadow rendering (depth-only pass with position-merged indices)
         TArray<u32> m_ShadowIndices;
         Ref<VertexArray> m_ShadowVertexArray;

@@ -1095,7 +1095,8 @@ namespace OloEngine
         // Ref<T> propagates const through operator->; a `const Ref<T>&` would
         // make Upload/Bind unreachable here (they mutate the GPU buffer).
         void UploadModelInstance(const ShaderBindingLayout::ModelUBO& modelData,
-                                 Ref<InstanceBuffer>& instanceBuffer)
+                                 Ref<InstanceBuffer>& instanceBuffer,
+                                 const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f))
         {
             if (!instanceBuffer)
                 return;
@@ -1116,6 +1117,7 @@ namespace OloEngine
             inst.Normal = modelData.Normal;
             inst.PrevTransform = MakeModelRelative(modelData.PrevModel, origin);
             inst.EntityID = modelData.EntityID;
+            inst.LightmapScaleOffset = lightmapScaleOffset;
             // Color / Custom keep their defaults (white tint, 0) — the explicit
             // instancing path populates them in Phase 3.
 
@@ -1779,7 +1781,7 @@ namespace OloEngine
                 constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
                 static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
 
-                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer, cmd->lightmapScaleOffset);
                 // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
 
@@ -2020,11 +2022,14 @@ namespace OloEngine
         const f32* customs = nullptr;
         if (cmd->customBufferOffset != UINT32_MAX)
             customs = frameBuffer.GetCustomPtr(cmd->customBufferOffset);
+        const glm::vec4* lightmapRegions = nullptr;
+        if (cmd->lightmapRegionBufferOffset != UINT32_MAX)
+            lightmapRegions = frameBuffer.GetColorPtr(cmd->lightmapRegionBufferOffset);
 
         if (transforms && s_Data.ModelInstanceBuffer)
         {
             // Thread-local scratch — heap-backed so MaxMeshInstances can scale
-            // to thousands without blowing the stack (16384 * 224 B = 3.5 MB
+            // to thousands without blowing the stack (16384 * 240 B = 3.75 MB
             // would be a hard stack overflow on Windows's default 1 MB).
             // `vector::resize` only grows; subsequent calls in the same thread
             // reuse the existing allocation.
@@ -2053,6 +2058,7 @@ namespace OloEngine
                 inst.EntityID = entityIDs ? entityIDs[i] : -1;
                 inst.Color = colors ? colors[i] : glm::vec4(1.0f);
                 inst.Custom = customs ? customs[i] : 0.0f;
+                inst.LightmapScaleOffset = lightmapRegions ? lightmapRegions[i] : glm::vec4(0.0f);
             }
             const std::span<const InstanceData> instances(scratch.data(), instanceCount);
             s_Data.ModelInstanceBuffer->Upload(instances);

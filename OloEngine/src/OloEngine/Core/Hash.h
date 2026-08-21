@@ -78,6 +78,24 @@ namespace OloEngine
         static u32 CRC32(const void* data, sizet size);
 
         //==============================================================================
+        /// Runtime FNV-1a 64-bit over raw bytes. Streamable: pass a previous
+        /// result as `seed` to keep hashing across multiple buffers.
+        static constexpr u64 FNV1a64OffsetBasis = 14695981039346656037ull;
+        static constexpr u64 FNV1a64Prime = 1099511628211ull;
+
+        static u64 FNV1a64(const void* data, sizet size, u64 seed = FNV1a64OffsetBasis) noexcept
+        {
+            const auto* bytes = static_cast<const u8*>(data);
+            u64 hash = seed;
+            for (sizet i = 0; i < size; ++i)
+            {
+                hash ^= bytes[i];
+                hash *= FNV1a64Prime;
+            }
+            return hash;
+        }
+
+        //==============================================================================
         /// Simple 64-bit hash for UUIDs and other numeric data
         static constexpr u64 Hash64(u64 value) noexcept
         {

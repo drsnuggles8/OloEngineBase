@@ -589,6 +589,14 @@ namespace OloEngine
         // free.
         glm::vec4 color = glm::vec4(1.0f);
         f32 custom = 0.0f;
+
+        // Lightmap atlas region for this draw (issue #439): uv2 * xy + zw
+        // addresses the source entity's charts in the scene lightmap atlas.
+        // All zeros (the default) = no lightmap; the shader's ambient ladder
+        // falls through to probes/IBL. Survives CommandBucket auto-batching
+        // the same way color does — via a vec4 FrameDataBuffer stream entry
+        // per source command.
+        glm::vec4 lightmapScaleOffset = glm::vec4(0.0f);
     };
 
     // Static assertion to verify DrawMeshCommand is trivially copyable (POD)
@@ -636,6 +644,13 @@ namespace OloEngine
         // DrawMeshCommand has no per-source color/custom slot.
         u32 colorBufferOffset = UINT32_MAX;
         u32 customBufferOffset = UINT32_MAX;
+
+        // Per-instance vec4 lightmap atlas regions (issue #439), riding the
+        // same generic vec4 stream as Colors under their own offset. UINT32_MAX
+        // leaves InstanceData::LightmapScaleOffset at the all-zero "no
+        // lightmap" sentinel. Populated by CommandBucket::BatchCommands when
+        // any batched source carries a non-zero region.
+        u32 lightmapRegionBufferOffset = UINT32_MAX;
 
         // GPU frustum-cull path. When `cullIndirectBufferID` is non-zero, the
         // dispatcher SKIPS the FrameDataBuffer-driven InstanceData upload

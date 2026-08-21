@@ -32,19 +32,25 @@ namespace OloEngine
         f32 Custom = 0.0f;                         // free per-instance float
         i32 _pad0 = 0;
         i32 _pad1 = 0;
+        // Lightmap atlas region (issue #439): the fragment stage addresses this
+        // instance's charts in the scene lightmap atlas as uv2 * xy + zw. All
+        // zeros (the default) means "no lightmap" — the shader's ambient ladder
+        // falls through to probes/IBL, so non-lightmapped draws need no writes.
+        glm::vec4 LightmapScaleOffset = glm::vec4(0.0f);
     };
 
     // std430 size assertion. Layout (offset, size):
-    //   Transform     ( 0,  64)
-    //   Normal        (64,  64)
-    //   PrevTransform (128, 64)
-    //   Color         (192, 16)
-    //   EntityID      (208,  4)
-    //   Custom        (212,  4)
-    //   _pad0         (216,  4)
-    //   _pad1         (220,  4)
-    // Total: 224 bytes, divisible by 16 (mat4 alignment) so array stride is 224 with no end padding.
+    //   Transform           (  0, 64)
+    //   Normal              ( 64, 64)
+    //   PrevTransform       (128, 64)
+    //   Color               (192, 16)
+    //   EntityID            (208,  4)
+    //   Custom              (212,  4)
+    //   _pad0               (216,  4)
+    //   _pad1               (220,  4)
+    //   LightmapScaleOffset (224, 16)
+    // Total: 240 bytes, divisible by 16 (mat4 alignment) so array stride is 240 with no end padding.
     // A drift here means the C++ struct and GLSL block disagree and the shader will read garbage.
-    static_assert(sizeof(InstanceData) == 224, "InstanceData std430 size drifted from GLSL expectation (224 B)");
+    static_assert(sizeof(InstanceData) == 240, "InstanceData std430 size drifted from GLSL expectation (240 B)");
     static_assert(sizeof(InstanceData) % 16 == 0, "InstanceData size must be 16-byte aligned for std430 array stride");
 } // namespace OloEngine

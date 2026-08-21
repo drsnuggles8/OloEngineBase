@@ -119,6 +119,20 @@ namespace OloEngine
             BuildBoneInfluenceBuffer();
         }
 
+        // Lightmap UV stream (issue #439) — static meshes only. Attribute indices are
+        // assigned by AddVertexBuffer order, so gating on !HasSkeleton() pins
+        // a_TexCoord2 at location 3 for every mesh that has the stream, and keeps
+        // bone IDs/weights at 3/4 for every skinned mesh (which never gets one —
+        // skinned geometry is dynamic and samples probes instead of lightmaps).
+        if (!HasSkeleton() && HasLightmapUVs())
+        {
+            BuildLightmapUVBuffer();
+        }
+        else
+        {
+            m_LightmapUVBuffer = nullptr;
+        }
+
         m_VertexArray = VertexArray::Create();
         m_VertexArray->Bind();
 
@@ -130,6 +144,36 @@ namespace OloEngine
         {
             m_BoneInfluenceBuffer->Bind();
             m_VertexArray->AddVertexBuffer(m_BoneInfluenceBuffer);
+        }
+
+        // Lightmap UV stream rides after the base stream: a_TexCoord2 at location 3
+        if (m_LightmapUVBuffer)
+        {
+            m_LightmapUVBuffer->Bind();
+            m_VertexArray->AddVertexBuffer(m_LightmapUVBuffer);
+            m_LightmapUVStubBuffer = nullptr;
+        }
+        else if (!HasSkeleton())
+        {
+            // Static mesh with no UV2 stream: back location 3 with an 8-byte
+            // stride-0 constant buffer instead of leaving the attribute
+            // disabled. The forward PBR program reads a_TexCoord2
+            // unconditionally, and drawing it with the attribute enabled on
+            // one mesh and disabled on the next makes NVIDIA specialize a
+            // vertex-shader variant per attribute-layout permutation (GL
+            // debug id 131218, the "recompiled based on GL state"
+            // warning + stack capture at the draw site). The value is never
+            // consumed — InstanceData's all-zero LightmapScaleOffset gates
+            // sampling — only the layout parity matters. Skinned meshes are
+            // untouched: locations 3/4 are their bone streams, present on
+            // every skinned VAO alike.
+            if (!m_LightmapUVStubBuffer)
+            {
+                constexpr f32 kZeroUV2[2] = { 0.0f, 0.0f };
+                m_LightmapUVStubBuffer = VertexBuffer::Create(static_cast<const void*>(kZeroUV2), sizeof(kZeroUV2));
+                m_LightmapUVStubBuffer->SetLayout({ { ShaderDataType::Float2, "a_TexCoord2" } });
+            }
+            m_VertexArray->AddConstantVertexBuffer(m_LightmapUVStubBuffer);
         }
 
         m_IndexBuffer->Bind();
@@ -170,6 +214,20 @@ namespace OloEngine
 
         m_IndexBuffer = IndexBuffer::Create(m_Indices.GetData(),
                                             static_cast<u32>(m_Indices.Num()));
+    }
+
+    void MeshSource::BuildLightmapUVBuffer()
+    {
+        if (m_LightmapUVs.IsEmpty())
+            return;
+
+        BufferLayout lightmapUVLayout = {
+            { ShaderDataType::Float2, "a_TexCoord2" }
+        };
+
+        m_LightmapUVBuffer = VertexBuffer::Create(static_cast<const void*>(m_LightmapUVs.GetData()),
+                                                  static_cast<u32>(m_LightmapUVs.Num() * sizeof(glm::vec2)));
+        m_LightmapUVBuffer->SetLayout(lightmapUVLayout);
     }
 
     void MeshSource::BuildShadowIndexBuffer()

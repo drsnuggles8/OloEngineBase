@@ -37,6 +37,9 @@
 #   filewatch   Our own fork.
 #   bc7enc_rdo  We compile 3 of its TUs and deliberately skip the ISPC encoder.
 #   bcdec       Single header, no port.
+#   xatlas      No port at the pinned registry baseline (only uvatlas exists,
+#               which drags directxmath/directx-headers onto Linux). Two files,
+#               compiled as a tiny static lib like bc7enc.
 #   pl_mpeg     Single header, no port.
 #   choc        Single header, no port. (Declared in OloEngine/CMakeLists.txt.)
 #   FFmpeg      Optional, off on Linux, and already has its own install cache
@@ -397,6 +400,37 @@ if(bcdec_ADDED)
 	# emits into TextureCompression.cpp — don't count against OloEngine's /W4 /WX flags,
 	# exactly as stb_image's IMPLEMENTATION is handled.
 	target_include_directories(bcdec SYSTEM INTERFACE "${bcdec_SOURCE_DIR}")
+endif()
+
+# xatlas: jpcy's UV-unwrapping / chart-packing library (MIT). Generates the UV2
+# lightmap parameterization for the baked-GI path (issue #439): a static mesh
+# without an authored second UV set gets its charts + per-mesh atlas from here at
+# bake time (Renderer/Baking/LightmapUnwrap.cpp). No port exists at the pinned
+# registry baseline (only uvatlas, which pulls directxmath + directx-headers on
+# Linux), so it is fetched and compiled as a tiny static lib, mirroring bc7enc.
+# Upstream has been stable/complete since 2022 — the pin is the master tip.
+CPMAddPackage(NAME xatlas
+  GIT_REPOSITORY https://github.com/jpcy/xatlas.git
+  GIT_TAG f700c7790aaa030e794b52ba7791a05c085faf0c  # master @ 2022-07-25
+  GIT_SHALLOW FALSE
+  DOWNLOAD_ONLY YES)
+if(xatlas_ADDED)
+	add_library(xatlas STATIC "${xatlas_SOURCE_DIR}/source/xatlas/xatlas.cpp")
+	# SYSTEM so the library's own warnings don't count against OloEngine's /W4-ish flags.
+	target_include_directories(xatlas SYSTEM PUBLIC "${xatlas_SOURCE_DIR}/source/xatlas")
+	# Single-threaded on purpose: the lightmap bake's determinism contract (same
+	# scene -> bit-identical unwrap -> bit-identical bake) must not depend on
+	# xatlas's internal task scheduling, and the unwrap is not on a hot path.
+	target_compile_definitions(xatlas PRIVATE XA_MULTITHREADED=0)
+	set_target_properties(xatlas PROPERTIES FOLDER "Utilities/xatlas"
+		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/xatlas-build"
+		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/xatlas-build"
+		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/xatlas-build")
+	# clang-cl maps our /WX onto -Werror; suppress it for the vendored TU only,
+	# same rationale as the bc7enc block above.
+	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		target_compile_options(xatlas PRIVATE -Wno-error -Wno-everything)
+	endif()
 endif()
 
 # -----------------------------------------------------------------------------

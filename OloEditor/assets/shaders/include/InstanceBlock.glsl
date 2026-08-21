@@ -2,7 +2,7 @@
 #define INSTANCE_BLOCK_GLSL
 
 // Per-draw instance data SSBO. Layout mirrors OloEngine::InstanceData
-// (OloEngine/Renderer/Instancing/InstanceData.h, 224 B std430). Indexed by
+// (OloEngine/Renderer/Instancing/InstanceData.h, 240 B std430). Indexed by
 // gl_InstanceIndex — for non-instanced draws gl_InstanceIndex is 0 and the
 // C++ side uploads a length-1 InstanceBuffer.
 //
@@ -21,6 +21,10 @@ struct InstanceData {
     float Custom;
     int  _instancePad0;
     int  _instancePad1;
+    // Lightmap atlas region (issue #439): uv2 * xy + zw addresses this
+    // instance's charts in the scene lightmap atlas. xy == 0 means "no
+    // lightmap" — the ambient ladder falls through to probes/IBL.
+    vec4 LightmapScaleOffset;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

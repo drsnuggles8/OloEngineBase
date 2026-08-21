@@ -150,6 +150,7 @@ namespace OloEngine
         friend class SkillTreeDatabaseSerializer;
         friend class CharacterClassDatabaseSerializer;
         friend class VisualScriptAssetSerializer;
+        friend class LightmapSerializer;
 
         bool IsValid() const
         {

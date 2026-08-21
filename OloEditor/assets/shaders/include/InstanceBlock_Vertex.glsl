@@ -10,7 +10,7 @@
 // varying.
 //
 // Layout matches OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
-// 224 B std430). For a single-instance / non-instanced draw the C++ side
+// 240 B std430). For a single-instance / non-instanced draw the C++ side
 // uploads a length-1 buffer; gl_InstanceIndex is 0 and the macros resolve to
 // instances[0] just like the fragment-stage include.
 struct InstanceData {
@@ -22,6 +22,8 @@ struct InstanceData {
     float Custom;
     int  _instancePad0;
     int  _instancePad1;
+    // Lightmap atlas region (issue #439) — see InstanceBlock.glsl.
+    vec4 LightmapScaleOffset;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

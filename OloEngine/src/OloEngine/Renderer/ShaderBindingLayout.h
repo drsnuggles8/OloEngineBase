@@ -476,6 +476,27 @@ namespace OloEngine
                 return sizeof(LightProbeVolumeUBO);
             }
         };
+
+        // @brief Scene lightmap parameters (binding 1, issue #439).
+        //
+        // Mirrors the `LightmapData` std140 block in
+        // OloEditor/assets/shaders/include/LightmapSampling.glsl. Uploaded when a
+        // scene's baked lightmap is resolved (valid, non-stale) and disabled
+        // otherwise — a stale bake must never be sampled, so Enabled == 0 is the
+        // staleness kill switch. Per-draw atlas regions travel per-instance in
+        // InstanceData::LightmapScaleOffset, not here.
+        struct LightmapUBO
+        {
+            i32 Enabled;   // 1 = atlas bound and bake key matches the live scene
+            f32 Intensity; // global baked-GI intensity multiplier
+            f32 TexelSize; // 1.0 / atlas dimension (square atlas), for dilation-aware sampling
+            i32 _pad0 = 0;
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(LightmapUBO);
+            }
+        };
         // @brief Realtime DDGI probe volume parameters (binding 51, issue #632).
         //
         // Mirrors the `DDGIVolume` std140 block in
@@ -1501,6 +1522,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::LightmapUBO) % 16 == 0, "LightmapUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::LightmapUBO) == 16, "LightmapUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::WaterUBO) == 288, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
@@ -1532,8 +1555,10 @@ namespace OloEngine
         // =============================================================================
 
         static constexpr u32 UBO_CAMERA = 0; // Camera matrices (view, projection, etc.)
-        // Binding 1 is intentionally free: the legacy single-light LightUBO was
-        // retired. All lighting now flows through UBO_MULTI_LIGHTS (binding 5).
+        // Binding 1 was freed when the legacy single-light LightUBO was retired
+        // (all lighting flows through UBO_MULTI_LIGHTS at binding 5); it now
+        // carries the scene lightmap parameters (issue #439).
+        static constexpr u32 UBO_LIGHTMAP = 1;              // Baked lightmap parameters (issue #439)
         static constexpr u32 UBO_MATERIAL = 2;              // Material properties
         static constexpr u32 UBO_MODEL = 3;                 // Model/transform matrices
         static constexpr u32 UBO_ANIMATION = 4;             // Animation/bone matrices
@@ -1772,7 +1797,8 @@ namespace OloEngine
         // array holding every spot / point-face shadow tile. Replaces the old
         // 4-layer spot array on this slot; of the four point-cubemap slots
         // 14-17 it also freed, 14/15 now carry the reflection-probe cubemap
-        // arrays (issue #705) and 16-17 remain FREE.
+        // arrays (issue #705), 16 the scene lightmap atlas (issue #439), and
+        // 17 remains FREE.
         static constexpr u32 TEX_SHADOW_ATLAS = 13; // Local-light shadow atlas (sampler2DArrayShadow, 1 layer)
         // Distance-impostor reflection probes (issue #705): every baked
         // probe's prefiltered radiance chain and R32F radial-distance field,
@@ -1781,20 +1807,27 @@ namespace OloEngine
         // forward lit passes via include/ReflectionProbes.glsl.
         static constexpr u32 TEX_REFLECTION_PROBE_RADIANCE = 14; // RGBA32F prefilter chains (roughness mips)
         static constexpr u32 TEX_REFLECTION_PROBE_DISTANCE = 15; // R32F radial distance + max-mips
-        static constexpr u32 TEX_POSTPROCESS_LUT = 18;           // Post-process color grading LUT
-        static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;         // Post-process scene depth access
-        static constexpr u32 TEX_SSAO = 20;                      // Blurred SSAO result
-        static constexpr u32 TEX_SSAO_NOISE = 21;                // SSAO 4x4 rotation noise texture
-        static constexpr u32 TEX_SCENE_NORMALS = 22;             // View-space normals from G-buffer
-        static constexpr u32 TEX_TERRAIN_HEIGHTMAP = 23;         // Terrain heightmap (R32F)
-        static constexpr u32 TEX_TERRAIN_SPLATMAP = 24;          // Terrain splatmap 0 (RGBA8, layers 0-3)
-        static constexpr u32 TEX_TERRAIN_ALBEDO_ARRAY = 25;      // Terrain albedo layer array (Texture2DArray)
-        static constexpr u32 TEX_TERRAIN_NORMAL_ARRAY = 26;      // Terrain normal map layer array (Texture2DArray)
-        static constexpr u32 TEX_TERRAIN_ARM_ARRAY = 27;         // Terrain ARM layer array (Texture2DArray)
-        static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;        // Terrain splatmap 1 (RGBA8, layers 4-7)
-        static constexpr u32 TEX_WIND_FIELD = 29;                // 3D wind velocity field (sampler3D, RGBA16F)
-        static constexpr u32 TEX_SNOW_DEPTH = 30;                // Snow accumulation depth map (sampler2D, R32F)
-        static constexpr u32 TEX_PRECIPITATION_NOISE = 31;       // Precipitation streak/lens noise (sampler2D)
+        // Scene lightmap atlas (issue #439): baked indirect irradiance E in the
+        // reference tracer's physical units (the DDGI atlas convention), one
+        // RGBA16F texture for the whole scene. Per-instance atlas regions ride
+        // InstanceData::LightmapScaleOffset; the parameters block is UBO_LIGHTMAP.
+        // Bound through the heap-bindless seam (PBR_MultiLight is a converted
+        // program), consumed via include/LightmapSampling.glsl.
+        static constexpr u32 TEX_LIGHTMAP = 16;             // Scene lightmap atlas (sampler2D, RGBA16F)
+        static constexpr u32 TEX_POSTPROCESS_LUT = 18;      // Post-process color grading LUT
+        static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;    // Post-process scene depth access
+        static constexpr u32 TEX_SSAO = 20;                 // Blurred SSAO result
+        static constexpr u32 TEX_SSAO_NOISE = 21;           // SSAO 4x4 rotation noise texture
+        static constexpr u32 TEX_SCENE_NORMALS = 22;        // View-space normals from G-buffer
+        static constexpr u32 TEX_TERRAIN_HEIGHTMAP = 23;    // Terrain heightmap (R32F)
+        static constexpr u32 TEX_TERRAIN_SPLATMAP = 24;     // Terrain splatmap 0 (RGBA8, layers 0-3)
+        static constexpr u32 TEX_TERRAIN_ALBEDO_ARRAY = 25; // Terrain albedo layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_NORMAL_ARRAY = 26; // Terrain normal map layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_ARM_ARRAY = 27;    // Terrain ARM layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;   // Terrain splatmap 1 (RGBA8, layers 4-7)
+        static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
+        static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
+        static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
         // Nearest water-surface depth (DEPTH_COMPONENT32F) captured by WaterRenderPass;
         // sampled by the underwater-fog stage in the ToneMap pass to find the per-pixel
         // wavy water boundary (WATER_FUTURE_IMPROVEMENTS.md §7.2). Took GTAO-reserved
@@ -2276,6 +2309,7 @@ namespace OloEngine
         using TerrainUBO = UBOStructures::TerrainUBO;
         using TerrainCullUBO = UBOStructures::TerrainCullUBO;
         using LightProbeVolumeUBO = UBOStructures::LightProbeVolumeUBO;
+        using LightmapUBO = UBOStructures::LightmapUBO;
         using BrushPreviewUBO = UBOStructures::BrushPreviewUBO;
         using FoliageUBO = UBOStructures::FoliageUBO;
         using DecalUBO = UBOStructures::DecalUBO;
@@ -2342,6 +2376,8 @@ namespace OloEngine
                     return name.contains("Decal") || name.contains("decal");
                 case UBO_LIGHT_PROBES:
                     return name.contains("LightProbe") || name.contains("lightProbe");
+                case UBO_LIGHTMAP:
+                    return name.contains("Lightmap") || name.contains("lightmap");
                 case UBO_WATER:
                     return name.contains("Water") || name.contains("water");
                 case UBO_SHADER_GRAPH:
@@ -2572,6 +2608,8 @@ namespace OloEngine
                 case TEX_REFLECTION_PROBE_RADIANCE:
                 case TEX_REFLECTION_PROBE_DISTANCE:
                     return name.contains("Probe") || name.contains("probe");
+                case TEX_LIGHTMAP:
+                    return name.contains("Lightmap") || name.contains("lightmap");
                 case TEX_WIND_FIELD:
                     return name.contains("Wind") || name.contains("wind");
                 case TEX_SNOW_DEPTH:
@@ -2904,7 +2942,7 @@ layout(std140, binding = 25) uniform ForwardPlusParams {
         }
 
         // Per-instance data SSBO indexed by gl_InstanceIndex. Layout mirrors
-        // OloEngine::InstanceData (Renderer/Instancing/InstanceData.h, 224 B
+        // OloEngine::InstanceData (Renderer/Instancing/InstanceData.h, 240 B
         // std430). Shaders migrating from the legacy ModelUBO (binding = 3)
         // replace `u_Model` with `instances[gl_InstanceIndex].Transform`,
         // `u_Normal` with `instances[gl_InstanceIndex].Normal`, etc. Non-
@@ -2922,6 +2960,7 @@ struct InstanceData {
     float Custom;
     int  _pad0;
     int  _pad1;
+    vec4 LightmapScaleOffset;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

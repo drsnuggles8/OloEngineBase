@@ -35,6 +35,7 @@
 #include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Renderer/Baking/LightmapBaker.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/SceneMeshRaycast.h"
 
@@ -153,6 +154,15 @@ namespace OloEngine
         // Sweeps the active asset manager's dependency registry for dangling
         // (missing/moved/deleted) references and logs a report to the console.
         void ValidateAssetReferences() const;
+
+        // Baked-GI lightmap bake (issue #439). BakeLightmaps runs the unwrap +
+        // rasterization + reference-scene capture on the game thread (they
+        // touch meshes the editor renders / the ECS), then hands the texel bake
+        // to a background task; ProcessLightmapBakeCompletion (called from
+        // OnUpdate) consumes the result mailbox on the game thread — asset
+        // save, scene settings update, runtime re-resolve.
+        void BakeLightmaps();
+        void ProcessLightmapBakeCompletion();
 
         // Build status and progress queries
         bool IsBuildInProgress() const
@@ -291,6 +301,24 @@ namespace OloEngine
         std::future<void> m_BuildFuture; // Joinable handle so the destructor can block until the task finishes
         std::atomic<bool> m_BuildCancelRequested{ false };
         std::atomic<f32> m_BuildProgress{ 0.0f };
+
+        // Lightmap bake state (issue #439) — same shape as the asset-pack build:
+        // atomics for progress/cancel, a future the destructor can join, and a
+        // mutex-guarded result mailbox the game thread drains in OnUpdate.
+        std::atomic<bool> m_LightmapBakeInProgress{ false };
+        std::atomic<bool> m_LightmapBakeCancel{ false };
+        std::atomic<f32> m_LightmapBakeProgress{ 0.0f };
+        std::future<void> m_LightmapBakeFuture;
+        std::mutex m_LightmapBakeResultMutex;
+        LightmapBakeResult m_LightmapBakeResult; // guarded by m_LightmapBakeResultMutex
+        bool m_LightmapBakeResultReady = false;  // guarded by m_LightmapBakeResultMutex
+        // Which scene the running bake belongs to, pinned at bake start (game
+        // thread only): completion runs frames later, and the active scene may
+        // have been switched — or swapped for the Play copy — by then. The
+        // result must attach to THIS scene or be reported as orphaned, never
+        // silently attached to whatever is active at completion.
+        Ref<Scene> m_LightmapBakeScene;
+        std::filesystem::path m_LightmapBakeScenePath;
 
         enum class SceneState
         {

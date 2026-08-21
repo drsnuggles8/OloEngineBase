@@ -57,6 +57,7 @@ the drift is silent because each side is individually self-consistent.
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | three light evaluators that can render the same scene |
 | [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) | the cascade-shift invalidation is derived INDEPENDENTLY on the CPU and the GPU from the same two lattice origins — on purpose, because the GPU telling the CPU would be the readback #707 exists to delete |
 | [reference-path-tracer.md](reference-path-tracer.md) | a C++ BRDF port against the GLSL it mirrors |
+| [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) | the GI stores' units ledger (DDGI/lightmap store irradiance E, the baked-SH path stores radiance — a pinned, pre-existing divergence), and the bake-time unwrap parameters mirrored by the runtime's self-healing resolve |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | five exclusion sets, plus generator-vs-coverage-test rosters |
 | [runtime-scene-switching.md](runtime-scene-switching.md) | the build pipeline and the runtime must agree on an asset layout, or scripts never load |
 | [audio-voice-budget.md](audio-voice-budget.md) | adding one config field costs four edits, one of them silent |
@@ -240,6 +241,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
 [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) ·
+[baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) ·
 [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) ·
 [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) ·
 [lazy-static-release-ownership.md](lazy-static-release-ownership.md) ·

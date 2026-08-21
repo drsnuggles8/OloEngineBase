@@ -2684,6 +2684,10 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, MeshComponent& c)
     {
         ar << c.m_Primitive;
+        if (HasFieldsSince(ar, 18))
+        {
+            ar << c.m_LightmapStatic; // v18+ (issue #439); older saves keep the default false
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, ModelComponent& c)

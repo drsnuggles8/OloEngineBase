@@ -96,6 +96,7 @@ namespace OloEngine
         constexpr const char* ParticleSystem = ".oloparticle";
         constexpr const char* CinematicSequence = ".olocine";
         constexpr const char* FluidSettings = ".olofluid";
+        constexpr const char* Lightmap = ".olmap";
     } // namespace OloExtensions
 
 } // namespace OloEngine

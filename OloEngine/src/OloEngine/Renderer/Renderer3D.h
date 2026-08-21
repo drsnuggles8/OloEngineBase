@@ -623,6 +623,13 @@ namespace OloEngine
         static void UploadLightProbeData(const ShaderBindingLayout::LightProbeVolumeUBO& uboData,
                                          const void* shData, u32 shDataSize);
 
+        // Upload the scene lightmap parameters (UBO_LIGHTMAP) and publish the
+        // atlas at TEX_LIGHTMAP (issue #439). A null atlas publishes the white
+        // placeholder — the sampler stays valid but uboData.Enabled must be 0
+        // then, which is the caller's staleness/absence kill switch.
+        static void UploadLightmapData(const ShaderBindingLayout::LightmapUBO& uboData,
+                                       const Ref<Texture2D>& atlas);
+
         // Set global IBL textures from the scene's EnvironmentMap.
         // These are used as fallbacks when individual materials don't have IBL configured.
         // Takes BOTH currencies for the three graph-imported maps, from the one
@@ -1704,6 +1711,12 @@ namespace OloEngine
             Ref<UniformBuffer> DecalUBO;
             Ref<UniformBuffer> LightProbeVolumeUBO;
             Ref<StorageBuffer> LightProbeSHBuffer;
+            Ref<UniformBuffer> LightmapUBO; // scene lightmap parameters (issue #439)
+            // Dirty guard for UploadLightmapData: the caller uploads every
+            // frame but the values only change on resolve/toggle, so skip the
+            // redundant GL buffer write when the bytes match.
+            ShaderBindingLayout::LightmapUBO LastLightmapUBO{};
+            bool LightmapUBOUploaded = false;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             // Inverse of the *world* view-projection (issue #429). The depth was

@@ -59,7 +59,13 @@ namespace OloEngine
         // than a corrupt cache (the first, cold run of the day always passes). The
         // writer is fixed, but every .omesh already on a developer's disk still holds
         // the empty references, so the version must move for them to be re-imported.
-        constexpr u32 CurrentVersion = 5; // v5: invalidates v4 caches with unpersisted embedded textures
+        //
+        // v6 appends the LightmapUVs section (issue #439): the per-vertex UV2 lightmap
+        // parameterization generated at bake time (xatlas charts, or an authored second
+        // UV set read at import). Persisting it here means a re-open of the project does
+        // not silently drop the unwrap a bake produced — a mesh whose section is empty
+        // simply has no lightmap parameterization yet.
+        constexpr u32 CurrentVersion = 6; // v6: appends LightmapUVs (issue #439)
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed
@@ -89,7 +95,8 @@ namespace OloEngine
             BoneInfo = 6,
             VirtualMesh = 7,       // v2+: cooked OVGM cluster-DAG blob (issue #629)
             ImportedMaterials = 8, // v4+: imported-material table (issue #629)
-            Count = 9              // sentinel
+            LightmapUVs = 9,       // v6+: per-vertex UV2 lightmap stream (issue #439)
+            Count = 10             // sentinel
         };
 
         constexpr auto kSectionCount = std::to_underlying(SectionType::Count);
@@ -99,8 +106,10 @@ namespace OloEngine
         // version, not its own.
         [[nodiscard]] constexpr u16 SectionCountForVersion(u32 version)
         {
-            if (version >= 4)
+            if (version >= 6)
                 return kSectionCount;
+            if (version >= 4)
+                return 9;
             return version >= 2 ? 8 : 7;
         }
 
@@ -256,6 +265,16 @@ namespace OloEngine
             // Followed by BlobSize bytes of ImportedMaterialCodec data
         };
 
+        // Lightmap UV section (v6+, issue #439). Raw — deliberately NOT
+        // meshoptimizer-encoded: the stream is small (8 B/vertex), written once
+        // per bake, and the whole payload already rides the optional zlib pass.
+        struct LightmapUVsHeader
+        {
+            u32 UVCount = 0; // must equal GeometryHeader::VertexCount, or the section is rejected
+            u32 _pad0 = 0;
+            // Followed by UVCount * 8 bytes of tightly-packed f32 (u, v) pairs
+        };
+
     } // namespace OMeshFormat
 
     // ============================================================================
@@ -374,11 +393,13 @@ namespace OloEngine
 
     static_assert(std::is_trivially_copyable_v<OMeshFormat::SectionDirectory>);
     static_assert(std::is_standard_layout_v<OMeshFormat::SectionDirectory>);
-    static_assert(sizeof(OMeshFormat::SectionDirectory) == 144);
+    static_assert(sizeof(OMeshFormat::SectionDirectory) == 160);
     static_assert(OMeshFormat::SectionCountForVersion(1) == 7);
     static_assert(OMeshFormat::SectionCountForVersion(2) == 8);
     static_assert(OMeshFormat::SectionCountForVersion(3) == 8);
-    static_assert(OMeshFormat::SectionCountForVersion(4) == OMeshFormat::kSectionCount);
+    static_assert(OMeshFormat::SectionCountForVersion(4) == 9);
+    static_assert(OMeshFormat::SectionCountForVersion(5) == 9);
+    static_assert(OMeshFormat::SectionCountForVersion(6) == OMeshFormat::kSectionCount);
     static_assert(OMeshFormat::SectionCountForVersion(OMeshFormat::CurrentVersion) == OMeshFormat::kSectionCount);
 
     static_assert(std::is_trivially_copyable_v<OMeshFormat::GeometryHeader>);
@@ -432,6 +453,10 @@ namespace OloEngine
     static_assert(std::is_trivially_copyable_v<OMeshFormat::ImportedMaterialsHeader>);
     static_assert(std::is_standard_layout_v<OMeshFormat::ImportedMaterialsHeader>);
     static_assert(sizeof(OMeshFormat::ImportedMaterialsHeader) == 8);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::LightmapUVsHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::LightmapUVsHeader>);
+    static_assert(sizeof(OMeshFormat::LightmapUVsHeader) == 8);
 
     // OAnimFormat
     static_assert(std::is_trivially_copyable_v<OAnimFormat::FileHeader>);

@@ -57,6 +57,7 @@
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
+#include "OloEngine/Renderer/LightCommon.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/JoltShapes.h"
@@ -512,6 +513,10 @@ namespace OloEngine
         // runtime m_WorldOrigin accumulator is deliberately NOT copied: a fresh
         // Play session starts at the authored coordinates with origin (0,0,0).
         newScene->m_WorldOriginSettings = other->m_WorldOriginSettings;
+        // Baked-lightmap settings (issue #439) — same contract. The runtime
+        // m_LightmapRuntime is deliberately NOT copied: the Play copy
+        // re-resolves the asset (and re-checks the bake key) on first render.
+        newScene->m_LightmapSettings = other->m_LightmapSettings;
 
         auto& srcSceneRegistry = other->m_Registry;
         auto& dstSceneRegistry = newScene->m_Registry;
@@ -6829,7 +6834,8 @@ namespace OloEngine
     // not (issue #629); this one is not going to be the next.
     static void SubmitMeshSourceClassic(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
                                         const Material* overrideMaterial, i32 entityID,
-                                        const LODGroup* lodGroup, bool meshHasActiveShadows)
+                                        const LODGroup* lodGroup, bool meshHasActiveShadows,
+                                        const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f))
     {
         if (!meshSource || meshSource->GetSubmeshes().IsEmpty())
         {
@@ -6843,7 +6849,16 @@ namespace OloEngine
                                                               static_cast<u32>(i), GetDefaultMaterial());
 
             if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup); packet)
+            {
+                // Baked lightmap region (issue #439): patch the draw's atlas
+                // region before submission. All-zero (the default) means "no
+                // lightmap" and costs the shader one vec4 compare.
+                if (lightmapScaleOffset.x > 0.0f)
+                {
+                    packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = lightmapScaleOffset;
+                }
                 Renderer3D::SubmitPacket(packet);
+            }
 
             // Shadow caster for this submesh. Alpha-masked / blended materials are excluded
             // because the shared shadow-depth shader doesn't sample the albedo alpha, so
@@ -6879,21 +6894,6 @@ namespace OloEngine
         {
             UBOStructures::MultiLightUBO multiLightData{};
             i32 lightIndex = 0;
-
-            // Sanitize an authored spot-light direction once, reused by every
-            // downstream consumer (Forward+ SSBO, MultiLight UBO, and the
-            // spot-shadow projection). A zero-length or non-finite direction
-            // would make glm::normalize emit NaNs; fall back to a safe -Z unit.
-            // Valid directions pass through unchanged.
-            const auto sanitizeSpotDir = [](const glm::vec3& dir) -> glm::vec3
-            {
-                const f32 len2 = glm::dot(dir, dir);
-                if (!std::isfinite(len2) || len2 < 1e-8f)
-                {
-                    return glm::vec3(0.0f, 0.0f, -1.0f);
-                }
-                return dir;
-            };
 
             // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
@@ -7032,8 +7032,10 @@ namespace OloEngine
                 const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
 
                 // Sanitized direction shared by the Forward+ SSBO, the
-                // MultiLight UBO, and the spot-shadow projection below.
-                const glm::vec3 spotDir = sanitizeSpotDir(spotLight.m_Direction);
+                // MultiLight UBO, and the spot-shadow projection below —
+                // via the shared helper so the bake's ReferenceSceneBuilder
+                // stays bit-identical to this packing (LightCommon.h).
+                const glm::vec3 spotDir = SanitizeSpotLightDirection(spotLight.m_Direction);
 
                 // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update).
                 // SpotParams.z = -1 (no atlas entry) until the atlas
@@ -7480,6 +7482,42 @@ namespace OloEngine
             // Hand the point/spot/sphere lights gathered above to Forward+ for
             // tile-based culling (no second scene iteration).
             Renderer3D::GetForwardPlus().SetLights(fpPointLights, fpSpotLights, fpSphereAreaLights);
+
+            // Baked lightmap (issue #439): resolve (throttled — Resolve() does
+            // its O(scene) recheck every few frames and returns immediately on
+            // cached state in between) and upload the parameters + atlas every
+            // frame, mirroring the probe stale-state guard below. A stale or
+            // absent bake uploads Enabled = 0, so the shader falls through to
+            // probes/IBL rather than sampling old data. The call is deliberately
+            // UNCONDITIONAL: Resolve() itself handles LightmapAsset == 0 by
+            // dropping resolved state — gating here on the handle would skip
+            // exactly the call that notices the handle was cleared, serving the
+            // old atlas forever.
+            {
+                // Non-const binding on purpose: Ref<T> propagates const through
+                // operator->, and Resolve() mutates the runtime.
+                auto& lightmapRuntime = GetLightmapRuntime();
+                lightmapRuntime->Resolve(*this);
+
+                ShaderBindingLayout::LightmapUBO lightmapUBO{};
+                const bool lightmapActive = m_LightmapSettings.Enabled && lightmapRuntime->IsValid();
+
+                // Deferred draws shade from the G-Buffer, which carries no UV2
+                // (PBR_GBuffer.glsl has no lightmap branch), so a resolved bake
+                // is silently ignored for the whole scene rather than for one
+                // draw. Say so once instead of letting it look like the bake
+                // failed (issue #865).
+                if (lightmapActive && Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
+                {
+                    lightmapRuntime->WarnIfActivePathCannotSample("Deferred");
+                }
+                lightmapUBO.Enabled = lightmapActive ? 1 : 0;
+                lightmapUBO.Intensity = m_LightmapSettings.Intensity;
+                lightmapUBO.TexelSize = lightmapRuntime->GetAtlasSize() > 0
+                                            ? 1.0f / static_cast<f32>(lightmapRuntime->GetAtlasSize())
+                                            : 0.0f;
+                Renderer3D::UploadLightmapData(lightmapUBO, lightmapActive ? lightmapRuntime->GetAtlasTexture() : nullptr);
+            }
 
             // Upload light probe volume data if present and dirty
             {
@@ -9373,10 +9411,20 @@ namespace OloEngine
                     }
                 }
 
+                // Baked lightmap region for this entity (issue #439): vec4(0)
+                // — "no lightmap" — unless the entity is lightmap-static AND the
+                // scene's resolved bake covers it. GetScaleOffset already
+                // returns the zero sentinel for stale/absent bakes.
+                glm::vec4 lightmapScaleOffset(0.0f);
+                if (mesh.m_LightmapStatic && m_LightmapRuntime && m_Registry.all_of<IDComponent>(entity))
+                {
+                    lightmapScaleOffset = m_LightmapRuntime->GetScaleOffset(m_Registry.get<IDComponent>(entity).ID);
+                }
+
                 // Draw each submesh with entity ID. Shared with the VirtualMeshComponent
                 // fallback path — see SubmitMeshSourceClassic.
                 SubmitMeshSourceClassic(mesh.m_MeshSource, worldTransform, overrideMaterial, entityID, lodGroup,
-                                        meshHasActiveShadows);
+                                        meshHasActiveShadows, lightmapScaleOffset);
             }
         }
 
