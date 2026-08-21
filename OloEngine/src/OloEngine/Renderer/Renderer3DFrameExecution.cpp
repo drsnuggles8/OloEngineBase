@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
@@ -309,6 +310,14 @@ namespace OloEngine
                 node->SetCommandAllocator(nullptr);
         };
         pipeline.ForEachRenderStreamNode(clearRenderStreamAllocator);
+
+        // Close the GPU readback-stats frame (issue #721): barrier, copy the live
+        // stats block into the next ring slot, fence it. Here — after the graph,
+        // the HZB rebuild and the capture commit — because everything above can
+        // publish a counter, and a copy issued earlier would silently omit
+        // whatever ran after it. That omission is invisible: the number is still
+        // a plausible number, just a smaller one.
+        GPUReadbackStats::EndFrame();
 
         // Stamp the whole-frame GPU end timestamp after all of this frame's GPU
         // work has been submitted (graph execute, HZB rebuild, capture commit).

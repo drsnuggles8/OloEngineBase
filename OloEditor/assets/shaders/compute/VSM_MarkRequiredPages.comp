@@ -26,6 +26,9 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 #include "../include/VirtualShadowBuffers.glsl"
+// GPU readback-stats channel (issue #721). The request ring below is one of the
+// two capacity-bearing appends this engine had that truncated in silence.
+#include "../include/GPUReadbackStats.glsl"
 
 // TEX_POSTPROCESS_DEPTH — this frame's scene depth, bound by the mark pass.
 layout(binding = 19) uniform sampler2D u_VSMSceneDepth;
@@ -51,9 +54,34 @@ void vsmMarkPageAt(int idx, uvec4 record)
         return;
 
     atomicAdd(b_PagesRequested, 1u);
+    oloStatAdd(OLO_STAT_VSMPagesRequested, 1u);
     uint slot = atomicAdd(b_RequestCount, 1u);
     if (slot < uint(VSM_MAX_REQUESTS))
+    {
         b_Requests[slot] = record;
+        return;
+    }
+
+    // The request ring is full. Before issue #721 this branch did NOTHING — the
+    // `if` simply fell through — so a page the camera can see went unbacked for
+    // the frame, was sampled through the coarse-level fallback instead, and
+    // nothing anywhere said so: no counter, no flag, no log line. It self-heals
+    // (VSM_EndFrame strips REQUESTS_ALLOCATION every frame, so the page asks
+    // again next frame), which is precisely what makes it hard to notice: under
+    // sustained pressure the shadows are persistently a little too soft and the
+    // only evidence is the pixels.
+    //
+    // `b_RequestCount` is deliberately NOT rolled back here, and that is not an
+    // oversight — a decrement would be a correctness bug. Slot indices come from
+    // `atomicAdd(b_RequestCount, 1u)`, so giving one back lets a later
+    // invocation be handed an index another invocation already WROTE: with the
+    // ring at MAX-1, a writer takes MAX-1, an overflower takes MAX and decrements
+    // back to MAX-1, and the next writer overwrites the first one's record. That
+    // turns a clean truncation into a lost-and-duplicated request, which is
+    // strictly worse than the thing being fixed. The overshoot is harmless —
+    // VSM_AllocatePages clamps with min(b_RequestCount, VSM_MAX_REQUESTS) — and
+    // the honest count of what was refused is the dropped counter below.
+    oloStatOverflow(OLO_STATFLAG_VSMRequestRing, OLO_STAT_VSMPagesRequestDropped, 1u);
 }
 
 void vsmMarkPage(int clipLevel, ivec2 wrappedPage)

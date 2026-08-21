@@ -977,7 +977,15 @@ namespace OloEngine
             f32 OcclusionDepthBias;        // 112
             i32 WriteRejected;             // 116 — phase 1 appends to the reject list
             i32 Phase2;                    // 120
-            i32 _pad0;                     // 124
+            // 124 — entries the cull's compacted output (and, in phase 1, the
+            // reject list) may hold. Was `_pad0`. The shader BOUND-CHECKS its
+            // atomic append against this and reports the refusal through the
+            // GPU readback-stats channel (issue #721) instead of writing past
+            // the allocation. Set to the real allocation size in production; the
+            // `GPUFrustumCuller::SetDebugOutputCapacity` knob shrinks it on
+            // demand, which is how acceptance criterion #2 forces a genuine
+            // truncation rather than faking a flag.
+            u32 OutputCapacity; // 124
 
             static constexpr u32 GetSize()
             {
@@ -2264,6 +2272,36 @@ namespace OloEngine
         static constexpr u32 SSBO_TERRAIN_VT_FEEDBACK = 79;    // uint[feedbackW*feedbackH], written by the terrain FRAGMENT stage
         static constexpr u32 SSBO_TERRAIN_VT_BAKE = 80;        // bake params header + VTBakeRequest[]
         static constexpr u32 SSBO_TERRAIN_VT_INDIRECTION = 81; // update-window header + VTIndirectionUpdate[]
+
+        // The structured GPU readback-stats channel (issue #721). ONE 144-byte
+        // block -- overflow-flag word, enable gate, frame index, 32 counter
+        // slots -- that any GPU-driven pass may atomicAdd into, copied each frame
+        // into a fenced device-to-host ring. GLSL twin:
+        // include/GPUReadbackStats.glsl. C++ side: Renderer/Debug/GPUReadbackStats.h.
+        //
+        // 64, AND IT IS THE LAST NUMBER AVAILABLE. Read the SSBO_VSM_LOCAL_LIGHTS
+        // note above first: this namespace is not merely tight, it is FULL.
+        // Every value 0..83 (the GL 4.6 minimum guarantee, exclusive) is claimed
+        // by *some* namespace; 57 and 63 are reserved engine-wide for the Vulkan
+        // vertex-pull streams; and 64 is the only number never claimed as an
+        // SSBO -- it is TEX_DDGI_VISIBILITY in the SAMPLER namespace.
+        //
+        // Reusing a number across namespaces is legal on GL (three disjoint
+        // namespaces) and legal on Vulkan too, EXCEPT inside a single shader:
+        // on Vulkan's single-set model a shader that reads sampler 64 and
+        // storage 64 is a real collision -- that is precisely why
+        // TEX_DDGI_VISIBILITY moved off 57 in issue #691 Phase 7 Wave C (ADR
+        // item A2). Sampler 64 is read only through include/DDGICommon.glsl, so
+        // the constraint has a checkable form: NO shader may include both
+        // DDGICommon.glsl and GPUReadbackStats.glsl. That is asserted by
+        // GPUReadbackStatsLayoutTest.NoStatsConsumerAlsoSamplesBinding64, and it
+        // is the thing that will stop you if you try to publish counters from a
+        // GI pass. The fix then is to renumber one side, not to delete the test.
+        //
+        // NOTHING IS LEFT AFTER THIS. The next feature that wants a buffer
+        // binding has to either ride an existing block (the way #703 and #707
+        // did) or renumber. Say so in your issue before you start.
+        static constexpr u32 SSBO_GPU_STATS = 64;
 
         // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691
         // Phase 7 Wave C, ADR items A2/A3). On the Vulkan backend pipelines

@@ -66,7 +66,11 @@ layout(std430, binding = 17) buffer InstanceCullIndirect {
     uint firstIndex;
     uint baseVertex;
     uint baseInstance;
-    uint _indirectPad0;
+    // Was `_indirectPad0`. Declared VERBATIM in InstanceFrustumCull.comp — read
+    // its comment: this is the monotonic reservation cursor that lets the
+    // bound-checked append (issue #721) keep `instanceCount` an exact count of
+    // what was written.
+    uint reserveCursor;
     uint _indirectPad1;
     uint _indirectPad2;
 } indirect;
@@ -81,8 +85,15 @@ layout(std430, binding = 17) buffer InstanceCullIndirect {
 layout(std430, binding = 18) writeonly buffer InstanceCullRejected {
     InstanceData rejectedInstances[];
 };
+// TWO words since issue #721, and the second one is not padding.
+// `rejectedReserve` hands out slots and is monotonic; `rejectedCount` is bumped
+// only after a record actually lands, so it stays the exact length phase 2 may
+// read. C++ twin: GPUFrustumCuller's `RejectCounterPOD`, zeroed together before
+// each phase-1 dispatch — both words, or the cursor carries over from the last
+// frame and every reject lands past the end.
 layout(std430, binding = 19) buffer InstanceCullRejectedCount {
     uint rejectedCount;
+    uint rejectedReserve;
 };
 
 layout(std140, binding = 0) uniform CameraMatrices
@@ -131,8 +142,13 @@ layout(std140, binding = 71) uniform InstanceCullParams
     float u_OcclusionDepthBias;  // 112 — device-Z slack before a reject fires
     int   u_WriteRejected;       // 116 — phase 1: append occluded survivors to the reject list
     int   u_Phase2;              // 120 — phase 2: bound the dispatch by the reject-list length
-    int   _instCullPad0;         // 124
+    uint  u_OutputCapacity;      // 124 — entries `outputInstances` / the reject list may hold
 };
+
+// GPU readback-stats channel (issue #721). Declared VERBATIM in both cull
+// variants, like the InstanceCullParams block above — the frustum-only shader
+// publishes the frustum counters and this one adds the occlusion ones.
+#include "../include/GPUReadbackStats.glsl"
 
 // Occlusion controls. When u_OcclusionEnabled == 0 the shader behaves exactly
 // like InstanceFrustumCull.comp (frustum only).
@@ -247,6 +263,14 @@ void main()
     if (idx >= maxIdx)
         return;
 
+    // Phase 1 / single-phase count their input; phase 2 counts its re-tests
+    // instead, because the two dispatches read DIFFERENT buffers and adding both
+    // into one counter would make "instances submitted" larger than the batch.
+    if (u_Phase2 != 0)
+        oloStatAdd(OLO_STAT_InstanceCullPhase2Tested, 1u);
+    else
+        oloStatAdd(OLO_STAT_InstanceCullInput, 1u);
+
     // Current-frame world bounding sphere — drives the frustum test and (in
     // phase 2) the occlusion test.
     mat4 t = inputInstances[idx].Transform;
@@ -273,7 +297,10 @@ void main()
         {
             float signedDistance = dot(planes[i].xyz, worldCenter) + planes[i].w;
             if (signedDistance < -worldRadius)
+            {
+                oloStatAdd(OLO_STAT_InstanceCullFrustumRejected, 1u);
                 return; // Culled — outside this plane.
+            }
         }
     }
 
@@ -294,15 +321,41 @@ void main()
         // Phase 1: an occluded-but-frustum-visible instance is deferred to the
         // reject list so phase 2 can re-test it against current depth. Phase 2
         // (and single-phase) simply drop it.
+        oloStatAdd(OLO_STAT_InstanceCullOcclusionRejected, 1u);
         if (u_WriteRejected != 0)
         {
-            uint r = atomicAdd(rejectedCount, 1u);
-            rejectedInstances[r] = inputInstances[idx];
+            // Same reserve-then-commit split as the output append below, and it
+            // matters more here: `rejectedCount` is what BOUNDS phase 2's
+            // dispatch, so a count larger than what was written makes phase 2
+            // read uninitialised InstanceData — garbage transforms, i.e.
+            // geometry smeared across the scene rather than merely missing.
+            uint r = atomicAdd(rejectedReserve, 1u);
+            if (r >= u_OutputCapacity)
+            {
+                oloStatOverflow(OLO_STATFLAG_InstanceCullOutput, OLO_STAT_InstanceCullDropped, 1u);
+            }
+            else
+            {
+                rejectedInstances[r] = inputInstances[idx];
+                atomicAdd(rejectedCount, 1u);
+            }
         }
         return; // Culled — hidden behind recorded depth (kept for phase 2 if writing rejects).
     }
 
-    // Survivor — atomic-append into the compacted output.
-    uint outIdx = atomicAdd(indirect.instanceCount, 1);
+    // Survivor — atomic-append into the compacted output. See the twin comment
+    // in InstanceFrustumCull.comp for why this is two counters rather than one
+    // with a decrement: giving a reserved slot back lets a later invocation
+    // overwrite an instance already written there.
+    uint outIdx = atomicAdd(indirect.reserveCursor, 1u);
+    if (outIdx >= u_OutputCapacity)
+    {
+        oloStatOverflow(OLO_STATFLAG_InstanceCullOutput, OLO_STAT_InstanceCullDropped, 1u);
+        return;
+    }
     outputInstances[outIdx] = inputInstances[idx];
+    atomicAdd(indirect.instanceCount, 1u);
+    oloStatAdd(OLO_STAT_InstanceCullDrawn, 1u);
+    if (u_Phase2 != 0)
+        oloStatAdd(OLO_STAT_InstanceCullPhase2Recovered, 1u);
 }

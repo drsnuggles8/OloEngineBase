@@ -23,6 +23,7 @@
 #include "OloEngine/Renderer/CloudShadowMap.h"
 #include "OloEngine/Renderer/VolumetricShadowMap.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -127,6 +128,14 @@ namespace OloEngine
         // disabled-path guard — and reading an unbound SSBO is undefined in GL.
         // Header-only (7 x 32 bytes) until the feature is switched on.
         ShaderDebugDraw::Init();
+
+        // The GPU readback-stats channel (issue #721). Same reason for being
+        // here as the debug-draw channels above, and it is stronger: EVERY
+        // shader that includes include/GPUReadbackStats.glsl opens its helpers by
+        // reading `b_StatsEnabled` out of this block, so the buffer has to be
+        // allocated and bound before the first such shader can run. 144 bytes,
+        // resident for the process.
+        GPUReadbackStats::Init();
 
         CommandDispatch::Initialize();
         OLO_CORE_INFO("CommandDispatch system initialized.");
@@ -559,6 +568,13 @@ namespace OloEngine
         // Release the debug-draw channels + their readback staging (#725) while
         // GL is alive.
         ShaderDebugDraw::Shutdown();
+
+        // Release the readback-stats SSBO, its staging ring and any fence still
+        // in flight (#721) while GL is alive. A pending ring slot holds a live
+        // sync object, and destroying it after the context is gone is the
+        // lazy-static-release trap documented in
+        // docs/agent-rules/lazy-static-release-ownership.md.
+        GPUReadbackStats::Shutdown();
 
         // Release the terrain GPU-LOD patch mesh (#714) while GL is alive — it
         // is a process-wide static, so its Ref would otherwise run

@@ -8,6 +8,7 @@
 #include "MCP/McpClusterGridStats.h"
 #include "MCP/McpFrameBreakdown.h"
 #include "MCP/McpFroxelFogProbe.h"
+#include "MCP/McpGpuReadbackStats.h"
 #include "MCP/McpGoldenCompare.h"
 #include "MCP/McpRenderExplain.h"
 #include "MCP/McpRenderGraphTopology.h"
@@ -25,6 +26,7 @@
 #include "OloEngine/Renderer/Debug/CapturedFrameData.h"
 #include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
@@ -116,6 +118,13 @@ namespace OloEngine::MCP
         // a render-graph DECLARATION (the "VirtualGeometryDebug" import), so the
         // topology must rebuild before a following capture can resolve the target.
         constexpr int kVirtualDebugSettleFrames = 3;
+
+        // Defined further down. Forward-declared so olo_gpu_readback_stats (#721,
+        // earlier in the TU) can settle a few frames after flipping the channel —
+        // its counters are read a ring's-worth of frames late, so a report taken
+        // immediately after the write would describe the OLD state and read as
+        // "the write did nothing".
+        bool ForceFreshFrame(McpServer& server, int settleFrames);
 
         // ---- olo_render_frame_breakdown (main-marshaled) -----------------------
         // The per-command / per-pipeline-stage structural view olo_perf_capture_frame
@@ -350,6 +359,80 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_gpu_readback_stats (main-marshaled) ---------------------------
+        // The structured GPU readback-stats channel (issue #721). Read-only, and
+        // read-only in the strong sense: it drains what the channel has ALREADY
+        // brought back rather than triggering a readback, so calling it never
+        // stalls the frame and never changes what the next frame reports. That
+        // matters more here than for most tools — an agent polling a diagnostic
+        // must not be able to perturb the thing it is diagnosing.
+        ToolResult Handle_GpuReadbackStats(McpServer& server, const Json& args)
+        {
+            // The one optional argument is a WRITE, so the tool is registered with
+            // mutating annotations and goes through the consent gate. Without it
+            // an agent cannot A/B the channel's own cost — which is the question
+            // most likely to be asked of a diagnostic that is on by default.
+            const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean();
+            if (hasEnabled)
+            {
+                const bool enabled = args["enabled"].get<bool>();
+                server.MarshalRead(
+                    [enabled]() -> Json
+                    {
+                        // The SETTING, not GPUReadbackStats::SetEnabled directly:
+                        // UploadExecutionState pushes the setting into the channel
+                        // every frame, so writing the channel would be reverted on
+                        // the very next frame and the tool would report a change
+                        // that silently did not stick.
+                        Renderer3D::GetRendererSettings().GPUReadbackStatsEnabled = enabled;
+                        return Json::object();
+                    });
+                // The counters are read a few frames late by construction, so a
+                // report taken immediately would describe the OLD state and read
+                // as "the write did nothing".
+                if (server.Context().GetFrameIndex)
+                    (void)ForceFreshFrame(server, kVirtualDebugSettleFrames);
+            }
+
+            Json result = server.MarshalRead(
+                []() -> Json
+                {
+                    namespace Stats = OloEngine::MCP::GpuReadbackStats;
+                    Stats::StatsSnapshot snapshot;
+                    snapshot.Enabled = GPUReadbackStats::IsEnabled();
+                    snapshot.RingSlots = GPUReadbackStats::kRingSlots;
+                    snapshot.SlotsInFlight = GPUReadbackStats::GetSlotsInFlight();
+
+                    const auto& frame = GPUReadbackStats::GetLatest();
+                    snapshot.Valid = frame.Valid;
+                    snapshot.FrameIndex = frame.FrameIndex;
+                    snapshot.LatencyFrames = frame.Latency;
+
+                    for (u32 i = 0; i < kGPUStatCounterCount; ++i)
+                    {
+                        const auto counter = static_cast<GPUStatCounter>(i);
+                        snapshot.Counters.push_back({ std::string{ GPUStatCounterName(counter) },
+                                                      std::string{ GPUStatCounterDescription(counter) },
+                                                      frame.Get(counter) });
+                    }
+                    // Only the flags that FIRED. A list of every flag with a
+                    // boolean beside it makes "nothing is wrong" and "three things
+                    // are wrong" the same shape, and an agent has to scan to tell
+                    // them apart.
+                    for (u32 i = 0; i < kGPUStatFlagCount; ++i)
+                    {
+                        const auto flag = static_cast<GPUStatFlag>(i);
+                        if (frame.Overflowed(flag))
+                        {
+                            snapshot.Overflows.push_back(
+                                { std::string{ GPUStatFlagName(flag) }, std::string{ GPUStatFlagDescription(flag) } });
+                        }
+                    }
+                    return Stats::BuildStatsReport(snapshot);
+                });
             return ToolResult::Structured(result);
         }
 
@@ -5323,6 +5406,53 @@ namespace OloEngine::MCP
                                     .Required({ "count", "targets" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderListTargets;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_gpu_readback_stats";
+            tool.Toolset = "render";
+            tool.Title = "GPU readback stats";
+            // Mutating only because of the optional 'enabled' argument; with no
+            // arguments it is a pure read that does not even trigger a readback.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Read the structured GPU readback-stats channel: per-frame counters that GPU-driven passes "
+                "publish by atomic (instance-cull decisions by test, virtual-shadow page allocations / "
+                "evictions / failures) plus CAPACITY-OVERFLOW FLAGS naming any pass that silently truncated "
+                "its output this frame. Check 'overflows' first — a raised flag means the frame rendered "
+                "wrong and the counters explain by how much. Numbers are read a few frames late by design "
+                "(never synchronously); 'frameIndex' and 'latencyFrames' say which frame they describe. "
+                "Call with no arguments to read; pass 'enabled' to switch the channel off or on (the only "
+                "way to A/B its own cost against frame time).";
+            tool.InputSchema =
+                Schema::Object()
+                    .Prop("enabled", Schema::Bool().Desc("Switch the channel on/off. Omit to read without changing anything. Off: the GLSL helpers early-out on one scalar load and no clear, copy or fence is issued."))
+                    .NoAdditional();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("enabled", Schema::Bool().Desc("False when the channel is switched off and nothing is being collected."))
+                    .Prop("valid", Schema::Bool().Desc("False until the first frame has come back through the ring."))
+                    .Prop("anyOverflow", Schema::Bool().Desc("True when any capacity-overflow flag fired this frame."))
+                    .Prop("overflows", Schema::Array(Schema::Object()
+                                                         .Prop("name", Schema::String().Desc("Flag name, e.g. InstanceCullOutput."))
+                                                         .Prop("description", Schema::String().Desc("What truncated.")))
+                                           .Desc("Only the flags that FIRED; empty means nothing truncated."))
+                    .Prop("frameIndex", Schema::Int().Min(0).Desc("Engine frame the counters belong to — NOT the frame that read them."))
+                    .Prop("latencyFrames", Schema::Int().Min(0).Desc("How many frames ago that frame was."))
+                    .Prop("ringSlots", Schema::Int().Min(0).Desc("Staging slots in the readback ring."))
+                    .Prop("slotsInFlight", Schema::Int().Min(0).Desc("Slots the GPU has not finished with yet."))
+                    .Prop("ringSaturated", Schema::Bool().Desc("True when every slot is busy, so captures are being skipped and the counters are staler than latencyFrames implies."))
+                    .Prop("counters", Schema::Array(Schema::Object()
+                                                        .Prop("name", Schema::String())
+                                                        .Prop("description", Schema::String())
+                                                        .Prop("value", Schema::Int().Min(0)))
+                                          .Desc("Every registered counter, in registry order."))
+                    .Prop("note", Schema::String().Desc("Present only when the channel is disabled or has not returned a frame yet."))
+                    .Required({ "enabled", "valid", "anyOverflow", "overflows", "counters" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_GpuReadbackStats;
             server.RegisterTool(std::move(tool));
         }
 

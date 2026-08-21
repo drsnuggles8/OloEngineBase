@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
@@ -1132,6 +1133,11 @@ namespace OloEngine
         m_DrawCommands->Bind();
         m_LocalLights->Bind();
         m_StatsBuffers[m_StatsWriteIndex]->Bind();
+        // The GPU readback-stats channel (issue #721). Bound HERE rather than at
+        // each publishing kernel because this is the one function every VSM
+        // dispatch already goes through, and the eleven binds above are exactly
+        // the kind of wholesale re-bind that can leave a frame-level bind stale.
+        GPUReadbackStats::BindForDispatch();
     }
 
     void VirtualShadowMap::BindPhysicalPoolImage() const

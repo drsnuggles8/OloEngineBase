@@ -262,5 +262,22 @@ namespace OloEngine
         // clusters per frame than a channel holds, so the honest default is a
         // sub-sample rather than an overflowing prefix of an arbitrary order.
         u32 ShaderDebugDrawClusterStride = 32;
+
+        // The structured GPU readback-stats channel (issue #721).
+        //
+        // ON by default, unlike the debug draws above, and that is a considered
+        // difference rather than an oversight. The cost while on is one 144-byte
+        // buffer upload, one 144-byte GPU->GPU copy and one fence per frame, plus
+        // a handful of atomics in passes that already run thousands — measured at
+        // the frame-time noise floor. What it buys is that "the cull dropped
+        // instances" and "the shadow page pool ran dry" are visible the moment
+        // they happen instead of only when somebody thinks to turn an instrument
+        // on. A diagnostic that is off by default is a diagnostic nobody has when
+        // the problem appears.
+        //
+        // Off: the GLSL helpers early-out on one scalar load, no clear, no copy,
+        // no fence. The block stays allocated and bound — that is what makes the
+        // guard read defined rather than undefined behaviour on an unbound SSBO.
+        bool GPUReadbackStatsEnabled = true;
     };
 } // namespace OloEngine

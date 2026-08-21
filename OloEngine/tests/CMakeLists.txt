@@ -153,6 +153,7 @@ add_executable(OloEngine-Tests
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
+		Rendering/GPUReadbackStatsLayoutTest.cpp
 		Rendering/GPUPrefixSumTest.cpp
 		Rendering/GPUPrefixSumPerfProbe.cpp
 		Rendering/GPUHashMapTest.cpp
@@ -399,6 +400,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/McpPerfSettleTest.cpp
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
+		Rendering/PropertyTests/GPUReadbackStatsEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
 		# Cross-test GL-error-state guard (issue #485): a global gtest listener
@@ -696,6 +698,11 @@ add_executable(OloEngine-Tests
 		# distribution + view-ray secant scaling) behind olo_froxel_fog_probe (#607,
 		# relates to #435). Header-only (MCP/McpFroxelFogProbe.h), no extra editor TU.
 		MCP/McpFroxelFogProbeTest.cpp
+		# Pure JSON shaping behind olo_gpu_readback_stats (#721) — in particular
+		# that a raised overflow flag reaches the top of the response instead of
+		# being derivable only by reading the counters. Header-only
+		# (MCP/McpGpuReadbackStats.h), no extra editor TU pulled in.
+		MCP/McpGpuReadbackStatsTest.cpp
 		# Pure array-layer selection behind olo_render_capture_target's 'layer'
 		# argument (#607): the CSM cascade array / shadow-atlas raw-depth views, and
 		# the "a layer view must not silently capture layer 0" rule. Header-only
