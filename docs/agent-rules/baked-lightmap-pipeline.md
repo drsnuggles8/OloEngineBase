@@ -162,14 +162,39 @@ reference-path-tracer.md §2, now load-bearing in an asset pipeline.
 
 ## 6. Deliberately deferred (so nobody re-derives the gap as a bug)
 
-- **Deferred-path lightmap sampling**: `DeferredLightingShared.glsl` shades from the G-Buffer,
-  which carries no UV2 — the term would need a G-Buffer-pass fold. Forward/Forward+ carry the
-  feature; deferred falls through to probes/IBL.
-- **Vulkan lightmap sampling**: the UV2 stream needs a second vertex-pull buffer; the branch is
-  compiled out (`OLO_VULKAN` stub) rather than reading unbound state.
-- **VirtualGeometry / InstancedMeshComponent / ModelComponent receivers**: only the classic
-  `MeshComponent` path samples the lightmap in v1.
-- **Albedo textures in the bounce**: `ReferenceScene` materials are factor-only by design
-  (reference-path-tracer.md); bounce colour comes from base-colour factors.
-- **Sky/HDRI in the bake**: the reference environment is uniform-only; exteriors under an HDRI
-  have no ground truth until the environment model grows a directional representation.
+Every item here is a **filed issue**, not a note — the mechanism, the decision each one needs and
+its acceptance criteria live there. Read the issue before re-deriving the design.
+
+- **Deferred-path lightmap sampling (#865)**: `DeferredLightingShared.glsl` shades from the
+  G-Buffer, which carries no UV2, and all five render targets are packed. Forward/Forward+ carry
+  the feature. **This is the one deferral that fails scene-wide rather than per-draw**, so it is
+  the one that gets a warning: `SceneLightmapRuntime::WarnIfActivePathCannotSample` fires once per
+  resolved bake when `RenderingPath::Deferred` is active. Every *other* unreached receiver falls
+  back visibly to probes/IBL for one draw; this one silently disables the feature for the whole
+  scene, which is why it earns log noise and the others do not.
+- **Vulkan lightmap sampling (#866)**: the UV2 stream needs a THIRD vertex-pull stream (the
+  reserved pair is vertex @57 + bone @63), plus UBO 1 / TEX 16 publication — an ADR 0011 §5
+  contract change, not a shader edit. The branch is compiled out (`OLO_VULKAN` stub) rather than
+  reading unbound state, because an unbound sampler plus an unwritten UBO can report *enabled*
+  and sample noise.
+- **VirtualGeometry / InstancedMeshComponent / ModelComponent receivers (#867)**: only the classic
+  `MeshComponent` path samples the lightmap in v1. Each breaks the `UUID → one region` model
+  differently. Note the trap recorded there: wiring only the VirtualGeometry *fallback* path
+  (`virtualGeometryEnabled == false`, which re-routes through `SubmitMeshSourceClassic`) would
+  make baked GI appear and disappear with the VG master switch, destroying that toggle's value as
+  an A/B. Both sides sample it or neither does.
+- **Multi-page atlas (#868)**: the `.olmap` format is paging-ready (`PageCount`, per-entry `Page`)
+  but bake and runtime are single-page, so an oversized scene degrades region sizes instead of
+  paging. `Resolve()` rejects `Page != 0` entries precisely so a future multi-page asset degrades
+  visibly rather than sampling page 0 — another entity's charts — through a valid-looking region.
+- **Albedo textures in the bounce, and sky/HDRI environments (#869)** — filed as ONE issue,
+  because they are one architectural decision rather than two tasks. `ReferenceScene` materials
+  are factor-only and its environment is uniform radiance, both by explicit design
+  (reference-path-tracer.md): the oracle's value is that it sits *outside* the raster's sampling
+  and mip conventions, so when the two disagree you know it is transport and not filtering.
+  Teaching it to sample a texture or a cubemap makes the instrument share a failure mode with the
+  thing it validates, weakening every parity suite at once. Sky has a second blocker — with no
+  directional environment model there is no ground truth to validate an HDRI bake *against*, so
+  it is not merely unimplemented, it is unverifiable. Consequences meanwhile: bounce colour comes
+  from base-colour factors, and an exterior bakes with no sky contribution (that ambient stays
+  realtime IBL). Both failure modes are "less bounce than reality", never "wrong bounce".
