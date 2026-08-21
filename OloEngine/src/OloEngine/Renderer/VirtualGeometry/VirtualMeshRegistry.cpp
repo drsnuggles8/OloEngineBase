@@ -162,6 +162,7 @@ namespace OloEngine
         m_FramePrepared = false;
         m_FramePreparedResult = false;
         m_ResidencyProcessed = false;
+        m_SubmissionDiagnostics = {};
     }
 
     void VirtualMeshRegistry::Submit(const VirtualMeshSubmission& submission)

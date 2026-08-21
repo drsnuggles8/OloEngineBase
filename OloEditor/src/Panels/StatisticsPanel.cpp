@@ -166,16 +166,47 @@ namespace OloEngine
             }
         }
 
-        // Virtual Geometry (Nanite cluster LOD DAG, issue #629). Shown only when
-        // virtual meshes are actually registered/submitted this frame.
+        // Virtual Geometry (Nanite cluster LOD DAG, issue #629). Shown when virtual
+        // meshes are registered/submitted this frame — or when the scene HAS virtual
+        // meshes but submitted none of them, which is the state the panel most needs
+        // to report (issue #864).
         {
             auto& vgRegistry = VirtualMeshRegistry::Get();
             const VirtualResidencyStats& residency = vgRegistry.GetResidencyStats();
             u32 const frameInstances = static_cast<u32>(vgRegistry.GetFrameInstances().size());
-            if (residency.TotalPages > 0 || frameInstances > 0)
+            // Issue #864: the section used to be shown only when something was ALREADY
+            // drawing, so the one scene state worth shouting about — "this scene has
+            // virtual meshes and drew none of them" — hid the very panel its own
+            // documentation tells you to go and read. Show it whenever the scene ASKED
+            // for virtual geometry, and let the panel explain the zero.
+            const auto& vgDiagnostics = vgRegistry.GetSubmissionDiagnostics();
+            if (residency.TotalPages > 0 || frameInstances > 0 || vgDiagnostics.EnabledComponents > 0)
             {
                 if (ImGui::CollapsingHeader("Virtual Geometry (Nanite)", ImGuiTreeNodeFlags_DefaultOpen))
                 {
+                    if (vgDiagnostics.SilentlyDrewNothing())
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f),
+                                           "%u VirtualMeshComponent(s) submitted NOTHING",
+                                           vgDiagnostics.EnabledComponents);
+                        if (vgDiagnostics.UnresolvedAssets > 0)
+                        {
+                            ImGui::TextWrapped("%u mesh-source asset(s) did not load. If the mesh is a "
+                                               "fetch-on-demand asset it is absent until you run "
+                                               "scripts/Fetch-Assets.ps1 (see "
+                                               "scripts/assets/asset-manifest.json).",
+                                               vgDiagnostics.UnresolvedAssets);
+                        }
+                        if (vgDiagnostics.RegistrationFailures > 0)
+                        {
+                            ImGui::TextWrapped("%u mesh(es) resolved but their cluster DAG failed to "
+                                               "build — see OloEngine.log.",
+                                               vgDiagnostics.RegistrationFailures);
+                        }
+                        ImGui::TextWrapped("Every counter below reads 0 for that reason. Do not treat a "
+                                           "virtual-geometry measurement taken on this scene as meaningful.");
+                        ImGui::Separator();
+                    }
                     ImGui::Text("Instances this frame: %u", frameInstances);
 
                     ImGui::Separator();

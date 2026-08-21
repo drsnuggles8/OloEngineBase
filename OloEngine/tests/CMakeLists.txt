@@ -379,6 +379,7 @@ add_executable(OloEngine-Tests
 		Rendering/RendererShutdownTest.cpp
 		Rendering/RenderPathDriftTest.cpp
 		Rendering/VirtualMeshRegistryRejectionTest.cpp
+		Rendering/VirtualGeometrySceneCoverageTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
 		Rendering/PropertyTests/LightmapVisualEvidenceTest.cpp

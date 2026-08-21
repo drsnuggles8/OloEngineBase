@@ -196,6 +196,50 @@ namespace OloEngine
             bool Valid = false; // at least one part built
         };
 
+        // Why a scene that HAS virtual meshes still drew none (issue #864).
+        //
+        // The failure this exists for is "plausible-looking nothing": a scene
+        // whose VirtualMeshComponents all reference an asset that did not load
+        // renders an empty viewport, every frame, with no other symptom — and
+        // an empty viewport is indistinguishable from a camera, lighting or
+        // culling problem. Worse, a VG A/B measured on such a scene passes
+        // VACUOUSLY ("no difference between modes" — because nothing drew).
+        //
+        // The Scene submission loop fills this in as it walks the components,
+        // so the two consumers that report VG health — the editor's Statistics
+        // panel and the MCP olo_virtual_geometry_stats tool — can say WHICH of
+        // the several very different causes produced a zero instead of guessing.
+        // Counting happens on the Deferred path only, because that is the only
+        // path on which the submission loop runs at all.
+        struct SubmissionDiagnostics
+        {
+            // Components seen this frame that asked to render: m_Enabled with a
+            // non-zero mesh handle. A zero handle is a freshly added component
+            // with nothing assigned yet — normal authoring state, not a fault.
+            u32 EnabledComponents = 0;
+            // ...of which the mesh-source asset failed to resolve. Today's
+            // usual cause is a fetch-on-demand asset (scripts/Fetch-Assets.ps1)
+            // that this machine has never fetched.
+            u32 UnresolvedAssets = 0;
+            // ...of which the asset resolved but the cluster DAG would not
+            // build, so the entity was dropped inside SubmitVirtualMesh.
+            u32 RegistrationFailures = 0;
+            // ...of which actually reached VirtualMeshRegistry::Submit.
+            u32 Submitted = 0;
+            // Set when the master switch is off: the components were drawn
+            // through the CLASSIC mesh path instead. Zero VG counters are then
+            // correct and expected, not a fault.
+            bool FellBackToClassic = false;
+
+            // The condition worth shouting about: the scene asked for virtual
+            // geometry and got none of it. Deliberately false for a scene with
+            // no VirtualMeshComponent at all, and for the classic-fallback A/B.
+            [[nodiscard]] bool SilentlyDrewNothing() const
+            {
+                return EnabledComponents > 0 && Submitted == 0 && !FellBackToClassic;
+            }
+        };
+
         // CPU-side instance record kept alongside the GPU upload so the draw
         // loop can bind per-instance material state and issue the MDI call.
         struct FrameInstance
@@ -382,6 +426,18 @@ namespace OloEngine
             return m_TotalFrameClusterCount;
         }
 
+        // Submission diagnostics (issue #864). Reset by BeginFrame and filled by
+        // the Scene's virtual-mesh loop; read by the Statistics panel and the
+        // MCP stats tool to explain a zero rather than let it pass silently.
+        [[nodiscard]] const SubmissionDiagnostics& GetSubmissionDiagnostics() const
+        {
+            return m_SubmissionDiagnostics;
+        }
+        [[nodiscard]] SubmissionDiagnostics& GetMutableSubmissionDiagnostics()
+        {
+            return m_SubmissionDiagnostics;
+        }
+
         // GL object accessors for the cull + draw passes (valid after PrepareFrame)
         [[nodiscard]] const Ref<StorageBuffer>& GetClusterBuffer() const
         {
@@ -498,6 +554,7 @@ namespace OloEngine
 
         std::vector<VirtualMeshSubmission> m_Submissions;
         std::vector<FrameInstance> m_FrameInstances;
+        SubmissionDiagnostics m_SubmissionDiagnostics;
         u32 m_TotalFrameClusterCount = 0;
         bool m_FramePrepared = false; // PrepareFrame ran this frame
         bool m_FramePreparedResult = false;
