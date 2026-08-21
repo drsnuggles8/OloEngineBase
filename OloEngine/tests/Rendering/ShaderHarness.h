@@ -252,7 +252,8 @@ namespace OloEngine::Tests::ShaderHarness
         const std::string& stageSource,
         shaderc_shader_kind kind,
         const fs::path& root,
-        shaderc::Compiler& compiler)
+        shaderc::Compiler& compiler,
+        bool generateDebugInfo = false)
     {
         shaderc::CompileOptions options;
         if (kind == shaderc_glsl_compute_shader)
@@ -268,6 +269,12 @@ namespace OloEngine::Tests::ShaderHarness
         options.SetAutoBindUniforms(false);
         options.SetSuppressWarnings();
         options.SetIncluder(std::make_unique<Includer>(root));
+        // Debug info (OpName/OpMemberName) is opt-in: it's off by default to
+        // match the engine's runtime compile path, and only the callers that
+        // need member *names* out of reflection (rather than just offsets/
+        // sizes) should pay for it.
+        if (generateDebugInfo)
+            options.SetGenerateDebugInfo();
 
         const std::string name = shaderPath.generic_string();
         return compiler.CompileGlslToSpv(stageSource, kind, name.c_str(), options);

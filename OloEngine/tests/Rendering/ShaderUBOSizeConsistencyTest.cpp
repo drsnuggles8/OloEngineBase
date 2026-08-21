@@ -382,8 +382,9 @@ namespace OloEngine::Tests
     //
     // Extension of the per-shader UBO size check: for each UBO block
     // name that appears in *multiple* production shaders (e.g.
-    // `CameraMatrices` is in every PBR shader), every member's name AND
-    // declared offset must agree across every shader that declares it.
+    // `CameraMatrices` is in every PBR shader), every MEANINGFUL member
+    // name must agree with every other shader's member at the same
+    // std140 offset.
     //
     // This catches a subtle bug class: shader A and shader B both
     // declare a `CameraMatrices` block at binding 0, both 272 bytes,
@@ -395,6 +396,44 @@ namespace OloEngine::Tests
     // the correct offset and the other reads garbage from
     // u_Projection's slot. Surface in OloEditor: "this material's
     // matrix is wrong but the others look fine."
+    //
+    // Comparison is keyed by std140 OFFSET, not member index -- there is no
+    // separate prefix-matching pass; a shorter block simply contributes no
+    // observation at the higher offsets, so agreement there is implicit. A
+    // purely positional (index-by-index) comparison misfires on two patterns
+    // that are common and harmless in this codebase: a shader that only
+    // needs a subset of a shared block's fields and stops declaring early
+    // (handled for free by the offset key, per the previous sentence), and a
+    // shader that merges several trailing scalar fields it doesn't use into
+    // one padding field of a different arity — e.g. Particle_Billboard.glsl's
+    // Camera block
+    // packs the unused position+pad tail into a single `vec4` where
+    // OcclusionProxy.glsl declares the real `vec3 u_CameraPosition; float
+    // _padding0;` pair — same 16 bytes, different member count, so a
+    // positional walk desyncs from that point on even though nothing is
+    // actually wrong. Keying by offset sidesteps both: it only asks
+    // whether more than one MEANINGFUL name claims the same byte.
+    //
+    // A leading underscore is this codebase's established convention for
+    // "declared for std140 layout parity, deliberately never read" (see
+    // `_padding0`, `_foliagePad1`, `_camera_pad_view`, `_vdPad0`, `_ddgiPad0`
+    // throughout OloEditor/assets/shaders/). Since std140 reads happen by
+    // BYTE OFFSET, not GLSL member name, a shader that names its copy of a
+    // slot as a placeholder is provably not reading it — so a placeholder
+    // name disagreeing with a real name at the same offset cannot cause
+    // wrong rendering, only two DIFFERENT real names claiming the same
+    // offset can (the actual bug class this test exists to catch).
+    //
+    // One further exception, `kMemberAliases` below: GLSL forbids two
+    // uniform-block members with the same name at global (non-instanced)
+    // scope, so a shader that already has e.g. `u_PrevViewProjection` from
+    // its own CameraMatrices block must rename a second block's identically-
+    // offset field to avoid a compile error — PostProcess_Cloudscape.glsl's
+    // `MotionBlurUBO.u_MB_PrevViewProjection` versus PostProcess_Fog.glsl's
+    // instance-named `u_MB.u_PrevViewProjection` are the two different
+    // techniques shaders here use to dodge that collision (issue #429). Both
+    // real names, both correct, same offset — an explicit, audited alias,
+    // not a general escape hatch.
     // -------------------------------------------------------------------------
     TEST(ShaderUBOSizeConsistency, CrossShaderUBOMemberOffsetsAgree)
     {
@@ -406,21 +445,35 @@ namespace OloEngine::Tests
         shaderc::Compiler compiler;
         ASSERT_TRUE(compiler.IsValid());
 
-        // Per-block-name layout key: a stable signature of the block's
-        // member layout — list of (member_name, member_offset) pairs in
-        // declared order. Different signatures for the same block name
-        // across shaders = mismatch.
-        struct MemberInfo
+        struct MemberAlias
         {
-            std::string Name;
-            u32 Offset;
+            std::string_view BlockName;
+            std::string_view Name;
+            std::string_view CanonicalName;
         };
-        struct ObservedLayout
+        // Each entry is a claim that two real (non-placeholder) names are
+        // the SAME field, verified by reading both declaring shaders --
+        // never add one just to make a newly-real mismatch go away. See the
+        // header comment above for how this one entry was confirmed.
+        static constexpr std::array<MemberAlias, 1> kMemberAliases = { {
+            { "MotionBlurUBO", "u_MB_PrevViewProjection", "u_PrevViewProjection" },
+        } };
+        auto canonicalize = [](std::string_view blockName, const std::string& name) -> std::string
         {
-            std::vector<MemberInfo> Members;
-            std::string FirstShaderPath; // the shader we saw this layout in first
+            for (const auto& alias : kMemberAliases)
+                if (alias.BlockName == blockName && alias.Name == name)
+                    return std::string(alias.CanonicalName);
+            return name;
         };
-        std::map<std::string, std::vector<ObservedLayout>> blockLayouts;
+
+        struct MemberObservation
+        {
+            std::string Name; // as declared, before alias canonicalization
+            std::string ShaderPath;
+        };
+        // blockName -> offset -> every member observed declaring at that
+        // std140 offset, across every shader that declares this block name.
+        std::map<std::string, std::map<u32, std::vector<MemberObservation>>> blockOffsets;
 
         for (const auto& path : shaders)
         {
@@ -429,7 +482,12 @@ namespace OloEngine::Tests
 
             for (const auto& [kind, stageSource] : stages)
             {
-                auto result = SH::CompileStageToSpv(path, stageSource, kind, root, compiler);
+                // Debug info is needed here (unlike the two tests above) so
+                // shaderc emits OpMemberName and member names actually
+                // populate the map below -- see the base_type_id note just
+                // below for why offsets need it too.
+                auto result = SH::CompileStageToSpv(path, stageSource, kind, root, compiler,
+                                                    /*generateDebugInfo=*/true);
                 if (result.GetCompilationStatus() != shaderc_compilation_status_success)
                     continue;
 
@@ -441,43 +499,24 @@ namespace OloEngine::Tests
                         const std::string blockName = ResolveBlockName(refl, res);
                         const auto& type = refl.get_type(res.type_id);
 
-                        ObservedLayout obs;
-                        obs.FirstShaderPath = path.generic_string();
                         for (u32 m = 0; m < type.member_types.size(); ++m)
                         {
+                            // spirv-cross keeps member names/decorations
+                            // (including DecorationOffset) attached to the
+                            // block's *base* type, not res.type_id -- using
+                            // type_id here returns "" for the name and 0 for
+                            // the offset unconditionally, which is why this
+                            // test previously compared ("", 0) against
+                            // ("", 0) for every member and could never fail
+                            // (#847). get_type(res.type_id) above is left
+                            // alone: the member *count* and declared struct
+                            // size are correct off either id.
                             const std::string memberName =
-                                refl.get_member_name(res.type_id, m);
+                                refl.get_member_name(res.base_type_id, m);
                             const u32 offset =
-                                refl.get_member_decoration(res.type_id, m, spv::DecorationOffset);
-                            obs.Members.push_back({ memberName, offset });
+                                refl.get_member_decoration(res.base_type_id, m, spv::DecorationOffset);
+                            blockOffsets[blockName][offset].push_back({ memberName, path.generic_string() });
                         }
-
-                        auto& layouts = blockLayouts[blockName];
-                        // Check if this matches any existing layout. If
-                        // not, record as a new variant.
-                        bool matched = false;
-                        for (const auto& existing : layouts)
-                        {
-                            if (existing.Members.size() != obs.Members.size())
-                                continue;
-                            bool sameLayout = true;
-                            for (sizet k = 0; k < existing.Members.size(); ++k)
-                            {
-                                if (existing.Members[k].Name != obs.Members[k].Name ||
-                                    existing.Members[k].Offset != obs.Members[k].Offset)
-                                {
-                                    sameLayout = false;
-                                    break;
-                                }
-                            }
-                            if (sameLayout)
-                            {
-                                matched = true;
-                                break;
-                            }
-                        }
-                        if (!matched)
-                            layouts.push_back(std::move(obs));
                     }
                 }
                 catch (...)
@@ -486,58 +525,49 @@ namespace OloEngine::Tests
             }
         }
 
-        // Report any block name with >1 distinct observed layout.
+        // Report every offset where more than one distinct MEANINGFUL
+        // (non-placeholder, alias-canonicalized) name is claimed.
         std::ostringstream errors;
-        for (const auto& [blockName, layouts] : blockLayouts)
+        for (const auto& [blockName, offsets] : blockOffsets)
         {
-            if (layouts.size() <= 1)
-                continue;
-
-            // std140 allows shaders to declare a prefix of a buffer
-            // (one shader sees a shorter CameraMatrices than another).
-            // Detect the prefix-of-prefix case: if every shorter layout
-            // is a strict prefix of the longest one (same members, same
-            // offsets, just truncated), accept it. Disagreement on a
-            // shared prefix's offsets IS the bug.
-            const ObservedLayout* longest = &layouts.front();
-            for (const auto& l : layouts)
-                if (l.Members.size() > longest->Members.size())
-                    longest = &l;
-
-            bool allPrefixesAgree = true;
-            for (const auto& l : layouts)
+            std::ostringstream blockErrors;
+            for (const auto& [offset, observations] : offsets)
             {
-                const sizet n = l.Members.size();
-                if (n > longest->Members.size())
+                struct Meaningful
                 {
-                    allPrefixesAgree = false;
-                    break;
+                    const MemberObservation* Obs;
+                    std::string CanonicalName;
+                };
+                std::vector<Meaningful> meaningful;
+                for (const auto& obs : observations)
+                {
+                    if (obs.Name.empty() || obs.Name.starts_with('_'))
+                        continue;
+                    meaningful.push_back({ &obs, canonicalize(blockName, obs.Name) });
                 }
-                for (sizet k = 0; k < n; ++k)
-                {
-                    if (l.Members[k].Name != longest->Members[k].Name ||
-                        l.Members[k].Offset != longest->Members[k].Offset)
+                if (meaningful.size() <= 1)
+                    continue;
+
+                bool allAgree = true;
+                for (const auto& m : meaningful)
+                    if (m.CanonicalName != meaningful.front().CanonicalName)
                     {
-                        allPrefixesAgree = false;
+                        allAgree = false;
                         break;
                     }
-                }
-                if (!allPrefixesAgree)
-                    break;
+                if (allAgree)
+                    continue;
+
+                blockErrors << "    offset " << offset << " is claimed by " << meaningful.size()
+                            << " different member names:\n";
+                for (const auto& m : meaningful)
+                    blockErrors << "        " << m.Obs->Name << " in " << m.Obs->ShaderPath << "\n";
             }
 
-            if (allPrefixesAgree)
-                continue;
-
-            errors << "----\nUBO block '" << blockName
-                   << "' has " << layouts.size()
-                   << " incompatible layouts across shaders:\n";
-            for (const auto& l : layouts)
-            {
-                errors << "    in " << l.FirstShaderPath << ":\n";
-                for (const auto& m : l.Members)
-                    errors << "        offset=" << m.Offset << " name=" << m.Name << "\n";
-            }
+            if (!blockErrors.str().empty())
+                errors << "----\nUBO block '" << blockName
+                       << "' has conflicting member names at shared offsets:\n"
+                       << blockErrors.str();
         }
 
         if (!errors.str().empty())
@@ -662,24 +692,25 @@ namespace OloEngine::Tests
             for (u32 m = 0; m < type.member_types.size(); ++m)
             {
                 const MemberPin& pin = pins[m];
-                // ShaderHarness compiles without SetGenerateDebugInfo, so
-                // shaderc emits no OpMemberName and every reflected member name
-                // is empty. Compare only when a name actually survived: that
-                // keeps this a real check if debug info is ever turned on,
-                // without asserting on something the harness does not produce.
+                // The compile call above now asks for debug info (like the
+                // sibling test below), so shaderc emits OpMemberName and this
+                // name check is live, not dead code -- still guarded on
+                // `!name.empty()` in case that ever changes back, so this
+                // stays a real check either way rather than asserting on
+                // something the harness might stop producing.
                 //
                 // Worth knowing when reading the sibling test above:
-                // CrossShaderUBOMemberOffsetsAgree compares member names too and
-                // has always been comparing "" to "" for the same reason — and
-                // its offsets are all 0 because it reads decorations off
-                // res.type_id rather than res.base_type_id, so BOTH halves of
-                // its signature are constant and it cannot fail. Filed as #847;
-                // not fixed here because it is pre-existing, outside DDGI, and
-                // the fix is expected to surface real drift in other blocks.
-                // That is also why the checks below use base_type_id. The
-                // reorder detection below does not depend on names at all: the
-                // pins are in GLSL declared order carrying C++ offsets, so two
-                // swapped members produce mismatched offsets at both indices.
+                // CrossShaderUBOMemberOffsetsAgree used to compare member
+                // names and offsets read off res.type_id, which for a UBO
+                // resource is always "" / 0 -- both halves of its signature
+                // were constant, so it compared ("", 0) to ("", 0) for every
+                // member and could never fail (#847, fixed alongside this
+                // comment: it now reads off res.base_type_id, same as here).
+                // The reorder detection below does not depend on names at
+                // all even so: the pins are in GLSL declared order carrying
+                // C++ offsets, so two swapped members produce mismatched
+                // offsets at both indices regardless of what shaderc names
+                // them.
                 if (const std::string name = refl.get_member_name(res.base_type_id, m);
                     !name.empty() && name != pin.GlslName)
                 {
@@ -728,7 +759,10 @@ namespace OloEngine::Tests
             const std::string source = SH::ReadWholeFile(path);
             for (const auto& [kind, stageSource] : SH::SplitStages(source))
             {
-                auto result = SH::CompileStageToSpv(path, stageSource, kind, root, compiler);
+                // Debug info on, same as CrossShaderUBOMemberOffsetsAgree
+                // above -- see the comment on the name check below for why.
+                auto result = SH::CompileStageToSpv(path, stageSource, kind, root, compiler,
+                                                    /*generateDebugInfo=*/true);
                 if (result.GetCompilationStatus() != shaderc_compilation_status_success)
                     continue;
 
