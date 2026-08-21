@@ -385,6 +385,21 @@ namespace OloEngine
                                                 width, height);
         }
 
+        // Region copy with full (x, y, z) offsets on both operands (terrain VT
+        // tile stage, issue #715 slice 4). Block-copy contract on the facade
+        // declaration: width/height are SOURCE texels, dst offsets must be
+        // block-aligned when the dest is block-compressed.
+        static void CopyImageSubDataRegion(RHI::ResourceHandle src, RendererAPI::TextureTargetType srcTarget,
+                                           i32 srcLevel, i32 srcX, i32 srcY, i32 srcZ,
+                                           RHI::ResourceHandle dst, RendererAPI::TextureTargetType dstTarget,
+                                           i32 dstLevel, i32 dstX, i32 dstY, i32 dstZ,
+                                           u32 width, u32 height)
+        {
+            s_RendererAPI->CopyImageSubDataRegion(src, srcTarget, srcLevel, srcX, srcY, srcZ,
+                                                  dst, dstTarget, dstLevel, dstX, dstY, dstZ,
+                                                  width, height);
+        }
+
         // Copy from currently-bound READ framebuffer to a named texture
         static void CopyFramebufferToTexture(RHI::ResourceHandle texture, u32 width, u32 height)
         {

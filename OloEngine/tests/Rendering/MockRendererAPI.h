@@ -533,6 +533,16 @@ namespace OloEngine::Testing
             CopyImageSubDataFull(Native(src, RHI::ResourceKind::Texture), srcTarget, srcLevel, srcZ,
                                  Native(dst, RHI::ResourceKind::Texture), dstTarget, dstLevel, dstZ, width, height);
         }
+        void CopyImageSubDataRegion(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel,
+                                    i32 srcX, i32 srcY, i32 srcZ,
+                                    RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel,
+                                    i32 dstX, i32 dstY, i32 dstZ,
+                                    u32 width, u32 height) override
+        {
+            CopyImageSubDataRegion(Native(src, RHI::ResourceKind::Texture), srcTarget, srcLevel, srcX, srcY, srcZ,
+                                   Native(dst, RHI::ResourceKind::Texture), dstTarget, dstLevel, dstX, dstY, dstZ,
+                                   width, height);
+        }
         void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color) override
         {
             ClearTextureFloat(Native(texture, RHI::ResourceKind::Texture), mipLevel, color);
@@ -828,6 +838,14 @@ namespace OloEngine::Testing
                                   u32 /*w*/, u32 /*h*/)
         {
             Record("CopyImageSubDataFull");
+        }
+        void CopyImageSubDataRegion(u32 /*src*/, TextureTargetType /*srcT*/, i32 /*srcLvl*/,
+                                    i32 /*srcX*/, i32 /*srcY*/, i32 /*srcZ*/,
+                                    u32 /*dst*/, TextureTargetType /*dstT*/, i32 /*dstLvl*/,
+                                    i32 /*dstX*/, i32 /*dstY*/, i32 /*dstZ*/,
+                                    u32 /*w*/, u32 /*h*/)
+        {
+            Record("CopyImageSubDataRegion");
         }
         void CopyFramebufferToTexture(u32 /*texID*/, u32 /*w*/, u32 /*h*/)
         {
