@@ -78,6 +78,7 @@ you are in.
 - [vcpkg-dependency-management.md](docs/agent-rules/vcpkg-dependency-management.md) — read before adding, bumping or removing a dep: the CRT triplet mismatch is heap corruption, and three of the five traps are silent.
 - [configure-time-variable-visibility.md](docs/agent-rules/configure-time-variable-visibility.md) — a CMake variable resolved *below* the `add_subdirectory()` that consumes it, behind a guard that reads "unset" as "nothing to do": correct on every configure but the first.
 - [asset-import-usd-alembic.md](docs/agent-rules/asset-import-usd-alembic.md) — the importer/exporter registry seam, and vendoring OpenUSD / Alembic / MaterialX into a static-everything build.
+- [incremental-build-odr-staleness.md](docs/agent-rules/incremental-build-odr-staleness.md) — when a correct fix's live behavior makes no logical sense, suspect the `dev-cached` incremental build before the code: a struct-layout change to a by-value member with an inline `=default` destructor can link without error while a stale copy of that destructor survives in another TU.
 
 **Renderer**
 
