@@ -21,7 +21,7 @@ namespace OloEngine
     } // namespace
 
     ShaderResourceRegistry::ShaderResourceRegistry(const Ref<Shader>& shader)
-        : m_Shader(shader)
+        : m_Shader(shader.get())
     {
     }
 

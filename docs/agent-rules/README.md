@@ -128,6 +128,7 @@ Read before trusting any measurement.
 | [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) | `LNK1248` reports the offset where the archive crossed 4 GiB, not its size — two readings both looked ~0.5 MB over when the real overshoot was ~1.1 GB |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e | the CI job that said `--config Release` was building no config at all, and grepping for `--parallel` finds four sites of which only one is a runaway — the generator, not the flag, decides |
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close is not evidence of a clean teardown — the same leak was silent there for the backend's whole life |
+| [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | a correct fix, re-derived and re-read four times, that a live rebuild-and-relaunch kept "disproving" — the binary, not the source, was the thing lying |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument *must*
 fail on before trusting a case it passes.
@@ -231,7 +232,8 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) ·
 [configure-time-variable-visibility.md](configure-time-variable-visibility.md) ·
 [vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·
-[asset-import-usd-alembic.md](asset-import-usd-alembic.md)
+[asset-import-usd-alembic.md](asset-import-usd-alembic.md) ·
+[incremental-build-odr-staleness.md](incremental-build-odr-staleness.md)
 
 **Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
 [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) ·
