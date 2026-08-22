@@ -2355,10 +2355,17 @@ namespace OloEngine::Tests
         auto node = ParseYAMLFile(path, reason);
         ASSERT_TRUE(node) << "InputActions.yaml failed to parse: " << reason;
 
-        // Accept either a top-level `InputActions` (canonical) or
-        // `ActionMap` (engine has historically used both — match either).
-        EXPECT_TRUE((*node)["InputActions"] || (*node)["ActionMap"])
-            << "InputActions.yaml missing top-level 'InputActions' (or 'ActionMap') key.";
+        // The roots the REAL loader accepts, not a guess at them:
+        // InputActionSerializer writes `InputActionContexts` (a sequence, one
+        // InputActionMap per context) and still reads a legacy single-map
+        // `InputActionMap` root. Anything else it rejects outright with
+        // "Missing 'InputActionContexts' sequence or legacy 'InputActionMap'
+        // root node", so those two names are the whole contract — keep this
+        // assertion pinned to InputActionSerializer::Deserialize.
+        EXPECT_TRUE((*node)["InputActionContexts"] || (*node)["InputActionMap"])
+            << "InputActions.yaml has neither an 'InputActionContexts' sequence nor a legacy "
+               "'InputActionMap' root, so InputActionSerializer will refuse to load it and the "
+               "project opens with no bindings at all.";
     }
 
     // -------------------------------------------------------------------------
