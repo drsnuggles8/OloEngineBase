@@ -195,7 +195,7 @@ and for what to do when adding a tool.
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_open` | **(consented write)** open / switch the active scene by `path` (a `.olo`/`.scene` file, relative paths resolve against the project asset directory) — the scriptable scene switch. Loads directly, bypassing the auto-save recovery modal a remote agent can't click; stops Play mode first; **cancels any pending auto-save recovery** (an armed recovery modal used to be able to swap the freshly opened scene back out when its button was clicked later, issue #607). Reports the loaded scene name + entity count and settles rendered frames before returning. Gated behind **Agent writes** |
 | `olo_scene_play` / `olo_scene_stop` | **(consented write)** enter / leave Play mode — the same as the editor's Play/Stop buttons, so an agent can verify anything that only runs in Play (physics, cloth, scripts). Transient + fully reversible (stop restores the authored scene); idempotent (`changed:false` when already in that state); **settles rendered frames after a real transition** so an immediately following `olo_screenshot` shows the new state, not the last pre-transition frame (the uniform-grey trap, issue #607); `olo_scene_summary` reports `isPlaying` to confirm. Gated behind **Agent writes** |
-| `olo_editor_select_entity` | **(consented write)** select (or `clear`) the entity in the editor's Scene Hierarchy / Properties panels — the only way to drive the Properties inspector onto a given entity over MCP, unblocking screenshot verification of its rendered component UI. `olo_input_inject` cannot reliably land a Scene Hierarchy row click (the OS cursor reasserts over the synthetic position between injected frames). An unknown `entity` UUID leaves the current selection untouched (`ok:false`), never silently clearing it. Not undoable (selection isn't project data). Gated behind **Agent writes** |
+| `olo_editor_select_entity` | **(consented write)** select (or `clear`) the entity in the editor's Scene Hierarchy / Properties panels — the only way to drive the Properties inspector onto a given entity over MCP, unblocking screenshot verification of its rendered component UI. (Until issue #854, `olo_input_inject` could not reliably land a Scene Hierarchy row click — the hardware cursor reasserted over the synthetic position; that is fixed, so this tool is now a convenience rather than the only way.) An unknown `entity` UUID leaves the current selection untouched (`ok:false`), never silently clearing it. Not undoable (selection isn't project data). Gated behind **Agent writes** |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
 | `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
@@ -750,6 +750,41 @@ path, exactly as a real click does. (The engine's poll-based `Input::IsKeyPresse
 `IsMouseButtonPressed` / `GetMousePosition` read *hardware* state, which no synthetic
 event can move; `OloEngine::SyntheticInput` is the overlay that makes them agree, so an
 injected Ctrl+click really is a Ctrl+click.)
+
+**Why the injected position can be overruled — and how you know (issue #854)**
+
+An injected cursor position is a *request* to the ImGui GLFW backend, not a guarantee.
+`ImGui_ImplGlfw_UpdateMouseData()`, which runs inside `ImGui_ImplGlfw_NewFrame()`, has a
+fallback: whenever the window is **focused** and the **physical mouse is not over it**
+— the normal state for an agent-driven session — it polls `glfwGetCursorPos` and queues
+the *hardware* position. The editor drains the injection plan *before* `NewFrame`, so
+the synthetic position was queued first and the hardware one last, and ImGui applies its
+queue in order. The hardware position therefore won, on every frame, and every injected
+click landed wherever the physical mouse happened to be sitting.
+
+That single fact produced both halves of #854. A `drag` between two node pins did
+nothing, and — because the condition is a property of where the physical mouse is, not
+of the drag — **every later injection in the session was equally inert**, which read as
+the drag having latched something. All of them reported `ok: true`.
+
+Two things now prevent it:
+
+- The editor **holds the backend's cursor-enter latch for the duration of a plan**, so
+  the fallback does not fire and the injected position is the last word. It hands the
+  latch back a few quiet frames after the plan ends, so an injected plan leaves the
+  backend as it found it. (This is not a fiction: a point outside the window is already
+  a hard error, so the synthetic cursor really is inside it.)
+- The editor **measures where the cursor actually landed** and the tool refuses to
+  report `ok` when it disagrees with what was asked. `after.cursorLanding`
+  (`askedX/askedY`, `landedX/landedY`, `landed`) carries the measurement on every
+  `click` / `move` / `drag`. This is the part that matters long-term: the first bullet
+  is a fix that could be undone by a backend upgrade or a second platform viewport, and
+  the difference between a tool that breaks and a tool that *lies* is this check.
+
+So `ok: false` with a "did not go where the injection asked" message means the events
+were delivered somewhere other than where you aimed — retry, and do not trust the
+`after` block as the result of your request. A human moving the physical mouse during
+the call trips it too, which is correct: the injection really was overridden.
 
 **Actions**
 

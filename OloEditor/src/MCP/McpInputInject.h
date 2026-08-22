@@ -976,6 +976,53 @@ namespace OloEngine::MCP::InputInject
             .NoAdditional();
     }
 
+    // ---- did the injected cursor actually land? ---------------------------------------
+    //
+    // The honesty backstop for issue #854. An injected position is a REQUEST to the
+    // ImGui GLFW backend, not a guarantee: the backend re-injects the hardware cursor
+    // after ours whenever the window is focused and the physical mouse is not over it,
+    // and before #854 that silently won. The editor now holds the backend's
+    // cursor-enter latch for the duration of a plan so ours wins — but "we believe it
+    // works now" is exactly the reasoning that produced a tool reporting ok for work it
+    // did not do. So the editor also MEASURES where the cursor ended up, and this
+    // compares the two. Any future way of losing the position — a backend upgrade, a
+    // second platform viewport, a human grabbing the mouse mid-plan — surfaces as a
+    // loud failure rather than a confident wrong answer.
+    //
+    // Tolerance is in window-client LOGICAL pixels. It exists only to absorb float
+    // round-tripping through ImGui's screen-space conversion (observed: sub-pixel);
+    // the failure it must catch is off by hundreds of pixels, so this is nowhere near
+    // the discrimination limit.
+    inline constexpr f32 s_CursorLandingToleranceLogicalPx = 2.0f;
+
+    [[nodiscard]] inline bool CursorLanded(f32 askedX, f32 askedY, f32 landedX, f32 landedY) noexcept
+    {
+        return std::fabs(landedX - askedX) <= s_CursorLandingToleranceLogicalPx &&
+               std::fabs(landedY - askedY) <= s_CursorLandingToleranceLogicalPx;
+    }
+
+    // True when this action injected a cursor position at all. key/text/mouseDelta
+    // deliberately do not (mouseDelta drives the poll-based Input:: API only), so
+    // there is nothing to verify for them.
+    [[nodiscard]] inline bool ActionMovesTheCursor(Action action) noexcept
+    {
+        return action == Action::Click || action == Action::Move || action == Action::Drag;
+    }
+
+    [[nodiscard]] inline std::string CursorNotLandedMessage(f32 askedX, f32 askedY, f32 landedX, f32 landedY)
+    {
+        const auto round = [](f32 value)
+        { return std::to_string(static_cast<int>(std::lround(value))); };
+        return "Injected, but the editor's cursor did not go where the injection asked: requested (" +
+               round(askedX) + ", " + round(askedY) + ") in window-client pixels, ImGui ended up at (" +
+               round(landedX) + ", " + round(landedY) +
+               "). The events were delivered, so anything they hit was hit at the WRONG place and the "
+               "state below reflects that, not your request. The usual cause is something else writing "
+               "ImGui's cursor in the same frame — a human moving the physical mouse during the call, or "
+               "a target that is not on the main platform window. Retry; if it repeats, the injected "
+               "position is being overridden and no click/drag in this session can be trusted.";
+    }
+
     // ---- result shaping ---------------------------------------------------------------
 
     [[nodiscard]] inline Json ToJson(const McpInputInjectResult& result, const McpInputStateSnapshot& state,
@@ -984,11 +1031,28 @@ namespace OloEngine::MCP::InputInject
                                      const ResolvedDelta* delta = nullptr,
                                      const std::string& stallReason = {})
     {
+        // Did the position we injected actually become ImGui's cursor? Only meaningful
+        // for the actions that inject one, only once the editor has reported a
+        // measurement, and only when the plan actually ran to completion — a timeout
+        // has its own, more specific message and the landing was never sampled.
+        // The raw comparison, reported as-is so `cursorLanding.landed` never claims a
+        // verification that did not happen (a timeout, for one, never samples).
+        const bool landedRaw = CursorLanded(state.CursorAskedX, state.CursorAskedY, state.CursorLandedX,
+                                            state.CursorLandedY);
+        const bool verifyLanding = ActionMovesTheCursor(request.Act) && state.Available &&
+                                   state.CursorLandingValid && !timedOut;
+        const bool landed = !verifyLanding || landedRaw;
+
         Json j;
         j["available"] = result.Available;
-        j["ok"] = result.Ok && !timedOut;
+        j["ok"] = result.Ok && !timedOut && landed;
         j["framesInjected"] = result.FrameCount;
         j["message"] = result.Message;
+        if (!landed)
+        {
+            j["message"] = CursorNotLandedMessage(state.CursorAskedX, state.CursorAskedY, state.CursorLandedX,
+                                                  state.CursorLandedY);
+        }
         if (timedOut)
         {
             // Name the CAUSE when the editor could tell us one. A bare "timed out" is
@@ -1038,6 +1102,17 @@ namespace OloEngine::MCP::InputInject
         // piece of injection state that OUTLIVES a call, so a session that has left it
         // non-zero should be able to see that from any injection reply.
         after["mouseOffset"] = Json{ { "x", state.MouseOffsetX }, { "y", state.MouseOffsetY } };
+        // The landing measurement behind `ok` (issue #854), so a failure can be read
+        // rather than inferred — and so a SUCCESS is visibly checked rather than
+        // asserted. Omitted for the actions that inject no position.
+        if (ActionMovesTheCursor(request.Act) && state.CursorLandingValid)
+        {
+            after["cursorLanding"] = Json{ { "askedX", state.CursorAskedX },
+                                           { "askedY", state.CursorAskedY },
+                                           { "landedX", state.CursorLandedX },
+                                           { "landedY", state.CursorLandedY },
+                                           { "landed", landedRaw } };
+        }
         after["selectedEntity"] = state.SelectedEntityId == 0
                                       ? Json(nullptr)
                                       : Json{ { "id", std::to_string(state.SelectedEntityId) },

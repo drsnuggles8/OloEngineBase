@@ -245,6 +245,45 @@ Established building `olo_render_why_not_visible`:
   reserve reload for edits you expect to compile, and use `olo_shader_errors`/`olo_shader_get` to
   inspect a known-broken shader.
 
+## 10b. A synthetic input event is a REQUEST, not a guarantee — measure it (issue #854)
+
+`olo_input_inject` reported `ok: true` for clicks and drags that did nothing, and kept doing
+so for the rest of the session. It looked like a state latch left behind by `drag`; it was
+not. `ImGui_ImplGlfw_UpdateMouseData()` — called from `ImGui_ImplGlfw_NewFrame()` — polls
+`glfwGetCursorPos` and queues the **hardware** cursor position whenever the window is focused
+and `bd->MouseWindow` is null, i.e. whenever the **physical mouse is not over the window**.
+That is the normal state for an agent-driven session. The plan is drained *before* `NewFrame`,
+so the synthetic position went into ImGui's queue first and the hardware one last, and ImGui
+applies its queue in order. The hardware position won every frame.
+
+Three transferable lessons:
+
+- **The failure was not where the symptom pointed.** The issue (and the tool's own comments)
+  suspected `SyntheticInput`'s absolute override latching. It does not — the drain clears it on
+  every plan, and the poll-based `Input::` path worked correctly throughout (an Alt+middle-drag
+  still panned the editor camera while every ImGui click was inert). Only the ImGui-facing half
+  was broken, which is exactly why the reported symptoms were all widgets: node pins, menus,
+  hierarchy rows. If half your consumers work, you have a *seam* bug, not a state bug.
+- **The "latch" was an environment condition, not stored state.** It correlated with a `drag`
+  only because the physical mouse happened to be off the window from then on. Anything that
+  looks like "one call poisoned the session" deserves a controlled A/B on the *environment*
+  before you go hunting for the state that got stuck: here, the same call, twice, moving
+  nothing but the physical mouse, separated cause from coincidence in one step.
+- **Feeding an event into someone else's input queue does not mean it was accepted.** The
+  durable half of the fix is not making the injection win — that can be undone by a backend
+  upgrade, a second platform viewport, or a human touching the mouse mid-plan. It is that the
+  editor now *measures* where the cursor actually landed and the tool refuses to report `ok`
+  when the measurement disagrees, reporting `after.cursorLanding` so the agent can read it. A
+  write tool that cannot verify its own effect will eventually report success for nothing, and
+  that is worse than being unavailable: it silently invalidates every verification performed
+  after it, including verifications of something unrelated.
+
+Corollary for the docs: this bug had **already been observed and written down** as a permanent
+limitation ("`olo_input_inject` cannot reliably land a Scene Hierarchy row click — the OS cursor
+reasserts over the synthetic position"), and was worked around by adding
+`olo_editor_select_entity` instead of being diagnosed. A limitation you can state that precisely
+is a bug you are one experiment away from fixing.
+
 ## 11. Why `olo_render_toggle_pass` is still deferred
 
 It must be an **ephemeral session override** — not persisted, reset on play-stop. The naive
