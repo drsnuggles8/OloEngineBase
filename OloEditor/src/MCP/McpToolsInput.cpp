@@ -182,7 +182,14 @@ namespace OloEngine::MCP
                             { "mouseX", state.MouseX },
                             { "mouseY", state.MouseY },
                             { "mouseOffsetX", state.MouseOffsetX },
-                            { "mouseOffsetY", state.MouseOffsetY } };
+                            { "mouseOffsetY", state.MouseOffsetY },
+                            // The injected-cursor landing measurement (issue #854) —
+                            // what makes `ok` a checked claim rather than an assertion.
+                            { "cursorLandingValid", state.CursorLandingValid },
+                            { "cursorAskedX", state.CursorAskedX },
+                            { "cursorAskedY", state.CursorAskedY },
+                            { "cursorLandedX", state.CursorLandedX },
+                            { "cursorLandedY", state.CursorLandedY } };
                     if (context.GetEditorLiveness)
                     {
                         const McpEditorLiveness liveness = context.GetEditorLiveness();
@@ -211,6 +218,11 @@ namespace OloEngine::MCP
             state.MouseY = stateJson.value("mouseY", 0.0f);
             state.MouseOffsetX = stateJson.value("mouseOffsetX", 0.0f);
             state.MouseOffsetY = stateJson.value("mouseOffsetY", 0.0f);
+            state.CursorLandingValid = stateJson.value("cursorLandingValid", false);
+            state.CursorAskedX = stateJson.value("cursorAskedX", 0.0f);
+            state.CursorAskedY = stateJson.value("cursorAskedY", 0.0f);
+            state.CursorLandedX = stateJson.value("cursorLandedX", 0.0f);
+            state.CursorLandedY = stateJson.value("cursorLandedY", 0.0f);
 
             McpInputViewportInfo info;
             info.Available = true;
@@ -297,7 +309,7 @@ namespace OloEngine::MCP
         tool.InputSchema = Inject::InputSchema();
         tool.OutputSchema = Schema::Object()
                                 .Prop("available", Schema::Bool())
-                                .Prop("ok", Schema::Bool().Desc("Injection accepted AND every planned frame rendered before the settle timeout; false with a timeout warning in 'message' means the 'after' state may be stale."))
+                                .Prop("ok", Schema::Bool().Desc("Injection accepted, every planned frame rendered before the settle timeout, AND (for click/move/drag) the injected cursor position verifiably became the editor's cursor. False always means the 'after' state cannot be trusted as the result of what you asked for; 'message' says which of the three failed."))
                                 .Prop("framesInjected", Schema::Int().Min(0))
                                 .Prop("message", Schema::String())
                                 .Prop("resolved", Schema::Object().Desc("Mouse actions (click/move/drag) only; omitted for key/text. A resolved point {windowX, windowY, viewportPixelX, viewportPixelY, insideViewport} for click/move, or {from, to} of two such points for drag."))
@@ -316,8 +328,15 @@ namespace OloEngine::MCP
                                 .Prop("after", Schema::Object()
                                                    .Prop("pending", Schema::Bool().Desc("True when injected events are still queued (only after a settle timeout)."))
                                                    .Prop("viewportHovered", Schema::Bool())
-                                                   .Prop("mouseX", Schema::Number())
+                                                   .Prop("mouseX", Schema::Number().Desc("The editor cursor's CURRENT position, in window-client logical pixels. This is a live read taken after the plan finished, so it is not the place to check whether an injection landed — use 'cursorLanding' for that."))
                                                    .Prop("mouseY", Schema::Number())
+                                                   .Prop("cursorLanding", Schema::Object()
+                                                                              .Prop("askedX", Schema::Number())
+                                                                              .Prop("askedY", Schema::Number())
+                                                                              .Prop("landedX", Schema::Number())
+                                                                              .Prop("landedY", Schema::Number())
+                                                                              .Prop("landed", Schema::Bool())
+                                                                              .Desc("click/move/drag only: the last position the injection asked for and where the editor's cursor actually ended up, in window-client logical pixels. An injected position is a request to the ImGui backend, not a guarantee; when these disagree the events were delivered somewhere OTHER than where you aimed, and 'ok' is false."))
                                                    .Prop("mouseOffset", Schema::Object()
                                                                             .Prop("x", Schema::Number())
                                                                             .Prop("y", Schema::Number())

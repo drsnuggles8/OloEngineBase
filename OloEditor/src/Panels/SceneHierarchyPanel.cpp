@@ -6044,6 +6044,17 @@ namespace OloEngine
                     component.m_VTMaxTileBakesPerFrame = static_cast<u32>(bakes);
                 }
 
+                // ── Slices 3+4: adaptive images, compressed tiles ──
+                ImGui::Checkbox("VT Adaptive Images", &component.m_VTAdaptiveEnabled);
+                if (component.m_VTAdaptiveEnabled)
+                {
+                    powerOfTwoDrag("VT Sectors (log2)", component.m_VTSectorsWide, 1u, 8u);
+                    powerOfTwoDrag("VT Max Image Pages (log2)", component.m_VTMaxImagePagesWide, 1u,
+                                   component.m_VTVirtualPagesWide);
+                }
+                ImGui::Checkbox("VT Trilinear", &component.m_VTTrilinearEnabled);
+                ImGui::Checkbox("VT BC7 Cache", &component.m_VTCompressedCache);
+
                 if (component.m_VirtualTexture)
                 {
                     const auto& vt = *component.m_VirtualTexture;
@@ -6071,9 +6082,36 @@ namespace OloEngine
                     }
                     ImGui::Text("Evictions: %u", stats.m_EvictionsTotal);
                     ImGui::Text("Readbacks in flight: %u", stats.m_ReadbackSlotsInFlight);
-                    ImGui::Text("GPU memory: %.1f MB cache + %.2f MB indirection",
+                    ImGui::Text("GPU memory: %.1f MB cache (%s) + %.2f MB indirection",
                                 static_cast<f64>(stats.m_CacheBytes) / (1024.0 * 1024.0),
+                                stats.m_CacheCompressed ? "BC7" : "RGBA8",
                                 static_cast<f64>(stats.m_IndirectionBytes) / (1024.0 * 1024.0));
+
+                    // ── Adaptive images (#715 slice 3) ────────────────────
+                    if (cfg.AdaptiveEnabled)
+                    {
+                        ImGui::Separator();
+                        ImGui::Text("Sectors ready: %u / %u", stats.m_SectorsReady, stats.m_SectorCount);
+                        const u64 atlasTotal = static_cast<u64>(cfg.VirtualPagesWide) * cfg.VirtualPagesWide;
+                        const f64 atlasPct =
+                            atlasTotal > 0 ? 100.0 * static_cast<f64>(stats.m_AtlasPagesAllocated) / atlasTotal : 0.0;
+                        ImGui::Text("Atlas: %u of %llu pages allocated (%.1f%%)", stats.m_AtlasPagesAllocated,
+                                    static_cast<unsigned long long>(atlasTotal), atlasPct);
+                        ImGui::Text("Image resizes: %u (%u pages remapped, %u dropped on shrink)",
+                                    stats.m_ImageResizesTotal, stats.m_PagesRemappedTotal,
+                                    stats.m_PagesDroppedOnShrink);
+                        if (stats.m_ImageAllocFailures > 0)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                               "Atlas full %u times — sectors kept their old size.",
+                                               stats.m_ImageAllocFailures);
+                        }
+                        ImGui::Text("Stale feedback texels (last analysis): %u", stats.m_StaleFeedbackTexels);
+                    }
+                    if (stats.m_CacheCompressed)
+                    {
+                        ImGui::Text("Tiles BC7-compressed: %u total", stats.m_TilesCompressedTotal);
+                    }
 
                     // ── Indirection publishing (#715 slice 2) ─────────────
                     //

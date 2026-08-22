@@ -44,10 +44,15 @@ layout(rgba8, binding = 0) uniform writeonly image2DArray u_VTCache;
 
 struct VTBakeRequest
 {
-    uint PageKey; // mip << 24 | y << 12 | x
-    uint TileX;
+    uint PageKey; // mip << 24 | y << 12 | x (atlas space; informational here)
+    uint TileX;   // destination tile — or the scratch slot on the compressed path
     uint TileY;
     uint Pad;
+    // Terrain-UV rect of the page CONTENT: xy = min, z = span, w unused.
+    // Resolved on the CPU (VTPageTerrainUVRect): under adaptivity a page's
+    // terrain footprint depends on the owning sector's current image size,
+    // which this kernel has no business knowing.
+    vec4 UVRect;
 };
 
 layout(std430, binding = 80) readonly buffer TerrainVTBake
@@ -100,13 +105,9 @@ void main()
 
     VTBakeRequest request = b_VTBakeRequests[requestIndex];
 
-    uint mip   = (request.PageKey >> 24u) & 0xFu;
-    uint pageX =  request.PageKey         & 0xFFFu;
-    uint pageY = (request.PageKey >> 12u) & 0xFFFu;
-
     float pageTexels = float(u_VTBakeConfig0.y);
     float border = float(u_VTBakeConfig0.z);
-    float span = 1.0 / float(u_VTBakeConfig0.x >> mip);
+    float span = request.UVRect.z;
 
     // EXACT INVERSE of oloVTVirtualToPhysicalUV: that maps page-local [0,1) to
     // physical texel `border + local * pageTexels`, so texel centre j + 0.5 must
@@ -114,7 +115,7 @@ void main()
     // [0,1) is the border, which is why it holds the true neighbouring content
     // rather than a clamped edge.
     vec2 pageLocal = (vec2(localTexel) + 0.5 - border) / pageTexels;
-    vec2 uv = (vec2(float(pageX), float(pageY)) + pageLocal) * span;
+    vec2 uv = request.UVRect.xy + pageLocal * span;
     // The terrain's own maps do not tile, so a border that runs off the terrain
     // clamps rather than wrapping to the far edge.
     vec2 uvClamped = clamp(uv, vec2(0.0), vec2(1.0));

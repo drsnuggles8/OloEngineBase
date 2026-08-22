@@ -1081,6 +1081,8 @@ namespace OloEngine
                 return GL_TEXTURE_CUBE_MAP;
             case RendererAPI::TextureTargetType::Texture2DMultisample:
                 return GL_TEXTURE_2D_MULTISAMPLE;
+            case RendererAPI::TextureTargetType::Texture2DArray:
+                return GL_TEXTURE_2D_ARRAY;
             default:
                 OLO_CORE_ERROR("ToGLTextureTarget: Unknown TextureTargetType");
                 return GL_TEXTURE_2D;
@@ -1102,11 +1104,27 @@ namespace OloEngine
                                                  u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                                  u32 width, u32 height)
     {
+        // The (0, 0) special case of the offset-taking form — one body per
+        // backend for the copy contract, matching the Vulkan implementation.
+        CopyImageSubDataRegion(srcID, srcTarget, srcLevel, 0, 0, srcZ, dstID, dstTarget, dstLevel, 0, 0, dstZ, width,
+                               height);
+    }
+
+    void OpenGLRendererAPI::CopyImageSubDataRegion(u32 srcID, TextureTargetType srcTarget, i32 srcLevel,
+                                                   i32 srcX, i32 srcY, i32 srcZ,
+                                                   u32 dstID, TextureTargetType dstTarget, i32 dstLevel,
+                                                   i32 dstX, i32 dstY, i32 dstZ,
+                                                   u32 width, u32 height)
+    {
         OLO_PROFILE_FUNCTION();
 
+        // Offsets and dimensions pass through UNSCALED — the block-copy
+        // contract on the facade declaration (RendererAPI.h): for a mixed
+        // compressed/uncompressed pair GL takes width/height in SOURCE texels
+        // and dstX/dstY in DEST texels.
         glCopyImageSubData(
-            srcID, ToGLTextureTarget(srcTarget), srcLevel, 0, 0, srcZ,
-            dstID, ToGLTextureTarget(dstTarget), dstLevel, 0, 0, dstZ,
+            srcID, ToGLTextureTarget(srcTarget), srcLevel, srcX, srcY, srcZ,
+            dstID, ToGLTextureTarget(dstTarget), dstLevel, dstX, dstY, dstZ,
             static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1);
     }
 
@@ -2412,6 +2430,19 @@ namespace OloEngine
         CopyImageSubDataFull(Utils::ResolveNativeAs(src, RHI::ResourceKind::Texture), srcTarget, srcLevel, srcZ,
                              Utils::ResolveNativeAs(dst, RHI::ResourceKind::Texture), dstTarget, dstLevel, dstZ,
                              width, height);
+    }
+
+    void OpenGLRendererAPI::CopyImageSubDataRegion(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                                   i32 srcLevel, i32 srcX, i32 srcY, i32 srcZ,
+                                                   RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                                   i32 dstLevel, i32 dstX, i32 dstY, i32 dstZ,
+                                                   u32 width, u32 height)
+    {
+        CopyImageSubDataRegion(Utils::ResolveNativeAs(src, RHI::ResourceKind::Texture), srcTarget, srcLevel,
+                               srcX, srcY, srcZ,
+                               Utils::ResolveNativeAs(dst, RHI::ResourceKind::Texture), dstTarget, dstLevel,
+                               dstX, dstY, dstZ,
+                               width, height);
     }
 
     void OpenGLRendererAPI::ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color)

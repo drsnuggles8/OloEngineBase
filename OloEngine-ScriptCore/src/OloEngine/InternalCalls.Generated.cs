@@ -1819,6 +1819,26 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetVTMaxTileBakesPerFrame(ulong entityID, uint value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TerrainComponent_GetVTAdaptiveEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTAdaptiveEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetVTSectorsWide(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTSectorsWide(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint TerrainComponent_GetVTMaxImagePagesWide(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTMaxImagePagesWide(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TerrainComponent_GetVTTrilinearEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTTrilinearEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TerrainComponent_GetVTCompressedCache(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetVTCompressedCache(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int TerrainComponent_GetVoxelMesher(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetVoxelMesher(ulong entityID, int value);

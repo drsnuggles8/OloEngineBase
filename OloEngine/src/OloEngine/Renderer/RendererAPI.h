@@ -59,7 +59,12 @@ namespace OloEngine
             // glCopyImageSubData requires matching targets and Vulkan requires
             // matching VkImageCreateInfo::samples. Without this member those
             // call sites had to keep a raw GL_TEXTURE_2D_MULTISAMPLE.
-            Texture2DMultisample
+            Texture2DMultisample,
+            // Terrain VT cache tiles (issue #715 slice 4): the staging->cache
+            // copies address individual array layers through
+            // CopyImageSubDataFull's srcZ/dstZ, which needs the array target
+            // on both operands. Append only — never renumber.
+            Texture2DArray
         };
 
       public:
@@ -258,10 +263,37 @@ namespace OloEngine
         virtual void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
                                       RHI::ResourceHandle dst, TextureTargetType dstTarget,
                                       u32 width, u32 height) = 0;
-        // Full image copy with source/dest offsets (needed for cubemap face copies)
+        // Full image copy with source/dest offsets (needed for cubemap face copies).
+        // srcZ/dstZ address a cubemap face or a 2D-array layer; x/y offsets are
+        // fixed at 0 on both operands.
+        //
+        // width/height are SOURCE-image texels, and no backend may scale them.
+        // That is load-bearing for a mixed compressed/uncompressed pair (the
+        // terrain VT tile stage, issue #715 slice 4): GL's 128-bit view class
+        // makes one RGBA32UInt texel one 16-byte BC7 block, so an
+        // RGBA32UInt -> BC7 copy passes the source's texel (= block) dimensions
+        // and covers 4x width/height in destination texels. A copy that needs
+        // x/y offsets goes through CopyImageSubDataRegion below.
         virtual void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
                                           RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                           u32 width, u32 height) = 0;
+        // The offset-taking sibling of CopyImageSubDataFull — full (x, y, z)
+        // addressing on both operands, parameter order mirroring the copy's
+        // native spelling. Added for the terrain VT tile stage (issue #715
+        // slice 4): each compressed tile lands at a per-tile (dstX, dstY)
+        // inside a BC7 cache layer, read from a per-slot (srcX, 0) in the
+        // RGBA32UInt staging array.
+        //
+        // Same block-copy contract as above: width/height are SOURCE-image
+        // texels, and no backend may scale them or the offsets. srcX/srcY are
+        // source texels (= blocks when the source stands in for compressed
+        // payload); when the DEST is block-compressed, dstX/dstY are DEST
+        // texels and must be multiples of the 4-texel block edge.
+        virtual void CopyImageSubDataRegion(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel,
+                                            i32 srcX, i32 srcY, i32 srcZ,
+                                            RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel,
+                                            i32 dstX, i32 dstY, i32 dstZ,
+                                            u32 width, u32 height) = 0;
         // Copy from currently-bound READ framebuffer to a named texture
         virtual void CopyFramebufferToTexture(RHI::ResourceHandle texture, u32 width, u32 height) = 0;
 

@@ -247,6 +247,17 @@ static_assert(CommandAllocator::MAX_COMMAND_SIZE >= sizeof(DrawMeshCommand),
               "MAX_COMMAND_SIZE must fit the largest command");
 static_assert(CommandAllocator::COMMAND_ALIGNMENT % 16 == 0u,
               "COMMAND_ALIGNMENT must be a multiple of 16");
+// MAX_COMMAND_SIZE is declared TWICE -- CommandAllocator::MAX_COMMAND_SIZE
+// (the allocator's own reject threshold) and OloEngine::MAX_COMMAND_SIZE in
+// Commands/RenderCommand.h (what CommandPacket's per-command static_assert
+// binds to). Neither header includes the other, so nothing in the engine ever
+// sees both and the two can drift apart silently: raise only the namespace one
+// and every command still compiles while the allocator refuses to allocate it
+// at runtime. This TU includes both headers, which makes it the only place the
+// pairing can be checked at all.
+static_assert(CommandAllocator::MAX_COMMAND_SIZE == OloEngine::MAX_COMMAND_SIZE,
+              "The two MAX_COMMAND_SIZE declarations drifted -- update both "
+              "Commands/CommandAllocator.h and Commands/RenderCommand.h");
 
 // =============================================================================
 // ThreadLocalCache — Block Reuse After Reset

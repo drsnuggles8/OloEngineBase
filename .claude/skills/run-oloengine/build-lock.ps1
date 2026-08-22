@@ -802,5 +802,32 @@ try {
                          blocked_by_worktree = $blockedByWorktree }
 }
 
+# A cached tree that came back green still has to prove it recorded header dependencies.
+# Issue #858: a compiler-cache hit that restores the object but not its dependency file
+# leaves ninja with a `#deps 0` record, and that TU is then never rebuilt when a header it
+# includes changes -- silently, forever, with the build staying green the whole time. The
+# check is a `ninja -t deps` read, costs about a second, and runs only after a SUCCESSFUL
+# build of a cached tree (a failed build's records are not meaningful, and an uncached
+# `build/` tree has no launcher in front of the compiler to lose anything). It never
+# changes the exit status: the build's own status is what callers act on, and a warning
+# that could fail an otherwise-good build would just get worked around.
+if ($exit -eq 0 -and -not $orphaned -and (Test-CachedTreeCommand $Command)) {
+    $depsCheck = Join-Path $here 'scripts/Check-NinjaHeaderDeps.ps1'
+    $cachedDir = Join-Path $here 'build-cached'
+    if ((Test-Path -LiteralPath $depsCheck) -and (Test-Path -LiteralPath $cachedDir)) {
+        # Pass the config we actually built. The tree is Ninja MULTI-CONFIG, so the check
+        # has to load the matching build-<Config>.ninja: `ninja -t deps` dumps the whole
+        # log either way, but the per-object `ninja -t query` it uses to trace a zero-dep
+        # record back to its source only finds edges present in the loaded file. Reading
+        # build-Debug.ninja after a Release build would fail to trace every Release object
+        # and report them as broken. Fall back to the check's own Debug default.
+        $cfgMatch = [regex]::Match($Command, '(?i)(?:^|\s)--config[\s=]+([A-Za-z0-9_]+)')
+        $depsArgs = @('-NoProfile', '-File', $depsCheck, '-BuildDir', $cachedDir)
+        if ($cfgMatch.Success) { $depsArgs += @('-Config', $cfgMatch.Groups[1].Value) }
+        try { & $runner @depsArgs | Out-Host }
+        catch { Write-Host "[build-lock] header-dependency check could not run: $($_.Exception.Message)" }
+    }
+}
+
 # Propagate the BUILD's status, never the release's — see task-loop.md Phase 2.
 exit $exit

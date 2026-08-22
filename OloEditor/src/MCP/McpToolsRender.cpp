@@ -61,6 +61,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Terrain/VirtualTexture/TerrainVirtualTexture.h"
 
 #include <glad/gl.h>
 #include <stb_image/stb_image.h>
@@ -4750,6 +4751,121 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // ---- olo_terrain_virtual_texture_stats (main-marshaled) ----------------
+        // The terrain VT loop's own instrumentation (issue #715), verbatim. A
+        // thrashing cache and a converged one render the same frame, so the
+        // counters — not the pixels — are what separate "bake budget too small"
+        // from "cache too small" from "a loop that never converges". Pure read of
+        // the CPU-side Stats struct Update() already maintains: no GPU readback
+        // anywhere in this handler.
+
+        // Every field of TerrainVirtualTexture::Stats, m_-stripped to camelCase.
+        // Verbatim on purpose: the struct IS the diagnostic surface, and a field
+        // dropped here is a counter an agent can never ask for.
+        Json TerrainVirtualTextureStatsJson(const TerrainVirtualTexture::Stats& stats)
+        {
+            Json j;
+            j["cacheTileCount"] = stats.m_CacheTileCount;
+            j["residentTiles"] = stats.m_ResidentTiles;
+            j["pagesRequested"] = stats.m_PagesRequested;
+            j["feedbackTexelsWritten"] = stats.m_FeedbackTexelsWritten;
+            j["tilesBakedThisFrame"] = stats.m_TilesBakedThisFrame;
+            j["tilesBakedTotal"] = stats.m_TilesBakedTotal;
+            j["evictionsTotal"] = stats.m_EvictionsTotal;
+            j["budgetStarvedRequests"] = stats.m_BudgetStarvedRequests;
+            j["workingSetExceedsCache"] = stats.m_WorkingSetExceedsCache;
+            j["readbackSlotsInFlight"] = stats.m_ReadbackSlotsInFlight;
+            j["cacheBytes"] = stats.m_CacheBytes;
+            j["indirectionBytes"] = stats.m_IndirectionBytes;
+            j["indirectionTexelsWritten"] = stats.m_IndirectionTexelsWritten;
+            j["indirectionTexelsFilled"] = stats.m_IndirectionTexelsFilled;
+            j["indirectionPublishes"] = stats.m_IndirectionPublishes;
+            j["indirectionFullRebuilds"] = stats.m_IndirectionFullRebuilds;
+            j["framesUpdated"] = stats.m_FramesUpdated;
+            j["indirectionRebuildGpuMs"] = stats.m_IndirectionRebuildGpuMs;
+            j["indirectionDeltaGpuMs"] = stats.m_IndirectionDeltaGpuMs;
+            j["sectorCount"] = stats.m_SectorCount;
+            j["sectorsReady"] = stats.m_SectorsReady;
+            j["imageResizesTotal"] = stats.m_ImageResizesTotal;
+            j["pagesRemappedTotal"] = stats.m_PagesRemappedTotal;
+            j["pagesDroppedOnShrink"] = stats.m_PagesDroppedOnShrink;
+            j["staleFeedbackTexels"] = stats.m_StaleFeedbackTexels;
+            j["atlasPagesAllocated"] = stats.m_AtlasPagesAllocated;
+            j["imageAllocFailures"] = stats.m_ImageAllocFailures;
+            j["cacheCompressed"] = stats.m_CacheCompressed;
+            j["tilesCompressedTotal"] = stats.m_TilesCompressedTotal;
+            return j;
+        }
+
+        // The config knobs that give the counters their denominators (a
+        // residentTiles without a cacheTileCount ceiling, or a tilesBakedThisFrame
+        // without maxTileBakesPerFrame, is a number with no meaning).
+        Json TerrainVirtualTextureConfigJson(const TerrainVirtualTextureConfig& config)
+        {
+            Json j;
+            j["virtualPagesWide"] = config.VirtualPagesWide;
+            j["pageTexels"] = config.PageTexels;
+            j["borderTexels"] = config.BorderTexels;
+            j["cacheTilesWide"] = config.CacheTilesWide;
+            j["maxTileBakesPerFrame"] = config.MaxTileBakesPerFrame;
+            j["adaptiveEnabled"] = config.AdaptiveEnabled;
+            j["sectorsWide"] = config.SectorsWide;
+            j["minImagePagesWide"] = config.MinImagePagesWide;
+            j["maxImagePagesWide"] = config.MaxImagePagesWide;
+            j["trilinearEnabled"] = config.TrilinearEnabled;
+            j["compressedCache"] = config.CompressedCache;
+            return j;
+        }
+
+        ToolResult Handle_TerrainVirtualTextureStats(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([&server]() -> Json
+                                                   {
+                const Ref<Scene> scene = server.Context().GetActiveScene ? server.Context().GetActiveScene() : nullptr;
+                if (!scene)
+                    return Json{ { "__error", "No active scene." } };
+
+                u32 terrainEntities = 0;
+                Json terrains = Json::array();
+                for (const auto handle : scene->GetAllEntitiesWith<TerrainComponent>())
+                {
+                    Entity entity{ handle, scene.get() };
+                    ++terrainEntities;
+                    const auto& terrain = entity.GetComponent<TerrainComponent>();
+                    // The VT object is created lazily on the first frame it is
+                    // enabled AND the terrain renders; until then there is no
+                    // Stats to report, so the terrain is counted but not listed.
+                    if (!terrain.m_VirtualTexture)
+                        continue;
+
+                    Json t;
+                    t["entity"] = UuidToString(entity.GetUUID());
+                    t["name"] = entity.HasComponent<TagComponent>() ? entity.GetComponent<TagComponent>().Tag
+                                                                    : std::string{};
+                    t["readyForShading"] = terrain.m_VirtualTexture->IsReadyForShading();
+                    t["stats"] = TerrainVirtualTextureStatsJson(terrain.m_VirtualTexture->GetStats());
+                    t["config"] = TerrainVirtualTextureConfigJson(terrain.m_VirtualTexture->GetConfig());
+                    terrains.push_back(std::move(t));
+                }
+
+                Json j;
+                j["terrainEntities"] = terrainEntities;
+                if (terrains.empty())
+                {
+                    j["note"] = terrainEntities == 0
+                                    ? "No TerrainComponent in the active scene."
+                                    : "No terrain has a live virtual texture. The VT is created lazily on the "
+                                      "first frame VirtualTextureEnabled is true and the terrain renders, so "
+                                      "there are no counters to report until then.";
+                }
+                j["terrains"] = std::move(terrains);
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
         // ---- olo_material_get (main-marshaled) ---------------------------------
         // What the GPU was actually given, not what the asset says. The two differ
         // more often than is comfortable: a MaterialComponent silently overrides
@@ -6983,6 +7099,100 @@ namespace OloEngine::MCP
                                                 "casters", "entries", "directionalShadow" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShadowAtlasLayout;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_terrain_virtual_texture_stats";
+            tool.Toolset = "render";
+            tool.Title = "Terrain virtual-texture stats";
+            // Pure read of the CPU-side counters the VT loop already maintains
+            // every Update(); no GPU readback, no observable state change.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Read the terrain adaptive virtual texture's (issue #715) own counters for every terrain "
+                "in the active scene with a LIVE virtual texture. A thrashing cache and a converged one "
+                "render the same frame, and only these counters separate 'bake budget too small' from "
+                "'cache too small' from 'loop never converging'. What each counter answers: "
+                "residentTiles vs cacheTileCount is cache occupancy; budgetStarvedRequests climbing while "
+                "tilesBakedThisFrame sits at maxTileBakesPerFrame = the BAKE BUDGET is too small; "
+                "workingSetExceedsCache (with evictionsTotal climbing) = the CACHE is too small — the "
+                "camera wants more pages than physical tiles exist, so the LRU churns (not an error: the "
+                "coarse-mip fallback covers the misses, at reduced sharpness); tilesBakedTotal AND "
+                "evictionsTotal both still climbing under a STATIONARY camera = the loop never converges "
+                "(feedback keeps re-requesting what was just evicted). readyForShading false = the "
+                "coarsest page is not yet resident and the terrain still shades through the splat "
+                "fallback. pagesRequested / feedbackTexelsWritten say whether feedback is arriving at "
+                "all (both zero = the loop is not being driven); readbackSlotsInFlight is the feedback "
+                "ring's depth. The indirection block (texels written/filled, publishes vs fullRebuilds, "
+                "framesUpdated as the denominator, and the two GPU ms figures — each the LOWEST resolved "
+                "sample since Configure(), not the latest) is the delta-vs-rebuild publish A/B "
+                "(OLO_TERRAIN_VT_FULL_REBUILD drives the rebuild side). The adaptive block: sectorsReady "
+                "vs sectorCount is per-sector readiness, imageResizesTotal / pagesRemappedTotal / "
+                "pagesDroppedOnShrink count feedback-driven image resizes and what they carried or "
+                "dropped, staleFeedbackTexels counts feedback no live image owns (normal for a few "
+                "frames after a resize), atlasPagesAllocated vs virtualPagesWide^2 is atlas pressure, "
+                "and imageAllocFailures means the atlas was FULL and a sector kept its old size. "
+                "cacheCompressed / tilesCompressedTotal cover the BC7 cache path. Terrains whose VT is "
+                "disabled or not yet created (it is created lazily on the first enabled frame) are "
+                "counted in terrainEntities but not listed.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("terrainEntities", Schema::Int().Min(0).Desc("Entities with a TerrainComponent, including ones without a live virtual texture."))
+                                    .Prop("terrains", Schema::Array(Schema::Object()
+                                                                        .Prop("entity", Schema::String())
+                                                                        .Prop("name", Schema::String())
+                                                                        .Prop("readyForShading", Schema::Bool().Desc("Coarsest page resident + published — the shader's VT-branch gate; false = splat fallback."))
+                                                                        .Prop("stats", Schema::Object()
+                                                                                           .Prop("cacheTileCount", Schema::Int().Min(0).Desc("Physical tiles the cache holds."))
+                                                                                           .Prop("residentTiles", Schema::Int().Min(0).Desc("Tiles currently mapped to a page."))
+                                                                                           .Prop("pagesRequested", Schema::Int().Min(0).Desc("Unique pages the last feedback analysis asked for."))
+                                                                                           .Prop("feedbackTexelsWritten", Schema::Int().Min(0).Desc("Feedback texels that carried a request."))
+                                                                                           .Prop("tilesBakedThisFrame", Schema::Int().Min(0))
+                                                                                           .Prop("tilesBakedTotal", Schema::Int().Min(0))
+                                                                                           .Prop("evictionsTotal", Schema::Int().Min(0))
+                                                                                           .Prop("budgetStarvedRequests", Schema::Int().Min(0).Desc("Requests deferred past the per-frame bake budget — climbing = bake budget too small."))
+                                                                                           .Prop("workingSetExceedsCache", Schema::Bool().Desc("The camera wants more pages than the cache holds — cache too small (coarse-mip fallback covers the misses)."))
+                                                                                           .Prop("readbackSlotsInFlight", Schema::Int().Min(0))
+                                                                                           .Prop("cacheBytes", Schema::Int().Min(0))
+                                                                                           .Prop("indirectionBytes", Schema::Int().Min(0))
+                                                                                           .Prop("indirectionTexelsWritten", Schema::Int().Min(0).Desc("Texels the last publish wrote (clear pass included)."))
+                                                                                           .Prop("indirectionTexelsFilled", Schema::Int().Min(0).Desc("Texels the last publish re-propagated coarse->fine."))
+                                                                                           .Prop("indirectionPublishes", Schema::Int().Min(0))
+                                                                                           .Prop("indirectionFullRebuilds", Schema::Int().Min(0).Desc("Of the publishes, how many rebuilt the whole map."))
+                                                                                           .Prop("framesUpdated", Schema::Int().Min(0).Desc("Frames Update() ran — the denominator for the publish counters."))
+                                                                                           .Prop("indirectionRebuildGpuMs", Schema::Number().Desc("LOWEST resolved sample since Configure(), not the latest; 0 until one resolves."))
+                                                                                           .Prop("indirectionDeltaGpuMs", Schema::Number().Desc("LOWEST resolved sample since Configure(), not the latest; 0 until one resolves."))
+                                                                                           .Prop("sectorCount", Schema::Int().Min(0))
+                                                                                           .Prop("sectorsReady", Schema::Int().Min(0).Desc("Sectors whose coarsest page is resident + published."))
+                                                                                           .Prop("imageResizesTotal", Schema::Int().Min(0))
+                                                                                           .Prop("pagesRemappedTotal", Schema::Int().Min(0).Desc("Pages carried across a resize without a rebake."))
+                                                                                           .Prop("pagesDroppedOnShrink", Schema::Int().Min(0).Desc("Finest-level pages a shrink discarded."))
+                                                                                           .Prop("staleFeedbackTexels", Schema::Int().Min(0).Desc("Feedback no live image owns — normal for a few frames after a resize."))
+                                                                                           .Prop("atlasPagesAllocated", Schema::Int().Min(0).Desc("Sum of sizePages^2 over the sector images — over virtualPagesWide^2."))
+                                                                                           .Prop("imageAllocFailures", Schema::Int().Min(0).Desc("Atlas full: a sector kept its old size."))
+                                                                                           .Prop("cacheCompressed", Schema::Bool())
+                                                                                           .Prop("tilesCompressedTotal", Schema::Int().Min(0))
+                                                                                           .Desc("TerrainVirtualTexture::Stats, verbatim."))
+                                                                        .Prop("config", Schema::Object()
+                                                                                            .Prop("virtualPagesWide", Schema::Int().Min(0))
+                                                                                            .Prop("pageTexels", Schema::Int().Min(0))
+                                                                                            .Prop("borderTexels", Schema::Int().Min(0))
+                                                                                            .Prop("cacheTilesWide", Schema::Int().Min(0))
+                                                                                            .Prop("maxTileBakesPerFrame", Schema::Int().Min(0))
+                                                                                            .Prop("adaptiveEnabled", Schema::Bool())
+                                                                                            .Prop("sectorsWide", Schema::Int().Min(0))
+                                                                                            .Prop("minImagePagesWide", Schema::Int().Min(0))
+                                                                                            .Prop("maxImagePagesWide", Schema::Int().Min(0))
+                                                                                            .Prop("trilinearEnabled", Schema::Bool())
+                                                                                            .Prop("compressedCache", Schema::Bool())
+                                                                                            .Desc("The knobs that give the counters their denominators.")))
+                                                          .Desc("One entry per terrain with a LIVE virtual texture."))
+                                    .Prop("note", Schema::String().Desc("Why the list is empty (no terrain, or no live VT yet); omitted otherwise."))
+                                    .Required({ "terrainEntities", "terrains" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_TerrainVirtualTextureStats;
             server.RegisterTool(std::move(tool));
         }
     }

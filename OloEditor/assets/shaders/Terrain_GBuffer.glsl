@@ -451,20 +451,25 @@ void main()
     // Virtual texturing (issue #715). One indirection lookup + one cache sample
     // replaces the whole loop below, so shading cost stops scaling with
     // layerCount. `Enabled` is a UBO value, so the branch is uniform across the
-    // draw — which is what makes the dFdx inside oloVTComputeMip legal here.
-    OloVTParams vtParams = oloVTUnpackParams(u_TerrainVTParams0, u_TerrainVTParams1, u_TerrainVTParams2);
-    bool useVirtualTexture = useSplatmap && (vtParams.Enabled > 0.5);
+    // draw — which is what makes the dFdx inside oloVTSectorMip legal here.
+    //
+    // Adaptive (slice 3): identical shape to Terrain_PBR.glsl — the pixel's
+    // sector maps terrain UV into that sector's image inside the virtual
+    // atlas, and an unready sector falls back to the splat path per pixel
+    // while still writing feedback.
+    OloVTParams vtParams = oloVTUnpackParams(u_TerrainVTParams0, u_TerrainVTParams1, u_TerrainVTParams2,
+                                             u_TerrainVTParams3);
+    bool vtResolved = false;
 
-    if (useVirtualTexture)
+    if (useSplatmap && vtParams.Enabled > 0.5)
     {
-        float vtMip = oloVTComputeMip(vtParams, v_TexCoord);
-        // Record what this pixel wanted BEFORE clamping to what is resident:
-        // the request list has to describe the camera, not the cache.
-        oloVTWriteFeedback(vtParams, gl_FragCoord.xy, v_TexCoord, vtMip);
-        oloVTSampleSurface(vtParams, v_TexCoord, int(floor(clamp(vtMip, 0.0, vtParams.MaxMip))),
-                           albedo, ao, normalMap, roughness, metallic);
+        int vtSectorIdx = oloVTSectorIndex(vtParams, v_TexCoord);
+        vtResolved = oloVTResolveSurface(vtParams, u_TerrainVTSectors[2 * vtSectorIdx],
+                                         u_TerrainVTSectors[2 * vtSectorIdx + 1], v_TexCoord, gl_FragCoord.xy,
+                                         albedo, ao, normalMap, roughness, metallic);
     }
-    else if (useSplatmap)
+
+    if (!vtResolved && useSplatmap)
     {
         float weights[8];
         vec4 splat0 = texture(u_TerrainSplatmap0, v_TexCoord);
@@ -544,7 +549,7 @@ void main()
 
         normalMap = normalize(normalMap);
     }
-    else
+    else if (!vtResolved)
     {
         float slope = 1.0 - N.y;
         vec3 grassColor = vec3(0.15, 0.35, 0.08);

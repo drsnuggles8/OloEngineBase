@@ -1,7 +1,8 @@
 // OLO_TEST_LAYER: L8
 //
-// Visual evidence for terrain adaptive virtual texturing (issue #715, slices 1
-// and 2).
+// Visual evidence for terrain adaptive virtual texturing (issue #715, all four
+// slices; the fixture pins the fixed-grid slices-1-2 config, and the adaptive /
+// BC7 tests opt into slices 3-4 per test).
 //
 // TerrainVirtualTextureTest pins the arithmetic — the packings, the fallback
 // resolution, the LRU touch order. None of that proves the LOOP runs: the
@@ -183,6 +184,16 @@ namespace OloEngine::Tests
                 terrain.m_VTBorderTexels = 4;
                 terrain.m_VTCacheTilesWide = 12;
                 terrain.m_VTMaxTileBakesPerFrame = 16;
+                // PINNED to the fixed-grid, uncompressed, single-fetch path.
+                // These tests and their goldens were written against slices
+                // 1-2's exact behavior (the delta-vs-rebuild equivalence, the
+                // VT-vs-splat reproduction), and that path must stay
+                // measurable after slices 3-4 changed the defaults — the
+                // adaptive/BC configs get their own evidence tests instead of
+                // silently rewriting what these ones mean.
+                terrain.m_VTAdaptiveEnabled = false;
+                terrain.m_VTTrilinearEnabled = false;
+                terrain.m_VTCompressedCache = false;
 
                 terrain.m_AutoMaterial = true;
                 terrain.m_SplatmapGenResolution = 256;
@@ -540,5 +551,149 @@ namespace OloEngine::Tests
             << " over the identical camera path — a page is replacing a screen region rather than sharpening "
                "it. Suspect the coarse-to-fine fill (TerrainVTIndirectionFill.comp) or the pinned coarsest "
                "page.";
+    }
+
+    // ── Slice 3: images grow where the camera actually looks ─────────────────
+    //
+    // The headless policy tests pin VTDesiredImageSize against synthetic
+    // feedback; what they cannot reach is the loop that FEEDS it — the shader
+    // encoding a below-zero mip as the biased 0, the analyzer attributing words
+    // to sectors, the resize remapping resident pages through the cache and the
+    // delta. Any of those broken leaves every image at the minimum forever, and
+    // the terrain still renders — coarse, from the pinned pages, with no error.
+    TEST_F(TerrainVirtualTextureVisualEvidenceTest, AdaptiveImagesGrowWhereTheCameraLooks)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // 4x4 sectors over a 32-page atlas, images 1..8 pages: small enough to
+        // converge inside the warmup, big enough that growth is observable.
+        // Uncompressed, single-fetch — this test is about the adaptive loop,
+        // and the fewer moving parts under it the sharper its failure reads.
+        TerrainComponent& terrain = Terrain();
+        terrain.m_VTAdaptiveEnabled = true;
+        terrain.m_VTSectorsWide = 4;
+        terrain.m_VTMaxImagePagesWide = 8;
+        terrain.m_VTTrilinearEnabled = false;
+        terrain.m_VTCompressedCache = false;
+
+        std::vector<u8> frame;
+        ASSERT_NO_FATAL_FAILURE(Capture(glm::vec3(512.0f, 180.0f, 900.0f), 0.0f, 0.20f, kWarmupFrames * 2, frame));
+        MaybeWritePng("adaptive_grown", frame);
+        ASSERT_GT(LitFraction(frame), 0.20f) << "the adaptive frame is almost entirely background";
+
+        ASSERT_TRUE(terrain.m_VirtualTexture);
+        const auto& stats = terrain.m_VirtualTexture->GetStats();
+        EXPECT_EQ(stats.m_SectorCount, 16u);
+        EXPECT_GT(stats.m_SectorsReady, 0u) << "no sector's pinned page ever became resident";
+        EXPECT_TRUE(terrain.m_VirtualTexture->IsReadyForShading());
+
+        // The adaptive claims, each downstream of a different piece:
+        //   resizes == 0        -> the grow signal never survived the encoding,
+        //                          the analyzer, or the streak hysteresis
+        //   atlas == sectors    -> every image is still at the 1-page minimum
+        //   remapped == 0       -> resizes happened but carried nothing across,
+        //                          i.e. every grow rebaked from scratch
+        EXPECT_GT(stats.m_ImageResizesTotal, 0u)
+            << "no image ever resized — the under-resolved feedback signal (biased mip 0) is not reaching "
+               "VTDesiredImageSize";
+        EXPECT_GT(stats.m_AtlasPagesAllocated, stats.m_SectorCount)
+            << "every image is still at the 1-page minimum after " << (kWarmupFrames * 2) << " frames";
+        EXPECT_GT(stats.m_PagesRemappedTotal, 0u)
+            << "images resized but no resident page was carried across — a resize is required to REMAP, "
+               "not drop and rebake";
+        EXPECT_EQ(stats.m_ImageAllocFailures, 0u)
+            << "the atlas ran out of space in a configuration sized to never run out";
+    }
+
+    // ── Slices 3+4 together: the shipping config still reproduces the splat path
+    //
+    // The same addressing proof as VirtualTexturePathReproducesTheSplatPath, but
+    // through every new moving part at once: sector-table UV mapping, variable
+    // image sizes mid-growth, trilinear's second fetch, and BC7 tiles. Each of
+    // those can be wrong in a way that renders plausible content — a sector rect
+    // off by one maps a neighbouring sector's terrain, a BC7 bit-packing slip
+    // shifts every block's endpoints — and the splat path is the ground truth
+    // that catches all of them with one comparison.
+    TEST_F(TerrainVirtualTextureVisualEvidenceTest, AdaptiveCompressedTrilinearReproducesTheSplatPath)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        TerrainComponent& terrain = Terrain();
+        terrain.m_VTAdaptiveEnabled = true;
+        terrain.m_VTSectorsWide = 4;
+        terrain.m_VTMaxImagePagesWide = 8;
+        terrain.m_VTTrilinearEnabled = true;
+        terrain.m_VTCompressedCache = true;
+
+        const glm::vec3 eye{ 512.0f, 180.0f, 900.0f };
+        std::vector<u8> vtFrame;
+        ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 0.20f, kWarmupFrames * 2, vtFrame));
+        MaybeWritePng("adaptive_bc7_on", vtFrame);
+        ASSERT_TRUE(terrain.m_VirtualTexture && terrain.m_VirtualTexture->IsReadyForShading())
+            << "the adaptive+BC7 half never converged, so both frames below would be the splat path";
+        const auto& stats = terrain.m_VirtualTexture->GetStats();
+        EXPECT_TRUE(stats.m_CacheCompressed);
+        EXPECT_GT(stats.m_TilesCompressedTotal, 0u) << "the compress kernel never ran";
+
+        terrain.m_VirtualTextureEnabled = false;
+        std::vector<u8> splatFrame;
+        ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 0.20f, 4, splatFrame));
+
+        ASSERT_GT(LitFraction(vtFrame), 0.20f) << "the VT frame is almost entirely background";
+        ASSERT_GT(LitFraction(splatFrame), 0.20f) << "the splat frame is almost entirely background";
+
+        const f32 difference = MeanAbsoluteDifference(vtFrame, splatFrame);
+        // The same bound as the fixed-grid comparison, and deliberately so: BC7
+        // error is ~1-2/255 and trilinear only softens mip transitions, so the
+        // new features earn no extra allowance. A sector or block addressing
+        // bug lands far beyond it.
+        EXPECT_LT(difference, 32.0f)
+            << "the adaptive+BC7+trilinear frame differs from the splat frame by " << difference
+            << "/255 per channel — a different SURFACE. Suspect the sector table's UV rects, the remap "
+               "arithmetic, or the BC7 block layout.";
+    }
+
+    // ── Slice 4's cost claim, pinned on the frame and the byte counter ───────
+    //
+    // The BC7 A/B on the fixed grid, isolated from adaptivity: same scene, same
+    // pose, converged once with compressed tiles and once without. The bytes
+    // must be exactly a quarter; the frames must be the same surface. The
+    // second half matters because a compressor that produced garbage would
+    // still hit the byte target perfectly.
+    TEST_F(TerrainVirtualTextureVisualEvidenceTest, TheCompressedCacheCostsAQuarterAndKeepsTheSurface)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const glm::vec3 eye{ 512.0f, 180.0f, 900.0f };
+
+        Terrain().m_VTCompressedCache = true;
+        std::vector<u8> compressedFrame;
+        ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 0.20f, kWarmupFrames, compressedFrame));
+        MaybeWritePng("bc7_cache", compressedFrame);
+        ASSERT_TRUE(Terrain().m_VirtualTexture && Terrain().m_VirtualTexture->IsReadyForShading());
+        const u64 compressedBytes = Terrain().m_VirtualTexture->GetStats().m_CacheBytes;
+        EXPECT_GT(Terrain().m_VirtualTexture->GetStats().m_TilesCompressedTotal, 0u);
+
+        // Flipping the knob reconfigures the whole VT (Configure() sees a
+        // different config), so the second run reconverges from scratch —
+        // which also makes it a fresh exercise of the uncompressed path.
+        Terrain().m_VTCompressedCache = false;
+        std::vector<u8> rawFrame;
+        ASSERT_NO_FATAL_FAILURE(Capture(eye, 0.0f, 0.20f, kWarmupFrames, rawFrame));
+        ASSERT_TRUE(Terrain().m_VirtualTexture && Terrain().m_VirtualTexture->IsReadyForShading());
+        const u64 rawBytes = Terrain().m_VirtualTexture->GetStats().m_CacheBytes;
+
+        EXPECT_EQ(rawBytes, compressedBytes * 4u)
+            << "BC7 is 1 byte per texel against RGBA8's 4 — the cache byte accounting disagrees";
+
+        ASSERT_GT(LitFraction(compressedFrame), 0.20f);
+        ASSERT_GT(LitFraction(rawFrame), 0.20f);
+        const f32 difference = MeanAbsoluteDifference(compressedFrame, rawFrame);
+        // Well under the 32/255 addressing bound: BC7 mode-6 error on this
+        // content measures ~1-2/255, and the two runs' independent cache
+        // packing adds at most the delta test's noise floor on top.
+        EXPECT_LT(difference, 8.0f)
+            << "the BC7 cache differs from the RGBA8 cache by " << difference
+            << "/255 per channel — that is compression damage or a block-address slip, not codec noise";
     }
 } // namespace OloEngine::Tests

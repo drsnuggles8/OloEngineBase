@@ -4035,6 +4035,34 @@ namespace OloEngine
         OLO_PROPERTY(Name = "VTMaxTileBakesPerFrame")
         OLO_SERIALIZE(Clamp, Min = 1, Max = 64)
         u32 m_VTMaxTileBakesPerFrame = 8;
+        // ── Slices 3+4 (issue #715): adaptive images, compressed tiles ──
+        //
+        // With adaptivity on, VTVirtualPagesWide above becomes the virtual
+        // ATLAS size and each of SectorsWide^2 terrain sectors owns a
+        // variable-size image inside it, sized by what the feedback loop
+        // reports the camera actually resolves — density follows the camera
+        // instead of being uniform.
+        OLO_PROPERTY(Name = "VTAdaptiveEnabled")
+        bool m_VTAdaptiveEnabled = true;
+        // Power of two. Capped at 8 (the sector table rides the terrain UBO
+        // as a fixed 64-entry array), and further by the cache size: each
+        // sector pins one tile.
+        OLO_PROPERTY(Name = "VTSectorsWide")
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 8)
+        u32 m_VTSectorsWide = 8;
+        // Power of two. The finest image a sector can earn; the density
+        // ceiling near the camera is this times VTPageTexels per sector.
+        OLO_PROPERTY(Name = "VTMaxImagePagesWide")
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 4096)
+        u32 m_VTMaxImagePagesWide = 64;
+        // Blend two virtual mips per sample so a page-mip transition is a
+        // cross-fade rather than a density step. Costs two extra cache taps.
+        OLO_PROPERTY(Name = "VTTrilinearEnabled")
+        bool m_VTTrilinearEnabled = true;
+        // BC7 cache tiles, GPU-compressed at bake time: a quarter of the
+        // VRAM of the RGBA8 cache for a small quality cost.
+        OLO_PROPERTY(Name = "VTCompressedCache")
+        bool m_VTCompressedCache = true;
 
         // Voxel override settings (serialized)
         bool m_VoxelEnabled = false;
@@ -4093,7 +4121,7 @@ namespace OloEngine
 
         TerrainComponent() = default;
         TerrainComponent(const TerrainComponent& other)
-            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VirtualTextureEnabled(other.m_VirtualTextureEnabled), m_VTVirtualPagesWide(other.m_VTVirtualPagesWide), m_VTPageTexels(other.m_VTPageTexels), m_VTBorderTexels(other.m_VTBorderTexels), m_VTCacheTilesWide(other.m_VTCacheTilesWide), m_VTMaxTileBakesPerFrame(other.m_VTMaxTileBakesPerFrame), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher)
+            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VirtualTextureEnabled(other.m_VirtualTextureEnabled), m_VTVirtualPagesWide(other.m_VTVirtualPagesWide), m_VTPageTexels(other.m_VTPageTexels), m_VTBorderTexels(other.m_VTBorderTexels), m_VTCacheTilesWide(other.m_VTCacheTilesWide), m_VTMaxTileBakesPerFrame(other.m_VTMaxTileBakesPerFrame), m_VTAdaptiveEnabled(other.m_VTAdaptiveEnabled), m_VTSectorsWide(other.m_VTSectorsWide), m_VTMaxImagePagesWide(other.m_VTMaxImagePagesWide), m_VTTrilinearEnabled(other.m_VTTrilinearEnabled), m_VTCompressedCache(other.m_VTCompressedCache), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher)
         {
             // Runtime state intentionally NOT copied — force rebuild
         }
@@ -4134,6 +4162,11 @@ namespace OloEngine
                 m_VTBorderTexels = other.m_VTBorderTexels;
                 m_VTCacheTilesWide = other.m_VTCacheTilesWide;
                 m_VTMaxTileBakesPerFrame = other.m_VTMaxTileBakesPerFrame;
+                m_VTAdaptiveEnabled = other.m_VTAdaptiveEnabled;
+                m_VTSectorsWide = other.m_VTSectorsWide;
+                m_VTMaxImagePagesWide = other.m_VTMaxImagePagesWide;
+                m_VTTrilinearEnabled = other.m_VTTrilinearEnabled;
+                m_VTCompressedCache = other.m_VTCompressedCache;
                 m_VoxelEnabled = other.m_VoxelEnabled;
                 m_VoxelSize = other.m_VoxelSize;
                 m_VoxelMesher = other.m_VoxelMesher;
@@ -4196,7 +4229,7 @@ namespace OloEngine
         // so it's intentionally not considered for undo equality.
         auto operator==(const TerrainComponent& other) const -> bool
         {
-            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_CollisionEnabled == other.m_CollisionEnabled && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_ProceduralErosionIterations == other.m_ProceduralErosionIterations && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize) && m_VoxelMesher == other.m_VoxelMesher;
+            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_CollisionEnabled == other.m_CollisionEnabled && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_ProceduralErosionIterations == other.m_ProceduralErosionIterations && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VirtualTextureEnabled == other.m_VirtualTextureEnabled && m_VTVirtualPagesWide == other.m_VTVirtualPagesWide && m_VTPageTexels == other.m_VTPageTexels && m_VTBorderTexels == other.m_VTBorderTexels && m_VTCacheTilesWide == other.m_VTCacheTilesWide && m_VTMaxTileBakesPerFrame == other.m_VTMaxTileBakesPerFrame && m_VTAdaptiveEnabled == other.m_VTAdaptiveEnabled && m_VTSectorsWide == other.m_VTSectorsWide && m_VTMaxImagePagesWide == other.m_VTMaxImagePagesWide && m_VTTrilinearEnabled == other.m_VTTrilinearEnabled && m_VTCompressedCache == other.m_VTCompressedCache && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize) && m_VoxelMesher == other.m_VoxelMesher;
         }
     };
 

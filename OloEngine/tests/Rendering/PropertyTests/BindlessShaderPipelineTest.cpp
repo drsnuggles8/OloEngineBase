@@ -1015,6 +1015,9 @@ void main()
             { "compute/TerrainVTIndirectionFill.comp",
               "issue #715: two STORAGE IMAGES (a level and the level above it) rebound per iteration "
               "through the seam's fallback in TerrainVirtualTexture::PublishIndirection" },
+            { "compute/TerrainVTCompressBC7.comp",
+              "issue #715 slice 4: two STORAGE IMAGES (RGBA8 scratch in, RGBA32UI block staging out) "
+              "bound through the seam's fallback in TerrainVirtualTexture::CompressAndCopyTiles" },
 
             // ---- 2. A SAMPLER TARGET WITH NO RESERVED NULL -------------------
             // A heap handle is typed by TARGET, and every unset input lands on

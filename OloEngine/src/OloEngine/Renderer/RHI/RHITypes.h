@@ -240,6 +240,13 @@ namespace OloEngine::RHI
         BC6HUFloat,
         BC7UNorm,
         BC7SRGB,
+
+        // 128-bit unsigned integer, appended (issue #715 slice 4) — members may
+        // only ever be appended, RHIEnumLoweringTest pins the ordinals. One
+        // RGBA32UInt texel is bit-compatible with one 16-byte BC block, which is
+        // what lets an image copy stage compressed VT cache tiles out of an
+        // uncompressed staging array.
+        RGBA32UInt,
     };
 
     [[nodiscard]] constexpr bool IsCompressed(Format format) noexcept

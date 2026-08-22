@@ -39,6 +39,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/SceneMeshRaycast.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -229,6 +230,19 @@ namespace OloEngine
         // for why this goes through the ImGui GLFW backend callbacks rather than the
         // OS or ImGuiIO alone.
         void ApplyMcpInputEvent(const MCP::McpInputEvent& event);
+        // Hold the ImGui GLFW backend's "the cursor is over this window" latch for the
+        // duration of a plan, and hand it back to physical reality when the plan ends
+        // (issue #854). Without the first, every injected position is overwritten by
+        // the hardware one; without the second, the editor is left hovering a point
+        // the physical mouse is nowhere near.
+        void AssertSyntheticCursorOverWindow();
+        void RestoreCursorOverWindowState();
+        // Release any mouse button an in-flight plan pressed but never released.
+        void ReleaseSyntheticMouseButtons();
+        // Read back where the last injected cursor position ACTUALLY landed in ImGui,
+        // one frame after it was fed in (issue #854). Called at the top of every
+        // drain, including the ones after a plan has finished.
+        void SampleMcpCursorLanding();
         [[nodiscard]] MCP::McpInputViewportInfo GetMcpInputViewportInfo() const;
         [[nodiscard]] MCP::McpInputStateSnapshot GetMcpInputState() const;
 
@@ -435,6 +449,30 @@ namespace OloEngine
         bool m_McpSyntheticCtrl = false;
         bool m_McpSyntheticShift = false;
         bool m_McpSyntheticAlt = false;
+        // True while a plan holds the backend's cursor-enter latch (issue #854), so
+        // the teardown knows it has something to hand back.
+        bool m_McpSyntheticCursorEntered = false;
+        // Quiet frames to wait after a plan ends before handing hover back to the
+        // physical mouse. Long enough that the caller's post-plan state read still
+        // sees what the injection did (it reads one frame past the plan, and the
+        // editor's entity picking is two frames latent on top of that), short enough
+        // that no human could notice. 0 = nothing pending.
+        static constexpr int s_McpCursorRestoreDelayFrames = 8;
+        int m_McpCursorRestoreCountdown = 0;
+        // Mouse buttons an in-flight plan has pressed and not yet released. A plan's
+        // teardown releases whatever is left here: unlike keyAction "press", no mouse
+        // action deliberately leaves a button held, so anything still down at the end
+        // of a plan is a half-applied plan, and a stuck button freezes ImGui's ActiveId
+        // for the rest of the session.
+        std::array<bool, 8> m_McpSyntheticButtonsDown{};
+        // The last injected cursor position (window-client logical px) and where ImGui
+        // actually put it, sampled one frame later. See McpInputStateSnapshot.
+        bool m_McpCursorProbeArmed = false;
+        bool m_McpCursorLandingValid = false;
+        f32 m_McpCursorAskedX = 0.0f;
+        f32 m_McpCursorAskedY = 0.0f;
+        f32 m_McpCursorLandedX = 0.0f;
+        f32 m_McpCursorLandedY = 0.0f;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;

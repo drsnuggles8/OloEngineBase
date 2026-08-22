@@ -11,7 +11,17 @@ namespace OloEngine
         DEPTH_COMPONENT32F,
         RGBA8,
         RGBA16F,
-        RGBA32F
+        RGBA32F,
+        // Appended (issue #715 slice 4) — the terrain VT compressed cache pair.
+        // RGBA32UI: 128-bit unsigned integer. Integer textures cannot linear-
+        // filter, so the backend forces NEAREST min/mag; one texel is bit-
+        // compatible with one 16-byte BC7 block (the staging side of the
+        // block-copy).
+        RGBA32UI,
+        // BC7: block-compressed RGBA, LINEAR variant deliberately (VT cache
+        // texels are transcoded data, not sRGB-authored colour). Populated only
+        // GPU-side via image copy — no SetLayerData, no GenerateMipmaps.
+        BC7
     };
 
     struct Texture2DArraySpecification
@@ -44,11 +54,15 @@ namespace OloEngine
 
         virtual void Bind(u32 slot) const = 0;
 
-        // Upload pixel data to a specific layer (for building texture arrays from individual images)
-        // data must be RGBA8 (4 bytes per pixel), width × height pixels
+        // Upload pixel data to a specific layer (for building texture arrays from
+        // individual images). Client data is NATIVE per format: RGBA8 = u8x4,
+        // RGBA16F = halves, RGBA32F = f32x4, RGBA32UI = u32x4; width × height
+        // texels. Depth and block-compressed formats have no upload path here —
+        // BC7 layers are populated GPU-side (CopyImageSubDataFull block copy).
         virtual void SetLayerData(u32 layer, const void* data, u32 width, u32 height) = 0;
 
-        // Generate mipmaps for the texture array
+        // Generate mipmaps for the texture array. Refused for depth and BC7
+        // arrays (compressed VT caches never mip).
         virtual void GenerateMipmaps() = 0;
 
         static Ref<Texture2DArray> Create(const Texture2DArraySpecification& spec);

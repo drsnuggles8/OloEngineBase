@@ -435,6 +435,7 @@ namespace OloEngine
         void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
         void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget, RHI::ResourceHandle dst, TextureTargetType dstTarget, u32 width, u32 height) override;
         void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ, u32 width, u32 height) override;
+        void CopyImageSubDataRegion(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcX, i32 srcY, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstX, i32 dstY, i32 dstZ, u32 width, u32 height) override;
         void CopyFramebufferToTexture(RHI::ResourceHandle texture, u32 width, u32 height) override;
         void SetDrawBuffers(std::span<const u32> attachments) override;
         void RestoreAllDrawBuffers(u32 colorAttachmentCount) override;

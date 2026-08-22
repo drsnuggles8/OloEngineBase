@@ -944,6 +944,11 @@ registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTPageTexels", m_VTPag
 registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTBorderTexels", m_VTBorderTexels, OLO_GFW_BOUND(1), OLO_GFW_BOUND(32)));
 registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTCacheTilesWide", m_VTCacheTilesWide, OLO_GFW_BOUND(2), OLO_GFW_BOUND(256)));
 registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTMaxTileBakesPerFrame", m_VTMaxTileBakesPerFrame, OLO_GFW_BOUND(1), OLO_GFW_BOUND(64)));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VTAdaptiveEnabled", m_VTAdaptiveEnabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTSectorsWide", m_VTSectorsWide, OLO_GFW_BOUND(1), OLO_GFW_BOUND(8)));
+registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VTMaxImagePagesWide", m_VTMaxImagePagesWide, OLO_GFW_BOUND(1), OLO_GFW_BOUND(4096)));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VTTrilinearEnabled", m_VTTrilinearEnabled));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VTCompressedCache", m_VTCompressedCache));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VoxelEnabled", m_VoxelEnabled));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VoxelSize", m_VoxelSize));
 registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VoxelMesher", m_VoxelMesher, OLO_GFW_BOUND(0), OLO_GFW_BOUND(1)));

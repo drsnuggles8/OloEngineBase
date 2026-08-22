@@ -13,8 +13,14 @@ namespace OloEngine
     {
       public:
         static constexpr sizet DEFAULT_BLOCK_SIZE = 64 * 1024; // 64KB blocks
-        static constexpr sizet MAX_COMMAND_SIZE = 1024;        // Maximum size of any command (increased for PBR)
-        static constexpr sizet COMMAND_ALIGNMENT = 16;         // Ensure commands are aligned properly
+        // Maximum size of any command. 1024 (the PBR bump) until issue #715
+        // slice 3 grew DrawTerrainPatchCommand's inlined TerrainUBO by the
+        // 64-sector x 2-vec4 adaptive table (~2.3 KB total command). The
+        // allocator packs commands at their EXACT size, so this cap is a
+        // sanity bound, not a per-command cost. Mirrored in
+        // Commands/RenderCommand.h — keep the two identical.
+        static constexpr sizet MAX_COMMAND_SIZE = 4096;
+        static constexpr sizet COMMAND_ALIGNMENT = 16; // Ensure commands are aligned properly
 
         explicit CommandAllocator(sizet blockSize = DEFAULT_BLOCK_SIZE);
         ~CommandAllocator() = default;

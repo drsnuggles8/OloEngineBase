@@ -102,6 +102,7 @@ namespace OloEngine
                 case RHI::Format::RGB32Float:
                     return 12u;
                 case RHI::Format::RGBA32Float:
+                case RHI::Format::RGBA32UInt:
                     return 16u;
                 default:
                     return 0u;
@@ -3137,22 +3138,32 @@ namespace OloEngine
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
     }
 
-    void VulkanRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType /*srcTarget*/, i32 srcLevel, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType /*dstTarget*/, i32 dstLevel, i32 dstZ, u32 width, u32 height)
+    void VulkanRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ, u32 width, u32 height)
     {
         // glCopyImageSubData's addressed form (#691 Phase 8): level = mip and
         // z = array layer — for a cubemap target GL's z IS the face index,
         // which is exactly a Vulkan array layer on the CUBE_COMPATIBLE image.
         // This is the IBL/sky bake's face write (render to a 2D framebuffer,
         // copy into cube face i at mip m), so implementing it is what turns
-        // the flat grey sky into a skybox. Same transition discipline as the
-        // no-offset sibling above.
+        // the flat grey sky into a skybox. The body lives in the offset-taking
+        // sibling below; this form is its (0, 0) special case.
+        CopyImageSubDataRegion(src, srcTarget, srcLevel, 0, 0, srcZ, dst, dstTarget, dstLevel, 0, 0, dstZ,
+                               width, height);
+    }
+
+    void VulkanRendererAPI::CopyImageSubDataRegion(RHI::ResourceHandle src, TextureTargetType /*srcTarget*/, i32 srcLevel, i32 srcX, i32 srcY, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType /*dstTarget*/, i32 dstLevel, i32 dstX, i32 dstY, i32 dstZ, u32 width, u32 height)
+    {
+        // Offsets pass through UNSCALED (the facade's block-copy contract,
+        // RendererAPI.h): for a mixed compressed/uncompressed pair Vulkan takes
+        // the same source-texel extent and dest-texel offsets as GL. Same
+        // transition discipline as the no-offset sibling above.
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("CopyImageSubDataFull(outside recording bracket)", StubKind::OutsideRecording);
+            Phase6Stub("CopyImageSubDataRegion(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         if (width == 0u || height == 0u || !src.IsValid() || !dst.IsValid() || srcLevel < 0 || dstLevel < 0 ||
-            srcZ < 0 || dstZ < 0)
+            srcX < 0 || srcY < 0 || srcZ < 0 || dstX < 0 || dstY < 0 || dstZ < 0)
         {
             return;
         }
@@ -3180,7 +3191,7 @@ namespace OloEngine
             static_cast<u32>(srcZ) >= std::max(srcInfo->ArrayLayers, 1u) ||
             static_cast<u32>(dstZ) >= std::max(dstInfo->ArrayLayers, 1u))
         {
-            OLO_CORE_WARN("[RHI/Vulkan] CopyImageSubDataFull: subresource out of range (src mip {}/{} layer {}/{}, "
+            OLO_CORE_WARN("[RHI/Vulkan] CopyImageSubDataRegion: subresource out of range (src mip {}/{} layer {}/{}, "
                           "dst mip {}/{} layer {}/{}) — copy skipped",
                           srcLevel, srcInfo->MipLevels, srcZ, srcInfo->ArrayLayers, dstLevel, dstInfo->MipLevels,
                           dstZ, dstInfo->ArrayLayers);
@@ -3213,6 +3224,8 @@ namespace OloEngine
         VkImageCopy region{};
         region.srcSubresource = { srcAspect, static_cast<u32>(srcLevel), static_cast<u32>(srcZ), 1u };
         region.dstSubresource = { dstAspect, static_cast<u32>(dstLevel), static_cast<u32>(dstZ), 1u };
+        region.srcOffset = { srcX, srcY, 0 };
+        region.dstOffset = { dstX, dstY, 0 };
         region.extent = { width, height, 1u };
         vkCmdCopyImage(m_Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
@@ -4071,6 +4084,11 @@ namespace OloEngine
                     return { ImageFormat::BC7, false };
                 case RHI::Format::BC7SRGB:
                     return { ImageFormat::BC7, true };
+                case RHI::Format::RGBA32UInt:
+                    // No ImageFormat member yet (the R32UInt/#702 precedent):
+                    // fall through to None, so the create warns and returns
+                    // the null handle rather than lying.
+                    break;
             }
             return {};
         }
