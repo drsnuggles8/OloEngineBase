@@ -30,10 +30,10 @@ PostProcessSettings:
 FogSettings:
   Enabled: true
   Mode: 1
-  Color: [0.62, 0.72, 0.82]
-  Density: 0.0026
-  Start: 180
-  End: 900
+  Color: [0.66, 0.76, 0.86]
+  Density: 0.0009
+  Start: 420
+  End: 1800
   HeightFalloff: 0
   HeightOffset: 0
   MaxOpacity: 0.85
@@ -60,6 +60,11 @@ WindSettings:
 # engine change ships with this scene. The pieces it leans on already existed —
 # BoatSystem (#438), BuoyancySystem sampling the real displaced FFT surface,
 # CameraRigComponent (#645), InputActionManager.
+#
+# BEFORE YOU PLAY: turn GTAO OFF (Renderer Settings panel). The boat's sail
+# picks up flickering black speckle with it on, and the AO technique is not
+# scene-serialized so this file cannot ask for it. Full write-up on the Sun
+# entity's CastShadows field below.
 #
 # HOW TO SAIL IT
 #   W / S            throttle ahead / astern      (gamepad: right / left trigger)
@@ -193,30 +198,77 @@ Entities:
       Direction: [-0.32, -0.78, 0.54]
       Color: [1, 0.94, 0.84]
       Intensity: 3.2
-      CastShadows: true
-      # Shadow tuning for a scene whose ONLY close caster is a 5 m boat sitting
-      # on a mirror-flat plane, with a 480 m island 300 m away and a 2.5 km far
-      # plane. The stock settings are wrong here in two compounding ways:
+      # OFF, and this is the one setting here I am not happy about.
       #
-      #   * the cascade fit uses min(cameraFar, MaxShadowDistance) — at 200 m
-      #     over a 1024 shadow map that is ~5 cm per texel in cascade 0, and the
-      #     rig's own boom keeps the boat 9-13 m from the camera where the split
-      #     scheme puts it in a coarser cascade than its size deserves;
-      #   * a sail is a THIN, near-vertical sheet with a low sun raking almost
-      #     along it, which is the textbook depth-acne geometry. It showed as a
-      #     dithered stipple crawling across the sail and hard black bands on the
-      #     hull.
+      # The boat model's sail and deck pick up heavy hatched black speckling
+      # that FLICKERS as the boat moves. It took several rounds to characterise
+      # because it is intermittent — any single capture can be clean, so "that
+      # fixed it" is easy to believe and wrong three times running.
       #
-      # So: pull the shadowed range in to 120 m (nothing further away needs a
-      # shadow the player can resolve), push the split lambda to 0.85 so the
-      # near cascade is much tighter, raise the sun well clear of the horizon,
-      # and lean on NORMAL bias rather than depth bias — normal bias offsets
-      # along the surface normal, which is what a thin sheet needs, and it
-      # peter-pans far less than the equivalent depth bias would.
-      ShadowBias: 0.02
-      ShadowNormalBias: 0.3
-      MaxShadowDistance: 120
-      CascadeSplitLambda: 0.85
+      # There are TWO independent contributors, and turning off either one alone
+      # still leaves the other:
+      #
+      #   1. The directional light's CSM shadow pass. This is what CastShadows
+      #      below turns off, and it is the only one of the two a SCENE can
+      #      control.
+      #   2. GTAO. Toggling the gtao pass off (Renderer Settings panel, or
+      #      olo_render_toggle_pass) removes the speckle on its own, with
+      #      shadows still on — proving it is not all shadow acne.
+      #
+      # Verified clean only with BOTH off, across several frames including
+      # mid-turn. So opening this scene cold still needs one manual step:
+      # turn GTAO off. PostProcessSettings::ActiveAOTechnique is not
+      # scene-serialized (only SSAOEnabled is) and the project's quality tiering
+      # re-derives GTAO on every scene load, so the scene cannot ask for it.
+      # Filed against the engine.
+      #
+      # What was RULED OUT for the shadow half: resolution (the CSM is
+      # 4096 x 4096 with four cascades, per olo_render_list_targets), bias
+      # (0.02 / 0.3 gave a clean capture that did not hold), and cascade fit
+      # (MaxShadowDistance 120 -> 35 with CascadeSplitLambda 0.85 -> 0.4, which
+      # moves the boat off the cascade 1/2 seam its 9-13 m boom parks it on —
+      # several clean frames, then speckle again). The tuned values are kept
+      # below for whoever picks this up.
+      #
+      # Common factor worth chasing: both passes sample the depth/normal
+      # buffers, and the sail is thin, near-zero-thickness geometry. The asset
+      # import already warns about it in the log — "12 of 12 triangles are
+      # degenerate (zero-UV-area)".
+      CastShadows: false
+      # THE SHADOW SETTINGS ARE LOAD-BEARING. At the stock values this scene
+      # showed heavy blocky self-shadow acne — hard black chunks on the sail and
+      # deck that crawled as the boat moved. Two things about it are worth not
+      # re-deriving, because both misled the first two attempts at a fix:
+      #
+      #   * It is NOT a resolution problem. The CSM here is 4096 x 4096 with four
+      #     cascades (olo_render_list_targets reports ShadowMapCSM at 4096), so
+      #     texel density was never the constraint. Raising ShadowBias alone
+      #     appeared to fix it once and had not — the boat simply happened to be
+      #     riding high in that capture.
+      #   * The cascade fit uses min(cameraFar, MaxShadowDistance), and the
+      #     splits are lerp(uniform, log, CascadeSplitLambda) — so at 120 m with
+      #     lambda 0.85 the splits land at 5.2 / 12.6 / 32.7 / 120 m and the
+      #     rig's own 9-13 m boom parks the boat right on the cascade 1/2 seam,
+      #     in the far coarser of the two. Pulling MaxShadowDistance in to 35 m
+      #     and dropping lambda to 0.4 puts the whole boat inside one tight
+      #     near cascade, and the acne goes away outright.
+      #
+      # A raked, near-vertical thin sheet (the sail) is textbook acne geometry,
+      # so lean on NORMAL bias rather than depth bias: it offsets along the
+      # surface normal, which is what a thin sheet needs, and peter-pans far less
+      # than the equivalent depth bias.
+      #
+      # 35 m costs nothing here — the only shadow a player can resolve is the
+      # boat's own, and the island is 300 m away.
+      #
+      # Turning Virtual Shadow Maps on (Renderer Settings panel) also fixes it
+      # completely and was how the diagnosis was confirmed, but VSM is a renderer
+      # setting rather than a scene field, so a scene cannot ask for it and the
+      # island would stop casting. The CSM tuning above is the shippable fix.
+      ShadowBias: 0.008
+      ShadowNormalBias: 0.8
+      MaxShadowDistance: 35
+      CascadeSplitLambda: 0.4
       CascadeDebugVisualization: false
 
   - Entity: 879000000000002
@@ -270,12 +322,30 @@ Entities:
       WaveSteepness0: 0.25
       WaveDir1: [0.6, 0.8]
       WaveSteepness1: 0.15
-      WaterColor: [0.14, 0.42, 0.53]
-      DeepColor: [0.04, 0.16, 0.26]
-      Transparency: 0.62
-      Reflectivity: 0.5
-      FresnelPower: 3.2
-      SpecularIntensity: 0.55
+      WaterColor: [0.09, 0.33, 0.44]
+      DeepColor: [0.015, 0.075, 0.14]
+      Transparency: 0.45
+      Reflectivity: 0.85
+      FresnelPower: 5
+      SpecularIntensity: 1.4
+      # Surface detail. The swell alone reads as satin — these are what make it
+      # read as water: a scrolling normal map at a tiling much finer than the
+      # wave geometry, plus foam that only appears on the crests. Both are
+      # per-metre, so they stay right if the sea state changes.
+      NoiseIntensity: 0.65
+      NormalMapTiling: 5
+      NormalMapScrollSpeed0: 0.05
+      NormalMapScrollSpeed1: 0.035
+      FoamHeightStart: 0.16
+      FoamBrightness: 1.1
+      FoamFadeDistance: 0.35
+      # Refraction pulled well down from the defaults. The submerged half of the
+      # hull is visible THROUGH the surface, and at the stock distortion it came
+      # through as a stippled ghost lying alongside the boat that reads as a
+      # broken reflection.
+      RefractionDistortion: 0.018
+      RefractionHeightFactor: 0.25
+      DepthSofteningDistance: 1
       # 384 across 1 km is 2.6 m per quad against a 140 m FFT patch, i.e. ~54
       # samples per dominant wavelength. At the first-authored 256 across 2 km
       # (7.8 m per quad, 90 m patch) the surface aliased badly: the submerged
@@ -535,7 +605,7 @@ Entities:
       MaxThrust: 22000
       ThrustOffsetZ: -2.2
       ThrustOffsetY: -0.55
-      MaxRudderTorque: 4200
+      MaxRudderTorque: 5400
       # Full rudder authority only from 7 m/s up. Below that the rudder is soft,
       # which is what stops the boat pivoting on the spot in the harbour and
       # gives the low-speed handling a distinct character from the high-speed.
@@ -566,7 +636,12 @@ Entities:
     TagComponent:
       Tag: Boat Hull
     TransformComponent:
-      Translation: [0, -0.78, 0]
+      # This offset is a VISUAL waterline, and it is worth more than it looks.
+      # At -0.78 a good chunk of hull sat below the surface and came through the
+      # refraction as a stippled brown slick trailing the boat, which reads as a
+      # rendering fault rather than as a submerged hull. Raising it to -0.5 puts
+      # the mesh's own waterline near the real one and the artifact goes away.
+      Translation: [0, -0.5, 0]
       Rotation: [0, 0, 0]
       Scale: [0.57, 0.57, 0.57]
     ModelComponent:

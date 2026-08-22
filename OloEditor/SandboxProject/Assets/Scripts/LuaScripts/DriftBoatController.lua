@@ -47,7 +47,7 @@ local kInputDeadzone     = 0.12   -- gamepad stick/trigger deadzone
 -- speed and spins on its axis at full ahead, which is the single most common
 -- way an arcade boat becomes a fight to steer.
 local kSteerFalloffSpeed = 16.0   -- m/s at which the falloff reaches full effect
-local kSteerFalloffMin   = 0.45   -- rudder command multiplier at/above that speed
+local kSteerFalloffMin   = 0.62   -- rudder command multiplier at/above that speed
 
 -- ── Visual heel (hull mesh child only — see the header) ─────────────────────
 local kHeelPerYawRate    = 0.45   -- radians of roll per rad/s of yaw rate
