@@ -259,11 +259,12 @@ namespace OloEngine
                 ///
                 /// `resumePlayback` decides which state the live source is left in, because
                 /// the budget is no longer tracking this voice and nothing else would ever
-                /// lift its virtualization. Pass TRUE when the voice is about to play again
-                /// (Play) or the object is going away (teardown). Pass FALSE when retiring a
-                /// voice that is meant to fall silent (Stop, natural completion): the source
-                /// stays muted and frozen, which is both silent and free — before #745 the
-                /// graph had no transport, so this could only leave it muted-but-running.
+                /// lift its virtualization. Pass TRUE only when the source must be left
+                /// running with nobody to un-mute it (teardown). Pass FALSE whenever it must
+                /// be left muted and frozen — both when retiring a voice that is meant to
+                /// fall silent (Stop, natural completion), and in Play, where the source has
+                /// to stay silent until Acquire has ruled on the new admission. Before #745
+                /// the graph had no transport, so FALSE could only leave it muted-but-running.
                 void ReleaseVoice(bool resumePlayback) const;
 
                 /// Enter or leave the virtualized state on the live source: the budget's

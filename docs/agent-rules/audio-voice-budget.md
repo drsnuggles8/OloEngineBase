@@ -209,17 +209,30 @@ graph voice's logical position — `DurationSeconds == 0` means no auto-retire a
 wrap (§7) — so `OnVoiceStart`'s `positionSeconds` is honoured exactly where it is reachable
 (a fresh start at 0) and self-corrects everywhere else.
 
-**Two consequences worth not re-deriving:**
+**Three consequences worth not re-deriving:**
 
-- **A voice that enters the budget over cap is never handed to `OnVoiceStop`.** `Acquire`
-  emits transitions only for state *changes*, and every voice *enters* virtual — so nothing
-  drives the host into the virtualized state on that path. `SoundGraphSound::Play` therefore
-  checks `IsVirtual(handle)` itself and applies it. Before that check a graph voice which
-  lost the budget at `Play()` time ran at full gain, over the cap; the clip path never had
-  the bug because it starts the backend *only* from `OnVoiceStart`.
+- **`Play()` must stay virtualized across the whole admission decision.** `Acquire` emits
+  transitions only for state *changes*, and every voice *enters* virtual — so a voice that
+  starts over budget is **never** handed to `OnVoiceStop`, and nothing else would put the
+  host into the virtualized state. So the rule is not "virtualize it afterwards", it is
+  **do not un-virtualize it beforehand**: `Play` releases the old handle with
+  `resumePlayback=false` and lets `OnVoiceStart` — which `Acquire` drives synchronously for
+  a winner — be the only thing that thaws. Un-muting first and re-muting after leaves a
+  window in which the audio thread can emit blocks of the *previous* stream at full gain,
+  and leaves an over-budget voice audible if the re-mute is ever forgotten. The clip path
+  never had either problem because `AudioSource` starts `ma_sound` *only* from
+  `OnVoiceStart`.
 - **A stopped or completed graph voice stays frozen.** `ReleaseVoice(resumePlayback=false)`
   leaves it muted *and* suspended, so a one-shot graph that simply ended costs nothing until
   something plays it again. Before #745 that path could only leave it muted-but-running.
+- **…which is why `Play()` also has to lift the OTHER suspension axis.**
+  `SoundGraphSource::Update` parks a finished source with `SuspendProcessing(true)`, and
+  nothing but a graph swap ever cleared it — so a sound that ran to its end could never be
+  played again (it sat in the graph-swap silence path while the wrapper reported it
+  playing). `Play` is the one place where that call's counter reset is *correct*, because
+  `SendPlayEvent` restarts the stream anyway. Do **not** move it onto a resume path such as
+  `OnVoiceStart`: that would zero `m_CurrentFrame` on every devirtualization and turn every
+  resume back into a restart — the exact bug this section exists to prevent.
 
 Watch the polarity trap while you are in there: `SoundGraphSound::m_Priority` is
 miniaudio-flavoured (**0 = highest**) while `VoiceParams::Priority` is the other way round

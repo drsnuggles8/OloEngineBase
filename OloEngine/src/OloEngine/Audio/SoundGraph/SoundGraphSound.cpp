@@ -420,11 +420,25 @@ namespace OloEngine::Audio::SoundGraph
         m_PlayState = SoundPlayState::Playing;
         m_IsFinished = false;
 
+        if (m_Source && m_Source->IsSuspended())
+        {
+            // Lift the OTHER suspension axis — the graph-swap one. SoundGraphSource::Update
+            // parks a source there when the graph reports finished, and nothing but a graph
+            // swap ever cleared it, so a sound that ran to its end could never be played
+            // again. Play is the one place where SuspendProcessing(false)'s counter reset is
+            // CORRECT, because SendPlayEvent below restarts the stream anyway; doing it on
+            // any resume path instead (e.g. in OnVoiceStart) would zero m_CurrentFrame on
+            // every devirtualization and turn a resume back into a restart.
+            m_Source->SuspendProcessing(false);
+        }
+
         // Register with the shared concurrent-voice budget BEFORE raising the graph's Play
-        // event: Acquire drives OnVoiceStart synchronously when this voice wins a slot, and
-        // that is where the gain is un-muted. Starting a re-triggered sound also drops any
-        // previous registration so the budget never holds two records for one graph.
-        ReleaseVoice(/*resumePlayback=*/true);
+        // event, and stay VIRTUALIZED across the whole admission decision: the graph must
+        // not produce a single audible block before the budget has ruled. Acquire drives
+        // OnVoiceStart synchronously if this voice wins a slot, and that is what thaws and
+        // un-mutes it. Releasing first also drops any previous registration so the budget
+        // never holds two records for one graph.
+        ReleaseVoice(/*resumePlayback=*/false);
         const auto handle = OloEngine::Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
         m_VoiceHandle.store(handle, std::memory_order_release);
         if (handle == OloEngine::Audio::kInvalidVoiceHandle)
@@ -433,19 +447,12 @@ namespace OloEngine::Audio::SoundGraph
             // fall back to unmanaged playback rather than silence.
             SetVirtualized(false);
         }
-        else if (OloEngine::Audio::VoiceManager::Get().IsVirtual(handle))
-        {
-            // Acquire only emits transitions for state CHANGES, and every voice ENTERS
-            // virtual — so a voice that starts over budget and stays virtual is never
-            // handed to OnVoiceStop and nothing else would put it in the virtualized state.
-            // Without this the SendPlayEvent below starts it at full gain, over the cap.
-            SetVirtualized(true);
-        }
-        else
-        {
-            // Audible: Acquire drove OnVoiceStart synchronously, which already thawed and
-            // un-muted this voice. Nothing left to do.
-        }
+        // Otherwise the budget owns the state: a voice that won a slot was thawed and
+        // un-muted by the OnVoiceStart that Acquire drove, and one that lost stays exactly
+        // as ReleaseVoice left it — muted and frozen, with the Play request latched on the
+        // source until something thaws it. Acquire only emits transitions for state CHANGES
+        // and every voice ENTERS virtual, so an over-budget voice is never handed to
+        // OnVoiceStop; not thawing in the first place is what keeps it silent.
 
         // Forward the Play trigger into the runtime graph. Without this the play state
         // flips to Playing on the sound wrapper but the graph's "Play" event input is
