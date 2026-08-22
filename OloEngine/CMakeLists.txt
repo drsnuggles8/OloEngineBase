@@ -275,6 +275,19 @@ else()
 	target_compile_definitions(OloEngine PUBLIC OLO_WITH_VULKAN=0)
 endif()
 
+# FSR2 temporal upscaler (#684), gated on OLO_WITH_FSR2 (cmake/fsr2.cmake, which
+# forces it OFF on any non-Windows host — see the WHY IT IS WINDOWS-ONLY note there).
+# Platform/OpenGL/OpenGLTemporalUpscaler.cpp is ALWAYS listed (src/CMakeLists.txt) and
+# self-guards on this macro, compiling to a "not supported on this build" stub when OFF.
+# PUBLIC for the same reason as OLO_WITH_VULKAN: the test target's SKIP logic branches on
+# it, so every TU must agree on its value.
+if(OLO_WITH_FSR2 AND TARGET ffx_fsr2_gl)
+	target_link_libraries(OloEngine ffx_fsr2_gl)
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_FSR2=1)
+else()
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_FSR2=0)
+endif()
+
 # Steamworks platform integration (#644), gated on OLO_WITH_STEAM (root CMakeLists).
 # The Platform/Steam/*.cpp sources are ALWAYS listed (src/CMakeLists.txt) and self-guard on the
 # macro, compiling to empty TUs when OFF — the same convention as OLO_WITH_VULKAN above and the

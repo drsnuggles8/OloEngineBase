@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
@@ -292,6 +293,53 @@ namespace OloEngine
         // one at a time; 2^20 leaves headroom and is ~4.8 hours at 60 Hz).
         data.StochasticFrameIndex = (data.StochasticFrameIndex + 1u) & 0xFFFFFu;
 
+        // FSR2 (#684): decide ONCE, here, whether the temporal upscaler runs this
+        // frame — see Renderer3D.h's TemporalUpscaleActive for why nothing
+        // downstream may re-derive it. The rule itself lives in
+        // TemporalUpscalePolicy so it can be tested without a GPU; this is only
+        // where its inputs are gathered and where the user is told what happened.
+        TemporalUpscalePolicy::ActivationInputs activation;
+        activation.Mode = data.PostProcess.Upscale;
+        activation.Technique = data.PostProcess.Technique;
+        activation.BackendAvailable = PostProcessPasses.FSR2 && PostProcessPasses.FSR2->IsUpscalerAvailable();
+        activation.SceneSampleCount = FrameCorePasses.Scene
+                                          ? FrameCorePasses.Scene->GetFramebufferSpecification().Samples
+                                          : 1u;
+        data.TemporalUpscaleActive = TemporalUpscalePolicy::ShouldRunTemporalUpscale(activation);
+
+        // Say WHY when the user asked for FSR2 and did not get it. Silence here is
+        // the worst outcome: the frame still renders, at the render scale they
+        // asked for, just reconstructed by the other algorithm — there is nothing
+        // to notice. Latched on the REASON rather than on a plain bool, so a
+        // different obstruction (MSAA switched on after a driver refusal) still
+        // reports, while a steady state does not spam the log every frame.
+        if (const bool temporalRequested = activation.Mode != UpscaleMode::Off &&
+                                           activation.Technique == UpscalerTechnique::Temporal;
+            temporalRequested && !data.TemporalUpscaleActive)
+        {
+            const bool msaaSceneBand = TemporalUpscalePolicy::IsMSAAResolved(activation.SceneSampleCount);
+            const TemporalUpscalerStatus status =
+                PostProcessPasses.FSR2 ? PostProcessPasses.FSR2->GetUpscalerStatus()
+                                       : TemporalUpscalerStatus::NotConfigured;
+
+            // -1 == "nothing reported yet"; the MSAA case is folded in as a
+            // distinct code because it is not a backend status at all.
+            constexpr i32 kMsaaReason = -2;
+            const i32 reason = msaaSceneBand ? kMsaaReason : static_cast<i32>(status);
+            static i32 s_LastReportedFallbackReason = -1;
+            if (reason != s_LastReportedFallbackReason)
+            {
+                if (msaaSceneBand)
+                    OLO_CORE_WARN("FSR2 requested but the scene band is MSAA-resolved ({} samples) — MSAA is not "
+                                  "supported with temporal upscaling; falling back to the FSR1 spatial upscaler",
+                                  activation.SceneSampleCount);
+                else
+                    OLO_CORE_INFO("FSR2 requested but temporal upscaling is {} — falling back to the FSR1 spatial upscaler",
+                                  ToString(status));
+                s_LastReportedFallbackReason = reason;
+            }
+        }
+
         // TAA projection jitter. We bake a sub-pixel Halton offset into the
         // projection matrix so the same pixel samples a slightly different
         // geometric position each frame; the TAA accumulator then averages
@@ -304,8 +352,61 @@ namespace OloEngine
         // without requiring an explicit unjitter uniform.
         data.PrevJitterUV = data.CurrJitterUV;
         data.CurrJitterUV = glm::vec2(0.0f);
-        if (data.PostProcess.TAAEnabled && FrameCorePasses.Scene)
+        data.TemporalUpscaleJitterPixels = glm::vec2(0.0f);
+
+        // Jitter is needed by EITHER temporal accumulator, and the two disagree on
+        // the sequence: engine TAA walks a fixed Halton-16, while FSR2 derives
+        // both the phase count and the offsets from the render/display ratio
+        // (a 67% scale needs ~2.2x more phases than a 100% one to cover the
+        // display grid). Feeding FSR2 the Halton-16 would under-sample exactly the
+        // reconstruction it exists to perform, so the branch below picks the
+        // upscaler's sequence whenever it owns the frame.
+        if (data.TemporalUpscaleActive && FrameCorePasses.Scene)
         {
+            const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
+            const u32 displayW = data.RGraph ? data.RGraph->GetPhysicalWidth() : spec.Width;
+            if (spec.Width > 0u && spec.Height > 0u && displayW > 0u)
+            {
+                const i32 phaseCount = PostProcessPasses.FSR2->GetJitterPhaseCount(spec.Width, displayW);
+                const glm::vec2 jitterPixels =
+                    PostProcessPasses.FSR2->GetJitterOffset(static_cast<i32>(data.TemporalUpscalePhaseIndex), phaseCount);
+
+                // FSR2 hands back an offset in RENDER-resolution pixels, already
+                // centred on [-0.5, 0.5]. The scene renders into a viewport of
+                // exactly spec.Width x spec.Height, so one rendered pixel spans
+                // 2 / spec.Width in NDC — NOT 2 / displayWidth, which is the
+                // mistake that makes the jitter shrink as the render scale drops
+                // and quietly turns FSR2 back into a blurry bilinear upscale.
+                const glm::vec2 jitterNdc =
+                    TemporalUpscalePolicy::JitterPixelsToNDC(jitterPixels, spec.Width, spec.Height);
+                const f32 jitterNdcX = jitterNdc.x;
+                const f32 jitterNdcY = jitterNdc.y;
+
+                if (const bool isOrthographic = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f; isOrthographic)
+                {
+                    data.ProjectionMatrix[3][0] += jitterNdcX;
+                    data.ProjectionMatrix[3][1] += jitterNdcY;
+                }
+                else
+                {
+                    data.ProjectionMatrix[2][0] += jitterNdcX;
+                    data.ProjectionMatrix[2][1] += jitterNdcY;
+                }
+                data.ViewProjectionMatrix = data.ProjectionMatrix * data.ViewMatrix;
+
+                data.CurrJitterUV = glm::vec2(jitterNdcX * 0.5f, jitterNdcY * 0.5f);
+                data.TemporalUpscaleJitterPixels = jitterPixels;
+                data.TemporalUpscalePhaseIndex =
+                    (data.TemporalUpscalePhaseIndex + 1u) % static_cast<u32>(std::max(1, phaseCount));
+            }
+            // The engine TAA index is parked while FSR2 owns the jitter, so a
+            // switch back to TAA restarts its sequence from a known phase rather
+            // than from wherever it happened to stop.
+            data.TAAJitterFrameIndex = 0;
+        }
+        else if (data.PostProcess.TAAEnabled && FrameCorePasses.Scene)
+        {
+            data.TemporalUpscalePhaseIndex = 0;
             const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
             if (spec.Width > 0 && spec.Height > 0)
             {
@@ -355,6 +456,7 @@ namespace OloEngine
         else
         {
             data.TAAJitterFrameIndex = 0;
+            data.TemporalUpscalePhaseIndex = 0;
         }
 
         // Re-mirror the culling camera's projection AFTER the jitter (issue
@@ -883,7 +985,15 @@ namespace OloEngine
 
         if (PostProcessPasses.TAA)
         {
-            PostProcessPasses.TAA->SetEnabled(data.PostProcess.TAAEnabled);
+            // FSR2 SUBSUMES engine TAA (#684) — it is itself a temporal resolve,
+            // fed by the same jitter and the same motion vectors. Running both
+            // means two accumulators reprojecting the same history one after the
+            // other, which does not merely double-blur: TAA would be resolving an
+            // ALREADY-resolved, already-upscaled image whose velocity buffer
+            // describes the pre-upscale frame. The user's TAAEnabled setting is
+            // left untouched so it comes back when the technique changes.
+            PostProcessPasses.TAA->SetEnabled(
+                TemporalUpscalePolicy::ShouldRunEngineTAA(data.PostProcess.TAAEnabled, data.TemporalUpscaleActive));
             PostProcessPasses.TAA->SetSettings(data.PostProcess);
         }
 
@@ -996,11 +1106,52 @@ namespace OloEngine
             PostProcessPasses.ToneMap->SetAutoExposure(ae);
         }
 
+        // The two upscalers are mutually exclusive: whichever one is NOT running
+        // must be disabled, or both declare a display-res output into the same
+        // slot and the PostProcessColor alias below picks one arbitrarily.
+        // data.TemporalUpscaleActive is the single decision both read (#684).
         if (PostProcessPasses.EASU)
         {
-            PostProcessPasses.EASU->SetEnabled(data.PostProcess.Upscale != UpscaleMode::Off);
+            PostProcessPasses.EASU->SetEnabled(data.PostProcess.Upscale != UpscaleMode::Off && !data.TemporalUpscaleActive);
             PostProcessPasses.EASU->SetSettings(data.PostProcess);
             PostProcessPasses.EASU->SetRenderScale(UpscaleModeToRenderScale(data.PostProcess.Upscale));
+        }
+
+        if (PostProcessPasses.FSR2)
+        {
+            PostProcessPasses.FSR2->SetEnabled(data.TemporalUpscaleActive);
+            PostProcessPasses.FSR2->SetSettings(data.PostProcess);
+            PostProcessPasses.FSR2->SetRenderScale(UpscaleModeToRenderScale(data.PostProcess.Upscale));
+            // The jitter is handed over rather than recomputed — see
+            // FSR2RenderPass::SetJitterPixels.
+            PostProcessPasses.FSR2->SetJitterPixels(data.TemporalUpscaleJitterPixels);
+            // Vertical FOV comes back out of the projection matrix rather than
+            // from a stored camera field, because the projection is what the
+            // frame was actually rendered with — an editor camera, a runtime
+            // camera and a cubemap face all reach here through the same matrix.
+            // P[1][1] == 1 / tan(fovY / 2) for glm::perspective, and the jitter
+            // above only ever touches the [2] or [3] column, so it is unaffected.
+            // An orthographic projection has no FOV; FSR2 only uses this for its
+            // depth reconstruction, so hand it the perspective default rather
+            // than a divide by an ortho P[1][1] that means something else.
+            const f32 projYScale = data.ProjectionMatrix[1][1];
+            const bool isOrthoProjection = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f;
+            const f32 verticalFov = (!isOrthoProjection && std::isfinite(projYScale) && glm::abs(projYScale) > 1e-6f)
+                                        ? 2.0f * std::atan(1.0f / glm::abs(projYScale))
+                                        : glm::radians(45.0f);
+            PostProcessPasses.FSR2->SetCameraParams(data.CameraNearClip, data.CameraFarClip, verticalFov);
+
+            // FSR2 reads the frame delta as a wall-clock hint for how fast its
+            // temporal locks decay, so it must be REAL elapsed time and not a
+            // fixed timestep. Metered here with the same steady_clock pattern the
+            // auto-exposure block above uses, and clamped so a breakpoint or a
+            // stalled frame does not hand it a delta that expires every lock.
+            static auto s_LastTemporalUpscaleTime = std::chrono::steady_clock::now();
+            const auto temporalNow = std::chrono::steady_clock::now();
+            const f32 temporalDt = std::clamp(
+                std::chrono::duration<f32>(temporalNow - s_LastTemporalUpscaleTime).count(), 0.0f, 0.1f);
+            s_LastTemporalUpscaleTime = temporalNow;
+            PostProcessPasses.FSR2->SetDeltaTimeSeconds(temporalDt);
         }
 
         if (PostProcessPasses.DepthVelocityUpscale)
@@ -1014,8 +1165,15 @@ namespace OloEngine
             // The late sharpen pass runs for CAS (native) OR RCAS (FSR1 upscale):
             // enable it whenever either is active. UpscalerRenderPass picks the
             // RCAS kernel over CAS when upscaling.
-            PostProcessPasses.Upscaler->SetEnabled(data.PostProcess.CASEnabled ||
-                                                   data.PostProcess.Upscale != UpscaleMode::Off);
+            //
+            // On the FSR2 path the RCAS half is already done — FSR2 runs its own
+            // RCAS inside the upscale, on HDR, before tone mapping. Sharpening
+            // again here would be a SECOND RCAS over the same edges and shows up
+            // as ringing on high-contrast silhouettes. So the upscale no longer
+            // implies the late pass; only an explicit CAS request does (#684).
+            PostProcessPasses.Upscaler->SetEnabled(
+                TemporalUpscalePolicy::ShouldRunLateSharpen(data.PostProcess.CASEnabled, data.PostProcess.Upscale,
+                                                            data.TemporalUpscaleActive));
             PostProcessPasses.Upscaler->SetSettings(data.PostProcess);
         }
 
@@ -1815,6 +1973,15 @@ namespace OloEngine
         // upscale on/off leaves the blackboard cache stale (EASUColor never
         // (re)declared, scene band never re-sized).
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.Upscale)));
+        // FSR2 (#684): same rule, one level down. The RESOLVED decision is what
+        // must be hashed, not the requested Technique — it is
+        // TemporalUpscaleActive that picks whether FSR2Color or EASUColor gets
+        // declared, and it can flip without the setting moving at all (the
+        // backend coming up, or MSAA being switched on). Hashing the setting
+        // instead would leave the graph holding whichever resource happened to be
+        // declared when the decision last changed, and the upscale would silently
+        // stop running.
+        HashBool(h, data.TemporalUpscaleActive);
         HashBool(h, data.PostProcess.VignetteEnabled);
         HashBool(h, data.PostProcess.FXAAEnabled);
         // Colour-blind mode (issue #458) gates whether ColorBlindColor is
@@ -1967,6 +2134,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.SSGI);
         HashPassState(h, PostProcessPasses.SSR);
         HashPassState(h, PostProcessPasses.ContactShadow);
+        HashPassState(h, PostProcessPasses.FSR2);
         HashPassState(h, PostProcessPasses.Bloom);
         HashPassState(h, PostProcessPasses.DOF);
         HashPassState(h, PostProcessPasses.MotionBlur);
@@ -2846,20 +3014,45 @@ namespace OloEngine
             }
         }
 
-        // EASUColor (FSR1 spatial upscale) is declared only when upscaling is
-        // active. It is a full display-resolution HDR target (declareGraphOnly...
-        // sizes it at the physical post-process dimensions): EASU upscales the
+        // The upscaled colour target is declared only when upscaling is active.
+        // It is a full display-resolution HDR target (declareGraphOnly... sizes it
+        // at the physical post-process dimensions): the upscaler turns the
         // reduced-resolution pre-Bloom scene colour into it, and every downstream
         // display-res post stage reads it instead of the reduced SceneColor chain.
-        if (pipeline.PostProcessPasses.EASU && data.PostProcess.Upscale != UpscaleMode::Off &&
-            pipeline.PostProcessPasses.EASU->IsReadyForExecution())
+        //
+        // Which of the two names it goes under is the technique's choice (#684).
+        // EXACTLY ONE is ever declared in a frame — data.TemporalUpscaleActive is
+        // the same decision that disabled the losing pass above, so the two can
+        // not disagree and the alias selection further down stays a simple
+        // "whichever is valid".
+        const bool upscaleActive = data.PostProcess.Upscale != UpscaleMode::Off;
+        const bool declareTemporalUpscale = upscaleActive && data.TemporalUpscaleActive &&
+                                            pipeline.PostProcessPasses.FSR2 &&
+                                            pipeline.PostProcessPasses.FSR2->IsReadyForExecution();
+        const bool declareSpatialUpscale = upscaleActive && !data.TemporalUpscaleActive &&
+                                           pipeline.PostProcessPasses.EASU &&
+                                           pipeline.PostProcessPasses.EASU->IsReadyForExecution();
+
+        if (declareSpatialUpscale || declareTemporalUpscale)
         {
-            const auto easuOutput = declareGraphOnlyPostProcessOutput(
-                ResourceNames::EASUColor,
-                ResourceNames::EASUColorTexture,
-                RGResourceFormat::RGBA16Float);
-            board.Post.EASUColor = easuOutput.Framebuffer;
-            board.Post.EASUColorTexture = easuOutput.Texture;
+            if (declareTemporalUpscale)
+            {
+                const auto fsr2Output = declareGraphOnlyPostProcessOutput(
+                    ResourceNames::FSR2Color,
+                    ResourceNames::FSR2ColorTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.Post.FSR2Color = fsr2Output.Framebuffer;
+                board.Post.FSR2ColorTexture = fsr2Output.Texture;
+            }
+            else
+            {
+                const auto easuOutput = declareGraphOnlyPostProcessOutput(
+                    ResourceNames::EASUColor,
+                    ResourceNames::EASUColorTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.Post.EASUColor = easuOutput.Framebuffer;
+                board.Post.EASUColorTexture = easuOutput.Texture;
+            }
 
             // Companion full-res depth+velocity target for DepthVelocityUpscalePass
             // (RT0 = R32F depth, RT1 = RG16F velocity), full display resolution.
@@ -2900,7 +3093,16 @@ namespace OloEngine
         // every possible chain source explicitly in their candidate arrays.
         std::string_view postProcessTargetFramebuffer;
         std::string_view postProcessTargetTexture;
-        if (board.Post.EASUColor.IsValid())
+        if (board.Post.FSR2Color.IsValid())
+        {
+            // FSR2 ran: same role as the EASU branch below, one branch each
+            // because only one of the two is ever declared (#684).
+            board.Post.PostProcessColor = board.Post.FSR2Color;
+            board.Post.PostProcessColorTexture = board.Post.FSR2ColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::FSR2Color;
+            postProcessTargetTexture = ResourceNames::FSR2ColorTexture;
+        }
+        else if (board.Post.EASUColor.IsValid())
         {
             // FSR1 EASU ran: its full-display-resolution upscale of the reduced
             // scene colour is THE freshest pre-Bloom source, and the one every
@@ -3042,8 +3244,13 @@ namespace OloEngine
             board.Post.MotionBlurColorTexture = motionBlurOutput.Texture;
         }
 
-        // TAAColor is declared only when TAA is enabled.
-        if (pipeline.PostProcessPasses.TAA && data.PostProcess.TAAEnabled &&
+        // TAAColor is declared only when TAA actually runs — which is NOT the same
+        // as TAAEnabled once FSR2 can suppress it (#684). Declaring it while the
+        // pass is off leaves a resource with no producer, and a consumer that
+        // selects it culls the entire chain behind it. Both gates read the same
+        // predicate for exactly that reason.
+        if (pipeline.PostProcessPasses.TAA &&
+            TemporalUpscalePolicy::ShouldRunEngineTAA(data.PostProcess.TAAEnabled, data.TemporalUpscaleActive) &&
             pipeline.PostProcessPasses.TAA->IsReadyForExecution())
         {
             const auto taaOutput = declareGraphOnlyPostProcessOutput(
@@ -3158,11 +3365,17 @@ namespace OloEngine
         }
 
         // UpscalerColor (CAS / RCAS sharpening) is declared when CAS is enabled OR
-        // FSR1 upscaling is active (which uses the RCAS kernel in the same pass).
+        // FSR1 upscaling is active (which uses the RCAS kernel in the same pass) —
+        // but NOT on the FSR2 path, which does its own RCAS before tone mapping.
+        // Same predicate as the enable site above, and it has to be: declaring
+        // this while the pass is off made UICompositePass select an unwritten
+        // UpscalerColor and culled the whole post chain back to ScenePass, for a
+        // silently black frame (#684).
         // It runs post-tonemap on the LDR image; carries LDR values in an
         // RGBA16Float target to match the ToneMapColor it consumes.
         if (pipeline.PostProcessPasses.Upscaler &&
-            (data.PostProcess.CASEnabled || data.PostProcess.Upscale != UpscaleMode::Off) &&
+            TemporalUpscalePolicy::ShouldRunLateSharpen(data.PostProcess.CASEnabled, data.PostProcess.Upscale,
+                                                        data.TemporalUpscaleActive) &&
             pipeline.PostProcessPasses.Upscaler->IsReadyForExecution())
         {
             const auto upscalerOutput = declareGraphOnlyPostProcessOutput(
@@ -3475,6 +3688,7 @@ namespace OloEngine
         inputs.Passes.SSR = PostProcessPasses.SSR.Raw();
         inputs.Passes.ContactShadow = PostProcessPasses.ContactShadow.Raw();
         inputs.Passes.EASU = PostProcessPasses.EASU.Raw();
+        inputs.Passes.FSR2 = PostProcessPasses.FSR2.Raw();
         inputs.Passes.DepthVelocityUpscale = PostProcessPasses.DepthVelocityUpscale.Raw();
         inputs.Passes.Bloom = PostProcessPasses.Bloom.Raw();
         inputs.Passes.DOF = PostProcessPasses.DOF.Raw();
@@ -3686,6 +3900,14 @@ namespace OloEngine
         PostProcessPasses.EASU = Ref<EASURenderPass>::Create();
         PostProcessPasses.EASU->SetName("EASUPass");
         PostProcessPasses.EASU->Init(finalPassSpec);
+
+        // FSR2 temporal-upscale pass (#684). The Temporal alternative to EASU
+        // above, in the same slot and with the same output contract. Constructed
+        // unconditionally so the settings toggle is a pure runtime decision — the
+        // pass itself reports whether the backend can actually run it.
+        PostProcessPasses.FSR2 = Ref<FSR2RenderPass>::Create();
+        PostProcessPasses.FSR2->SetName("FSR2Pass");
+        PostProcessPasses.FSR2->Init(finalPassSpec);
 
         // FSR1 depth+velocity upscale (#480). Runs right after EASU: brings the
         // reduced-res depth + motion vectors up to display res so the full-res

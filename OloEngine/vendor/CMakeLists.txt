@@ -459,4 +459,9 @@ endforeach()
 # (Lives in the tracked cmake/ dir because OloEngine/vendor/* is gitignored.)
 include(${CMAKE_SOURCE_DIR}/cmake/ffmpeg.cmake)
 
+# FSR2 (optional, Windows + OpenGL only) — AMD's temporal upscaler, issue #684.
+# Same reason for living in cmake/: OloEngine/vendor/* is gitignored.
+include(${CMAKE_SOURCE_DIR}/cmake/fsr2.cmake)
+set(OLO_WITH_FSR2 "${OLO_WITH_FSR2}" PARENT_SCOPE)
+
 message(STATUS "Third-party dependency resolution done")

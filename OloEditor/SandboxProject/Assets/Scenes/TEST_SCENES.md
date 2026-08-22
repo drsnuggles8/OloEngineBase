@@ -76,6 +76,35 @@ by the Newport Loft HDR environment + a soft fill directional. Camera at
 
 ---
 
+### [FSR2UpscaleTest.olo](FSR2UpscaleTest.olo)
+
+**Purpose**: Verify FSR2 temporal upscaling (#684) — and, just as importantly, verify it the only way
+that works. A temporal upscaler's failure modes (ghosting, disocclusion trails, an inverted
+motion-vector sign, a jitter scaled against the wrong extent) all produce a **still frame that looks
+correct**, so a screenshot is not evidence here. You have to move the camera.
+**Contents**: SponzaDeferred's geometry and lighting — dense thin detail (drapes, railings, pillar
+filigree) is what a reconstruction either recovers or smears — with a PostProcessSettings block set
+to `Upscale: 1` (Quality, 0.667x render scale) and `UpscaleTechnique: 1` (Temporal / FSR2). FXAA is
+off so nothing blurs the result being judged; `TAAEnabled` is left **true** on purpose, because FSR2
+suppresses engine TAA while it runs and this scene should exercise that.
+**Pass** — open with renderer set to **Deferred**, then **fly the camera along the nave and stop**:
+- The frame is at least as sharp as native while the scene renders at 67% — thin geometry resolves,
+  it does not shimmer or crawl.
+- Nothing trails. Pillar edges, the drape fringes and the helmet silhouette leave no smear behind
+  them during the move, and none remains after you stop.
+- Stopping converges: within roughly half a second the image settles and stays settled.
+- `OloEngine.log` says FSR2 is in use. If it instead reports falling back to the spatial upscaler,
+  that is the honest answer for this build/backend (non-Windows, Vulkan, `OLO_WITH_FSR2=OFF`, or MSAA
+  on) — not a scene bug.
+- A/B: set `UpscaleTechnique: 0` for FSR1 at the same render scale, or `Upscale: 0` for native.
+**Fail**: trails behind moving silhouettes (reprojection sign or history invalidation); the image is
+uniformly soft and does NOT sharpen as you hold still (the jitter is not reconstructing — suspect the
+render-vs-display extent); ringing on high-contrast edges (sharpening applied twice); the frame
+darkens or brightens relative to native (exposure); a black frame (the upscaler produced no output
+while the post chain still routed through it).
+
+---
+
 ### [DecalModeMatrixTest.olo](DecalModeMatrixTest.olo)
 
 **Purpose**: The decal **mode matrix** acceptance scene (issue #853) — one decal per `DecalMode` on a single uniform floor, so each mode's G-Buffer *channel* routing is observable against a known neighbour. Before this scene existed, no sandbox scene put a decal on the deferred path at all, which is a large part of why #853 stayed invisible.

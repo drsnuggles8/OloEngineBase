@@ -109,6 +109,10 @@ namespace OloEngine
             if (before.Upscale != after.Upscale)
                 AppendChange(changes, "Upscale", static_cast<i32>(before.Upscale), static_cast<i32>(after.Upscale));
             AppendChange(changes, "RCASSharpness", before.RCASSharpness, after.RCASSharpness);
+            if (before.Technique != after.Technique)
+                AppendChange(changes, "UpscaleTechnique", static_cast<i32>(before.Technique), static_cast<i32>(after.Technique));
+            AppendChange(changes, "FSR2SharpeningEnabled", before.FSR2SharpeningEnabled, after.FSR2SharpeningEnabled);
+            AppendChange(changes, "FSR2Sharpness", before.FSR2Sharpness, after.FSR2Sharpness);
 
             AppendChange(changes, "ColorGradingEnabled", before.ColorGradingEnabled, after.ColorGradingEnabled);
 
@@ -614,17 +618,17 @@ namespace OloEngine
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
 
-        if (ImGui::CollapsingHeader("Spatial Upscale (FSR1)"))
+        if (ImGui::CollapsingHeader("Upscaling"))
         {
             ImGui::Indent();
 
-            // FSR1 EASU/RCAS: render the scene below display resolution, then
-            // edge-adaptively upscale (EASU) + sharpen (RCAS) to display res.
+            // Two orthogonal choices, in the order they matter: HOW FAR below
+            // display resolution to render, then WHICH algorithm reconstructs it.
             constexpr const char* kModeNames[] = { "Off (Native)", "Quality", "Balanced", "Performance", "Ultra Performance" };
             int mode = static_cast<int>(settings.Upscale);
             if (mode < 0 || mode > static_cast<int>(UpscaleMode::UltraPerformance))
                 mode = 0;
-            if (ImGui::Combo("Mode##FSR1", &mode, kModeNames, IM_ARRAYSIZE(kModeNames)))
+            if (ImGui::Combo("Mode", &mode, kModeNames, IM_ARRAYSIZE(kModeNames)))
             {
                 settings.Upscale = static_cast<UpscaleMode>(mode);
                 SanitizeUpscale(settings);
@@ -635,13 +639,42 @@ namespace OloEngine
                 const f32 scale = UpscaleModeToRenderScale(settings.Upscale);
                 ImGui::Text("Render scale: %.0f%% (%.2fx)", scale * 100.0f, scale);
 
-                // DragFloat's min/max bound the drag but not manual entry, so
-                // re-sanitize on edit (keeps a typed out-of-range value valid).
-                if (ImGui::DragFloat("RCAS Sharpness", &settings.RCASSharpness, 0.01f, 0.0f, 1.0f, "%.2f"))
+                constexpr const char* kTechniqueNames[] = { "Spatial (FSR1 EASU + RCAS)", "Temporal (FSR2)" };
+                int technique = static_cast<int>(settings.Technique);
+                if (technique < 0 || technique > static_cast<int>(UpscalerTechnique::Temporal))
+                    technique = 0;
+                if (ImGui::Combo("Technique", &technique, kTechniqueNames, IM_ARRAYSIZE(kTechniqueNames)))
+                {
+                    settings.Technique = static_cast<UpscalerTechnique>(technique);
                     SanitizeUpscale(settings);
-                ImGui::TextWrapped("FSR1 (FidelityFX Super Resolution 1). The scene renders at the reduced "
-                                   "render scale; EASU reconstructs display resolution early (before Bloom/DOF) "
-                                   "and RCAS sharpens after tone mapping. Trades a little image quality for GPU time.");
+                }
+
+                if (settings.Technique == UpscalerTechnique::Temporal)
+                {
+                    if (ImGui::Checkbox("FSR2 Sharpening", &settings.FSR2SharpeningEnabled))
+                        SanitizeUpscale(settings);
+                    if (settings.FSR2SharpeningEnabled)
+                    {
+                        // DragFloat's min/max bound the drag but not manual entry,
+                        // so re-sanitize on edit.
+                        if (ImGui::DragFloat("FSR2 Sharpness", &settings.FSR2Sharpness, 0.01f, 0.0f, 1.0f, "%.2f"))
+                            SanitizeUpscale(settings);
+                    }
+                    ImGui::TextWrapped("FSR2 (FidelityFX Super Resolution 2). Accumulates jittered frames through "
+                                       "the motion-vector buffer, so it reconstructs sub-pixel detail FSR1 cannot. "
+                                       "It replaces engine TAA while active (running both would resolve the same "
+                                       "history twice) and does its own RCAS sharpen on HDR before tone mapping.");
+                    ImGui::TextWrapped("Not available with MSAA, on the Vulkan backend, or on non-Windows builds — "
+                                       "the spatial path is used instead and OloEngine.log says which.");
+                }
+                else
+                {
+                    if (ImGui::DragFloat("RCAS Sharpness", &settings.RCASSharpness, 0.01f, 0.0f, 1.0f, "%.2f"))
+                        SanitizeUpscale(settings);
+                    ImGui::TextWrapped("FSR1 (FidelityFX Super Resolution 1). The scene renders at the reduced "
+                                       "render scale; EASU reconstructs display resolution early (before Bloom/DOF) "
+                                       "and RCAS sharpens after tone mapping. Trades a little image quality for GPU time.");
+                }
             }
 
             ImGui::Unindent();

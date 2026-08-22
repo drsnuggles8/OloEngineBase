@@ -309,6 +309,82 @@ scene band. Fixed in **#504** (every GTAO scratch resource now tracks `sceneBand
 *second*, quieter half of the same transition is **#771** — see
 [render-pipeline-caches.md](render-pipeline-caches.md).
 
+## 13b. FSR2 temporal upscaling (#684) — what is different from FSR1, and where it hides
+
+FSR2 occupies **exactly the EASU slot**: it turns the reduced-resolution pre-Bloom HDR colour into a
+display-resolution one, early, before Bloom/DOF/ToneMap. Everything in §13 about reduced-size
+targets, the fingerprint hash and the "must not list `PostProcessColor` as an input" rule applies
+unchanged. `FSR2Color` is the Temporal spelling of `EASUColor` — **exactly one of the two is ever
+declared in a frame**, and `Bloom`'s candidate list carries both so name resolution finds whichever
+ran.
+
+**The build is Windows-only and that is structural, not laziness.** `cmake/fsr2.cmake` fetches
+JuanDiegoMontoya/FidelityFX-FSR2-OpenGL and forces `OLO_WITH_FSR2` OFF everywhere else, because (a)
+`ffx_fsr2_gl.cpp` uses `wcstombs_s` / `GetModuleHandleA` / `<Windows.h>`, and (b) the shader
+permutations are compiled by `tools/sc/FidelityFX_SC.exe`, a **prebuilt Win32 binary** with no Linux
+build. `Platform/OpenGL/OpenGLTemporalUpscaler.cpp` self-guards to a stub, so the pass, its settings
+and its policy still compile (and are still tested) on every platform. Two traps in that CMake:
+`GIT_SUBMODULES ""` is load-bearing — upstream registers a **multi-gigabyte** `cauldron-media` art
+repo — and `SOURCE_SUBDIR` points at a nonexistent directory on purpose, so `MakeAvailable`
+populates without configuring upstream's DX12/Vulkan sample apps.
+
+**The failure modes are all "plausible image", which is why the rules live in
+`Renderer/Upscaling/TemporalUpscalePolicy.h` as pure functions with a test (`FSR2PolicyTest`) rather
+than inline at the call sites.** In rough order of how long each would survive review:
+
+1. **Jitter divided by the display extent instead of the render extent.** The scene renders into a
+   viewport of `renderW × renderH`, so one rendered pixel is `2 / renderW` in NDC. Use the display
+   width and the jitter shrinks in proportion to the render scale — sub-pixel coverage collapses,
+   every accumulated frame sampled the same geometric point, and FSR2 degrades into a blurry
+   bilinear upscale **that still looks like a working temporal upscaler**.
+2. **Motion-vector scale sign.** The G-Buffer writes `o_Velocity = (ndcCurr - ndcPrev) * 0.5` —
+   UV-space, current-minus-previous. FSR2 wants render-resolution **pixels pointing back** to the
+   previous position, so the scale is `(-renderW, -renderH)`. A positive scale reprojects the wrong
+   way and every moving object trails; the still frame is fine.
+3. **`frameTimeDelta` is MILLISECONDS.** It drives lock decay. Passing seconds makes locks expire
+   ~1000× too slowly, which reads as heavy ghosting.
+4. **`deviceDepthNegativeOneToOne` must be `false` here — and that is not a bug.** The engine's
+   projections *are* GL's `[-1, 1]` NDC ones, so the flag looks like it should be true. But FSR2
+   samples the depth **texture**, and a GL depth attachment stores WINDOW depth, which
+   `glDepthRange`'s default maps as `z_window = 0.5 * z_ndc + 0.5` — precisely the affine remap that
+   separates the GL and D3D projection matrices in z. The texture therefore already holds the
+   `[0, 1]` device depth FSR2 assumes. The flag would describe a pipeline whose depth *buffer* holds
+   `[-1, 1]`, which nothing here does; and this fork rejects it outright
+   (`FFX_ASSERT_MESSAGE(params->deviceDepthNegativeOneToOne == false, "OpenGL depth convention not
+   yet supported")`), so passing true is a debug assert and a silently wrong transform in release.
+5. **The jitter sequence is the UPSCALER's, not the engine's.** FSR2 derives its phase count from
+   the render/display ratio (a 67% scale needs ~2.2× the phases of native). Feeding it the engine's
+   fixed Halton-16 TAA sequence under-samples exactly the reconstruction it exists to perform.
+
+**Two things must be forced off while it runs, and both are enable-site decisions in
+`RenderPipeline`, not settings mutations:** engine **TAA** (running both means TAA resolves an
+already-resolved, already-upscaled image whose velocity buffer describes the pre-upscale frame) and
+the late **`UpscalerRenderPass`** RCAS (FSR2 runs its own RCAS on HDR before tone mapping — sharpening
+again post-tonemap is a second pass over the same edges and rings on high-contrast silhouettes). The
+user's `TAAEnabled` / `CASEnabled` settings are left untouched so they return when the technique
+changes.
+
+**`GL_KHR_shader_subgroup` is a hard requirement of the backend**, not a nice-to-have: its
+`GetDeviceCapabilitiesGL` returns `FFX_ERROR_BACKEND_API_ERROR` without it (it also accepts any AMD
+vendor string as implying support). A device that lacks it fails `Configure`, the upscaler reports
+`DeviceUnsupported`, and the pipeline falls back to the spatial path with a log line — so this shows
+up as "FSR2 did nothing on that machine", never as a crash.
+
+**MSAA is a hard guard, not a note.** A resolve has already averaged the per-pixel depth and motion
+vectors FSR2 reconstructs from, so the output is soft and crawling rather than wrong-looking.
+
+> **The fingerprint must hash the RESOLVED decision (`data.TemporalUpscaleActive`), not the
+> requested `Technique`.** The decision can flip without any setting moving — the backend coming up,
+> MSAA being switched on — and it is what picks whether `FSR2Color` or `EASUColor` gets declared. Hash
+> the setting instead and the graph keeps whichever resource was declared when the decision last
+> changed, and the upscale silently stops running. Same rule as §13's `Upscale` hash, one level down.
+
+**Exposure is FSR2's own, deliberately.** `FFX_FSR2_ENABLE_AUTO_EXPOSURE` is set rather than feeding
+the engine's metered value, because `ToneMapRenderPass` (which owns auto-exposure) runs **after** the
+upscaler — so FSR2's input is genuinely un-exposed HDR, which is the case that flag exists for. Its
+exposure also lives in an SSBO, not a 1×1 texture, so the explicit path would additionally be a
+frame-late SSBO→texture copy for no benefit.
+
 ## 14. GPU timer queries
 
 - **`GL_TIME_ELAPSED` scopes must not nest.** `CommandBucket::ExecuteWithGPUTiming` already owns

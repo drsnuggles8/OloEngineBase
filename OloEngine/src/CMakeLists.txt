@@ -937,6 +937,11 @@
 		"OloEngine/Renderer/Passes/EASURenderPass.cpp"
 		"OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 		"OloEngine/Renderer/Passes/DepthVelocityUpscalePass.cpp"
+		"OloEngine/Renderer/Passes/FSR2RenderPass.h"
+		"OloEngine/Renderer/Passes/FSR2RenderPass.cpp"
+		"OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
+		"OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
+		"OloEngine/Renderer/Upscaling/TemporalUpscaler.cpp"
 		"OloEngine/Renderer/Passes/VignetteRenderPass.h"
 		"OloEngine/Renderer/Passes/VignetteRenderPass.cpp"
 		"OloEngine/Renderer/Passes/TAARenderPass.h"
@@ -1544,6 +1549,11 @@
 		"Platform/OpenGL/OpenGLContext.h"
 		"Platform/OpenGL/OpenGLDebug.cpp"
 		"Platform/OpenGL/OpenGLDebug.h"
+		# FSR2 temporal upscaler (#684). ALWAYS listed; the TU self-guards on
+		# OLO_WITH_FSR2 and compiles to a "not in this build" stub when off —
+		# the same convention as Platform/Vulkan/* and Platform/Steam/*.
+		"Platform/OpenGL/OpenGLTemporalUpscaler.cpp"
+		"Platform/OpenGL/OpenGLTemporalUpscaler.h"
 		# The ARB_bindless_texture half of the Phase 3 descriptor heap (#691).
 		# The neutral half is Renderer/RHI/RHIDescriptorHeap.{h,cpp}; this owns
 		# only what does not generalise — handle residency, sampler objects, and
