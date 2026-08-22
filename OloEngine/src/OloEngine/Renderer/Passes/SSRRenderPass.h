@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -43,7 +44,8 @@ namespace OloEngine
     {
       public:
         SSRRenderPass();
-        ~SSRRenderPass() override = default;
+        // Not defaulted: the pass owns the blue-noise tile texture (issue #706).
+        ~SSRRenderPass() override;
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
@@ -94,6 +96,11 @@ namespace OloEngine
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedGBufferNormalTexture{};
         RGTextureHandle m_SelectedGBufferAlbedoTexture{};
+
+        // The shared blue-noise tile (issue #706), created once in Init(). Not a
+        // graph resource: it is pass-owned, immutable and bound with a Persistent
+        // heap lifetime.
+        RHI::ResourceHandle m_BlueNoiseTexture{};
     };
 
 } // namespace OloEngine

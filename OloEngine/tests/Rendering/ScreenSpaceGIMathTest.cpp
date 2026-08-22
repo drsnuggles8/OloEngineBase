@@ -76,7 +76,9 @@ namespace
     }
 
     // Branchless orthonormal basis around n (Duff et al. 2017) — must match
-    // BuildBasis() in PostProcess_SSGI.glsl.
+    // OrthonormalBasis() in include/MathCommon.glsl, which PostProcess_SSGI.glsl
+    // now uses via OloCosineHemisphere() instead of the local copy it carried
+    // before issue #706. Same formula; one home.
     void BuildBasis(glm::vec3 n, glm::vec3& t, glm::vec3& b)
     {
         const float s = (n.z >= 0.0f) ? 1.0f : -1.0f;
@@ -87,21 +89,42 @@ namespace
     }
 
     constexpr float kPi = 3.14159265359f;
-    constexpr float kGoldenRatioConj = 0.61803398875f;
 
     // Cosine-weighted hemisphere sample (Malley's method) around n — must match
-    // the per-ray sampling in PostProcess_SSGI.glsl's main loop.
-    glm::vec3 CosineHemisphereDir(glm::vec3 n, int rayIndex, int rayCount, float ign)
+    // OloCosineHemisphere() in include/StochasticCommon.glsl, which
+    // PostProcess_SSGI.glsl calls once per ray.
+    //
+    // It takes the 2D sample rather than generating one: since issue #706 the
+    // sample comes from the shared blue-noise sampler, and WHICH sampler feeds
+    // this mapping is pinned separately by StochasticSamplerTest. Keeping that
+    // out of here is deliberate — these tests are about the Malley mapping and
+    // the basis transform, and they should keep failing for those reasons only.
+    glm::vec3 CosineHemisphereDir(glm::vec3 n, glm::vec2 u)
     {
         glm::vec3 t, b;
         BuildBasis(n, t, b);
-        const float u1 = (static_cast<float>(rayIndex) + 0.5f) / static_cast<float>(rayCount);
-        const float u2 = std::fmod(ign + static_cast<float>(rayIndex) * kGoldenRatioConj, 1.0f);
-        const float radius = std::sqrt(u1);
-        const float phi = 2.0f * kPi * u2;
+        const float radius = std::sqrt(u.x);
+        const float phi = 2.0f * kPi * u.y;
         const glm::vec3 local(radius * std::cos(phi), radius * std::sin(phi),
-                              std::sqrt(std::max(0.0f, 1.0f - u1)));
+                              std::sqrt(std::max(0.0f, 1.0f - u.x)));
         return glm::normalize(t * local.x + b * local.y + n * local.z);
+    }
+
+    // Radical inverse base 2 / Hammersley — a stratified 2D set to drive the
+    // mapping with, standing in for whatever the production sampler supplies.
+    float RadicalInverseVdC(u32 bits)
+    {
+        bits = (bits << 16u) | (bits >> 16u);
+        bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+        bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+        bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+        bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+        return static_cast<float>(bits) * 2.3283064365386963e-10f;
+    }
+
+    glm::vec2 HammersleyPoint(int i, int n)
+    {
+        return { (static_cast<float>(i) + 0.5f) / static_cast<float>(n), RadicalInverseVdC(static_cast<u32>(i)) };
     }
 
     float Smoothstep(float edge0, float edge1, float x)
@@ -220,7 +243,7 @@ TEST(ScreenSpaceGI, HemisphereSamplesAreUnitAndInHemisphere)
     const int rayCount = 16;
     for (int i = 0; i < rayCount; ++i)
     {
-        const glm::vec3 dir = CosineHemisphereDir(N, i, rayCount, 0.37f);
+        const glm::vec3 dir = CosineHemisphereDir(N, HammersleyPoint(i, rayCount));
         EXPECT_NEAR(glm::length(dir), 1.0f, 1e-4f) << "ray " << i << " not unit length";
         EXPECT_GE(glm::dot(dir, N), -1e-4f) << "ray " << i << " points below the surface";
     }
@@ -228,9 +251,9 @@ TEST(ScreenSpaceGI, HemisphereSamplesAreUnitAndInHemisphere)
 
 // The hallmark of cosine-weighted sampling: the expected cosine E[cos theta]
 // under pdf ∝ cos theta is exactly 2/3 (∫_hemi cos^2 theta / pi dω = 2/3). With
-// stratified u1 = (i+0.5)/N this converges deterministically, independent of the
-// per-pixel azimuth jitter — so a regression in the Malley mapping or the basis
-// transform shows up here. Reference: pbrt §13.6.3 (cosine-weighted hemisphere).
+// a stratified 2D set this converges deterministically, so a regression in the
+// Malley mapping or the basis transform shows up here regardless of which
+// sampler production uses. Reference: pbrt §13.6.3 (cosine-weighted hemisphere).
 TEST(ScreenSpaceGI, CosineWeightedExpectedCosineIsTwoThirds)
 {
     const glm::vec3 N = glm::normalize(glm::vec3(-0.4f, 0.5f, 0.76f));
@@ -238,7 +261,7 @@ TEST(ScreenSpaceGI, CosineWeightedExpectedCosineIsTwoThirds)
     double sumCos = 0.0;
     for (int i = 0; i < rayCount; ++i)
     {
-        const glm::vec3 dir = CosineHemisphereDir(N, i, rayCount, 0.123f);
+        const glm::vec3 dir = CosineHemisphereDir(N, HammersleyPoint(i, rayCount));
         sumCos += static_cast<double>(glm::dot(dir, N));
     }
     const double meanCos = sumCos / rayCount;

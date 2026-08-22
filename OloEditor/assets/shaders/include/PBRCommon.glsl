@@ -519,6 +519,109 @@ vec2  hammersleySequence(uint i, uint N)            { return Hammersley(i, N); }
 vec3  importanceSampleGGX(vec2 Xi, vec3 N, float r) { return ImportanceSampleGGX(Xi, N, r); }
 
 // =============================================================================
+// GGX VNDF IMPORTANCE SAMPLING (issue #706)
+//
+// Heitz, "Sampling the GGX Distribution of Visible Normals", JCGT 7(4), 2018.
+//
+// importanceSampleGGX above samples the FULL normal distribution D. At grazing
+// angles most of the microfacets it draws are backfacing or masked, so their
+// contribution is thrown away — the sample is wasted and the variance stays
+// high exactly where a rough surface is most visible. Sampling the VISIBLE
+// normal distribution D_vis(H) = G1(V) * max(0, V.H) * D(H) / (N.V) instead
+// only ever draws microfacets the viewer can actually see.
+//
+// ---------------------------------------------------------------------------
+// THE WEIGHT IS NOT OPTIONAL, AND OMITTING IT FAILS SILENTLY
+// ---------------------------------------------------------------------------
+// With VNDF sampling the specular estimator collapses to
+//
+//     f * cos(theta_L) / pdf  ==  F * (G2 / G1)
+//
+// so a VNDF-sampled ray must be weighted by ggxVNDFWeight(). Drop it and every
+// sample is weighted 1 instead of G2/G1 <= 1, which OVERESTIMATES the shadowed
+// portion of the lobe. Nothing throws, no test that only checks "is the image
+// plausible" notices, and the resulting image is believably lit and
+// permanently, quietly wrong — brighter than it should be, most at grazing
+// angles. Pinned by StochasticSamplerTest.VndfEstimatorMatchesBruteForce,
+// which also asserts the unweighted form FAILS the same comparison.
+//
+// ---------------------------------------------------------------------------
+// A NOTE ON ALPHA
+// ---------------------------------------------------------------------------
+// These functions use alpha = roughness * roughness, matching distributionGGX
+// above (whose `a` is roughness*roughness and `a2` its square). They therefore
+// do NOT match geometrySmithHeightCorrelated, which squares roughness only
+// once — a pre-existing inconsistency between the engine's D and G terms,
+// noted here rather than changed because moving it would shift every lit
+// golden. The Lambda below is the one that pairs with D, which is what
+// unbiasedness requires.
+// =============================================================================
+
+// Smith's Lambda for GGX, from the cosine with the (macro)surface normal.
+float ggxSmithLambda(float NdotX, float alpha)
+{
+    float c = clamp(abs(NdotX), 1.0e-4, 1.0);
+    float c2 = c * c;
+    float tan2 = (1.0 - c2) / c2;
+    return 0.5 * (-1.0 + sqrt(1.0 + alpha * alpha * tan2));
+}
+
+// The VNDF sample weight G2/G1 (Heitz 2018 eq. 20), height-correlated Smith.
+// Multiply the sampled direction's radiance by this. Returns 0 below the
+// horizon, where the sample carries no energy.
+float ggxVNDFWeight(float NdotV, float NdotL, float roughness)
+{
+    if (NdotL <= 0.0 || NdotV <= 0.0)
+        return 0.0;
+
+    float alpha = roughness * roughness;
+    float lambdaV = ggxSmithLambda(NdotV, alpha);
+    float lambdaL = ggxSmithLambda(NdotL, alpha);
+    return (1.0 + lambdaV) / (1.0 + lambdaV + lambdaL);
+}
+
+// Sample a visible microfacet normal in TANGENT space (z = macrosurface normal).
+// `Ve` is the view direction in the same space, pointing AWAY from the surface.
+// Heitz 2018, section 3.2 — the reference listing, transcribed.
+vec3 sampleGGXVNDFTangent(vec3 Ve, float alphaX, float alphaY, vec2 Xi)
+{
+    // 1. Stretch the view direction so the ellipsoid becomes a hemisphere.
+    vec3 Vh = normalize(vec3(alphaX * Ve.x, alphaY * Ve.y, Ve.z));
+
+    // 2. Orthonormal basis around Vh (degenerate when Vh is the pole).
+    float lenSq = Vh.x * Vh.x + Vh.y * Vh.y;
+    vec3 T1 = (lenSq > 0.0) ? (vec3(-Vh.y, Vh.x, 0.0) * inversesqrt(lenSq)) : vec3(1.0, 0.0, 0.0);
+    vec3 T2 = cross(Vh, T1);
+
+    // 3. Uniform point on the projected area: a disk, with the half below the
+    //    horizon squashed so it lands inside the visible hemisphere's silhouette.
+    float r = sqrt(Xi.x);
+    float phi = TWO_PI * Xi.y;
+    float t1 = r * cos(phi);
+    float t2 = r * sin(phi);
+    float s = 0.5 * (1.0 + Vh.z);
+    t2 = (1.0 - s) * sqrt(max(0.0, 1.0 - t1 * t1)) + s * t2;
+
+    // 4. Lift back onto the hemisphere, then unstretch to the ellipsoid.
+    vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
+    return normalize(vec3(alphaX * Nh.x, alphaY * Nh.y, max(0.0, Nh.z)));
+}
+
+// World-space wrapper: returns a visible half-vector around N for view dir V.
+// Isotropic; pass roughness, not alpha.
+vec3 sampleGGXVNDF(vec3 N, vec3 V, float roughness, vec2 Xi)
+{
+    vec3 tangent;
+    vec3 bitangent;
+    OrthonormalBasis(N, tangent, bitangent);
+
+    vec3 Ve = vec3(dot(V, tangent), dot(V, bitangent), dot(V, N));
+    float alpha = roughness * roughness;
+    vec3 H = sampleGGXVNDFTangent(Ve, alpha, alpha, Xi);
+    return normalize(tangent * H.x + bitangent * H.y + N * H.z);
+}
+
+// =============================================================================
 // LIGHT DATA STRUCTURE
 // =============================================================================
 

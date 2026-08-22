@@ -73,6 +73,12 @@ layout(binding = 2) uniform sampler2D u_Velocity;
 layout(binding = 19) uniform sampler2D u_DepthTexture;
 #endif
 
+// The shared temporal kernel (issue #706). TAA was the original hand-rolled
+// implementation of this; the functions below now live in one header so SSR,
+// SSGI and the cloudscape resolve instantiate the same reprojection /
+// neighbourhood-clip / feedback logic instead of each carrying a variant.
+#include "include/TemporalResolve.glsl"
+
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 
@@ -94,19 +100,8 @@ layout(std140, binding = 32) uniform TAAParams
 #define u_HasVelocityTexture (int(u_TAA_FeedbackSharpnessHasVelocity.z))
 #define u_TexelSize          (u_TAA_TexelSize.xy)
 
-vec3 RGBToYCoCg(vec3 c)
-{
-    float Y  = dot(c, vec3(0.25, 0.5, 0.25));
-    float Co = dot(c, vec3(0.5, 0.0, -0.5));
-    float Cg = dot(c, vec3(-0.25, 0.5, -0.25));
-    return vec3(Y, Co, Cg);
-}
-
-vec3 YCoCgToRGB(vec3 c)
-{
-    float Y = c.x, Co = c.y, Cg = c.z;
-    return vec3(Y + Co - Cg, Y + Cg, Y - Co - Cg);
-}
+// (RGBToYCoCg / YCoCgToRGB moved to include/TemporalResolve.glsl as
+// OloRGBToYCoCg / OloYCoCgToRGB — same matrices, one copy.)
 
 // Reconstruct camera-motion velocity from depth (Forward / Forward+ path)
 vec2 ReconstructCameraVelocity(vec2 uv)
@@ -170,43 +165,23 @@ void main()
     vec3 historyColor = texture(u_History, prevUV).rgb;
 
     // Guard history against sampling outside the viewport (first frame / disocclusion)
-    bool historyValid = all(greaterThanEqual(prevUV, vec2(0.0))) &&
-                        all(lessThanEqual(prevUV, vec2(1.0)));
-    if (!historyValid)
+    if (!OloTemporalHistoryUVValid(prevUV))
     {
         o_Color = vec4(currentColor, 1.0);
         return;
     }
 
-    // 3) 3x3 neighborhood variance clip (in YCoCg — reduces chroma artefacts)
-    vec3 m1 = vec3(0.0);
-    vec3 m2 = vec3(0.0);
-    vec3 minC = vec3(1e10);
-    vec3 maxC = vec3(-1e10);
-    const float N = 9.0;
-    for (int y = -1; y <= 1; ++y)
-    {
-        for (int x = -1; x <= 1; ++x)
-        {
-            vec3 s = texture(u_Current, uv + vec2(x, y) * u_TexelSize).rgb;
-            vec3 sYCoCg = RGBToYCoCg(s);
-            m1 += sYCoCg;
-            m2 += sYCoCg * sYCoCg;
-            minC = min(minC, sYCoCg);
-            maxC = max(maxC, sYCoCg);
-        }
-    }
-    vec3 mean = m1 / N;
-    vec3 variance = max(vec3(0.0), m2 / N - mean * mean);
-    vec3 stddev = sqrt(variance);
-    // Variance clip: tighter than min/max, avoids excessive ghosting while
+    // 3) 3x3 neighborhood variance clip (in YCoCg — reduces chroma artefacts).
+    // Variance clip is tighter than min/max: it avoids excessive ghosting while
     // keeping thin-feature coverage. 1.25 is a common tuning.
-    vec3 aabbMin = max(minC, mean - 1.25 * stddev);
-    vec3 aabbMax = min(maxC, mean + 1.25 * stddev);
-
-    vec3 historyYCoCg = RGBToYCoCg(historyColor);
-    vec3 clampedYCoCg = clamp(historyYCoCg, aabbMin, aabbMax);
-    vec3 clampedHistory = YCoCgToRGB(clampedYCoCg);
+    //
+    // The clip is now a true clip toward the box centre rather than the
+    // componentwise clamp this pass used to do — a rejected history now
+    // desaturates along the segment instead of being able to land on a hue the
+    // neighbourhood never contained. See include/TemporalResolve.glsl.
+    OloTemporalStats stats;
+    OLO_TEMPORAL_GATHER_3X3(u_Current, uv, u_TexelSize, stats);
+    vec3 clampedHistory = OloYCoCgToRGB(OloTemporalClipHistory(OloRGBToYCoCg(historyColor), stats, 1.25));
 
     // 4) Feedback-weighted blend. Scale feedback down when velocity is large
     // to reduce ghosting around fast motion. The "motion" must be measured
@@ -220,10 +195,9 @@ void main()
     // zone ramp starts at 1 px (anything sub-pixel = static, no ghosting
     // risk) and saturates at ~5 px (definitely real motion).
     vec2 velocityPixels = velocity / u_TexelSize;
-    float motionWeight = clamp((length(velocityPixels) - 1.0) * 0.25, 0.0, 1.0);
-    float effectiveFeedback = mix(u_Feedback, 0.5, motionWeight);
+    float effectiveFeedback = OloTemporalMotionFeedback(u_Feedback, velocityPixels, 1.0, 5.0, 0.5);
 
-    vec3 resolved = mix(currentColor, clampedHistory, effectiveFeedback);
+    vec3 resolved = OloTemporalBlend(currentColor, clampedHistory, effectiveFeedback, 1.0);
 
     // 5) Optional sharpen (unsharp mask on luma) to offset TAA blur
     if (u_Sharpness > 0.001)

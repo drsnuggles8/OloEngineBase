@@ -1982,6 +1982,14 @@ namespace OloEngine
             glm::vec2 CurrJitterUV = glm::vec2(0.0f);
             glm::vec2 PrevJitterUV = glm::vec2(0.0f);
 
+            // Engine-wide counter for the shared blue-noise sampler (issue
+            // #706), advanced once per frame in RenderPipeline regardless of
+            // which passes are enabled — see the comment at the increment for
+            // why it must NOT be conditional the way the two indices above are.
+            // Wrapped to 2^20 so it stays exactly representable in the f32 the
+            // SSR / SSGI params blocks carry it in.
+            u32 StochasticFrameIndex = 0;
+
             // Global IBL fallback (from scene's EnvironmentMap)
             RHI::ResourceHandle GlobalIrradianceMapID{};
             RHI::ResourceHandle GlobalPrefilterMapID{};

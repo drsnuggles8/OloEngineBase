@@ -276,6 +276,22 @@ namespace OloEngine
         };
         ForEachRenderStreamNode(setRenderStreamAllocator);
 
+        // The engine-wide stochastic frame counter (issue #706). Every pass that
+        // draws from the shared blue-noise sampler advances its sequence by this,
+        // so they all step in lockstep and none has to invent a counter.
+        //
+        // Advanced UNCONDITIONALLY, unlike TAAJitterFrameIndex below (zeroed when
+        // TAA is off) or CloudFrameIndex (only when clouds are on). This is the
+        // engine's clock, so it must not depend on which passes happen to be
+        // enabled; whether a given pass SAMPLES with it is that pass's decision,
+        // taken at its UBO fill (see `stochasticFrameIndex` further down, which
+        // deliberately freezes it for passes that have nothing accumulating them).
+        //
+        // Wrapped to a power of two so it stays exactly representable as the f32
+        // the params UBOs carry it in (2^24 is the last integer f32 can count to
+        // one at a time; 2^20 leaves headroom and is ~4.8 hours at 60 Hz).
+        data.StochasticFrameIndex = (data.StochasticFrameIndex + 1u) & 0xFFFFFu;
+
         // TAA projection jitter. We bake a sub-pixel Halton offset into the
         // projection matrix so the same pixel samples a slightly different
         // geometric position each frame; the TAA accumulator then averages
@@ -638,6 +654,23 @@ namespace OloEngine
             PostProcessPasses.AOApply->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
             PostProcessPasses.AOApply->SetSSAOUBO(data.PostProcessGPU.SSAO);
         }
+        // The frame index the stochastic passes actually sample with.
+        //
+        // StochasticFrameIndex itself advances unconditionally (see its
+        // increment above) because it is the engine's clock, not any one pass's.
+        // But SSR and SSGI have no history buffer of their own yet, so the ONLY
+        // thing that accumulates their samples over time is TAA. With TAA off,
+        // advancing the sampler would replace today's static grain with grain
+        // that is redrawn every frame — strictly worse to look at, because
+        // nothing is averaging it. Freezing it there gives a stable blue-noise
+        // dither instead, which is the correct answer when there is no
+        // accumulator.
+        //
+        // Revisit this when either pass gains its own history: at that point the
+        // advance is what makes it converge, and the gate becomes wrong.
+        const auto stochasticFrameIndex =
+            static_cast<f32>(data.PostProcess.TAAEnabled ? data.StochasticFrameIndex : 0u);
+
         // Wire SSGIPass (screen-space global illumination) before SSR in the
         // dynamic post chain. Deferred-only: when the path is forward / forward+
         // the SSGIColor resource is never declared (see PopulateBlackboard), so
@@ -677,7 +710,8 @@ namespace OloEngine
                     ssgiHeight = spec.Height > 0 ? static_cast<f32>(spec.Height) : 1.0f;
                 }
                 ssgi.ScreenParams = glm::vec4(ssgiWidth, ssgiHeight, 1.0f / ssgiWidth, 1.0f / ssgiHeight);
-                ssgi.Flags = glm::vec4(data.PostProcess.SSGIDebugView ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+                ssgi.Flags =
+                    glm::vec4(data.PostProcess.SSGIDebugView ? 1.0f : 0.0f, stochasticFrameIndex, 0.0f, 0.0f);
 
                 data.PostProcessGPU.SSGI->SetData(&ssgi, SSGIUBOData::GetSize());
                 data.PostProcessGPU.SSGI->Bind();
@@ -722,7 +756,8 @@ namespace OloEngine
                     ssrHeight = spec.Height > 0 ? static_cast<f32>(spec.Height) : 1.0f;
                 }
                 ssr.ScreenParams = glm::vec4(ssrWidth, ssrHeight, 1.0f / ssrWidth, 1.0f / ssrHeight);
-                ssr.Flags = glm::vec4(data.PostProcess.SSRDebugView ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+                ssr.Flags =
+                    glm::vec4(data.PostProcess.SSRDebugView ? 1.0f : 0.0f, stochasticFrameIndex, 0.0f, 0.0f);
 
                 // Min-depth HZB acceleration (#284). UVFactor + mip count come
                 // straight from the SSR pass so they always describe the very

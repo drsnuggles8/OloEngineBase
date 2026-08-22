@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
+#include "OloEngine/Renderer/BlueNoiseTexture.h"
 
 #include <span>
 
@@ -16,6 +17,11 @@ namespace OloEngine
     {
         SetName("SSGIPass");
         OLO_CORE_INFO("Creating SSGIRenderPass.");
+    }
+
+    SSGIRenderPass::~SSGIRenderPass()
+    {
+        DestroyBlueNoiseTexture(m_BlueNoiseTexture);
     }
 
     void SSGIRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
@@ -72,6 +78,9 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
         m_SSGIShader = Shader::Create("assets/shaders/PostProcess_SSGI.glsl");
+
+        if (!m_BlueNoiseTexture.IsValid())
+            m_BlueNoiseTexture = CreateBlueNoiseTexture();
 
         OLO_CORE_INFO("SSGIRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -171,6 +180,9 @@ namespace OloEngine
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID,
                                         RHI::HeapSlotLifetime::FrameTransient);
+        // Pass-owned and immutable, so Persistent rather than FrameTransient
+        // (issue #706). Nearest+Repeat sampler state rides in the descriptor.
+        BindBlueNoiseTexture(context, m_BlueNoiseTexture);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

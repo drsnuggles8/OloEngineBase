@@ -1852,7 +1852,7 @@ namespace OloEngine
         // 4-layer spot array on this slot; of the four point-cubemap slots
         // 14-17 it also freed, 14/15 now carry the reflection-probe cubemap
         // arrays (issue #705), 16 the scene lightmap atlas (issue #439), and
-        // 17 remains FREE.
+        // 17 the shared blue-noise tile (issue #706, declared below).
         static constexpr u32 TEX_SHADOW_ATLAS = 13; // Local-light shadow atlas (sampler2DArrayShadow, 1 layer)
         // Distance-impostor reflection probes (issue #705): every baked
         // probe's prefiltered radiance chain and R32F radial-distance field,
@@ -1867,7 +1867,28 @@ namespace OloEngine
         // InstanceData::LightmapScaleOffset; the parameters block is UBO_LIGHTMAP.
         // Bound through the heap-bindless seam (PBR_MultiLight is a converted
         // program), consumed via include/LightmapSampling.glsl.
-        static constexpr u32 TEX_LIGHTMAP = 16;             // Scene lightmap atlas (sampler2D, RGBA16F)
+        static constexpr u32 TEX_LIGHTMAP = 16; // Scene lightmap atlas (sampler2D, RGBA16F)
+        // The shared screen-space blue-noise tile (issue #706): 64x64 RG8, two
+        // channels of independent void-and-cluster noise generated on the CPU by
+        // Renderer/BlueNoise.h and sampled through
+        // include/StochasticCommon.glsl. Nearest-filtered, repeat-wrapped; the
+        // shader wraps with a bitmask, so the sampler wrap mode is belt-and-braces.
+        //
+        // Took slot 17 — free in the SAMPLER namespace since issue #435 retired
+        // the point-cubemap slots — deliberately, so this costs no renumbering of
+        // TEX_SHADER_GRAPH_0 and therefore does not move MAX_ENGINE_TEXTURE_SLOTS
+        // or HEAP_IMAGE_SLOT_BASE. That derived-base drift is what issue #702
+        // caused and BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout
+        // now guards; not triggering it at all beats triggering it correctly.
+        //
+        // 17 IS claimed in the other two namespaces (UBO_FOG,
+        // SSBO_INSTANCE_DRAW_INDIRECT). Legal on GL's disjoint namespaces and on
+        // Vulkan too, EXCEPT within one shader — the ADR item A2 collision that
+        // moved TEX_DDGI_VISIBILITY off 57. So the standing constraint is: no
+        // shader may sample this slot AND declare uniform/storage block 17.
+        // Checked by StochasticSamplerTest.NoShaderCollidesWithTheBlueNoiseSlot,
+        // which parses the shader tree rather than trusting this comment.
+        static constexpr u32 TEX_BLUE_NOISE = 17;           // Shared blue-noise tile (sampler2D, RG8, 64x64)
         static constexpr u32 TEX_POSTPROCESS_LUT = 18;      // Post-process color grading LUT
         static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;    // Post-process scene depth access
         static constexpr u32 TEX_SSAO = 20;                 // Blurred SSAO result
