@@ -138,9 +138,19 @@ namespace OloEngine
 
         // Detector-only guard: captures GL state at entry and on destruction
         // diffs against exit state, logging any field this pass failed to
-        // restore. The explicit restore calls further down still perform the
-        // actual restoration (the current GLStateGuard only detects leaks,
-        // it does not roll back).
+        // restore. The explicit restore calls further down are what actually
+        // restore -- the default Policy::Log does not roll anything back.
+        //
+        // ISSUE #895: it does not restore enough. This reports 8-9 escaped
+        // fields at ERROR level on EVERY frame that drains a decal, on both
+        // rendering paths (DepthTest, the four blend factors, ActiveProgram,
+        // VAO and the two bound texture slots). Note GLStateGuard::Policy
+        // ::Restore exists and DOES roll back via GLStateSnapshot::ApplyCore()
+        // -- an earlier version of this comment said rollback was impossible,
+        // which is probably why this call site never asked for it. Fixing the
+        // leak is #895; check render-pass-published-state.md before switching
+        // policy, since a pass whose outputs are engine-global bindings must
+        // not be wrapped in a restoring guard at all.
         GLStateGuard guard("DecalRenderPass");
 
         // Helper: decide whether a packet should be drained by *this*
