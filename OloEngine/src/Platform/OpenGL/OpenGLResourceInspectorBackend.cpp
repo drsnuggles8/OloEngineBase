@@ -40,8 +40,11 @@ namespace OloEngine
 
     // ---- Introspection -----------------------------------------------------
 
-    void OpenGLResourceInspectorBackend::QueryTexture(u32 nativeTextureId, bool isCubemap, TextureQuery& outInfo)
+    void OpenGLResourceInspectorBackend::QueryTexture(u64 nativeTextureIdWide, bool isCubemap, TextureQuery& outInfo)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeTextureId = static_cast<GLuint>(nativeTextureIdWide);
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
         // Initialized: glGetTextureLevelParameteriv leaves its out-param
         // untouched when the call errors (a deleted or wrong-target name), and
@@ -260,8 +263,11 @@ namespace OloEngine
                                                                   outInfo.MipLevels);
     }
 
-    void OpenGLResourceInspectorBackend::QueryBuffer(u32 nativeBufferId, u32 nativeTarget, BufferQuery& outInfo)
+    void OpenGLResourceInspectorBackend::QueryBuffer(u64 nativeBufferIdWide, u32 nativeTarget, BufferQuery& outInfo)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeBufferId = static_cast<GLuint>(nativeBufferIdWide);
         // Save current buffer binding for this target
         GLint previousBinding = 0;
         const GLenum bindingQuery = GetBufferBindingQuery(nativeTarget);
@@ -282,8 +288,11 @@ namespace OloEngine
         glBindBuffer(nativeTarget, previousBinding);
     }
 
-    void OpenGLResourceInspectorBackend::QueryFramebuffer(u32 nativeFramebufferId, FramebufferQuery& outInfo)
+    void OpenGLResourceInspectorBackend::QueryFramebuffer(u64 nativeFramebufferIdWide, FramebufferQuery& outInfo)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeFramebufferId = static_cast<GLuint>(nativeFramebufferIdWide);
         // Save current framebuffer binding
         GLint previousBinding;
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousBinding);
@@ -393,15 +402,18 @@ namespace OloEngine
         }
     }
 
-    u32 OpenGLResourceInspectorBackend::GetBoundTexture2D() const
+    u64 OpenGLResourceInspectorBackend::GetBoundTexture2D() const
     {
         GLint currentTexture = 0;
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &currentTexture);
-        return static_cast<u32>(currentTexture);
+        return static_cast<u64>(currentTexture);
     }
 
-    void OpenGLResourceInspectorBackend::GetTextureLevelSize(u32 nativeTextureId, u32 mipLevel, u32& outWidth, u32& outHeight)
+    void OpenGLResourceInspectorBackend::GetTextureLevelSize(u64 nativeTextureIdWide, u32 mipLevel, u32& outWidth, u32& outHeight)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeTextureId = static_cast<GLuint>(nativeTextureIdWide);
         GLint width = 0;
         GLint height = 0;
         glGetTextureLevelParameteriv(nativeTextureId, static_cast<GLint>(mipLevel), GL_TEXTURE_WIDTH, &width);
@@ -692,10 +704,13 @@ namespace OloEngine
 
     // ---- Synchronous readback ----------------------------------------------
 
-    bool OpenGLResourceInspectorBackend::ReadTextureLevel(u32 nativeTextureId, bool isCubemap, u32 mipLevel, u32 faceIndex,
+    bool OpenGLResourceInspectorBackend::ReadTextureLevel(u64 nativeTextureIdWide, bool isCubemap, u32 mipLevel, u32 faceIndex,
                                                           u32 width, u32 height, u32 nativePixelFormat, bool readAsFloat,
                                                           void* dest, sizet destBytes, std::string& outError)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeTextureId = static_cast<GLuint>(nativeTextureIdWide);
         const GLenum readType = readAsFloat ? GL_FLOAT : GL_UNSIGNED_BYTE;
 
         // DSA glGetTextureSubImage: for cubemaps the layer (z) selects the face in the
@@ -740,8 +755,11 @@ namespace OloEngine
         return true;
     }
 
-    bool OpenGLResourceInspectorBackend::ReadBufferRange(u32 nativeBufferId, u32 nativeTarget, u32 offset, u32 size, void* dest)
+    bool OpenGLResourceInspectorBackend::ReadBufferRange(u64 nativeBufferIdWide, u32 nativeTarget, u32 offset, u32 size, void* dest)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeBufferId = static_cast<GLuint>(nativeBufferIdWide);
         // Save current buffer binding for this target
         GLint previousBinding = 0;
         const GLenum bindingQuery = GetBufferBindingQuery(nativeTarget);
@@ -783,8 +801,11 @@ namespace OloEngine
 
     // ---- Texture capture ---------------------------------------------------
 
-    bool OpenGLResourceInspectorBackend::QueryCaptureSource(u32 nativeTextureId, u32 mipLevel, CaptureSource& outSource)
+    bool OpenGLResourceInspectorBackend::QueryCaptureSource(u64 nativeTextureIdWide, u32 mipLevel, CaptureSource& outSource)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeTextureId = static_cast<GLuint>(nativeTextureIdWide);
         if (nativeTextureId == 0 || glIsTexture(nativeTextureId) == GL_FALSE)
         {
             outSource.Error = "invalid texture id";
@@ -891,11 +912,14 @@ namespace OloEngine
         return true;
     }
 
-    bool OpenGLResourceInspectorBackend::ReadCaptureRegion(u32 nativeTextureId, u32 mipLevel, u32 faceOrLayer,
+    bool OpenGLResourceInspectorBackend::ReadCaptureRegion(u64 nativeTextureIdWide, u32 mipLevel, u32 faceOrLayer,
                                                            const CaptureSource& source, u32 regionX, u32 regionY,
                                                            u32 regionWidth, u32 regionHeight,
                                                            void* dest, sizet destBytes, std::string& outError)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeTextureId = static_cast<GLuint>(nativeTextureIdWide);
         // The rect arrives in top-left-origin coords; GL rows run bottom-up, so
         // rows [Y, Y+H) from the top are GL rows [fullHeight - Y - H, ...).
         // All three are u32, so a region hanging off the bottom underflows to
@@ -957,9 +981,12 @@ namespace OloEngine
 
     // ---- Async download engine ---------------------------------------------
 
-    bool OpenGLResourceInspectorBackend::BeginTextureDownload(u32 nativeTextureId, bool isCubemap, u32 mipLevel, u32 faceIndex,
+    bool OpenGLResourceInspectorBackend::BeginTextureDownload(u64 nativeTextureIdWide, bool isCubemap, u32 mipLevel, u32 faceIndex,
                                                               u32 width, u32 height, sizet dataSize, DownloadTicket& outTicket)
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeTextureId = static_cast<GLuint>(nativeTextureIdWide);
         GLuint pbo;
         glGenBuffers(1, &pbo);
 
@@ -1065,8 +1092,11 @@ namespace OloEngine
 
     // ---- ImGui binding -----------------------------------------------------
 
-    u64 OpenGLResourceInspectorBackend::GetImGuiTextureID(u32 nativeTextureId) const
+    u64 OpenGLResourceInspectorBackend::GetImGuiTextureID(u64 nativeTextureIdWide) const
     {
+        // The interface carries u64 native ids so a VkImage survives the trip
+        // (#810); a GL name always fits a GLuint, so narrow once, here.
+        const auto nativeTextureId = static_cast<GLuint>(nativeTextureIdWide);
         // On GL the raw texture name IS the ImTextureID the ImGui GL3 renderer
         // backend consumes — the same seam ImGuiLayer::GetTextureID's GL arm
         // uses. The cast to ImTextureID happens in the neutral shell; no ImGui

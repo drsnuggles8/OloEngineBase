@@ -25,6 +25,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <thread>
 #include <type_traits>
@@ -374,5 +375,105 @@ namespace OloEngine::Tests
             thread.join();
 
         EXPECT_EQ(mismatches.load(), 0u);
+    }
+
+    // -------------------------------------------------------------------------
+    // Snapshot() — the enumeration #810's resource inspector is built on.
+    //
+    // What makes this worth testing rather than obvious: the inspector's Vulkan
+    // arm has NO other source of truth. There are no registration macros on that
+    // backend, so anything Snapshot() drops is a resource the panel and
+    // olo_gpu_resources will simply never mention — a silent under-report, which
+    // is the exact failure mode a diagnostic must not have.
+    // -------------------------------------------------------------------------
+
+    namespace
+    {
+        [[nodiscard]] bool SnapshotContains(const std::vector<RHI::ResourceRegistry::SnapshotEntry>& entries,
+                                            RHI::ResourceHandle handle)
+        {
+            return std::any_of(entries.begin(), entries.end(),
+                               [handle](const RHI::ResourceRegistry::SnapshotEntry& e)
+                               {
+                                   return e.Handle.Index == handle.Index &&
+                                          e.Handle.Generation == handle.Generation;
+                               });
+        }
+    } // namespace
+
+    TEST(RHIResourceRegistry, SnapshotCarriesBothCurrenciesForEveryLiveEntry)
+    {
+        auto& registry = RHI::ResourceRegistry::Get();
+
+        const auto texture = registry.Register(RHI::ResourceKind::Texture, 0xDEADBEEFull, RHI::Backend::Vulkan);
+        const auto buffer = registry.Register(RHI::ResourceKind::Buffer, 0x1234ull, RHI::Backend::OpenGL);
+        ASSERT_TRUE(texture.IsValid());
+        ASSERT_TRUE(buffer.IsValid());
+
+        const auto entries = registry.Snapshot();
+
+        const auto found = std::find_if(entries.begin(), entries.end(),
+                                        [texture](const RHI::ResourceRegistry::SnapshotEntry& e)
+                                        { return e.Handle.Index == texture.Index; });
+        ASSERT_NE(found, entries.end()) << "a live handle must appear in the snapshot";
+        // Both currencies on the row (ADR 0011 amendment (77)) — neither is
+        // derivable from the other, so dropping either makes the row useless
+        // for half the questions it exists to answer.
+        EXPECT_EQ(found->Handle.Generation, texture.Generation);
+        EXPECT_EQ(found->Native, 0xDEADBEEFull);
+        EXPECT_EQ(found->Kind, RHI::ResourceKind::Texture);
+        EXPECT_EQ(found->Owner, RHI::Backend::Vulkan);
+
+        EXPECT_TRUE(SnapshotContains(entries, buffer));
+
+        registry.Unregister(texture);
+        registry.Unregister(buffer);
+
+        const auto after = registry.Snapshot();
+        EXPECT_FALSE(SnapshotContains(after, texture)) << "a retired handle must leave the snapshot";
+        EXPECT_FALSE(SnapshotContains(after, buffer));
+    }
+
+    TEST(RHIResourceRegistry, SnapshotKeepsLiveEntriesWhoseNativeIsZero)
+    {
+        // The one that would be easy to get wrong: filtering on `Native != 0`
+        // reads as a sane liveness test and silently drops a Vulkan framebuffer
+        // (no VkFramebuffer exists under dynamic rendering) and every
+        // arena-backed uniform buffer (no native object at all) — precisely the
+        // resources whose absence from a panel nobody would notice.
+        auto& registry = RHI::ResourceRegistry::Get();
+
+        const auto framebuffer = registry.Register(RHI::ResourceKind::Framebuffer, 0ull, RHI::Backend::Vulkan);
+        ASSERT_TRUE(framebuffer.IsValid());
+
+        const auto entries = registry.Snapshot();
+        EXPECT_TRUE(SnapshotContains(entries, framebuffer))
+            << "a live entry with native 0 must still be enumerated";
+
+        registry.Unregister(framebuffer);
+    }
+
+    TEST(RHIResourceRegistry, SnapshotAgreesWithTheLiveCountItReports)
+    {
+        auto& registry = RHI::ResourceRegistry::Get();
+
+        // Snapshot() and GetStats() read the same state under the same lock, so
+        // a disagreement means one of them is miscounting the freelist — the
+        // bug that would make the inspector's totals quietly wrong.
+        const auto before = registry.Snapshot().size();
+        const auto beforeLive = registry.GetStats().LiveCount;
+        EXPECT_EQ(before, static_cast<sizet>(beforeLive));
+
+        std::vector<RHI::ResourceHandle> handles;
+        for (u32 i = 0u; i < 8u; ++i)
+            handles.push_back(registry.Register(RHI::ResourceKind::Query, i + 1u, RHI::Backend::OpenGL));
+
+        EXPECT_EQ(registry.Snapshot().size(), before + handles.size());
+        EXPECT_EQ(registry.Snapshot().size(), static_cast<sizet>(registry.GetStats().LiveCount));
+
+        for (const auto handle : handles)
+            registry.Unregister(handle);
+
+        EXPECT_EQ(registry.Snapshot().size(), before);
     }
 } // namespace OloEngine::Tests

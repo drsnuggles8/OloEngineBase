@@ -255,6 +255,9 @@ namespace OloEngine
                                                               RHI::Format destFormat,
                                                               sizet destSizeBytes, void* dest) override;
         void GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight) override;
+        [[nodiscard]] bool QueryTextureFormat(RHI::ResourceHandle texture, u32 mipLevel,
+                                              RHI::TextureFormatInfo& out) override;
+        [[nodiscard]] RHI::ResourceHandle CreateMatchingTextureHandle(RHI::ResourceHandle source) override;
         void TextureBarrier() override;
 
         void CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries) override;

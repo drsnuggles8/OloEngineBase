@@ -249,6 +249,63 @@ namespace OloEngine::RHI
         RGBA32UInt,
     };
 
+    // -------------------------------------------------------------------------
+    // What a DIAGNOSTIC needs to know about a live texture's storage format
+    // (#810). `Format` above is the vocabulary the engine CREATES textures
+    // with; this is the vocabulary the tools READ them back with, and the two
+    // are not the same question:
+    //
+    //  * `Neutral` is the closest Format, and is Unknown for storage the
+    //    engine never mints through Format (an sRGB swapchain flavour, a
+    //    packed 11/11/10 target). A tool must not refuse just because of that
+    //    — Token/Channels/IsFloat still describe it well enough to read it.
+    //  * `Native` is the GL internal format or the VkFormat. ADR 0011
+    //    amendment (79): a readback table must key on the VULKAN format from
+    //    the image-info registry, never on the render graph's format label,
+    //    because the backend is free to satisfy `Depth24Stencil8` with
+    //    D32_SFLOAT_S8_UINT — which it does on the hardware here.
+    //  * `Token` is a stable, BACKEND-NEUTRAL spelling ("RGBA16F", "D32F",
+    //    "R32I"), so a GL reading and a Vulkan reading of the same target are
+    //    comparable side by side rather than needing a translation table.
+    // -------------------------------------------------------------------------
+    // How a texture's storage is ADDRESSED. Distinct from Format (what a texel
+    // holds) and from the layer count (how many there are): a 64-slice volume
+    // and a 64-layer array report the same count and are not
+    // interchangeable — an image copy that names the wrong one is rejected by
+    // the driver, not silently reinterpreted. Declared here rather than reusing
+    // RHIResources.h's TextureDimension because that header includes this one.
+    enum class TextureShape : u8
+    {
+        Unknown = 0,
+        Texture2D,
+        Texture2DArray,
+        Texture2DMultisample,
+        TextureCube,
+        TextureCubeArray,
+        Texture3D,
+    };
+
+    struct TextureFormatInfo
+    {
+        Format Neutral = Format::Unknown;
+        u64 Native = 0;
+        const char* Token = "Unknown";
+        u8 Channels = 0;
+        bool IsInteger = false;
+        bool IsDepth = false;
+        bool IsFloat = false;
+        // Layout, not format — but it comes from the same backend lookup (GL's
+        // level parameters / the Vulkan image-info registry), and every
+        // consumer that asks "how do I decode this?" also has to ask "how many
+        // levels and layers are there?". A separate query would read the same
+        // table twice and could disagree with itself between the two reads.
+        u32 MipLevels = 1;
+        // Array layers, cube faces (6), or volume slices — which of the three
+        // is decided by `Shape`, never by the number.
+        u32 ArrayLayers = 1;
+        TextureShape Shape = TextureShape::Unknown;
+    };
+
     [[nodiscard]] constexpr bool IsCompressed(Format format) noexcept
     {
         return format == Format::BC5UNorm || format == Format::BC6HUFloat ||

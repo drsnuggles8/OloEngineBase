@@ -4,6 +4,9 @@
 
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace OloEngine::RHI
 {
     auto ToString(ResourceKind kind) -> std::string_view
@@ -271,6 +274,48 @@ namespace OloEngine::RHI
         stats.StaleRejections = m_StaleRejections.load(std::memory_order_relaxed);
         stats.StaleUnregisters = m_StaleUnregisters;
         return stats;
+    }
+
+    auto ResourceRegistry::Snapshot() const -> std::vector<SnapshotEntry>
+    {
+        const std::lock_guard lock(m_WriteMutex);
+
+        const u32 slotCount = m_SlotCount.load(std::memory_order_relaxed);
+
+        // Liveness comes from the FREELIST, not from the payload. A live entry
+        // may legitimately carry Native == 0 (a VulkanFramebuffer registers no
+        // VkFramebuffer under dynamic rendering; an arena-backed UBO has no
+        // native object), so "Native != 0" would silently drop exactly the
+        // resources whose absence is hardest to notice.
+        std::vector<bool> free(slotCount, false);
+        for (const u32 index : m_FreeList)
+        {
+            if (index < slotCount)
+                free[index] = true;
+        }
+
+        std::vector<SnapshotEntry> entries;
+        entries.reserve(slotCount - std::min<sizet>(m_FreeList.size(), slotCount));
+        for (u32 index = 0u; index < slotCount; ++index)
+        {
+            if (free[index])
+                continue;
+
+            const Slot* slot = SlotAt(index);
+            if (slot == nullptr)
+                continue;
+
+            const u32 generation = slot->Generation.load(std::memory_order_relaxed);
+            if (generation == 0u)
+                continue; // never handed out
+
+            entries.push_back(SnapshotEntry{
+                ResourceHandle{ index, generation },
+                slot->Native.load(std::memory_order_relaxed),
+                static_cast<ResourceKind>(slot->Kind.load(std::memory_order_relaxed)),
+                static_cast<Backend>(slot->Owner.load(std::memory_order_relaxed)) });
+        }
+        return entries;
     }
 
     void ResourceRegistry::ResetCounters()

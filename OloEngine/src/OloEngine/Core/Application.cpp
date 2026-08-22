@@ -112,10 +112,12 @@ namespace OloEngine
         // the whole pass suite is ported and the swapchain is importable, so
         // Renderer::Init and the layer stack run under --rhi=vulkan and the
         // render graph draws the real frame. What is still GL-only, and so
-        // still gated, is (a) the GL debug tools (GPUResourceInspector /
-        // ShaderDebugger are glad-call sites) and (b) the ImGui RENDERER
-        // backend — the ImGui layer itself is pushed either way and runs
-        // platform-only under Vulkan (see ImGuiLayer::OnAttach).
+        // still gated, is (a) ShaderDebugger (a glad-call site) and (b) the
+        // ImGui RENDERER backend — the ImGui layer itself is pushed either way
+        // and runs platform-only under Vulkan (see ImGuiLayer::OnAttach).
+        // GPUResourceInspector came off this list in #810: it has a Vulkan arm
+        // now, so it initialises on both backends (and self-gates to a no-op if
+        // the factory ever returns no backend).
         // Not const: the config-sourced Vulkan fallback below can switch the
         // API back to OpenGL after a failed window creation, and this flag
         // must follow (it also steers the unwind path in the catch block).
@@ -165,20 +167,26 @@ namespace OloEngine
                 }
                 m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 
+// Initialize debug tools before Renderer to catch all resource creation.
+#ifdef OLO_DEBUG
+                GPUResourceInspector::GetInstance().Initialize();
                 if (glOnlyTooling)
                 {
-// Initialize debug tools before Renderer to catch all resource creation
-#ifdef OLO_DEBUG
-                    GPUResourceInspector::GetInstance().Initialize();
                     ShaderDebugger::GetInstance().Initialize();
                     OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
-#endif
                 }
                 else
+                {
+                    OLO_CORE_INFO("[RHI] Vulkan: GPU Resource Inspector initialized (#810); ShaderDebugger "
+                                  "and the ImGui renderer backend are skipped");
+                }
+#else
+                if (!glOnlyTooling)
                 {
                     OLO_CORE_INFO("[RHI] Vulkan (#691): the GL debug tools and the ImGui renderer "
                                   "backend are skipped; the renderer and the render graph run");
                 }
+#endif
 
                 m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
                 Renderer::Init(m_Specification.PreferredRenderer, m_Window.get());
@@ -297,14 +305,15 @@ namespace OloEngine
             {
                 AudioEngine::Shutdown();
                 Renderer::Shutdown();
-                // The GL debug tools only initialized on the GL backend.
+                // ShaderDebugger is still GL-only; the inspector runs on both
+                // backends since #810 and self-gates when un-initialized.
+#ifdef OLO_DEBUG
                 if (glOnlyTooling)
                 {
-#ifdef OLO_DEBUG
                     ShaderDebugger::GetInstance().Shutdown();
-                    GPUResourceInspector::GetInstance().Shutdown();
-#endif
                 }
+                GPUResourceInspector::GetInstance().Shutdown();
+#endif
 
                 m_Window.reset();
             }
@@ -368,17 +377,17 @@ namespace OloEngine
         {
             // Before StopWorkers() below: this is what joins the audio thread.
             AudioEngine::Shutdown();
-            // The GL debug tools only initialized on the GL backend (#691)
-            // The renderer itself now comes up on both.
+            // ShaderDebugger is still GL-only (#691); the inspector runs on
+            // both backends since #810.
+#ifdef OLO_DEBUG
+            // Shutdown debug tools before Renderer
             if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
             {
-                // Shutdown debug tools before Renderer
-#ifdef OLO_DEBUG
                 ShaderDebugger::GetInstance().Shutdown();
-                GPUResourceInspector::GetInstance().Shutdown();
-                OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
-#endif
             }
+            GPUResourceInspector::GetInstance().Shutdown();
+            OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
+#endif
             Renderer::Shutdown();
         }
 

@@ -25,12 +25,12 @@ namespace OloEngine
         ~OpenGLResourceInspectorBackend() override = default;
 
         // ---- Introspection -------------------------------------------------
-        void QueryTexture(u32 nativeTextureId, bool isCubemap, TextureQuery& outInfo) override;
-        void QueryBuffer(u32 nativeBufferId, u32 nativeTarget, BufferQuery& outInfo) override;
-        void QueryFramebuffer(u32 nativeFramebufferId, FramebufferQuery& outInfo) override;
+        void QueryTexture(u64 nativeTextureId, bool isCubemap, TextureQuery& outInfo) override;
+        void QueryBuffer(u64 nativeBufferId, u32 nativeTarget, BufferQuery& outInfo) override;
+        void QueryFramebuffer(u64 nativeFramebufferId, FramebufferQuery& outInfo) override;
         [[nodiscard]] BufferKind ClassifyBufferTarget(u32 nativeTarget) const override;
-        [[nodiscard]] u32 GetBoundTexture2D() const override;
-        void GetTextureLevelSize(u32 nativeTextureId, u32 mipLevel, u32& outWidth, u32& outHeight) override;
+        [[nodiscard]] u64 GetBoundTexture2D() const override;
+        void GetTextureLevelSize(u64 nativeTextureId, u32 mipLevel, u32& outWidth, u32& outHeight) override;
 
         // ---- Native-enum vocabulary ----------------------------------------
         [[nodiscard]] i32 ChannelCountForPixelFormat(u32 nativePixelFormat) const override;
@@ -42,21 +42,21 @@ namespace OloEngine
         [[nodiscard]] const char* FramebufferStatusName(u32 nativeStatus, FramebufferStatusClass& outClass) const override;
 
         // ---- Synchronous readback ------------------------------------------
-        bool ReadTextureLevel(u32 nativeTextureId, bool isCubemap, u32 mipLevel, u32 faceIndex,
+        bool ReadTextureLevel(u64 nativeTextureId, bool isCubemap, u32 mipLevel, u32 faceIndex,
                               u32 width, u32 height, u32 nativePixelFormat, bool readAsFloat,
                               void* dest, sizet destBytes, std::string& outError) override;
-        bool ReadBufferRange(u32 nativeBufferId, u32 nativeTarget, u32 offset, u32 size, void* dest) override;
+        bool ReadBufferRange(u64 nativeBufferId, u32 nativeTarget, u32 offset, u32 size, void* dest) override;
 
         // ---- Texture capture -----------------------------------------------
-        bool QueryCaptureSource(u32 nativeTextureId, u32 mipLevel, CaptureSource& outSource) override;
-        bool ReadCaptureRegion(u32 nativeTextureId, u32 mipLevel, u32 faceOrLayer,
+        bool QueryCaptureSource(u64 nativeTextureId, u32 mipLevel, CaptureSource& outSource) override;
+        bool ReadCaptureRegion(u64 nativeTextureId, u32 mipLevel, u32 faceOrLayer,
                                const CaptureSource& source, u32 regionX, u32 regionY,
                                u32 regionWidth, u32 regionHeight,
                                void* dest, sizet destBytes, std::string& outError) override;
         [[nodiscard]] bool CaptureRowsAreBottomUp() const override;
 
         // ---- Async download engine -----------------------------------------
-        bool BeginTextureDownload(u32 nativeTextureId, bool isCubemap, u32 mipLevel, u32 faceIndex,
+        bool BeginTextureDownload(u64 nativeTextureId, bool isCubemap, u32 mipLevel, u32 faceIndex,
                                   u32 width, u32 height, sizet dataSize, DownloadTicket& outTicket) override;
         [[nodiscard]] DownloadStatus PollDownload(const DownloadTicket& ticket) override;
         [[nodiscard]] const void* MapDownloadData(const DownloadTicket& ticket, sizet dataSize) override;
@@ -64,7 +64,7 @@ namespace OloEngine
         void ReleaseDownload(const DownloadTicket& ticket) override;
 
         // ---- ImGui binding -------------------------------------------------
-        [[nodiscard]] u64 GetImGuiTextureID(u32 nativeTextureId) const override;
+        [[nodiscard]] u64 GetImGuiTextureID(u64 nativeTextureId) const override;
 
       private:
         // Buffer binding utility

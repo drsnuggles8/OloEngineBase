@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/Debug/ResourceInspectorBackend.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <imgui.h>
 #include <mutex>
@@ -66,7 +68,6 @@ namespace OloEngine
     // Backend data plane (#691, ADR 0011 §1.6) — see
     // Renderer/Debug/ResourceInspectorBackend.h. The inspector shell here is
     // graphics-API-neutral: every GL-touching step goes through this interface.
-    class IResourceInspectorBackend;
 
     // Sub-rectangle of a mip to read back, in TOP-LEFT-origin texel coordinates —
     // the orientation of the returned PNG and of every other rect coordinate in
@@ -109,11 +110,17 @@ namespace OloEngine
     // Provides detailed inspection of GPU resources including textures, buffers,
     // and their properties. Supports real-time preview and content visualization.
     //
-    // Identity currency (ADR 0011 amendment (77)): tracked resources surface
-    // their NATIVE id/enum values as plain u32 — the backend is implied
-    // (OpenGL today; registration only happens from Platform/OpenGL TUs) and
-    // the raw values stay useful for RenderDoc correlation. Nothing here is an
-    // opaque blob; nothing here is a GL type.
+    // Identity currency (ADR 0011 amendment (77)): every tracked resource
+    // carries BOTH — the native id (u64: a GL name widens, a VkImage does not
+    // fit a u32) plus native enum values as u32, AND the RHI::ResourceHandle
+    // identity with its owning backend. Nothing here is an opaque blob;
+    // nothing here is a GL type.
+    //
+    // Two population routes (#810). On OpenGL the OLO_GPU_REGISTER_* macros
+    // push resources in from their constructors. On Vulkan no TU calls those
+    // macros, so RefreshDiscoveredResources() pulls the live set out of
+    // RHI::ResourceRegistry via the backend instead — see
+    // IResourceInspectorBackend's class comment.
     class GPUResourceInspector
     {
       public:
@@ -125,12 +132,27 @@ namespace OloEngine
             IndexBuffer,
             UniformBuffer,
             Framebuffer,
+            // Kinds the GL registration macros never produced but the RHI
+            // registry does (#810). They exist so a registry-discovered
+            // resource is grouped honestly instead of being filed under
+            // "vertex buffer" because that was the old fallback.
+            VertexArray,
+            ShaderProgram,
+            Query,
+            Other,
             COUNT
         };
 
         struct ResourceInfo
         {
-            u32 m_RendererID = 0; // native (backend) object id
+            u64 m_RendererID = 0; // native (backend) object id
+            // The OTHER currency (ADR 0011 amendment (77)): the registry
+            // identity that survives a hot-reload and tells a recycled native
+            // name from a reused one. Null for a GL resource registered
+            // through OLO_GPU_REGISTER_* before its identity was minted; always
+            // set for a registry-discovered one (#810).
+            RHI::ResourceHandle m_Handle;
+            RHI::Backend m_Backend = RHI::Backend::None;
             ResourceType m_Type = ResourceType::Texture2D;
             std::string m_Name;
             std::string m_DebugName;
@@ -190,7 +212,7 @@ namespace OloEngine
         // Async texture download data
         struct TextureDownloadRequest
         {
-            u32 m_TextureID = 0;
+            u64 m_TextureID = 0;
             u32 m_MipLevel = 0;
             u32 m_FaceIndex = 0;     // Cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z); ignored for Texture2D
             u32 m_PBO = 0;           // native staging buffer id (backend-owned semantics)
@@ -215,41 +237,41 @@ namespace OloEngine
         // @param rendererID Native (backend) texture id
         // @param name Resource name/path
         // @param debugName Optional debug name
-        void RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName = "");
+        void RegisterTexture(u64 rendererID, const std::string& name, const std::string& debugName = "");
 
         // @brief Register a texture cubemap resource for tracking
         // @param rendererID Native (backend) texture id
         // @param name Resource name/path
         // @param debugName Optional debug name
-        void RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName = "");
+        void RegisterTextureCubemap(u64 rendererID, const std::string& name, const std::string& debugName = "");
 
         // @brief Register a framebuffer resource for tracking
         // @param rendererID Native (backend) framebuffer id
         // @param name Resource name
         // @param debugName Optional debug name
-        void RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName = "");
+        void RegisterFramebuffer(u64 rendererID, const std::string& name, const std::string& debugName = "");
 
         // @brief Register a buffer resource for tracking
         // @param rendererID Native (backend) buffer id
         // @param target Native (backend) buffer-target enum value (GL_ARRAY_BUFFER's value, etc.)
         // @param name Resource name
         // @param debugName Optional debug name
-        void RegisterBuffer(u32 rendererID, u32 target, const std::string& name, const std::string& debugName = "");
+        void RegisterBuffer(u64 rendererID, u32 target, const std::string& name, const std::string& debugName = "");
 
         // @brief Update a resource's active state
         // @param rendererID Native (backend) resource id
         // @param isActive Whether the resource is currently active
-        void UpdateResourceActiveState(u32 rendererID, bool isActive);
+        void UpdateResourceActiveState(u64 rendererID, bool isActive);
 
         // @brief Update resource binding information
         // @param rendererID Native (backend) resource id
         // @param isBound Whether the resource is currently bound
         // @param bindingSlot The binding slot/unit (for textures, uniform buffers, etc.)
-        void UpdateResourceBinding(u32 rendererID, bool isBound, u32 bindingSlot = 0);
+        void UpdateResourceBinding(u64 rendererID, bool isBound, u32 bindingSlot = 0);
 
         // @brief Unregister a resource (called when resource is destroyed)
         // @param rendererID Native (backend) resource id
-        void UnregisterResource(u32 rendererID);
+        void UnregisterResource(u64 rendererID);
 
         // @brief Update resource binding states
         void UpdateBindingStates();
@@ -334,11 +356,72 @@ namespace OloEngine
         //        applies to the REGION, so a region <= maxWidth comes back 1:1.
         //        Packed depth-stencil textures are read back as depth-only.
         //        Requires an active OpenGL 4.5+ context (main thread).
-        [[nodiscard]] static TextureCaptureResult CaptureTexturePng(u32 textureId, u32 mipLevel = 0,
+        [[nodiscard]] static TextureCaptureResult CaptureTexturePng(u64 textureId, u32 mipLevel = 0,
                                                                     u32 faceOrLayer = 0,
                                                                     CaptureNormalizeMode normalize = CaptureNormalizeMode::Auto,
                                                                     int maxWidth = 0,
                                                                     CaptureRegion region = {});
+
+        // ---- Registry-driven discovery + machine-readable snapshot (#810) ---
+        //
+        // Bring the tracked set up to date before reading it. Two jobs, one
+        // per discovery model (see the class comment):
+        //
+        //   * a DISCOVERING backend (Vulkan) has its live set pulled from
+        //     RHI::ResourceRegistry;
+        //   * a SELF-REGISTERING backend (OpenGL) keeps its macro-pushed map,
+        //     but the rows only carry the native id — the registration macros
+        //     are handed a raw name, not an identity. So the registry snapshot
+        //     is used to fill in the missing identity by matching (kind,
+        //     native), which is unique on GL because each object family has
+        //     its own name namespace. Without this the GL arm surfaces ONE
+        //     currency, and ADR 0011 amendment (77) asks for both.
+        //
+        // Main/render thread only: the Vulkan side tables it reads
+        // (VulkanImageInfoRegistry, VulkanRootObjectRegistry) are documented
+        // render-thread-only, so an MCP handler must marshal before calling.
+        void RefreshDiscoveredResources();
+
+        // One flattened, lock-free-to-consume row per tracked resource — what
+        // the MCP JSON serialises and what a test asserts on, so the panel and
+        // the tool cannot drift. Both currencies on every row.
+        struct ResourceSnapshotEntry
+        {
+            u64 NativeHandle = 0;
+            RHI::ResourceHandle Handle;
+            RHI::Backend Backend = RHI::Backend::None;
+            ResourceType Type = ResourceType::Texture2D;
+            std::string Name;
+            std::string DebugName;
+            sizet MemoryUsage = 0;
+            bool IsActive = true;
+            bool IsBound = false;
+            u32 BindingSlot = 0;
+            // Textures / framebuffers (0 when not applicable).
+            u32 Width = 0;
+            u32 Height = 0;
+            u32 MipLevels = 1;
+            // Buffers (0 when not applicable).
+            u32 SizeBytes = 0;
+            u32 NativeTarget = 0;
+            // Native format/status enum value + its decoded name, for
+            // RenderDoc / RGP correlation.
+            u32 NativeFormat = 0;
+            std::string FormatName;
+        };
+        [[nodiscard]] std::vector<ResourceSnapshotEntry> SnapshotResources() const;
+
+        // Device memory heaps, when the backend can report them (Vulkan/VMA).
+        // False = no answer available; see IResourceInspectorBackend::MemoryHeap
+        // for why GL declines rather than guessing.
+        [[nodiscard]] bool QueryMemoryHeaps(std::vector<IResourceInspectorBackend::MemoryHeap>& out) const;
+
+        // Whether this backend can render texture PREVIEWS / async downloads.
+        // False under Vulkan: previews ride the GL PBO+fence download engine
+        // and the GL ImGui renderer backend. Pixel inspection under Vulkan goes
+        // through olo_render_capture_target / olo_render_probe_pixel, which
+        // read via the facade readback spine instead.
+        [[nodiscard]] bool SupportsPreviews() const;
 
         // @brief Get total number of tracked resources
         u32 GetResourceCount() const
@@ -369,6 +452,9 @@ namespace OloEngine
         void RenderBufferContent(BufferInfo& info);
         void RenderFramebufferDetails(FramebufferInfo& info);
         void RenderResourceStatistics();
+        void RenderMemoryHeaps();
+        // See RefreshDiscoveredResources — the self-registering half.
+        void ReconcileIdentitiesFromRegistry();
 
         std::string FormatTextureFormat(u32 format) const;
         std::string FormatBufferUsage(u32 usage) const;
@@ -397,11 +483,11 @@ namespace OloEngine
         void ProcessPendingSaveRequest();
 
       private:
-        std::unordered_map<u32, std::unique_ptr<ResourceInfo>> m_Resources;
+        std::unordered_map<u64, std::unique_ptr<ResourceInfo>> m_Resources;
         std::vector<TextureDownloadRequest> m_TextureDownloads;
 
         // UI state
-        u32 m_SelectedResourceID = 0;
+        u64 m_SelectedResourceID = 0;
         ResourceType m_FilterType = ResourceType::COUNT; // No filter by default
         std::string m_SearchFilter;
         bool m_ShowInactiveResources = true;

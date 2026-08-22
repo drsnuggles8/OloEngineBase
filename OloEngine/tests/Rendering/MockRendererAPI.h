@@ -747,6 +747,18 @@ namespace OloEngine::Testing
         {
             GetTextureDimensions(Native(texture, RHI::ResourceKind::Texture), mipLevel, outWidth, outHeight);
         }
+        [[nodiscard]] bool QueryTextureFormat(RHI::ResourceHandle, u32, RHI::TextureFormatInfo&) override
+        {
+            // No storage behind a mock handle: refuse, so a caller that
+            // needs a format takes its own not-available path.
+            return false;
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateMatchingTextureHandle(RHI::ResourceHandle) override
+        {
+            // Same reasoning as QueryTextureFormat: there is no storage to
+            // match, so the null handle is the honest answer.
+            return {};
+        }
 
       private:
         // Kind-checked, mirroring Platform/OpenGL's Utils::ResolveNativeAs. An

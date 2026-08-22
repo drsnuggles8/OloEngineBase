@@ -28,6 +28,7 @@
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
+#include "OloEngine/Renderer/Debug/ResourceInspectorBackend.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
@@ -602,6 +603,172 @@ namespace OloEngine::MCP
                             : framebuffer->GetDepthAttachmentRendererID();
         }
 
+        const char* GpuResourceTypeName(GPUResourceInspector::ResourceType type)
+        {
+            using RT = GPUResourceInspector::ResourceType;
+            switch (type)
+            {
+                case RT::Texture2D:
+                    return "Texture2D";
+                case RT::TextureCubemap:
+                    return "TextureCubemap";
+                case RT::VertexBuffer:
+                    return "VertexBuffer";
+                case RT::IndexBuffer:
+                    return "IndexBuffer";
+                case RT::UniformBuffer:
+                    return "UniformBuffer";
+                case RT::Framebuffer:
+                    return "Framebuffer";
+                case RT::VertexArray:
+                    return "VertexArray";
+                case RT::ShaderProgram:
+                    return "ShaderProgram";
+                case RT::Query:
+                    return "Query";
+                case RT::Other:
+                case RT::COUNT:
+                    break;
+            }
+            return "Other";
+        }
+
+        const char* GpuResourceBackendName(RHI::Backend backend)
+        {
+            switch (backend)
+            {
+                case RHI::Backend::OpenGL:
+                    return "opengl";
+                case RHI::Backend::Vulkan:
+                    return "vulkan";
+                case RHI::Backend::None:
+                    break;
+            }
+            return "none";
+        }
+
+        // (main thread) The IDENTITY twin of ResolveTargetTexture: a
+        // render-graph resource name to the RHI handle that names it, with the
+        // same fallback order. This is the resolve every readback tool uses
+        // since #810 — the native-id form above survives only where the source
+        // really is a GL object (the mid-frame afterPass clone).
+        //
+        // `outDepthFromFramebuffer` reports that the name resolved through a
+        // depth-only framebuffer attachment, which is the one case where the
+        // graph's own format label is absent and depth-ness has to be carried
+        // out of the resolve.
+        RHI::ResourceHandle ResolveTargetHandle(const std::string& name, bool& outDepthFromFramebuffer)
+        {
+            outDepthFromFramebuffer = false;
+
+            RHI::ResourceHandle handle = Renderer3D::ResolveFrameGraphTextureHandle(name);
+            if (handle.IsValid())
+                return handle;
+
+            const Ref<Framebuffer> framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(name);
+            if (!framebuffer)
+                return {};
+
+            handle = framebuffer->GetColorAttachmentHandle(0);
+            if (handle.IsValid())
+                return handle;
+
+            handle = framebuffer->GetDepthAttachmentHandle();
+            outDepthFromFramebuffer = handle.IsValid();
+            return handle;
+        }
+
+        // How to READ one texel of a target, derived from the backend's own
+        // description of its storage (#810). The destination format is chosen
+        // so the readback works identically on both backends:
+        //
+        //  * depth  -> D32Float. GL needs a depth destination because only
+        //    those map to GL_DEPTH_COMPONENT (reading a depth texture as
+        //    GL_RED is GL_INVALID_OPERATION); Vulkan needs the same name so
+        //    the decode path has a case for it (its identity path only fires
+        //    when the image really is VK_FORMAT_D32_SFLOAT, and this hardware
+        //    backs the graph's Depth24Stencil8 with D32_SFLOAT_S8_UINT).
+        //  * 1-channel integer -> R32Int, so the R32I entity-id attachment
+        //    comes back as the exact integer an agent compares against a
+        //    scene entity id — never as a float.
+        //  * everything else -> R32Float / RG32Float / RGBA32Float by channel
+        //    count. A 3-channel source is read as 4 and only its first 3
+        //    channels reported: the readback vocabulary has no 3-component
+        //    float destination on both backends, and the reported values are
+        //    identical either way.
+        struct ProbeReadPlan
+        {
+            RHI::TextureFormatInfo Format;
+            RHI::Format DestFormat = RHI::Format::RGBA32Float;
+            i32 ReadChannels = 4;   ///< components the readback writes per texel
+            i32 ReportChannels = 4; ///< components that mean something
+            bool IsInteger = false;
+        };
+
+        bool PlanProbeRead(RHI::ResourceHandle handle, u32 mipLevel, ProbeReadPlan& out, std::string& outError)
+        {
+            RHI::TextureFormatInfo info;
+            if (!RenderCommand::QueryTextureFormat(handle, mipLevel, info))
+            {
+                outError = "no storage at mip " + std::to_string(mipLevel) +
+                           ", or a storage format this probe cannot decode";
+                return false;
+            }
+
+            ProbeReadPlan plan;
+            plan.Format = info;
+            plan.IsInteger = info.IsInteger;
+            plan.ReportChannels = info.Channels > 0 ? info.Channels : 4;
+
+            if (info.IsDepth)
+            {
+                plan.DestFormat = RHI::Format::D32Float;
+                plan.ReadChannels = 1;
+                plan.ReportChannels = 1;
+                plan.IsInteger = false;
+            }
+            else if (info.IsInteger)
+            {
+                if (info.Channels != 1)
+                {
+                    outError = std::string("multi-channel integer target (") + info.Token +
+                               ") — the readback spine has no multi-component integer destination";
+                    return false;
+                }
+                plan.DestFormat = RHI::Format::R32Int;
+                plan.ReadChannels = 1;
+            }
+            else if (info.Channels <= 1)
+            {
+                plan.DestFormat = RHI::Format::R32Float;
+                plan.ReadChannels = 1;
+            }
+            else if (info.Channels == 2)
+            {
+                plan.DestFormat = RHI::Format::RG32Float;
+                plan.ReadChannels = 2;
+            }
+            else
+            {
+                plan.DestFormat = RHI::Format::RGBA32Float;
+                plan.ReadChannels = 4;
+            }
+
+            // ReportChannels is seeded from the format's own channel count and
+            // must never exceed what the destination format actually reads: the
+            // compaction in ReadRectFloatsThroughFacade indexes
+            // raw[t * ReadChannels + c] for c < ReportChannels, so a larger
+            // report count walks off the end of the readback buffer. The two
+            // only diverge for a format claiming 0 channels (no mapped format
+            // does today), where the seed defaults to 4 while the <= 1 branch
+            // reads one — an out-of-bounds read waiting for the first entry
+            // that reports zero.
+            plan.ReportChannels = std::min(plan.ReportChannels, plan.ReadChannels);
+
+            out = plan;
+            return true;
+        }
+
         // The non-GL twin of GPUResourceInspector::CaptureTexturePng (#691
         // Phase 8b): resolves the target by RHI handle and reads through
         // RenderCommand::ReadTextureSubImage — the backend-neutral readback
@@ -609,30 +776,24 @@ namespace OloEngine::MCP
         // in GPUResourceInspector because Renderer/Debug is destined for
         // Platform/OpenGL (ADR 0011 §1.6); when that relocation lands, the
         // GL arm can fold into this shape and the id-based path retires.
+        // `overrideHandle`, when valid, is an afterPass snapshot clone: read
+        // THAT instead of resolving the live resource by name. The clone
+        // carries the source's exact storage, so everything downstream —
+        // format, extent, row order — is identical either way (#810).
         GPUResourceInspector::TextureCaptureResult CaptureTargetThroughFacade(
             const RenderGraph& graph, const std::string& name, u32 mipLevel, u32 faceOrLayer,
             GPUResourceInspector::CaptureNormalizeMode normalize, int maxWidth,
-            GPUResourceInspector::CaptureRegion region)
+            GPUResourceInspector::CaptureRegion region,
+            RHI::ResourceHandle overrideHandle = {})
         {
             GPUResourceInspector::TextureCaptureResult result;
 
-            // Handle resolve mirrors ResolveTargetTexture's fallbacks (the
-            // graph's own TextureHandle is an RGTextureHandle, not an RHI
-            // identity, so the by-name Renderer3D lookup is the primary).
-            RHI::ResourceHandle handle = Renderer3D::ResolveFrameGraphTextureHandle(name);
             const auto* resource = graph.FindRegisteredResource(name);
             bool depthFromFramebuffer = false;
+            RHI::ResourceHandle handle = overrideHandle;
             if (!handle.IsValid())
             {
-                if (const Ref<Framebuffer> framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(name); framebuffer)
-                {
-                    handle = framebuffer->GetColorAttachmentHandle(0);
-                    if (!handle.IsValid())
-                    {
-                        handle = framebuffer->GetDepthAttachmentHandle();
-                        depthFromFramebuffer = handle.IsValid();
-                    }
-                }
+                handle = ResolveTargetHandle(name, depthFromFramebuffer);
             }
             if (!handle.IsValid())
             {
@@ -703,14 +864,24 @@ namespace OloEngine::MCP
             // the single predicate that replaced the per-call argument.
             const bool glRowOrder = RHI::RenderTargetRowsAreBottomUp();
             const u32 readY = glRowOrder ? fullHeight - region.Y - region.Height : region.Y;
-            const RHI::Format destFormat = isDepth || channels == 1 ? RHI::Format::R32Float
-                                           : channels == 2          ? RHI::Format::RG32Float
-                                                                    : RHI::Format::RGBA32Float;
+            // A DEPTH source must name a DEPTH destination — on GL because only
+            // those lower to GL_DEPTH_COMPONENT (asking for GL_RED on a depth
+            // texture is GL_INVALID_OPERATION), on Vulkan because its identity
+            // fast path only fires when the image really is D32_SFLOAT while
+            // this hardware backs Depth24Stencil8 with D32_SFLOAT_S8_UINT.
+            // Before #810 folded the capture fork this line was Vulkan-only, so
+            // R32Float went unnoticed here; GL reaches it now.
+            const RHI::Format destFormat = isDepth         ? RHI::Format::D32Float
+                                           : channels == 1 ? RHI::Format::R32Float
+                                           : channels == 2 ? RHI::Format::RG32Float
+                                                           : RHI::Format::RGBA32Float;
             // Derived from destFormat, not `channels`, so buffer sizing, the
             // readback and the PNG channel count always agree — including the
-            // depth-from-framebuffer fallback, where destFormat collapses to
-            // R32Float while `channels` stayed at its 4-channel default.
-            const i32 readChannels = destFormat == RHI::Format::R32Float    ? 1
+            // depth-from-framebuffer fallback, where destFormat collapses to a
+            // single channel while `channels` stayed at its 4-channel default.
+            const i32 readChannels = destFormat == RHI::Format::R32Float ||
+                                             destFormat == RHI::Format::D32Float
+                                         ? 1
                                      : destFormat == RHI::Format::RG32Float ? 2
                                                                             : 4;
             const sizet valueCount =
@@ -947,14 +1118,6 @@ namespace OloEngine::MCP
             if (forceFrame && afterPass.empty())
                 freshFrameTimedOut = !ForceFreshFrame(server, /*settleFrames*/ 2);
 
-            // The pass-snapshot clone machinery is GL (glCopyImageSubData of
-            // the live target mid-frame); end-of-frame captures work on every
-            // backend through the facade arm below (#691b).
-            if (!afterPass.empty() && RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-                return ToolResult::Error(
-                    "'afterPass' snapshots are OpenGL-only for now — the mid-frame clone machinery has no "
-                    "Vulkan arm yet. Capture without 'afterPass' for the end-of-frame contents.");
-
             bool afterPassFrameRendered = true;
             if (!afterPass.empty())
             {
@@ -971,8 +1134,7 @@ namespace OloEngine::MCP
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
 
-                const bool glBackend = RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
-                u32 textureId = 0;
+                RHI::ResourceHandle cloneHandle;
                 RenderGraphPassSnapshot::Result snapshotResult;
                 if (!afterPass.empty())
                 {
@@ -980,17 +1142,8 @@ namespace OloEngine::MCP
                             CollectAfterPassSnapshot(afterPass, name, afterPassFrameRendered, snapshotResult);
                         !error.empty())
                         return Json{ { "__error", error } };
-                    textureId = snapshotResult.TextureID;
+                    cloneHandle = snapshotResult.Handle;
                 }
-                else if (glBackend)
-                {
-                    // The GL-id resolve is meaningless on other backends; the
-                    // facade arm below resolves by RHI handle instead.
-                    textureId = ResolveTargetTexture(name);
-                }
-                if (glBackend && textureId == 0)
-                    return Json{ { "__error", "Unknown render-graph resource '" + name +
-                                                  "' (or it has no GPU backing this frame). Call olo_render_list_targets for the live list." } };
 
                 // Which GL layer to read. The default is NOT unconditionally 0: a
                 // per-cascade layer view resolves to the whole parent array, so
@@ -1003,16 +1156,15 @@ namespace OloEngine::MCP
                 if (!selection.Error.empty())
                     return Json{ { "__error", selection.Error } };
 
-                auto capture =
-                    glBackend
-                        ? GPUResourceInspector::CaptureTexturePng(
-                              textureId, mipLevel, selection.Layer, normalizeMode, maxWidth,
-                              GPUResourceInspector::CaptureRegion{ region.X, region.Y, region.Width,
-                                                                   region.Height })
-                        : CaptureTargetThroughFacade(
-                              *graph, name, mipLevel, selection.Layer, normalizeMode, maxWidth,
-                              GPUResourceInspector::CaptureRegion{ region.X, region.Y, region.Width,
-                                                                   region.Height });
+                // ONE capture path, one backend-neutral readback, live target
+                // or mid-frame clone (#810). The Phase 8b fork existed because
+                // Renderer/Debug still owned a GL readback; #801 relocated it
+                // and the snapshot clone now carries an identity of its own, so
+                // the id-based arm has nothing left to do anywhere.
+                auto capture = CaptureTargetThroughFacade(
+                    *graph, name, mipLevel, selection.Layer, normalizeMode, maxWidth,
+                    GPUResourceInspector::CaptureRegion{ region.X, region.Y, region.Width, region.Height },
+                    cloneHandle);
                 if (!capture.Error.empty())
                     return Json{ { "__error", "Capture of '" + name + "' failed: " + capture.Error } };
 
@@ -1021,7 +1173,7 @@ namespace OloEngine::MCP
                 if (!afterPass.empty())
                 {
                     meta["afterPass"] = afterPass;
-                    meta["snapshotSourceTextureId"] = snapshotResult.SourceTextureID;
+                    meta["snapshotSourceTextureId"] = snapshotResult.NativeSourceId;
                     meta["frameIndexNote"] = "frameIndex is the collect-time frame; the snapshot was cloned "
                                              "mid-frame during the immediately preceding rendered frame.";
                 }
@@ -3122,7 +3274,7 @@ namespace OloEngine::MCP
         // Issue #607 — render-diagnostics gaps found while doing real work.
         // =====================================================================
 
-        // ---- olo_render_probe_pixel (main-marshaled; GL readback) --------------
+        // ---- olo_render_probe_pixel (main-marshaled; facade readback) ----------
         //
         // The NUMERIC counterpart of olo_render_capture_target: instead of an
         // image of a whole target, the exact decoded values under ONE pixel,
@@ -3130,105 +3282,6 @@ namespace OloEngine::MCP
         // "looks bluish"; this says the normal is (0.0, 0.0, 1.0) when it should
         // be (0, 1, 0) — which is the difference between an hour of shader
         // patching and a one-call diagnosis.
-
-        // GL internal format -> readback (format, type) + a stable token. Mirrors
-        // GPUResourceInspector::CaptureTexturePng's table with two deliberate
-        // differences: INTEGER formats stay integer (the R32I entity-id
-        // attachment must never be reported as a float — an agent compares it
-        // against a real entity id), and nothing is normalised (a probe wants the
-        // raw number, not a display-friendly remap).
-        struct ProbeFormat
-        {
-            GLenum ReadFormat = GL_NONE;
-            GLenum ReadType = GL_NONE;
-            i32 Channels = 0;
-            const char* Token = "Unknown";
-            bool IsInteger = false;
-        };
-
-        bool DescribeProbeFormat(GLint internalFormat, ProbeFormat& out)
-        {
-            switch (internalFormat)
-            {
-                case GL_RGBA8:
-                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA8", false };
-                    return true;
-                case GL_SRGB8_ALPHA8:
-                    out = { GL_RGBA, GL_FLOAT, 4, "SRGB8_ALPHA8", false };
-                    return true;
-                case GL_RGB8:
-                    out = { GL_RGB, GL_FLOAT, 3, "RGB8", false };
-                    return true;
-                case GL_SRGB8:
-                    out = { GL_RGB, GL_FLOAT, 3, "SRGB8", false };
-                    return true;
-                case GL_RG8:
-                    out = { GL_RG, GL_FLOAT, 2, "RG8", false };
-                    return true;
-                case GL_R8:
-                    out = { GL_RED, GL_FLOAT, 1, "R8", false };
-                    return true;
-                case GL_RGBA16F:
-                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA16F", false };
-                    return true;
-                case GL_RGBA32F:
-                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA32F", false };
-                    return true;
-                case GL_RGB16F:
-                    out = { GL_RGB, GL_FLOAT, 3, "RGB16F", false };
-                    return true;
-                case GL_RGB32F:
-                    out = { GL_RGB, GL_FLOAT, 3, "RGB32F", false };
-                    return true;
-                case GL_R11F_G11F_B10F:
-                    out = { GL_RGB, GL_FLOAT, 3, "R11F_G11F_B10F", false };
-                    return true;
-                case GL_RG16F:
-                    out = { GL_RG, GL_FLOAT, 2, "RG16F", false };
-                    return true;
-                case GL_RG32F:
-                    out = { GL_RG, GL_FLOAT, 2, "RG32F", false };
-                    return true;
-                case GL_R16F:
-                    out = { GL_RED, GL_FLOAT, 1, "R16F", false };
-                    return true;
-                case GL_R32F:
-                    out = { GL_RED, GL_FLOAT, 1, "R32F", false };
-                    return true;
-                case GL_R32I:
-                    out = { GL_RED_INTEGER, GL_INT, 1, "R32I", true };
-                    return true;
-                case GL_R32UI:
-                    out = { GL_RED_INTEGER, GL_INT, 1, "R32UI", true };
-                    return true;
-                case GL_RG32I:
-                    out = { GL_RG_INTEGER, GL_INT, 2, "RG32I", true };
-                    return true;
-                case GL_RGBA32I:
-                    out = { GL_RGBA_INTEGER, GL_INT, 4, "RGBA32I", true };
-                    return true;
-                case GL_DEPTH_COMPONENT16:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH16", false };
-                    return true;
-                case GL_DEPTH_COMPONENT24:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH24", false };
-                    return true;
-                case GL_DEPTH_COMPONENT32:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH32", false };
-                    return true;
-                case GL_DEPTH_COMPONENT32F:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH32F", false };
-                    return true;
-                case GL_DEPTH24_STENCIL8:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH24_STENCIL8", false };
-                    return true;
-                case GL_DEPTH32F_STENCIL8:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH32F_STENCIL8", false };
-                    return true;
-                default:
-                    return false;
-            }
-        }
 
         // Options for one texel probe (issue #607). Defaults reproduce the
         // simple "viewport pixel at mip 0" probe; the G-Buffer mode fills the
@@ -3242,9 +3295,10 @@ namespace OloEngine::MCP
             // shows). 0 = use the target mip's own dims (identity mapping).
             u32 RefWidth = 0;
             u32 RefHeight = 0;
-            // Read THIS texture instead of resolving `name` — the afterPass
-            // snapshot scratch clone.
-            u32 OverrideTextureId = 0;
+            // Read THIS resource instead of resolving `name` — the afterPass
+            // snapshot scratch clone, which carries an identity like any other
+            // texture since #810.
+            RHI::ResourceHandle OverrideHandle;
             // Explicit array-layer / cube-face / 3D-slice selector; when
             // absent the target's own view layer applies (a CSM cascade view
             // must not silently read cascade 0).
@@ -3253,45 +3307,41 @@ namespace OloEngine::MCP
         };
 
         // (main thread) Read back a SINGLE texel of one named render-graph target.
-        // Uses glGetTextureSubImage (DSA, GL 4.5+) with a 1x1 region — never a
-        // whole-texture readback, so probing a 4K G-Buffer costs a handful of
-        // bytes, not 64 MB.
+        // Goes through RenderCommand::ReadTextureSubImage — the facade readback
+        // spine — with a 1x1 region, so probing a 4K G-Buffer costs a handful of
+        // bytes, not 64 MB, and works on both backends (#810; this was raw
+        // glGetTextureSubImage and hard-refused under Vulkan before).
         //
         // Coordinates go through ProbePixel::MapProbeCoord (issue #607):
         // viewport space maps proportionally onto the target mip, texel space
         // addresses the exact texel; both are top-left-origin (the screenshot
-        // convention — GL's bottom-up flip happens here) and the mapping is
-        // echoed in the sample so it is never guesswork.
+        // convention) and the mapping is echoed in the sample so it is never
+        // guesswork. Which ROW that becomes is the one backend predicate,
+        // RHI::RenderTargetRowsAreBottomUp() (ADR 0011 amendment (85)).
         ProbePixel::TexelSample ProbeTexel(const RenderGraph& graph, const std::string& name,
                                            u32 x, u32 yTopLeft, const ProbeRequest& request = {})
         {
             ProbePixel::TexelSample sample;
             sample.Target = name;
 
-            // GL-only for now: the probe reads typed channel values through
-            // glGetTextureSubImage with per-format (format, type) pairs. The
-            // facade readback (#691b) covers image captures; porting
-            // the typed probe is follow-up work — refuse cleanly rather than
-            // call a null GL pointer (a live Vulkan editor crashed exactly
-            // there: SEH execute-at-0x0).
-            if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+            // An afterPass clone is read exactly like a live target: it carries
+            // the source's storage AND an identity of its own (#810), so there
+            // is one code path here rather than two.
+            RHI::ResourceHandle handle = request.OverrideHandle;
+            bool depthFromFramebuffer = false;
+            if (!handle.IsValid())
             {
-                sample.Unavailable = "olo_render_probe_pixel is OpenGL-only for now (the typed texel probe has "
-                                     "no Vulkan arm yet); use olo_render_capture_target with a small 'region' "
-                                     "for pixel-level inspection.";
-                return sample;
+                handle = ResolveTargetHandle(name, depthFromFramebuffer);
+                if (!handle.IsValid())
+                {
+                    sample.Unavailable = "Render-graph resource '" + name +
+                                         "' has no GPU backing this frame (wrong rendering path, effect "
+                                         "disabled, or not yet rendered).";
+                    return sample;
+                }
             }
 
-            const u32 textureId = request.OverrideTextureId != 0 ? request.OverrideTextureId
-                                                                 : ResolveTargetTexture(name);
-            if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
-            {
-                sample.Unavailable = "Render-graph resource '" + name +
-                                     "' has no GPU backing this frame (wrong rendering path, effect disabled, or not yet rendered).";
-                return sample;
-            }
-
-            // Which GL layer (z offset) to read: an explicit selector, or the
+            // Which layer (z offset) to read: an explicit selector, or the
             // target's own view layer — a per-cascade view resolves to the
             // whole parent array, so reading z=0 unconditionally would
             // silently answer from cascade 0 (the capture tool's exact rule).
@@ -3305,29 +3355,34 @@ namespace OloEngine::MCP
             }
             sample.Layer = selection.Layer;
 
-            GLint width = 0;
-            GLint height = 0;
-            GLint internalFormat = 0;
-            const auto mipLevel = static_cast<GLint>(request.Mip);
-            glGetTextureLevelParameteriv(textureId, mipLevel, GL_TEXTURE_WIDTH, &width);
-            glGetTextureLevelParameteriv(textureId, mipLevel, GL_TEXTURE_HEIGHT, &height);
-            glGetTextureLevelParameteriv(textureId, mipLevel, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
-            if (width <= 0 || height <= 0)
+            u32 mipWidth = 0;
+            u32 mipHeight = 0;
+            RenderCommand::GetTextureDimensions(handle, request.Mip, mipWidth, mipHeight);
+            if (mipWidth == 0 || mipHeight == 0)
             {
                 sample.Unavailable = "'" + name + "' has no storage at mip " + std::to_string(request.Mip) + ".";
                 return sample;
             }
-            sample.SourceWidth = static_cast<u32>(width);
-            sample.SourceHeight = static_cast<u32>(height);
 
-            ProbeFormat format;
-            if (!DescribeProbeFormat(internalFormat, format))
+            ProbeReadPlan plan;
+            if (std::string planError; !PlanProbeRead(handle, request.Mip, plan, planError))
             {
-                sample.Unavailable = "'" + name + "' has an internal format this probe cannot decode (0x" +
-                                     std::format("{:X}", static_cast<u32>(internalFormat)) + ").";
+                sample.Unavailable = "'" + name + "': " + planError + ".";
                 return sample;
             }
-            sample.Format = format.Token;
+            if (depthFromFramebuffer && !plan.Format.IsDepth)
+            {
+                // The name resolved through a depth-only framebuffer but the
+                // backend describes colour storage. Contradictory — reading
+                // either way would be a guess, so say so instead.
+                sample.Unavailable = "'" + name + "' resolved to a depth attachment whose storage reports "
+                                                  "as colour — refusing rather than guessing.";
+                return sample;
+            }
+
+            sample.SourceWidth = mipWidth;
+            sample.SourceHeight = mipHeight;
+            sample.Format = plan.Format.Token;
 
             const u32 refWidth = request.RefWidth != 0 ? request.RefWidth : sample.SourceWidth;
             const u32 refHeight = request.RefHeight != 0 ? request.RefHeight : sample.SourceHeight;
@@ -3339,47 +3394,28 @@ namespace OloEngine::MCP
                 return sample;
             }
 
-            // Tight packing + PBO unbind guard, same rationale as
-            // GPUResourceInspector::CaptureTexturePng: a bound pixel-pack buffer
-            // would silently redirect the read into GPU memory.
-            GLint prevPackAlignment = 4;
-            glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
-            glPixelStorei(GL_PACK_ALIGNMENT, 1);
-            GLint prevPackPBO = 0;
-            glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
-            if (prevPackPBO != 0)
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            // ONE row order per backend (amendment (85)). The clone is a copy of
+            // a backend-native image, so it shares the backend's convention.
+            const u32 readRow =
+                RHI::RenderTargetRowsAreBottomUp() ? sample.Mapped.GLRowBottomUp : sample.Mapped.TexelY;
 
-            // Asking GL for GL_FLOAT on an RGBA8/RGBA16F source lets the driver do
-            // the (half|unorm)->float conversion, so no manual half decode is needed.
             std::array<f32, 4> floats{ 0.0f, 0.0f, 0.0f, 0.0f };
             std::array<i32, 4> ints{ 0, 0, 0, 0 };
-            void* destination = format.IsInteger ? static_cast<void*>(ints.data())
-                                                 : static_cast<void*>(floats.data());
-            const auto bytes = static_cast<GLsizei>(4 * sizeof(f32));
+            void* destination =
+                plan.IsInteger ? static_cast<void*>(ints.data()) : static_cast<void*>(floats.data());
 
-            glGetTextureSubImage(textureId, mipLevel,
-                                 static_cast<GLint>(sample.Mapped.TexelX),
-                                 static_cast<GLint>(sample.Mapped.GLRowBottomUp),
-                                 static_cast<GLint>(selection.Layer),
-                                 1, 1, 1,
-                                 format.ReadFormat, format.ReadType,
-                                 bytes, destination);
-
-            if (prevPackPBO != 0)
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
-            glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
-
-            if (const GLenum error = glGetError(); error != GL_NO_ERROR)
+            if (!RenderCommand::ReadTextureSubImage(handle, request.Mip, static_cast<i32>(sample.Mapped.TexelX),
+                                                    static_cast<i32>(readRow), static_cast<i32>(selection.Layer),
+                                                    1u, 1u, 1u, plan.DestFormat, 4 * sizeof(f32), destination))
             {
-                sample.Unavailable = "glGetTextureSubImage on '" + name + "' failed (GL 0x" +
-                                     std::format("{:X}", static_cast<u32>(error)) + ").";
+                sample.Unavailable =
+                    "Readback of '" + name + "' (" + plan.Format.Token + ") failed — see the editor log.";
                 return sample;
             }
 
             sample.Available = true;
-            sample.Channels = format.Channels;
-            sample.Kind = format.IsInteger ? ProbePixel::SampleKind::Int : ProbePixel::SampleKind::Float;
+            sample.Channels = plan.ReportChannels;
+            sample.Kind = plan.IsInteger ? ProbePixel::SampleKind::Int : ProbePixel::SampleKind::Float;
             sample.F = floats;
             sample.I = ints;
             return sample;
@@ -3426,8 +3462,11 @@ namespace OloEngine::MCP
                 {
                     requests.push_back(RenderGraphPassSnapshot::Request{
                         resourceName,
-                        [resourceName]() -> u32
-                        { return ResolveTargetTexture(resourceName); } });
+                        [resourceName]() -> RHI::ResourceHandle
+                        {
+                            bool depthFromFramebuffer = false;
+                            return ResolveTargetHandle(resourceName, depthFromFramebuffer);
+                        } });
                 }
                 // Installing a post-pass hook is a logical mutation of the
                 // live graph behind a read-only accessor — the same confined
@@ -3496,13 +3535,8 @@ namespace OloEngine::MCP
 
         ToolResult Handle_RenderProbePixel(McpServer& server, const Json& args)
         {
-            // GL-only for now (typed per-format glGetTextureSubImage reads;
-            // #691b guards every GL-hardcoded tool so a Vulkan
-            // session gets a refusal, not a null-pointer SEH crash).
-            if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-                return ToolResult::Error(
-                    "olo_render_probe_pixel is OpenGL-only for now; use olo_render_capture_target with a "
-                    "small 'region' for pixel-level inspection under Vulkan.");
+            // Backend-neutral since #810: the probe reads through the facade
+            // spine, and 'afterPass' snapshots are neutral too.
             if (!args.contains("x") || !args["x"].is_number_integer() ||
                 !args.contains("y") || !args["y"].is_number_integer())
                 return ToolResult::Error("Missing required arguments 'x' and 'y' (pixel, top-left origin).");
@@ -3584,7 +3618,7 @@ namespace OloEngine::MCP
                                 CollectAfterPassSnapshot(afterPass, target, afterPassFrameRendered, snapshotResult);
                             !error.empty())
                             return Json{ { "__error", error } };
-                        request.OverrideTextureId = snapshotResult.TextureID;
+                        request.OverrideHandle = snapshotResult.Handle;
                     }
 
                     const ProbePixel::TexelSample sample = ProbeTexel(*graph, target, x, y, request);
@@ -3671,76 +3705,65 @@ namespace OloEngine::MCP
         // stalling the main thread for seconds.
         constexpr u64 kMaxStatsRectTexels = 4ull * 1024ull * 1024ull;
 
-        // (main thread) Read a rect of one mip as channel-interleaved floats.
-        // Integer formats are converted (exact below 2^24 — entity ids and
-        // counters qualify); the caller notes the conversion in the reply.
-        std::vector<f32> ReadRectFloats(const u32 textureId, const u32 mip, const u32 layer,
-                                        const u32 rectX, const u32 glRectY, const u32 rectW, const u32 rectH,
-                                        const ProbeFormat& format, std::string& outError)
+        // (main thread) The backend-neutral twin: a rect of one mip of a LIVE
+        // render-graph target, channel-interleaved, through
+        // RenderCommand::ReadTextureSubImage (#810). `rectY` is in the
+        // BACKEND's row order — the caller flips a top-left rect to bottom-up
+        // rows iff RHI::RenderTargetRowsAreBottomUp(), exactly as the capture
+        // path does; stats aggregate per channel so only the rect's PLACEMENT
+        // depends on row order, never the values.
+        //
+        // Returns the values the PLAN says are meaningful: a 3-channel source
+        // is read as 4 components and compacted back to 3 here, so the stats
+        // JSON reports the same channel count the GL arm always reported.
+        std::vector<f32> ReadRectFloatsThroughFacade(RHI::ResourceHandle handle, const u32 mip, const u32 layer,
+                                                     const u32 rectX, const u32 rectY, const u32 rectW,
+                                                     const u32 rectH, const ProbeReadPlan& plan,
+                                                     std::string& outError)
         {
-            std::vector<f32> interleaved;
             const sizet texels = static_cast<sizet>(rectW) * rectH;
-            const sizet valueCount = texels * static_cast<sizet>(format.Channels);
+            const sizet readValues = texels * static_cast<sizet>(plan.ReadChannels);
 
-            // Drain any stale error left by earlier rendering so the check
-            // below attributes failures to THIS readback — a lingering error
-            // would otherwise discard a perfectly valid read.
-            while (glGetError() != GL_NO_ERROR)
+            std::vector<f32> raw(readValues, 0.0f);
+            void* destination = raw.data();
+            std::vector<i32> ints;
+            if (plan.IsInteger)
             {
+                ints.assign(readValues, 0);
+                destination = ints.data();
             }
 
-            GLint prevPackAlignment = 4;
-            glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
-            glPixelStorei(GL_PACK_ALIGNMENT, 1);
-            GLint prevPackPBO = 0;
-            glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
-            if (prevPackPBO != 0)
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-
-            if (format.IsInteger)
+            if (!RenderCommand::ReadTextureSubImage(handle, mip, static_cast<i32>(rectX), static_cast<i32>(rectY),
+                                                    static_cast<i32>(layer), rectW, rectH, 1u, plan.DestFormat,
+                                                    readValues * sizeof(f32), destination))
             {
-                std::vector<i32> ints(valueCount, 0);
-                glGetTextureSubImage(textureId, static_cast<GLint>(mip),
-                                     static_cast<GLint>(rectX), static_cast<GLint>(glRectY),
-                                     static_cast<GLint>(layer),
-                                     static_cast<GLsizei>(rectW), static_cast<GLsizei>(rectH), 1,
-                                     format.ReadFormat, format.ReadType,
-                                     static_cast<GLsizei>(ints.size() * sizeof(i32)), ints.data());
-                interleaved.reserve(valueCount);
-                for (const i32 v : ints)
-                    interleaved.push_back(static_cast<f32>(v));
-            }
-            else
-            {
-                interleaved.assign(valueCount, 0.0f);
-                glGetTextureSubImage(textureId, static_cast<GLint>(mip),
-                                     static_cast<GLint>(rectX), static_cast<GLint>(glRectY),
-                                     static_cast<GLint>(layer),
-                                     static_cast<GLsizei>(rectW), static_cast<GLsizei>(rectH), 1,
-                                     format.ReadFormat, format.ReadType,
-                                     static_cast<GLsizei>(interleaved.size() * sizeof(f32)), interleaved.data());
+                outError = std::string("readback failed (format ") + plan.Format.Token +
+                           " — see the editor log)";
+                return {};
             }
 
-            if (prevPackPBO != 0)
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
-            glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
-
-            if (const GLenum error = glGetError(); error != GL_NO_ERROR)
+            if (plan.IsInteger)
             {
-                outError = "glGetTextureSubImage failed (GL 0x" +
-                           std::format("{:X}", static_cast<u32>(error)) + ").";
-                interleaved.clear();
+                for (sizet i = 0; i < readValues; ++i)
+                    raw[i] = static_cast<f32>(ints[i]);
             }
-            return interleaved;
+
+            if (plan.ReportChannels == plan.ReadChannels)
+                return raw;
+
+            std::vector<f32> compacted(texels * static_cast<sizet>(plan.ReportChannels), 0.0f);
+            for (sizet t = 0; t < texels; ++t)
+            {
+                for (i32 c = 0; c < plan.ReportChannels; ++c)
+                    compacted[t * plan.ReportChannels + c] = raw[t * plan.ReadChannels + c];
+            }
+            return compacted;
         }
 
         ToolResult Handle_RenderTargetStats(McpServer& server, const Json& args)
         {
-            // GL-only for now — same contract as olo_render_probe_pixel above.
-            if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-                return ToolResult::Error(
-                    "olo_render_target_stats is OpenGL-only for now; olo_render_capture_target reports the "
-                    "min/max value range of a capture under Vulkan.");
+            // Backend-neutral since #810 — same contract as
+            // olo_render_probe_pixel above, 'afterPass' included.
             if (!args.contains("name") || !args["name"].is_string())
                 return ToolResult::Error("Missing required argument 'name' (render-graph resource name; see olo_render_list_targets).");
             const std::string name = args["name"].get<std::string>();
@@ -3783,7 +3806,6 @@ namespace OloEngine::MCP
             std::string afterPass;
             if (args.contains("afterPass") && args["afterPass"].is_string())
                 afterPass = args["afterPass"].get<std::string>();
-
             if (args.value("forceFrame", false) && afterPass.empty())
                 (void)ForceFreshFrame(server, /*settleFrames*/ 2);
             bool afterPassFrameRendered = true;
@@ -3802,7 +3824,10 @@ namespace OloEngine::MCP
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
 
-                u32 textureId = 0;
+                // Live target or mid-frame clone, one path: the clone carries an
+                // identity of its own since #810, so both resolve to a handle
+                // and read through the facade spine.
+                RHI::ResourceHandle handle;
                 RenderGraphPassSnapshot::Result snapshotResult;
                 if (!afterPass.empty())
                 {
@@ -3810,15 +3835,19 @@ namespace OloEngine::MCP
                             CollectAfterPassSnapshot(afterPass, name, afterPassFrameRendered, snapshotResult);
                         !error.empty())
                         return Json{ { "__error", error } };
-                    textureId = snapshotResult.TextureID;
+                    handle = snapshotResult.Handle;
+                    if (!handle.IsValid())
+                        return Json{ { "__error", "The afterPass snapshot clone for '" + name +
+                                                      "' did not resolve to a texture." } };
                 }
                 else
                 {
-                    textureId = ResolveTargetTexture(name);
+                    bool depthFromFramebuffer = false;
+                    handle = ResolveTargetHandle(name, depthFromFramebuffer);
+                    if (!handle.IsValid())
+                        return Json{ { "__error", "Unknown render-graph resource '" + name +
+                                                      "' (or it has no GPU backing this frame). Call olo_render_list_targets for the live list." } };
                 }
-                if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
-                    return Json{ { "__error", "Unknown render-graph resource '" + name +
-                                                  "' (or it has no GPU backing this frame). Call olo_render_list_targets for the live list." } };
 
                 const CaptureLayer::TargetLayers layers = ResolveTargetLayers(*graph, name);
                 const CaptureLayer::Selection selection =
@@ -3826,23 +3855,15 @@ namespace OloEngine::MCP
                 if (!selection.Error.empty())
                     return Json{ { "__error", selection.Error } };
 
-                GLint mipWidth = 0;
-                GLint mipHeight = 0;
-                GLint internalFormat = 0;
-                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_WIDTH, &mipWidth);
-                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_HEIGHT, &mipHeight);
-                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_INTERNAL_FORMAT,
-                                             &internalFormat);
-                if (mipWidth <= 0 || mipHeight <= 0)
+                u32 fullW = 0;
+                u32 fullH = 0;
+                RenderCommand::GetTextureDimensions(handle, mip, fullW, fullH);
+                if (fullW == 0 || fullH == 0)
                     return Json{ { "__error", "'" + name + "' has no storage at mip " + std::to_string(mip) + "." } };
+                ProbeReadPlan plan;
+                if (std::string planError; !PlanProbeRead(handle, mip, plan, planError))
+                    return Json{ { "__error", "'" + name + "': " + planError + "." } };
 
-                ProbeFormat format;
-                if (!DescribeProbeFormat(internalFormat, format))
-                    return Json{ { "__error", "'" + name + "' has an internal format stats cannot decode (0x" +
-                                                  std::format("{:X}", static_cast<u32>(internalFormat)) + ")." } };
-
-                const auto fullW = static_cast<u32>(mipWidth);
-                const auto fullH = static_cast<u32>(mipHeight);
                 u32 x = hasRect ? rectX : 0u;
                 u32 y = hasRect ? rectY : 0u;
                 u32 w = hasRect ? rectW : fullW;
@@ -3857,20 +3878,22 @@ namespace OloEngine::MCP
                                                   " texels; the ceiling is " + std::to_string(kMaxStatsRectTexels) +
                                                   ". Shrink the rect or use a higher mip." } };
 
-                // Stats aggregate per channel, so GL row order is irrelevant —
-                // only the rect's PLACEMENT must be flipped to GL's bottom-up
-                // rows: top-left rect row y..y+h maps to GL rows
-                // [mipH - y - h, mipH - y).
-                const u32 glRectY = fullH - y - h;
+                // Stats aggregate per channel, so row order does not change any
+                // VALUE — only the rect's PLACEMENT. Under a bottom-up backend a
+                // top-left rect row range y..y+h maps to rows
+                // [mipH - y - h, mipH - y); under a top-down one it is y itself.
+                // One predicate decides which (ADR 0011 amendment (85)), and a
+                // clone shares its source backend's convention.
+                const u32 readRectY = RHI::RenderTargetRowsAreBottomUp() ? fullH - y - h : y;
                 std::string readError;
                 const std::vector<f32> interleaved =
-                    ReadRectFloats(textureId, mip, selection.Layer, x, glRectY, w, h, format, readError);
+                    ReadRectFloatsThroughFacade(handle, mip, selection.Layer, x, readRectY, w, h, plan, readError);
                 if (!readError.empty())
                     return Json{ { "__error", "Stats readback of '" + name + "' failed: " + readError } };
 
-                Json j = RenderTargetStats::BuildStatsJson(name, format.Token, x, y, w, h, mip, fullW, fullH,
-                                                           selection.Layer, interleaved, format.Channels);
-                if (format.IsInteger)
+                Json j = RenderTargetStats::BuildStatsJson(name, plan.Format.Token, x, y, w, h, mip, fullW, fullH,
+                                                           selection.Layer, interleaved, plan.ReportChannels);
+                if (plan.IsInteger)
                     j["integerNote"] = "Integer target: values converted to float for stats (bit-exact below 2^24).";
                 if (!afterPass.empty())
                 {
@@ -3941,34 +3964,38 @@ namespace OloEngine::MCP
         // (main thread) Channel 0 of one mip/layer as row-major floats with
         // rows flipped to TOP-LEFT order, so diff coordinates match the
         // capture/probe convention. Depth formats read the depth plane.
-        std::vector<f32> ReadChannel0TopLeft(const u32 textureId, const u32 mip, const u32 layer,
+        //
+        // Backend-neutral since #810 — and this one was not merely refusing on
+        // Vulkan, it was CRASHING. olo_render_validate had no backend guard at
+        // all, and its old GL-id resolve went through
+        // Debug::NativeTextureIdForDiagnostics, which truncates a VkImage
+        // pointer to a NONZERO garbage u32; that then reached
+        // glGetTextureLevelParameteriv with no GL context. Resolving an
+        // identity and reading through the facade removes the whole class.
+        std::vector<f32> ReadChannel0TopLeft(RHI::ResourceHandle handle, const u32 mip, const u32 layer,
                                              u32& outWidth, u32& outHeight, std::string& outFormat,
                                              std::string& outError)
         {
             outWidth = 0;
             outHeight = 0;
-            GLint mipWidth = 0;
-            GLint mipHeight = 0;
-            GLint internalFormat = 0;
-            glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_WIDTH, &mipWidth);
-            glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_HEIGHT, &mipHeight);
-            glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_INTERNAL_FORMAT,
-                                         &internalFormat);
-            if (mipWidth <= 0 || mipHeight <= 0)
+
+            u32 w = 0;
+            u32 h = 0;
+            RenderCommand::GetTextureDimensions(handle, mip, w, h);
+            if (w == 0 || h == 0)
             {
                 outError = "no storage at mip " + std::to_string(mip);
                 return {};
             }
-            ProbeFormat format;
-            if (!DescribeProbeFormat(internalFormat, format))
+
+            ProbeReadPlan plan;
+            if (std::string planError; !PlanProbeRead(handle, mip, plan, planError))
             {
-                outError = "undecodable internal format (0x" +
-                           std::format("{:X}", static_cast<u32>(internalFormat)) + ")";
+                outError = planError;
                 return {};
             }
-            outFormat = format.Token;
-            const auto w = static_cast<u32>(mipWidth);
-            const auto h = static_cast<u32>(mipHeight);
+            outFormat = plan.Format.Token;
+
             if (static_cast<u64>(w) * h > kMaxStatsRectTexels * 4ull)
             {
                 outError = "mip is larger than the compare ceiling (" + std::to_string(w) + "x" +
@@ -3976,66 +4003,43 @@ namespace OloEngine::MCP
                 return {};
             }
 
-            // Same stale-error drain rationale as ReadRectFloats.
-            while (glGetError() != GL_NO_ERROR)
+            // Read every channel the plan says the format has, then keep
+            // channel 0. Asking for fewer components than the destination
+            // format names would mis-size the buffer on both backends.
+            const std::vector<f32> interleaved =
+                ReadRectFloatsThroughFacade(handle, mip, layer, 0u, 0u, w, h, plan, outError);
+            if (!outError.empty())
+                return {};
+
+            const sizet texels = static_cast<sizet>(w) * h;
+            if (interleaved.size() < texels * static_cast<sizet>(plan.ReportChannels))
             {
-            }
-
-            const bool isDepth = format.ReadFormat == GL_DEPTH_COMPONENT;
-            const GLenum readFormat = isDepth ? GL_DEPTH_COMPONENT
-                                              : (format.IsInteger ? GL_RED_INTEGER : GL_RED);
-
-            GLint prevPackAlignment = 4;
-            glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
-            glPixelStorei(GL_PACK_ALIGNMENT, 1);
-            GLint prevPackPBO = 0;
-            glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
-            if (prevPackPBO != 0)
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-
-            std::vector<f32> bottomUp;
-            if (format.IsInteger)
-            {
-                std::vector<i32> ints(static_cast<sizet>(w) * h, 0);
-                glGetTextureSubImage(textureId, static_cast<GLint>(mip), 0, 0, static_cast<GLint>(layer),
-                                     static_cast<GLsizei>(w), static_cast<GLsizei>(h), 1,
-                                     readFormat, GL_INT,
-                                     static_cast<GLsizei>(ints.size() * sizeof(i32)), ints.data());
-                bottomUp.reserve(ints.size());
-                for (const i32 v : ints)
-                    bottomUp.push_back(static_cast<f32>(v));
-            }
-            else
-            {
-                bottomUp.assign(static_cast<sizet>(w) * h, 0.0f);
-                glGetTextureSubImage(textureId, static_cast<GLint>(mip), 0, 0, static_cast<GLint>(layer),
-                                     static_cast<GLsizei>(w), static_cast<GLsizei>(h), 1,
-                                     readFormat, GL_FLOAT,
-                                     static_cast<GLsizei>(bottomUp.size() * sizeof(f32)), bottomUp.data());
-            }
-
-            if (prevPackPBO != 0)
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
-            glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
-
-            if (const GLenum error = glGetError(); error != GL_NO_ERROR)
-            {
-                outError = "glGetTextureSubImage failed (GL 0x" +
-                           std::format("{:X}", static_cast<u32>(error)) + ")";
+                outError = "readback returned fewer values than the rect covers";
                 return {};
             }
 
-            // Flip rows to top-left order.
-            std::vector<f32> topLeft(bottomUp.size());
-            for (u32 row = 0; row < h; ++row)
+            std::vector<f32> channel0(texels, 0.0f);
+            for (sizet i = 0; i < texels; ++i)
+                channel0[i] = interleaved[i * plan.ReportChannels];
+
+            // ONE row order per backend (amendment (85)): the readback comes
+            // back in the BACKEND's row order, and the compare convention is
+            // top-left, so flip iff the backend runs bottom-up.
+            if (RHI::RenderTargetRowsAreBottomUp())
             {
-                const f32* src = bottomUp.data() + static_cast<sizet>(h - 1u - row) * w;
-                f32* dst = topLeft.data() + static_cast<sizet>(row) * w;
-                std::copy(src, src + w, dst);
+                std::vector<f32> topLeft(channel0.size());
+                for (u32 row = 0; row < h; ++row)
+                {
+                    const f32* src = channel0.data() + static_cast<sizet>(h - 1u - row) * w;
+                    f32* dst = topLeft.data() + static_cast<sizet>(row) * w;
+                    std::copy(src, src + w, dst);
+                }
+                channel0 = std::move(topLeft);
             }
+
             outWidth = w;
             outHeight = h;
-            return topLeft;
+            return channel0;
         }
 
         ToolResult Handle_RenderValidate(McpServer& server, const Json& args)
@@ -4147,8 +4151,8 @@ namespace OloEngine::MCP
                 if (hasCompare)
                 {
                     RenderValidate::CompareResult compareResult;
-                    u32 textureA = 0;
-                    u32 textureB = 0;
+                    RHI::ResourceHandle textureA;
+                    RHI::ResourceHandle textureB;
                     if (!compare.AfterPass.empty())
                     {
                         // Both results come from the one armed snapshot; read
@@ -4180,17 +4184,18 @@ namespace OloEngine::MCP
                                     continue;
                                 }
                                 if (snapshotResult.ResourceName == compare.A)
-                                    textureA = snapshotResult.TextureID;
+                                    textureA = snapshotResult.Handle;
                                 if (snapshotResult.ResourceName == compare.B)
-                                    textureB = snapshotResult.TextureID;
+                                    textureB = snapshotResult.Handle;
                             }
                             snapshot.Disarm();
                         }
                     }
                     else
                     {
-                        textureA = ResolveTargetTexture(compare.A);
-                        textureB = ResolveTargetTexture(compare.B);
+                        bool depthFromFramebuffer = false;
+                        textureA = ResolveTargetHandle(compare.A, depthFromFramebuffer);
+                        textureB = ResolveTargetHandle(compare.B, depthFromFramebuffer);
                     }
 
                     // Per-side layer selection, same rule as capture/probe/
@@ -4226,10 +4231,10 @@ namespace OloEngine::MCP
 
                     if (compareResult.Error.empty())
                     {
-                        if (textureA == 0 || textureB == 0)
+                        if (!textureA.IsValid() || !textureB.IsValid())
                         {
                             compareResult.Error = std::string("Unknown compare target '") +
-                                                  (textureA == 0 ? compare.A : compare.B) +
+                                                  (!textureA.IsValid() ? compare.A : compare.B) +
                                                   "' (or it has no GPU backing). Call olo_render_list_targets.";
                         }
                         else
@@ -5076,11 +5081,22 @@ namespace OloEngine::MCP
         {
             if (!buffer || bytes == 0 || buffer->GetSize() < bytes)
                 return false;
-            // GL staging copy below; under any other backend refuse (callers
-            // report the read as unavailable). StorageBuffer::GetData is the
-            // portable route when this gets its facade arm (#691b).
+
+            // The GL staging dance below exists ONLY to dodge the NVIDIA
+            // VIDEO -> HOST migration described above, which is a GL driver
+            // heuristic keyed on the buffer's usage hint. Vulkan has no such
+            // hint and no such migration: ReadBufferSubData resolves the
+            // StorageBuffer identity and runs a one-shot copy with its own
+            // availability barrier, so the portable route IS the right route
+            // there (#810; this tool used to refuse outright).
             if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-                return false;
+            {
+                const RHI::ResourceHandle handle = buffer->GetRHIHandle();
+                if (!handle.IsValid())
+                    return false;
+                RenderCommand::ReadBufferSubData(handle, 0u, bytes, destination);
+                return true;
+            }
 
             u32 stagingId = 0;
             glCreateBuffers(1, &stagingId);
@@ -5098,13 +5114,6 @@ namespace OloEngine::MCP
                 const LightGrid& lightGrid = Renderer3D::GetForwardPlus().GetLightGrid();
                 if (!lightGrid.IsInitialized())
                     return Json{ { "__error", "The clustered light grid is not initialized (no frame rendered yet)." } };
-
-                // ReadStorageBufferStaged is a GL staging copy; report the
-                // backend limitation up front rather than letting it read as
-                // a readback failure (StorageBuffer::GetData is the portable
-                // route when this gains its facade arm, #691b).
-                if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-                    return Json{ { "__error", "Cluster-grid SSBO readback is OpenGL-only for now — this backend has no staged-read path yet (#691b)." } };
 
                 ClusterGrid::GridDims dims;
                 dims.CountX = lightGrid.GetClusterCountX();
@@ -5251,7 +5260,7 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        // ---- olo_froxel_fog_probe (main-marshaled; 1x1x1 GL readback) ----------
+        // ---- olo_froxel_fog_probe (main-marshaled; 1x1x1 facade readback) ------
         // Sample the froxel volumetric-fog volume at a froxel or a world position
         // (issue #607; relates to #435). Every fog contract we have compares FINAL
         // FRAME pixels, which cannot tell "the scatter pass injected nothing" from
@@ -5266,45 +5275,28 @@ namespace OloEngine::MCP
         // slices are EXPONENTIAL, so a linear guess is wrong everywhere but the two
         // end slices.
 
-        // (main thread) Read one texel out of a 3D volume with glGetTextureSubImage
-        // over a 1x1x1 region — NEVER the whole 160x90x64 RGBA16F volume (that is
-        // 7 MB per read, per volume).
-        FroxelFog::VolumeSample ProbeVolumeTexel(u32 textureId, const char* label, i32 x, i32 y, i32 z)
+        // (main thread) Read one texel out of a 3D volume — see the body for why
+        // a 1x1x1 region is the whole trick.
+        FroxelFog::VolumeSample ProbeVolumeTexel(RHI::ResourceHandle volume, const char* label, i32 x, i32 y, i32 z)
         {
             FroxelFog::VolumeSample sample;
-            // GL-only for now — the volume probe reads through raw
-            // glGetTextureSubImage (#691b guard, see the probe tools).
-            if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-            {
-                sample.Unavailable = std::string(label) + " probe is OpenGL-only for now.";
-                return sample;
-            }
-            if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
+            if (!volume.IsValid())
             {
                 sample.Unavailable = std::string(label) + " volume does not exist this frame.";
                 return sample;
             }
 
-            GLint prevPackAlignment = 4;
-            glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
-            glPixelStorei(GL_PACK_ALIGNMENT, 1);
-            GLint prevPackPBO = 0;
-            glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
-            if (prevPackPBO != 0)
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-
+            // Both backends since #810: ReadTextureSubImage addresses a volume
+            // with z as the depth SLICE (the Vulkan arm branches on the image's
+            // 3D view type to do exactly that), so a 1x1x1 read is the same
+            // call on either. Never the whole 160x90x64 RGBA16F volume — that
+            // is 7 MB per read, per volume.
             std::array<f32, 4> texel{ 0.0f, 0.0f, 0.0f, 0.0f };
-            glGetTextureSubImage(textureId, 0, x, y, z, 1, 1, 1, GL_RGBA, GL_FLOAT,
-                                 static_cast<GLsizei>(texel.size() * sizeof(f32)), texel.data());
-
-            if (prevPackPBO != 0)
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
-            glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
-
-            if (const GLenum error = glGetError(); error != GL_NO_ERROR)
+            if (!RenderCommand::ReadTextureSubImage(volume, 0u, x, y, z, 1u, 1u, 1u, RHI::Format::RGBA32Float,
+                                                    texel.size() * sizeof(f32), texel.data()))
             {
-                sample.Unavailable = std::string("glGetTextureSubImage on the ") + label + " volume failed (GL 0x" +
-                                     std::format("{:X}", static_cast<u32>(error)) + ").";
+                sample.Unavailable =
+                    std::string("Readback of the ") + label + " volume failed — see the editor log.";
                 return sample;
             }
 
@@ -5427,13 +5419,13 @@ namespace OloEngine::MCP
                                      "slice was sampled.";
                 }
 
-                // The fog volumes are identities now (issue #691); this
-                // probe reads them back with raw GL, which is the sanctioned use of the
-                // diagnostics hatch.
-                probe.Raw = ProbeVolumeTexel(Debug::NativeTextureIdForDiagnostics(state.ScatterTextureID),
-                                             "scatter", probe.Coord.IX, probe.Coord.IY, probe.Coord.IZ);
-                probe.Integrated = ProbeVolumeTexel(Debug::NativeTextureIdForDiagnostics(state.IntegratedTextureID),
-                                                    "integrated", probe.Coord.IX, probe.Coord.IY, probe.Coord.IZ);
+                // The fog volumes are identities (issue #691) and the probe reads
+                // them through the facade spine (#810), so no native id and no
+                // diagnostics hatch is involved on either backend.
+                probe.Raw = ProbeVolumeTexel(state.ScatterTextureID, "scatter", probe.Coord.IX, probe.Coord.IY,
+                                             probe.Coord.IZ);
+                probe.Integrated = ProbeVolumeTexel(state.IntegratedTextureID, "integrated", probe.Coord.IX,
+                                                    probe.Coord.IY, probe.Coord.IZ);
 
                 Json j = FroxelFog::ToJson(probe);
                 j["fog"] = Json{ { "enabled", fog.Enabled },
@@ -5447,6 +5439,158 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_gpu_resources (main-marshaled) --------------------------------
+        //
+        // The machine-readable face of the GPU Resource Inspector panel (#810).
+        // Both currencies on every row (ADR 0011 amendment (77)): the RHI
+        // identity, and the native object a RenderDoc / RGP capture shows.
+        //
+        // Why it exists as an MCP tool at all: the panel answered this only to a
+        // human looking at the editor, and on Vulkan it answered nothing to
+        // anyone. olo_memory_report gives ENGINE-tracked totals by category;
+        // this gives the actual live object list plus, where the backend can
+        // report it, the DEVICE allocator's own heap budgets — which is the
+        // number that says whether you are about to run out of VRAM.
+        ToolResult Handle_GpuResources(McpServer& server, const Json& args)
+        {
+            const std::string typeFilter = args.contains("type") && args["type"].is_string()
+                                               ? args["type"].get<std::string>()
+                                               : std::string{};
+            const auto limit = args.contains("limit") && args["limit"].is_number_integer()
+                                   ? static_cast<sizet>(std::clamp<long long>(args["limit"].get<long long>(), 1, 4096))
+                                   : sizet{ 512 };
+            const std::string nameFilter = args.contains("nameContains") && args["nameContains"].is_string()
+                                               ? args["nameContains"].get<std::string>()
+                                               : std::string{};
+
+            Json result = server.MarshalRead([typeFilter, nameFilter, limit]() -> Json
+                                             {
+                auto& inspector = GPUResourceInspector::GetInstance();
+                // Vulkan discovers its live set from RHI::ResourceRegistry on
+                // demand rather than being pushed into by registration macros,
+                // so refresh before reading. No-op on OpenGL. Must run on the
+                // main thread — the Vulkan side tables it reads are
+                // render-thread-only, which is what MarshalRead guarantees.
+                inspector.RefreshDiscoveredResources();
+
+                const auto rows = inspector.SnapshotResources();
+
+                Json entries = Json::array();
+                sizet matched = 0;
+                std::unordered_map<std::string, u64> countByType;
+                std::unordered_map<std::string, u64> bytesByType;
+                u64 totalBytes = 0;
+
+                for (const auto& row : rows)
+                {
+                    const std::string typeName = GpuResourceTypeName(row.Type);
+                    ++countByType[typeName];
+                    bytesByType[typeName] += static_cast<u64>(row.MemoryUsage);
+                    totalBytes += static_cast<u64>(row.MemoryUsage);
+
+                    if (!typeFilter.empty() && typeName != typeFilter)
+                        continue;
+                    if (!nameFilter.empty() && row.Name.find(nameFilter) == std::string::npos &&
+                        row.DebugName.find(nameFilter) == std::string::npos)
+                        continue;
+                    ++matched;
+                    if (entries.size() >= limit)
+                        continue;
+
+                    Json e;
+                    e["type"] = typeName;
+                    e["name"] = row.Name;
+                    if (!row.DebugName.empty() && row.DebugName != row.Name)
+                        e["debugName"] = row.DebugName;
+                    // BOTH currencies, always.
+                    e["nativeHandle"] = std::format("0x{:X}", row.NativeHandle);
+                    if (row.Handle.IsValid())
+                    {
+                        e["handle"] = Json{ { "index", row.Handle.Index },
+                                            { "generation", row.Handle.Generation } };
+                    }
+                    e["backend"] = GpuResourceBackendName(row.Backend);
+                    if (row.MemoryUsage > 0)
+                        e["bytes"] = static_cast<u64>(row.MemoryUsage);
+                    if (row.Width > 0 || row.Height > 0)
+                    {
+                        e["width"] = row.Width;
+                        e["height"] = row.Height;
+                    }
+                    if (row.MipLevels > 1)
+                        e["mipLevels"] = row.MipLevels;
+                    if (row.SizeBytes > 0)
+                        e["sizeBytes"] = row.SizeBytes;
+                    if (!row.FormatName.empty())
+                        e["format"] = row.FormatName;
+                    e["nativeFormat"] = std::format("0x{:X}", row.NativeFormat);
+                    if (row.IsBound)
+                    {
+                        e["bound"] = true;
+                        e["bindingSlot"] = row.BindingSlot;
+                    }
+                    entries.push_back(std::move(e));
+                }
+
+                Json byType = Json::array();
+                for (const auto& [typeName, count] : countByType)
+                {
+                    byType.push_back(Json{ { "type", typeName },
+                                           { "count", count },
+                                           { "bytes", bytesByType[typeName] } });
+                }
+                std::sort(byType.begin(), byType.end(),
+                          [](const Json& a, const Json& b)
+                          { return a["type"].get<std::string>() < b["type"].get<std::string>(); });
+
+                Json j;
+                j["backend"] = GpuResourceBackendName(RendererAPI::GetAPI() == RendererAPI::API::Vulkan
+                                                          ? RHI::Backend::Vulkan
+                                                          : RendererAPI::GetAPI() == RendererAPI::API::OpenGL
+                                                                ? RHI::Backend::OpenGL
+                                                                : RHI::Backend::None);
+                j["trackedCount"] = static_cast<u64>(rows.size());
+                j["matchedCount"] = static_cast<u64>(matched);
+                j["returnedCount"] = static_cast<u64>(entries.size());
+                j["trackedBytes"] = totalBytes;
+                j["byType"] = std::move(byType);
+                j["resources"] = std::move(entries);
+                j["previewsAvailable"] = inspector.SupportsPreviews();
+
+                // The DEVICE allocator's own numbers, when the backend has
+                // them. Deliberately separate from trackedBytes: that is the
+                // sum of this tool's per-resource ESTIMATES (no tiling padding,
+                // no suballocation slack, nothing created before the inspector
+                // existed), while these are what the allocator and the OS
+                // actually say. When they disagree, believe these.
+                std::vector<IResourceInspectorBackend::MemoryHeap> heaps;
+                if (inspector.QueryMemoryHeaps(heaps))
+                {
+                    Json heapJson = Json::array();
+                    for (const auto& heap : heaps)
+                    {
+                        heapJson.push_back(Json{ { "index", heap.Index },
+                                                 { "deviceLocal", heap.DeviceLocal },
+                                                 { "usageBytes", heap.UsageBytes },
+                                                 { "budgetBytes", heap.BudgetBytes },
+                                                 { "blockBytes", heap.BlockBytes },
+                                                 { "blockCount", heap.BlockCount },
+                                                 { "allocationCount", heap.AllocationCount } });
+                    }
+                    j["memoryHeaps"] = std::move(heapJson);
+                }
+
+                if (rows.empty())
+                {
+                    j["note"] = "No tracked GPU resources. In a Debug editor this means the inspector never "
+                                "initialised (it is compiled out of Release/Dist builds); otherwise the "
+                                "renderer has not created anything yet.";
+                }
+                return j; });
+
             return ToolResult::Structured(result);
         }
 
@@ -5561,6 +5705,82 @@ namespace OloEngine::MCP
                                     .Required({ "count", "targets" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderListTargets;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_gpu_resources";
+            tool.Toolset = "render";
+            tool.Title = "List live GPU resources";
+            // A table of objects plus a heap summary — worth rendering for a
+            // human as well as returning structured.
+            tool.DualAudienceContent = true;
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "List the GPU objects that exist RIGHT NOW — textures, cubemaps, buffers, framebuffers, "
+                "vertex arrays, shader programs — each with BOTH identities: the RHI handle "
+                "(index+generation, which survives a hot-reload and distinguishes a recycled native name "
+                "from a reused one) and the native object id a RenderDoc / RGP capture shows. Textures "
+                "report extent, mip count and storage format; buffers report their size. Works on OpenGL "
+                "and Vulkan: under Vulkan the list is discovered from the RHI resource registry and "
+                "enriched from the backend's image / root-object registries, so a Vulkan-only session can "
+                "answer 'what is on the GPU and how big is it' for the first time. "
+                "'memoryHeaps' (Vulkan only) reports the DEVICE allocator's own per-heap usage and budget "
+                "— when it disagrees with 'trackedBytes' believe the heaps, because trackedBytes is a sum "
+                "of per-resource estimates that ignores tiling padding and suballocation slack. "
+                "Compare with olo_memory_report, which reports engine-tracked totals by category rather "
+                "than the live object list. The inspector is a Debug-build instrument: a Release/Dist "
+                "editor returns an empty list with a note.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("type", Schema::String().Desc("Only resources of this type (Texture2D, TextureCubemap, VertexBuffer, IndexBuffer, UniformBuffer, Framebuffer, VertexArray, ShaderProgram, Query, Other). Omit for all; 'byType' always covers everything regardless of the filter."))
+                                   .Prop("nameContains", Schema::String().Desc("Only resources whose name or debug name contains this substring."))
+                                   .Prop("limit", Schema::Int().Min(1).Max(4096).Desc("Maximum resources to return (default 512). 'matchedCount' reports how many passed the filters."))
+                                   .NoAdditional();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("backend", Schema::String().Desc("The active renderer backend ('opengl' / 'vulkan' / 'none')."))
+                    .Prop("trackedCount", Schema::Int().Min(0).Desc("Total tracked resources, before filtering."))
+                    .Prop("matchedCount", Schema::Int().Min(0).Desc("Resources passing the filters."))
+                    .Prop("returnedCount", Schema::Int().Min(0).Desc("Resources actually listed (bounded by 'limit')."))
+                    .Prop("trackedBytes", Schema::Int().Min(0).Desc("Sum of per-resource size ESTIMATES; see 'memoryHeaps' for the allocator's own numbers."))
+                    .Prop("previewsAvailable", Schema::Bool().Desc("Whether the editor panel can render texture previews on this backend (OpenGL only)."))
+                    .Prop("note", Schema::String().Desc("Present only when nothing is tracked — says whether that means the inspector never initialised (Release/Dist) or the renderer has created nothing yet."))
+                    .Prop("byType", Schema::Array(Schema::Object()
+                                                      .Prop("type", Schema::String())
+                                                      .Prop("count", Schema::Int().Min(0))
+                                                      .Prop("bytes", Schema::Int().Min(0))))
+                    .Prop("memoryHeaps", Schema::Array(Schema::Object()
+                                                           .Prop("index", Schema::Int().Min(0))
+                                                           .Prop("deviceLocal", Schema::Bool())
+                                                           .Prop("usageBytes", Schema::Int().Min(0))
+                                                           .Prop("budgetBytes", Schema::Int().Min(0))
+                                                           .Prop("blockBytes", Schema::Int().Min(0))
+                                                           .Prop("blockCount", Schema::Int().Min(0))
+                                                           .Prop("allocationCount", Schema::Int().Min(0)))
+                                             .Desc("Device memory heaps. Omitted on backends with no portable budget query (OpenGL)."))
+                    .Prop("resources", Schema::Array(Schema::Object()
+                                                         .Prop("type", Schema::String())
+                                                         .Prop("name", Schema::String())
+                                                         .Prop("debugName", Schema::String())
+                                                         .Prop("nativeHandle", Schema::String().Desc("Native object id as hex — what a RenderDoc / RGP capture shows. 0x0 is legitimate for a Vulkan framebuffer (dynamic rendering) or an arena-backed uniform buffer."))
+                                                         .Prop("handle", Schema::Object()
+                                                                             .Prop("index", Schema::Int().Min(0))
+                                                                             .Prop("generation", Schema::Int().Min(0))
+                                                                             .Desc("RHI identity. Omitted for a resource registered before its identity was minted."))
+                                                         .Prop("backend", Schema::String())
+                                                         .Prop("bytes", Schema::Int().Min(0))
+                                                         .Prop("width", Schema::Int().Min(0))
+                                                         .Prop("height", Schema::Int().Min(0))
+                                                         .Prop("mipLevels", Schema::Int().Min(1))
+                                                         .Prop("sizeBytes", Schema::Int().Min(0))
+                                                         .Prop("format", Schema::String())
+                                                         .Prop("nativeFormat", Schema::String().Desc("Native format enum value as hex (GL internal format / VkFormat)."))
+                                                         .Prop("bound", Schema::Bool())
+                                                         .Prop("bindingSlot", Schema::Int().Min(0))))
+                    .Required({ "backend", "trackedCount", "matchedCount", "returnedCount", "resources" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_GpuResources;
             server.RegisterTool(std::move(tool));
         }
 
@@ -6435,7 +6655,8 @@ namespace OloEngine::MCP
             tool.Name = "olo_render_probe_pixel";
             tool.Toolset = "render";
             tool.Title = "Probe one pixel (G-Buffer readout)";
-            // A 1x1 GL readback; changes no camera / setting / scene state.
+            // A 1x1 readback through the facade spine; changes no camera /
+            // setting / scene state.
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Read back the exact NUMBERS under one viewport pixel — the numeric counterpart of "
@@ -6457,8 +6678,8 @@ namespace OloEngine::MCP
                 "target; space \"texel\" (with optional 'mip') addresses an EXACT texel of the target — "
                 "required for padded resources like the HZB pow2 pyramid, where proportional mapping "
                 "reads the wrong texel. 'afterPass' probes the target AS OF that pass's execution "
-                "(mid-frame snapshot) instead of end-of-frame. space/mip/layer/afterPass require "
-                "'target'.";
+                "(mid-frame snapshot) instead of end-of-frame. Works on both backends. "
+                "space/mip/layer/afterPass require 'target'.";
             tool.InputSchema = Schema::Object()
                                    .Prop("x", Schema::Int().Min(0).Desc("Pixel column, 0 = left edge (in 'space' units)."))
                                    .Prop("y", Schema::Int().Min(0).Desc("Pixel row, 0 = TOP edge (screenshot convention; the GL bottom-up flip is handled for you)."))
@@ -6524,6 +6745,7 @@ namespace OloEngine::MCP
                 "in texel coordinates of the chosen 'mip' (top-left origin, a capture PNG's orientation); "
                 "omit it for the whole mip (ceiling 4M texels — shrink the rect or raise the mip above "
                 "that). 'afterPass' computes the stats over the resource AS OF that pass's execution. "
+                "Works on both backends. "
                 "Use olo_render_capture_target to SEE the region, this to know its numbers.";
             tool.InputSchema = Schema::Object()
                                    .Prop("name", Schema::String().Desc("Render-graph resource name (see olo_render_list_targets)."))

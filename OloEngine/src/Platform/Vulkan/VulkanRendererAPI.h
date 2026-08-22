@@ -491,6 +491,9 @@ namespace OloEngine
         [[nodiscard("Store this!")]] bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel, RHI::Format destFormat, sizet destSizeBytes, void* dest) override;
         [[nodiscard("Store this!")]] bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel, i32 x, i32 y, i32 z, u32 width, u32 height, u32 depth, RHI::Format destFormat, sizet destSizeBytes, void* dest) override;
         void GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight) override;
+        [[nodiscard]] bool QueryTextureFormat(RHI::ResourceHandle texture, u32 mipLevel,
+                                              RHI::TextureFormatInfo& out) override;
+        [[nodiscard]] RHI::ResourceHandle CreateMatchingTextureHandle(RHI::ResourceHandle source) override;
         void TextureBarrier() override;
         void CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries) override;
         void DeleteQueries(std::span<const RHI::ResourceHandle> queries) override;

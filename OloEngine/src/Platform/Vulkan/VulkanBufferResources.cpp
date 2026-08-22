@@ -473,6 +473,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         CreateBuffer(nullptr);
+        // Diagnostics-only registration (#810) — see VulkanRootObjectKind.
+        VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::VertexBuffer, this);
     }
 
     VulkanVertexBuffer::VulkanVertexBuffer(const void* data, u32 size)
@@ -480,12 +482,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         CreateBuffer(data);
+        VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::VertexBuffer, this);
     }
 
     VulkanVertexBuffer::~VulkanVertexBuffer()
     {
         try
         {
+            VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
             m_RHIHandle.Reset();
             ReleaseBuffer();
         }
@@ -596,6 +600,8 @@ namespace OloEngine
         m_Allocation = created.Allocation;
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
+        // Diagnostics-only registration (#810) — see VulkanRootObjectKind.
+        VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::IndexBuffer, this);
 
         if (indices != nullptr && sizeBytes > 0)
         {
@@ -618,6 +624,7 @@ namespace OloEngine
     {
         try
         {
+            VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
             m_RHIHandle.Reset();
             ReleaseBuffer();
         }

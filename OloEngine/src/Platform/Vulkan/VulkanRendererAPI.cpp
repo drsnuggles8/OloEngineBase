@@ -3186,6 +3186,8 @@ namespace OloEngine
         {
             return;
         }
+        // ArrayLayers carries the DEPTH for a 3D image (see VulkanImageInfo),
+        // so the same bound covers a slice index and a layer index.
         if (static_cast<u32>(srcLevel) >= std::max(srcInfo->MipLevels, 1u) ||
             static_cast<u32>(dstLevel) >= std::max(dstInfo->MipLevels, 1u) ||
             static_cast<u32>(srcZ) >= std::max(srcInfo->ArrayLayers, 1u) ||
@@ -3205,10 +3207,17 @@ namespace OloEngine
         m_LayoutTracker.RegisterImage(dstImage, std::max(dstInfo->MipLevels, 1u), std::max(dstInfo->ArrayLayers, 1u),
                                       dstInfo->RegistrationId, dstInfo->InitialLayout);
 
-        const VkImageSubresourceRange srcRange{ srcAspect, static_cast<u32>(srcLevel), 1u, static_cast<u32>(srcZ),
-                                                1u };
-        const VkImageSubresourceRange dstRange{ dstAspect, static_cast<u32>(dstLevel), 1u, static_cast<u32>(dstZ),
-                                                1u };
+        // Same 3D-vs-array split as the copy region below: a 3D image has one
+        // array layer, so its barrier range must name layer 0 whatever slice
+        // the copy addresses.
+        const VkImageSubresourceRange srcRange{
+            srcAspect, static_cast<u32>(srcLevel), 1u,
+            srcInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D ? 0u : static_cast<u32>(srcZ), 1u
+        };
+        const VkImageSubresourceRange dstRange{
+            dstAspect, static_cast<u32>(dstLevel), 1u,
+            dstInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D ? 0u : static_cast<u32>(dstZ), 1u
+        };
 
         std::vector<VkImageMemoryBarrier2> toTransfer;
         StageTransferTransition(srcImage, srcRange, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -3221,11 +3230,23 @@ namespace OloEngine
         dep.pImageMemoryBarriers = toTransfer.data();
         vkCmdPipelineBarrier2(m_Cmd, &dep);
 
+        // z means different things per dimensionality, and Vulkan checks it:
+        // for a 3D image baseArrayLayer MUST be 0 and the slice is the copy's
+        // z OFFSET, while for a 2D array it is the layer and the offset must be
+        // 0. GL's glCopyImageSubData takes one z for both and sorts it out
+        // itself, which is why this only bites here. Getting it wrong is a
+        // validation error and a copy of the wrong subresource, not a wrong
+        // picture — the same split ReadTextureSubImage already makes.
+        const bool srcIsVolume = srcInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D;
+        const bool dstIsVolume = dstInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D;
+
         VkImageCopy region{};
-        region.srcSubresource = { srcAspect, static_cast<u32>(srcLevel), static_cast<u32>(srcZ), 1u };
-        region.dstSubresource = { dstAspect, static_cast<u32>(dstLevel), static_cast<u32>(dstZ), 1u };
-        region.srcOffset = { srcX, srcY, 0 };
-        region.dstOffset = { dstX, dstY, 0 };
+        region.srcSubresource = { srcAspect, static_cast<u32>(srcLevel),
+                                  srcIsVolume ? 0u : static_cast<u32>(srcZ), 1u };
+        region.dstSubresource = { dstAspect, static_cast<u32>(dstLevel),
+                                  dstIsVolume ? 0u : static_cast<u32>(dstZ), 1u };
+        region.srcOffset = { srcX, srcY, srcIsVolume ? srcZ : 0 };
+        region.dstOffset = { dstX, dstY, dstIsVolume ? dstZ : 0 };
         region.extent = { width, height, 1u };
         vkCmdCopyImage(m_Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
@@ -4239,6 +4260,13 @@ namespace OloEngine
         {
             return;
         }
+        // Snapshot clones (CreateMatchingTextureHandle, #810) live in their own
+        // owner table — they are a bare {VkImage, VmaAllocation}, not a
+        // VulkanTexture2D.
+        if (VulkanRawImageRegistry::Get().Destroy(texture))
+        {
+            return;
+        }
         // Compare-off view alias (CreateDepthArrayCompareOffViewHandle):
         // ShadowMap retires these through this entry on GL, where the view
         // is a real second texture. Here the alias is a cached second
@@ -4729,6 +4757,15 @@ namespace OloEngine
             switch (format)
             {
                 case RHI::Format::R32Float:
+                // A depth readback names D32Float as its destination on both
+                // backends — GL because only a depth dest maps to
+                // GL_DEPTH_COMPONENT, and here because the identity path only
+                // fires when the image really is VK_FORMAT_D32_SFLOAT (this
+                // hardware backs the graph's Depth24Stencil8 with
+                // D32_SFLOAT_S8_UINT, so the decode path has to serve it).
+                // The depth plane already decoded to texel.x, so this is the
+                // same single float R32Float writes.
+                case RHI::Format::D32Float:
                     std::memcpy(dest, &texel.x, sizeof(f32));
                     return true;
                 case RHI::Format::RG32Float:
@@ -5055,6 +5092,242 @@ namespace OloEngine
         }
         outWidth = std::max(info->Width >> mipLevel, 1u);
         outHeight = std::max(info->Height >> mipLevel, 1u);
+    }
+
+    bool VulkanRendererAPI::QueryTextureFormat(RHI::ResourceHandle texture, u32 mipLevel,
+                                               RHI::TextureFormatInfo& out)
+    {
+        // Keyed on the VULKAN format from the image-info registry, never on the
+        // render graph's format label — ADR 0011 amendment (79): the backend
+        // satisfies the graph's Depth24Stencil8 with D32_SFLOAT_S8_UINT here,
+        // so a table keyed on the label would decode the wrong number of bytes.
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            return false;
+        }
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
+        if (info == nullptr || info->Width == 0u || mipLevel >= std::max(info->MipLevels, 1u))
+        {
+            return false;
+        }
+
+        RHI::TextureFormatInfo described;
+        described.Native = static_cast<u64>(info->Format);
+        const u32 mipLevels = std::max(info->MipLevels, 1u);
+        const u32 arrayLayers = std::max(info->ArrayLayers, 1u);
+        RHI::TextureShape shape = RHI::TextureShape::Unknown;
+        switch (info->ViewType)
+        {
+            case VK_IMAGE_VIEW_TYPE_2D:
+                // Multisample is a SHAPE here exactly as it is on GL, so a
+                // consumer that must refuse one (the snapshot clone) sees it
+                // through the same field on both backends.
+                shape = info->Samples > 1u ? RHI::TextureShape::Texture2DMultisample
+                                           : RHI::TextureShape::Texture2D;
+                break;
+            case VK_IMAGE_VIEW_TYPE_2D_ARRAY:
+                shape = RHI::TextureShape::Texture2DArray;
+                break;
+            case VK_IMAGE_VIEW_TYPE_CUBE:
+                shape = RHI::TextureShape::TextureCube;
+                break;
+            case VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:
+                shape = RHI::TextureShape::TextureCubeArray;
+                break;
+            case VK_IMAGE_VIEW_TYPE_3D:
+                shape = RHI::TextureShape::Texture3D;
+                break;
+            default:
+                break;
+        }
+
+        // Tokens match the OpenGL arm's spelling for the same format, which is
+        // what makes a cross-backend A/B readable without a translation table.
+        switch (info->Format)
+        {
+            case VK_FORMAT_R8G8B8A8_UNORM:
+                described = { RHI::Format::RGBA8UNorm, described.Native, "RGBA8", 4, false, false, false };
+                break;
+            case VK_FORMAT_R8G8B8A8_SRGB:
+                described = { RHI::Format::RGBA8SRGB, described.Native, "RGBA8_SRGB", 4, false, false, false };
+                break;
+            case VK_FORMAT_B8G8R8A8_UNORM:
+                described = { RHI::Format::Unknown, described.Native, "BGRA8", 4, false, false, false };
+                break;
+            case VK_FORMAT_B8G8R8A8_SRGB:
+                described = { RHI::Format::Unknown, described.Native, "BGRA8_SRGB", 4, false, false, false };
+                break;
+            case VK_FORMAT_R8G8_UNORM:
+                described = { RHI::Format::RG8UNorm, described.Native, "RG8", 2, false, false, false };
+                break;
+            case VK_FORMAT_R8_UNORM:
+                described = { RHI::Format::R8UNorm, described.Native, "R8", 1, false, false, false };
+                break;
+            case VK_FORMAT_R8_UINT:
+                described = { RHI::Format::R8UInt, described.Native, "R8UI", 1, true, false, false };
+                break;
+            case VK_FORMAT_R16G16B16A16_SFLOAT:
+                described = { RHI::Format::RGBA16Float, described.Native, "RGBA16F", 4, false, false, true };
+                break;
+            case VK_FORMAT_R32G32B32A32_SFLOAT:
+                described = { RHI::Format::RGBA32Float, described.Native, "RGBA32F", 4, false, false, true };
+                break;
+            case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
+                described = { RHI::Format::Unknown, described.Native, "R11F_G11F_B10F", 3, false, false, true };
+                break;
+            case VK_FORMAT_R16G16_SFLOAT:
+                described = { RHI::Format::RG16Float, described.Native, "RG16F", 2, false, false, true };
+                break;
+            case VK_FORMAT_R32G32_SFLOAT:
+                described = { RHI::Format::RG32Float, described.Native, "RG32F", 2, false, false, true };
+                break;
+            case VK_FORMAT_R16_SFLOAT:
+                described = { RHI::Format::Unknown, described.Native, "R16F", 1, false, false, true };
+                break;
+            case VK_FORMAT_R32_SFLOAT:
+                described = { RHI::Format::R32Float, described.Native, "R32F", 1, false, false, true };
+                break;
+            case VK_FORMAT_R32_SINT:
+                described = { RHI::Format::R32Int, described.Native, "R32I", 1, true, false, false };
+                break;
+            case VK_FORMAT_R32_UINT:
+                described = { RHI::Format::R32UInt, described.Native, "R32UI", 1, true, false, false };
+                break;
+            case VK_FORMAT_D16_UNORM:
+                described = { RHI::Format::Unknown, described.Native, "D16", 1, false, true, false };
+                break;
+            case VK_FORMAT_D32_SFLOAT:
+                described = { RHI::Format::D32Float, described.Native, "D32F", 1, false, true, true };
+                break;
+            case VK_FORMAT_D24_UNORM_S8_UINT:
+                described = { RHI::Format::D24UNormS8UInt, described.Native, "D24S8", 1, false, true, false };
+                break;
+            case VK_FORMAT_D32_SFLOAT_S8_UINT:
+                described = { RHI::Format::Unknown, described.Native, "D32FS8", 1, false, true, true };
+                break;
+            default:
+                return false;
+        }
+
+        described.MipLevels = mipLevels;
+        described.ArrayLayers = arrayLayers;
+        described.Shape = shape;
+        out = described;
+        return true;
+    }
+
+    RHI::ResourceHandle VulkanRendererAPI::CreateMatchingTextureHandle(RHI::ResourceHandle source)
+    {
+        // Reproduce the SOURCE's own VkImageCreateInfo — no neutral format
+        // vocabulary in the middle (RendererAPI.h explains why). A render-graph
+        // target can hold a VkFormat the engine's ImageFormat enum cannot name,
+        // and vkCmdCopyImage requires format compatibility, so a translated
+        // near-miss would produce a garbage clone rather than an error.
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(source);
+        if (native == 0u)
+        {
+            UnimplementedStub("CreateMatchingTextureHandle(unresolved source)", StubKind::PreconditionFailure);
+            return {};
+        }
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
+        if (info == nullptr || info->Width == 0u || info->Height == 0u)
+        {
+            UnimplementedStub("CreateMatchingTextureHandle(source without a registered extent)");
+            return {};
+        }
+        if (info->Samples > 1u)
+        {
+            // The facade contract (RendererAPI.h) promises the null handle for
+            // a multisampled source, and the GL arm already refuses one. A
+            // copy destination must match VkImageCreateInfo::samples, so
+            // cloning this as single-sample would produce an image
+            // vkCmdCopyImage rejects — an empty clone the tools would then
+            // report as the pass's output.
+            OLO_CORE_WARN("[RHI/Vulkan] CreateMatchingTextureHandle: source is multisampled ({} samples) — refused",
+                          info->Samples);
+            return {};
+        }
+
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            return {};
+        }
+
+        const bool isVolume = info->ViewType == VK_IMAGE_VIEW_TYPE_3D;
+        const bool isCube = info->ViewType == VK_IMAGE_VIEW_TYPE_CUBE ||
+                            info->ViewType == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+        const u32 mipLevels = std::max(info->MipLevels, 1u);
+        const u32 arrayLayers = std::max(info->ArrayLayers, 1u);
+
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = isVolume ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
+        imageInfo.format = info->Format;
+        imageInfo.extent = { info->Width, info->Height, isVolume ? arrayLayers : 1u };
+        imageInfo.mipLevels = mipLevels;
+        imageInfo.arrayLayers = isVolume ? 1u : arrayLayers;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        // TRANSFER_DST for the mid-frame copy in, TRANSFER_SRC for the readback
+        // out — and SAMPLED, which is NOT about sampling.
+        //
+        // Usage flags have to satisfy the contract of every API the image is
+        // handed to, not just this code's intent for it. ReadTextureSubImage
+        // settles what it reads into SHADER_READ_ONLY_OPTIMAL, and that layout
+        // is only legal on an image created with SAMPLED (or INPUT_ATTACHMENT)
+        // — VUID-VkImageMemoryBarrier2-oldLayout-01211. Omitting it produced
+        // five validation errors per capture on the first live Vulkan run,
+        // with correct pixels and green tests either way, which is exactly the
+        // class of defect only the validation layer reports.
+        //
+        // Still no STORAGE/ATTACHMENT: nothing writes a clone through a
+        // descriptor, so it stays clear of the sRGB and multisample
+        // storage-image restrictions the texture classes reason about.
+        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                          VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (isCube)
+        {
+            imageInfo.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        }
+
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+        VkImage clone = VK_NULL_HANDLE;
+        VmaAllocation allocation = VK_NULL_HANDLE;
+        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &clone, &allocation, nullptr) !=
+            VK_SUCCESS)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] CreateMatchingTextureHandle: vmaCreateImage failed ({}x{} format {})",
+                          info->Width, info->Height, static_cast<u32>(info->Format));
+            return {};
+        }
+        vmaSetAllocationName(device->GetAllocator(), allocation, "SnapshotClone");
+
+        // Register the clone exactly like an object-backed texture: the barrier
+        // translator derives aspect masks from this, the layout tracker seeds
+        // from it, and ReadTextureSubImage refuses anything it cannot find here.
+        VulkanImageInfoRegistry::Get().Register(clone, VulkanImageInfo{
+                                                           .Format = info->Format,
+                                                           .Width = info->Width,
+                                                           .Height = info->Height,
+                                                           .MipLevels = mipLevels,
+                                                           .ArrayLayers = arrayLayers,
+                                                           .HasDepth = info->HasDepth,
+                                                           .HasStencil = info->HasStencil,
+                                                           .ViewType = info->ViewType,
+                                                       });
+
+        const RHI::ResourceHandle handle = VulkanRawImageRegistry::Get().Adopt(clone, allocation);
+        if (!handle.IsValid())
+        {
+            VulkanDeferredReclaim::Get().Enqueue(clone, allocation);
+        }
+        return handle;
     }
 
     void VulkanRendererAPI::TextureBarrier()

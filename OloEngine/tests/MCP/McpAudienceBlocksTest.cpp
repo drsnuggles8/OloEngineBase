@@ -401,6 +401,7 @@ TEST(McpAudienceReport, NestedObjectsBecomeSectionsAndEmptyContainersAreLabelled
 TEST(McpAudienceBlocks, BuiltinAdoptionMatchesTheDeliberateList)
 {
     static const std::set<std::string> kExpectedAdopters = {
+        "olo_gpu_resources",                // live GPU object table + device heap table
         "olo_memory_report",                // per-resource-type breakdown table
         "olo_perf_snapshot",                // ~18 frame counters
         "olo_perf_pass_timings",            // per-pass gpuMs/cpuMs table
