@@ -19,9 +19,18 @@ namespace OloEngine
 {
     static constexpr const char* s_ConfigOptions[] = { "Debug", "Release", "Dist" };
     static constexpr const char* kBackendOptions[] = { "opengl", "vulkan" };
+    // Ordinal-matched to BuildTargetPlatform (#891) — index N is that enumerator.
+    static constexpr const char* kTargetPlatformOptions[] = { "Windows", "Linux" };
+    static_assert(IM_ARRAYSIZE(kTargetPlatformOptions) == 2,
+                  "kTargetPlatformOptions must have exactly one entry per BuildTargetPlatform enumerator, "
+                  "in enum order — update this alongside any change to BuildTargetPlatform.");
 
     BuildGamePanel::BuildGamePanel()
     {
+        // Default to the host platform — the only target this host can
+        // actually build for (see IsBuildTargetSupportedOnThisHost).
+        m_TargetPlatformIndex = static_cast<int>(GetHostBuildPlatform());
+
         // Initialize buffers with defaults
         const char* defaultName = "MyGame";
         sizet nameLen = std::min(std::strlen(defaultName), m_GameNameBuffer.size() - 1);
@@ -102,6 +111,18 @@ namespace OloEngine
 
         ImGui::Spacing();
         ImGui::Combo("Build Configuration", &m_ConfigIndex, s_ConfigOptions, IM_ARRAYSIZE(s_ConfigOptions));
+
+        // Target platform (#891). OloEngine has no cross-compilation
+        // toolchain, so anything other than the host platform will fail loud
+        // at build time rather than produce a folder that looks fine and
+        // does not run — warn about that here instead of only after the click.
+        ImGui::Combo("Target Platform", &m_TargetPlatformIndex, kTargetPlatformOptions, IM_ARRAYSIZE(kTargetPlatformOptions));
+        if (static_cast<BuildTargetPlatform>(m_TargetPlatformIndex) != GetHostBuildPlatform())
+        {
+            ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f),
+                               "This host is %s — it cannot build for %s (no cross-compilation toolchain). The build will fail.",
+                               ToString(GetHostBuildPlatform()), kTargetPlatformOptions[m_TargetPlatformIndex]);
+        }
 
         // Default renderer backend the shipped game boots with (#691)
         // — written to config/renderer.yaml next to the game exe; the player's
@@ -286,6 +307,7 @@ namespace OloEngine
         m_Settings.GameName = m_GameNameBuffer.data();
         m_Settings.BuildConfiguration = s_ConfigOptions[m_ConfigIndex];
         m_Settings.DefaultRendererBackend = kBackendOptions[m_BackendIndex];
+        m_Settings.TargetPlatform = static_cast<BuildTargetPlatform>(m_TargetPlatformIndex);
 
         // Resolve the output directory to an absolute path so the build pipeline
         // and "Open Output Folder" always work regardless of process cwd
@@ -375,6 +397,15 @@ namespace OloEngine
         if (std::strlen(m_OutputPathBuffer.data()) == 0)
         {
             errorMessage = "Output directory cannot be empty";
+            return false;
+        }
+
+        if (const auto target = static_cast<BuildTargetPlatform>(m_TargetPlatformIndex);
+            !IsBuildTargetSupportedOnThisHost(target))
+        {
+            errorMessage = std::string("Cannot build for target platform '") + ToString(target) +
+                           "' on this host (host platform: " + ToString(GetHostBuildPlatform()) +
+                           "). OloEngine has no cross-compilation toolchain.";
             return false;
         }
 
