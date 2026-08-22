@@ -47,6 +47,7 @@ run is **not** evidence.
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) | a GGX VNDF sample missing its `G2/G1` weight renders a perfectly believable, permanently too-bright specular — and the bias is +1% at roughness 0.4 against +19% at 0.7, so it is smallest exactly where you would check it. A blue-noise sampler degraded back to white passes every summary statistic: uniform values, correct mean, full range |
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) §2 | two blue-noise channels seeded `seed * <the PRNG's own increment>` are the same stream ONE DRAW apart. Both channels pass every per-channel metric — full range, mean 0.5, low/high power 0.0002, neighbour correlation −0.28 — while correlating with each other at +0.55, so the 2D samples they feed are not independent at all |
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) §3a | a Cranley-Patterson rotation applied to a hemisphere RADIUS — textbook-correct on a torus, and it made the sampler measurably WORSE than the interleaved-gradient noise it replaced (error RMS 0.0349 vs 0.0218). Every CPU test passed, because they modelled one sample on the unit square where the rotation is right |
+| [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) | projecting a mesh's AABB through the real view-projection instead of onto a plane facing it passes EVERY value test — `SelectLODByPixelError` is a pure function of one float, so both implementations score identically on it. The separation only shows in an invariance test that holds camera-to-subject distance fixed while changing direction |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -277,6 +278,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) ·
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) ·
 [cluster-lod-simplification.md](cluster-lod-simplification.md) ·
+[pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) ·
 [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md) ·
 [terrain-virtual-texturing.md](terrain-virtual-texturing.md) ·
 [camera-relative-rendering.md](camera-relative-rendering.md) ·

@@ -105,8 +105,74 @@ namespace OloEngine
         // Produces better LODs for textured meshes at the cost of more CPU time.
         Ref<MeshSource> GenerateLODMeshWithAttributes(const MeshSource& meshSource, f32 targetRatio, f32 targetError = 0.01f);
 
-        // Generates a complete LODGroup with multiple simplified levels.
+        // Generates a complete LODGroup with multiple simplified levels, spacing the
+        // authored MaxDistance thresholds evenly over `maxDistance`.
+        //
+        // Prefer GenerateAutoLODGroup below for new work (issue #711): this one
+        // re-simplifies LOD 0 at a fixed ratio per level and produces no error
+        // measure, so its levels can only be selected by hand-tuned distance.
         LODGroup GenerateLODGroup(const MeshSource& meshSource, AssetHandle baseMeshHandle, u32 lodCount = 4, f32 maxDistance = 200.0f);
+
+        // Tuning for GenerateAutoLODGroup. The defaults produce the 8-12 levels a
+        // typical mesh supports before the error measure stops it.
+        struct AutoLODSettings
+        {
+            // Ceiling on the number of levels INCLUDING LOD 0. The chain normally
+            // ends on the error / triangle-floor conditions well before this.
+            u32 MaxLevels = 12;
+            // Stop once a level would fall below this many triangles — below it the
+            // silhouette is gone and further levels buy nothing.
+            u32 MinTriangleCount = 32;
+            // Stop when one simplification step's relative error exceeds this.
+            // Relative to the model's largest bounding-box extent, like meshopt's.
+            f32 MaxStepError = 0.5f;
+            // How much a unit of normal distortion counts against a unit of
+            // positional distortion. Normals drive shading, so they are weighted
+            // slightly harder than geometry; see the notes in the .cpp for why the
+            // weight is then scaled by the level's average vertex distance.
+            f32 NormalImportance = 3.0f;
+            // UVs get a small weight purely to stop the simplifier from erasing
+            // mirrored/atlassed UV seams it sees no geometric value in.
+            f32 TexCoordWeight = 1.0f;
+        };
+
+        // One generated level: the simplified geometry plus the measurement that
+        // produced it. Index 0 of a chain is the unmodified source, error 0.
+        struct AutoLODChainEntry
+        {
+            Ref<MeshSource> Source; // null for entry 0 — that IS the source mesh
+            u32 TriangleCount = 0;
+            f32 Error = 0.0f; // accumulated, relative to the model extent
+        };
+
+        // The CPU half of automatic LOD generation: simplifies, measures, and stops.
+        // Touches no AssetManager and uploads nothing to the GPU, which is what makes
+        // the error metric testable without a project or a graphics device.
+        //
+        // Always returns at least entry 0. Entries after it are ordered fine -> coarse
+        // with strictly increasing Error.
+        std::vector<AutoLODChainEntry> BuildAutoLODChain(const MeshSource& meshSource,
+                                                         const AutoLODSettings& settings = {});
+
+        // The largest bounding-box side over the vertices `meshSource`'s indices
+        // reference — the unit AutoLODChainEntry::Error is expressed in. Returns 0 for
+        // an empty or degenerate mesh.
+        [[nodiscard]] f32 MeasureModelExtent(const MeshSource& meshSource);
+
+        // Generates a LODGroup by repeatedly halving the PREVIOUS level's triangle
+        // count and recording each level's accumulated error (issue #711).
+        //
+        // Unlike GenerateLODGroup this needs no authored distances: every level
+        // carries a `LODLevel::Error` in model-extent units, which
+        // LODGroup::SelectLODByPixelError turns into an estimated pixel error at
+        // runtime. MaxDistance is still filled in, derived from the same errors, so
+        // the group stays usable on the legacy distance path and readable in the
+        // inspector.
+        //
+        // Returns a group holding only LOD 0 when the source cannot be simplified
+        // (multi-submesh, skinned, or morph-target sources are rejected outright).
+        LODGroup GenerateAutoLODGroup(const MeshSource& meshSource, AssetHandle baseMeshHandle,
+                                      const AutoLODSettings& settings = {});
 
         // ── Shadow rendering ──
 

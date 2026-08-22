@@ -298,6 +298,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShaderDebugDrawVisualTest.cpp
 		Rendering/PropertyTests/GPUFluidSolverParityTest.cpp
 		Rendering/PropertyTests/OcclusionCullVisualEvidenceTest.cpp
+		Rendering/PropertyTests/AutoMeshLODVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OcclusionCullDeferredVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredInstancedShadingEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTGpuContractTest.cpp

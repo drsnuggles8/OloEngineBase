@@ -118,6 +118,7 @@ namespace OloEngine
             AppendChange(changes, "OcclusionCulling", before.OcclusionCullingEnabled, after.OcclusionCullingEnabled);
             AppendChange(changes, "HZBOcclusionCulling", before.HZBOcclusionCullingEnabled, after.HZBOcclusionCullingEnabled);
             AppendChange(changes, "DepthPrepass", before.DepthPrepassEnabled, after.DepthPrepassEnabled);
+            AppendChange(changes, "LODPixelErrorThreshold", before.LODPixelErrorThreshold, after.LODPixelErrorThreshold);
 
             AppendChange(changes, "ForwardPlusAutoSwitch", before.ForwardPlusAutoSwitch, after.ForwardPlusAutoSwitch);
             AppendChange(changes, "ForwardPlusLightThreshold", before.ForwardPlusLightThreshold, after.ForwardPlusLightThreshold);
@@ -974,6 +975,18 @@ namespace OloEngine
                 ImGui::SetTooltip("Rejects instanced static meshes hidden behind the previous frame's\n"
                                   "depth pyramid before the indirect draw (#431). One-frame-latent;\n"
                                   "only affects dense instanced submissions above the GPU-cull threshold.");
+            }
+
+            if (ImGui::SliderFloat("Mesh LOD Pixel Error", &settings.LODPixelErrorThreshold, 0.1f, 16.0f, "%.2f px"))
+            {
+                Renderer3D::ApplyRendererSettings();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Estimated screen-space error a generated mesh LOD may introduce (#711).\n"
+                                  "1 px is imperceptible; larger values trade fidelity for triangles.\n"
+                                  "Scales with render height, so it needs no retuning between 1080p and 4K.\n"
+                                  "Hand-authored LOD groups keep their distance thresholds and ignore this.");
             }
 
             // Depth pre-pass is forced on when Forward+ is selected

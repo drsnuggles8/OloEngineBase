@@ -302,11 +302,12 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        // CullViewPos, not ViewPos (issue #726): LOD is part of the cut, so a
-        // frozen frame must keep the LOD levels it was frozen with. Flying the
-        // observer closer would otherwise swap in a finer mesh and the picture
-        // would stop being the one the culling camera produced.
-        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.CullViewPos, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
+        // s_Data.LODView is built from the CULLING camera, not the render camera
+        // (issue #726): LOD is part of the cut, so a frozen frame must keep the LOD
+        // levels it was frozen with. Flying the observer closer would otherwise swap
+        // in a finer mesh and the picture would stop being the one the culling
+        // camera produced.
+        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.LODView, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
             if (lodResult.SelectedLODIndex >= static_cast<i32>(s_Data.Stats.ObjectsPerLODLevel.size()))
             {
@@ -1560,9 +1561,9 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        // CullViewPosition, not ViewPosition (issue #726) - see the
+        // Culling-camera LOD params, not the render camera's (issue #726) - see the
         // single-threaded twin in DrawMesh().
-        if (const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->CullViewPosition, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
+        if (const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->LODView, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
             if (lodResult.SelectedLODIndex >= static_cast<i32>(ctx.ObjectsPerLODLevel.size()))
             {

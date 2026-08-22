@@ -99,6 +99,7 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/TerrainTile.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
+#include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
@@ -10852,6 +10853,17 @@ namespace OloEngine
         {
             m_VisualScriptSystem->DestroyInstance(entity.GetUUID());
         }
+    }
+
+    // Issue #711: a generated LOD chain owns memory-only Mesh assets that nothing
+    // else frees. The chain is rebuilt on every scene load, so without this each
+    // reopen would strand a whole set of CPU + GPU buffers in the process-global
+    // AssetManager. Only handles this component generated, and only those still
+    // registered as memory-only, are released.
+    template<>
+    void Scene::OnComponentRemoved<LODGroupComponent>(Entity, LODGroupComponent& component)
+    {
+        ModelImporter::ReleaseGeneratedLODAssets(component);
     }
 
     template<>

@@ -436,6 +436,25 @@ namespace OloEngine
                 return (std::isfinite(nearPlane) && nearPlane > 0.0f) ? nearPlane : 1e-4f;
             }());
 
+        // Pixel-error mesh-LOD inputs (issue #711). Everything here comes from the
+        // CULLING camera's POSITION and projection plus the render-target height —
+        // never from the view matrix, because a rotation-sensitive input is exactly
+        // what makes LODs pop when the camera sways.
+        //
+        // CullProjParams.x is cot(fovY/2), so its reciprocal is tan(fovY/2). Guard
+        // it: an orthographic or degenerate projection leaves it at/near zero, and
+        // the 90-degree fallback is the same assumption the reference design makes.
+        {
+            const f32 cotHalfFovY = data.CullProjParams.x;
+            data.LODView.ViewPosition = data.CullViewPos;
+            data.LODView.TanHalfFovY = (std::isfinite(cotHalfFovY) && cotHalfFovY > 1e-6f) ? (1.0f / cotHalfFovY) : 1.0f;
+            // Render height, not physical: the scene is rasterised at the DRS-scaled
+            // size, so that is where a pixel of error is actually a pixel.
+            const u32 renderHeight = data.RGraph ? data.RGraph->GetRenderHeight() : 0u;
+            data.LODView.ScreenHeight = (renderHeight > 0u) ? renderHeight : 1080u;
+            data.LODView.PixelErrorThreshold = data.Settings.LODPixelErrorThreshold;
+        }
+
         data.Stats.Reset();
         data.CommandCounter = 0;
 
@@ -518,6 +537,7 @@ namespace OloEngine
         data.ParallelContext.ViewProjectionMatrix = data.ViewProjectionMatrix;
         data.ParallelContext.ViewPosition = data.ViewPos;
         data.ParallelContext.CullViewPosition = data.CullViewPos;
+        data.ParallelContext.LODView = data.LODView;
         data.ParallelContext.ViewFrustum = data.ViewFrustum;
         data.ParallelContext.FrustumCullingEnabled = data.FrustumCullingEnabled;
         data.ParallelContext.DynamicCullingEnabled = data.DynamicCullingEnabled;
