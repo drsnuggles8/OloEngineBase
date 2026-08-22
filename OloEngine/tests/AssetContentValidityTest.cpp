@@ -39,6 +39,7 @@
 #include "OloEngine/Gameplay/Progression/CharacterClassDatabase.h"
 #include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
 #include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
+#include "OloEngine/Renderer/ShaderCachePaths.h"
 
 #include <algorithm>
 #include <array>
@@ -1284,93 +1285,35 @@ namespace OloEngine::Tests
     // Shader cache integrity
     //
     // The engine caches compiled shader binaries under
-    // `OloEditor/assets/cache/shader/opengl/` and `cache/shader/vulkan/`,
-    // one set of files per source `.glsl`. The cache is checked into
-    // git so first-build / fresh-clone doesn't need to recompile the
-    // 42-shader pipeline.
+    // ShaderCachePaths::Root() — since issue #906, OUTSIDE the source/editor
+    // tree entirely (%LOCALAPPDATA%\OloEngine\ShaderCache by default,
+    // overridable via OLO_SHADER_CACHE_DIR), so every worktree on a machine
+    // shares one warm cache. It is NOT checked into git — `.gitignore:6` is
+    // `**/cache/**` and always has been; a prior version of this comment
+    // claimed otherwise.
     //
-    // When a developer deletes or renames a `.glsl`, the corresponding
-    // cache entries can be left behind: the runtime ignores orphan cache
-    // files because nothing requests them, but they bloat the working
-    // tree and confuse new developers ("what shader is this for?").
+    // Filename pattern (from the on-disk format):
+    // `<Name>.glsl.<16-hex-content-hash>.cached_{opengl|vulkan}.<stage>`
+    // (issue #906 content-addresses every entry).
     //
-    // Filename pattern (from the on-disk format): `<Name>.glsl.cached_{opengl|vulkan}.<stage>`.
-    // To validate, strip the cache suffix back to `<Name>.glsl` and
-    // verify the source still exists under `OloEditor/assets/shaders/`.
+    // This test USED TO hard-fail when a cache entry's source name had no
+    // match under this worktree's `OloEditor/assets/shaders/` — a genuine
+    // orphan-detector back when the cache lived per-worktree. Sharing the
+    // cache across worktrees (the whole point of #906, and this repo's normal
+    // multi-worktree workflow — see MEMORY.md) breaks that premise: an entry
+    // left by a shader that exists on a SIBLING worktree's branch but not
+    // this one is indistinguishable, from here, from a genuinely deleted
+    // shader. Hard-failing on that is a false positive baked into the new
+    // architecture, not a real regression guard (caught in review). Skip
+    // rather than silently pass, so the retirement is visible instead of
+    // just deleting the test outright.
     // -------------------------------------------------------------------------
     TEST(AssetContentValidity, ShaderCacheEntriesAllHaveLiveGlslSources)
     {
-        const fs::path editorRoot = fs::path{ OLO_TEST_EDITOR_ROOT };
-        const fs::path shaderRoot = editorRoot / "assets" / "shaders";
-        const fs::path cacheRoot = editorRoot / "assets" / "cache" / "shader";
-        if (!fs::exists(cacheRoot))
-            return; // Cache hasn't been generated yet (fresh clone before first build).
-
-        std::vector<Failure> orphans;
-        std::error_code ec;
-        for (auto& entry : fs::recursive_directory_iterator(cacheRoot, ec))
-        {
-            if (ec)
-                break;
-            if (!entry.is_regular_file())
-                continue;
-
-            // Strip everything from `.cached_` onwards to recover the
-            // source filename. Matches all backend / stage variants
-            // (`cached_opengl.frag`, `cached_vulkan.pgr`, `cached_opengl.comp`).
-            const std::string filename = entry.path().filename().generic_string();
-            const auto cachedPos = filename.find(".cached_");
-            if (cachedPos == std::string::npos)
-                continue; // not a cache entry
-            const std::string sourceName = filename.substr(0, cachedPos);
-            if (sourceName.empty())
-                continue;
-
-            // Engine-internal shaders (convention: leading double
-            // underscore) are constructed procedurally by
-            // `ShaderWarmup::Init` / `ShaderLibrary::InitFallbackShader`
-            // — they have no on-disk source by design. The cache still
-            // stores their compiled binaries so first-run is fast.
-            if (sourceName.size() >= 2 && sourceName[0] == '_' && sourceName[1] == '_')
-                continue;
-
-            // Recursively search the shader root for a file with this
-            // name. Most cached shaders live at the root, but compute
-            // shaders are in `compute/`.
-            bool found = false;
-            for (auto& candidate : fs::recursive_directory_iterator(shaderRoot, ec))
-            {
-                if (ec)
-                    break;
-                if (!candidate.is_regular_file())
-                    continue;
-                if (candidate.path().filename().generic_string() == sourceName)
-                {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found)
-            {
-                orphans.push_back({
-                    entry.path().generic_string(),
-                    "cache file references '" + sourceName +
-                        "' but no matching source under " + shaderRoot.generic_string(),
-                });
-            }
-        }
-
-        if (!orphans.empty())
-        {
-            std::ostringstream oss;
-            oss << orphans.size() << " orphan shader cache entries:\n";
-            for (const auto& f : orphans)
-                oss << "----\n"
-                    << f.Path << "\n    " << f.Reason << "\n";
-            oss << "\nTo clean: delete each orphan cache file. The engine will "
-                << "regenerate any it actually needs on next launch.\n";
-            FAIL() << oss.str();
-        }
+        GTEST_SKIP() << "Retired by issue #906: the shader cache is now a machine-wide shared "
+                        "directory (ShaderCachePaths::Root()), so a single worktree can no "
+                        "longer soundly judge whether another worktree's cache entry is an "
+                        "orphan or simply belongs to a shader that lives on a different branch.";
     }
 
     // -------------------------------------------------------------------------
@@ -1520,6 +1463,39 @@ namespace OloEngine::Tests
                     "file does not match expected pattern for '" + kindName +
                         "' cache (" + it->Description + ").",
                 });
+            }
+        }
+
+        // The shader cache moved OUT of `cacheRoot` entirely (issue #906) to
+        // ShaderCachePaths::Root() — every file under there is shader cache
+        // (no per-kind subdir to look up), so re-run the SAME "shader" regex
+        // against that location directly. Without this, the whitelist's
+        // shader entry above would only ever match legacy pre-#906 leftovers
+        // and stop covering the directory shaders actually write to now
+        // (caught in review).
+        const fs::path shaderCacheRoot = ShaderCachePaths::Root();
+        if (fs::exists(shaderCacheRoot))
+        {
+            const auto shaderKind = std::ranges::find_if(known, [](const KnownCacheKind& k)
+                                                         { return k.Subdir == "shader"; });
+            ASSERT_NE(shaderKind, std::end(known)) << "the 'shader' whitelist entry above was removed or renamed";
+
+            for (auto& entry : fs::recursive_directory_iterator(shaderCacheRoot, ec))
+            {
+                if (ec)
+                    break;
+                if (!entry.is_regular_file())
+                    continue;
+
+                const std::string filename = entry.path().filename().generic_string();
+                if (!std::regex_match(filename, shaderKind->Pattern))
+                {
+                    unclassified.push_back({
+                        entry.path().generic_string(),
+                        "file does not match expected pattern for the shader cache (" +
+                            shaderKind->Description + ").",
+                    });
+                }
             }
         }
 

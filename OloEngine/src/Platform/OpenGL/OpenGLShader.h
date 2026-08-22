@@ -139,7 +139,6 @@ namespace OloEngine
 
         // Include processing — public so compute shaders can reuse it
         static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
-        static std::string ProcessIncludes(const std::string& source, const std::string& directory, std::vector<std::string>& outIncludePaths);
 
         // Create a shader from pre-compiled SPIR-V data (loaded from a shader pack).
         // Skips file I/O, preprocessing, and SPIR-V compilation entirely.
@@ -185,16 +184,26 @@ namespace OloEngine
         void FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, std::vector<u32>>& spirvMap);
 
         // Async link helpers — called after glLinkProgram() returns (non-blocking with extension)
-        void FinalizeAfterLink();            // Check link status, cache binary, call FinalizeProgram()
-        void SaveProgramBinaryCache() const; // Extract & save program binary to disk cache
+        void FinalizeAfterLink(); // Check link status, cache binary, call FinalizeProgram()
+
+        // |contentHash| identifies the INPUT that produced this program (issue
+        // #906) — the caller computes it once per route (m_OpenGLSPIRV for the
+        // ordinary GL path via FinalizeAfterLink, m_VulkanSPIRV for
+        // CreateProgramForAmd, the raw pre-patch GLSL text for
+        // CreateProgramFromRawGLSL) and MUST pass the same value to both the
+        // Load and the Save for one compile — the two must agree on what the
+        // key represents, or a save writes a filename the next load never
+        // looks for.
+        void SaveProgramBinaryCache(const std::string& contentHash) const; // Extract & save program binary to disk cache
 
         // Loads the cached program binary into |program| (a freshly created, empty program
         // object) and verifies it links. Returns true only on a fresh, well-framed cache that
-        // links cleanly; returns false — without asserting — on a missing/disabled/stale cache,
-        // a corrupt or truncated file, or a soft link failure, leaving the caller to recompile.
+        // links cleanly; returns false — without asserting — on a missing/disabled cache, a
+        // corrupt or truncated file, or a soft link failure, leaving the caller to recompile.
         // Shared by CreateProgram() and CreateProgramForAmd() so the on-disk framing is parsed
-        // in exactly one place (see issue #267).
-        [[nodiscard]] bool LoadProgramBinaryCache(GLenum program) const;
+        // in exactly one place (see issue #267). No staleness check: |contentHash| already
+        // identifies the exact input, so existence alone is validity (issue #906).
+        [[nodiscard]] bool LoadProgramBinaryCache(GLenum program, const std::string& contentHash) const;
 
         // Which on-disk program-binary cache this shader's CURRENT variant owns.
         // The two variants must never share a file: the driver stamps the binary
@@ -265,14 +274,6 @@ namespace OloEngine
         // bindings. NOT the same as m_IsBindlessVariant — see
         // Shader::ReadsMaterialHeapOffsets (issue #691).
         bool m_ReadsMaterialHeapOffsets = false;
-
-        // Paths resolved during #include expansion — used to invalidate shader
-        // cache when any include file is modified (not just the main .glsl).
-        std::vector<std::string> m_IncludedFilePaths;
-
-        // Returns true when the cached binary at |cachedPath| is older than the
-        // main shader source OR any of its transitive #include dependencies.
-        [[nodiscard]] bool IsCacheStale(const std::filesystem::path& cachedPath) const;
 
         // Resource registry for automatic resource management
         ShaderResourceRegistry m_ResourceRegistry;
