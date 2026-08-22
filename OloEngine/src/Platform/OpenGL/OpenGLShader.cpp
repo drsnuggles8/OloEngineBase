@@ -332,7 +332,7 @@ namespace OloEngine
         // filename.
         // ---------------------------------------------------------------
 
-        [[nodiscard]] static std::string HashHex(std::initializer_list<std::string_view> parts)
+        [[nodiscard("Store this!")]] static std::string HashHex(std::initializer_list<std::string_view> parts)
         {
             u64 hash = Hash::FNV1a64OffsetBasis;
             for (const std::string_view part : parts)
@@ -345,7 +345,7 @@ namespace OloEngine
         // Same as HashHex, but the primary input is raw SPIR-V words rather
         // than text — used by the cross-compile tier, whose input is the
         // Vulkan tier's OUTPUT, not GLSL source.
-        [[nodiscard]] static std::string HashHexBytes(const std::vector<u32>& words, std::initializer_list<std::string_view> extraParts)
+        [[nodiscard("Store this!")]] static std::string HashHexBytes(const std::vector<u32>& words, std::initializer_list<std::string_view> extraParts)
         {
             u64 hash = Hash::FNV1a64(words.data(), words.size() * sizeof(u32));
             for (const std::string_view part : extraParts)
@@ -362,7 +362,7 @@ namespace OloEngine
         // hit the exact same cross-worktree mtime problem one tier up. Stage
         // order is sorted first: unordered_map iteration order is unspecified,
         // and the hash must be reproducible run to run.
-        [[nodiscard]] static std::string HashHexSpirvMap(const std::unordered_map<GLenum, std::vector<u32>>& spirvMap)
+        [[nodiscard("Store this!")]] static std::string HashHexSpirvMap(const std::unordered_map<GLenum, std::vector<u32>>& spirvMap)
         {
             std::vector<GLenum> stages;
             stages.reserve(spirvMap.size());
@@ -386,7 +386,7 @@ namespace OloEngine
         // — it has no SPIR-V at all (glslang rejects GL_ARB_bindless_texture
         // when generating SPIR-V), so its program-binary cache key is hashed
         // straight from the preprocessed GLSL text per stage instead.
-        [[nodiscard]] static std::string HashHexSourceMap(const std::unordered_map<GLenum, std::string>& sources)
+        [[nodiscard("Store this!")]] static std::string HashHexSourceMap(const std::unordered_map<GLenum, std::string>& sources)
         {
             std::vector<GLenum> stages;
             stages.reserve(sources.size());
@@ -412,8 +412,9 @@ namespace OloEngine
         // compile (the acceptance-criteria concern in issue #906: changing an
         // option below must invalidate affected entries without a manual
         // cache delete).
-        struct VulkanTierOptions
+        class VulkanTierOptions
         {
+          public:
             static void Apply(shaderc::CompileOptions& options)
             {
                 options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
@@ -427,7 +428,7 @@ namespace OloEngine
                 options.SetSuppressWarnings();
             }
 
-            [[nodiscard]] static std::string_view Descriptor()
+            [[nodiscard("Store this!")]] static std::string_view Descriptor()
             {
                 return "env=vulkan1.2;preserve_bindings=1;auto_bind_uniforms=0;"
                        "debug_info=1;opt=performance;suppress_warnings=1";
@@ -438,9 +439,10 @@ namespace OloEngine
         // SPIR-V tier (CompileOrGetOpenGLBinaries): the cross-compiler options
         // (glslOptions) AND the re-compile options both affect the cached
         // bytes, so both are in the descriptor.
-        struct OpenGLTierOptions
+        class OpenGLTierOptions
         {
-            [[nodiscard]] static std::string_view Descriptor()
+          public:
+            [[nodiscard("Store this!")]] static std::string_view Descriptor()
             {
                 return "cross:version=450;es=0;vulkan_semantics=0;separate_shader_objects=0;"
                        "enable_420pack=1;emit_ubo_as_plain_uniforms=0|"
@@ -1280,7 +1282,7 @@ namespace OloEngine
         return true;
     }
 
-    std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source)
+    std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source) const
     {
         OLO_PROFILE_FUNCTION();
 

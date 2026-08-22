@@ -17,5 +17,5 @@ namespace OloEngine::ShaderCachePaths
     // cache entries are content-addressed — see OpenGLShader.cpp's per-tier
     // hashing — a mtime-keyed cache relocated here would invalidate the
     // shared store for every OTHER worktree on every checkout.
-    [[nodiscard]] const std::filesystem::path& Root();
+    [[nodiscard("Store this!")]] const std::filesystem::path& Root();
 } // namespace OloEngine::ShaderCachePaths

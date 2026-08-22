@@ -163,7 +163,7 @@ namespace OloEngine
 
         static std::string ReadFile(const std::string& filepath);
         static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
-        std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
+        std::unordered_map<GLenum, std::string> PreProcess(std::string_view source) const;
 
         // Returns false if any shader stage failed to compile (already logged via
         // OLO_CORE_CRITICAL). Callers must not proceed to link/finalize on failure —
@@ -203,7 +203,7 @@ namespace OloEngine
         // Shared by CreateProgram() and CreateProgramForAmd() so the on-disk framing is parsed
         // in exactly one place (see issue #267). No staleness check: |contentHash| already
         // identifies the exact input, so existence alone is validity (issue #906).
-        [[nodiscard]] bool LoadProgramBinaryCache(GLenum program, const std::string& contentHash) const;
+        [[nodiscard("Check the result — a false return means the caller must recompile")]] bool LoadProgramBinaryCache(GLenum program, const std::string& contentHash) const;
 
         // Which on-disk program-binary cache this shader's CURRENT variant owns.
         // The two variants must never share a file: the driver stamps the binary

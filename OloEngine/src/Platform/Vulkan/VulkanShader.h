@@ -212,7 +212,7 @@ namespace OloEngine
         // |contentHash| is the preprocessed stage source + the shaderc option
         // set hashed together (issue #906) — content-addressed, so existence
         // alone is validity and no separate staleness check is needed.
-        [[nodiscard]] std::filesystem::path CachePathForStage(VkShaderStageFlagBits stage, const std::string& contentHash) const;
+        [[nodiscard("Store this!")]] std::filesystem::path CachePathForStage(VkShaderStageFlagBits stage, const std::string& contentHash) const;
 
         std::string m_Name;
         std::string m_FilePath;
