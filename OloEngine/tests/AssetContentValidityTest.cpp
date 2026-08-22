@@ -2068,8 +2068,9 @@ namespace OloEngine::Tests
     // `<project>/Config/InputActions.yaml`. The engine loads it on
     // project open if present; missing is fine (input actions are an
     // optional engine feature). If present, malformed YAML or a missing
-    // top-level `InputActions` key crashes the editor's input subsystem
-    // on startup.
+    // top-level `InputActionContexts` (or legacy `InputActionMap`) key
+    // crashes the editor's input subsystem on startup — see
+    // `InputActionSerializer::Deserialize`.
     // -------------------------------------------------------------------------
     // -------------------------------------------------------------------------
     // Path-based asset references in scenes resolve on disk
@@ -2355,22 +2356,11 @@ namespace OloEngine::Tests
         auto node = ParseYAMLFile(path, reason);
         ASSERT_TRUE(node) << "InputActions.yaml failed to parse: " << reason;
 
-        // The two roots InputActionSerializer actually accepts: the canonical
-        // `InputActionContexts` sequence it writes, and the legacy
-        // `InputActionMap` single-map root it still reads (see
-        // InputActionSerializer.cpp's "Missing 'InputActionContexts' sequence
-        // or legacy 'InputActionMap' root node" error).
-        //
-        // This assertion previously named `InputActions` / `ActionMap`, which
-        // the serializer has never read. It went unnoticed because the check
-        // above returns early when the file is absent, so the test passed
-        // VACUOUSLY for as long as the sandbox shipped no InputActions.yaml —
-        // and started failing the moment #879 added one. A guard whose subject
-        // is optional needs its positive branch exercised at least once, or it
-        // is only ever asserting that the file is missing.
+        // Accept either the canonical `InputActionContexts` sequence or the
+        // legacy `InputActionMap` root — the two shapes `InputActionSerializer::
+        // Deserialize` actually understands.
         EXPECT_TRUE((*node)["InputActionContexts"] || (*node)["InputActionMap"])
-            << "InputActions.yaml missing top-level 'InputActionContexts' (or legacy "
-               "'InputActionMap') key — neither root InputActionSerializer can load.";
+            << "InputActions.yaml missing top-level 'InputActionContexts' (or legacy 'InputActionMap') key.";
     }
 
     // -------------------------------------------------------------------------

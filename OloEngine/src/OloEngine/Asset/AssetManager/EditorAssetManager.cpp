@@ -409,12 +409,18 @@ namespace OloEngine
                     TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
                     m_AssetRegistry.UpdateMetadata(assetHandle, metadata);
                 }
-                // OUTSIDE the lock scope: SerializeAssetRegistry takes
-                // m_RegistryMutex itself, and FSharedMutex is non-recursive —
-                // calling it while holding the lock self-deadlocked the game
-                // thread on every hot-reload of an existing tracked asset
-                // (found by cracking a wedged editor with cdb during the #439
-                // lightmap re-bake, which modifies its .olmap in place).
+                // OUTSIDE the lock scope. This used to be load-bearing: while
+                // SerializeAssetRegistry still took m_RegistryMutex, holding the
+                // lock across it self-deadlocked the game thread on every
+                // hot-reload of an existing tracked asset — issue #439's lightmap
+                // re-bake (fixed here in aa37548c7) and, from a build predating
+                // that fix, issue #863's filewatch hot-reload during a cold-cache
+                // scene load. SerializeAssetRegistry no longer locks at all, so
+                // this scoping is now belt-and-braces rather than the only thing
+                // standing between a hot-reload and a wedged editor. Keep it: the
+                // registry write does not need to be atomic with the metadata
+                // update, and holding an exclusive lock across a full-file write
+                // is not free.
                 SerializeAssetRegistry(); // Persist the updated timestamp
             }
             else
@@ -871,7 +877,19 @@ namespace OloEngine
         std::vector<EditorAssetLoadResponse> freshAssets;
         if (m_AssetThread->RetrieveReadyAssets(freshAssets))
         {
-            // Integrate ready assets into the main asset manager
+            // Integrate ready assets into the main asset manager.
+            //
+            // The two locks are taken in SEPARATE scopes, never nested — the same
+            // shape the raw-asset branch above already uses. This file now has no
+            // lock nesting at all: m_AssetsMutex, m_RegistryMutex and
+            // m_DependenciesMutex are each acquired and released on their own, so
+            // there is no lock ORDER to get wrong and no ABBA to audit. That was
+            // already true everywhere except right here, where m_RegistryMutex was
+            // taken inside m_AssetsMutex once per ready asset.
+            // Only the handles integrated HERE — loadedEvents may already carry
+            // entries from the raw-asset branch above, whose status this function
+            // has set already.
+            std::vector<AssetHandle> integratedHandles;
             {
                 TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
                 for (const auto& response : freshAssets)
@@ -882,18 +900,23 @@ namespace OloEngine
                         OLO_CORE_TRACE("SyncWithAssetThread: Integrated asset {} from async load",
                                        (u64)response.Metadata.Handle);
 
-                        // Update asset status to Loaded in registry
-                        {
-                            TUniqueLock<FSharedMutex> registryLock(m_RegistryMutex);
-                            auto metadata = m_AssetRegistry.GetMetadata(response.Metadata.Handle);
-                            if (metadata.IsValid())
-                            {
-                                metadata.Status = AssetStatus::Loaded;
-                                m_AssetRegistry.UpdateMetadata(response.Metadata.Handle, metadata);
-                            }
-                        }
-
+                        integratedHandles.push_back(response.Metadata.Handle);
                         loadedEvents.push_back({ response.Metadata.Handle, response.Metadata.Type, response.Metadata.FilePath });
+                    }
+                }
+            }
+
+            // Update asset status to Loaded in the registry, outside m_AssetsMutex.
+            if (!integratedHandles.empty())
+            {
+                TUniqueLock<FSharedMutex> registryLock(m_RegistryMutex);
+                for (const AssetHandle integrated : integratedHandles)
+                {
+                    auto metadata = m_AssetRegistry.GetMetadata(integrated);
+                    if (metadata.IsValid())
+                    {
+                        metadata.Status = AssetStatus::Loaded;
+                        m_AssetRegistry.UpdateMetadata(integrated, metadata);
                     }
                 }
             }
@@ -1433,8 +1456,26 @@ namespace OloEngine
     {
         try
         {
-            TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
-
+            // Deliberately takes NO m_RegistryMutex. AssetRegistry::Serialize
+            // acquires the registry's own FSharedMutex in shared mode around the
+            // whole write, so the snapshot is already consistent; an outer
+            // exclusive m_RegistryMutex added nothing but a way to deadlock.
+            //
+            // It is the *second* acquisition that kills you: m_RegistryMutex is a
+            // non-recursive FSharedMutex, so any caller that already holds it and
+            // then reaches this function parks the calling thread forever with no
+            // assert, no log line and no CPU burn. That happened twice inside one
+            // day — issue #439's lightmap re-bake (fixed in aa37548c7 by moving one
+            // call outside the lock) and issue #863's filewatch hot-reload during a
+            // cold-cache scene load, which is the SAME line reached by a different
+            // trigger. Moving individual call sites out of the lock fixes one
+            // caller; not locking here at all fixes every present and future one.
+            //
+            // What m_RegistryMutex is still for: compound read-modify-write
+            // sequences on m_AssetRegistry (SetAssetStatus, the status updates in
+            // SyncWithAssetThread, ReloadData's LastWriteTime refresh), where two
+            // individually-atomic AssetRegistry calls have to be atomic together.
+            // A single self-synchronised call like Serialize needs none of that.
             const std::filesystem::path registryPath = Project::GetAssetRegistryPath();
             return m_AssetRegistry.Serialize(registryPath);
         }
