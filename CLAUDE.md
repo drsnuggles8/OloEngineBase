@@ -63,6 +63,7 @@ you are in.
 
 **Testing & verification**
 
+- [substituted-seams-compound.md](docs/agent-rules/substituted-seams-compound.md) — every substitution a tenant makes is a seam it stops testing, and they compound: one decal tenant's three substitutions hid four separate live bugs.
 - [testing-architecture.md](docs/agent-rules/testing-architecture.md) — which of the renderer's 11 layers or the Functional axis a new test belongs to, and the registration contract.
 - [docs/testing.md](docs/testing.md) — *why* we test what we test: value heuristic, named anti-patterns, retirement criteria.
 - [reference-path-tracer.md](docs/agent-rules/reference-path-tracer.md) — the ground-truth oracle: how to ask "is it *correct*?" when a golden can only answer "did it change?".

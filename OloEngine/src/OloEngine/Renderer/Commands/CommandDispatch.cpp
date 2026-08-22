@@ -233,8 +233,10 @@ namespace OloEngine
         }
     }
 
-    // Helper to apply POD render state to the renderer API (skips if same index as last)
-    static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api)
+    // Helper to apply POD render state to the renderer API (skips if same index as last).
+    // Declared on CommandDispatch (not file-static) so a tenant can exercise the
+    // real per-draw state application -- see the header for why (issue #853).
+    void CommandDispatch::ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -352,16 +354,48 @@ namespace OloEngine
 
         api.SetColorMask(state.colorMaskR, state.colorMaskG, state.colorMaskB, state.colorMaskA);
 
-        // Apply per-attachment color write mask (for MRT: e.g. disable writes to entity-ID/normal attachments)
-        // glColorMask above resets all buffers, then glColorMaski selectively disables masked-out ones
-        if (state.colorAttachmentWriteMask != 0xFF)
+        // Per-attachment refinement of the global mask just applied.
+        //
+        // The SetColorMask above is the INDEXED call for every draw buffer
+        // (glColorMask is defined as glColorMaski for all i, and both backends
+        // model that -- see
+        // docs/agent-rules/gl-global-setter-resets-indexed-state.md), so it has
+        // just flattened whatever per-attachment masks anything else installed.
+        // Anything narrower than "every channel of every attachment" therefore
+        // has to be re-asserted here, per attachment, or it is gone before the
+        // draw.
+        //
+        // Two inputs, ANDed, never widening past the global call:
+        //   * colorAttachmentWriteMask -- one BIT per attachment, "may this
+        //     attachment be written at all". This is all this loop used to
+        //     honour, which is why DecalRenderPass's CHANNEL-level mode matrix
+        //     was silently defeated in production on both backends (issue #853):
+        //     a decal packet carries the default 0xFF here, so the loop
+        //     re-narrowed nothing and the global call's all-channels-writable
+        //     state stood.
+        //   * colorAttachmentChannelMask -- one NIBBLE per attachment, which
+        //     channels of it. Default 0xF per attachment, i.e. no refinement.
+        if (state.colorAttachmentWriteMask != 0xFF || state.colorAttachmentChannelMask != COLOR_CHANNEL_MASK_ALL)
         {
-            for (u32 i = 0; i < 8; ++i)
+            const u8 globalChannels =
+                MakeColorChannelMask(state.colorMaskR, state.colorMaskG, state.colorMaskB, state.colorMaskA);
+            for (u32 i = 0; i < MAX_MASKED_COLOR_ATTACHMENTS; ++i)
             {
-                if (!(state.colorAttachmentWriteMask & (1u << i)))
-                {
-                    api.SetColorMaskForAttachment(i, false, false, false, false);
-                }
+                const bool attachmentEnabled = (state.colorAttachmentWriteMask & (1u << i)) != 0u;
+                const u8 channels =
+                    attachmentEnabled
+                        ? static_cast<u8>(globalChannels & GetColorChannelMask(state.colorAttachmentChannelMask, i))
+                        : u8{ 0 };
+                // Skip the attachments the global call already left exactly
+                // here. That keeps the old behaviour byte-identical for every
+                // caller that only sets colorAttachmentWriteMask (the
+                // Renderer3DUtilityDraws skeleton/joint/grid draws), and keeps
+                // this loop from issuing indexed calls for draw buffers no
+                // caller asked about.
+                if (channels == globalChannels)
+                    continue;
+                api.SetColorMaskForAttachment(i, (channels & 0x1u) != 0u, (channels & 0x2u) != 0u,
+                                              (channels & 0x4u) != 0u, (channels & 0x8u) != 0u);
             }
         }
 
