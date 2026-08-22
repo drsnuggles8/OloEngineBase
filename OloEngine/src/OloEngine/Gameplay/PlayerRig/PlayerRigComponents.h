@@ -32,6 +32,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/ComponentReflection.h"
+#include "OloEngine/Scene/EntityFacing.h"
 
 #include <glm/glm.hpp>
 
@@ -315,6 +316,30 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = -89.9f, Max = 89.9f)
         f32 m_FallbackPitchDeg = -12.0f;
 
+        // Which local axis the TARGET treats as forward, for the same
+        // no-PlayerRigComponent case as m_FallbackPitchDeg. Leave it on Auto:
+        // EntityFacing::ConventionFor reads the answer off the target's own
+        // components, so a rig aimed straight at a boat / car / aircraft picks
+        // up the +Z convention with nothing authored (issue #897).
+        //
+        // The override exists for a target whose components cannot say — the
+        // usual case being a proxy transform that carries a vehicle's heading
+        // (smoothed, or with a look-astern offset) but has no vehicle component
+        // of its own. Before #897 such a proxy had to carry the heading turned
+        // through 180 degrees instead, which is a workaround that reads as a
+        // scene-authoring mistake.
+        //
+        // No OLO_PROPERTY: the C# generator does not emit enum properties, so
+        // the annotation would be dead — same reasoning as m_Target above. Lua
+        // exposes it as an integer property (see LuaScriptGlue).
+        //
+        // Reject rather than Clamp, for the reason VehicleComponent::m_DriveMode
+        // is: this is a discriminated value, and saturating a corrupt 7 to
+        // PlusZ would silently pick a DIFFERENT valid convention instead of
+        // falling back to the constructor default.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 2)
+        ForwardConvention m_TargetForward = ForwardConvention::Auto;
+
         // ── Runtime (recomputed every tick, never persisted) ─────────────────
         // Current (possibly pulled-in) boom length. Read-only introspection —
         // not OLO_PROPERTY, for the same reason as PlayerRigComponent's
@@ -351,7 +376,8 @@ namespace OloEngine
             const bool sameFeel = Math::BitwiseEqual(m_PositionSmoothTime, other.m_PositionSmoothTime) &&
                                   Math::BitwiseEqual(m_HeadBobAmplitude, other.m_HeadBobAmplitude) &&
                                   Math::BitwiseEqual(m_HeadBobFrequency, other.m_HeadBobFrequency) &&
-                                  Math::BitwiseEqual(m_FallbackPitchDeg, other.m_FallbackPitchDeg);
+                                  Math::BitwiseEqual(m_FallbackPitchDeg, other.m_FallbackPitchDeg) &&
+                                  (m_TargetForward == other.m_TargetForward);
             return sameTarget && sameCollision && sameFeel;
         }
     };

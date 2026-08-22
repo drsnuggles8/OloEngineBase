@@ -108,9 +108,10 @@ Related invariants worth keeping:
   produces *more* lift the harder you pull, forever — the toy-flight-model
   failure where an aircraft can loop indefinitely and never departs.
 * Include induced drag (`Cd = Cd0 + k·Cl²`). Without it, hard turns are free.
-* Derive the lift direction as `normalize(cross(velDir, rightWing))` and skip
+* Derive the lift direction as `normalize(cross(starboardWing, velDir))` and skip
   lift when that cross product is degenerate — at extreme sideslip the wing is
-  edge-on to the airflow and genuinely produces none.
+  edge-on to the airflow and genuinely produces none. (Starboard is local `-X`
+  for a `+Z`-forward airframe; see §11.)
 
 ## 5. Project thrust into the plane the vehicle actually travels in
 
@@ -263,3 +264,52 @@ silently reverted to zero on load, **everything would still simulate perfectly**
 — the vehicle would just start from a standstill, which reads as a design choice
 rather than a dropped field. That is precisely why it needs a round-trip test
 rather than a behavioural one.
+
+## 11. Fix the axis convention before the first sign (issue #897)
+
+Every vehicle here is `+Z` forward, `+Y` up, right-handed — Jolt's convention.
+The corollary that #438 got wrong three times over is that **starboard is local
+`-X`**, because `right == forward × up` and `(0,0,1) × (0,1,0) == (-1,0,0)`. It
+is `+X` only for a `-Z`-forward body (a camera, a player capsule). Jolt agrees:
+`VehicleConstraint` builds its wheel basis the same way.
+
+Read off that, every control sign for a `+Z`-forward body follows:
+
+| Intent | Axis it rotates about | Sign |
+| --- | --- | --- |
+| bow / nose to **starboard** | world (or body) up | **negative** — `+Y` takes `+Z` toward `+X`, which is port |
+| roll to **starboard** (starboard wing drops) | the nose, `+Z` | **positive** — `(0,0,1) × (-1,0,0) == (0,-1,0)` |
+| **nose up** | starboard, `-X` | **positive** — `(-1,0,0) × (0,0,1) == (0,1,0)` |
+
+The lesson is not the table, it is what it cost to find. `BoatComponent`
+documented "1 = full starboard", `BoatSystem` applied `+Y` torque for it and
+carried a comment asserting that was starboard, and its `rightFlat` helper made
+the same call — three statements of the same wrong thing, mutually consistent,
+none of them checked against a cross product. The suite was green throughout:
+the rudder tests measured yaw **rate magnitude** and **absolute turn size**,
+both of which a mirrored model reproduces exactly. The aircraft's yaw axis had
+no directional coverage at all, only a "controls are slack at zero airspeed"
+magnitude check.
+
+Two practical rules:
+
+* **Name the vector for the direction it points, not the axis it happens to
+  be.** `const glm::vec3 right = rot * glm::vec3(1,0,0);` is a lie for a
+  `+Z`-forward body, and every sign reasoned from that name inherits it. Write
+  `starboard = rot * glm::vec3(-1,0,0)` and the three control signs above become
+  re-derivable at the call site. Better still, take it from
+  `EntityFacing::LocalStarboard(ForwardConvention::PlusZ)`
+  (`Scene/EntityFacing.h`), which is where the convention now lives.
+* **A directional test asserts a signed world-space displacement**, not a rate
+  and not `abs()`. `BoatTest.StarboardHelmMovesTheBoatToStarboardNotToPort`
+  measures `(position - start) · startingStarboardBeam` and pairs it with the
+  unsteered baseline over the same window, so the threshold is not arbitrary.
+  Keep the window short enough that the hull cannot swing past 90°, or "to
+  starboard of where I started" stops being a well-defined direction — the test
+  asserts that bound explicitly rather than trusting it.
+
+A convention error also hides indefinitely in a **symmetric** consumer.
+`rightFlat` was wrong from the start and nothing caught it because hull drag is
+symmetric about the keel; it only mattered the day an asymmetric consumer (the
+rudder, `m_LeftRightSplit`) read the same helper. So when you find one of these,
+grep for every reader of the axis, not just the one that failed.

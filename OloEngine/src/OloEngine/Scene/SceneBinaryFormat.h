@@ -73,8 +73,11 @@ namespace OloEngine
         // save game: a sidecar is a derived cache, so rejecting the old one
         // costs one YAML load and a rewrite, where migrating it would mean
         // keeping every past component layout compilable forever.
-        constexpr u32 CurrentVersion = 2;
-        constexpr u32 MinSupportedVersion = 2;
+        // v3 (issue #897): CameraRigComponent gained m_TargetForward, which the
+        // GENERATED binary block appends to its payload — same unlength-prefixed
+        // slide as v2, same remedy.
+        constexpr u32 CurrentVersion = 3;
+        constexpr u32 MinSupportedVersion = 3;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8

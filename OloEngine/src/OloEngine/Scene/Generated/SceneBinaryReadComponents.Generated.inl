@@ -177,6 +177,12 @@ case 2905464687u: // CameraRigComponent
     comp.m_HeadBobFrequency = std::clamp(comp.m_HeadBobFrequency, static_cast<f32>(0.0f), static_cast<f32>(50.0f));
     if (!SceneBinIO::Read(reader, comp.m_FallbackPitchDeg)) return false;
     comp.m_FallbackPitchDeg = std::clamp(comp.m_FallbackPitchDeg, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
+    {
+        decltype(comp.m_TargetForward) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(2))
+            comp.m_TargetForward = v;
+    }
     break;
 }
 case 1484055434u: // CharacterController3DComponent

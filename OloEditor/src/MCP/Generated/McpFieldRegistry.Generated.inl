@@ -150,6 +150,7 @@ registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "PositionSmoothTime",
 registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "HeadBobAmplitude", m_HeadBobAmplitude, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "HeadBobFrequency", m_HeadBobFrequency, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(50.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "FallbackPitchDeg", m_FallbackPitchDeg, OLO_GFW_BOUND(-89.9f), OLO_GFW_BOUND(89.9f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "TargetForward", m_TargetForward, OLO_GFW_BOUND(0), OLO_GFW_BOUND(2)));
 
 // CapsuleCollider3DComponent
 registry.push_back(OLO_GFW_FIELD(CapsuleCollider3DComponent, "Radius", m_Radius));
