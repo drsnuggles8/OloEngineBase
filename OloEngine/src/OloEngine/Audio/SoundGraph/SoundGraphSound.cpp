@@ -441,6 +441,11 @@ namespace OloEngine::Audio::SoundGraph
             // Without this the SendPlayEvent below starts it at full gain, over the cap.
             SetVirtualized(true);
         }
+        else
+        {
+            // Audible: Acquire drove OnVoiceStart synchronously, which already thawed and
+            // un-muted this voice. Nothing left to do.
+        }
 
         // Forward the Play trigger into the runtime graph. Without this the play state
         // flips to Playing on the sound wrapper but the graph's "Play" event input is

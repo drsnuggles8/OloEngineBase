@@ -436,11 +436,11 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphSource::SetVoiceSuspended(bool suspended)
     {
-        OLO_PROFILE_FUNCTION();
-
-        // Plain store, no ack handshake — see the header. The audio thread reads this at
-        // the top of ProcessSamples and skips the whole graph step while it is set.
-        m_VoiceSuspended.store(suspended, std::memory_order_release);
+        // No profile zone: this is a single atomic store, so the zone would cost more than
+        // the work. Plain store, no ack handshake and default ordering — see the header.
+        // The audio thread reads this at the top of ProcessSamples and skips the whole
+        // graph step while it is set.
+        m_VoiceSuspended.store(suspended);
     }
 
     bool SoundGraphSource::IsFinished() const noexcept
@@ -937,7 +937,7 @@ namespace OloEngine::Audio::SoundGraph
         // reclaim, so the whole of it is skipped rather than being run into a muted output.
         // The graph object itself is left completely untouched, which is what makes the
         // thaw a continuation of the same sample stream instead of a restart.
-        if (m_VoiceSuspended.load(std::memory_order_acquire))
+        if (m_VoiceSuspended.load())
         {
             // Keep applying queued parameter writes: they are O(1) endpoint-cell writes,
             // not DSP, and dropping them would silently lose a preset applied while the
@@ -955,7 +955,8 @@ namespace OloEngine::Audio::SoundGraph
             // SPSC ring with a live producer, and Clear() rewinds the WRITE index too.
             InputEventEntry discarded;
             while (m_InputEventQueue.Pop(discarded))
-                ;
+            {
+            }
 
             SilenceOutputBuffers(ppFramesOut, frameCount);
             return;

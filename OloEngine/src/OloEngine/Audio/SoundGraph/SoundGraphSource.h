@@ -122,11 +122,19 @@ namespace OloEngine::Audio::SoundGraph
             Unlike SuspendProcessing there is no suspend/ack handshake: nothing is being
             torn down here, so a one-block overlap in either direction is inaudible (the
             owner mutes before freezing and thaws before un-muting, which covers the click).
-            Callable from any thread. */
+            Callable from any thread.
+
+            Default (sequentially consistent) ordering, unlike the acquire/release on
+            m_Suspended next to it, and the difference is deliberate: m_Suspended publishes
+            the m_Graph swap, so it needs a release/acquire pair to make that write visible.
+            This flag publishes nothing - it is a lone boolean gate with no data hanging off
+            it - so there is nothing for a weaker order to buy. On x86-64 a seq_cst load is
+            the same plain mov as an acquire load, and the store happens on a virtualize /
+            devirtualize transition rather than per block. */
         void SetVoiceSuspended(bool suspended);
         bool IsVoiceSuspended() const
         {
-            return m_VoiceSuspended.load(std::memory_order_relaxed);
+            return m_VoiceSuspended.load();
         }
 
         bool IsFinished() const noexcept;
