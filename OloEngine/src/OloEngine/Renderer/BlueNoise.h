@@ -447,8 +447,14 @@ namespace OloEngine::BlueNoise
     // order. A shared lazy static that owns a GL object is the shape
     // docs/agent-rules/lazy-static-release-ownership.md is about; this one
     // cannot leak a resource because it holds none. Each pass uploads its own
-    // texture from these bytes (32 KB of VRAM apiece), which is also what keeps
-    // the tile out of any per-frame global-bind ordering question.
+    // texture from these bytes, which is also what keeps the tile out of any
+    // per-frame global-bind ordering question.
+    //
+    // That duplication costs 8 KiB of VRAM per pass: kTileSize * kTileSize *
+    // kChannels = 64 * 64 * 2 bytes, and CreateBlueNoiseTexture asks for
+    // RG8UNorm through CreateTexture2DHandle, whose storage is immutable and
+    // SINGLE-MIP on both backends — so there is no chain to add. Two passes
+    // hold one today (SSR and SSGI), i.e. 16 KiB total.
     [[nodiscard]] inline const TileBytes& GetTileRG()
     {
         static const TileBytes s_Tile = GenerateTileRG();
