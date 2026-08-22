@@ -1,13 +1,14 @@
 # Terrain virtual texturing — the invariants, and what breaks quietly
 
 Applies to: `OloEngine/src/OloEngine/Terrain/VirtualTexture/`,
-`OloEditor/assets/shaders/compute/TerrainVT*.comp`,
+`OloEditor/assets/shaders/compute/TerrainVT*.comp` (the tile bake, the three indirection
+kernels, and the BC7 compressor),
 `OloEditor/assets/shaders/include/TerrainVirtualTexture.glsl`,
 `include/TerrainLayerBlend.glsl`, `include/TerrainParamsBlock.glsl`.
 
-Landed with issue #715 slice 1 (fixed grid, uncompressed cache, mip-chained indirection map) and
-slice 2 (incremental indirection deltas — §4). Slices 3–4 (adaptive/variable-size virtual images,
-BC-compressed cache tiles) are **not** here; read §8 before starting one.
+Landed with issue #715: slice 1 (fixed grid, uncompressed cache, mip-chained indirection map),
+slice 2 (incremental indirection deltas — §4), slice 3 (adaptive variable-size virtual images —
+§9), and slice 4 (BC7-compressed cache tiles — §10).
 
 **Read this before changing anything in the loop.** Every defect this subsystem can have is a
 *wrong address*, and a wrong address does not look like an error — it looks like the terrain
@@ -352,20 +353,101 @@ whole cache would be a per-frame stutter.
 
 ---
 
-## 9. What slices 1–2 do not do
+## 9. The adaptive layer (slice 3) — everything is still atlas space, and that is the design
 
-Stated so the next slice does not rediscover it as a bug:
+Slice 3 did **not** rewrite the loop. Every mechanism in §1–§8 keeps operating verbatim in what is
+now the virtual **atlas**: feedback words, page keys, the indirection mip chain, the delta, the
+fill — none of their formats changed. Adaptivity is one inserted mapping (terrain UV → the owning
+sector's image rect → atlas UV) plus a CPU policy that moves those rects. Consequences worth not
+rediscovering:
 
-- **The virtual image is a uniform grid** over one terrain's UV space. Per-region density needs the
-  shared power-of-two atlas allocator tracked as **#718**, whose title already names VT as a
-  consumer. Slice 3.
-- **Cache tiles are uncompressed RGBA8.** BC compression needs the GPU compressor from item 3 of
-  **#624**. Slice 4.
+- **The sector table rides the `TerrainParams` UBO as a fixed 64-entry array** (2 vec4s per
+  sector), because the SSBO namespace has exactly one free binding under the 84 minimum and a 2 KB
+  constant table does not earn it. That is why `kVTMaxSectorsWide` is 8, why the table is mirrored
+  by `UBOStructures::TerrainUBO::kTerrainVTMaxSectors` (a `static_assert` in
+  `TerrainVirtualTexture.cpp` ties the two), and why `MAX_COMMAND_SIZE` grew to 4096 — the terrain
+  patch command inlines the whole UBO.
+- **The buddy alignment is load-bearing, not incidental.** `AtlasAllocator` returns origins that
+  are multiples of the size, so an image occupies an exactly-aligned square at every atlas mip up
+  to its own coarsest level — no two images ever share an indirection texel below that level, and
+  the fill kernel's parent-inheritance cannot cross an image boundary. **Above** its coarsest level
+  an image's texels ARE shared with allocator siblings, which is why every lookup and every request
+  clamps to the sector's `MaxMip` and why nothing may ever be requested coarser.
+- **Image sizes are feedback-driven, not distance-banded.** The feedback mip field stores
+  `wantedMip + 1` so the value 0 survives as "the pixel resolved finer than the image provides" —
+  the grow signal the reference (PhotoTerrain) encoded and then clamped away.
+  `VTDesiredImageSize` turns per-sector aggregates into steps under streak + cooldown hysteresis;
+  the constants are counted in *analyses*, not frames, so they are readback-latency-independent.
+  Do not "improve" this with camera distance: feedback already IS the camera, for every view.
+- **A resize is a REMAP, never a rebake.** The pow2 pyramids nest, so the page covering a given
+  world rect at a given density exists in both allocations — `VTRemapPageKey` is a mip shift plus
+  an origin translation, `GPUPagedCache::MoveObject` renames the cache entry, and the delta records
+  the texel move. The pin remaps like everything else, which is why a sector never flickers unready
+  across a resize. Only a shrink's finest level is dropped (`DeallocateObject` — which, like every
+  explicit deallocation here, does NOT fire the eviction listener, so its unmap is written by
+  hand). If a resize ever costs a visible re-converge, suspect the remap arithmetic before the
+  policy.
+- **Stale feedback must be dropped, and there are TWO gates.** Feedback is 2-3 frames old, so
+  after a resize the buffer still names pages of the freed rect. The analyzer judges words against
+  the sector-table **snapshot taken when its analysis launched**, and `ServiceRequests` re-filters
+  the surviving list against the **live** table every frame (the list persists across frames).
+  Baking an unfiltered stale request composites terrain content into whatever image now owns that
+  atlas space — plausible pixels, wrong place. `Stats::m_StaleFeedbackTexels` is the counter;
+  nonzero for a frame or two after a resize is normal, persistent growth is an addressing bug.
+- **Pins sort first now, and the reason is a starvation bug the mip-major sort would have.** A
+  1-page image's pin lives at atlas mip 0 — the FINEST band — so "coarsest first" alone would put
+  it behind every other sector's traffic. The analyzer's sort is (pin, coarser mip, count, key);
+  the unit test `AOnePageImagesPinSortsBeforeEveryCameraRequest` fails under the old order.
+- **Per-pixel splat fallback replaces the global ready gate.** Each sector's table entry carries a
+  ready flag (pin resident AND published); an unready sector's pixels take the splat arm while
+  still writing feedback — that is what converges it. `IsReadyForShading()` is now "any sector
+  ready", and it only gates whether the VT resources are bound at all.
+- **`VTDesiredImageSize` COMMITS as it answers, so it cannot be asked speculatively.** Returning a
+  size other than the current one zeroes the streak and arms the cooldown *in the same call*. The
+  obvious refactor — run the policy for every sector, then execute only the first
+  `kVTMaxResizesPerFrame` of what it asked for — therefore throws the deferred resizes away AND
+  penalises those sectors with a full cooldown they never earned. That is why the budget is a
+  **parameter** (`canResize`) instead of a decision the caller makes afterwards: with it false the
+  per-analysis counters still tick (they are counted in analyses, which only means anything if
+  every sector ticks at the same rate) but nothing is committed and the answer is always
+  `currentSize`. Any function that mutates hysteresis state on its way out has this shape; check
+  before adding a second caller.
+- **An image's coarsest mip is DERIVED from its size, never stored beside it.** `m_MaxMip` was a
+  second `u16` next to `m_SizePages` for exactly one review cycle. `Contains()`/`PinKey()` read the
+  stored field while `VTRemapPageKey` recomputed the level from the size, so a snapshot whose two
+  disagreed would have had the remap target a level `Contains()` rejects — and the struct is
+  aggregate-initialized in a dozen places, so nothing enforced the pairing. `MaxMip()` is now a
+  method; the invariant is unrepresentable rather than documented.
+
+## 10. BC7 cache tiles (slice 4) — the bake is unchanged, the destination moved
+
+`imageStore` cannot write a block-compressed image, so the compressed path re-routes the same bake:
+the kernel writes an RGBA8 **scratch** strip (one slot per bake-budget entry — the request's
+`TileX` becomes the slot index on the upload copy only; `m_BakeList` keeps the real cache
+coordinates), `TerrainVTCompressBC7.comp` packs one BC7 mode-6 block per invocation into an
+RGBA32UI **staging** image, and `CopyImageSubDataRegion` places each tile in the BC7 cache.
+
+- **The copy's units are the trap:** width/height are SOURCE texels (one RGBA32UI texel = one
+  16-byte block), destination offsets are cache TEXELS and must be multiples of 4. `Sanitize()`
+  keeps `TileTexels()` ≡ 0 (mod 4) by rounding the border UP to even when compression is on —
+  up, because shrinking the border is the direction that creates filter seams.
+- **The shading side changed by nothing.** A `sampler2DArray` over BC7 decodes in the texture
+  unit; the same `oloVTSampleSurface` serves both cache formats, and `CompressedCache` is a pure
+  config A/B (`TheCompressedCacheCostsAQuarterAndKeepsTheSurface` pins bytes AND surface).
+- The encoder is verified two ways: `TerrainVTCompressBC7Test` decodes GPU output with the
+  vendored bcdec oracle (mode bits, PSNR, exact solid-color round-trip), and the evidence A/B
+  bounds the frame difference against the uncompressed cache.
+
+## 11. What slices 1–4 still do not do
+
 - **Streamed terrain keeps the splat path.** A streamed terrain's tiles each carry their own
-  material and their own `[0,1]` UV space, so one uniform virtual image cannot address them. The gate
+  material and their own `[0,1]` UV space, so one atlas cannot address them. The gate
   is `!terrain.m_StreamingEnabled` in `Scene.cpp`, and the editor panel says so.
-- **One indirection fetch per pixel, no trilinear blend across mips.** A page-mip transition is a
-  density step rather than a cross-fade. The reference blends two fetches; that belongs with the
-  adaptive slice, where the request list already carries both levels.
+- **The request mip is isotropic.** van Waveren's anisotropic refinement biases the REQUEST (and
+  wants an aniso sampler on the cache); it was deliberately left out — it changes what is asked
+  for, not whether an address is right.
 - **A floating-origin rebase invalidates the whole cache** (the transform moves), rather than
   re-projecting it. Correct, but it costs a full re-bake at the rebase.
+- **The delta's fill rect is still one bounding box per level** (§4). Adaptive traffic did not
+  change that calculus, but a measured regression under scattered evictions at large atlas sizes
+  is the cue to revisit N-rectangles — measure the dispatch count you buy it with.

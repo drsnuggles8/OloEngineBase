@@ -317,20 +317,33 @@ namespace OloEngine
             glm::vec4 LayerBlendSharpness0; // Height blend sharpness for layers 0-3
             glm::vec4 LayerBlendSharpness1; // Height blend sharpness for layers 4-7
 
-            // Virtual texturing (issue #715). APPENDED, and that matters: a
-            // std140 block a shader declares SHORTER than the buffer simply
-            // reads a prefix, so the five terrain shaders that have no VT branch
-            // (Terrain_Depth, the four voxel ones) keep their existing shorter
-            // declaration and are untouched by this. Only Terrain_PBR and
-            // Terrain_GBuffer declare the three below.
+            // Virtual texturing (issue #715). Every terrain shader sees these
+            // through the single block declaration in
+            // include/TerrainParamsBlock.glsl whether or not it has a VT
+            // branch — the block is declared once, so they all agree.
             //
             // Packed rather than named one-per-field because they cross into
-            // GLSL as three vec4s; the ONE owner of the packing is
+            // GLSL as four vec4s; the ONE owner of the packing is
             // TerrainVirtualTexture::FillShaderParams, and the GLSL twin is
             // oloVTUnpackParams() in include/TerrainVirtualTexture.glsl.
             glm::vec4 VTParams0{ 0.0f }; // x = pagesWide, y = pageTexels, z = borderTexels, w = tileTexels
             glm::vec4 VTParams1{ 0.0f }; // x = cacheTexels, y = maxMip, zw = feedback dimensions
             glm::vec4 VTParams2{ 0.0f }; // x = enabled, y = feedback frame slot, z = downscale, w = log2(downscale)
+            glm::vec4 VTParams3{ 0.0f }; // x = sectorsWide, y = trilinear, zw = reserved
+
+            // The adaptive sector table (issue #715 slice 3): two vec4s per
+            // sector, row-major. Rides this UBO because the SSBO namespace has
+            // exactly one free binding under the 84 minimum and a 2 KB fixed
+            // array does not earn it. Mirrors kVTMaxSectorCount in
+            // Terrain/VirtualTexture/TerrainVirtualTextureTypes.h — the
+            // static_assert lives in TerrainVirtualTexture.cpp, where both are
+            // visible. Packing owner: FillShaderSectorTable; GLSL twin:
+            // u_TerrainVTSectors in include/TerrainParamsBlock.glsl, decoded
+            // by oloVTDecodeSector().
+            //   [2i]     = (uvPosX, uvPosY, uvSize, derivativeScale)
+            //   [2i + 1] = (maxMip, ready, reserved, reserved)
+            static constexpr u32 kTerrainVTMaxSectors = 64;
+            glm::vec4 VTSectors[2 * kTerrainVTMaxSectors]{};
 
             static constexpr u32 GetSize()
             {
@@ -1540,10 +1553,12 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::TerrainCullUBO) == 160, "TerrainCullUBO unexpected size — update include/TerrainCullParams.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) % 16 == 0, "BrushPreviewUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::FoliageUBO) % 16 == 0, "FoliageUBO size must be 16-byte aligned for std140");
-    // 144 before issue #715 appended the three virtual-texture vec4s. Bumping this
-    // is only half the edit: the GLSL block lives in include/TerrainParamsBlock.glsl
-    // and is declared ONCE for all eight terrain shaders (see that file for why).
-    static_assert(sizeof(UBOStructures::TerrainUBO) == 192, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
+    // 144 before issue #715 appended the three virtual-texture vec4s (-> 192);
+    // slices 3+4 appended VTParams3 and the 64-sector x 2-vec4 adaptive table
+    // (-> 2256). Bumping this is only half the edit: the GLSL block lives in
+    // include/TerrainParamsBlock.glsl and is declared ONCE for all eight
+    // terrain shaders (see that file for why).
+    static_assert(sizeof(UBOStructures::TerrainUBO) == 2256, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::FoliageUBO) == 80, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");

@@ -4325,4 +4325,107 @@ Entities:
         EXPECT_EQ(restored.GetComponent<TerrainComponent>().m_VoxelMesher, VoxelMesherKind::MarchingCubes);
     }
 
+    // -------------------------------------------------------------------------
+    // TerrainComponent — the OTHER two destinations a new field has to reach
+    // -------------------------------------------------------------------------
+    //
+    // This file's breakage class is "added a field, forgot to wire it up", and
+    // the serializer is only one of the places that wiring lands.
+    // TerrainComponent hand-writes its copy constructor, its copy-assignment
+    // and its operator== (it holds Ref<T> runtime state that must NOT be
+    // copied, so it cannot use the defaulted forms), which makes each of them
+    // a per-field list someone has to remember. Both failures are silent and
+    // neither is a serializer bug:
+    //
+    //   * missing from the copy path -> Scene::Copy runs on every Play/Simulate
+    //     entry and DuplicateEntity on every duplicate, so an authored value
+    //     reverts to its default the moment you press Play. The scene file on
+    //     disk is correct the whole time, which is what makes it baffling.
+    //   * missing from operator==    -> SceneHierarchyPanel's DrawComponent<T>
+    //     picks the equality tier for this type, so an inspector edit to that
+    //     field is invisible to undo — no change is recorded at all.
+    //
+    // Both were live for all eleven virtual-texturing fields (issue #715
+    // slices 1-4) until CodeRabbit caught it on the slice 3+4 PR.
+    TEST(ComponentRoundTrip, TerrainVirtualTextureFieldsSurviveSceneCopy)
+    {
+        auto scene = Scene::Create();
+        {
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& terrain = entity.AddComponent<TerrainComponent>();
+            // Every one deliberately different from its default, so a field
+            // dropped from the copy list shows up as its default below.
+            terrain.m_VirtualTextureEnabled = true;
+            terrain.m_VTVirtualPagesWide = 512;
+            terrain.m_VTPageTexels = 64;
+            terrain.m_VTBorderTexels = 2;
+            terrain.m_VTCacheTilesWide = 32;
+            terrain.m_VTMaxTileBakesPerFrame = 4;
+            terrain.m_VTAdaptiveEnabled = false;
+            terrain.m_VTSectorsWide = 4;
+            terrain.m_VTMaxImagePagesWide = 32;
+            terrain.m_VTTrilinearEnabled = false;
+            terrain.m_VTCompressedCache = false;
+        }
+
+        // The exact call Scene::OnRuntimeStart makes.
+        Ref<Scene> copy = Scene::Copy(scene);
+        ASSERT_TRUE(static_cast<bool>(copy));
+
+        Entity copied = FindByTag(*copy, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(copied));
+        ASSERT_TRUE(copied.HasComponent<TerrainComponent>());
+
+        const auto& terrain = copied.GetComponent<TerrainComponent>();
+        EXPECT_TRUE(terrain.m_VirtualTextureEnabled);
+        EXPECT_EQ(terrain.m_VTVirtualPagesWide, 512u);
+        EXPECT_EQ(terrain.m_VTPageTexels, 64u);
+        EXPECT_EQ(terrain.m_VTBorderTexels, 2u);
+        EXPECT_EQ(terrain.m_VTCacheTilesWide, 32u);
+        EXPECT_EQ(terrain.m_VTMaxTileBakesPerFrame, 4u);
+        EXPECT_FALSE(terrain.m_VTAdaptiveEnabled);
+        EXPECT_EQ(terrain.m_VTSectorsWide, 4u);
+        EXPECT_EQ(terrain.m_VTMaxImagePagesWide, 32u);
+        EXPECT_FALSE(terrain.m_VTTrilinearEnabled);
+        EXPECT_FALSE(terrain.m_VTCompressedCache);
+    }
+
+    TEST(ComponentRoundTrip, TerrainVirtualTextureFieldsAreVisibleToUndoEquality)
+    {
+        // One mutation per field, each asserted to break equality. A field
+        // missing from operator== passes every other test in this file and
+        // simply cannot be undone in the editor.
+        const auto differsInEveryWay = [](auto&& mutate)
+        {
+            TerrainComponent original;
+            TerrainComponent edited = original;
+            EXPECT_TRUE(original == edited) << "a plain copy must compare equal";
+            mutate(edited);
+            EXPECT_FALSE(original == edited);
+        };
+
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VirtualTextureEnabled = !c.m_VirtualTextureEnabled; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTVirtualPagesWide += 1u; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTPageTexels += 1u; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTBorderTexels += 1u; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTCacheTilesWide += 1u; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTMaxTileBakesPerFrame += 1u; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTAdaptiveEnabled = !c.m_VTAdaptiveEnabled; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTSectorsWide += 1u; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTMaxImagePagesWide += 1u; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTTrilinearEnabled = !c.m_VTTrilinearEnabled; });
+        differsInEveryWay([](TerrainComponent& c)
+                          { c.m_VTCompressedCache = !c.m_VTCompressedCache; });
+    }
+
 } // namespace OloEngine::Tests

@@ -2835,6 +2835,36 @@ namespace OloEngine
 			set => InternalCalls.TerrainComponent_SetVTMaxTileBakesPerFrame(Entity.ID, value);
 		}
 
+		public bool VTAdaptiveEnabled
+		{
+			get => InternalCalls.TerrainComponent_GetVTAdaptiveEnabled(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTAdaptiveEnabled(Entity.ID, value);
+		}
+
+		public uint VTSectorsWide
+		{
+			get => InternalCalls.TerrainComponent_GetVTSectorsWide(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTSectorsWide(Entity.ID, value);
+		}
+
+		public uint VTMaxImagePagesWide
+		{
+			get => InternalCalls.TerrainComponent_GetVTMaxImagePagesWide(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTMaxImagePagesWide(Entity.ID, value);
+		}
+
+		public bool VTTrilinearEnabled
+		{
+			get => InternalCalls.TerrainComponent_GetVTTrilinearEnabled(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTTrilinearEnabled(Entity.ID, value);
+		}
+
+		public bool VTCompressedCache
+		{
+			get => InternalCalls.TerrainComponent_GetVTCompressedCache(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetVTCompressedCache(Entity.ID, value);
+		}
+
 		public int VoxelMesher
 		{
 			get => InternalCalls.TerrainComponent_GetVoxelMesher(Entity.ID);

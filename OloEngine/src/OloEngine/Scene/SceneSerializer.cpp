@@ -1302,6 +1302,15 @@ namespace OloEngine
             std::clamp(terrainComponent["VTCacheTilesWide"].as<u32>(terrain.m_VTCacheTilesWide), 2u, 256u);
         terrain.m_VTMaxTileBakesPerFrame = std::clamp(
             terrainComponent["VTMaxTileBakesPerFrame"].as<u32>(terrain.m_VTMaxTileBakesPerFrame), 1u, 64u);
+        // Slices 3+4: same clamp-not-reject rationale — sizing knobs, not
+        // modes; the bools have no range to clamp.
+        terrain.m_VTAdaptiveEnabled = terrainComponent["VTAdaptiveEnabled"].as<bool>(terrain.m_VTAdaptiveEnabled);
+        terrain.m_VTSectorsWide =
+            std::clamp(terrainComponent["VTSectorsWide"].as<u32>(terrain.m_VTSectorsWide), 1u, 8u);
+        terrain.m_VTMaxImagePagesWide =
+            std::clamp(terrainComponent["VTMaxImagePagesWide"].as<u32>(terrain.m_VTMaxImagePagesWide), 1u, 4096u);
+        terrain.m_VTTrilinearEnabled = terrainComponent["VTTrilinearEnabled"].as<bool>(terrain.m_VTTrilinearEnabled);
+        terrain.m_VTCompressedCache = terrainComponent["VTCompressedCache"].as<bool>(terrain.m_VTCompressedCache);
 
         // Voxel override settings
         terrain.m_VoxelEnabled = terrainComponent["VoxelEnabled"].as<bool>(terrain.m_VoxelEnabled);
@@ -4949,6 +4958,11 @@ namespace OloEngine
             out << YAML::Key << "VTBorderTexels" << YAML::Value << terrain.m_VTBorderTexels;
             out << YAML::Key << "VTCacheTilesWide" << YAML::Value << terrain.m_VTCacheTilesWide;
             out << YAML::Key << "VTMaxTileBakesPerFrame" << YAML::Value << terrain.m_VTMaxTileBakesPerFrame;
+            out << YAML::Key << "VTAdaptiveEnabled" << YAML::Value << terrain.m_VTAdaptiveEnabled;
+            out << YAML::Key << "VTSectorsWide" << YAML::Value << terrain.m_VTSectorsWide;
+            out << YAML::Key << "VTMaxImagePagesWide" << YAML::Value << terrain.m_VTMaxImagePagesWide;
+            out << YAML::Key << "VTTrilinearEnabled" << YAML::Value << terrain.m_VTTrilinearEnabled;
+            out << YAML::Key << "VTCompressedCache" << YAML::Value << terrain.m_VTCompressedCache;
 
             // Voxel override settings
             out << YAML::Key << "VoxelEnabled" << YAML::Value << terrain.m_VoxelEnabled;

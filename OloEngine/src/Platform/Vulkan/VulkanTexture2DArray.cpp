@@ -33,6 +33,12 @@ namespace OloEngine
                     return VK_FORMAT_R16G16B16A16_SFLOAT;
                 case Texture2DArrayFormat::RGBA32F:
                     return VK_FORMAT_R32G32B32A32_SFLOAT;
+                case Texture2DArrayFormat::RGBA32UI:
+                    return VK_FORMAT_R32G32B32A32_UINT;
+                case Texture2DArrayFormat::BC7:
+                    // Linear variant, matching the GL twin's
+                    // GL_COMPRESSED_RGBA_BPTC_UNORM.
+                    return VK_FORMAT_BC7_UNORM_BLOCK;
             }
             return VK_FORMAT_UNDEFINED;
         }
@@ -44,6 +50,17 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto* device = VulkanDevice::Get();
         OLO_CORE_ASSERT(device != nullptr, "VulkanTexture2DArray requires a live VulkanDevice");
+
+        // Mirror the 2D twin (VulkanTexture2D's spec ctor): block-compressed
+        // formats have no population path here — a BC image cannot take the
+        // colour-attachment usage below, and its GPU-side transcode staging is
+        // Phase 6 for Vulkan. Refuse loudly but non-fatally.
+        if (spec.Format == Texture2DArrayFormat::BC7)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray: block-compressed format cannot be created — the "
+                           "VT tile-stage copy path is Phase 6");
+            return;
+        }
 
         const VkFormat format = Texture2DArrayFormatToVk(spec.Format);
         const bool isDepth = spec.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F;
@@ -178,6 +195,14 @@ namespace OloEngine
             case Texture2DArrayFormat::RGBA32F:
                 bpp = 16;
                 break;
+            case Texture2DArrayFormat::RGBA32UI:
+                bpp = 16;
+                break;
+            case Texture2DArrayFormat::BC7:
+                // Same contract as the GL twin: BC7 layers are populated
+                // GPU-side via CopyImageSubDataFull, never a client upload.
+                OLO_CORE_ERROR("VulkanTexture2DArray::SetLayerData: not supported for block-compressed formats");
+                return;
             case Texture2DArrayFormat::DEPTH_COMPONENT32F:
             default:
                 OLO_CORE_ERROR("VulkanTexture2DArray::SetLayerData: not supported for depth formats");
@@ -267,6 +292,15 @@ namespace OloEngine
         if (m_Specification.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F)
         {
             OLO_CORE_ERROR("VulkanTexture2DArray::GenerateMipmaps: not supported for depth formats");
+            return;
+        }
+        // Compressed VT caches never mip; a BC image cannot be a blit target,
+        // and a UINT format cannot take the VK_FILTER_LINEAR blit below.
+        if (m_Specification.Format == Texture2DArrayFormat::BC7 ||
+            m_Specification.Format == Texture2DArrayFormat::RGBA32UI)
+        {
+            OLO_CORE_ERROR("VulkanTexture2DArray::GenerateMipmaps: not supported for block-compressed or "
+                           "integer formats");
             return;
         }
 

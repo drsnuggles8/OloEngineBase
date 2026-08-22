@@ -69,7 +69,7 @@ namespace
                   "RHI::Filter changed — update ToGL() and FilterLowering");
     static_assert(static_cast<int>(RHI::AddressMode::ClampToBorder) == 3,
                   "RHI::AddressMode changed — update ToGL() and AddressModeLowering");
-    static_assert(static_cast<int>(RHI::Format::BC7SRGB) == 22,
+    static_assert(static_cast<int>(RHI::Format::RGBA32UInt) == 23,
                   "RHI::Format changed — update ToGLInternalFormat() and FormatLowering");
     // Access and PrimitiveTopology are lowered by ToGLImageAccess() / ToGL() and
     // so need the same growth tripwire. Access is the one most likely to gain a
@@ -203,6 +203,7 @@ TEST(RHIEnumLowering, InternalFormatLowersToTheNamedSizedGLFormat)
     EXPECT_EQ(Utils::ToGLInternalFormat(RHI::Format::BC6HUFloat), GLenum{ GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT });
     EXPECT_EQ(Utils::ToGLInternalFormat(RHI::Format::BC7UNorm), GLenum{ GL_COMPRESSED_RGBA_BPTC_UNORM });
     EXPECT_EQ(Utils::ToGLInternalFormat(RHI::Format::BC7SRGB), GLenum{ GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM });
+    EXPECT_EQ(Utils::ToGLInternalFormat(RHI::Format::RGBA32UInt), GLenum{ GL_RGBA32UI });
 }
 
 // UploadTextureSubImage2D collapsed GL's (format, type) pair into one
@@ -224,6 +225,9 @@ TEST(RHIEnumLowering, UploadFormatLowersToTheGLFormatTypePair)
     // mismatch here is a GL_INVALID_OPERATION, not a silent miscolour.
     EXPECT_EQ(Utils::ToGLPixelFormat(RHI::Format::R32UInt), GLenum{ GL_RED_INTEGER });
     EXPECT_EQ(Utils::ToGLPixelType(RHI::Format::R32UInt), GLenum{ GL_UNSIGNED_INT });
+
+    EXPECT_EQ(Utils::ToGLPixelFormat(RHI::Format::RGBA32UInt), GLenum{ GL_RGBA_INTEGER });
+    EXPECT_EQ(Utils::ToGLPixelType(RHI::Format::RGBA32UInt), GLenum{ GL_UNSIGNED_INT });
 }
 
 TEST(RHIEnumLowering, ImageAccessLowersToTheNamedGLAccess)

@@ -9172,6 +9172,106 @@ static void TerrainComponent_SetVTMaxTileBakesPerFrame(UUID entityID, unsigned i
     comp.m_VTMaxTileBakesPerFrame = value;
 }
 
+static bool TerrainComponent_GetVTAdaptiveEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_VTAdaptiveEnabled;
+}
+
+static void TerrainComponent_SetVTAdaptiveEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_VTAdaptiveEnabled = value;
+}
+
+static unsigned int TerrainComponent_GetVTSectorsWide(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_VTSectorsWide;
+}
+
+static void TerrainComponent_SetVTSectorsWide(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_VTSectorsWide = value;
+}
+
+static unsigned int TerrainComponent_GetVTMaxImagePagesWide(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_VTMaxImagePagesWide;
+}
+
+static void TerrainComponent_SetVTMaxImagePagesWide(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_VTMaxImagePagesWide = value;
+}
+
+static bool TerrainComponent_GetVTTrilinearEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_VTTrilinearEnabled;
+}
+
+static void TerrainComponent_SetVTTrilinearEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_VTTrilinearEnabled = value;
+}
+
+static bool TerrainComponent_GetVTCompressedCache(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_VTCompressedCache;
+}
+
+static void TerrainComponent_SetVTCompressedCache(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_VTCompressedCache = value;
+}
+
 static int TerrainComponent_GetVoxelMesher(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();

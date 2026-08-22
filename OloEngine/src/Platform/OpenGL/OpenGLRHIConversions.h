@@ -284,6 +284,8 @@ namespace OloEngine::Utils
                 return GL_COMPRESSED_RGBA_BPTC_UNORM;
             case RHI::Format::BC7SRGB:
                 return GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM;
+            case RHI::Format::RGBA32UInt:
+                return GL_RGBA32UI;
             case RHI::Format::Unknown:
                 break;
         }
@@ -314,6 +316,8 @@ namespace OloEngine::Utils
                 return GL_RG;
             case RHI::Format::RG16UInt:
                 return GL_RG_INTEGER;
+            case RHI::Format::RGBA32UInt:
+                return GL_RGBA_INTEGER;
             case RHI::Format::RGB8UNorm:
             case RHI::Format::RGB32Float:
                 return GL_RGB;
@@ -348,6 +352,7 @@ namespace OloEngine::Utils
             case RHI::Format::RG16UInt:
                 return GL_UNSIGNED_SHORT;
             case RHI::Format::R32UInt:
+            case RHI::Format::RGBA32UInt:
                 return GL_UNSIGNED_INT;
             case RHI::Format::R32Int:
                 return GL_INT;

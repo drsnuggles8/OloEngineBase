@@ -165,11 +165,16 @@ Entities:
       StreamingLoadRadius: 3
       StreamingMaxTiles: 25
       VirtualTextureEnabled: true
-      VTVirtualPagesWide: 256
+      VTVirtualPagesWide: 1024
       VTPageTexels: 128
       VTBorderTexels: 4
       VTCacheTilesWide: 16
       VTMaxTileBakesPerFrame: 8
+      VTAdaptiveEnabled: true
+      VTSectorsWide: 8
+      VTMaxImagePagesWide: 256
+      VTTrilinearEnabled: true
+      VTCompressedCache: true
       VoxelEnabled: false
       VoxelSize: 1
       SplatmapPath0: ""

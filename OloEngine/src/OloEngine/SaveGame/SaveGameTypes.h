@@ -69,7 +69,11 @@ namespace OloEngine
     // v18: MeshComponent gained m_LightmapStatic (issue #439; v17 and older saves omit it and
     //      keep the constructor default false — the entity simply is not lightmapped, which
     //      also matches the pre-#439 behaviour)
-    static constexpr u32 kSaveGameFormatVersion = 18;
+    // v19: TerrainComponent gained the adaptive/compressed VT block (m_VTAdaptiveEnabled,
+    //      m_VTSectorsWide, m_VTMaxImagePagesWide, m_VTTrilinearEnabled, m_VTCompressedCache —
+    //      issue #715 slices 3+4; v18 and older saves omit them and keep the constructor
+    //      defaults, which have the adaptive path ON — the upgraded look, same as a fresh scene)
+    static constexpr u32 kSaveGameFormatVersion = 19;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

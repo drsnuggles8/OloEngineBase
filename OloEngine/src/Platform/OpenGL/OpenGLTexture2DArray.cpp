@@ -30,6 +30,12 @@ namespace OloEngine
                     return GL_RGBA16F;
                 case Texture2DArrayFormat::RGBA32F:
                     return GL_RGBA32F;
+                case Texture2DArrayFormat::RGBA32UI:
+                    return GL_RGBA32UI;
+                case Texture2DArrayFormat::BC7:
+                    // The LINEAR variant, deliberately — VT cache texels are
+                    // transcoded payload, not sRGB-authored colour.
+                    return GL_COMPRESSED_RGBA_BPTC_UNORM;
             }
             OLO_CORE_ASSERT(false, "Unknown Texture2DArrayFormat");
             return 0;
@@ -54,15 +60,27 @@ namespace OloEngine
         }
         glTextureStorage3D(m_RendererID, mipLevels, internalFormat, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height), static_cast<GLsizei>(m_Layers));
 
-        if (spec.GenerateMipmaps)
+        // Integer textures are incomplete under LINEAR filtering — sampling one
+        // returns undefined results, so RGBA32UI must be NEAREST on both
+        // filters. BC7 keeps the linear path below like every other colour
+        // format.
+        if (spec.Format == Texture2DArrayFormat::RGBA32UI)
         {
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         }
         else
         {
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            if (spec.GenerateMipmaps)
+            {
+                glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            }
+            else
+            {
+                glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            }
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         }
-        glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         const bool isDepthFormat = (spec.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F);
         const GLenum wrapMode = isDepthFormat ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE;
@@ -89,9 +107,14 @@ namespace OloEngine
         {
             bytesPerPixel = 8;
         }
-        else if (spec.Format == Texture2DArrayFormat::RGBA32F)
+        else if (spec.Format == Texture2DArrayFormat::RGBA32F ||
+                 spec.Format == Texture2DArrayFormat::RGBA32UI)
         {
             bytesPerPixel = 16;
+        }
+        else if (spec.Format == Texture2DArrayFormat::BC7)
+        {
+            bytesPerPixel = 1; // 16 bytes per 4x4 block
         }
         else
         {
@@ -148,6 +171,16 @@ namespace OloEngine
                 dataFormat = GL_RGBA;
                 dataType = (m_Specification.Format == Texture2DArrayFormat::RGBA16F) ? GL_HALF_FLOAT : GL_FLOAT;
                 break;
+            case Texture2DArrayFormat::RGBA32UI:
+                dataFormat = GL_RGBA_INTEGER;
+                dataType = GL_UNSIGNED_INT;
+                break;
+            case Texture2DArrayFormat::BC7:
+                // glTextureSubImage3D on block-compressed storage is
+                // GL_INVALID_OPERATION; BC7 layers are populated GPU-side via
+                // CopyImageSubDataFull (issue #715 slice 4).
+                OLO_CORE_ASSERT(false, "SetLayerData not supported for block-compressed formats");
+                return;
             default:
                 OLO_CORE_ASSERT(false, "SetLayerData not supported for depth formats");
                 return;
@@ -168,6 +201,14 @@ namespace OloEngine
     void OpenGLTexture2DArray::GenerateMipmaps()
     {
         OLO_PROFILE_FUNCTION();
+        // Compressed VT caches never mip, and glGenerateTextureMipmap on a
+        // block-compressed or integer internal format is GL_INVALID_OPERATION.
+        if (m_Specification.Format == Texture2DArrayFormat::BC7 ||
+            m_Specification.Format == Texture2DArrayFormat::RGBA32UI)
+        {
+            OLO_CORE_ASSERT(false, "GenerateMipmaps not supported for block-compressed or integer formats");
+            return;
+        }
         glGenerateTextureMipmap(m_RendererID);
     }
 
