@@ -433,6 +433,14 @@ namespace OloEngine::Audio::SoundGraph
             // fall back to unmanaged playback rather than silence.
             SetVirtualized(false);
         }
+        else if (OloEngine::Audio::VoiceManager::Get().IsVirtual(handle))
+        {
+            // Acquire only emits transitions for state CHANGES, and every voice ENTERS
+            // virtual — so a voice that starts over budget and stays virtual is never
+            // handed to OnVoiceStop and nothing else would put it in the virtualized state.
+            // Without this the SendPlayEvent below starts it at full gain, over the cap.
+            SetVirtualized(true);
+        }
 
         // Forward the Play trigger into the runtime graph. Without this the play state
         // flips to Playing on the sound wrapper but the graph's "Play" event input is

@@ -324,3 +324,58 @@ TEST_F(SoundGraphVoiceSuspendTest, VirtualizingAGraphVoiceSuspendsItsSourceAndDe
     EXPECT_TRUE(loud->GetSource()->IsVoiceSuspended())
         << "a stopped graph voice must not keep paying DSP cost";
 }
+
+TEST_F(SoundGraphVoiceSuspendTest, AGraphVoiceThatNeverWinsASlotStartsSuspended)
+{
+    // Acquire only emits transitions for state CHANGES and every voice ENTERS virtual,
+    // so a voice that starts over budget is never handed to OnVoiceStop. Before #745
+    // nothing else applied the virtualized state on that path and the voice played at
+    // full gain, over the cap.
+    auto& manager = OloEngine::Audio::VoiceManager::Get();
+    manager.SetMaxVoices(1);
+
+    auto incumbent = MakeDetachedSound();
+    incumbent->SetPriority(0);
+    ASSERT_TRUE(incumbent->Play());
+
+    auto latecomer = MakeDetachedSound();
+    latecomer->SetPriority(200);
+    ASSERT_TRUE(latecomer->Play());
+
+    ASSERT_TRUE(latecomer->IsVirtualized());
+    EXPECT_TRUE(latecomer->GetSource()->IsVoiceSuspended())
+        << "a voice that loses the budget at Play() time must not run at all";
+}
+
+TEST_F(SoundGraphVoiceSuspendTest, AVoiceSuspendedByTheBudgetProducesNoSamples)
+{
+    // The seam test above checks the flag; this one checks the flag is load-bearing,
+    // by pumping real blocks through the virtualized voice's source and asserting the
+    // graph never ran. That is the assertion the pre-#745 mute could not pass.
+    auto& manager = OloEngine::Audio::VoiceManager::Get();
+    manager.SetMaxVoices(1);
+
+    auto incumbent = MakeDetachedSound();
+    incumbent->SetPriority(0);
+    ASSERT_TRUE(incumbent->Play());
+
+    auto stolen = MakeDetachedSound();
+    stolen->SetPriority(200);
+    ASSERT_TRUE(stolen->Play());
+    ASSERT_TRUE(stolen->IsVirtualized());
+
+    const std::vector<f32> whileVirtual = PumpBlocks(*stolen->GetSource(), 4);
+    EXPECT_FLOAT_EQ(PeakAbs(whileVirtual), 0.0f);
+    EXPECT_EQ(stolen->GetSource()->GetCurrentFrame(), 0u)
+        << "a virtualized graph voice must not have advanced a single frame";
+
+    // And once it wins the slot back it produces signal from frame 0 — its latched
+    // Play request fires on the first block after the thaw.
+    ASSERT_TRUE(incumbent->Stop());
+    manager.Update(0.016f);
+    ASSERT_FALSE(stolen->IsVirtualized());
+
+    const std::vector<f32> afterThaw = PumpBlocks(*stolen->GetSource(), 2);
+    EXPECT_GT(PeakAbs(afterThaw), 0.5f) << "a thawed voice must produce audio again";
+    EXPECT_EQ(stolen->GetSource()->GetCurrentFrame(), static_cast<u64>(kBlock) * 2u);
+}
