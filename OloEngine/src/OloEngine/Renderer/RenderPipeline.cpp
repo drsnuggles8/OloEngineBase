@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/GBuffer.h"
@@ -210,6 +211,22 @@ namespace OloEngine
         // origin, so its prev-VP must be made relative to it too. data.ViewPos /
         // data.CameraRelativeEnabled are populated before PrepareFrame runs.
         data.RenderOrigin = data.CameraRelativeEnabled ? ComputeRenderOrigin(data.ViewPos) : glm::vec3(0.0f);
+
+        // The GPU readback-stats channel (issue #721): retire whatever the ring
+        // has finished, then zero the live block for this frame.
+        //
+        // HERE, IN PrepareFrame (i.e. BeginScene) — NOT in UploadExecutionState
+        // where the sibling ShaderDebugDraw::BeginFrame lives. This call and
+        // EndFrame() in EndScene have to bracket every dispatch that can publish
+        // a counter, and the GPU instance cull dispatches at SUBMISSION time,
+        // between BeginScene and EndScene — see GPUFrustumCuller::BeginFrame
+        // immediately below, which is why the two sit together. Clearing in
+        // UploadExecutionState instead wipes the cull's counters after it has
+        // already run, and the channel then reports a permanent zero for its
+        // first adopter while every test that drives the calls by hand still
+        // passes.
+        GPUReadbackStats::SetEnabled(data.Settings.GPUReadbackStatsEnabled);
+        GPUReadbackStats::BeginFrame();
 
         if (data.GPUFrustumCuller)
         {

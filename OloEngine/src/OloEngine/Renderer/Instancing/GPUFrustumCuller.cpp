@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -11,6 +12,7 @@
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace OloEngine
@@ -30,9 +32,9 @@ namespace OloEngine
         constexpr u32 kRejectedBinding = 18;
         constexpr u32 kRejectedCountBinding = 19;
 
-        // 5 u32 fields + 3 padding uints. The padding must be present even
-        // though the GL spec only reads the first 5 — the SSBO declares
-        // them so the C++ side has to match.
+        // 5 u32 fields + a reservation cursor + 2 padding uints. The tail must be
+        // present even though the GL spec only reads the first 5 — the SSBO
+        // declares them so the C++ side has to match.
         struct IndirectCommandPOD
         {
             u32 Count;
@@ -40,9 +42,25 @@ namespace OloEngine
             u32 FirstIndex;
             u32 BaseVertex;
             u32 BaseInstance;
-            u32 _Pad0;
+            // Was `_Pad0`. The cull shaders' monotonic slot cursor (issue #721) —
+            // see the `reserveCursor` comment in InstanceFrustumCull.comp. The
+            // CPU only ever has to ZERO it, which the value-initialised `seed`
+            // below already does; a cursor carried over from the last dispatch
+            // would put every append past the capacity and truncate the whole
+            // batch.
+            u32 ReserveCursor;
             u32 _Pad1;
             u32 _Pad2;
+        };
+
+        // Twin of the two-word InstanceCullRejectedCount block (issue #721):
+        // `Count` is the exact number of records written and is what bounds the
+        // phase-2 dispatch; `Reserve` is the monotonic cursor. Both are zeroed
+        // before every phase-1 dispatch.
+        struct RejectCounterPOD
+        {
+            u32 Count;
+            u32 Reserve;
         };
         static_assert(sizeof(IndirectCommandPOD) == kIndirectBufferSize,
                       "IndirectCommandPOD size must match the std430 InstanceCullIndirect layout");
@@ -107,6 +125,13 @@ namespace OloEngine
         return slot;
     }
 
+    u32 GPUFrustumCuller::ResolveOutputCapacity(u32 inputCount) const
+    {
+        if (m_DebugOutputCapacity == 0)
+            return inputCount;
+        return std::min(inputCount, m_DebugOutputCapacity);
+    }
+
     void GPUFrustumCuller::EnsureSlotCapacity(PoolSlot& slot, u32 requiredCapacity) const
     {
         if (requiredCapacity <= slot.Capacity)
@@ -134,10 +159,16 @@ namespace OloEngine
         const u32 inputCount = static_cast<u32>(instances.size());
         PoolSlot& slot = AcquireSlot(inputCount);
 
-        // Grow the output buffer to the worst case (all instances survive) so
-        // the compute shader can write without a bounds check. Bigger than
-        // strictly necessary on average, but predictable and avoids per-frame
-        // resizes when the survivor count fluctuates.
+        // Grow the output buffer to the worst case (all instances survive).
+        // Bigger than strictly necessary on average, but predictable and avoids
+        // per-frame resizes when the survivor count fluctuates.
+        //
+        // This USED to be the reason the shader could append without a bounds
+        // check. It is not any more (issue #721): the shader checks against
+        // `u_OutputCapacity` and reports a refusal through the readback-stats
+        // channel. The growth is still what makes the check never fire in
+        // production — but "never fires" and "is not there" are different
+        // things, and only one of them tells you when the assumption breaks.
         slot.OutputBuffer->EnsureCapacity(inputCount);
 
         // ── 1. Upload the full input list ────────────────────────────────
@@ -199,6 +230,7 @@ namespace OloEngine
         cullParams.InstanceCount = inputCount;
         cullParams.LocalBoundingSphere = localBoundingSphere;
         cullParams.RadiusExpansion = radiusExpansion;
+        cullParams.OutputCapacity = ResolveOutputCapacity(inputCount);
 
         if (useOcclusion)
         {
@@ -231,6 +263,12 @@ namespace OloEngine
             // Publish the HZB offset staged above before the dispatch reads it.
             // Harmless on the frustum-only path, where nothing was staged.
             HeapBinding::FlushOffsets();
+            // Issue #721: this dispatch publishes counters, and the cull binds five
+            // of its own SSBOs above. Re-bind the stats block right before the
+            // dispatch rather than trusting the frame-level bind — a wrong bind
+            // here lands the atomics in an unrelated buffer, which reads as
+            // "the channel reports zero" with no other symptom.
+            GPUReadbackStats::BindForDispatch();
             RenderCommand::DispatchCompute(groups, 1, 1);
         }
 
@@ -265,7 +303,8 @@ namespace OloEngine
             slot.RejectedBuffer->Resize(instanceBytes);
 
         if (!slot.RejectedCounter)
-            slot.RejectedCounter = StorageBuffer::Create(static_cast<u32>(sizeof(u32)), kRejectedCountBinding, StorageBufferUsage::DynamicCopy);
+            slot.RejectedCounter = StorageBuffer::Create(static_cast<u32>(sizeof(RejectCounterPOD)),
+                                                         kRejectedCountBinding, StorageBufferUsage::DynamicCopy);
 
         if (!slot.Phase2Output)
             slot.Phase2Output = Ref<InstanceBuffer>::Create(newCapacity);
@@ -316,8 +355,12 @@ namespace OloEngine
         seed.Count = indexCount;
         seed.FirstIndex = baseIndex;
         slot.IndirectBuffer->SetData(&seed, sizeof(seed), 0);
-        const u32 zero = 0;
-        slot.RejectedCounter->SetData(&zero, static_cast<u32>(sizeof(u32)), 0);
+        // BOTH words. `Reserve` left over from the previous dispatch would start
+        // this frame's reject cursor past the capacity, so every reject would be
+        // refused and phase 2 would recover nothing — with an overflow flag
+        // faithfully reporting a truncation that was really a stale counter.
+        const RejectCounterPOD rejectSeed{};
+        slot.RejectedCounter->SetData(&rejectSeed, static_cast<u32>(sizeof(rejectSeed)), 0);
 
         slot.InputBuffer->Bind();    // 16 — full input
         slot.OutputBuffer->Bind();   // 15 — phase-1 survivors
@@ -343,6 +386,7 @@ namespace OloEngine
         cullParams.InstanceCount = inputCount;
         cullParams.LocalBoundingSphere = localBoundingSphere;
         cullParams.RadiusExpansion = radiusExpansion;
+        cullParams.OutputCapacity = ResolveOutputCapacity(inputCount);
         if (occlusionActive)
         {
             // Persistent — culler-owned pyramid.
@@ -370,6 +414,12 @@ namespace OloEngine
             // Publish the HZB offset staged above before the dispatch reads it.
             // Harmless on the frustum-only path, where nothing was staged.
             HeapBinding::FlushOffsets();
+            // Issue #721: this dispatch publishes counters, and the cull binds five
+            // of its own SSBOs above. Re-bind the stats block right before the
+            // dispatch rather than trusting the frame-level bind — a wrong bind
+            // here lands the atomics in an unrelated buffer, which reads as
+            // "the channel reports zero" with no other symptom.
+            GPUReadbackStats::BindForDispatch();
             RenderCommand::DispatchCompute(groups, 1, 1);
         }
 
@@ -444,6 +494,7 @@ namespace OloEngine
         cullParams.InstanceCount = result.InputCount;
         cullParams.LocalBoundingSphere = result.LocalBoundingSphere;
         cullParams.RadiusExpansion = result.RadiusExpansion;
+        cullParams.OutputCapacity = ResolveOutputCapacity(result.InputCount);
         cullParams.OcclusionEnabled = 1;
         // Current-frame HZB is in CURRENT screen space → reproject with the
         // current VP (the caller stores it in PrevViewProjection).
@@ -461,6 +512,12 @@ namespace OloEngine
         {
             // Publish the HZB offset staged above before the dispatch reads it.
             HeapBinding::FlushOffsets();
+            // Issue #721: this dispatch publishes counters, and the cull binds five
+            // of its own SSBOs above. Re-bind the stats block right before the
+            // dispatch rather than trusting the frame-level bind — a wrong bind
+            // here lands the atomics in an unrelated buffer, which reads as
+            // "the channel reports zero" with no other symptom.
+            GPUReadbackStats::BindForDispatch();
             RenderCommand::DispatchCompute(groups, 1, 1);
         }
 

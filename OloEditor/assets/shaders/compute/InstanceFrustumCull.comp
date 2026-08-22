@@ -58,7 +58,12 @@ layout(std430, binding = 17) buffer InstanceCullIndirect {
     uint firstIndex;
     uint baseVertex;
     uint baseInstance;
-    uint _indirectPad0;
+    // Was `_indirectPad0`. The RESERVATION CURSOR for the compacted output
+    // (issue #721): monotonic, never given back, so every invocation gets a
+    // distinct slot. `instanceCount` is now bumped only on a slot that was
+    // actually written, which keeps it an EXACT count of the output rather than
+    // a count of attempts. See the append at the bottom of main().
+    uint reserveCursor;
     uint _indirectPad1;
     uint _indirectPad2;
 } indirect;
@@ -98,7 +103,7 @@ layout(std140, binding = 71) uniform InstanceCullParams
     float u_OcclusionDepthBias;  // 112 — device-Z slack before a reject fires
     int   u_WriteRejected;       // 116 — phase 1: append occluded survivors to the reject list
     int   u_Phase2;              // 120 — phase 2: bound the dispatch by the reject-list length
-    int   _instCullPad0;         // 124
+    uint  u_OutputCapacity;      // 124 — entries `outputInstances` / the reject list may hold
     // The CULLING camera's render-origin-relative view-projection (issue #726).
     // Read UNCONDITIONALLY below in place of the camera UBO's u_ViewProjection:
     // once the culling camera is frozen the camera UBO describes the free-flying
@@ -109,6 +114,11 @@ layout(std140, binding = 71) uniform InstanceCullParams
     // path rather than a branch that only runs in debug mode.
     mat4  u_CullViewProjection;  // 128
 };
+
+// GPU readback-stats channel (issue #721). Supplies the counters this pass
+// publishes and the overflow flag it raises when the compacted output cannot
+// take another survivor.
+#include "../include/GPUReadbackStats.glsl"
 
 // Extract a single frustum plane from a row-of-VP combination.
 // `colSign` is +1 (Left/Bottom/Near) or -1 (Right/Top/Far); `col` is 0/1/2.
@@ -131,6 +141,13 @@ void main()
     if (idx >= u_InstanceCount)
         return;
 
+    // Counted IN THE SHADER, not copied from the CPU's `inputCount`. That is the
+    // whole point of the cross-check: an input counter the CPU wrote would agree
+    // with the CPU by construction and prove nothing about whether the dispatch
+    // ran, whether the workgroup count was right, or whether the buffer the
+    // shader read is the one the CPU filled.
+    oloStatAdd(OLO_STAT_InstanceCullInput, 1u);
+
     // World-space bounding sphere for this instance.
     mat4 t = inputInstances[idx].Transform;
     vec4 wc4 = t * vec4(u_LocalBoundingSphere.xyz, 1.0);
@@ -151,10 +168,40 @@ void main()
     {
         float signedDistance = dot(planes[i].xyz, worldCenter) + planes[i].w;
         if (signedDistance < -worldRadius)
+        {
+            oloStatAdd(OLO_STAT_InstanceCullFrustumRejected, 1u);
             return; // Culled — outside this plane.
+        }
     }
 
     // Survivor — atomic-append into the compacted output.
-    uint outIdx = atomicAdd(indirect.instanceCount, 1);
+    //
+    // The bound check is new with issue #721 and is NOT redundant: `outIdx` came
+    // from an atomic on a buffer the CPU sized, and before the check this line
+    // was an unbounded write that trusted a capacity nothing verified. What made
+    // adding the check safe is the flag — a silent drop would trade an
+    // out-of-bounds write for missing geometry with no diagnostic, which is the
+    // same class of bug wearing a quieter costume.
+    //
+    // TWO COUNTERS, and the split is what makes the check safe. `reserveCursor`
+    // hands out slots and is MONOTONIC — nothing is ever given back — so every
+    // invocation owns a distinct index. `instanceCount` is bumped only after a
+    // write lands, so it stays an exact count of what the draw may read.
+    //
+    // The obvious one-counter version (bump instanceCount, and decrement it again
+    // when the slot is out of range) is WRONG under concurrency: with the buffer
+    // at capacity-1, a writer takes capacity-1, an overflower takes capacity and
+    // decrements back to capacity-1, and the next writer is handed capacity-1
+    // again and overwrites the first one's instance. The draw count would look
+    // right while one instance was duplicated and another lost — a truncation
+    // turned into corruption, which is the failure this check exists to prevent.
+    uint outIdx = atomicAdd(indirect.reserveCursor, 1u);
+    if (outIdx >= u_OutputCapacity)
+    {
+        oloStatOverflow(OLO_STATFLAG_InstanceCullOutput, OLO_STAT_InstanceCullDropped, 1u);
+        return;
+    }
     outputInstances[outIdx] = inputInstances[idx];
+    atomicAdd(indirect.instanceCount, 1u);
+    oloStatAdd(OLO_STAT_InstanceCullDrawn, 1u);
 }

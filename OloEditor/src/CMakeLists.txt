@@ -17,6 +17,7 @@
 		"MCP/McpRenderTargetStats.h"
 		"MCP/McpRenderValidate.h"
 		"MCP/McpFroxelFogProbe.h"
+		"MCP/McpGpuReadbackStats.h"
 		"MCP/McpShadowCapture.h"
 		"MCP/McpInputInject.h"
 		"MCP/McpToolsAssets.cpp"

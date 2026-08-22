@@ -85,6 +85,9 @@ became incremental — the eviction that used to be expressed by clearing the wh
 an explicit entry, and one of its two sources fires no notification at all) ·
 [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) (a
 settings struct, on entering Play) ·
+[gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) §7 (a virtual-shadow page request,
+once the ring filled — the page falls back to a coarser level for the frame, and because the drop
+self-heals the only evidence is persistently slightly-too-soft shadows) ·
 [light-path-photometric-parity.md](light-path-photometric-parity.md) (an authored light parameter →
 a dead knob) · [reference-path-tracer.md](reference-path-tracer.md) §5 (DDGI's entire
 infinite-bounce term, for any probe volume fitted to a room's air — a guard that was load-bearing
@@ -123,6 +126,7 @@ Read before trusting any measurement.
 | Doc | The instrument that failed |
 |---|---|
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | the flagship: a self-consistency crop check that a mirrored (wrong) position scored *better* on — and read-tools that answer 200 with a stale frame from an iconified window |
+| [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | the instrument built *to be* the instrument: a GPU counter has no wrong-looking failure, it just returns a plausible number — and a counter that stopped updating is byte-identical to one that is genuinely constant |
 | [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) | a red that recurs every run gets normalised, blinding the whole suite |
 | [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) | a `glXxx(` grep is wrong three different ways; three published counts, none right |
 | [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | capture targets show the *editor* camera; include-only shader edits don't hot-reload; "the medium got darker" passes for real self-shadowing *and* for every uniform veil — only "darker on the side away from the light" separates them |
@@ -251,6 +255,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [gpu-debug-draws.md](gpu-debug-draws.md) ·
 [observer-camera.md](observer-camera.md) ·
 [gpu-scan-compaction.md](gpu-scan-compaction.md) ·
+[gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) ·
 [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) ·
 [render-pass-published-state.md](render-pass-published-state.md) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) ·

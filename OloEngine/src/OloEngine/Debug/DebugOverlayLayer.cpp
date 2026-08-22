@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/DebugUtils.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/Renderer2D.h"
@@ -189,6 +190,67 @@ namespace OloEngine
             ImGui::Text("  frozen at %.1f, %.1f, %.1f", cullPos.x, cullPos.y, cullPos.z);
             if (!settings.ShaderDebugDrawEnabled)
                 ImGui::TextDisabled("  (enable Shader Debug Draws to see the frustum)");
+        }
+
+        // GPU readback-stats channel (issue #721). Same argument as the debug
+        // draws above for living on the F3 overlay: this is the surface that
+        // exists in a runtime build, and an overflow flag nobody can see in the
+        // build where it fires is not a diagnostic.
+        //
+        // OVERFLOWS FIRST, unconditionally, and the counters behind a collapsing
+        // header. The counters are context; the flags are the thing you needed to
+        // know and did not, so they are not allowed to be one click away.
+        ImGui::Checkbox("GPU Readback Stats", &settings.GPUReadbackStatsEnabled);
+        if (settings.GPUReadbackStatsEnabled)
+        {
+            if (const auto& frame = GPUReadbackStats::GetLatest(); frame.Valid)
+            {
+                for (u32 i = 0; i < kGPUStatFlagCount; ++i)
+                {
+                    const auto flag = static_cast<GPUStatFlag>(i);
+                    if (!frame.Overflowed(flag))
+                        continue;
+                    // %.*s, not %s: the registry hands back std::string_view, and
+                    // although every one of them is currently a string literal
+                    // (so it happens to be NUL-terminated), .data() on a
+                    // string_view is not a contract you get to rely on.
+                    const auto desc = GPUStatFlagDescription(flag);
+                    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.2f, 1.0f), "  OVERFLOW: %.*s",
+                                       static_cast<int>(desc.size()), desc.data());
+                }
+
+                if (ImGui::TreeNode("GPU counters"))
+                {
+                    // The frame index and latency are shown next to the numbers
+                    // rather than in a tooltip. A counter quoted without them
+                    // cannot be told apart from a counter that has stopped
+                    // updating, and "the number looked plausible" is how a
+                    // diagnostic channel wastes an afternoon.
+                    ImGui::Text("frame %llu (%u frames late)", static_cast<unsigned long long>(frame.FrameIndex),
+                                frame.Latency);
+                    // A saturated ring means every slot is still executing, so
+                    // captures are being skipped and the numbers above are older
+                    // than `Latency` last managed to report. Worth a line: it is
+                    // the one state where the channel is quietly less fresh than
+                    // it claims.
+                    if (const u32 inFlight = GPUReadbackStats::GetSlotsInFlight();
+                        inFlight >= GPUReadbackStats::kRingSlots)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "ring saturated (%u in flight)", inFlight);
+                    }
+                    for (u32 i = 0; i < kGPUStatCounterCount; ++i)
+                    {
+                        const auto counter = static_cast<GPUStatCounter>(i);
+                        const auto name = GPUStatCounterName(counter);
+                        ImGui::Text("%-32.*s %u", static_cast<int>(name.size()), name.data(), frame.Get(counter));
+                    }
+                    ImGui::TreePop();
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("  waiting for the first readback...");
+            }
         }
 
         ImGui::BeginDisabled();

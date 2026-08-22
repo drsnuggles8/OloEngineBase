@@ -27,6 +27,7 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStatsRegistry.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -57,10 +58,38 @@ namespace OloEngine::Tests
             u32 FirstIndex;
             u32 BaseVertex;
             u32 BaseInstance;
-            u32 Pad0;
+            // Was `Pad0`. The reservation cursor the bound-checked append draws
+            // its slot from (issue #721) — see InstanceFrustumCull.comp. Only
+            // ever has to start at zero, which the seeds here already do.
+            u32 ReserveCursor;
             u32 Pad1;
             u32 Pad2;
         };
+
+        // A zeroed stand-in for the GPU readback-stats block at
+        // ShaderBindingLayout::SSBO_GPU_STATS (issue #721).
+        //
+        // This harness deliberately runs WITHOUT Renderer::Init(), so nothing
+        // brings the real channel up — and the cull shaders now include
+        // include/GPUReadbackStats.glsl, whose helpers open by reading
+        // `b_StatsEnabled` out of that block. Reading an unbound SSBO is
+        // undefined in GL (the spec explicitly permits program termination), so
+        // a raw-GL harness that drives an instrumented shader has to bind
+        // *something*. All-zero also means `b_StatsEnabled == 0`, so every helper
+        // early-outs and the cull's behaviour is identical to the uninstrumented
+        // one — which is what keeps this test measuring the cull rather than the
+        // instrument.
+        [[nodiscard]] GLuint MakeStatsStandIn()
+        {
+            // 4 header words + OLO_STAT_COUNTER_SLOTS counters, per the GLSL block.
+            constexpr GLsizeiptr kStatsBytes = static_cast<GLsizeiptr>((4 + kGPUStatCounterSlots) * sizeof(u32));
+            GLuint buffer = 0;
+            ::glCreateBuffers(1, &buffer);
+            ::glNamedBufferStorage(buffer, kStatsBytes, nullptr, GL_DYNAMIC_STORAGE_BIT);
+            ::glClearNamedBufferData(buffer, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_GPU_STATS, buffer);
+            return buffer;
+        }
 
         constexpr u32 kHZBSize = 256;
         constexpr u32 kHZBMips = 9; // log2(256) + 1
@@ -151,6 +180,7 @@ namespace OloEngine::Tests
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 16, inBuf);
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 17, indirectBuf);
             ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, cameraUBO);
+            const GLuint statsBuf = MakeStatsStandIn();
             ::glBindTextureUnit(0, hzbTex);
 
             cs.Bind();
@@ -169,6 +199,21 @@ namespace OloEngine::Tests
             cullParams.HZBUVFactor = glm::vec2(1.0f);
             cullParams.HZBMipCount = static_cast<i32>(kHZBMips);
             cullParams.OcclusionDepthBias = 0.0f;
+            // Issue #726: the shaders read u_CullViewProjection UNCONDITIONALLY
+            // for their frustum planes -- the camera UBO's VP describes the
+            // observer once the culling camera is frozen. A hand-filled block
+            // that leaves it zero hands extractPlane a zero vector to normalise,
+            // so every plane is NaN and every `signedDistance < -radius` test is
+            // false: the frustum stage goes SILENTLY INERT. These tests pass
+            // either way today, because none of them places an instance outside
+            // the frustum -- which is exactly what makes it a trap for whoever
+            // adds the first one.
+            cullParams.CullViewProjection = vp;
+            // Issue #721: the cull now bound-checks its atomic append against
+            // this. It is zero in a default-constructed block, and a zero
+            // capacity refuses EVERY append — so a hand-filled InstanceCullUBO
+            // that omits it makes the whole dispatch silently produce nothing.
+            cullParams.OutputCapacity = count;
             auto cullParamsUBO = UniformBuffer::Create(UBOStructures::InstanceCullUBO::GetSize(),
                                                        ShaderBindingLayout::UBO_INSTANCE_CULL);
             cullParamsUBO->SetData(&cullParams, sizeof(cullParams));
@@ -202,6 +247,7 @@ namespace OloEngine::Tests
             ::glDeleteBuffers(1, &outBuf);
             ::glDeleteBuffers(1, &indirectBuf);
             ::glDeleteBuffers(1, &cameraUBO);
+            ::glDeleteBuffers(1, &statsBuf);
 
             return result.InstanceCount;
         }
@@ -334,10 +380,16 @@ namespace OloEngine::Tests
         const GLuint p2Out = makeInstanceSSBO(nullptr, count);
         const GLuint p1Ind = makeIndirect();
         const GLuint p2Ind = makeIndirect();
-        const u32 zero = 0;
+        // TWO uints since issue #721: `rejectedCount` (exact, what phase 2 reads
+        // as its bound) followed by `rejectedReserve` (the monotonic slot
+        // cursor). Sized from the shader's block, not from `sizeof(u32)` — a
+        // one-word allocation leaves the reserve atomic outside the bound range,
+        // which the GL spec leaves undefined.
+        const std::array<u32, 2> rejCounterSeed{ 0u, 0u };
         GLuint rejCnt = 0;
         ::glCreateBuffers(1, &rejCnt);
-        ::glNamedBufferStorage(rejCnt, sizeof(u32), &zero, GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+        ::glNamedBufferStorage(rejCnt, static_cast<GLsizeiptr>(sizeof(rejCounterSeed)), rejCounterSeed.data(),
+                               GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
 
         std::array<glm::mat4, 4> cameraData{ vp, glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) };
         GLuint camUBO = 0;
@@ -349,6 +401,7 @@ namespace OloEngine::Tests
         // (InstanceCullParams @ UBO_INSTANCE_CULL); the two phases differ only
         // in WriteRejected/Phase2, so seed the shared part once and upload per
         // phase — the same shape GPUFrustumCuller uses.
+        const GLuint statsBuf = MakeStatsStandIn();
         UBOStructures::InstanceCullUBO cullParams{};
         auto cullParamsUBO = UniformBuffer::Create(UBOStructures::InstanceCullUBO::GetSize(),
                                                    ShaderBindingLayout::UBO_INSTANCE_CULL);
@@ -363,6 +416,11 @@ namespace OloEngine::Tests
             cullParams.HZBUVFactor = glm::vec2(1.0f);
             cullParams.HZBMipCount = static_cast<i32>(kHZBMips);
             cullParams.OcclusionDepthBias = 0.0f;
+            // Both for the same reason as the single-phase harness above: a
+            // zero CullViewProjection makes the frustum stage inert (#726), and
+            // a zero OutputCapacity refuses every append (#721).
+            cullParams.CullViewProjection = vp;
+            cullParams.OutputCapacity = count;
         };
         const auto uploadParams = [&]()
         {
@@ -428,7 +486,7 @@ namespace OloEngine::Tests
         ::glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_INSTANCE_CULL, 0);
         ::glUseProgram(0);
 
-        const std::array<GLuint, 8> buffers{ inBuf, p1Out, rejBuf, p2Out, p1Ind, p2Ind, rejCnt, camUBO };
+        const std::array<GLuint, 9> buffers{ inBuf, p1Out, rejBuf, p2Out, p1Ind, p2Ind, rejCnt, camUBO, statsBuf };
         ::glDeleteBuffers(static_cast<GLsizei>(buffers.size()), buffers.data());
         ::glDeleteTextures(1, &wallHZB);
         ::glDeleteTextures(1, &emptyHZB);

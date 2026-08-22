@@ -127,6 +127,23 @@ namespace OloEngine
         {
             m_Occlusion = inputs;
         }
+
+        // Artificially shrink the output capacity the cull shaders bound-check
+        // against (issue #721). 0 = off, which is the only value production ever
+        // uses.
+        //
+        // This exists to satisfy acceptance criterion #2 HONESTLY. The criterion
+        // is that an *intentionally overflowed* buffer surfaces as a flag, and a
+        // "pretend the flag fired" debug switch would satisfy the letter of it
+        // while proving nothing: it would test the plumbing between a bool and
+        // the overlay, not the thing that actually goes wrong. With this knob the
+        // buffer genuinely truncates — the draw really renders fewer instances,
+        // the dropped counter really counts them, and the flag reports a
+        // condition that really happened.
+        void SetDebugOutputCapacity(u32 entries)
+        {
+            m_DebugOutputCapacity = entries;
+        }
         [[nodiscard]] bool IsOcclusionActive() const
         {
             return m_Occlusion.IsUsable() && m_OcclusionCullShader;
@@ -197,12 +214,25 @@ namespace OloEngine
         void EnsureSlotCapacity(PoolSlot& slot, u32 requiredCapacity) const;
         void EnsureTwoPhaseBuffers(PoolSlot& slot, u32 requiredCapacity) const;
 
+        // What the shader bound-checks its append against (issue #721).
+        //
+        // `inputCount` rather than the slot's allocated Capacity, and that is the
+        // conservative choice on purpose: survivors can never exceed the input,
+        // every buffer the shader appends to is grown to at least `inputCount`
+        // before the dispatch, and quoting the ALLOCATION would let a slot that
+        // grew for an earlier, larger batch hand the shader a bound larger than
+        // the one this batch's rejects were sized against.
+        [[nodiscard("this computes the bound; it does not apply it to anything")]] u32
+        ResolveOutputCapacity(u32 inputCount) const;
+
         Ref<ComputeShader> m_CullShader;
         // Frustum + Hi-Z occlusion variant (#431). Null until EnsureInitialised
         // loads it; a load failure leaves it null and Cull() degrades to the
         // frustum-only path even when occlusion inputs are supplied.
         Ref<ComputeShader> m_OcclusionCullShader;
         HZBOcclusionInputs m_Occlusion;
+        // 0 = use the real capacity. See SetDebugOutputCapacity().
+        u32 m_DebugOutputCapacity = 0;
 
         // InstanceFrustumCull/InstanceOcclusionCull.comp's former bare uniforms
         // (issue #691 Phase 7), at UBO_INSTANCE_CULL — one block shared verbatim

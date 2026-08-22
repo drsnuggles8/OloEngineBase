@@ -269,6 +269,11 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     checkSlot(ShaderBindingLayout::SSBO_TERRAIN_VT_INDIRECTION, "SSBO_TERRAIN_VT_INDIRECTION");
     checkSlot(ShaderBindingLayout::SSBO_DDGI_PROBE_AUX, "SSBO_DDGI_PROBE_AUX");
     checkSlot(ShaderBindingLayout::SSBO_DDGI_STATS, "SSBO_DDGI_STATS");
+    // The GPU readback-stats channel (#721). On this list from day one, unlike
+    // the families above, because it took the LAST free number in the SSBO
+    // namespace -- a future addition that collides with it has nowhere to move
+    // to, so the collision has to be loud at the moment it is introduced.
+    checkSlot(ShaderBindingLayout::SSBO_GPU_STATS, "SSBO_GPU_STATS");
 }
 
 // =============================================================================
