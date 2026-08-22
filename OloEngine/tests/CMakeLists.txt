@@ -72,6 +72,7 @@ add_executable(OloEngine-Tests
 		SoundGraphInstantiationTest.cpp
 		SoundGraphTypedConnectionTest.cpp
 		SoundGraphSampleAccurateTriggerTest.cpp
+		SoundGraphVoiceSuspendTest.cpp
 		SoundGraphParameterWiringTest.cpp
 		SoundGraphControlRoutingTest.cpp
 		SoundGraphCacheTest.cpp

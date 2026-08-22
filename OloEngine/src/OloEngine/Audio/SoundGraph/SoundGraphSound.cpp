@@ -261,7 +261,7 @@ namespace OloEngine::Audio::SoundGraph
         // Hand the voice slot back before the graph goes away — the budget holds a raw
         // pointer to this host and must never drive a torn-down one. Also reached from the
         // destructor, which is the only teardown path some owners take.
-        ReleaseVoice(/*restoreGain=*/true);
+        ReleaseVoice(/*resumePlayback=*/true);
 
         if (m_Source)
         {
@@ -304,7 +304,7 @@ namespace OloEngine::Audio::SoundGraph
         return params;
     }
 
-    void SoundGraphSound::ReleaseVoice(bool restoreGain) const
+    void SoundGraphSound::ReleaseVoice(bool resumePlayback) const
     {
         const auto handle = m_VoiceHandle.exchange(OloEngine::Audio::kInvalidVoiceHandle, std::memory_order_acq_rel);
         if (handle != OloEngine::Audio::kInvalidVoiceHandle)
@@ -312,16 +312,34 @@ namespace OloEngine::Audio::SoundGraph
             OloEngine::Audio::VoiceManager::Get().Release(handle);
         }
 
-        if (restoreGain)
+        // The budget is no longer tracking this voice, so nothing else will ever change its
+        // virtualization state again — whichever state we leave it in is permanent.
+        SetVirtualized(!resumePlayback);
+    }
+
+    void SoundGraphSound::SetVirtualized(bool virtualized) const
+    {
+        if (virtualized)
         {
-            // The budget is no longer tracking this voice, so nothing else would ever lift
-            // its mute — do it here, before it plays again.
+            // Mute BEFORE freezing. The audio thread may still be inside a block, or start
+            // one, between these two writes; a gain-0 block is silent, whereas freezing
+            // first and muting second would let a full-gain block through and then cut it
+            // dead mid-waveform.
+            m_VoiceGainScale.store(0.0f, std::memory_order_relaxed);
+            ApplyEffectiveGain();
+            if (m_Source)
+                m_Source->SetVoiceSuspended(true);
+        }
+        else
+        {
+            // Thaw BEFORE un-muting, the mirror image: the first block the graph produces
+            // after the thaw must already be at the right gain, and un-muting first would
+            // publish full gain onto a source that is still emitting silence.
+            if (m_Source)
+                m_Source->SetVoiceSuspended(false);
             m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
             ApplyEffectiveGain();
         }
-        // Otherwise leave the mute in place: this voice is being retired, and the graph
-        // runtime has no way to actually stop, so restoring gain would make a sound that
-        // is supposed to be over audible again.
     }
 
     void SoundGraphSound::SyncVoiceParams() const
@@ -350,23 +368,34 @@ namespace OloEngine::Audio::SoundGraph
         SyncVoiceParams();
     }
 
-    bool SoundGraphSound::OnVoiceStart(f64 /*positionSeconds*/) const
+    bool SoundGraphSound::OnVoiceStart(f64 positionSeconds) const
     {
-        // positionSeconds is ignored: the graph runtime has no seek, and it never stopped
-        // advancing while muted, so it is already at the right phase. See the class
-        // comment for why muting (rather than suspending) is the virtualization here.
-        m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
-        ApplyEffectiveGain();
+        // Thawing resumes the graph at the exact frame it was frozen on, which satisfies
+        // positionSeconds whenever positionSeconds is that frame — a fresh start (0.0), and
+        // any resume the budget's own clock has not yet run past. It cannot satisfy a LATER
+        // position: for a procedural graph, getting to frame N means computing frames
+        // 0..N, so honouring the extra would spend exactly the CPU the suspension saved,
+        // in one audio callback. (The graph runtime is roughly real-time in a Debug build —
+        // docs/design/soundgraph-metasounds.md — so even a bounded catch-up burst is an
+        // underrun, not an optimisation. That is why there is no seek here rather than
+        // that nobody wrote one.)
+        //
+        // The engine self-corrects rather than carrying the lie: OnVoiceQueryPosition is
+        // authoritative while a voice is audible, so VoiceManager::Update pulls its record
+        // back to the graph's real frame on the very next tick.
+        (void)positionSeconds;
+        SetVirtualized(false);
         return true;
     }
 
     f64 SoundGraphSound::OnVoiceStop() const
     {
-        m_VoiceGainScale.store(0.0f, std::memory_order_relaxed);
-        ApplyEffectiveGain();
-        // Negative: no transport to report a position from, so the budget keeps advancing
-        // its own logical clock for this voice.
-        return -1.0;
+        SetVirtualized(true);
+        // The graph is frozen now, so its frame counter IS where playback stopped — report
+        // it so the budget anchors the record on the truth instead of integrating onward
+        // from a stale value. Negative (no source, or no sample rate yet) falls back to the
+        // manager's own logical clock, which is the contract's documented escape hatch.
+        return OnVoiceQueryPosition();
     }
 
     f64 SoundGraphSound::OnVoiceQueryPosition() const
@@ -395,24 +424,24 @@ namespace OloEngine::Audio::SoundGraph
         // event: Acquire drives OnVoiceStart synchronously when this voice wins a slot, and
         // that is where the gain is un-muted. Starting a re-triggered sound also drops any
         // previous registration so the budget never holds two records for one graph.
-        ReleaseVoice(/*restoreGain=*/true);
+        ReleaseVoice(/*resumePlayback=*/true);
         const auto handle = OloEngine::Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
         m_VoiceHandle.store(handle, std::memory_order_release);
         if (handle == OloEngine::Audio::kInvalidVoiceHandle)
         {
             // Only reachable if Acquire was handed a null host, which cannot happen here;
             // fall back to unmanaged playback rather than silence.
-            m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
-            ApplyEffectiveGain();
+            SetVirtualized(false);
         }
 
         // Forward the Play trigger into the runtime graph. Without this the play state
         // flips to Playing on the sound wrapper but the graph's "Play" event input is
         // never raised, so any node listening for that event (WavePlayer, envelopes,
         // trigger nodes) never fires — the audio callback runs but every node stays at
-        // its idle/silent default. Raised even when virtualized: the graph must keep
-        // advancing while muted, which is what makes a devirtualized loop come back in
-        // phase instead of restarting.
+        // its idle/silent default. Raised unconditionally, including when this voice lost
+        // the budget above: the request is a latched flag on the source, so a virtualized
+        // voice simply fires it on the first block after it is thawed, starting the graph
+        // when the player can actually hear it rather than burning DSP to run it silently.
         if (m_Source)
             m_Source->SendPlayEvent();
 
@@ -421,7 +450,7 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSound::Stop()
     {
-        ReleaseVoice(/*restoreGain=*/false);
+        ReleaseVoice(/*resumePlayback=*/false);
 
         // Cancel any active fades
         m_IsFading = false;
@@ -783,7 +812,7 @@ namespace OloEngine::Audio::SoundGraph
                     // never do so. Scene::InitializeAudioSoundGraph hands the Sound to the
                     // scene and nothing calls Stop() on a graph that simply ended, so
                     // without this every finished one-shot graph holds a slot forever.
-                    ReleaseVoice(/*restoreGain=*/false);
+                    ReleaseVoice(/*resumePlayback=*/false);
                     if (m_OnPlaybackComplete)
                         m_OnPlaybackComplete();
                 }

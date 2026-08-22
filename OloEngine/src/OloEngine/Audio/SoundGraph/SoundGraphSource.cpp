@@ -434,6 +434,15 @@ namespace OloEngine::Audio::SoundGraph
         }
     }
 
+    void SoundGraphSource::SetVoiceSuspended(bool suspended)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Plain store, no ack handshake — see the header. The audio thread reads this at
+        // the top of ProcessSamples and skips the whole graph step while it is set.
+        m_VoiceSuspended.store(suspended, std::memory_order_release);
+    }
+
     bool SoundGraphSource::IsFinished() const noexcept
     {
         return m_IsFinished.load(std::memory_order_relaxed) && !m_IsPlaying.load(std::memory_order_relaxed);
@@ -918,6 +927,36 @@ namespace OloEngine::Audio::SoundGraph
 
         if (!m_Graph || IsSuspended())
         {
+            SilenceOutputBuffers(ppFramesOut, frameCount);
+            return;
+        }
+
+        // Voice-budget freeze (issue #745). Everything below this point — the preset apply,
+        // the wave-player refills, SoundGraph::Process, the outgoing-event pump and the
+        // frame-counter advance — is the DSP cost that virtualizing a voice is supposed to
+        // reclaim, so the whole of it is skipped rather than being run into a muted output.
+        // The graph object itself is left completely untouched, which is what makes the
+        // thaw a continuation of the same sample stream instead of a restart.
+        if (m_VoiceSuspended.load(std::memory_order_acquire))
+        {
+            // Keep applying queued parameter writes: they are O(1) endpoint-cell writes,
+            // not DSP, and dropping them would silently lose a preset applied while the
+            // voice was virtual. Gated on the preset having been applied at least once so
+            // a queued write can't be clobbered by a first-block preset apply after thaw.
+            if (m_PresetIsInitialized)
+                UpdateChangedParameters();
+
+            // External triggers are scheduled at a sample offset within a SPECIFIC block,
+            // and this block is not happening. Firing them into a graph that will not be
+            // stepped would leave nodes latched mid-attack for the whole suspension, so
+            // discard them instead — and discarding also stops a long suspension from
+            // filling the ring and back-pressuring the main thread's SendInputEvent.
+            // Popped one by one rather than Clear()ed: this is the consumer side of an
+            // SPSC ring with a live producer, and Clear() rewinds the WRITE index too.
+            InputEventEntry discarded;
+            while (m_InputEventQueue.Pop(discarded))
+                ;
+
             SilenceOutputBuffers(ppFramesOut, frameCount);
             return;
         }
