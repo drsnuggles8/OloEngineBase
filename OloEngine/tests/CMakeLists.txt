@@ -93,6 +93,7 @@ add_executable(OloEngine-Tests
 		Async/MutexLockRateTest.cpp
 		Async/SemaphoreTest.cpp
 		Async/ManualResetEventTest.cpp
+		Async/LockDebugTest.cpp
 		Async/SharedMutexTest.cpp
 		Async/SharedRecursiveMutexTest.cpp
 		Async/ExternalMutexTest.cpp
