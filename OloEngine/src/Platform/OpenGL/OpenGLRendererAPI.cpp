@@ -1877,13 +1877,6 @@ namespace OloEngine
         // the post-call check describes THIS call — which is what the bool
         // return promises. (ADR 0011 amendment (7): glGetError does not become a
         // facade entry point, it disappears into these two functions.)
-        void DrainGLErrors()
-        {
-            constexpr u32 kMaxDrain = 32;
-            for (u32 i = 0; i < kMaxDrain && glGetError() != GL_NO_ERROR; ++i)
-            {
-            }
-        }
     } // namespace
 
     bool OpenGLRendererAPI::ReadTextureImage(u32 textureID, u32 mipLevel, RHI::Format destFormat,
@@ -1891,7 +1884,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        DrainGLErrors();
+        Utils::DrainGLErrors();
         glGetTextureImage(textureID, static_cast<GLint>(mipLevel),
                           Utils::ToGLPixelFormat(destFormat), Utils::ToGLPixelType(destFormat),
                           static_cast<GLsizei>(destSizeBytes), dest);
@@ -1904,7 +1897,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        DrainGLErrors();
+        Utils::DrainGLErrors();
         glGetTextureSubImage(textureID, static_cast<GLint>(mipLevel), x, y, z,
                              static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth),
                              Utils::ToGLPixelFormat(destFormat), Utils::ToGLPixelType(destFormat),

@@ -199,13 +199,19 @@ namespace OloEngine
             return;
         }
 
-        // Every mip, every layer — the clone must be usable for the same
+        // Every mip, every layer/slice — the clone must be usable for the same
         // mip/layer arguments the live resource accepts.
+        //
+        // A VOLUME's third dimension halves with each mip; an ARRAY's layer
+        // count does not. Iterating the mip-0 count at every mip would address
+        // slices that do not exist at the smaller mips of a mipped 3D target.
+        const bool isVolume = format.Shape == RHI::TextureShape::Texture3D;
         for (u32 mip = 0u; mip < std::max(format.MipLevels, 1u); ++mip)
         {
             const u32 mipWidth = std::max(width >> mip, 1u);
             const u32 mipHeight = std::max(height >> mip, 1u);
-            for (u32 layer = 0u; layer < depthOrLayers; ++layer)
+            const u32 mipSlices = isVolume ? std::max(depthOrLayers >> mip, 1u) : depthOrLayers;
+            for (u32 layer = 0u; layer < mipSlices; ++layer)
             {
                 RenderCommand::CopyImageSubDataFull(source, target, static_cast<i32>(mip), static_cast<i32>(layer),
                                                     clone, target, static_cast<i32>(mip), static_cast<i32>(layer),

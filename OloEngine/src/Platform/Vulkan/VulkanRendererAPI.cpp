@@ -3186,6 +3186,8 @@ namespace OloEngine
         {
             return;
         }
+        // ArrayLayers carries the DEPTH for a 3D image (see VulkanImageInfo),
+        // so the same bound covers a slice index and a layer index.
         if (static_cast<u32>(srcLevel) >= std::max(srcInfo->MipLevels, 1u) ||
             static_cast<u32>(dstLevel) >= std::max(dstInfo->MipLevels, 1u) ||
             static_cast<u32>(srcZ) >= std::max(srcInfo->ArrayLayers, 1u) ||
@@ -3205,10 +3207,17 @@ namespace OloEngine
         m_LayoutTracker.RegisterImage(dstImage, std::max(dstInfo->MipLevels, 1u), std::max(dstInfo->ArrayLayers, 1u),
                                       dstInfo->RegistrationId, dstInfo->InitialLayout);
 
-        const VkImageSubresourceRange srcRange{ srcAspect, static_cast<u32>(srcLevel), 1u, static_cast<u32>(srcZ),
-                                                1u };
-        const VkImageSubresourceRange dstRange{ dstAspect, static_cast<u32>(dstLevel), 1u, static_cast<u32>(dstZ),
-                                                1u };
+        // Same 3D-vs-array split as the copy region below: a 3D image has one
+        // array layer, so its barrier range must name layer 0 whatever slice
+        // the copy addresses.
+        const VkImageSubresourceRange srcRange{
+            srcAspect, static_cast<u32>(srcLevel), 1u,
+            srcInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D ? 0u : static_cast<u32>(srcZ), 1u
+        };
+        const VkImageSubresourceRange dstRange{
+            dstAspect, static_cast<u32>(dstLevel), 1u,
+            dstInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D ? 0u : static_cast<u32>(dstZ), 1u
+        };
 
         std::vector<VkImageMemoryBarrier2> toTransfer;
         StageTransferTransition(srcImage, srcRange, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -3221,11 +3230,23 @@ namespace OloEngine
         dep.pImageMemoryBarriers = toTransfer.data();
         vkCmdPipelineBarrier2(m_Cmd, &dep);
 
+        // z means different things per dimensionality, and Vulkan checks it:
+        // for a 3D image baseArrayLayer MUST be 0 and the slice is the copy's
+        // z OFFSET, while for a 2D array it is the layer and the offset must be
+        // 0. GL's glCopyImageSubData takes one z for both and sorts it out
+        // itself, which is why this only bites here. Getting it wrong is a
+        // validation error and a copy of the wrong subresource, not a wrong
+        // picture — the same split ReadTextureSubImage already makes.
+        const bool srcIsVolume = srcInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D;
+        const bool dstIsVolume = dstInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D;
+
         VkImageCopy region{};
-        region.srcSubresource = { srcAspect, static_cast<u32>(srcLevel), static_cast<u32>(srcZ), 1u };
-        region.dstSubresource = { dstAspect, static_cast<u32>(dstLevel), static_cast<u32>(dstZ), 1u };
-        region.srcOffset = { srcX, srcY, 0 };
-        region.dstOffset = { dstX, dstY, 0 };
+        region.srcSubresource = { srcAspect, static_cast<u32>(srcLevel),
+                                  srcIsVolume ? 0u : static_cast<u32>(srcZ), 1u };
+        region.dstSubresource = { dstAspect, static_cast<u32>(dstLevel),
+                                  dstIsVolume ? 0u : static_cast<u32>(dstZ), 1u };
+        region.srcOffset = { srcX, srcY, srcIsVolume ? srcZ : 0 };
+        region.dstOffset = { dstX, dstY, dstIsVolume ? dstZ : 0 };
         region.extent = { width, height, 1u };
         vkCmdCopyImage(m_Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
@@ -5099,7 +5120,11 @@ namespace OloEngine
         switch (info->ViewType)
         {
             case VK_IMAGE_VIEW_TYPE_2D:
-                shape = RHI::TextureShape::Texture2D;
+                // Multisample is a SHAPE here exactly as it is on GL, so a
+                // consumer that must refuse one (the snapshot clone) sees it
+                // through the same field on both backends.
+                shape = info->Samples > 1u ? RHI::TextureShape::Texture2DMultisample
+                                           : RHI::TextureShape::Texture2D;
                 break;
             case VK_IMAGE_VIEW_TYPE_2D_ARRAY:
                 shape = RHI::TextureShape::Texture2DArray;
@@ -5209,6 +5234,18 @@ namespace OloEngine
         if (info == nullptr || info->Width == 0u || info->Height == 0u)
         {
             UnimplementedStub("CreateMatchingTextureHandle(source without a registered extent)");
+            return {};
+        }
+        if (info->Samples > 1u)
+        {
+            // The facade contract (RendererAPI.h) promises the null handle for
+            // a multisampled source, and the GL arm already refuses one. A
+            // copy destination must match VkImageCreateInfo::samples, so
+            // cloning this as single-sample would produce an image
+            // vkCmdCopyImage rejects — an empty clone the tools would then
+            // report as the pass's output.
+            OLO_CORE_WARN("[RHI/Vulkan] CreateMatchingTextureHandle: source is multisampled ({} samples) — refused",
+                          info->Samples);
             return {};
         }
 

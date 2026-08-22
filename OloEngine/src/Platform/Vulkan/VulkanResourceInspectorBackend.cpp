@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -182,6 +183,31 @@ namespace OloEngine
             return "Unknown";
         }
 
+        // The interface's native-target slot carries a VulkanRootObjectKind
+        // here — Vulkan has no GL_ARRAY_BUFFER-style binding-point enum to put
+        // in it. BIASED BY ONE so that 0 keeps its "nothing was recorded"
+        // meaning: DiscoveredResource::NativeTarget defaults to 0, and
+        // VulkanRootObjectKind::UniformBuffer is 0, so an unbiased encoding
+        // makes every raw buffer and every size-unknown buffer classify and
+        // display as "UniformBuffer (frame arena)" — a confident wrong answer
+        // for a resource nothing could describe.
+        [[nodiscard]] constexpr u32 EncodeRootKind(VulkanRootObjectKind kind)
+        {
+            return static_cast<u32>(kind) + 1u;
+        }
+
+        // Null when `nativeTarget` is the reserved 0, or past the last
+        // enumerator. The upper bound names Framebuffer because it IS last;
+        // a kind appended after it would decode to nothing and display as
+        // unclassified, which degrades in the safe direction rather than
+        // casting to an invalid enumerator.
+        [[nodiscard]] constexpr std::optional<VulkanRootObjectKind> DecodeRootKind(u32 nativeTarget)
+        {
+            if (nativeTarget == 0u || nativeTarget > EncodeRootKind(VulkanRootObjectKind::Framebuffer))
+                return std::nullopt;
+            return static_cast<VulkanRootObjectKind>(nativeTarget - 1u);
+        }
+
         // The root-object entry for one buffer-family handle, if any, plus the
         // size it can answer. `outTarget` re-uses the interface's native-target
         // slot to carry the ROOT KIND, which is what
@@ -194,7 +220,7 @@ namespace OloEngine
             if (entry == nullptr || entry->Object == nullptr)
                 return false;
 
-            outTarget = static_cast<u32>(entry->Kind);
+            outTarget = EncodeRootKind(entry->Kind);
             switch (entry->Kind)
             {
                 case VulkanRootObjectKind::UniformBuffer:
@@ -441,17 +467,22 @@ namespace OloEngine
 
     IResourceInspectorBackend::BufferKind VulkanResourceInspectorBackend::ClassifyBufferTarget(u32 nativeTarget) const
     {
-        // `nativeTarget` carries a VulkanRootObjectKind here — see
-        // DescribeBufferFromRootRegistry.
-        switch (static_cast<VulkanRootObjectKind>(nativeTarget))
+        // `nativeTarget` carries a BIASED VulkanRootObjectKind here — see
+        // EncodeRootKind. An undescribed buffer decodes to nothing and falls
+        // through to the Vertex default, which is the same fallback the shell
+        // has always used for an unclassifiable buffer.
+        if (const auto kind = DecodeRootKind(nativeTarget))
         {
-            case VulkanRootObjectKind::IndexBuffer:
-                return BufferKind::Index;
-            case VulkanRootObjectKind::UniformBuffer:
-            case VulkanRootObjectKind::StorageBuffer:
-                return BufferKind::Uniform;
-            default:
-                break;
+            switch (*kind)
+            {
+                case VulkanRootObjectKind::IndexBuffer:
+                    return BufferKind::Index;
+                case VulkanRootObjectKind::UniformBuffer:
+                case VulkanRootObjectKind::StorageBuffer:
+                    return BufferKind::Uniform;
+                default:
+                    break;
+            }
         }
         return BufferKind::Vertex;
     }
@@ -562,7 +593,14 @@ namespace OloEngine
 
     const char* VulkanResourceInspectorBackend::GetBufferTargetName(u32 nativeTarget) const
     {
-        switch (static_cast<VulkanRootObjectKind>(nativeTarget))
+        const auto kind = DecodeRootKind(nativeTarget);
+        if (!kind)
+        {
+            // Nothing described this buffer (a raw-registry entry, or one whose
+            // size could not be resolved). Say so rather than naming a family.
+            return "Buffer (unclassified)";
+        }
+        switch (*kind)
         {
             case VulkanRootObjectKind::UniformBuffer:
                 return "UniformBuffer (frame arena)";

@@ -288,6 +288,8 @@ namespace OloEngine
                                                              .Height = m_Height,
                                                              .MipLevels = m_MipLevels,
                                                              .ArrayLayers = 1u,
+                                                             // The one texture class that can be multisampled.
+                                                             .Samples = std::max(m_Specification.Samples, 1u),
                                                              .HasDepth = isDepth,
                                                              .HasStencil = isDepth,
                                                          });

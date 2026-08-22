@@ -28,6 +28,7 @@
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
+#include "OloEngine/Renderer/Debug/ResourceInspectorBackend.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
@@ -752,6 +753,17 @@ namespace OloEngine::MCP
                 plan.DestFormat = RHI::Format::RGBA32Float;
                 plan.ReadChannels = 4;
             }
+
+            // ReportChannels is seeded from the format's own channel count and
+            // must never exceed what the destination format actually reads: the
+            // compaction in ReadRectFloatsThroughFacade indexes
+            // raw[t * ReadChannels + c] for c < ReportChannels, so a larger
+            // report count walks off the end of the readback buffer. The two
+            // only diverge for a format claiming 0 channels (no mapped format
+            // does today), where the seed defaults to 4 while the <= 1 branch
+            // reads one — an out-of-bounds read waiting for the first entry
+            // that reports zero.
+            plan.ReportChannels = std::min(plan.ReportChannels, plan.ReadChannels);
 
             out = plan;
             return true;
@@ -3262,7 +3274,7 @@ namespace OloEngine::MCP
         // Issue #607 — render-diagnostics gaps found while doing real work.
         // =====================================================================
 
-        // ---- olo_render_probe_pixel (main-marshaled; GL readback) --------------
+        // ---- olo_render_probe_pixel (main-marshaled; facade readback) ----------
         //
         // The NUMERIC counterpart of olo_render_capture_target: instead of an
         // image of a whole target, the exact decoded values under ONE pixel,
@@ -3270,105 +3282,6 @@ namespace OloEngine::MCP
         // "looks bluish"; this says the normal is (0.0, 0.0, 1.0) when it should
         // be (0, 1, 0) — which is the difference between an hour of shader
         // patching and a one-call diagnosis.
-
-        // GL internal format -> readback (format, type) + a stable token. Mirrors
-        // GPUResourceInspector::CaptureTexturePng's table with two deliberate
-        // differences: INTEGER formats stay integer (the R32I entity-id
-        // attachment must never be reported as a float — an agent compares it
-        // against a real entity id), and nothing is normalised (a probe wants the
-        // raw number, not a display-friendly remap).
-        struct ProbeFormat
-        {
-            GLenum ReadFormat = GL_NONE;
-            GLenum ReadType = GL_NONE;
-            i32 Channels = 0;
-            const char* Token = "Unknown";
-            bool IsInteger = false;
-        };
-
-        bool DescribeProbeFormat(GLint internalFormat, ProbeFormat& out)
-        {
-            switch (internalFormat)
-            {
-                case GL_RGBA8:
-                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA8", false };
-                    return true;
-                case GL_SRGB8_ALPHA8:
-                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA8_SRGB", false };
-                    return true;
-                case GL_RGB8:
-                    out = { GL_RGB, GL_FLOAT, 3, "RGB8", false };
-                    return true;
-                case GL_SRGB8:
-                    out = { GL_RGB, GL_FLOAT, 3, "RGB8_SRGB", false };
-                    return true;
-                case GL_RG8:
-                    out = { GL_RG, GL_FLOAT, 2, "RG8", false };
-                    return true;
-                case GL_R8:
-                    out = { GL_RED, GL_FLOAT, 1, "R8", false };
-                    return true;
-                case GL_RGBA16F:
-                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA16F", false };
-                    return true;
-                case GL_RGBA32F:
-                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA32F", false };
-                    return true;
-                case GL_RGB16F:
-                    out = { GL_RGB, GL_FLOAT, 3, "RGB16F", false };
-                    return true;
-                case GL_RGB32F:
-                    out = { GL_RGB, GL_FLOAT, 3, "RGB32F", false };
-                    return true;
-                case GL_R11F_G11F_B10F:
-                    out = { GL_RGB, GL_FLOAT, 3, "R11F_G11F_B10F", false };
-                    return true;
-                case GL_RG16F:
-                    out = { GL_RG, GL_FLOAT, 2, "RG16F", false };
-                    return true;
-                case GL_RG32F:
-                    out = { GL_RG, GL_FLOAT, 2, "RG32F", false };
-                    return true;
-                case GL_R16F:
-                    out = { GL_RED, GL_FLOAT, 1, "R16F", false };
-                    return true;
-                case GL_R32F:
-                    out = { GL_RED, GL_FLOAT, 1, "R32F", false };
-                    return true;
-                case GL_R32I:
-                    out = { GL_RED_INTEGER, GL_INT, 1, "R32I", true };
-                    return true;
-                case GL_R32UI:
-                    out = { GL_RED_INTEGER, GL_INT, 1, "R32UI", true };
-                    return true;
-                case GL_RG32I:
-                    out = { GL_RG_INTEGER, GL_INT, 2, "RG32I", true };
-                    return true;
-                case GL_RGBA32I:
-                    out = { GL_RGBA_INTEGER, GL_INT, 4, "RGBA32I", true };
-                    return true;
-                case GL_DEPTH_COMPONENT16:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "D16", false };
-                    return true;
-                case GL_DEPTH_COMPONENT24:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "D24", false };
-                    return true;
-                case GL_DEPTH_COMPONENT32:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "D32", false };
-                    return true;
-                case GL_DEPTH_COMPONENT32F:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "D32F", false };
-                    return true;
-                case GL_DEPTH24_STENCIL8:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "D24S8", false };
-                    return true;
-                case GL_DEPTH32F_STENCIL8:
-                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "D32FS8", false };
-                    return true;
-                default:
-                    return false;
-            }
-        }
 
         // Options for one texel probe (issue #607). Defaults reproduce the
         // simple "viewport pixel at mip 0" probe; the G-Buffer mode fills the
@@ -5184,11 +5097,6 @@ namespace OloEngine::MCP
                 RenderCommand::ReadBufferSubData(handle, 0u, bytes, destination);
                 return true;
             }
-            // GL staging copy below; under any other backend refuse (callers
-            // report the read as unavailable). StorageBuffer::GetData is the
-            // portable route when this gets its facade arm (#691b).
-            if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-                return false;
 
             u32 stagingId = 0;
             glCreateBuffers(1, &stagingId);
@@ -5352,7 +5260,7 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        // ---- olo_froxel_fog_probe (main-marshaled; 1x1x1 GL readback) ----------
+        // ---- olo_froxel_fog_probe (main-marshaled; 1x1x1 facade readback) ------
         // Sample the froxel volumetric-fog volume at a froxel or a world position
         // (issue #607; relates to #435). Every fog contract we have compares FINAL
         // FRAME pixels, which cannot tell "the scatter pass injected nothing" from
@@ -5367,9 +5275,8 @@ namespace OloEngine::MCP
         // slices are EXPONENTIAL, so a linear guess is wrong everywhere but the two
         // end slices.
 
-        // (main thread) Read one texel out of a 3D volume with glGetTextureSubImage
-        // over a 1x1x1 region — NEVER the whole 160x90x64 RGBA16F volume (that is
-        // 7 MB per read, per volume).
+        // (main thread) Read one texel out of a 3D volume — see the body for why
+        // a 1x1x1 region is the whole trick.
         FroxelFog::VolumeSample ProbeVolumeTexel(RHI::ResourceHandle volume, const char* label, i32 x, i32 y, i32 z)
         {
             FroxelFog::VolumeSample sample;
@@ -5512,9 +5419,9 @@ namespace OloEngine::MCP
                                      "slice was sampled.";
                 }
 
-                // The fog volumes are identities now (issue #691); this
-                // probe reads them back with raw GL, which is the sanctioned use of the
-                // diagnostics hatch.
+                // The fog volumes are identities (issue #691) and the probe reads
+                // them through the facade spine (#810), so no native id and no
+                // diagnostics hatch is involved on either backend.
                 probe.Raw = ProbeVolumeTexel(state.ScatterTextureID, "scatter", probe.Coord.IX, probe.Coord.IY,
                                              probe.Coord.IZ);
                 probe.Integrated = ProbeVolumeTexel(state.IntegratedTextureID, "integrated", probe.Coord.IX,
@@ -5838,6 +5745,7 @@ namespace OloEngine::MCP
                     .Prop("returnedCount", Schema::Int().Min(0).Desc("Resources actually listed (bounded by 'limit')."))
                     .Prop("trackedBytes", Schema::Int().Min(0).Desc("Sum of per-resource size ESTIMATES; see 'memoryHeaps' for the allocator's own numbers."))
                     .Prop("previewsAvailable", Schema::Bool().Desc("Whether the editor panel can render texture previews on this backend (OpenGL only)."))
+                    .Prop("note", Schema::String().Desc("Present only when nothing is tracked — says whether that means the inspector never initialised (Release/Dist) or the renderer has created nothing yet."))
                     .Prop("byType", Schema::Array(Schema::Object()
                                                       .Prop("type", Schema::String())
                                                       .Prop("count", Schema::Int().Min(0))

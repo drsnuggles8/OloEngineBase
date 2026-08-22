@@ -50,6 +50,17 @@ namespace OloEngine
         u32 Height = 0;
         u32 MipLevels = 1;
         u32 ArrayLayers = 1;
+        // For a 3D image this is the mip-0 DEPTH (slice count), not a layer
+        // count — VkImageCreateInfo puts the two in different fields and the
+        // copy/readback paths address them differently. `ViewType` below is
+        // what tells them apart.
+        //
+        // Samples > 1 marks a multisample image. Recorded because a consumer
+        // that reproduces this storage has to match it (VkImageCreateInfo's
+        // samples participates in copy compatibility) and because the handle
+        // alone cannot recover it — the same reason Format and the extent are
+        // here. GL's twin reads GL_TEXTURE_SAMPLES off the object.
+        u32 Samples = 1;
         bool HasDepth = false;
         bool HasStencil = false;
         // The default whole-image sampled-view dimensionality. 2D for every

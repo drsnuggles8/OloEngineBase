@@ -64,6 +64,28 @@ namespace
         spec.GenerateMips = false;
         return Texture2D::Create(spec);
     }
+
+    // Raw-GL comparison read, with the pack state left exactly as it was found.
+    // The suite shares one GL context, so leaving GL_PACK_ALIGNMENT at 1 would
+    // poison every later GPU test; and because the error has to be checked
+    // AFTER the read but the restore has to happen regardless, the error is
+    // captured first and asserted by the caller.
+    [[nodiscard]] GLenum ReadRawGL(u32 nativeId, i32 x, i32 y, u32 w, u32 h, void* dest, sizet destBytes)
+    {
+        while (glGetError() != GL_NO_ERROR)
+        {
+        }
+        GLint previousPackAlignment = 4;
+        glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
+        glGetTextureSubImage(nativeId, 0, x, y, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 1,
+                             GL_RGBA, GL_FLOAT, static_cast<GLsizei>(destBytes), dest);
+        const GLenum error = glGetError();
+
+        glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+        return error;
+    }
 } // namespace
 
 // The core parity claim: same texture, same rect, two read paths, identical
@@ -95,13 +117,8 @@ TEST(FacadeReadbackParity, FacadeAndRawGLAgreeBitExactlyOnRGBA8)
                                                    viaFacade.size() * sizeof(f32), viaFacade.data()));
 
     std::vector<f32> viaRawGL(valueCount, -2.0f);
-    while (glGetError() != GL_NO_ERROR)
-    {
-    }
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glGetTextureSubImage(nativeId, 0, 0, 0, 0, static_cast<GLsizei>(kWidth), static_cast<GLsizei>(kHeight), 1,
-                         GL_RGBA, GL_FLOAT, static_cast<GLsizei>(viaRawGL.size() * sizeof(f32)), viaRawGL.data());
-    ASSERT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+    ASSERT_EQ(ReadRawGL(nativeId, 0, 0, kWidth, kHeight, viaRawGL.data(), viaRawGL.size() * sizeof(f32)),
+              static_cast<GLenum>(GL_NO_ERROR));
 
     // Bit-exact, not approximately equal: both paths ask the driver for the
     // same conversion, so any difference is a bug in the plumbing rather than
@@ -135,13 +152,9 @@ TEST(FacadeReadbackParity, SingleTexelReadAgreesWithRawGLAtAnOffset)
                                                    viaFacade.size() * sizeof(f32), viaFacade.data()));
 
     std::array<f32, 4> viaRawGL{ -2.0f, -2.0f, -2.0f, -2.0f };
-    while (glGetError() != GL_NO_ERROR)
-    {
-    }
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glGetTextureSubImage(texture->GetRendererID(), 0, kX, kY, 0, 1, 1, 1, GL_RGBA, GL_FLOAT,
-                         static_cast<GLsizei>(viaRawGL.size() * sizeof(f32)), viaRawGL.data());
-    ASSERT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+    ASSERT_EQ(ReadRawGL(texture->GetRendererID(), kX, kY, 1, 1, viaRawGL.data(),
+                        viaRawGL.size() * sizeof(f32)),
+              static_cast<GLenum>(GL_NO_ERROR));
 
     EXPECT_EQ(std::memcmp(viaFacade.data(), viaRawGL.data(), viaFacade.size() * sizeof(f32)), 0);
 }

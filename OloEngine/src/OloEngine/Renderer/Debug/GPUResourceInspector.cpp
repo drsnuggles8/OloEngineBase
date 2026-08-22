@@ -81,8 +81,27 @@ namespace OloEngine
             return "unknown";
         }
 
+        GPUResourceInspector::ResourceType ResourceTypeForBufferKind(IResourceInspectorBackend::BufferKind kind)
+        {
+            using RT = GPUResourceInspector::ResourceType;
+            switch (kind)
+            {
+                case IResourceInspectorBackend::BufferKind::Index:
+                    return RT::IndexBuffer;
+                case IResourceInspectorBackend::BufferKind::Uniform:
+                    return RT::UniformBuffer;
+                case IResourceInspectorBackend::BufferKind::Vertex:
+                    break;
+            }
+            return RT::VertexBuffer;
+        }
+
+        // `backend` classifies the buffer family; it is the same
+        // ClassifyBufferTarget the push path uses for a GL buffer target, so
+        // both discovery models file a buffer the same way.
         GPUResourceInspector::ResourceType ResourceTypeForDiscovered(
-            const IResourceInspectorBackend::DiscoveredResource& discovered)
+            const IResourceInspectorBackend::DiscoveredResource& discovered,
+            IResourceInspectorBackend& backend)
         {
             using RT = GPUResourceInspector::ResourceType;
             switch (discovered.Kind)
@@ -98,10 +117,21 @@ namespace OloEngine
                 case RHI::ResourceKind::Query:
                     return RT::Query;
                 case RHI::ResourceKind::Buffer:
-                    // The backend's classification of the native usage bits
-                    // decides vertex / index / uniform, exactly as the GL
-                    // registration path does for a buffer target.
-                    return RT::VertexBuffer;
+                    // The backend's classification of the native target decides
+                    // vertex / index / uniform, exactly as the GL registration
+                    // path does. Without this every discovered buffer files as
+                    // a vertex buffer and the type counts, the per-type memory
+                    // totals, the panel's type filter and olo_gpu_resources'
+                    // byType all lose the distinction.
+                    //
+                    // A target of 0 is "nothing described this buffer" (the
+                    // backends reserve it — see VulkanResourceInspectorBackend's
+                    // EncodeRootKind). BufferKind has no Unknown to return, so
+                    // the grouping says Other rather than picking a family the
+                    // backend explicitly declined to name.
+                    if (discovered.NativeTarget == 0u)
+                        return RT::Other;
+                    return ResourceTypeForBufferKind(backend.ClassifyBufferTarget(discovered.NativeTarget));
                 case RHI::ResourceKind::Unknown:
                     break;
             }
@@ -1189,7 +1219,7 @@ namespace OloEngine
 
         for (const auto& entry : discovered)
         {
-            const ResourceType type = ResourceTypeForDiscovered(entry);
+            const ResourceType type = ResourceTypeForDiscovered(entry, *backend);
             const auto typeIndex = static_cast<sizet>(std::to_underlying(type));
 
             std::unique_ptr<ResourceInfo> info;
