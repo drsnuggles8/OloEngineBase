@@ -167,7 +167,11 @@ that must outlive the level that created it) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) (a read from a pooled
 resource whose lifetime already ended) ·
 [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) (TOCTOU between a
-decrement and a re-read) · [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md) (promoting a
+decrement and a re-read) ·
+[non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) (a locked
+scope that calls a sibling method which locks the same non-recursive mutex — deterministic, silent,
+and fixed twice in one day because the first fix moved a *caller* instead of unlocking the
+*callee*) · [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md) (promoting a
 per-tick local to persistent state) ·
 [parallelizable-mover-systems.md](parallelizable-mover-systems.md) (splitting a system at its write
 boundary) · [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) (what is *bound*
@@ -301,6 +305,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Concurrency & memory** —
 [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) ·
+[non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) ·
 [spinlock-payload-cache-line-separation.md](spinlock-payload-cache-line-separation.md) ·
 [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md)
 
