@@ -94,6 +94,7 @@ add_executable(OloEngine-Tests
 		Async/MutexLockRateTest.cpp
 		Async/SemaphoreTest.cpp
 		Async/ManualResetEventTest.cpp
+		Async/LockDebugTest.cpp
 		Async/SharedMutexTest.cpp
 		Async/SharedRecursiveMutexTest.cpp
 		Async/ExternalMutexTest.cpp
@@ -957,6 +958,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/HumanoidLocomotionWalkTest.cpp
 		Functional/AnimationPhysics/MorphTargetGraphAnimationTest.cpp
 		Functional/Navigation/NavAgentReachesTargetTest.cpp
+		Functional/Asset/AssetHotReloadDoesNotDeadlockTest.cpp
 		Functional/Asset/AssetManagerImportsStagedAssetTest.cpp
 		Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp
 		Functional/Gameplay/AbilityCooldownTicksDownViaSceneTickTest.cpp
