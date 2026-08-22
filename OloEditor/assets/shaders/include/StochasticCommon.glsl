@@ -77,7 +77,7 @@
 // optimiser output distributed as a binary blob with the paper; there is no way
 // to author them here that is not either vendoring that blob or re-running the
 // optimiser. The mask-rotation construction above is the standard alternative,
-// needs 32 KB we can generate deterministically and TEST, and delivers the
+// needs 8 KiB we can generate deterministically and TEST, and delivers the
 // property the issue actually asks for. That was a deliberate substitution, not
 // an oversight.
 //

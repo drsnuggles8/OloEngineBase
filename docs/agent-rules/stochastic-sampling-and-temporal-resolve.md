@@ -25,7 +25,11 @@ high frequencies and every one of those three attenuates it for free.
 
 So the property to assert is **the spectrum of the error image**, not any
 property of the sample values. Uniform values, correct mean, full range and a
-plausible histogram are all true of white noise.
+plausible histogram are all true of white noise — which is exactly why any metric
+that the new and the replaced formulation could *both* pass needs to be paired
+with an assertion that the replaced one fails it. (Metrics that only one
+formulation could ever satisfy do not need the pairing; the rule is about
+discrimination, not about decorating every number with a negative.)
 
 Measured on this engine's tile (64×64, void-and-cluster), as the ratio of mean
 low-band power (radius 1..8) to mean high-band power (radius 16..32):
@@ -356,7 +360,8 @@ Three things to know:
   does not move `MAX_ENGINE_TEXTURE_SLOTS` or the derived `HEAP_IMAGE_SLOT_BASE`.
   Adding a slot *above* it is also a shader edit — see the `OLO_HEAP_IMAGE_BASE`
   row in [README.md](README.md) §2.
-- **Each pass owns its own texture** (32 KB). The shared thing is the CPU tile
+- **Each pass owns its own texture** (8 KiB — 64 × 64 × RG8, one mip). The
+  shared thing is the CPU tile
   (`BlueNoise::GetTileRG()`, a POD array). That is deliberate: a shared *GPU*
   object would be the lazy-static-with-a-lifetime shape
   [lazy-static-release-ownership.md](lazy-static-release-ownership.md) is about.

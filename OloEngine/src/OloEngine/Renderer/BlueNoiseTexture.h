@@ -21,8 +21,8 @@
 // -----------------------------------------------------------------------------
 // WHY EACH PASS OWNS ITS OWN TEXTURE
 // -----------------------------------------------------------------------------
-// 32 KB apiece, and in exchange there is no shared GPU object with a lifetime
-// spanning subsystems — the shape docs/agent-rules/lazy-static-release-ownership.md
+// 8 KiB apiece (64 x 64 x RG8, single mip), and in exchange there is no shared
+// GPU object with a lifetime spanning subsystems — the shape docs/agent-rules/lazy-static-release-ownership.md
 // is about, where a lazily-created resource released from Renderer3D::Shutdown
 // leaks in every session that never brought 3D up. The CPU-side tile IS shared
 // (BlueNoise::GetTileRG(), a POD array with no destruction order), which is

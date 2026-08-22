@@ -21,12 +21,15 @@
 //
 // The generator is deterministic — same seed, same tile, on every platform and
 // at every optimisation level. That is a deliberate property, not a happy
-// accident: the energy field is FIXED-POINT integer (see kEnergyScale below)
-// precisely so that no argmin/argmax can be decided by a one-ULP float
-// difference, and the PRNG is a self-contained SplitMix32 rather than
-// std::random, whose distributions are implementation-defined. It matters
-// because a golden or a perceptual A/B captured against this tile has to stay
-// valid on another machine.
+// accident, and it is three separate decisions: the energy field is
+// FIXED-POINT integer (see kEnergyScale below) so no argmin/argmax can be
+// decided by a one-ULP float difference; the Gaussian weights are a CHECKED-IN
+// integer table rather than runtime std::exp, which is not required to be
+// bit-identical across implementations; and the PRNG is a self-contained
+// SplitMix32 rather than std::random, whose distributions are
+// implementation-defined. Between them there is no floating-point arithmetic
+// left anywhere in the generator. It matters because a golden or a perceptual
+// A/B captured against this tile has to stay valid on another machine.
 //
 // -----------------------------------------------------------------------------
 // THE ALGORITHM (Ulichney, "The void-and-cluster method for dither array
@@ -58,7 +61,6 @@
 #include "OloEngine/Core/Base.h"
 
 #include <array>
-#include <cmath>
 #include <limits>
 
 namespace OloEngine::BlueNoise
@@ -162,35 +164,90 @@ namespace OloEngine::BlueNoise
         // Accumulating i64 multiples of a fixed u32 weight table makes every
         // comparison exact integer arithmetic instead.
         //
-        // The table is still built with std::exp, but at 2^20 scale a one-ULP
-        // difference (~2^-24 relative) cannot change the rounded integer, so the
-        // table is stable where the raw comparisons were not.
+        // 2^20 is the scale the checked-in weight table below is quantised at.
+        // It is generous enough that the table is not sitting on a knife edge:
+        // the closest of its 51 entries comes 0.019 of an integer step to a
+        // rounding boundary, so the values are robust to any plausible
+        // difference in how they were computed.
         inline constexpr u32 kEnergyScale = 1u << 20;
 
         using Energy = std::array<i64, kTilePixels>;
         using Pattern = std::array<u8, kTilePixels>;
-        using Kernel = std::array<u32, static_cast<sizet>(2 * kKernelRadius + 1) * (2 * kKernelRadius + 1)>;
 
-        [[nodiscard]] inline const Kernel& GaussianKernel()
-        {
-            static const Kernel s_Kernel = []
-            {
-                Kernel k{};
-                constexpr f64 invTwoSigmaSq = 1.0 / (2.0 * static_cast<f64>(kSigma) * static_cast<f64>(kSigma));
-                sizet i = 0;
-                for (i32 dy = -kKernelRadius; dy <= kKernelRadius; ++dy)
-                {
-                    for (i32 dx = -kKernelRadius; dx <= kKernelRadius; ++dx, ++i)
-                    {
-                        const auto distSq = static_cast<f64>(dx * dx + dy * dy);
-                        k[i] = static_cast<u32>(
-                            std::llround(std::exp(-distSq * invTwoSigmaSq) * static_cast<f64>(kEnergyScale)));
-                    }
-                }
-                return k;
-            }();
-            return s_Kernel;
-        }
+        // The kernel weights, indexed by SQUARED pixel distance (0 .. 2r^2), as
+        // round(exp(-d^2 / (2 sigma^2)) * kEnergyScale) with sigma = 1.5.
+        //
+        // CHECKED IN RATHER THAN COMPUTED, because the tile has to be a constant
+        // of the engine and std::exp is not required to be bit-identical across
+        // implementations. The margin is enormous in practice -- the closest any
+        // of these 51 values comes to a rounding boundary is 0.019 of an integer
+        // step, a relative slack of 1.8e-8, or ~10^8 double ULPs -- but "no
+        // realistic implementation would differ that much" is not the same as a
+        // guarantee, and a flipped entry changes a rank selection and therefore
+        // the whole tile. A literal table removes the question.
+        //
+        // BlueNoiseKernelTableMatchesTheGeneratingExpression recomputes these
+        // from std::exp and fails loudly if this platform disagrees, so the
+        // table cannot silently rot; TileDigestIsStable pins the finished tile.
+        inline constexpr sizet kMaxKernelDistSq = static_cast<sizet>(2 * kKernelRadius * kKernelRadius) + 1;
+        using Kernel = std::array<u32, kMaxKernelDistSq>;
+
+        inline constexpr Kernel kGaussianKernel = {
+            1048576u,
+            839634u,
+            672326u,
+            538357u,
+            431082u,
+            345184u,
+            276402u,
+            221325u,
+            177223u,
+            141909u,
+            113632u,
+            90989u,
+            72859u,
+            58341u,
+            46716u,
+            37407u,
+            29953u,
+            23985u,
+            19205u,
+            15378u,
+            12314u,
+            9860u,
+            7896u,
+            6322u,
+            5062u,
+            4054u,
+            3246u,
+            2599u,
+            2081u,
+            1667u,
+            1334u,
+            1069u,
+            856u,
+            685u,
+            549u,
+            439u,
+            352u,
+            282u,
+            226u,
+            181u,
+            145u,
+            116u,
+            93u,
+            74u,
+            59u,
+            48u,
+            38u,
+            31u,
+            24u,
+            20u,
+            16u,
+        };
+
+        static_assert(kGaussianKernel.size() == kMaxKernelDistSq,
+                      "the kernel table must cover every squared distance the radius can produce");
 
         // Add (or, with sign -1, remove) one pixel's Gaussian contribution.
         // Incremental maintenance is what keeps the whole generator linear in
@@ -199,7 +256,6 @@ namespace OloEngine::BlueNoise
         {
             const auto cx = static_cast<i32>(index % kTileSize);
             const auto cy = static_cast<i32>(index / kTileSize);
-            const Kernel& kernel = GaussianKernel();
 
             // The modulo on each axis is what makes the kernel TOROIDAL: the tile
             // repeats across the screen, so a pixel near the left edge really is a
@@ -207,16 +263,15 @@ namespace OloEngine::BlueNoise
             // void-and-cluster bug -- the pattern comes out blue in the interior and
             // clustered along the seams, which reads on screen as a faint grid at the
             // tile period and sends you to look at the sampler instead.
-
-            sizet k = 0;
             for (i32 dy = -kKernelRadius; dy <= kKernelRadius; ++dy)
             {
                 const i32 y = (cy + dy + static_cast<i32>(kTileSize)) % static_cast<i32>(kTileSize);
-                for (i32 dx = -kKernelRadius; dx <= kKernelRadius; ++dx, ++k)
+                for (i32 dx = -kKernelRadius; dx <= kKernelRadius; ++dx)
                 {
                     const i32 x = (cx + dx + static_cast<i32>(kTileSize)) % static_cast<i32>(kTileSize);
+                    const auto distSq = static_cast<sizet>(dx * dx + dy * dy);
                     energy[static_cast<sizet>(y) * kTileSize + static_cast<sizet>(x)] +=
-                        static_cast<i64>(sign) * static_cast<i64>(kernel[k]);
+                        static_cast<i64>(sign) * static_cast<i64>(kGaussianKernel[distSq]);
                 }
             }
         }

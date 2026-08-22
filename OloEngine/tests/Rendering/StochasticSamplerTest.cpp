@@ -497,6 +497,48 @@ TEST(StochasticSampler, TileChannelsAreIndependent)
     EXPECT_NEAR(num / std::sqrt(dr * dg), 0.0, 0.06) << "the tile's two channels are correlated";
 }
 
+// The Gaussian weights are a checked-in integer table rather than runtime
+// std::exp, because std::exp is not required to be bit-identical across
+// implementations and a single flipped entry changes a rank selection and
+// therefore the entire tile. This asserts the table still matches the
+// expression that generated it, so it cannot silently rot — and it is also what
+// would fire on a platform whose std::exp genuinely disagrees, instead of that
+// platform quietly rendering against a different tile.
+TEST(StochasticSampler, BlueNoiseKernelTableMatchesTheGeneratingExpression)
+{
+    constexpr f64 invTwoSigmaSq = 1.0 / (2.0 * static_cast<f64>(BlueNoise::Detail::kSigma) *
+                                         static_cast<f64>(BlueNoise::Detail::kSigma));
+    for (sizet distSq = 0; distSq < BlueNoise::Detail::kGaussianKernel.size(); ++distSq)
+    {
+        const auto expected = static_cast<u32>(
+            std::llround(std::exp(-static_cast<f64>(distSq) * invTwoSigmaSq) *
+                         static_cast<f64>(BlueNoise::Detail::kEnergyScale)));
+        EXPECT_EQ(BlueNoise::Detail::kGaussianKernel[distSq], expected)
+            << "kernel entry for squared distance " << distSq << " disagrees with exp(-d^2 / 2 sigma^2)";
+    }
+}
+
+// The finished tile, pinned by digest. Every property test above describes the
+// tile statistically; this one says it is THE tile — which is what a golden or a
+// perceptual A/B captured against it actually depends on.
+TEST(StochasticSampler, TileDigestIsStable)
+{
+    const auto& tile = BlueNoise::GetTileRG();
+    ASSERT_EQ(tile.size(), static_cast<sizet>(BlueNoise::kTilePixels) * BlueNoise::kChannels);
+    EXPECT_EQ(tile.size(), 8192u) << "64 x 64 x RG8 is 8 KiB; the docs quote that number";
+
+    u64 hash = 1469598103934665603ull; // FNV-1a
+    for (const u8 b : tile)
+    {
+        hash ^= b;
+        hash *= 1099511628211ull;
+    }
+    EXPECT_EQ(hash, 0x47a9dd3441a836dfull)
+        << "the generated tile changed. That is not automatically a bug — but every golden and every "
+           "perceptual A/B captured against the old tile is now invalid, so update them in the same "
+           "commit that updates this digest.";
+}
+
 // A golden or an A/B captured against this tile is only meaningful if the tile
 // is a constant of the engine.
 TEST(StochasticSampler, GenerationIsDeterministic)
@@ -941,7 +983,14 @@ TEST(StochasticSampler, YCoCgRoundTrips)
 TEST(StochasticSampler, ClipLeavesAnInsideHistoryUntouched)
 {
     const glm::vec3 h(0.4f, 0.5f, 0.6f);
-    EXPECT_EQ(Temporal::ClipToAABB(h, glm::vec3(0.0f), glm::vec3(1.0f)), h);
+    // Per-component, not EXPECT_EQ on the vector: cpp-coding-quality.md §2 bans
+    // == on glm::vec*, and while the early-out path does return `history`
+    // bitwise unchanged today, an exact comparison would become fragile the
+    // moment that path recomputed anything.
+    const glm::vec3 out = Temporal::ClipToAABB(h, glm::vec3(0.0f), glm::vec3(1.0f));
+    EXPECT_FLOAT_EQ(out.x, h.x);
+    EXPECT_FLOAT_EQ(out.y, h.y);
+    EXPECT_FLOAT_EQ(out.z, h.z);
 }
 
 // The property a componentwise clamp does NOT have: the clipped point stays on
