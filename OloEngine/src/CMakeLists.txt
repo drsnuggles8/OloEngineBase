@@ -1665,6 +1665,8 @@
 		"Platform/Vulkan/VulkanRawResourceRegistries.h"
 		"Platform/Vulkan/VulkanRendererAPI.cpp"
 		"Platform/Vulkan/VulkanResourceHeap.cpp"
+		"Platform/Vulkan/VulkanResourceInspectorBackend.cpp"
+		"Platform/Vulkan/VulkanResourceInspectorBackend.h"
 		"Platform/Vulkan/VulkanResourceHeap.h"
 		"Platform/Vulkan/VulkanSamplerHeap.cpp"
 		"Platform/Vulkan/VulkanSamplerHeap.h"

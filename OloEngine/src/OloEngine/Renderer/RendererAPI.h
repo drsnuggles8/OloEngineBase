@@ -508,6 +508,16 @@ namespace OloEngine
                                                                       RHI::Format destFormat,
                                                                       sizet destSizeBytes, void* dest) = 0;
         virtual void GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight) = 0;
+        // The storage format of one mip, decoded into the neutral diagnostic
+        // vocabulary (#810). False when the handle does not resolve, the mip
+        // has no storage, or the backend cannot decode the format — in which
+        // case `out` is left untouched and the caller must refuse rather than
+        // read with a guessed layout. This is what lets olo_render_probe_pixel
+        // and olo_render_target_stats work on both backends: their old GL arm
+        // asked glGetTextureLevelParameteriv(GL_TEXTURE_INTERNAL_FORMAT)
+        // directly, which is the one thing a Vulkan session cannot do.
+        [[nodiscard("Store this!")]] virtual bool QueryTextureFormat(RHI::ResourceHandle texture, u32 mipLevel,
+                                                                     RHI::TextureFormatInfo& out) = 0;
         // Orders a texture's use as a render target against a subsequent sample
         // of it in the same pass. Vulkan expresses this as a pipeline barrier.
         virtual void TextureBarrier() = 0;

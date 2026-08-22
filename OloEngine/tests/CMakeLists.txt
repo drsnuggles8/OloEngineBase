@@ -283,6 +283,7 @@ add_executable(OloEngine-Tests
 		Rendering/AnimatedModelDedupTest.cpp
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp
+		Rendering/PropertyTests/FacadeReadbackParityTest.cpp
 		Rendering/PropertyTests/CameraRelativeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WorldOriginRebaseVisualEvidenceTest.cpp
 		Rendering/PropertyTests/Renderer2DCameraRelativeVisualEvidenceTest.cpp

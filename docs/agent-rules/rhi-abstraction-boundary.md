@@ -2938,3 +2938,70 @@ Two smaller things this turned up, both worth copying:
   red with no ASan/UBSan/TSan report anywhere in the log. Grep the log for
   `ERROR: AddressSanitizer` / `runtime error:` / `WARNING: ThreadSanitizer`
   before you start hunting for a memory bug that was never reported.
+
+---
+
+## 15. Diagnostic parity (#810): a tool that refuses is honest; a tool that answers from the wrong table is not
+
+Phase 9 left the debug tree structurally backend-neutral (`tools_gl_calls` is 0)
+without giving Vulkan an equivalent **answer** for everything the GL tools
+report. Closing that gap produced four rules that generalise past this issue.
+
+### 15a. When two subsystems already record the same fact, enumerate the one that is not optional
+
+`GPUResourceInspector` is fed by `OLO_GPU_REGISTER_*` macros that only
+`Platform/OpenGL` TUs call, so the obvious fix was "call them from Vulkan too".
+That is the two-mirrors-drift shape: every backend resource **already**
+registers with `RHI::ResourceRegistry` at creation, and a second hand-maintained
+list of the same objects rots the moment somebody adds a resource class and
+forgets one of the two. The fix was a `Snapshot()` on the registry that already
+holds identity + native + kind + owner, and a per-backend `DiscoversResources()`
+flag deciding whether the shell is pushed into or pulls.
+
+The general form: before adding a registration call site, ask what *already*
+observes the thing you want to list. Registration you can forget is worse than
+enumeration you cannot.
+
+### 15b. `native != 0` is not a liveness test, and the exceptions are the interesting resources
+
+A Vulkan framebuffer registers native 0 — there is no `VkFramebuffer` under
+dynamic rendering (amendment (83)) — and an arena-backed uniform buffer has no
+native object at all. Filtering an enumeration on `Native != 0`, or keying a map
+on the native handle, silently drops or merges exactly those. Both read as
+obviously-correct code. Liveness comes from the registry's freelist; identity
+comes from the handle. The rule generalises to any "opaque id, 0 means none"
+convention where the backend is allowed to have no id.
+
+### 15c. Widen the id before you port the consumer
+
+The inspector's native ids were `u32` throughout. A `VkImage` truncated into one
+is not a failed lookup, it is a *plausible* number that resolves to nothing — and
+on a diagnostic, plausible-and-wrong is the failure mode that costs the most,
+because the next investigation trusts it. Widening to `u64` first (GL names widen
+losslessly) made every later step mechanical.
+
+### 15d. A readback destination format is a per-backend contract, not a preference
+
+Porting the pixel probe and target stats onto `RenderCommand::ReadTextureSubImage`
+surfaced a divergence the facade's signature hides: a DEPTH source must name a
+DEPTH destination. GL needs it because only depth destinations lower to
+`GL_DEPTH_COMPONENT` (asking for `GL_RED` is `GL_INVALID_OPERATION` — a silently
+zero-filled buffer, not an exception), and Vulkan needs the same name because its
+identity fast path only fires when the image really is `VK_FORMAT_D32_SFLOAT`,
+while this hardware backs the graph's `Depth24Stencil8` with
+`D32_SFLOAT_S8_UINT` (amendment (79): key on the Vulkan format, never on the
+graph's label). The single-backend contract test that pins this —
+`FacadeReadbackParityTest`, which reads the same texels through the facade and
+through raw GL in ONE process and requires bit-equality — is the thing a
+cross-backend A/B cannot do, because that compares two binaries against two
+frames.
+
+### 15e. Refuse the sub-feature, not the tool
+
+`olo_render_probe_pixel` and `olo_render_target_stats` refused wholesale on
+Vulkan because ONE of their arguments (`afterPass`) rides a GL-only mid-frame
+clone. The port narrowed the refusal to that argument and left everything else
+working on both backends. When a tool has a GL-only corner, gate the corner: a
+whole-tool refusal reads to the next session as "this question is unanswerable
+here", which is a much more expensive wrong belief than "this option is
+unavailable".

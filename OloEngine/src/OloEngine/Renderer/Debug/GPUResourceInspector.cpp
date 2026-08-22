@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Debug/ResourceInspectorBackend.h"
+#include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
@@ -20,6 +21,8 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <ranges>
+#include <vector>
 
 namespace OloEngine
 {
@@ -62,6 +65,47 @@ namespace OloEngine
                     return "Vulkan";
             }
             return "Unknown";
+        }
+
+        const char* BackendName(RHI::Backend backend)
+        {
+            switch (backend)
+            {
+                case RHI::Backend::None:
+                    return "none";
+                case RHI::Backend::OpenGL:
+                    return "OpenGL";
+                case RHI::Backend::Vulkan:
+                    return "Vulkan";
+            }
+            return "unknown";
+        }
+
+        GPUResourceInspector::ResourceType ResourceTypeForDiscovered(
+            const IResourceInspectorBackend::DiscoveredResource& discovered)
+        {
+            using RT = GPUResourceInspector::ResourceType;
+            switch (discovered.Kind)
+            {
+                case RHI::ResourceKind::Texture:
+                    return discovered.IsCubemap ? RT::TextureCubemap : RT::Texture2D;
+                case RHI::ResourceKind::Framebuffer:
+                    return RT::Framebuffer;
+                case RHI::ResourceKind::VertexArray:
+                    return RT::VertexArray;
+                case RHI::ResourceKind::ShaderProgram:
+                    return RT::ShaderProgram;
+                case RHI::ResourceKind::Query:
+                    return RT::Query;
+                case RHI::ResourceKind::Buffer:
+                    // The backend's classification of the native usage bits
+                    // decides vertex / index / uniform, exactly as the GL
+                    // registration path does for a buffer target.
+                    return RT::VertexBuffer;
+                case RHI::ResourceKind::Unknown:
+                    break;
+            }
+            return RT::Other;
         }
 
     } // namespace
@@ -143,7 +187,7 @@ namespace OloEngine
         m_IsInitialized = false;
     }
 
-    void GPUResourceInspector::RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName)
+    void GPUResourceInspector::RegisterTexture(u64 rendererID, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -188,7 +232,7 @@ namespace OloEngine
             ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Texture2D))];
     }
 
-    void GPUResourceInspector::RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName)
+    void GPUResourceInspector::RegisterTextureCubemap(u64 rendererID, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -226,7 +270,7 @@ namespace OloEngine
             ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::TextureCubemap))];
     }
 
-    void GPUResourceInspector::RegisterBuffer(u32 rendererID, u32 target, const std::string& name, const std::string& debugName)
+    void GPUResourceInspector::RegisterBuffer(u64 rendererID, u32 target, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -283,7 +327,7 @@ namespace OloEngine
             ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(bufferType))];
     }
 
-    void GPUResourceInspector::RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName)
+    void GPUResourceInspector::RegisterFramebuffer(u64 rendererID, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -321,7 +365,7 @@ namespace OloEngine
             ++m_ResourceCounts[static_cast<sizet>(std::to_underlying(ResourceType::Framebuffer))];
     }
 
-    void GPUResourceInspector::UnregisterResource(u32 rendererID)
+    void GPUResourceInspector::UnregisterResource(u64 rendererID)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -368,7 +412,7 @@ namespace OloEngine
         }
     }
 
-    void GPUResourceInspector::UpdateResourceActiveState(u32 rendererID, bool isActive)
+    void GPUResourceInspector::UpdateResourceActiveState(u64 rendererID, bool isActive)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -382,7 +426,7 @@ namespace OloEngine
         }
     }
 
-    void GPUResourceInspector::UpdateResourceBinding(u32 rendererID, bool isBound, u32 bindingSlot)
+    void GPUResourceInspector::UpdateResourceBinding(u64 rendererID, bool isBound, u32 bindingSlot)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -614,7 +658,7 @@ namespace OloEngine
         return true;
     }
 
-    GPUResourceInspector::TextureCaptureResult GPUResourceInspector::CaptureTexturePng(u32 textureId, u32 mipLevel,
+    GPUResourceInspector::TextureCaptureResult GPUResourceInspector::CaptureTexturePng(u64 textureId, u32 mipLevel,
                                                                                        u32 faceOrLayer,
                                                                                        CaptureNormalizeMode normalize,
                                                                                        int maxWidth,
@@ -1053,6 +1097,172 @@ namespace OloEngine
         }
     }
 
+    // ---- Registry-driven discovery + snapshot (#810) -----------------------
+
+    void GPUResourceInspector::RefreshDiscoveredResources()
+    {
+        IResourceInspectorBackend* backend = GetBackend();
+        if (backend == nullptr || !backend->DiscoversResources())
+            return;
+
+        // The backend reads render-thread-only side tables, so this must not
+        // run under m_ResourceMutex with an MCP handler waiting on it — gather
+        // first, then swap under the lock.
+        std::vector<IResourceInspectorBackend::DiscoveredResource> discovered;
+        backend->DiscoverResources(discovered);
+
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
+
+        // A rebuild, not a merge. The registry snapshot IS the live set, so
+        // reconciling incrementally would only add a way for a destroyed
+        // resource to linger — the failure mode this whole tool exists to
+        // make visible.
+        m_Resources.clear();
+        m_ResourceCounts.fill(0);
+        m_MemoryUsageByType.fill(0);
+
+        for (const auto& entry : discovered)
+        {
+            const ResourceType type = ResourceTypeForDiscovered(entry);
+            const auto typeIndex = static_cast<sizet>(std::to_underlying(type));
+
+            std::unique_ptr<ResourceInfo> info;
+            if (type == ResourceType::Texture2D || type == ResourceType::TextureCubemap)
+            {
+                auto texture = CreateScope<TextureInfo>();
+                texture->m_Width = entry.Width;
+                texture->m_Height = entry.Height;
+                texture->m_MipLevels = entry.MipLevels;
+                texture->m_HasMips = entry.MipLevels > 1u;
+                texture->m_InternalFormat = entry.NativeFormat;
+                texture->m_Format = entry.NativeFormat;
+                texture->m_DataType = 0u;
+                info = std::move(texture);
+            }
+            else if (type == ResourceType::Framebuffer)
+            {
+                auto framebuffer = CreateScope<FramebufferInfo>();
+                framebuffer->m_Width = entry.Width;
+                framebuffer->m_Height = entry.Height;
+                info = std::move(framebuffer);
+            }
+            else
+            {
+                auto buffer = CreateScope<BufferInfo>();
+                buffer->m_Target = entry.NativeTarget;
+                buffer->m_Usage = entry.NativeTarget;
+                buffer->m_Size =
+                    static_cast<u32>(std::min<u64>(entry.SizeBytes, std::numeric_limits<u32>::max()));
+                info = std::move(buffer);
+            }
+
+            info->m_RendererID = entry.Native;
+            info->m_Handle = entry.Handle;
+            info->m_Backend = RHI::GetNativeHandleForDebug(entry.Handle).Owner;
+            info->m_Type = type;
+            info->m_Name = entry.Name;
+            info->m_DebugName = entry.DebugName.empty() ? entry.Name : entry.DebugName;
+            info->m_MemoryUsage = static_cast<sizet>(entry.SizeBytes);
+            info->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
+
+            // Key on the IDENTITY, not the native id. A Vulkan framebuffer
+            // registers native 0 (no VkFramebuffer exists under dynamic
+            // rendering) and an arena-backed UBO has no native object at all,
+            // so several live resources legitimately share native 0 — keying on
+            // it would collapse them into one row and silently under-report.
+            // The identity is unique by construction.
+            const u64 key = entry.Handle.IsValid()
+                                ? ((static_cast<u64>(entry.Handle.Generation) << 32) | entry.Handle.Index)
+                                : entry.Native;
+            m_Resources[key] = std::move(info);
+            ++m_ResourceCounts[typeIndex];
+            m_MemoryUsageByType[typeIndex] += static_cast<sizet>(entry.SizeBytes);
+        }
+    }
+
+    std::vector<GPUResourceInspector::ResourceSnapshotEntry> GPUResourceInspector::SnapshotResources() const
+    {
+        std::vector<ResourceSnapshotEntry> rows;
+
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
+        rows.reserve(m_Resources.size());
+        for (const auto& [key, resource] : m_Resources)
+        {
+            ResourceSnapshotEntry row;
+            row.NativeHandle = resource->m_RendererID;
+            row.Handle = resource->m_Handle;
+            row.Backend = resource->m_Backend;
+            row.Type = resource->m_Type;
+            row.Name = resource->m_Name;
+            row.DebugName = resource->m_DebugName;
+            row.MemoryUsage = resource->m_MemoryUsage;
+            row.IsActive = resource->m_IsActive;
+            row.IsBound = resource->m_IsBound;
+            row.BindingSlot = resource->m_BindingSlot;
+
+            switch (resource->m_Type)
+            {
+                case ResourceType::Texture2D:
+                case ResourceType::TextureCubemap:
+                {
+                    const auto& texture = static_cast<const TextureInfo&>(*resource);
+                    row.Width = texture.m_Width;
+                    row.Height = texture.m_Height;
+                    row.MipLevels = texture.m_MipLevels;
+                    row.NativeFormat = texture.m_InternalFormat;
+                    row.FormatName = FormatTextureFormat(texture.m_InternalFormat);
+                    break;
+                }
+                case ResourceType::Framebuffer:
+                {
+                    const auto& framebuffer = static_cast<const FramebufferInfo&>(*resource);
+                    row.Width = framebuffer.m_Width;
+                    row.Height = framebuffer.m_Height;
+                    row.NativeFormat = framebuffer.m_Status;
+                    break;
+                }
+                default:
+                {
+                    const auto& buffer = static_cast<const BufferInfo&>(*resource);
+                    row.SizeBytes = buffer.m_Size;
+                    row.NativeTarget = buffer.m_Target;
+                    row.NativeFormat = buffer.m_Usage;
+                    row.FormatName = FormatBufferUsage(buffer.m_Usage);
+                    break;
+                }
+            }
+            rows.push_back(std::move(row));
+        }
+
+        // Deterministic order so two consecutive reads of an unchanged scene
+        // compare equal; unordered_map iteration order does not.
+        std::ranges::sort(rows,
+                          [](const ResourceSnapshotEntry& a, const ResourceSnapshotEntry& b)
+                          {
+                              if (a.Type != b.Type)
+                                  return std::to_underlying(a.Type) < std::to_underlying(b.Type);
+                              if (a.Handle.Index != b.Handle.Index)
+                                  return a.Handle.Index < b.Handle.Index;
+                              return a.NativeHandle < b.NativeHandle;
+                          });
+        return rows;
+    }
+
+    bool GPUResourceInspector::QueryMemoryHeaps(std::vector<IResourceInspectorBackend::MemoryHeap>& out) const
+    {
+        out.clear();
+        IResourceInspectorBackend* backend = GetBackend();
+        return backend != nullptr && backend->QueryMemoryHeaps(out);
+    }
+
+    bool GPUResourceInspector::SupportsPreviews() const
+    {
+        IResourceInspectorBackend* backend = GetBackend();
+        // A discovering backend is exactly the one with no PBO download engine
+        // and no GL ImGui texture binding — see the header's contract.
+        return backend != nullptr && !backend->DiscoversResources();
+    }
+
     sizet GPUResourceInspector::GetMemoryUsage(ResourceType type) const
     {
         TUniqueLock<FMutex> lock(m_ResourceMutex);
@@ -1076,6 +1286,11 @@ namespace OloEngine
 
         // Process any pending texture downloads to prevent stalls
         ProcessTextureDownloads();
+
+        // Vulkan has no registration macros, so the live set has to be pulled
+        // from RHI::ResourceRegistry each frame the panel is open (#810).
+        // No-op on OpenGL.
+        RefreshDiscoveredResources();
 
         if (!ImGui::Begin(title, open, ImGuiWindowFlags_MenuBar))
         {
@@ -1107,6 +1322,16 @@ namespace OloEngine
 
         // Statistics section
         RenderResourceStatistics();
+        RenderMemoryHeaps();
+
+        if (!SupportsPreviews())
+        {
+            ImGui::TextColored(ImVec4(0.85f, 0.75f, 0.35f, 1.0f),
+                               "Previews unavailable on this backend — the thumbnail path is the GL "
+                               "PBO/fence download engine.");
+            ImGui::TextDisabled("Use olo_render_capture_target / olo_render_probe_pixel for pixels; "
+                                "they read through the facade readback spine.");
+        }
 
         ImGui::Separator();
 
@@ -1114,7 +1339,12 @@ namespace OloEngine
         ImGui::Text("Filters:");
         ImGui::SameLine();
 
-        const char* typeNames[] = { "All", "Textures", "Cubemaps", "Vertex Buffers", "Index Buffers", "Uniform Buffers", "Framebuffers" };
+        // Order must match ResourceType, offset by the leading "All".
+        const char* typeNames[] = { "All", "Textures", "Cubemaps", "Vertex Buffers", "Index Buffers",
+                                    "Uniform Buffers", "Framebuffers", "Vertex Arrays", "Shader Programs",
+                                    "Queries", "Other" };
+        static_assert(IM_ARRAYSIZE(typeNames) == static_cast<int>(std::to_underlying(ResourceType::COUNT)) + 1,
+                      "typeNames must stay in lockstep with ResourceType");
         if (int currentFilter = static_cast<int>(std::to_underlying(m_FilterType)) + 1; ImGui::Combo("Type", &currentFilter, typeNames, IM_ARRAYSIZE(typeNames)))
         {
             m_FilterType = (currentFilter == 0) ? ResourceType::COUNT : static_cast<ResourceType>(currentFilter - 1);
@@ -1248,9 +1478,9 @@ namespace OloEngine
         ImGui::Separator();
 
         // Group resources by type
-        std::unordered_map<ResourceType, std::vector<ResourceInfo*>> groupedResources;
+        std::unordered_map<ResourceType, std::vector<std::pair<u64, ResourceInfo*>>> groupedResources;
 
-        for (const auto& [id, resource] : m_Resources)
+        for (const auto& [key, resource] : m_Resources)
         {
             // Apply filters
             if (m_FilterType != ResourceType::COUNT && resource->m_Type != m_FilterType)
@@ -1274,7 +1504,11 @@ namespace OloEngine
             if (!m_ShowInactiveResources && !resource->m_IsActive)
                 continue;
 
-            groupedResources[resource->m_Type].push_back(resource.get());
+            // Carry the MAP KEY, not the native id: under a discovering backend
+            // the key is the RHI identity (a Vulkan framebuffer and an
+            // arena-backed UBO both register native 0, so the native cannot
+            // select a row). Under OpenGL the two are the same value.
+            groupedResources[resource->m_Type].emplace_back(key, resource.get());
         }
 
         // Render tree nodes by type
@@ -1288,10 +1522,10 @@ namespace OloEngine
 
             if (ImGui::TreeNode(GetResourceTypeName(type)))
             {
-                for (const auto* resource : resources)
+                for (const auto& [key, resource] : resources)
                 {
                     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-                    if (resource->m_RendererID == m_SelectedResourceID)
+                    if (key == m_SelectedResourceID)
                         flags |= ImGuiTreeNodeFlags_Selected;
 
                     std::string label = resource->m_DebugName.empty() ? resource->m_Name : resource->m_DebugName;
@@ -1304,12 +1538,12 @@ namespace OloEngine
                         label += " [BOUND]";
 
                     // Create unique ID for this tree node using resource ID
-                    std::string uniqueID = label + "##" + std::to_string(resource->m_RendererID);
+                    std::string uniqueID = label + "##" + std::to_string(key);
                     ImGui::TreeNodeEx(uniqueID.c_str(), flags);
 
                     if (ImGui::IsItemClicked())
                     {
-                        m_SelectedResourceID = resource->m_RendererID;
+                        m_SelectedResourceID = key;
                     }
                 }
                 ImGui::TreePop();
@@ -1339,7 +1573,20 @@ namespace OloEngine
         ImGui::Text("Resource Details");
         ImGui::Separator();
 
-        ImGui::Text("ID: %u", resource->m_RendererID);
+        // BOTH currencies, always (ADR 0011 amendment (77)): the native id is
+        // what a RenderDoc / RGP capture shows, the identity is what answers
+        // "same object, or a recycled name?".
+        ImGui::Text("Native: 0x%llX (%llu)", static_cast<unsigned long long>(resource->m_RendererID),
+                    static_cast<unsigned long long>(resource->m_RendererID));
+        if (resource->m_Handle.IsValid())
+        {
+            ImGui::Text("RHI handle: #%u gen %u  [%s]", resource->m_Handle.Index,
+                        resource->m_Handle.Generation, BackendName(resource->m_Backend));
+        }
+        else
+        {
+            ImGui::TextDisabled("RHI handle: (not recorded at registration)");
+        }
         ImGui::Text("Type: %s", GetResourceTypeName(resource->m_Type));
         ImGui::Text("Name: %s", resource->m_Name.c_str());
         if (!resource->m_DebugName.empty() && resource->m_DebugName != resource->m_Name)
@@ -1773,6 +2020,52 @@ namespace OloEngine
         }
     }
 
+    void GPUResourceInspector::RenderMemoryHeaps()
+    {
+        // The tracked-resource total above sums what this panel knows about;
+        // this is what the DEVICE ALLOCATOR says, which is the number that
+        // answers "am I about to run out of VRAM?". They deliberately differ:
+        // the allocator's blocks include padding, suballocation slack and
+        // anything created before the inspector existed.
+        std::vector<IResourceInspectorBackend::MemoryHeap> heaps;
+        if (!QueryMemoryHeaps(heaps) || heaps.empty())
+            return;
+
+        ImGui::Separator();
+        if (!ImGui::CollapsingHeader("Device Memory Heaps", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+
+        if (ImGui::BeginTable("##gpuHeaps", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+        {
+            ImGui::TableSetupColumn("Heap");
+            ImGui::TableSetupColumn("Device-local");
+            ImGui::TableSetupColumn("Usage");
+            ImGui::TableSetupColumn("Budget");
+            ImGui::TableSetupColumn("Blocks");
+            ImGui::TableSetupColumn("Allocations");
+            ImGui::TableHeadersRow();
+
+            for (const auto& heap : heaps)
+            {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", heap.Index);
+                ImGui::TableNextColumn();
+                ImGui::Text("%s", heap.DeviceLocal ? "yes" : "no");
+                ImGui::TableNextColumn();
+                ImGui::Text("%s", FormatMemorySize(static_cast<sizet>(heap.UsageBytes)).c_str());
+                ImGui::TableNextColumn();
+                ImGui::Text("%s", FormatMemorySize(static_cast<sizet>(heap.BudgetBytes)).c_str());
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu (%s)", static_cast<unsigned long long>(heap.BlockCount),
+                            FormatMemorySize(static_cast<sizet>(heap.BlockBytes)).c_str());
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", static_cast<unsigned long long>(heap.AllocationCount));
+            }
+            ImGui::EndTable();
+        }
+    }
+
     void GPUResourceInspector::ExportToCSV(const std::string& filename)
     {
         std::ofstream file(filename);
@@ -1856,6 +2149,14 @@ namespace OloEngine
                 return "Uniform Buffer";
             case ResourceType::Framebuffer:
                 return "Framebuffer";
+            case ResourceType::VertexArray:
+                return "Vertex Array";
+            case ResourceType::ShaderProgram:
+                return "Shader Program";
+            case ResourceType::Query:
+                return "Query";
+            case ResourceType::Other:
+                return "Other";
             default:
                 return "Unknown";
         }

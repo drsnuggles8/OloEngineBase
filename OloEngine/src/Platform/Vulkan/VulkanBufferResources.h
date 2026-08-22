@@ -71,12 +71,19 @@ namespace OloEngine
         UniformBuffer,
         StorageBuffer,
         VertexArray,
-        Shader,      ///< VulkanShader — resolved by BindShaderProgram packets.
-        Framebuffer, ///< VulkanFramebuffer — resolved by the raw-handle framebuffer ops
-                     ///< (clears / blits / draw-attachment selection, #691).
-                     ///< Needed because the FB registers native = 0 (no VkFramebuffer
-                     ///< exists under dynamic rendering), so ResourceRegistry cannot
-                     ///< resolve it — the same "no native object" reason VAOs live here.
+        Shader,       ///< VulkanShader — resolved by BindShaderProgram packets.
+        VertexBuffer, ///< VulkanVertexBuffer — registered for DIAGNOSTICS only (#810):
+                      ///< the draw path reaches a vertex stream by device address, so
+                      ///< nothing binds through this entry. It exists because the
+                      ///< resource inspector's Vulkan arm needs a handle -> object hop
+                      ///< to answer "how big is this buffer?", which the RHI registry
+                      ///< (handle -> native only) cannot.
+        IndexBuffer,  ///< VulkanIndexBuffer — same, diagnostics only.
+        Framebuffer,  ///< VulkanFramebuffer — resolved by the raw-handle framebuffer ops
+                      ///< (clears / blits / draw-attachment selection, #691).
+                      ///< Needed because the FB registers native = 0 (no VkFramebuffer
+                      ///< exists under dynamic rendering), so ResourceRegistry cannot
+                      ///< resolve it — the same "no native object" reason VAOs live here.
     };
 
     class VulkanRootObjectRegistry

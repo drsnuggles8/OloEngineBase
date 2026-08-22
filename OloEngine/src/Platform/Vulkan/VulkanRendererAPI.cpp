@@ -4729,6 +4729,15 @@ namespace OloEngine
             switch (format)
             {
                 case RHI::Format::R32Float:
+                // A depth readback names D32Float as its destination on both
+                // backends — GL because only a depth dest maps to
+                // GL_DEPTH_COMPONENT, and here because the identity path only
+                // fires when the image really is VK_FORMAT_D32_SFLOAT (this
+                // hardware backs the graph's Depth24Stencil8 with
+                // D32_SFLOAT_S8_UINT, so the decode path has to serve it).
+                // The depth plane already decoded to texel.x, so this is the
+                // same single float R32Float writes.
+                case RHI::Format::D32Float:
                     std::memcpy(dest, &texel.x, sizeof(f32));
                     return true;
                 case RHI::Format::RG32Float:
@@ -5055,6 +5064,99 @@ namespace OloEngine
         }
         outWidth = std::max(info->Width >> mipLevel, 1u);
         outHeight = std::max(info->Height >> mipLevel, 1u);
+    }
+
+    bool VulkanRendererAPI::QueryTextureFormat(RHI::ResourceHandle texture, u32 mipLevel,
+                                               RHI::TextureFormatInfo& out)
+    {
+        // Keyed on the VULKAN format from the image-info registry, never on the
+        // render graph's format label — ADR 0011 amendment (79): the backend
+        // satisfies the graph's Depth24Stencil8 with D32_SFLOAT_S8_UINT here,
+        // so a table keyed on the label would decode the wrong number of bytes.
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            return false;
+        }
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
+        if (info == nullptr || info->Width == 0u || mipLevel >= std::max(info->MipLevels, 1u))
+        {
+            return false;
+        }
+
+        RHI::TextureFormatInfo described;
+        described.Native = static_cast<u64>(info->Format);
+
+        // Tokens match the OpenGL arm's spelling for the same format, which is
+        // what makes a cross-backend A/B readable without a translation table.
+        switch (info->Format)
+        {
+            case VK_FORMAT_R8G8B8A8_UNORM:
+                described = { RHI::Format::RGBA8UNorm, described.Native, "RGBA8", 4, false, false, false };
+                break;
+            case VK_FORMAT_R8G8B8A8_SRGB:
+                described = { RHI::Format::RGBA8SRGB, described.Native, "RGBA8_SRGB", 4, false, false, false };
+                break;
+            case VK_FORMAT_B8G8R8A8_UNORM:
+                described = { RHI::Format::Unknown, described.Native, "BGRA8", 4, false, false, false };
+                break;
+            case VK_FORMAT_B8G8R8A8_SRGB:
+                described = { RHI::Format::Unknown, described.Native, "BGRA8_SRGB", 4, false, false, false };
+                break;
+            case VK_FORMAT_R8G8_UNORM:
+                described = { RHI::Format::RG8UNorm, described.Native, "RG8", 2, false, false, false };
+                break;
+            case VK_FORMAT_R8_UNORM:
+                described = { RHI::Format::R8UNorm, described.Native, "R8", 1, false, false, false };
+                break;
+            case VK_FORMAT_R8_UINT:
+                described = { RHI::Format::R8UInt, described.Native, "R8UI", 1, true, false, false };
+                break;
+            case VK_FORMAT_R16G16B16A16_SFLOAT:
+                described = { RHI::Format::RGBA16Float, described.Native, "RGBA16F", 4, false, false, true };
+                break;
+            case VK_FORMAT_R32G32B32A32_SFLOAT:
+                described = { RHI::Format::RGBA32Float, described.Native, "RGBA32F", 4, false, false, true };
+                break;
+            case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
+                described = { RHI::Format::Unknown, described.Native, "R11F_G11F_B10F", 3, false, false, true };
+                break;
+            case VK_FORMAT_R16G16_SFLOAT:
+                described = { RHI::Format::RG16Float, described.Native, "RG16F", 2, false, false, true };
+                break;
+            case VK_FORMAT_R32G32_SFLOAT:
+                described = { RHI::Format::RG32Float, described.Native, "RG32F", 2, false, false, true };
+                break;
+            case VK_FORMAT_R16_SFLOAT:
+                described = { RHI::Format::Unknown, described.Native, "R16F", 1, false, false, true };
+                break;
+            case VK_FORMAT_R32_SFLOAT:
+                described = { RHI::Format::R32Float, described.Native, "R32F", 1, false, false, true };
+                break;
+            case VK_FORMAT_R32_SINT:
+                described = { RHI::Format::R32Int, described.Native, "R32I", 1, true, false, false };
+                break;
+            case VK_FORMAT_R32_UINT:
+                described = { RHI::Format::R32UInt, described.Native, "R32UI", 1, true, false, false };
+                break;
+            case VK_FORMAT_D16_UNORM:
+                described = { RHI::Format::Unknown, described.Native, "D16", 1, false, true, false };
+                break;
+            case VK_FORMAT_D32_SFLOAT:
+                described = { RHI::Format::D32Float, described.Native, "D32F", 1, false, true, true };
+                break;
+            case VK_FORMAT_D24_UNORM_S8_UINT:
+                described = { RHI::Format::D24UNormS8UInt, described.Native, "D24S8", 1, false, true, false };
+                break;
+            case VK_FORMAT_D32_SFLOAT_S8_UINT:
+                described = { RHI::Format::Unknown, described.Native, "D32FS8", 1, false, true, true };
+                break;
+            default:
+                return false;
+        }
+
+        out = described;
+        return true;
     }
 
     void VulkanRendererAPI::TextureBarrier()

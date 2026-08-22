@@ -1929,6 +1929,113 @@ namespace OloEngine
         glTextureBarrier();
     }
 
+    bool OpenGLRendererAPI::QueryTextureFormat(RHI::ResourceHandle texture, u32 mipLevel,
+                                               RHI::TextureFormatInfo& out)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
+        if (textureID == 0u)
+        {
+            return false;
+        }
+
+        GLint width = 0;
+        GLint internalFormat = 0;
+        glGetTextureLevelParameteriv(textureID, static_cast<GLint>(mipLevel), GL_TEXTURE_WIDTH, &width);
+        glGetTextureLevelParameteriv(textureID, static_cast<GLint>(mipLevel), GL_TEXTURE_INTERNAL_FORMAT,
+                                     &internalFormat);
+        if (width <= 0)
+        {
+            return false; // no storage at this level — GL's own answer
+        }
+
+        RHI::TextureFormatInfo info;
+        info.Native = static_cast<u64>(static_cast<u32>(internalFormat));
+
+        // The neutral tokens are the spelling the Vulkan arm produces too, so a
+        // GL reading and a Vulkan reading of the same target compare directly.
+        switch (internalFormat)
+        {
+            case GL_RGBA8:
+                info = { RHI::Format::RGBA8UNorm, info.Native, "RGBA8", 4, false, false, false };
+                break;
+            case GL_SRGB8_ALPHA8:
+                info = { RHI::Format::RGBA8SRGB, info.Native, "RGBA8_SRGB", 4, false, false, false };
+                break;
+            case GL_RGB8:
+                info = { RHI::Format::RGB8UNorm, info.Native, "RGB8", 3, false, false, false };
+                break;
+            case GL_SRGB8:
+                info = { RHI::Format::Unknown, info.Native, "RGB8_SRGB", 3, false, false, false };
+                break;
+            case GL_RG8:
+                info = { RHI::Format::RG8UNorm, info.Native, "RG8", 2, false, false, false };
+                break;
+            case GL_R8:
+                info = { RHI::Format::R8UNorm, info.Native, "R8", 1, false, false, false };
+                break;
+            case GL_RGBA16F:
+                info = { RHI::Format::RGBA16Float, info.Native, "RGBA16F", 4, false, false, true };
+                break;
+            case GL_RGBA32F:
+                info = { RHI::Format::RGBA32Float, info.Native, "RGBA32F", 4, false, false, true };
+                break;
+            case GL_RGB16F:
+                info = { RHI::Format::Unknown, info.Native, "RGB16F", 3, false, false, true };
+                break;
+            case GL_RGB32F:
+                info = { RHI::Format::RGB32Float, info.Native, "RGB32F", 3, false, false, true };
+                break;
+            case GL_R11F_G11F_B10F:
+                info = { RHI::Format::Unknown, info.Native, "R11F_G11F_B10F", 3, false, false, true };
+                break;
+            case GL_RG16F:
+                info = { RHI::Format::RG16Float, info.Native, "RG16F", 2, false, false, true };
+                break;
+            case GL_RG32F:
+                info = { RHI::Format::RG32Float, info.Native, "RG32F", 2, false, false, true };
+                break;
+            case GL_R16F:
+                info = { RHI::Format::Unknown, info.Native, "R16F", 1, false, false, true };
+                break;
+            case GL_R32F:
+                info = { RHI::Format::R32Float, info.Native, "R32F", 1, false, false, true };
+                break;
+            case GL_R32I:
+                info = { RHI::Format::R32Int, info.Native, "R32I", 1, true, false, false };
+                break;
+            case GL_R32UI:
+                info = { RHI::Format::R32UInt, info.Native, "R32UI", 1, true, false, false };
+                break;
+            case GL_DEPTH_COMPONENT16:
+                info = { RHI::Format::Unknown, info.Native, "D16", 1, false, true, false };
+                break;
+            case GL_DEPTH_COMPONENT24:
+                info = { RHI::Format::Unknown, info.Native, "D24", 1, false, true, false };
+                break;
+            case GL_DEPTH_COMPONENT32:
+                info = { RHI::Format::Unknown, info.Native, "D32", 1, false, true, false };
+                break;
+            case GL_DEPTH_COMPONENT32F:
+                info = { RHI::Format::D32Float, info.Native, "D32F", 1, false, true, true };
+                break;
+            case GL_DEPTH24_STENCIL8:
+                info = { RHI::Format::D24UNormS8UInt, info.Native, "D24S8", 1, false, true, false };
+                break;
+            case GL_DEPTH32F_STENCIL8:
+                info = { RHI::Format::Unknown, info.Native, "D32FS8", 1, false, true, true };
+                break;
+            default:
+                // Undecodable: say so rather than let a caller read with a
+                // guessed channel count.
+                return false;
+        }
+
+        out = info;
+        return true;
+    }
+
     // --- Queries ----------------------------------------------------------------------------
 
     void OpenGLRendererAPI::CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries)

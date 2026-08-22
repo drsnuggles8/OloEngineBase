@@ -249,6 +249,36 @@ namespace OloEngine::RHI
         RGBA32UInt,
     };
 
+    // -------------------------------------------------------------------------
+    // What a DIAGNOSTIC needs to know about a live texture's storage format
+    // (#810). `Format` above is the vocabulary the engine CREATES textures
+    // with; this is the vocabulary the tools READ them back with, and the two
+    // are not the same question:
+    //
+    //  * `Neutral` is the closest Format, and is Unknown for storage the
+    //    engine never mints through Format (an sRGB swapchain flavour, a
+    //    packed 11/11/10 target). A tool must not refuse just because of that
+    //    — Token/Channels/IsFloat still describe it well enough to read it.
+    //  * `Native` is the GL internal format or the VkFormat. ADR 0011
+    //    amendment (79): a readback table must key on the VULKAN format from
+    //    the image-info registry, never on the render graph's format label,
+    //    because the backend is free to satisfy `Depth24Stencil8` with
+    //    D32_SFLOAT_S8_UINT — which it does on the hardware here.
+    //  * `Token` is a stable, BACKEND-NEUTRAL spelling ("RGBA16F", "D32F",
+    //    "R32I"), so a GL reading and a Vulkan reading of the same target are
+    //    comparable side by side rather than needing a translation table.
+    // -------------------------------------------------------------------------
+    struct TextureFormatInfo
+    {
+        Format Neutral = Format::Unknown;
+        u64 Native = 0;
+        const char* Token = "Unknown";
+        u8 Channels = 0;
+        bool IsInteger = false;
+        bool IsDepth = false;
+        bool IsFloat = false;
+    };
+
     [[nodiscard]] constexpr bool IsCompressed(Format format) noexcept
     {
         return format == Format::BC5UNorm || format == Format::BC6HUFloat ||

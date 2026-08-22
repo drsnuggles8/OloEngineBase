@@ -734,6 +734,12 @@ namespace OloEngine
             s_RendererAPI->GetTextureDimensions(texture, mipLevel, outWidth, outHeight);
         }
 
+        [[nodiscard("Store this!")]] static bool QueryTextureFormat(RHI::ResourceHandle texture, u32 mipLevel,
+                                                                    RHI::TextureFormatInfo& out)
+        {
+            return s_RendererAPI->QueryTextureFormat(texture, mipLevel, out);
+        }
+
         static void TextureBarrier()
         {
             s_RendererAPI->TextureBarrier();

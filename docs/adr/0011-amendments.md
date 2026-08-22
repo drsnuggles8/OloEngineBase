@@ -1739,3 +1739,88 @@ gained the autotools row. Standing consequences:
 
 ---
 
+
+### (88) The inspector's Vulkan arm DISCOVERS rather than being registered into — and the enumeration lives in the neutral registry
+
+Issue #810, the follow-up (77) and §1.6 left open. (77) decided that
+`GPUResourceInspector` must show both currencies; it did not say where a
+Vulkan session's resource list would come from, and the answer decided it.
+
+**The decision: `RHI::ResourceRegistry` grows a `Snapshot()`, and that is the
+enumeration for every backend.** The alternative — teaching ~15 Vulkan
+resource constructors to call `OLO_GPU_REGISTER_*`, mirroring what the GL
+constructors do — was rejected because those macros would duplicate
+bookkeeping the engine *already* performs: every backend resource registers
+with the RHI registry at creation, and that registry is the one place that
+holds the identity, the native handle, the kind and the owning backend
+together. A second, hand-maintained list of the same objects is the
+two-mirrors-drift shape, and the mirror nobody looks at is the one that rots.
+
+So the two arms have deliberately different discovery models, spelled
+`IResourceInspectorBackend::DiscoversResources()`:
+
+- **OpenGL is PUSHED.** The macros fire from resource constructors, the
+  shell's map is authoritative, and `DiscoversResources()` is false. Nothing
+  about the GL arm changed.
+- **Vulkan is PULLED.** `DiscoverResources()` takes a registry snapshot, keeps
+  the Vulkan-owned rows, and enriches each from the backend-internal side
+  tables — `VulkanImageInfoRegistry` for extent/format/mips/layers,
+  `VulkanRootObjectRegistry` for the buffer and framebuffer objects' sizes and
+  extents, `VulkanRawBufferRegistry` for the object-less raw family, and VMA's
+  own `vmaGetHeapBudgets` for the per-heap totals.
+
+**Three consequences worth not re-deriving.**
+
+1. **The shell keys its map on the IDENTITY, not the native handle.** A Vulkan
+   framebuffer registers native 0 — there is no `VkFramebuffer` under dynamic
+   rendering (amendment (83)) — and an arena-backed uniform buffer has no
+   native object at all, so several live resources legitimately share native
+   0. Keying on it collapses them into one row and under-reports without
+   erroring. For the same reason `Snapshot()` decides liveness from the
+   freelist rather than from `Native != 0`, which reads like a sane liveness
+   test and is not.
+
+2. **Native ids are u64 through the whole inspector now.** A GL name widens
+   losslessly; a `VkImage` truncated into a u32 is a plausible-looking wrong
+   answer, which is the failure class this tool exists to prevent.
+
+3. **Previews and the async download engine stay GL-only, and say so.** They
+   are a PBO + fence pipeline feeding the GL ImGui renderer backend; neither
+   exists under Vulkan, and a Vulkan `ImTextureID` would need a per-image
+   `VkDescriptorSet` the panel has no lifetime story for. Those entry points
+   return "unsupported" and the panel prints why, rather than returning an
+   empty image that reads as "the texture is black". Pixel inspection under
+   Vulkan goes through the facade readback spine instead, which is the other
+   half of #810.
+
+**A second decision came out of the readback rewrite.** Porting
+`olo_render_probe_pixel` / `olo_render_target_stats` off
+`glGetTextureLevelParameteriv(GL_TEXTURE_INTERNAL_FORMAT)` needed a neutral
+way to ask "what format is this texture?", so the facade grew
+`QueryTextureFormat` returning `RHI::TextureFormatInfo` — the neutral
+`RHI::Format` where one matches, the NATIVE format enum always, plus a
+backend-neutral token, channel count and float/integer/depth flags. Keyed on
+the Vulkan format from the image-info registry, never on the render graph's
+label, per (79). Two things it pinned:
+
+- A **depth** readback must name a DEPTH destination format on both backends.
+  GL needs it because only depth destinations lower to `GL_DEPTH_COMPONENT`
+  (reading depth as `GL_RED` is `GL_INVALID_OPERATION`); Vulkan needs the same
+  name because its identity fast path only fires when the image really is
+  `VK_FORMAT_D32_SFLOAT`, and this hardware backs the graph's
+  `Depth24Stencil8` with `D32_SFLOAT_S8_UINT`. `EncodeReadbackTexel` gained
+  the `D32Float` case so one destination serves both.
+- `RHI::Format` is the vocabulary the engine CREATES textures with, and it is
+  narrower than what the tools must READ. A packed 11/11/10 target or an sRGB
+  swapchain flavour has no `RHI::Format`, and a tool that refused on that
+  ground would be refusing formats it can decode perfectly well — hence
+  `Neutral` is allowed to be `Unknown` while the token and channel count still
+  describe the storage.
+
+**What did NOT change, deliberately.** The afterPass mid-frame snapshot clone
+stays native-currency and GL-only. `PassSnapshotBackend.h` pins that
+instrument's contract native at both ends — the resolver hands in a raw
+texture name and `Result::TextureID` hands one back — and `native -> handle`
+is not recoverable, so the capture/probe/stats tools refuse `afterPass` under
+Vulkan rather than pretending. Every other path in those three tools now runs
+one code path on both backends.

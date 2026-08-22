@@ -6,6 +6,9 @@
 // factory TU may see Platform/OpenGL/ headers — the same shape as
 // Framebuffer.cpp's Create switch, relocated next to the interface it mints.
 #include "Platform/OpenGL/OpenGLResourceInspectorBackend.h"
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanResourceInspectorBackend.h"
+#endif
 
 namespace OloEngine
 {
@@ -22,12 +25,18 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                // Deliberate, documented stub (#691, ADR 0011 §1.6):
-                // resource registration is a GL-side instrument — the
-                // OLO_GPU_REGISTER_* macros fire only from Platform/OpenGL
-                // TUs, so under Vulkan there is nothing to inspect here.
-                // Vulkan visibility comes from the VMA/root-object registries.
+#if OLO_WITH_VULKAN
+                // No longer a stub (#810). The OLO_GPU_REGISTER_* macros still
+                // fire only from Platform/OpenGL TUs, so this arm DISCOVERS the
+                // live set from RHI::ResourceRegistry instead of being pushed
+                // into — see VulkanResourceInspectorBackend's class comment for
+                // the mapping and what it deliberately cannot answer.
+                return std::make_unique<VulkanResourceInspectorBackend>();
+#else
+                // Vulkan selected in a build that did not compile the backend
+                // in: nothing to inspect, and no way to say so more precisely.
                 return nullptr;
+#endif
             }
             case RendererAPI::API::OpenGL:
             {

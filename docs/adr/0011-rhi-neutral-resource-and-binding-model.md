@@ -995,6 +995,7 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (85) | One row order per backend; the per-target `flipY` knob retires | live |
 | (86) | `OloServer` stays backend-less; GPU flags fall back to CPU paths | live |
 | (87) | (77)'s cadence confirmed wired; the nightly GPU lane was silently red | live |
+| (88) | The inspector's Vulkan arm discovers from `ResourceRegistry::Snapshot()`; previews stay GL-only | live |
 
 Phase 1 said explicitly that "nothing here is load-bearing until Phase 2
 begins," and that if the sweep discovered a decision was wrong the ADR should be

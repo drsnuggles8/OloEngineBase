@@ -134,6 +134,34 @@ namespace OloEngine::RHI
         };
         [[nodiscard]] auto GetStats() const -> Stats;
 
+        // ---------------------------------------------------------------------
+        // ENUMERATION — the backend-neutral answer to "what GPU objects exist
+        // right now?", in BOTH currencies (ADR 0011 amendment (77)).
+        //
+        // Every backend registers here at creation, so this is the one place
+        // that already knows the whole live set on GL *and* Vulkan — which is
+        // what lets the resource inspector have a Vulkan arm at all (#810).
+        // `OLO_GPU_REGISTER_*` is a GL-side convention; this is not.
+        //
+        // A snapshot is a COPY taken under the write lock, so it is internally
+        // consistent but immediately historical: a resource destroyed a
+        // microsecond later still appears. Consumers are diagnostics; treat
+        // every entry as "was live when asked" and re-resolve before use.
+        //
+        // Native == 0 is legitimate for a live entry (a VulkanFramebuffer has
+        // no VkFramebuffer under dynamic rendering, and an arena-backed UBO has
+        // no native object at all), so liveness is decided by the freelist, not
+        // by the payload.
+        // ---------------------------------------------------------------------
+        struct SnapshotEntry
+        {
+            ResourceHandle Handle;
+            u64 Native = 0;
+            ResourceKind Kind = ResourceKind::Unknown;
+            Backend Owner = Backend::None;
+        };
+        [[nodiscard]] auto Snapshot() const -> std::vector<SnapshotEntry>;
+
         // Test/diagnostic affordance. Not called by the engine.
         void ResetCounters();
 
