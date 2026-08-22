@@ -46,6 +46,32 @@ namespace OloEngine
     // Sentinel value for uninitialized material data index
     static constexpr u16 INVALID_MATERIAL_DATA_INDEX = UINT16_MAX;
 
+    // ---- Per-attachment CHANNEL masks (issue #853) -------------------------
+    //
+    // One nibble per colour attachment, packed into a u32: attachment N owns
+    // bits 4N..4N+3, low bit = red, then green, blue, alpha. Eight attachments
+    // fit exactly, which is also the width of the attachment-level
+    // `PODRenderState::colorAttachmentWriteMask` this refines.
+    static constexpr u32 COLOR_CHANNEL_MASK_ALL = 0xFFFFFFFFu;
+    static constexpr u32 MAX_MASKED_COLOR_ATTACHMENTS = 8u;
+
+    [[nodiscard]] constexpr u8 MakeColorChannelMask(bool red, bool green, bool blue, bool alpha) noexcept
+    {
+        return static_cast<u8>((red ? 0x1u : 0x0u) | (green ? 0x2u : 0x0u) | (blue ? 0x4u : 0x0u) |
+                               (alpha ? 0x8u : 0x0u));
+    }
+
+    [[nodiscard]] constexpr u8 GetColorChannelMask(u32 packed, u32 attachment) noexcept
+    {
+        return static_cast<u8>((packed >> (attachment * 4u)) & 0xFu);
+    }
+
+    [[nodiscard]] constexpr u32 WithColorChannelMask(u32 packed, u32 attachment, u8 channels) noexcept
+    {
+        const u32 shift = attachment * 4u;
+        return (packed & ~(0xFu << shift)) | ((static_cast<u32>(channels) & 0xFu) << shift);
+    }
+
     // Inlined POD render state for commands (replaces Ref<RenderState>)
     struct PODRenderState
     {
@@ -99,6 +125,36 @@ namespace OloEngine
         // Per-attachment color write mask (bit N = attachment N writable, default: all enabled)
         u8 colorAttachmentWriteMask = 0xFF;
 
+        // Per-attachment CHANNEL write mask -- nibble N holds attachment N's
+        // R,G,B,A enables (see MakeColorChannelMask above). Default: every
+        // channel of every attachment writable.
+        //
+        // Why this exists (issue #853): `colorAttachmentWriteMask` is one BIT
+        // per attachment, so it can say "do not write RT1" but never "write
+        // only RT1.xy". A pass that installs channel-level masks with
+        // SetColorMaskForAttachment cannot make them survive the next draw:
+        // ApplyPODRenderState issues the GLOBAL SetColorMask, which is defined
+        // as the indexed call for EVERY draw buffer
+        // (docs/agent-rules/gl-global-setter-resets-indexed-state.md), and the
+        // narrowing loop that follows could only re-DISABLE whole attachments.
+        // DecalRenderPass's decal mode matrix was flattened exactly that way,
+        // on both backends, before every decal draw.
+        //
+        // Carrying the refinement on the COMMAND -- rather than as a
+        // pass-scoped "these masks are mine for the next N draws" override --
+        // keeps the queue stateless and replay-safe, the same reason
+        // DrawDecalCommand carries its OIT program override instead of reading
+        // a global. It also cannot leak: a pass-scoped override whose owner
+        // forgets to clear it is precisely the process-permanent indexed-state
+        // leak issue #823 was about.
+        //
+        // Composition rule, applied in ApplyPODRenderState: a channel is
+        // written iff the global colorMask* allows it AND this nibble allows
+        // it AND colorAttachmentWriteMask names the attachment. AND, never
+        // widen -- which makes the old attachment-level-only behaviour a
+        // strict special case (nibble 0xF everywhere).
+        u32 colorAttachmentChannelMask = COLOR_CHANNEL_MASK_ALL;
+
         // Multisampling
         bool multisamplingEnabled = true;
 
@@ -108,7 +164,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODRenderState& o) const
         {
-            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && colorAttachmentWriteMask == o.colorAttachmentWriteMask && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
+            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && colorAttachmentWriteMask == o.colorAttachmentWriteMask && colorAttachmentChannelMask == o.colorAttachmentChannelMask && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
         }
     };
 
@@ -862,6 +918,57 @@ namespace OloEngine
 
     static_assert(sizeof(DrawDecalCommand::DecalMode) == 1, "DecalMode must be 1 byte to preserve POD layout");
     static_assert(std::is_trivially_copyable_v<DrawDecalCommand>, "DrawDecalCommand must be trivially copyable for radix sort");
+
+    // The G-Buffer CHANNEL routing of each decal mode, as one packed
+    // per-attachment channel mask (see PODRenderState::colorAttachmentChannelMask).
+    //
+    // SINGLE SOURCE, deliberately: DecalRenderPass::ExecuteOnGBuffer drives its
+    // per-attachment SetColorMaskForAttachment calls from this table, and
+    // Renderer3D::DrawDecal stamps the same value onto the packet's POD state so
+    // ApplyPODRenderState re-asserts it after the global SetColorMask has
+    // flattened everything (issue #853). Two copies of this table is exactly the
+    // drift the bug lived in -- the pass was setting the right masks and the
+    // draw was throwing them away.
+    //
+    // Attachments 4..7 keep the fully-writable nibble on purpose. No decal
+    // mode's draw-attachment map attaches them (RT4 is the R32I entity id, and
+    // a decal must never stamp its pickability over the underlying mesh), so
+    // masking them would be state this pass has no business owning -- and a
+    // fully-writable nibble costs no indexed call at all, since it is what the
+    // preceding global SetColorMask already left there.
+    [[nodiscard]] constexpr u32 DecalGBufferChannelMask(DrawDecalCommand::DecalMode mode) noexcept
+    {
+        // Nibbles 0..3 cleared (this mode writes nothing there unless it says
+        // otherwise below); 4..7 left fully writable.
+        u32 mask = COLOR_CHANNEL_MASK_ALL & ~0x0000FFFFu;
+        switch (mode)
+        {
+            case DrawDecalCommand::DecalMode::Normal:
+                // RT1.xy is the oct-encoded normal; RT1.zw (roughness, AO) is
+                // the underlying surface's and must survive.
+                mask = WithColorChannelMask(mask, 1u, MakeColorChannelMask(true, true, false, false));
+                break;
+            case DrawDecalCommand::DecalMode::RMA:
+                // RT0.a is metallic, RT1.zw is roughness + AO; RT0.rgb (albedo)
+                // and RT1.xy (the normal) are the surface's.
+                mask = WithColorChannelMask(mask, 0u, MakeColorChannelMask(false, false, false, true));
+                mask = WithColorChannelMask(mask, 1u, MakeColorChannelMask(false, false, true, true));
+                break;
+            case DrawDecalCommand::DecalMode::Emissive:
+                // RT2.rgb accumulates additively; RT2.a is the deferred UNLIT
+                // flag and flipping it would take the surface out of lighting.
+                mask = WithColorChannelMask(mask, 2u, MakeColorChannelMask(true, true, true, false));
+                break;
+            case DrawDecalCommand::DecalMode::Albedo:
+            default:
+                // RT0.rgb is albedo; RT0.a doubles as metallic in the G-Buffer
+                // layout and the decal's own alpha is a blend weight, not a
+                // material value.
+                mask = WithColorChannelMask(mask, 0u, MakeColorChannelMask(true, true, true, false));
+                break;
+        }
+        return mask;
+    }
 
     // Foliage instanced layer command — one command per foliage layer
     struct DrawFoliageLayerCommand

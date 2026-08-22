@@ -37,6 +37,7 @@ run is **not** evidence.
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | adding `server/discover` alone keeps every test green — and converts a *working* legacy fallback into a broken modern conversation, because answering it is a client's proof the server is modern |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
 | [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | every Vulkan draw in the process wrote colour attachment 0 alone for a whole phase — the forward path displays only attachment 0, so the editor looked fine |
+| [substituted-seams-compound.md](substituted-seams-compound.md) | a 300-line decal tenant made THREE substitutions — the dispatch function, the geometry, and the render graph — and each one was hiding a different live bug; no decal had produced a pixel in any real scene, on either path |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | every glyph in the engine invisible on AMD, with the font loaded, 189 glyphs packed and 852 quads submitted — bake that and the nightly defends a blank UI forever |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | a merged quad with U and V swapped, or width and height transposed, still merges and still draws — five of the six face directions look right |
@@ -171,7 +172,11 @@ that must outlive the level that created it) ·
 [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) (a read from a pooled
 resource whose lifetime already ended) ·
 [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) (TOCTOU between a
-decrement and a re-read) · [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md) (promoting a
+decrement and a re-read) ·
+[non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) (a locked
+scope that calls a sibling method which locks the same non-recursive mutex — deterministic, silent,
+and fixed twice in one day because the first fix moved a *caller* instead of unlocking the
+*callee*) · [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md) (promoting a
 per-tick local to persistent state) ·
 [parallelizable-mover-systems.md](parallelizable-mover-systems.md) (splitting a system at its write
 boundary) · [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) (what is *bound*
@@ -199,6 +204,11 @@ obvious grep suggests.
   `SetAgentTarget` had zero production callers for as long as they existed.
 - [audio-voice-budget.md](audio-voice-budget.md) — the inverse: sounds start from **six** call
   sites, not the two a grep suggests, so the budget had to move inside `Play()`.
+- [substituted-seams-compound.md](substituted-seams-compound.md) — the deferred AND forward decal
+  paths both drew zero fragments for as long as they had existed (`cullFace = Front` keeps the
+  projection box's back faces; `depthFunction = LessOrEqual` rejects them). **A feature with no scene
+  has no coverage, whatever the suite says** — `TEST_SCENES.md` had no decal entry, and the tenant
+  substituted a quad for the cube, so the cull/depth pairing was untested everywhere at once.
 - [render-pass-published-state.md](render-pass-published-state.md) — `MeshComponent { Primitive: 0 }`
   is `None`: an entity that silently never renders.
 - [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 — a render-graph pass's
@@ -305,6 +315,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 
 **Concurrency & memory** —
 [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) ·
+[non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) ·
 [spinlock-payload-cache-line-separation.md](spinlock-payload-cache-line-separation.md) ·
 [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md)
 
