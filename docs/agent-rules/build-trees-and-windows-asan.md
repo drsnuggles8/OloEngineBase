@@ -693,3 +693,183 @@ arrived, because the fetch ran under `bash -e` with no `pipefail` and so reporte
 `signed-by=` and pins its primary-key fingerprint. That is also the reason it is
 an action rather than a fifth corrected copy: one `workflow_dispatch` run that
 exercises it is evidence for every call site.
+
+## 6. A compiler cache in front of clang-cl can leave ninja with no header dependencies (issue #858)
+
+**The failure:** in the `dev-cached` tree, an object served from the compiler
+cache was recorded in `.ninja_deps` with **zero** header dependencies. Ninja then
+never rebuilds that TU when a header it includes changes. Nothing fails. The
+build is green, fast, and compiling objects against different versions of the same
+header — the archetype
+[incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) is about,
+except arriving through the build graph instead of through a linker quirk.
+
+Measured in a worktree whose build was served almost entirely from the shared warm
+cache: **699 of 701 dependency records carried `#deps 0`.** Rebuilding the same
+target after the fix: **1 of 701**, and that one is legitimate (below). The
+practical reading of those numbers: objects that a change to
+`OloEngine/src/OloEngine/Core/Base.h` reaches went from **0** to **649**.
+
+**Do not try to measure this with `ninja -n`.** That is the obvious instrument and
+it silently answers a different question here: CMake's `CONFIGURE_DEPENDS` glob
+check is a `_force` rule, so a dry run *always* stops after
+`[1/2] Re-running CMake...` and lists nothing beyond it. It reports "0 objects
+would rebuild" for a healthy tree exactly as loudly as for a broken one — it read
+as confirmation of the bug during this investigation before the artifact was
+spotted. Count the dependency records that name the header (`ninja -t deps`)
+instead, or run a real build and count what recompiles.
+
+The one surviving `#deps 0` is `tools/OloHeaderTool/main.cpp.obj`, and it is
+correct: that file includes only standard headers, and **clang-cl's
+`/showIncludes` does not report headers reached through system search paths**
+(`-imsvc`). Confirmed against the whole tree — not one of the 701 records names a
+Visual Studio or Windows Kits path, while an engine TU records 249 project and
+vendor headers.
+
+### Why it happened
+
+CMake's `Platform/Windows-Clang.cmake` deliberately prefers clang-cl's gcc-style
+depfile over cl-style `/showIncludes`:
+
+```cmake
+# "Prefer clang-cl's gcc-style depfile over cl-style /showIncludes"
+set(CMAKE_DEPFILE_FLAGS_<lang> "-clang:-MD -clang:-MT<DEP_TARGET> -clang:-MF<DEP_FILE>")
+unset(CMAKE_<lang>_DEPFILE_FORMAT)
+```
+
+so ninja gets `deps = gcc` and reads the `.d` file the compiler writes. **ccache
+does not understand the `-clang:` pass-through spelling of `-MD`/`-MF`.** It never
+learns the compile produces a dependency file, so it does not store one in the
+cache entry and does not write one back on a hit. Ninja finds no depfile, records
+the object with no dependencies, and that TU is frozen until something else forces
+it to recompile.
+
+Note what this means about *when* it bites: the cold build is correct — the
+compiler really did write the depfile. It is the **hit** that loses the
+information. So the more effective the cache, the more of the tree is stale, which
+is the opposite of the intuition you bring to a caching bug.
+
+### The fix
+
+`cmake/CompilerCache.cmake` forces `/showIncludes` for every MSVC-frontend
+compiler when a launcher is active and the generator honours it:
+
+```cmake
+set(CMAKE_DEPFILE_FLAGS_<lang> "/showIncludes")
+set(CMAKE_<lang>_DEPFILE_FORMAT msvc)
+```
+
+Both ccache and sccache parse and replay `/showIncludes` output, which is why the
+MSVC `cl.exe` path — the one CI uses — was always correct. For real `cl.exe` these
+two lines are exactly what `Windows-MSVC.cmake` already set, so the change is a
+no-op there and a fix only for clang-cl.
+
+**`depend_mode = true` does not fix this.** That was the first guess on the issue
+and it is wrong: depend mode also relies on ccache recognising the depfile option
+it cannot parse. Measured on the harness below, it still yields `#deps 0` from
+cache. Do not re-try it.
+
+### The harness — reproduce either behaviour in about three seconds
+
+A two-file ninja project reproduces the whole thing without touching the engine.
+`h.h`, `a.cpp` that includes it, and:
+
+```ninja
+msvc_deps_prefix = Note: including file:
+
+rule cxx
+  depfile = $out.d
+  deps = gcc
+  command = ccache clang-cl /nologo -TP -clang:-MD -clang:-MT$out -clang:-MF$out.d /Fo$out -c -- $in
+
+build a.obj: cxx a.cpp
+```
+
+Build once (a miss), then delete `a.obj`, `.ninja_deps` and `.ninja_log` and build
+again (a direct hit). `ninja -t deps` after each:
+
+| dependency flags | ninja rule | cold (miss) | served from cache |
+|---|---|---|---|
+| `-clang:-MD -clang:-MF<file>` | `deps = gcc` | `#deps 2` | **`#deps 0`** |
+| `-clang:-MD -clang:-MF<file>`, `CCACHE_DEPEND=1` | `deps = gcc` | `#deps 2` | **`#deps 0`** |
+| `/showIncludes` | `deps = msvc` | `#deps 1` | `#deps 1` |
+
+Extend it by one step and it stops being a statistic and becomes the bug: after the
+cache-served build, *change the header so the object must change* and build again.
+
+| variant | ninja plans a rebuild | object hash before → after |
+|---|---|---|
+| `-clang:-MD -clang:-MF<file>` | 0 | `faae2570` → `faae2570` — **stale** |
+| same + `CCACHE_DEPEND=1` | 0 | `f908526b` → `f908526b` — **stale** |
+| `/showIncludes` | 1 | `f908526b` → `c1680bc5` — rebuilt |
+
+That is the whole issue in three seconds, without a 30-minute engine build and
+without waiting on the build mutex. Reach for this shape whenever the thing you
+need to check is a property of the *toolchain wiring* rather than of the engine.
+
+Point `CCACHE_DIR` at a scratch directory so the experiment neither pollutes nor
+perturbs the shared cache other worktrees are hitting.
+
+### The check
+
+`scripts/Check-NinjaHeaderDeps.ps1` fails if any object in a ninja tree has lost
+its header dependencies. Run it against any tree you are about to trust an
+incremental build from:
+
+```powershell
+pwsh -File scripts/Check-NinjaHeaderDeps.ps1 -BuildDir build-cached
+```
+
+It does not simply count `#deps 0`, because that number is not zero even on a
+healthy tree — a TU including only standard headers legitimately records none. Nor
+does it allowlist the file by name, which would go stale the day that file grows a
+project include and nobody notices. Each zero-dep object is traced back to its
+source through `ninja -t query` and cleared only if that source depends on nothing
+we own: no quoted `#include "…"`, **and** no angle include that resolves under
+`OloEngine/src`, the vendor trees or `vcpkg_installed/*/include`. That second half
+matters — `<Jolt/Jolt.h>`, `<MaterialXCore/Document.h>` and `<Alembic/Abc/All.h>`
+are angle-included here and are very much our dependencies, so "no quoted includes"
+alone would clear a genuinely broken record. Above 25 zero-dep records it skips the
+tracing and fails outright: at that point the failure is systemic, not a question
+about individual files.
+
+Two things it deliberately refuses to treat as success: a non-zero exit from
+`ninja -t deps` (an unreadable log prints nothing, exactly like a clean tree — so
+the exit status is checked before the empty result is interpreted), and a zero-dep
+object it cannot trace back to a source. Both fail. A check whose broken state
+looks like its passing state is the bug it was written to catch, one level up.
+
+That second rule earns its keep immediately, and shows what to do when it fires.
+CI failed the first time it ran: `OloEditor.rc.res` and `OloRuntime.rc.res` are
+recorded edges too, and the source-detection list held only C/C++ extensions, so
+they traced to nothing and were reported as broken. They were not — both `.rc`
+files are a single `ICON` line with no `#include` at all. The fix is to teach the
+check the output kind (`.rc` is in the list now) so those sources go through the
+same include analysis as any other, **not** to wave through what it cannot explain.
+
+The `-Config` argument is load-bearing on this multi-config tree: `-t deps` dumps
+the whole log regardless, but the per-object `ninja -t query` only finds edges in
+the ninja file it loaded, so checking a Release build against `build-Debug.ninja`
+reports every object as untraceable. `build-lock.ps1` parses `--config` out of the
+build command and passes it through.
+
+Two call sites: `build-lock.ps1` runs it after every **successful** build of a
+cached tree (about a second, and it never changes the build's exit status), so an
+agent session is told rather than having to remember to ask; and the Windows CI job
+runs it after its build, that being the one place in CI with a launcher in front of
+the compiler.
+
+### What this generalises to
+
+Any launcher that sits between the build tool and the compiler owns the compiler's
+side effects, not just its object file. The dependency file is a side effect. So
+is `/showIncludes` output, `.pdb` output (already handled here — that is why the
+cache forces `/Z7`), and anything else the build graph reads back. When adding or
+retuning a launcher, ask what the build tool reads *besides* the primary output,
+and confirm each of those survives a cache hit — a hit is a *replay*, and a replay
+is only as complete as what was recorded.
+
+And the shape of the evidence matters as much as the fix. "The build succeeded" is
+not evidence here — the build succeeded throughout the bug's entire lifetime. The
+two things that are evidence: the `#deps 0` count before and after, and a header
+touch that makes ninja plan a rebuild it previously did not.

@@ -99,6 +99,19 @@ live symptom contradicts what the current source can produce.
   header looks like to that TU at that time — there is no single out-of-line definition for the
   linker to deduplicate from one authoritative source.
 
+## A second, mechanical way into exactly this state (issue #858)
+
+Everything above assumes ninja *knew* about the dependency and the staleness came in some other way.
+There was also a period where ninja knew nothing at all: with the compiler cache in front of
+clang-cl, an object served from cache was recorded with **zero header dependencies**, so a header
+edit rebuilt nothing — measured at 699 of 701 records in one worktree. That is this document's
+symptom arriving through the build graph rather than through a `=default` destructor, and it is
+fixed (`cmake/CompilerCache.cmake` forces `/showIncludes`) with a check wired into `build-lock.ps1`.
+If a fix with no effect ever shows up again in a cached tree, run
+`pwsh -File scripts/Check-NinjaHeaderDeps.ps1 -BuildDir build-cached` before re-deriving anything —
+it answers "is the build graph even watching that header?" in a second. Details:
+[build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §6.
+
 ## Guard
 
 None added. This is a build-environment failure mode, not a source-level invariant a unit test can
