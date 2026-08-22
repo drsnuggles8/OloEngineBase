@@ -77,7 +77,7 @@ layout(location = 4) in vec4 v_ClipPosPrev;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Both slots move
+// Heap-bindless conversion (issue #691, bucket 1). Both slots move
 // together because ParticleBatchRenderer::BindParticleTextures stages both in
 // one call — converting one and leaving the other would leave the unconverted
 // sampler unbound once this program builds as the bindless variant (§5c).

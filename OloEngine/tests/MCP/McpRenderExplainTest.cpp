@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 // Unit tests for the pure reasoning behind olo_render_why_not_visible (issue #306
-// item A, rendering half; the inspection counterpart called out by #316 Part 3).
+// item A, rendering half; the inspection counterpart called out by #316).
 // The reasoning lives in a header-only free function with no EnTT / renderer /
 // editor / GPU dependencies precisely so it can be exercised here without a live
 // editor or GPU — the test binary compiles the MCP dispatch core but deliberately

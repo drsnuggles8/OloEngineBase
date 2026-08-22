@@ -61,7 +61,7 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     /// Endpoint utilities for automatic registration
     ///
-    /// Phase 2: endpoint registration dispatches on the *declared member type* —
+    /// Endpoint registration dispatches on the *declared member type* —
     /// that is where the typing of "typed connections" lives:
     ///   - AudioBufferRef member  -> audio-rate input endpoint
     ///   - ValueRef<T> member     -> control-rate input endpoint of type T

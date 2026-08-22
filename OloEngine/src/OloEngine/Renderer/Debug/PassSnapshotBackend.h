@@ -3,7 +3,7 @@
 //
 // Internal seam between the backend-neutral RenderGraphPassSnapshot
 // orchestration (Renderer/Debug/RenderGraphPassSnapshot.cpp) and its GL clone
-// engine (Platform/OpenGL/OpenGLPassSnapshot.cpp) — issue #691 Phase 9,
+// engine (Platform/OpenGL/OpenGLPassSnapshot.cpp) — issue #691,
 // ADR 0011 §1.6 (what cannot convert in place RELOCATES). Same shape as
 // StateGuardBackend.h: free functions declared here, defined in the OpenGL TU,
 // resolved at link time, so the Renderer/Debug TU stays free of <glad/gl.h>

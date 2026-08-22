@@ -2,7 +2,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
-// Audience-tagged content blocks (#673 Tier 2; MCP spec 2025-06-18
+// Audience-tagged content blocks (#673; MCP spec 2025-06-18
 // `Annotations.audience` / `.priority` on a ContentBlock). Three concerns, in
 // increasing scope:
 //
@@ -392,7 +392,7 @@ TEST(McpAudienceReport, NestedObjectsBecomeSectionsAndEmptyContainersAreLabelled
 
 // ---- adoption ratchet over the REAL builtin surface --------------------------
 
-// The deliberate adopter list (#673 Tier 2). Each entry is multi-field or
+// The deliberate adopter list (#673). Each entry is multi-field or
 // tabular AND is something a human stares at while debugging — see the
 // inclusion rule on ToolDef::DualAudienceContent, and the per-tool reason at
 // each registration site. This test is the ratchet in BOTH directions: a new

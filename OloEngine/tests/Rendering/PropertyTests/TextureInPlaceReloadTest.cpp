@@ -1,7 +1,7 @@
 // =============================================================================
 // TextureInPlaceReloadTest.cpp
 //
-// Regression coverage for issue #544 Part B — texture hot-reload must refresh a
+// Regression coverage for issue #544 — texture hot-reload must refresh a
 // Texture2D *in place* (same object identity behind the existing Ref<Texture2D>)
 // instead of handing back a brand-new object. Materials store their textures as
 // Ref<Texture2D> members with no per-frame re-resolution from a handle, so an

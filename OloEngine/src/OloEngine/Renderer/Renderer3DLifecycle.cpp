@@ -5,7 +5,7 @@
 #include "OloEngine/Terrain/TerrainGPUQuadtree.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 
-// Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
+// Raw GL below is part of the issue #691 step-2 sweep backlog; the
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
@@ -595,7 +595,7 @@ namespace OloEngine
         CloudShadowMap::Shutdown();
         CloudNoise::Shutdown();
 
-        // Release the shared ocean FFT params UBO (#691 Phase 8) while the
+        // Release the shared ocean FFT params UBO (#691) while the
         // graphics device is still valid.
         Ocean::OceanFFTGpu::ShutdownSharedResources();
 
@@ -675,7 +675,7 @@ namespace OloEngine
         // as the GPUFrustumCuller above: each MeshSource holds a main + shadow
         // vertex array whose VMA allocations must die before the window
         // destroys the graphics context, or vmaDestroyAllocator aborts with
-        // "allocations not freed" on Vulkan (#691 Phase 8, the close-button
+        // "allocations not freed" on Vulkan (#691, the close-button
         // crash — found via the surviving-VertexArray teardown dump).
         s_Data.CubeMesh.Reset();
         s_Data.SphereMesh.Reset();
@@ -810,7 +810,7 @@ namespace OloEngine
         //  - Shaders: ShaderLibrary::ReloadShaders() calls OpenGLShader::Reload(),
         //    which recompiles onto the same Shader object.
         //  - Textures: EditorAssetManager::ReloadData() refreshes a Texture2D in place
-        //    via Texture2D::Reload() (issue #544 Part B) rather than swapping in a new
+        //    via Texture2D::Reload (issue #544) rather than swapping in a new
         //    object, so a Material's Ref<Texture2D> members pick up the new pixels.
         //
         // Asset types that ReloadData still *replaces* with a brand-new object (meshes,

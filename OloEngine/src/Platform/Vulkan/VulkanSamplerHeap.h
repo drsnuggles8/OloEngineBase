@@ -1,7 +1,7 @@
 #pragma once
 
 // VulkanSamplerHeap — the VK_EXT_descriptor_heap SAMPLER-heap buffer.
-// Issue #691 Phase 8 (ADR 0011 §1.2a's second heap, and the sampler
+// Issue #691 (ADR 0011 §1.2a's second heap, and the sampler
 // deduplication it said "has no GL counterpart").
 //
 // Same shape as VulkanResourceHeap (a BDA-addressable, persistently-mapped
@@ -12,7 +12,7 @@
 //
 // Slot 0 is ALWAYS the default post-process read sampler (linear /
 // clamp-to-edge / full mip range) — byte-identical to the embedded sampler
-// every Phase 6/7 pipeline used to bake, so a binding whose sampler was never
+// every pipeline used to bake, so a binding whose sampler was never
 // staged samples exactly as it did before this heap existed.
 //
 // Thread-safety: NONE, deliberately — render thread only.
@@ -51,7 +51,7 @@ namespace OloEngine
         // The default post-process read sampler (slot 0's state): linear,
         // clamp-to-edge, full mip range. The one source of that description —
         // VulkanPipelineBuilder's old DefaultEmbeddedSampler duplicated it
-        // until the embedded-sampler path retired (#691 Phase 8).
+        // until the embedded-sampler path retired (#691).
         [[nodiscard]] static VkSamplerCreateInfo DefaultSamplerInfo();
 
         // Record the heap bind. Must run before any draw whose pipeline

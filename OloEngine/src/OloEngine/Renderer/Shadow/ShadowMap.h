@@ -211,7 +211,7 @@ namespace OloEngine
         [[nodiscard]] u32 GetCSMRendererID() const;
         [[nodiscard]] u32 GetAtlasRendererID() const;
 
-        // Identity siblings (issue #691 step 3, slice 6). BOTH currencies are
+        // Identity siblings (issue #691). BOTH currencies are
         // kept on purpose and the split is by CONSUMER, not by preference:
         //
         //   * the bind path (CommandDispatch's redundant-bind cache) takes

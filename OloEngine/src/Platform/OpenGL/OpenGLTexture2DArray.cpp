@@ -137,7 +137,7 @@ namespace OloEngine
         // and the ocean FFT ping-pong pair, the latter bound as a storage-image
         // descriptor through the heap, so destroying one used to leave a
         // resident image handle on a texture that was about to be deleted
-        // (issue #691 Phase 3).
+        // (issue #691).
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
@@ -178,7 +178,7 @@ namespace OloEngine
             case Texture2DArrayFormat::BC7:
                 // glTextureSubImage3D on block-compressed storage is
                 // GL_INVALID_OPERATION; BC7 layers are populated GPU-side via
-                // CopyImageSubDataFull (issue #715 slice 4).
+                // CopyImageSubDataFull (issue #715).
                 OLO_CORE_ASSERT(false, "SetLayerData not supported for block-compressed formats");
                 return;
             default:
@@ -212,7 +212,7 @@ namespace OloEngine
         glGenerateTextureMipmap(m_RendererID);
     }
 
-    // Factory. Backend-switched (issue #691 Phase 7 Wave B): this was the
+    // Factory. Backend-switched (issue #691): this was the
     // one texture factory with no Vulkan arm, so ShadowMap's lazily-created
     // CSM/atlas placeholder — the first Texture2DArray any Vulkan frame
     // touches, via VolumetricFogPass::Execute — constructed a GL object

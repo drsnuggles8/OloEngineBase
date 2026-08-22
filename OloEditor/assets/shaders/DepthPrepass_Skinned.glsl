@@ -12,7 +12,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5, decision A3): the SKINNED two-stream vertex pull.
+// #691 (ADR 0011 §5, decision A3): the SKINNED two-stream vertex pull.
 // The engine `Vertex` stream (V1: 32 B -- vec3 position @0, vec3 normal @12,
 // vec2 uv @24) arrives on the engine-wide vertex-pull binding 57. The BONE
 // stream (V2: 32 B -- uvec4 BoneIDs @0, vec4 Weights @16) is a SECOND vertex
@@ -61,7 +61,7 @@ layout(std140, binding = 4) uniform BoneMatrices {
     mat4 u_BoneTransforms[100];
 };
 
-// ROUTE PARITY, not a bindless conversion (issue #691 Phase 3, glsl-shaders §7a-bis).
+// ROUTE PARITY, not a bindless conversion (issue #691, glsl-shaders §7a-bis).
 // This shader declares no samplers, so it has nothing to convert and would
 // never mention OLO_BINDLESS on its own. It must still follow the COLOUR pass
 // onto the raw-GLSL route, because `invariant gl_Position` below is a promise

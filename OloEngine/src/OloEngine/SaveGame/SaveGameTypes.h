@@ -64,14 +64,14 @@ namespace OloEngine
     //      in the archive: the scene-settings section is a flat stream with no length prefix, so
     //      it cannot carry a version-gated field — see SaveGameSerializer::SerializeFogSettings.
     // v17: TerrainComponent gained the virtual-texture block (m_VirtualTextureEnabled plus the
-    //      five sizing knobs — issue #715 slice 1; v16 and older saves omit them and keep the
+    //      five sizing knobs — issue #715; v16 and older saves omit them and keep the
     //      constructor defaults, which have VT OFF, i.e. exactly the pre-#715 splat path)
     // v18: MeshComponent gained m_LightmapStatic (issue #439; v17 and older saves omit it and
     //      keep the constructor default false — the entity simply is not lightmapped, which
     //      also matches the pre-#439 behaviour)
     // v19: TerrainComponent gained the adaptive/compressed VT block (m_VTAdaptiveEnabled,
     //      m_VTSectorsWide, m_VTMaxImagePagesWide, m_VTTrilinearEnabled, m_VTCompressedCache —
-    //      issue #715 slices 3+4; v18 and older saves omit them and keep the constructor
+    //      issue #715; v18 and older saves omit them and keep the constructor
     //      defaults, which have the adaptive path ON — the upgraded look, same as a fresh scene)
     static constexpr u32 kSaveGameFormatVersion = 19;
     static constexpr u32 kSaveGameHeaderSize = 128;

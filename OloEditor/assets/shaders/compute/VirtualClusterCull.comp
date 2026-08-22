@@ -1,7 +1,7 @@
 #version 460 core
 
 // VirtualClusterCull.comp — DAG-cut selection + frustum + cone backface cull
-// for the virtualized-geometry cluster pipeline (issue #629, slice 2).
+// for the virtualized-geometry cluster pipeline (issue #629).
 //
 // One dispatch per virtual-mesh instance (u_InstanceIndex), one thread per
 // cluster. Selection mirrors the CPU reference cut rule in
@@ -152,7 +152,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
-    // Reconstruction flavour of u_Projection (#691 Phase 8): GL-convention z
+    // Reconstruction flavour of u_Projection (#691): GL-convention z
     // rows for NearPlane()'s extraction below — u_Projection's rasterizer
     // flavour has remapped z rows on Vulkan and breaks the formula. Identical
     // to u_Projection on GL.
@@ -161,7 +161,7 @@ layout(std140, binding = 0) uniform CameraMatrices
 
 // ---------------------------------------------------------------------------
 // Cull parameters — ONE block for the whole shader.
-// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// Former bare uniforms, migrated to a std140 block (issue #691):
 // GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
 // VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
 // hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.
@@ -241,7 +241,7 @@ vec3 CullCameraPosition()
 //     phase-1 virtual-geometry draws), so the current VP and current transform.
 #include "../include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). This shader was
+// Heap-bindless conversion (issue #691, bucket 1). This shader was
 // previously grouped with VirtualGeometryPass's 'deferrals'; it is not
 // blocked. The G-Buffer restriction applies to VirtualMeshGBuffer.glsl, not
 // to the cull compute, and the gl_BaseInstance this file mentions is in a
@@ -253,13 +253,13 @@ layout(binding = 0) uniform sampler2D u_HZB; // max-reduction depth pyramid (dev
 #endif
 // (u_OcclusionEnabled / u_OcclusionViewProjection / u_HZBSize / u_HZBUVFactor /
 //  u_HZBMipCount / u_OcclusionDepthBias now live in VirtualClusterCullParams
-//  above — issue #691 Phase 7.)
+//  above — issue #691.)
 
 // ── Two-phase controls (issue #682). All default to 0, so the shadow cascades
 // and the GPU/CPU parity test — which set none of them — keep the exact
 // single-phase behaviour and never touch the reject buffer. ──
 // (u_WriteRejected / u_Phase2 / u_RejectCapacity / u_CommandSlotBase /
-//  u_ArgsSlotBase now live in VirtualClusterCullParams above — #691 Phase 7.)
+//  u_ArgsSlotBase now live in VirtualClusterCullParams above — #691.)
 
 // ── Cluster-bounds debug visualization (issue #725) ──
 // Bit field, 0 = off:
@@ -270,12 +270,12 @@ layout(binding = 0) uniform sampler2D u_HZB; // max-reduction depth pyramid (dev
 // Only ever set for the main perspective view (the shadow cascades bind the same
 // program with u_OrthoMode = 1 and would otherwise emit a second, differently
 // culled set on top of the first).
-// (u_DebugDrawClusters lives in VirtualClusterCullParams above — #691 Phase 7.)
+// (u_DebugDrawClusters lives in VirtualClusterCullParams above — #691.)
 // Emit only every Nth cluster. A Nanite-class scene selects tens of thousands of
 // clusters per frame and the channel holds a few thousand, so the useful setting
 // is almost never 1 — and an overflow, while reported rather than silent, is
 // still a picture of an arbitrary prefix rather than of the scene.
-// (u_DebugDrawClusterStride lives in VirtualClusterCullParams above — #691 Phase 7.)
+// (u_DebugDrawClusterStride lives in VirtualClusterCullParams above — #691.)
 
 const uint kNoRefinedGroup = 0xFFFFFFFFu;
 
@@ -300,7 +300,7 @@ float NearPlane()
     // re-derived from a matrix that now describes the observer.
     if (u_CullCameraPosition.w != 0.0)
         return max(u_CullProjParams.y, 1e-4);
-    // Reconstruction flavour (#691 Phase 8): the GL-form extraction needs
+    // Reconstruction flavour (#691): the GL-form extraction needs
     // unremapped z rows.
     return max(u_ProjectionForReconstruction[3][2] / (u_ProjectionForReconstruction[2][2] - 1.0), 1e-4);
 }

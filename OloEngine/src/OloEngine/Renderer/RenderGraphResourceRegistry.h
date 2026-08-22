@@ -13,13 +13,13 @@
 namespace OloEngine::RenderGraphResourceRegistry
 {
     // Resource-registry builder extracted from
-    // `RenderGraph::EnsureResourceRegistryBuilt` as part of the Phase 7 module
-    // split (2026-05-11). This module owns the *pure* registry build (Phase A):
+    // `RenderGraph::EnsureResourceRegistryBuilt` as part of the module
+    // split (2026-05-11). This module owns the *pure* registry build:
     // turning descriptor maps + per-pass access declarations into the canonical
     // `ResourceInfo` table, recording producer/consumer pass lists, and
     // emitting kind-mismatch diagnostics.
     //
-    // The typed-handle slot reconciliation (Phase B — handle slot generations,
+    // The typed-handle slot reconciliation (handle slot generations,
     // free-index lists, physical-resource arrays) stays on the graph because
     // it mutates handle allocators that other graph subsystems hold pointers
     // into.

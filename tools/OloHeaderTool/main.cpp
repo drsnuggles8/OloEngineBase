@@ -1170,7 +1170,7 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 // check, and the std::vector handling in ParseComponentFields) yet are deliberately
 // kept HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated.
 // The scene serialize/deserialize codegen (issue #380; AssetHandle/UUID added by
-// the #451 first slice, enums by the #451 enum slice, glm-math + small-int +
+// the #451, enums by the #451 enum slice, glm-math + small-int +
 // std::vector<primitive> by the #451 glm/vector slice, an all-trivial nested
 // struct / std::vector<struct> — recursively — by the #451 nested-struct slice,
 // Ref<T> of an Asset-derived T by the #451 Ref<T> slice, and a sortable-scalar

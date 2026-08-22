@@ -486,7 +486,7 @@ namespace OloEngine
         m_Modules = std::move(newModules);
         m_HasMeshStage = m_Modules.contains(VK_SHADER_STAGE_MESH_BIT_EXT);
         // The bindings just changed hands: any cached root layout describes
-        // the OLD reflection and must rebuild on next use (#691 Phase 7).
+        // the OLD reflection and must rebuild on next use (#691).
         m_RootLayout.reset();
 
         // Identity: minted once, survives Reload (amendment (12) — the
@@ -504,7 +504,7 @@ namespace OloEngine
                                                          : VkHandleToKey(m_Modules.begin()->second);
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, native, RHI::Backend::Vulkan);
         // Root-object registration so BindShaderProgram packets can resolve
-        // the handle back to this shader (#691 Phase 7). Identity survives
+        // the handle back to this shader (#691). Identity survives
         // Reload, so re-registering refreshes the same entry.
         VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::Shader, this);
         return true;
@@ -537,7 +537,7 @@ namespace OloEngine
                 }
             }
             // Image dimensionality for the unfed-binding null-texture
-            // fallback (#691 Phase 8) — the null view type must match the
+            // fallback (#691) — the null view type must match the
             // sampler declaration.
             auto imageDim = VulkanShaderBinding::TexDim::Tex2D;
             if (kind == VulkanShaderBinding::Kind::CombinedImageSampler ||
@@ -640,10 +640,10 @@ namespace OloEngine
         // LAST bound program was bindless leaves the flag stale-true, and the
         // HeapBinding::BindTextureOrOffset fallbacks inside shared pass bodies
         // (ParticleBatchRenderer, FoliageRenderer, VirtualGeometryPass) route
-        // into the offset path with no heap staged (#691 Wave C batch 2).
+        // into the offset path with no heap staged (#691).
         SetBoundProgramBindless(false);
         // Its SIBLING flag has the identical stale-across-backends hazard
-        // (#691 Phase 8): OLO_MATERIAL_HEAP_READER programs exist only on the
+        // (#691): OLO_MATERIAL_HEAP_READER programs exist only on the
         // GL route, and CommandDispatch::BindPBRTextures SKIPS the five
         // material texture binds whenever this reads true — a stale true from
         // a GL bindless bind renders every Vulkan mesh with null material
@@ -658,7 +658,7 @@ namespace OloEngine
             s_CurrentlyBound = nullptr;
         }
         // Match OpenGLShader::Unbind: no program means neither flag can be
-        // true (#691 Phase 8, the stale-flag pair).
+        // true (#691, the stale-flag pair).
         SetBoundProgramBindless(false);
         SetBoundProgramMaterialOffsets(false);
     }

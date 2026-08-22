@@ -13,7 +13,7 @@ namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
     /// Construct a concrete node and patch its compiled-plan operator handle to the
-    /// devirtualized ProcessThunk<T> (Phase 3). Every factory-created node therefore
+    /// devirtualized ProcessThunk<T>. Every factory-created node therefore
     /// dispatches through a stored function pointer in the compiled plan; nodes built
     /// outside the factory (tests) keep the vtable fallback set in NodeProcessor.
     template<typename T>

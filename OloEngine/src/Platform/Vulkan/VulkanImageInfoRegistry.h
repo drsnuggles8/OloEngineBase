@@ -8,7 +8,7 @@
 // VulkanImageInfoRegistry.h — the image-info/layout-seed registry the barrier
 // translator reads: VkImage → creation attributes, sampler state and initial
 // layout (#691; split out of the single VulkanTransientResources.h in
-// Phase 9 — no GL twin, the handle-side metadata GL keeps on the object).
+// No GL twin, the handle-side metadata GL keeps on the object).
 //
 // This header exposes Vulkan types directly — it is included only by
 // Platform/Vulkan siblings and by OLO_WITH_VULKAN-guarded engine factory TUs
@@ -41,7 +41,7 @@ namespace OloEngine
     struct VulkanImageInfo
     {
         VkFormat Format = VK_FORMAT_UNDEFINED;
-        // Mip-0 extent (#691 Phase 8). GetTextureDimensions is the consumer:
+        // Mip-0 extent (#691). GetTextureDimensions is the consumer:
         // GL answers it from glGetTextureLevelParameteriv, and the handle
         // alone cannot recover an extent here. 0 = "registered before this
         // field existed / extent unknown" and the facade reports the query
@@ -55,7 +55,7 @@ namespace OloEngine
         // The default whole-image sampled-view dimensionality. 2D for every
         // texture/attachment; 3D volumes (Texture3D — froxel fog, noise
         // fields) register VK_IMAGE_VIEW_TYPE_3D so the bind paths build the
-        // right view instead of hardcoding 2D (issue #691 Phase 7 Wave B).
+        // right view instead of hardcoding 2D (issue #691).
         VkImageViewType ViewType = VK_IMAGE_VIEW_TYPE_2D;
 
         // Stamped by Register() from a process-wide monotonic counter. A
@@ -70,13 +70,13 @@ namespace OloEngine
         // The layout the image sits in BEFORE the graph's layout tracker
         // first sees it. UNDEFINED for attachment/storage images (first use
         // discards); SHADER_READ_ONLY_OPTIMAL for content uploaded by a
-        // load-time one-shot (#691 Phase 7) — without this, the tracker's
+        // load-time one-shot (#691) — without this, the tracker's
         // first barrier would use oldLayout = UNDEFINED and LEGALLY discard
         // the uploaded pixels. Updated via SetInitialLayout, which does NOT
         // bump RegistrationId (the image is the same image).
         VkImageLayout InitialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-        // The image's OWN sampler state (#691 Phase 8) — GL keeps filter and
+        // The image's OWN sampler state (#691) — GL keeps filter and
         // wrap on the texture object, so the "inherit" half of the sampler
         // contract (rhi-abstraction-boundary.md §4f: no stated intent means
         // the object's state, parity by construction) needs somewhere
@@ -114,7 +114,7 @@ namespace OloEngine
         // a tracker already following it keeps its own (fresher) state.
         void SetInitialLayout(VkImage image, VkImageLayout layout);
 
-        // #691 Phase 8: the SetTextureFilter / SetTextureWrap facade entries
+        // #691: the SetTextureFilter / SetTextureWrap facade entries
         // mutate the recorded per-image sampler state (see the sampler-state
         // fields above). No-op for an unregistered image; takes effect at the
         // next BindTexture (the sampler slot is derived at bind time).

@@ -15,7 +15,7 @@
 //   OnPhysics3DStop. Driver input (throttle / steer / brake) is read off the
 //   component each step.
 //
-// MVP slice of issue #308 item 5 (Vehicles). The chassis is a standard
+// MVP slice of issue #308 (Vehicles). The chassis is a standard
 // four-wheel car (two steerable front wheels + two driven rear wheels). Each
 // test stands up a minimal scene and asserts the behaviour a working vehicle
 // produces by a wide margin — never float `==` (see CLAUDE.md / docs/testing.md):

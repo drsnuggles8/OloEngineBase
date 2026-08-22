@@ -60,7 +60,7 @@ pwsh -File scripts/perf/run-perf-battery.ps1 -Scenes physics_pile_10000 -SettleS
 
 The driver launches **ONE** OloEditor instance for the whole battery and
 switches scenes over MCP with the consented-write scene-control tools
-(`olo_scene_open` / `olo_scene_play` / `olo_scene_stop`, #316 Part 5) instead
+(`olo_scene_open` / `olo_scene_play` / `olo_scene_stop`, #316) instead
 of relaunching the editor per scene — a StartScene-edit + relaunch loop was
 the original (2026-07-03) design, before scene control existed. Launch sets
 `OLO_MCP_AUTOSTART=1` + `OLO_MCP_ALLOW_WRITES=1` (the session-level write

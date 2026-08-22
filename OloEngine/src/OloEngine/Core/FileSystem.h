@@ -19,7 +19,7 @@ namespace OloEngine
         // when the platform cannot answer. Anchors config lookups so a process
         // launched with an unexpected working directory (a shortcut with a stale
         // "Start in", a packaged game started from a parent directory) still
-        // finds files shipped next to its exe (#691 Phase 9).
+        // finds files shipped next to its exe (#691).
         static std::filesystem::path GetExecutableDirectory();
     };
 

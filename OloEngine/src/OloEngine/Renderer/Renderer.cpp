@@ -71,7 +71,7 @@ namespace OloEngine
 
         // Shutdown shared framebuffer resources (post-process shader). GL-only
         // statics behind a GL-only entry point — the Vulkan framebuffer has no
-        // shared-resource pool of its own (#691 Phase 7).
+        // shared-resource pool of its own (#691).
         if (RendererAPI::GetAPI() == RendererAPI::API::OpenGL)
             OpenGLFramebuffer::ShutdownSharedResources();
 
@@ -121,7 +121,7 @@ namespace OloEngine
         // destructor of RenderCommand::s_RendererAPI, i.e. at atexit, by which
         // time the window and its GL context are gone and every
         // glMakeTextureHandleNonResidentARB in the release path faults inside the
-        // driver (issue #691 Phase 3).
+        // driver (issue #691).
         RenderCommand::ShutdownGpuResources();
 
         // Shutdown memory tracker after all renderers are shut down

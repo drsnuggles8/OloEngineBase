@@ -335,7 +335,7 @@ namespace OloEngine::MCP
         // Per-scope CPU timings collected by PerformanceProfiler (every system in
         // Scene.cpp is wrapped in OLO_PERF_SCOPE / OLO_PERF_SCOPE_AUTO) — the same
         // data the editor's PerformanceLayer CPU Scopes table reads, exposed
-        // read-only over MCP (#519, first slice). OLO_PERF_SCOPE compiles to a
+        // read-only over MCP (#519). OLO_PERF_SCOPE compiles to a
         // no-op in Distribution builds, so this reports an explicit "unavailable"
         // status there rather than a misleadingly empty scope list — shaping (incl.
         // that degradation) lives in the pure McpCpuScopes.h so it unit-tests

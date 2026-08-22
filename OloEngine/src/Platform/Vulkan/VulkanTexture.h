@@ -6,8 +6,8 @@
 
 // =============================================================================
 // VulkanTexture.h — VulkanTexture2D, the VMA-backed Texture2D backend twin of
-// OpenGLTexture (#691; split out of the single VulkanTransientResources.h in
-// Phase 9). Real uploads (staged into the frame command buffer, one-shot
+// OpenGLTexture (#691; split out of the single VulkanTransientResources.h).
+// Real uploads (staged into the frame command buffer, one-shot
 // outside a bracket), mip generation, readbacks on the ReadTextureSubImage
 // spine, sampler-state registry metadata.
 //
@@ -35,13 +35,13 @@ namespace OloEngine
     // VulkanTexture2D — attribute-only VMA image for the TransientPool.
     //
     // Fully implemented: allocation, identity, metadata, Resize. Upload /
-    // bind / readback virtuals are warn-once no-ops until Phase 6.
+    // bind / readback virtuals are warn-once no-ops for now.
     // -------------------------------------------------------------------------
     class VulkanTexture2D : public Texture2D
     {
       public:
         explicit VulkanTexture2D(const TextureSpecification& specification);
-        // File load (#691 Phase 7): stbi with the SAME thread-local vertical
+        // File load (#691): stbi with the SAME thread-local vertical
         // flip the GL twin uses — asset bytes must be identical across
         // backends, since UV sampling is convention-free.
         VulkanTexture2D(const std::string& path, bool srgb);
@@ -75,7 +75,7 @@ namespace OloEngine
             return m_Path;
         }
 
-        // Real upload/readback paths (#691 Phase 7): one-shot staged copies,
+        // Real upload/readback paths (#691): one-shot staged copies,
         // mip generation via a blit chain, final layout SHADER_READ_ONLY
         // recorded through VulkanImageInfoRegistry::SetInitialLayout.
         void SetData(void* data, u32 size) override;

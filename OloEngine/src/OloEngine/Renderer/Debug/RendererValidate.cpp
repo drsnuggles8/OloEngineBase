@@ -89,7 +89,7 @@ namespace OloEngine::RendererValidate
 
         std::vector<f32> pixels(static_cast<std::size_t>(pixelCount) * 4);
         const auto byteSize64 = pixelCount64 * bytesPerPixel;
-        // Facade readback (#691 Phase 9, ADR 0011 amendment (7)): failure is the
+        // Facade readback (#691, ADR 0011 amendment (7)): failure is the
         // bool return, not a glGetError drain — and the same call reads back on
         // both backends via each arm's readback spine.
         const RHI::ResourceHandle tex = fb->GetColorAttachmentHandle(attachmentIndex);

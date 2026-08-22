@@ -3,9 +3,9 @@
 // =============================================================================
 // RHIResourceRegistry.h — the generation-checked producer of RHI::ResourceHandle.
 //
-// Issue #691 Phase 2 step 3, ADR 0011 §1.1 / §1.3 / §1.4.
+// Issue #691, ADR 0011 §1.1 / §1.3 / §1.4.
 //
-// Phase 1 declared `RHI::ResourceHandle` and specified what it means; nothing
+// `RHI::ResourceHandle` was declared up front with what it means; nothing
 // minted one. This is the mint. Every backend-native object name — a GL texture
 // name, a framebuffer, a buffer, a VAO, a program, a query — is registered here
 // at creation and unregistered at destruction, and the engine above
@@ -87,7 +87,7 @@ namespace OloEngine::RHI
         //
         // This is what makes the handle better than the raw name it replaces,
         // not merely different. A texture hot-reload recreates the GL storage on
-        // the SAME C++ object (issue #544 Part B, TextureInPlaceReloadTest), and
+        // the SAME C++ object (issue #544, TextureInPlaceReloadTest), and
         // GL is free to hand the recreated storage a different name — which is
         // why that test's header tells consumers they "must read the RendererID
         // off the object each frame rather than caching it". A handle survives

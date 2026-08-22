@@ -198,7 +198,7 @@ namespace OloEngine
         {
             // Hoisted outside the face loop, as the native id was: SceneColor's
             // attachment is not recreated between faces, and the handle stays
-            // valid across an in-place recreate (issue #691 step 3).
+            // valid across an in-place recreate (issue #691).
             RHI::ResourceHandle const colorAttachment = sceneFb->GetColorAttachmentHandle(0);
             for (u32 face = 0; face < 6; ++face)
             {
@@ -331,7 +331,7 @@ namespace OloEngine
 
             glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
             UBOStructures::CameraUBO camera{};
-            // A8 seam, CAPTURE flavour (#691 Phase 8): these faces are read
+            // A8 seam, CAPTURE flavour (#691): these faces are read
             // back with ReadTextureImage and pushed into cube faces by
             // direction, the same shape as SkyCubemapBake / DDGI — the y flip
             // must NOT be applied or each face stores row-mirrored relative to

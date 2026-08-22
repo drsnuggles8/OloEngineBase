@@ -52,7 +52,7 @@ layout(std430, binding = 14) buffer PrevPositionBuffer
 
 // ---------------------------------------------------------------------------
 // Particle simulation parameters.
-// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7):
+// Former bare uniforms, migrated to a std140 block (issue #691):
 // GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
 // VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
 // hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.

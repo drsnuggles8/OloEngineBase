@@ -4,7 +4,7 @@
 // PBRCommon's derivative TBN neither applies nor is shared with it. See RenderPathDrift.
 // =============================================================================
 // Terrain_Voxel.glsl - Voxel Override PBR Shader with Triplanar Mapping
-// Part of OloEngine Terrain System (Phase 6)
+// Part of OloEngine Terrain System
 // VS → FS pipeline (no tessellation — MC generates dense triangle meshes)
 // =============================================================================
 
@@ -12,7 +12,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the marching-cubes chunk VBO
 // (Terrain/Voxel/MarchingCubes.cpp VoxelVertex — 24 B: vec3 Position @0,
 // vec3 Normal @12), so the stride is 6 floats, NOT the 8-float engine

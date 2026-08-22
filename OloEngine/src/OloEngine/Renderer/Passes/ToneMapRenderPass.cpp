@@ -160,7 +160,7 @@ namespace OloEngine
 
         // One std140 upload feeds BOTH dispatches below — these were bare
         // uniforms via ComputeShader::Set*, a deliberate no-op on the Vulkan
-        // route (issue #691 Phase 7); a NaN reaching the persistent exposure
+        // route (issue #691); a NaN reaching the persistent exposure
         // SSBO latches forever, so the percentile defence stays (defaults
         // match SanitizeAutoExposure's — RenderPipeline copies straight out
         // of PostProcessSettings without routing through it).
@@ -191,7 +191,7 @@ namespace OloEngine
         auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
         gpuSubTimers.BeginSubPass("AutoExposureHistogram");
         m_HistogramShader->Bind();
-        // FrameTransient: graph-resolved HDR colour (issue #691 Phase 3).
+        // FrameTransient: graph-resolved HDR colour (issue #691).
         context.BindTextureOrHeapOffset(0, hdrTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_HistogramBuffer->Bind();
         // Publish before the dispatch that reads it.

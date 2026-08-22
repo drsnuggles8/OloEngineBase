@@ -11,7 +11,7 @@
 namespace OloEngine::RenderGraphPlanExecutor
 {
     // Backend executor extracted from the IR walk loop in
-    // `RenderGraph::Execute()` as part of the Phase 7 split (2026-05-12).
+    // `RenderGraph::Execute()` as part of the module split (2026-05-12).
     // Now that the submission plan is its own module
     // (`RenderGraphSubmissionPlan`), the executor is a thin loop over the
     // precomputed plan that dispatches each command to the abstract
@@ -34,7 +34,7 @@ namespace OloEngine::RenderGraphPlanExecutor
         RenderGraph::PostPassHook PostPassHook;
         RenderGraph* GraphForPostPassHook = nullptr;
 
-        // Phase 5 (ADR 0011 §1.5): when set, each MemoryBarrier command's
+        // ADR 0011 §1.5: when set, each MemoryBarrier command's
         // name-keyed transitions are resolved to handle-keyed RHI::Barriers
         // at execute time (transient physicals change per frame, so this
         // cannot be baked into the plan) and passed to the context alongside

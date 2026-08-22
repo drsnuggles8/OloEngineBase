@@ -40,7 +40,7 @@ namespace OloEngine
     // right — which is what made this look like a distance-dependent LOD bug).
     struct InstanceGroupKey
     {
-        // Identity, not driver name (issue #691 step 3, slice 6): batching two
+        // Identity, not driver name (issue #691): batching two
         // draws together because their VAOs share a recycled GL name would
         // render one mesh with the other's geometry. Two LIVE handles cannot
         // collide, so this is a correctness improvement, not a retype.

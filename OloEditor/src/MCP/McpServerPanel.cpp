@@ -155,7 +155,7 @@ namespace OloEngine::MCP
         ImGui::SameLine();
         ImGui::TextDisabled("(scrubs absolute paths before they leave the process)");
 
-        // Session write consent (issue #306 item C). Disabled by default and not
+        // Session write consent (issue #306). Disabled by default and not
         // persisted, so every launch starts read-only; the user opts in here for the
         // session. Three modes compose the session gate with the per-action dialog:
         //   Disabled  — project-mutating tools are refused with a clean JSON-RPC error.
@@ -204,7 +204,7 @@ namespace OloEngine::MCP
                     static_cast<int>(server.ResourcesSnapshot()->size()),
                     static_cast<int>(server.Prompts().size()));
 
-        // ---- outbound stdio MCP clients (issue #673 Tier 1) --------------------
+        // ---- outbound stdio MCP clients (issue #673) --------------------
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Outbound MCP servers (stdio)"))
         {
@@ -285,7 +285,7 @@ namespace OloEngine::MCP
         {
             // An EXTERNAL (outbound-client-bridged) tool acts in another process:
             // the undo-stack promise below would be a lie for it, so the banner
-            // says what actually happens instead (issue #673 Tier 1).
+            // says what actually happens instead (issue #673).
             if (request.External)
                 ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.25f, 1.0f),
                                    "An MCP agent wants to call an EXTERNAL tool on another server.");

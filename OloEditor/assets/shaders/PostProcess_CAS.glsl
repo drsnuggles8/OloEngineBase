@@ -2,7 +2,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5): V1 vertex pull. On the Vulkan route the
+// #691 (ADR 0011 §5): V1 vertex pull. On the Vulkan route the
 // pipeline has no vertex-input state, so attributes are READ from binding 57
 // (the engine-wide vertex-pull binding; the root struct carries this buffer's
 // device address). This pass draws MeshPrimitives::GetFullscreenTriangle(),
@@ -60,7 +60,7 @@ layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// Heap-bindless conversion (issue #691, bucket 1). The BODY below is
 // byte-identical between the two variants — only this declaration moves, and it
 // names the same slot UpscalerRenderPass binds with.
 #ifdef OLO_BINDLESS

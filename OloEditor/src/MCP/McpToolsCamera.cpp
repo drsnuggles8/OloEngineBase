@@ -127,7 +127,7 @@ namespace OloEngine::MCP
             if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
                 maxWidth = static_cast<int>(std::clamp<long long>(args["maxWidth"].get<long long>(), 16, 4096));
 
-            // Opt-in resource-link delivery (issue #673 Tier 1): publish the PNG
+            // Opt-in resource-link delivery (issue #673): publish the PNG
             // as an ephemeral olo://capture resource and return a resource_link
             // block instead of inlining base64 — for high-res captures. Inline
             // stays the default so existing clients see an unchanged shape.
@@ -374,7 +374,7 @@ namespace OloEngine::MCP
             if (deliverLink)
             {
                 // Publish the capture as an ephemeral resource and hand back a
-                // resource_link instead of inline base64 (issue #673 Tier 1).
+                // resource_link instead of inline base64 (issue #673).
                 const Json::binary_t& png = marshaled["png"].get_binary();
                 std::vector<u8> bytes(png.begin(), png.end());
                 Json linkBlock = PublishCaptureResourceLink(

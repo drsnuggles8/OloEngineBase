@@ -25,7 +25,7 @@ namespace OloEngine
 
         s_Data.RGraph->Init(width, height);
 
-        // Phase D: enable runtime materialization of compiled transient plan
+        // Enable runtime materialization of compiled transient plan
         // entries. Unit tests keep this path disabled by default; production
         // renderer setup opts in explicitly.
         s_Data.RGraph->SetTransientMaterializationEnabled(true);

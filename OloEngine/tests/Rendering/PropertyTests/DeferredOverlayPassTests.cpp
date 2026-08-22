@@ -2,7 +2,7 @@
 // DeferredOverlayPassTests.cpp
 //
 // Layer-1 property tests for the Deferred forward-overlay plumbing added in
-// Phase 8. Validates the data-contract invariants that the full G-Buffer +
+// Validates the data-contract invariants that the full G-Buffer +
 // ForwardOverlayRenderPass + per-object velocity pipeline depends on:
 //
 //   * ModelUBO std140 layout — offsets of Model / Normal / EntityID / PrevModel

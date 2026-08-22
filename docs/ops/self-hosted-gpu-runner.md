@@ -192,7 +192,7 @@ every job inherits it:
 VULKAN_SDK=/opt/vulkan-sdk/1.4.350.1/x86_64
 ```
 
-> **Version note (#691 Phase 9):** ADR 0010's *tooling* floor is SDK
+> **Version note (#691):** ADR 0010's *tooling* floor is SDK
 > **1.4.357.0** — the first SDK whose GPU-assisted validation understands
 > `VK_EXT_descriptor_heap`. The 1.4.350.1 install above predates that: the
 > engine builds and the device-gated tenants run (the capability gate reads

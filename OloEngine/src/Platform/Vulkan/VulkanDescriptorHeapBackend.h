@@ -6,7 +6,7 @@
 
 // =============================================================================
 // VulkanDescriptorHeapBackend — RHI::IDescriptorHeapBackend over
-// VulkanResourceHeap. Issue #691 Phase 7 (the amendment (56) deferral, built).
+// VulkanResourceHeap. Issue #691 (the amendment (56) deferral, built).
 //
 // This puts the ENGINE-side heap — slot lifetime, generations, memoisation,
 // poison-on-free, the reserved nulls — in charge of a range of the real
@@ -35,7 +35,7 @@
 // NULLS ARE REAL 1x1 BLACK IMAGES, the GL backend's own discipline, because
 // the extension offers no free null write (a null pView is a validation
 // error; robustness2's nullDescriptor is not on the device floor). One per
-// SAMPLED view dimension (2D / cube / 2D-array — the Phase 3 typed-null
+// SAMPLED view dimension (2D / cube / 2D-array — the typed-null
 // lesson: constructing samplerCube from a 2D descriptor is undefined on any
 // backend) and one STORAGE image per requested format (a layout qualifier
 // disagreeing with the view format is undefined too). All reads are
@@ -84,7 +84,7 @@ namespace OloEngine
         bool WriteNullAt(u32 slot, VkDescriptorType type);
 
         // Heap slot of the 1x1 black null SAMPLED image for `viewType` — the
-        // root-data writer's unfed-binding fallback (#691 Phase 8; slot 0
+        // root-data writer's unfed-binding fallback (#691; slot 0
         // leaked the first-registered texture into every unfed sampler).
         // Acquired through VulkanDescriptorSlotCache so the slot dies with
         // the heap; the image is reclaimed by ReleaseDeviceObjects like the
@@ -120,7 +120,7 @@ namespace OloEngine
         static constexpr u64 kNullSampledCubeToken = 2;
         static constexpr u64 kNullSampledArrayToken = 3;
         static constexpr u64 kFirstNullStorageToken = 4; // per-format, minted upward
-        // The unfed-binding fallback's two extra shapes (#691 Phase 8) —
+        // The unfed-binding fallback's two extra shapes (#691) —
         // parked just below the dynamic range, clear of the storage mints.
         static constexpr u64 kNullSampledCubeArrayToken = 62;
         static constexpr u64 kNullSampled3DToken = 63;

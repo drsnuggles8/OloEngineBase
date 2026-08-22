@@ -1,7 +1,7 @@
 #pragma once
 
 // Pure, engine-light rendering of a structured MCP tool payload into the
-// HUMAN-facing content block of a dual-audience tool result (issue #673 Tier 2;
+// HUMAN-facing content block of a dual-audience tool result (issue #673;
 // MCP spec 2025-06-18 `Annotations.audience` on a ContentBlock).
 //
 // A dual-audience result carries the SAME data twice:

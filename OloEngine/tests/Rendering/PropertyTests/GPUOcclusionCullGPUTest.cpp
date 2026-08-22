@@ -186,7 +186,7 @@ namespace OloEngine::Tests
             cs.Bind();
             // The cull's parameters moved from bare uniforms into the
             // InstanceCullParams std140 block at UBO_INSTANCE_CULL (issue #691
-            // Phase 7 — GLSL-for-Vulkan forbids default-block uniforms). Fill
+            // GLSL-for-Vulkan forbids default-block uniforms). Fill
             // it exactly as GPUFrustumCuller does, or every value reads zero
             // and the shader culls everything.
             UBOStructures::InstanceCullUBO cullParams{};
@@ -238,7 +238,7 @@ namespace OloEngine::Tests
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 16, 0);
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 17, 0);
             ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, 0);
-            // The #691 Phase 7 cull-params block, same discipline: never leave a
+            // The #691 cull-params block, same discipline: never leave a
             // binding pointing at a buffer this scope is about to release.
             ::glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_INSTANCE_CULL, 0);
             ::glUseProgram(0);
@@ -265,7 +265,7 @@ namespace OloEngine::Tests
         // its HZB with a raw glBindTextureUnit(0, ...), which a BINDLESS-variant
         // program cannot see: it would read g_OloHeapOffsets[0], sample the
         // reserved null and cull against a depth of zero. Converting
-        // InstanceOcclusionCull.comp made that live (issue #691 Phase 3,
+        // InstanceOcclusionCull.comp made that live (issue #691,
         // rhi-abstraction-boundary.md §4d).
         const ScopedSlotBasedShaders slotBased;
         auto cs = ComputeShader::Create("assets/shaders/compute/InstanceOcclusionCull.comp");
@@ -308,7 +308,7 @@ namespace OloEngine::Tests
         // its HZB with a raw glBindTextureUnit(0, ...), which a BINDLESS-variant
         // program cannot see: it would read g_OloHeapOffsets[0], sample the
         // reserved null and cull against a depth of zero. Converting
-        // InstanceOcclusionCull.comp made that live (issue #691 Phase 3,
+        // InstanceOcclusionCull.comp made that live (issue #691,
         // rhi-abstraction-boundary.md §4d).
         const ScopedSlotBasedShaders slotBased;
         auto cs = ComputeShader::Create("assets/shaders/compute/InstanceOcclusionCull.comp");
@@ -325,7 +325,7 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // Two-phase (#431 Stage 2): the load-bearing no-popping contract. Phase 1
+    // Two-phase (#431): the load-bearing no-popping contract. Phase 1
     // tests against LAST frame's depth (a wall in front of the back cubes), so
     // those cubes are deferred to the reject list. Phase 2 tests the reject list
     // against THIS frame's depth (the wall gone — a disocclusion), so every
@@ -340,7 +340,7 @@ namespace OloEngine::Tests
         // its HZB with a raw glBindTextureUnit(0, ...), which a BINDLESS-variant
         // program cannot see: it would read g_OloHeapOffsets[0], sample the
         // reserved null and cull against a depth of zero. Converting
-        // InstanceOcclusionCull.comp made that live (issue #691 Phase 3,
+        // InstanceOcclusionCull.comp made that live (issue #691,
         // rhi-abstraction-boundary.md §4d).
         const ScopedSlotBasedShaders slotBased;
         auto cs = ComputeShader::Create("assets/shaders/compute/InstanceOcclusionCull.comp");
@@ -397,7 +397,7 @@ namespace OloEngine::Tests
         ::glNamedBufferStorage(camUBO, static_cast<GLsizeiptr>(cameraData.size() * sizeof(glm::mat4)), cameraData.data(), 0);
         ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, camUBO);
 
-        // The cull's parameters are one std140 block since issue #691 Phase 7
+        // The cull's parameters are one std140 block since issue #691
         // (InstanceCullParams @ UBO_INSTANCE_CULL); the two phases differ only
         // in WriteRejected/Phase2, so seed the shared part once and upload per
         // phase — the same shape GPUFrustumCuller uses.
@@ -481,7 +481,7 @@ namespace OloEngine::Tests
         for (const u32 slot : { 15u, 16u, 17u, 18u, 19u })
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, 0);
         ::glBindBufferBase(GL_UNIFORM_BUFFER, 0, 0);
-        // The #691 Phase 7 cull-params block, same discipline: never leave a
+        // The #691 cull-params block, same discipline: never leave a
         // binding pointing at a buffer this scope is about to release.
         ::glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_INSTANCE_CULL, 0);
         ::glUseProgram(0);

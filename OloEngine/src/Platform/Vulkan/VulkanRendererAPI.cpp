@@ -44,7 +44,7 @@ namespace OloEngine
         constexpr VkPipelineStageFlags2 kAllStages = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         constexpr VkAccessFlags2 kAllAccess = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
 
-        // Integer formats force NEAREST sampling (#691 Phase 8): GL makes an
+        // Integer formats force NEAREST sampling (#691): GL makes an
         // integer texture with a LINEAR filter incomplete, and incomplete
         // samples as zero — §4f's mandatory row, mirrored at the sampler-heap
         // seam. The set is the integer formats the engine can actually mint.
@@ -72,7 +72,7 @@ namespace OloEngine
 
         // Client-data byte size per texel for the upload facade — the size of
         // what the CALLER hands over, before any conversion to the image's
-        // texel format (#691 Phase 8). Compressed formats have no per-texel
+        // texel format (#691). Compressed formats have no per-texel
         // size and never travel this path.
         [[nodiscard]] u32 ClientBytesPerPixel(const RHI::Format format)
         {
@@ -121,9 +121,9 @@ namespace OloEngine
         }
     } // namespace
 
-    void VulkanRendererAPI::Phase6Stub(const char* entryPoint, StubKind kind) const
+    void VulkanRendererAPI::UnimplementedStub(const char* entryPoint, StubKind kind) const
     {
-        ++m_Phase6StubHits;
+        ++m_UnimplementedStubHits;
         ++m_StubHitsByKind[static_cast<sizet>(kind)];
         if (m_WarnedStubs.insert(entryPoint).second)
         {
@@ -200,8 +200,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         CacheDeviceLimits();
-        OLO_CORE_INFO("[RHI/Vulkan] VulkanRendererAPI up — Phase 5 execution layer (barriers, transient clears, "
-                      "dynamic state); pipeline-shaped entry points stub until Phase 6");
+        OLO_CORE_INFO("[RHI/Vulkan] VulkanRendererAPI up — execution layer (barriers, transient clears, "
+                      "dynamic state); pipeline-shaped entry points still stubbed");
     }
 
     void VulkanRendererAPI::BeginRecording(const VkCommandBuffer cmd)
@@ -260,7 +260,7 @@ namespace OloEngine
         // An unconsumed pending clear still HAPPENS (GL cleared eagerly at
         // the request): a shadow-atlas entry culled to zero draws must not
         // lose its clear, nor may the clear leak into the next recording's
-        // first scope as a spurious CLEAR loadOp (#691 Phase 8).
+        // first scope as a spurious CLEAR loadOp (#691).
         MaterializePendingClear();
         m_Cmd = VK_NULL_HANDLE;
         // A backbuffer publication is scoped to ONE recording by construction:
@@ -376,11 +376,11 @@ namespace OloEngine
         if (m_Cmd == VK_NULL_HANDLE)
             return;
 
-        // Negative-height flip is a Phase 6 (pipeline/pass) concern; Phase 5
+        // Negative-height flip is a pipeline/pass concern; this layer
         // records the plain rect so state packets replay without error.
         // Deliberately does NOT touch the scissor: glViewport never did, and
         // deriving one here would clobber an explicit SetScissorBox. A draw
-        // with dynamic scissor state and no scissor set is Phase 6's pipeline
+        // with dynamic scissor state and no scissor set is the pipeline
         // setup to default.
         VkViewport vp{};
         vp.x = static_cast<f32>(x);
@@ -417,7 +417,7 @@ namespace OloEngine
             return;
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("MemoryBarrier(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("MemoryBarrier(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -452,7 +452,7 @@ namespace OloEngine
         if (m_Cmd == VK_NULL_HANDLE)
         {
             if (flags != MemoryBarrierFlags::None || !barriers.empty())
-                Phase6Stub("IssueBarrierBatch(outside recording bracket)", StubKind::OutsideRecording);
+                UnimplementedStub("IssueBarrierBatch(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -786,7 +786,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearBufferFloat(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("ClearBufferFloat(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -819,7 +819,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearBufferUInt(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("ClearBufferUInt(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -1108,7 +1108,7 @@ namespace OloEngine
         m_State.PatchVertexCount = patchVertices;
     }
 
-    // --- Phase 7: rendering scope + draw assembly --------------------------
+    // Rendering scope + draw assembly --------------------------
 
     namespace
     {
@@ -1229,7 +1229,7 @@ namespace OloEngine
         {
             return true;
         }
-        // #691 Wave C §4: a layered shadow pass renders every cascade through
+        // #691 §4: a layered shadow pass renders every cascade through
         // ONE framebuffer object, calling AttachDepthTextureArrayLayer between
         // them. Comparing only the framebuffer POINTER would keep the scope
         // open across that change and paint every cascade into cascade 0's
@@ -1446,9 +1446,9 @@ namespace OloEngine
 
         // A pending clear for a DIFFERENT target must not fold into THIS
         // scope's loadOp (the `Bind(A); Clear(); Bind(B); Draw()` bug —
-        // Phase 7 cleared B and left A untouched). Materialize it against its
+        // an earlier pass cleared B and left A untouched). Materialize it against its
         // own target first; the folds below then apply only when the pending
-        // requester IS this scope's target (#691 Phase 8).
+        // requester IS this scope's target (#691).
         if (m_PendingClear.Any() && !PendingClearMatchesCurrentTarget())
         {
             MaterializePendingClear();
@@ -1687,7 +1687,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("Draw(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("Draw(outside recording bracket)", StubKind::OutsideRecording);
             return false;
         }
 
@@ -1793,18 +1793,18 @@ namespace OloEngine
             viewport.width = static_cast<f32>(targetExtent.width);
             viewport.height = static_cast<f32>(targetExtent.height);
 
-            // NO Y FLIP — DELIBERATELY (#691 Phase 9, ADR 0011 amendment (85);
-            // supersedes the Phase 7 negative-height mirror that lived here).
+            // NO Y FLIP — DELIBERATELY (#691, ADR 0011 amendment (85);
+            // supersedes the negative-height mirror that lived here).
             // Every off-screen target is authored TOP-DOWN under Vulkan: the
             // (59) projection seam's clip-y negation lands a view's top row at
             // memory row 0, NDC-passthrough fullscreen hops preserve memory
-            // order, and the Phase 9 live inventory measured every archetype
+            // order, and the live inventory measured every archetype
             // (geometry, post hop, compute imageStore, depth, shadow) agreeing.
             // The swapchain also displays row 0 at the top, so the present
-            // blit must PRESERVE row order; the Phase 7 mirror was written
+            // blit must PRESERVE row order; the old mirror was written
             // against a chain believed to be GL-ordered, and nothing displayed
             // the graph chain through this path since (the editor composites
-            // via ImGui; the runtime was Vulkan-gated until Phase 9) — the
+            // via ImGui; the runtime was Vulkan-gated until rollout) — the
             // (67) rule that orientation is a window-only proof, in action.
             // Pinned by the FinalPassBlits... tenant, which asserts the
             // presented rows EQUAL the chain rows.
@@ -1839,8 +1839,8 @@ namespace OloEngine
 
     namespace
     {
-        // View type for the unfed-binding null-texture fallback (#691
-        // Phase 8) — the sampled-image twin of the frame arena's null buffer
+        // View type for the unfed-binding null-texture fallback (#691)
+        // — the sampled-image twin of the frame arena's null buffer
         // block. The null image itself is owned by
         // VulkanDescriptorHeapBackend (reclaimed with the heap), because a
         // leaked VMA image outliving the allocator trips VMA's
@@ -1919,7 +1919,7 @@ namespace OloEngine
                     // Draws take the command-ordered snapshot seam (a mid-
                     // frame SetData hands later draws a NEW arena range —
                     // GL's glNamedBufferSubData ordering; the batched-
-                    // instance archetype, #691 Phase 8). Compute keeps the
+                    // instance archetype, #691). Compute keeps the
                     // persistent address: its SSBOs are GPU-write
                     // participants (cull survivors, indirect seeds) whose
                     // writes must land where the indirect/copy consumers
@@ -1933,7 +1933,7 @@ namespace OloEngine
                     // arena's persistent zero-filled block. Address 0 is NOT
                     // safe to hand to the shader: dereferencing the null
                     // device address is a GPU page fault that escalates to
-                    // VK_ERROR_DEVICE_LOST (#691 Phase 8 — the IBL-bake UBO
+                    // VK_ERROR_DEVICE_LOST (#691 — the IBL-bake UBO
                     // scope bug lost the whole device this way). The null
                     // block makes an unfed binding read deterministic zeros,
                     // matching what this comment always promised.
@@ -1959,7 +1959,7 @@ namespace OloEngine
                 {
                     // Sampled bindings resolve to the zero-filled null
                     // texture of the declaration's dimensionality — GL's
-                    // "unbound sampler reads black" (#691 Phase 8; slot 0
+                    // "unbound sampler reads black" (#691; slot 0
                     // leaked the first-registered texture into every unfed
                     // sampler). Storage images keep the slot-0 fallback: a
                     // write target has no safe neutral image, and no
@@ -1998,7 +1998,7 @@ namespace OloEngine
                 std::memcpy(m_RootScratch.data() + field.Offset, &slot, sizeof(slot));
                 if (!storageImage)
                 {
-                    // The sampler half (#691 Phase 8): the SAMPLER-heap slot
+                    // The sampler half (#691): the SAMPLER-heap slot
                     // BindTexture staged beside the texture slot. Zero (the
                     // default linear/clamp sampler) when nothing was staged.
                     const u32 samplerSlot = bindingState.GetTextureSamplerSlot(binding.Binding);
@@ -2044,13 +2044,13 @@ namespace OloEngine
         return true;
     }
 
-    // --- Phase 6 stubs (generated; every entry warns once and counts) ------
+    // --- Unimplemented stubs (generated; every entry warns once and counts) ---
 
     void VulkanRendererAPI::Clear()
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("Clear(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("Clear(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         // GL clears the BOUND framebuffer — but the rendering scope switches
@@ -2058,7 +2058,7 @@ namespace OloEngine
         // still holds the PREVIOUS target. Clearing "the live scope" then
         // wipes the output the pass just drew (the bloom mip ladder, JFA
         // ping-pong, fog/cloud half-res chains all Bind(); Clear(); draw;
-        // — found by #691 Phase 7 Wave A: every intra-pass consumer sampled
+        // — found by #691: every intra-pass consumer sampled
         // its producer's CLEAR). A scope on a stale target ends here and the
         // clear folds into the NEW target's first-draw loadOp.
         if (m_Scope.Active && !ScopeMatchesCurrentTarget())
@@ -2069,7 +2069,7 @@ namespace OloEngine
         {
             // Folds into the next scope begin's loadOp (the GL clear-then-
             // draw shape) — recorded against the BOUND target with the LIVE
-            // clear values (#691 Phase 8, see PendingClear).
+            // clear values (#691, see PendingClear).
             RecordPendingClear(true, true);
             return;
         }
@@ -2108,7 +2108,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("ClearDepthOnly(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("ClearDepthOnly(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         // Same stale-scope guard as Clear(): GL clears the BOUND framebuffer,
@@ -2185,7 +2185,7 @@ namespace OloEngine
         }
     }
 
-    // A10 (#691 Wave C): tessellated draws. GL's glPatchParameteri +
+    // A10 (#691): tessellated draws. GL's glPatchParameteri +
     // GL_PATCHES becomes a PATCH_LIST topology plus a baked
     // VkPipelineTessellationStateCreateInfo::patchControlPoints — the patch
     // size is a PSO axis on the ADR 0010 floor (extendedDynamicState2-
@@ -2216,7 +2216,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
-            Phase6Stub("DrawIndexedRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
+            UnimplementedStub("DrawIndexedRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
@@ -2231,7 +2231,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
-            Phase6Stub("DrawIndexedInstancedRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
+            UnimplementedStub("DrawIndexedInstancedRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
@@ -2246,7 +2246,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
-            Phase6Stub("DrawIndexedPatchesRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
+            UnimplementedStub("DrawIndexedPatchesRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
         if (patchVertices != 0)
@@ -2260,10 +2260,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::ClearStencil()
     {
-        Phase6Stub("ClearStencil");
+        UnimplementedStub("ClearStencil");
     }
 
-    // --- Indirect draws (#691 Phase 7 Wave C) ------------------------------
+    // --- Indirect draws (#691) ------------------------------
     //
     // GL's Draw*Indirect commands read the same POD layouts Vulkan defines
     // (DrawArraysIndirectCommand == VkDrawIndirectCommand,
@@ -2280,13 +2280,13 @@ namespace OloEngine
         // registry all Sync it), so generic resolution covers them all.
         if (RHI::ResourceRegistry::Get().KindOf(indirectBuffer) != RHI::ResourceKind::Buffer)
         {
-            Phase6Stub(entryPoint);
+            UnimplementedStub(entryPoint);
             return VK_NULL_HANDLE;
         }
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(indirectBuffer);
         if (native == 0u)
         {
-            Phase6Stub(entryPoint);
+            UnimplementedStub(entryPoint);
             return VK_NULL_HANDLE;
         }
         return reinterpret_cast<VkBuffer>(native);
@@ -2335,7 +2335,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
-            Phase6Stub("MultiDrawElementsIndirectCountRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
+            UnimplementedStub("MultiDrawElementsIndirectCountRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
         const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "MultiDrawElementsIndirectCountRaw(unresolvable indirect buffer)");
@@ -2416,7 +2416,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("DispatchCompute(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("DispatchCompute(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* shader = VulkanComputeShader::GetCurrentlyBound();
@@ -2461,7 +2461,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("DispatchComputeIndirect(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("DispatchComputeIndirect(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* shader = VulkanComputeShader::GetCurrentlyBound();
@@ -2566,7 +2566,7 @@ namespace OloEngine
         // scope (which consumes the pending clear as loadOp CLEAR) and close
         // it immediately — an empty CLEAR/STORE rendering instance is exactly
         // GL's eager glClear. Only a pending clear that TARGETS the
-        // backbuffer qualifies (#691 Phase 8): the Phase 7 target-blind flag
+        // backbuffer qualifies (#691): the target-blind flag
         // let a leftover FBO-pass clear land on the screen here. A pending
         // clear for another target is materialized by EndRecording.
         if (frameRendered && !m_BackbufferWritten && m_PendingClear.Color && m_PendingClear.TargetIsBackbuffer &&
@@ -2614,7 +2614,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::BlitFramebufferToDefault(RHI::ResourceHandle /*srcFramebuffer*/, u32 /*width*/, u32 /*height*/)
     {
-        Phase6Stub("BlitFramebufferToDefault");
+        UnimplementedStub("BlitFramebufferToDefault");
     }
 
     void VulkanRendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture)
@@ -2634,7 +2634,7 @@ namespace OloEngine
             return;
         }
 
-        // GL-parity mid-pass visibility (#691 Phase 7 Wave A): GL makes a
+        // GL-parity mid-pass visibility (#691): GL makes a
         // just-rendered (or just-copied) image visible to a later texture()
         // with NO application barrier, so pass bodies sample an attachment
         // they drew two draws ago without saying anything — the bloom mip
@@ -2668,7 +2668,7 @@ namespace OloEngine
             // subresource. The DESCRIPTOR view below is the opposite rule: a
             // sampled view may name exactly one aspect, so it stays DEPTH.
             // (First hit by the decal tenant — the first pass on Vulkan to
-            // sample a depth attachment; #691 Phase 7 Wave C batch 3.)
+            // sample a depth attachment; #691.)
             whole.aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*info));
             whole.baseMipLevel = 0;
             whole.levelCount = VK_REMAINING_MIP_LEVELS;
@@ -2698,7 +2698,7 @@ namespace OloEngine
         bindingState.SetTextureHeapSlot(
             slot, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
 
-        // The sampler half (#691 Phase 8): "no stated intent means the
+        // The sampler half (#691): "no stated intent means the
         // texture object's own state" (rhi-abstraction-boundary.md §4f —
         // parity by construction with GL's glBindTextureUnit, which samples
         // with the object's parameters). Derived per bind from the recorded
@@ -2920,7 +2920,7 @@ namespace OloEngine
                                                            const VkImageSubresourceRange& range)
     {
         // The bind-time layout seam behind BOTH descriptor routes — see the
-        // header note. GL-parity mid-pass visibility (#691 Phase 7 Wave A): GL
+        // header note. GL-parity mid-pass visibility (#691): GL
         // makes a just-rendered (or just-copied) image visible to a later
         // texture() with NO application barrier, so pass bodies sample an
         // attachment they drew two draws ago without saying anything — the
@@ -3059,10 +3059,10 @@ namespace OloEngine
         // origin 0, one layer, width x height texels (GTAO's final AO copy,
         // SSAO's blur copy). Lowered as vkCmdCopyImage with exact-oldLayout
         // transitions into the transfer layouts, per layout run — the
-        // ClearTextureFloat shape (#691 Phase 7 Wave B).
+        // ClearTextureFloat shape (#691).
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("CopyImageSubData(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("CopyImageSubData(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         if (width == 0u || height == 0u || !src.IsValid() || !dst.IsValid())
@@ -3140,7 +3140,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ, u32 width, u32 height)
     {
-        // glCopyImageSubData's addressed form (#691 Phase 8): level = mip and
+        // glCopyImageSubData's addressed form (#691): level = mip and
         // z = array layer — for a cubemap target GL's z IS the face index,
         // which is exactly a Vulkan array layer on the CUBE_COMPATIBLE image.
         // This is the IBL/sky bake's face write (render to a 2D framebuffer,
@@ -3159,7 +3159,7 @@ namespace OloEngine
         // transition discipline as the no-offset sibling above.
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("CopyImageSubDataRegion(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("CopyImageSubDataRegion(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         if (width == 0u || height == 0u || !src.IsValid() || !dst.IsValid() || srcLevel < 0 || dstLevel < 0 ||
@@ -3233,7 +3233,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::CopyFramebufferToTexture(RHI::ResourceHandle /*texture*/, u32 /*width*/, u32 /*height*/)
     {
-        Phase6Stub("CopyFramebufferToTexture");
+        UnimplementedStub("CopyFramebufferToTexture");
     }
 
     VulkanRendererAPI::FramebufferAttachmentSelection* VulkanRendererAPI::FindSelection(RHI::ResourceHandle framebuffer)
@@ -3286,7 +3286,7 @@ namespace OloEngine
         // pipeline pairs with it is the compare-DISABLED default — i.e. a
         // plain alias handle to the SAME VkImage already samples raw depth.
         // (The compare-ON family is the special one here, and that is the
-        // per-binding embedded-sampler work the Wave C shadow item owns.)
+        // per-binding embedded-sampler work the shadow path owns.)
         // The alias is REGISTERED as a texture in its own right — mirroring
         // the GL twin's "a separate name with its own lifetime" contract — and
         // cached per image so repeated calls (ShadowMap init + placeholder
@@ -3313,14 +3313,14 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
     {
-        // #691 Phase 8: GL keeps filter/wrap on the texture OBJECT; here the
+        // #691: GL keeps filter/wrap on the texture OBJECT; here the
         // object's state lives in the image-info registry, and BindTexture
         // derives the sampler-heap slot from it at bind time — so a mutation
         // takes effect on the next bind, exactly like glTextureParameteri.
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("SetTextureFilter(unresolved texture)", StubKind::PreconditionFailure);
+            UnimplementedStub("SetTextureFilter(unresolved texture)", StubKind::PreconditionFailure);
             return;
         }
         VulkanImageInfoRegistry::Get().SetSamplerFilter(
@@ -3333,7 +3333,7 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("SetTextureWrap(unresolved texture)", StubKind::PreconditionFailure);
+            UnimplementedStub("SetTextureWrap(unresolved texture)", StubKind::PreconditionFailure);
             return;
         }
         VkSamplerAddressMode mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -3357,8 +3357,8 @@ namespace OloEngine
 
     void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height, RHI::Format sourceFormat, const void* data)
     {
-        // Whole-image form — the offset overload with a zero origin (#691
-        // Phase 8; the shared implementation lives there).
+        // Whole-image form — the offset overload with a zero origin (#691;
+        // the shared implementation lives there).
         UploadTextureSubImage2D(texture, 0, 0, width, height, sourceFormat, data);
     }
 
@@ -3412,7 +3412,7 @@ namespace OloEngine
     {
         // The null handle is glUseProgram(0): several passes unbind their
         // program at exit (ShaderDebugDraw / ForwardOverlay state hygiene) —
-        // an unbind, not an unresolvable bind (#691 Wave C).
+        // an unbind, not an unresolvable bind (#691).
         if (!program.IsValid())
         {
             if (auto* bound = VulkanShader::GetCurrentlyBound(); bound != nullptr)
@@ -3422,7 +3422,7 @@ namespace OloEngine
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(program);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::Shader)
         {
-            Phase6Stub("BindShaderProgram(unresolvable shader)", StubKind::PreconditionFailure);
+            UnimplementedStub("BindShaderProgram(unresolvable shader)", StubKind::PreconditionFailure);
             return;
         }
         static_cast<VulkanShader*>(entry->Object)->Bind();
@@ -3442,7 +3442,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::BindFramebuffer(RHI::ResourceHandle framebuffer)
     {
-        // #691 Phase 8: raw framebuffers (CreateFramebufferHandle) reach the
+        // #691: raw framebuffers (CreateFramebufferHandle) reach the
         // backend ONLY through this by-handle entry — there is no engine
         // Framebuffer object to call Bind() on — so it resolves through the
         // root-object side table and publishes exactly like the object form.
@@ -3456,7 +3456,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("BindFramebuffer(unresolvable framebuffer)", StubKind::PreconditionFailure);
+            UnimplementedStub("BindFramebuffer(unresolvable framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         fb->Bind();
@@ -3538,7 +3538,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("AttachFramebufferColorTexture(unresolved framebuffer)", StubKind::PreconditionFailure);
+            UnimplementedStub("AttachFramebufferColorTexture(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         if (WarnUnsupportedAttachMip(mipLevel, "AttachFramebufferColorTexture"))
@@ -3564,7 +3564,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("AttachFramebufferDepthTexture(unresolved framebuffer)", StubKind::PreconditionFailure);
+            UnimplementedStub("AttachFramebufferDepthTexture(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         if (WarnUnsupportedAttachMip(mipLevel, "AttachFramebufferDepthTexture"))
@@ -3697,7 +3697,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("ClearFramebufferColorAttachment(unresolved framebuffer)", StubKind::PreconditionFailure);
+            UnimplementedStub("ClearFramebufferColorAttachment(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         // GL contract: the index is a DRAW BUFFER index, remapped through the
@@ -3727,7 +3727,7 @@ namespace OloEngine
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
-            Phase6Stub("ClearFramebufferDepth(unresolved framebuffer)", StubKind::PreconditionFailure);
+            UnimplementedStub("ClearFramebufferDepth(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         const RHI::ResourceHandle depthAttachment = fb->GetDepthAttachmentHandle();
@@ -3750,7 +3750,7 @@ namespace OloEngine
         // is meaningless for a 1:1 copy (Nearest semantics by construction).
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("BlitFramebuffer(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("BlitFramebuffer(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* src = ResolveFramebufferObject(srcFramebuffer);
@@ -3759,7 +3759,7 @@ namespace OloEngine
         {
             // RHI::NullResource spells "the default framebuffer" on GL — that
             // arm arrives with the swapchain import.
-            Phase6Stub("BlitFramebuffer(unresolved framebuffer)", StubKind::PreconditionFailure);
+            UnimplementedStub("BlitFramebuffer(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
         const i32 width = srcX1 - srcX0;
@@ -3881,18 +3881,18 @@ namespace OloEngine
 
     void* VulkanRendererAPI::AllocatePersistentUploadStorage(RHI::ResourceHandle /*buffer*/, u64 /*sizeBytes*/)
     {
-        Phase6Stub("AllocatePersistentUploadStorage");
+        UnimplementedStub("AllocatePersistentUploadStorage");
         return nullptr;
     }
 
     void VulkanRendererAPI::UnmapBuffer(RHI::ResourceHandle /*buffer*/)
     {
-        Phase6Stub("UnmapBuffer");
+        UnimplementedStub("UnmapBuffer");
     }
 
     void VulkanRendererAPI::UploadBufferSubData(RHI::ResourceHandle /*buffer*/, u64 /*offsetBytes*/, u64 /*sizeBytes*/, const void* /*data*/)
     {
-        Phase6Stub("UploadBufferSubData");
+        UnimplementedStub("UploadBufferSubData");
     }
 
     void VulkanRendererAPI::ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)
@@ -3934,7 +3934,7 @@ namespace OloEngine
             return;
         }
 
-        Phase6Stub("ReadBufferSubData(unresolvable buffer)", StubKind::PreconditionFailure);
+        UnimplementedStub("ReadBufferSubData(unresolvable buffer)", StubKind::PreconditionFailure);
         std::memset(dest, 0, sizeBytes);
     }
 
@@ -3944,7 +3944,7 @@ namespace OloEngine
             return;
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("CopyBufferSubData(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("CopyBufferSubData(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
 
@@ -3957,7 +3957,7 @@ namespace OloEngine
                                   : 0u;
         if (srcNative == 0u || dstNative == 0u)
         {
-            Phase6Stub("CopyBufferSubData(unresolvable buffer)", StubKind::PreconditionFailure);
+            UnimplementedStub("CopyBufferSubData(unresolvable buffer)", StubKind::PreconditionFailure);
             return;
         }
         const auto src = reinterpret_cast<VkBuffer>(srcNative);
@@ -4003,7 +4003,7 @@ namespace OloEngine
     }
 
     // =========================================================================
-    // The raw (object-less) texture / framebuffer facade family (#691 Phase 8).
+    // The raw (object-less) texture / framebuffer facade family (#691).
     //
     // GL's shape is a bare glCreateTextures name with immutable single-mip
     // storage (OpenGLRendererAPI::CreateTexture2D) and a bare
@@ -4314,7 +4314,7 @@ namespace OloEngine
             return;
         if (VulkanRawBufferRegistry::Get().Lookup(buffer) == nullptr)
         {
-            Phase6Stub("DeleteBuffer(not a raw-registry buffer)", StubKind::PreconditionFailure);
+            UnimplementedStub("DeleteBuffer(not a raw-registry buffer)", StubKind::PreconditionFailure);
             return;
         }
         VulkanRawBufferRegistry::Get().Destroy(buffer);
@@ -4334,7 +4334,7 @@ namespace OloEngine
         const auto it = rawVaos.find(RawObjectKey(vertexArray));
         if (it == rawVaos.end())
         {
-            Phase6Stub("DeleteVertexArray(not a raw-registry vertex array)", StubKind::PreconditionFailure);
+            UnimplementedStub("DeleteVertexArray(not a raw-registry vertex array)", StubKind::PreconditionFailure);
             return;
         }
         if (m_BoundVertexArray == it->second.Raw())
@@ -4346,12 +4346,12 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetVertexArrayIndexBuffer(RHI::ResourceHandle /*vertexArray*/, RHI::ResourceHandle /*indexBuffer*/)
     {
-        Phase6Stub("SetVertexArrayIndexBuffer");
+        UnimplementedStub("SetVertexArrayIndexBuffer");
     }
 
     void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, u32 width, u32 height, RHI::Format sourceFormat, const void* data)
     {
-        // #691 Phase 8: the frame-command-buffer staged upload. GL's
+        // #691: the frame-command-buffer staged upload. GL's
         // glTextureSubImage2D is ordered against everything the frame already
         // issued; recording the copy HERE (not a one-shot, which submits
         // BEFORE the still-recording frame) preserves that ordering for
@@ -4368,14 +4368,14 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("UploadTextureSubImage2D(unresolved texture)", StubKind::PreconditionFailure);
+            UnimplementedStub("UploadTextureSubImage2D(unresolved texture)", StubKind::PreconditionFailure);
             return;
         }
         const auto image = reinterpret_cast<VkImage>(native);
         const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
         if (info == nullptr)
         {
-            Phase6Stub("UploadTextureSubImage2D(unregistered image)", StubKind::PreconditionFailure);
+            UnimplementedStub("UploadTextureSubImage2D(unregistered image)", StubKind::PreconditionFailure);
             return;
         }
 
@@ -4582,13 +4582,13 @@ namespace OloEngine
 
     void VulkanRendererAPI::UploadTextureSubImage3D(RHI::ResourceHandle /*texture*/, i32 /*xOffset*/, i32 /*yOffset*/, i32 /*zOffset*/, u32 /*width*/, u32 /*height*/, u32 /*depth*/, RHI::Format /*sourceFormat*/, const void* /*data*/)
     {
-        // Deliberately not lowered (#691 Phase 8): the engine's ONE caller is
+        // Deliberately not lowered (#691): the engine's ONE caller is
         // OceanFFTGpu's twiddle-index seed, and the ocean FFT chain is not a
         // Vulkan tenant yet. When it becomes one, follow the
         // UploadTextureSubImage2D staged pattern with depth as
         // imageExtent.depth. Still counted as a stub hit so the pass-suite
         // instruments see the fall-through if a Vulkan caller ever appears.
-        Phase6Stub("UploadTextureSubImage3D(no Vulkan-reachable caller — OceanFFTGpu only)");
+        UnimplementedStub("UploadTextureSubImage3D(no Vulkan-reachable caller — OceanFFTGpu only)");
     }
 
     namespace
@@ -4769,7 +4769,7 @@ namespace OloEngine
                                         : nullptr;
         if (info == nullptr || info->Width == 0u || info->Height == 0u)
         {
-            Phase6Stub("ReadTextureImage(unresolved/extent-less image)", StubKind::PreconditionFailure);
+            UnimplementedStub("ReadTextureImage(unresolved/extent-less image)", StubKind::PreconditionFailure);
             return false;
         }
         const u32 mipW = std::max(info->Width >> mipLevel, 1u);
@@ -4794,14 +4794,14 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("ReadTextureSubImage(unresolved texture)", StubKind::PreconditionFailure);
+            UnimplementedStub("ReadTextureSubImage(unresolved texture)", StubKind::PreconditionFailure);
             return false;
         }
         const auto image = reinterpret_cast<VkImage>(native);
         const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
         if (info == nullptr || mipLevel >= std::max(info->MipLevels, 1u))
         {
-            Phase6Stub("ReadTextureSubImage(unregistered image / bad mip)", StubKind::PreconditionFailure);
+            UnimplementedStub("ReadTextureSubImage(unregistered image / bad mip)", StubKind::PreconditionFailure);
             return false;
         }
 
@@ -5032,7 +5032,7 @@ namespace OloEngine
     void VulkanRendererAPI::GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight)
     {
         // GL answers from glGetTextureLevelParameteriv; here the image-info
-        // registry carries the mip-0 extent (#691 Phase 8). GL's contract for
+        // registry carries the mip-0 extent (#691). GL's contract for
         // a missing level is 0, so the outputs are zeroed on every failure
         // path — callers already treat 0 as "no answer".
         outWidth = 0u;
@@ -5040,13 +5040,13 @@ namespace OloEngine
         const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
         if (native == 0u)
         {
-            Phase6Stub("GetTextureDimensions(unresolved texture)", StubKind::PreconditionFailure);
+            UnimplementedStub("GetTextureDimensions(unresolved texture)", StubKind::PreconditionFailure);
             return;
         }
         const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
         if (info == nullptr || info->Width == 0u)
         {
-            Phase6Stub("GetTextureDimensions(image without a registered extent)");
+            UnimplementedStub("GetTextureDimensions(image without a registered extent)");
             return;
         }
         if (mipLevel >= info->MipLevels)
@@ -5069,7 +5069,7 @@ namespace OloEngine
         // has no layout concept either, so no caller expects one here.
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("TextureBarrier(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("TextureBarrier(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         EndRenderingScope();
@@ -5088,7 +5088,7 @@ namespace OloEngine
     }
 
     // =========================================================================
-    // Occlusion queries (#691 Phase 7 Wave C, ADR item A6)
+    // Occlusion queries (#691, ADR item A6)
     //
     // GL hands out N independent query names; Vulkan has one VkQueryPool with N
     // slots, so VulkanQueryRegistry (declared in the header) makes ONE pool per
@@ -5138,7 +5138,7 @@ namespace OloEngine
 
         VkQueryPoolCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
-        // Slot layout per query KIND (#691 Phase 9): occlusion and plain
+        // Slot layout per query KIND (#691): occlusion and plain
         // timestamps are one slot per handle; a TimeElapsed handle owns a PAIR
         // of timestamp slots (begin at 2i, end at 2i+1) because Vulkan has no
         // native elapsed query — Begin/EndQuery bracket it with two
@@ -5261,13 +5261,13 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("BeginQuery(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("BeginQuery(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* entry = VulkanQueryRegistry::Get().Lookup(query);
         if (entry == nullptr)
         {
-            Phase6Stub("BeginQuery(unresolved query)", StubKind::PreconditionFailure);
+            UnimplementedStub("BeginQuery(unresolved query)", StubKind::PreconditionFailure);
             return;
         }
         if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
@@ -5307,7 +5307,7 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("EndQuery(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("EndQuery(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         if (m_ActiveQuery.Pool == VK_NULL_HANDLE)
@@ -5337,13 +5337,13 @@ namespace OloEngine
     {
         if (m_Cmd == VK_NULL_HANDLE)
         {
-            Phase6Stub("WriteTimestamp(outside recording bracket)", StubKind::OutsideRecording);
+            UnimplementedStub("WriteTimestamp(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* entry = VulkanQueryRegistry::Get().Lookup(query);
         if (entry == nullptr)
         {
-            Phase6Stub("WriteTimestamp(unresolved query)", StubKind::PreconditionFailure);
+            UnimplementedStub("WriteTimestamp(unresolved query)", StubKind::PreconditionFailure);
             return;
         }
         if (entry->Type != RHI::QueryType::Timestamp)
@@ -5375,7 +5375,7 @@ namespace OloEngine
             return false;
         }
 
-        // Per-kind readback (#691 Phase 9): occlusion reads its single slot
+        // Per-kind readback (#691): occlusion reads its single slot
         // raw; Timestamp reads one timestamp slot and scales ticks →
         // nanoseconds; TimeElapsed reads its PAIR (availability keyed on the
         // END slot — the last one stamped, so its availability implies the
@@ -5529,7 +5529,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetProgramUniformFloat(RHI::ResourceHandle /*program*/, std::string_view /*name*/, f32 /*value*/)
     {
-        Phase6Stub("SetProgramUniformFloat");
+        UnimplementedStub("SetProgramUniformFloat");
     }
 
 } // namespace OloEngine

@@ -302,7 +302,7 @@ namespace OloEngine
         /// entity has no vehicle constraint.
         [[nodiscard("drivetrain query result must be used")]] std::optional<VehicleDrivetrainInfo> GetVehicleDrivetrain(UUID entityID) const;
 
-        // Ragdoll (skeleton-driven SwingTwist chain) management, issue #308 item 5.
+        // Ragdoll (skeleton-driven SwingTwist chain) management, issue #308.
         // CreateRagdoll expands the RagdollComponent on `entity` into a chain of
         // Rigidbody3D + collider + SwingTwist-joint components authored onto the
         // skeleton's bone entities; it does NOT touch Jolt itself, so it must run
@@ -644,7 +644,7 @@ namespace OloEngine
         // RemoveStepListener before releasing the ref.
         std::unordered_map<UUID, JPH::Ref<JPH::VehicleConstraint>> m_Vehicles;
 
-        // Ragdolls (issue #308 item 5), keyed by the owning entity (the one
+        // Ragdolls (issue #308), keyed by the owning entity (the one
         // carrying the RagdollComponent). A ragdoll holds no Jolt object of its
         // own — it authors Rigidbody3D + collider + SwingTwist-joint components
         // onto the skeleton's bone entities, which the normal body/constraint

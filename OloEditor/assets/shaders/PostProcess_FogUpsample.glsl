@@ -10,7 +10,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// #691 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
 // binding 57 is the engine-wide vertex-pull binding; the root struct carries
 // this buffer's device address, so the SAME 20-byte {vec3 position, vec2 uv}
 // stream the attribute path consumes is read by index instead. OLO_VULKAN is
@@ -51,7 +51,7 @@ layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// Heap-bindless conversion (issue #691, bucket 1). The BODY below is
 // byte-identical between the two variants — only these declarations move, and
 // each names the same slot FogRenderPass binds with.
 #ifdef OLO_BINDLESS
@@ -75,7 +75,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
-    // Reconstruction flavour (#691 Phase 8) — GL-convention z rows for the
+    // Reconstruction flavour (#691) — GL-convention z rows for the
     // near/far extraction below. Identical to u_Projection on GL.
     mat4 u_ProjectionForReconstruction;
 };

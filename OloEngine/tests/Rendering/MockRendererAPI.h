@@ -398,7 +398,7 @@ namespace OloEngine::Testing
         }
 
         // ----------------------------------------------------------------
-        // Handle-taking siblings (issue #691 step 3, slice 2).
+        // Handle-taking siblings (issue #691).
         //
         // The mock plays the part of a backend, so it resolves exactly as a
         // backend does and delegates to the u32 form. That keeps every existing
@@ -585,7 +585,7 @@ namespace OloEngine::Testing
         }
 
         // ----------------------------------------------------------------
-        // The remaining handle forms (issue #691 step 3, item 4). Same rule as
+        // The remaining handle forms (issue #691). Same rule as
         // the block above: resolve exactly as a backend does, delegate to the
         // native implementation, and record under the SAME call name — so every
         // existing assertion about which framebuffer/buffer/texture a pass
@@ -895,7 +895,7 @@ namespace OloEngine::Testing
         }
 
         // ----------------------------------------------------------------
-        // Phase 2 step 2 additions (issue #691). Same recording convention as
+        // Call-site sweep additions (issue #691). Same recording convention as
         // above. Note these make the mock STRICTLY safer than before: the call
         // sites they replace issued raw glXxx() through glad, which in a
         // headless test is a null function pointer.
@@ -1176,7 +1176,7 @@ namespace OloEngine::Testing
 
         // Mints real registry entries, like the backend. A test can therefore
         // assert that a deleted query's handle goes stale — which is the whole
-        // reason queries became identities (issue #691 step 3, item 4).
+        // reason queries became identities (issue #691).
         void CreateQueries(RHI::QueryType /*type*/, std::span<RHI::ResourceHandle> outQueries) override
         {
             Record("CreateQueries");

@@ -379,7 +379,7 @@ namespace OloEngine
 
             if (success && regionState == StreamingRegion::State::Loaded && m_Scene)
             {
-                // Phase 2: main-thread entity instantiation
+                // Main-thread entity instantiation
                 Ref<Scene> sceneRef{ m_Scene };
                 SceneSerializer serializer{ sceneRef };
                 if (auto entitiesNode = rawData["Entities"])

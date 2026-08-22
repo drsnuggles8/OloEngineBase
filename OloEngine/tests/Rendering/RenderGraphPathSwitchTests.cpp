@@ -236,9 +236,9 @@ TEST(RenderGraphPathSwitch, DeferredToForwardRemovesDeferredOnlyPasses)
 // DeferredOpaqueDecalPass.
 // =============================================================================
 // =============================================================================
-// Phase F slice 27 — ScenePass → DeferredOpaqueDecalPass derived edge.
+// ScenePass → DeferredOpaqueDecalPass derived edge.
 // Previously, missing this explicit edge was detected as a RAW hazard.
-// Slice 27 derives the ordering from DeclareWrite(SceneDepth/SceneNormals) on
+// The ordering is derived from DeclareWrite(SceneDepth/SceneNormals) on
 // ScenePass + DeclareRead(SceneDepth) on DeferredOpaqueDecalPass, so no
 // explicit AddExecutionDependency call is needed.
 // =============================================================================
@@ -248,12 +248,12 @@ TEST(RenderGraphPathSwitch, ForwardToDeferredMissingSceneToDecalExplicitEdge_Der
     RebuildTopology(graph, /*deferred=*/false);
     RebuildTopology(graph, /*deferred=*/true, /*forceSkipDecalEdge=*/true);
 
-    // Slice 27: ScenePass.DeclareWrite(SceneDepth) +
+    // ScenePass.DeclareWrite(SceneDepth) +
     // DeferredOpaqueDecalPass.DeclareRead(SceneDepth) derives the RAW edge
     // automatically.  No hazard expected.
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.empty())
-        << "slice 27: declaration-derived edge must prevent the SceneDepth RAW hazard."
+        << "Declaration-derived edge must prevent the SceneDepth RAW hazard."
         << HazardsToString(hazards);
 }
 
@@ -335,12 +335,12 @@ TEST(RenderGraphPathSwitch, PassOrderReflectsCurrentTopologyAfterSwitch)
 // Forward+ adds a `LightCullingPass` that writes a LightGrid SSBO; ScenePass
 // reads that SSBO to select per-tile light lists. Deferred adds the G-Buffer
 // lighting + overlay passes AND the DeferredOpaqueDecalPass introduced in
-// Phase 2 (PR #216): DecalPass reads SceneDepth + SceneNormals and writes
+// PR #216: DecalPass reads SceneDepth + SceneNormals and writes
 // back into the G-Buffer (SceneColor / SceneNormals) before lighting.
 //
 // These tests exercise path transitions beyond the Forward↔Deferred pair the
 // original suite covered — they guard against regressions in the Forward+
-// and decal edges that Phase 2 made production-required.
+// and decal edges that PR #216 made production-required.
 // =============================================================================
 namespace
 {
@@ -473,7 +473,7 @@ TEST(RenderGraphPathSwitch, ThreeWayCycleCleansUpAllPathSpecificPasses)
     }
 }
 
-// Phase F slice 27: DeferredOpaqueDecalPass.DeclareRead(SceneDepth/SceneNormals)
+// DeferredOpaqueDecalPass.DeclareRead(SceneDepth/SceneNormals)
 // + ScenePass.DeclareWrite(...) derives the ordering edge; no explicit
 // ScenePass→DeferredOpaqueDecalPass call needed.
 TEST(RenderGraphPathSwitch, MissingDecalExplicitEdge_DerivedEdgeSufficient)
@@ -484,7 +484,7 @@ TEST(RenderGraphPathSwitch, MissingDecalExplicitEdge_DerivedEdgeSufficient)
 
     const auto hazards = graph.ValidateResourceHazards();
     EXPECT_TRUE(hazards.empty())
-        << "slice 27: ScenePass→DeferredOpaqueDecalPass is derived from declarations."
+        << "ScenePass→DeferredOpaqueDecalPass is derived from declarations."
         << HazardsToString(hazards);
 }
 

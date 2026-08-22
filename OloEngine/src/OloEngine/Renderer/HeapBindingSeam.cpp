@@ -15,7 +15,7 @@ namespace OloEngine::HeapBinding
 {
     namespace
     {
-        // The shared heap-offset table (issue #691 Phase 3). One std140 UBO,
+        // The shared heap-offset table (issue #691). One std140 UBO,
         // indexed by the very `TEX_*` constant — or, above HEAP_IMAGE_SLOT_BASE,
         // the very image unit — the caller used to bind with, so the bindless and
         // slot-based variants of a shader cannot disagree about which resource is
@@ -129,7 +129,7 @@ namespace OloEngine::HeapBinding
             auto& table = OffsetTable();
             SyncEpoch(table);
             // AN IDENTICAL WRITE IS NOT A CHANGE, and the distinction is what makes
-            // a per-draw flush affordable (issue #691 Phase 3). ADR 0011 amendment
+            // a per-draw flush affordable (issue #691). ADR 0011 amendment
             // (32) rejected converting the per-draw paths because "a converted
             // shader needs a flush per draw, which gives back exactly the cost
             // bindless exists to remove" — but the cost it names is the TABLE
@@ -260,7 +260,7 @@ namespace OloEngine::HeapBinding
             // executed against MockRendererAPI in the test suite, and the static
             // facade would bypass it invisibly.
             //
-            // The DESC travels with the bind (#691 Phase 8): on GL the slot
+            // The DESC travels with the bind (#691): on GL the slot
             // path samples with the texture object's state and the default
             // three-arg body reduces to the old two-arg bind — but the Vulkan
             // backend's samplers are heap objects, and dropping the desc here
@@ -409,7 +409,7 @@ namespace OloEngine::HeapBinding
             // the format in, and loading through a disagreeing `layout(...)`
             // qualifier is undefined rather than a reinterpretation — so an r32ui
             // or rgba32f binding cleared to the R32F null was undefined on the
-            // ordinary path (issue #691 Phase 3).
+            // ordinary path (issue #691).
             StageOffset(tableIndex, RHI::NullOffsetForStorageFormat(format));
         }
         return {};

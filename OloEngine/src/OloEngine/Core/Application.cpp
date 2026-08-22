@@ -73,7 +73,7 @@ namespace OloEngine
         // Start the task scheduler workers
         LowLevelTasks::FScheduler::Get().StartWorkers();
 
-        // RHI backend selection (ADR 0011 §2, #691 Phase 4). HARD ordering
+        // RHI backend selection (ADR 0011 §2, #691). HARD ordering
         // contract: this must run BEFORE the Window::Create below — WindowsWindow /
         // LinuxWindow read Renderer::GetAPI() ahead of glfwCreateWindow to pick the
         // window's client API. Parsed after the working-directory switch above so
@@ -98,7 +98,7 @@ namespace OloEngine
             OLO_CORE_INFO("[RHI] Backend: {} (source: {})",
                           backend.Api == RendererAPI::API::Vulkan ? "Vulkan" : "OpenGL", backend.Source);
             // A persisted preference is the SOFT half of the selection chain
-            // (#691 Phase 9): if Vulkan came from the config file and cannot
+            // (#691): if Vulkan came from the config file and cannot
             // actually initialise on this machine, the boot below retries on
             // OpenGL and rewrites the file, instead of bricking the install
             // with EXIT_FAILURE on every launch. An explicit `--rhi=vulkan`
@@ -108,7 +108,7 @@ namespace OloEngine
                 backend.Api == RendererAPI::API::Vulkan && backend.Source == "config file";
         }
 
-        // #691 Phase 7 (Final): the renderer now comes up on BOTH backends —
+        // #691: the renderer now comes up on BOTH backends —
         // the whole pass suite is ported and the swapchain is importable, so
         // Renderer::Init and the layer stack run under --rhi=vulkan and the
         // render graph draws the real frame. What is still GL-only, and so
@@ -135,7 +135,7 @@ namespace OloEngine
                 }
                 catch (const std::exception& e)
                 {
-                    // #691 Phase 9: a Vulkan selection persisted in
+                    // #691: a Vulkan selection persisted in
                     // config/renderer.yaml must not brick the install on a
                     // machine whose device/driver cannot satisfy it — retry on
                     // OpenGL, loudly, and rewrite the file so the next launch
@@ -176,20 +176,20 @@ namespace OloEngine
                 }
                 else
                 {
-                    OLO_CORE_INFO("[RHI] Vulkan (#691 Phase 7): the GL debug tools and the ImGui renderer "
+                    OLO_CORE_INFO("[RHI] Vulkan (#691): the GL debug tools and the ImGui renderer "
                                   "backend are skipped; the renderer and the render graph run");
                 }
 
                 m_Window->SetTitle(m_Specification.Name + " — Loading shaders...");
                 Renderer::Init(m_Specification.PreferredRenderer, m_Window.get());
                 // Surface the non-default backend where a player can see it
-                // (#691 Phase 9) — the log line above is invisible in a
+                // (#691) — the log line above is invisible in a
                 // shipped game, and "which backend am I actually on?" is the
                 // first diagnostic question.
                 m_Window->SetTitle(glOnlyTooling ? m_Specification.Name
                                                  : m_Specification.Name + " [Vulkan]");
 
-                // #691 Phase 7 (Final): a backend whose swap path owns frame
+                // #691: a backend whose swap path owns frame
                 // recording (Vulkan: acquire → record → submit → present)
                 // cannot have the frame drawn before SwapBuffers — there is
                 // no open command buffer then, and no acquired backbuffer to
@@ -331,7 +331,7 @@ namespace OloEngine
         // still alive: their static Refs otherwise keep every loaded asset's
         // GPU buffers alive past the window's graphics-context teardown —
         // which vmaDestroyAllocator answers with an "allocations not freed"
-        // abort on Vulkan (#691 Phase 8, the close-button crash).
+        // abort on Vulkan (#691, the close-button crash).
         Project::Unload();
 
         // Two process-wide caches that own GPU memory but do NOT live under Renderer/,
@@ -368,8 +368,8 @@ namespace OloEngine
         {
             // Before StopWorkers() below: this is what joins the audio thread.
             AudioEngine::Shutdown();
-            // The GL debug tools only initialized on the GL backend (#691
-            // Phase 7); the renderer itself now comes up on both.
+            // The GL debug tools only initialized on the GL backend (#691)
+            // The renderer itself now comes up on both.
             if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
             {
                 // Shutdown debug tools before Renderer
@@ -607,7 +607,7 @@ namespace OloEngine
             // Process tasks targeted at the Game Thread
             Tasks::FNamedThreadManager::Get().ProcessTasks(true);
 
-            // #691 Phase 7: with a backend that owns frame recording the layer
+            // #691: with a backend that owns frame recording the layer
             // work happens inside SwapBuffers, in the backend's command-buffer
             // bracket, against the acquired backbuffer — so it is HANDED OVER
             // here rather than run. Everything above (input, tasks) still runs
@@ -770,7 +770,7 @@ namespace OloEngine
         // Use framebuffer size for renderer. On Vulkan the SWAPCHAIN half is
         // still the context's own business (it recreates on
         // VK_ERROR_OUT_OF_DATE_KHR inside SwapBuffers); this is the engine
-        // half — the render graph's own targets (#691 Phase 7).
+        // half — the render graph's own targets (#691).
         Renderer::OnWindowResize(fbWidth, fbHeight);
 
         return false;

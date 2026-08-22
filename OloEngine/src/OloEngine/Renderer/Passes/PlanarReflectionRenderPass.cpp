@@ -55,7 +55,7 @@ namespace OloEngine
             // interface matches its render targets. With only the colour
             // attachment, each replayed draw triggered a Vulkan validation
             // warning per unused output, and the replay-built PSOs could
-            // never be shared with the scene pass's (#691 Phase 8).
+            // never be shared with the scene pass's (#691).
             spec.Attachments = SceneRenderPass::SceneMRTAttachments();
             m_ReflectionFB = Framebuffer::Create(spec);
         }
@@ -158,7 +158,7 @@ namespace OloEngine
         const glm::vec4 plane = PlanarReflection::NormalizePlane(m_ReflectionPlane);
         const auto m = PlanarReflection::BuildReflectionMatrices(realView, realProj, realPos, plane);
 
-        // A8 seam, shader-reconstruction flavour (#691 Phase 7): Water.glsl
+        // A8 seam, shader-reconstruction flavour (#691): Water.glsl
         // looks the reflection up as `(clip.xy / clip.w) * 0.5 + 0.5`, and the
         // target it samples was rendered below through UploadCameraUBO's
         // RASTERIZER flavour — so its rows are mirrored on Vulkan and the

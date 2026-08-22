@@ -2,7 +2,7 @@
 // OLO_TEST_LAYER: Functional
 
 // =============================================================================
-// LiveRetargetingTest — Functional Test (issue #631 part 2).
+// LiveRetargetingTest — Functional Test (issue #631).
 //
 // Cross-subsystem seam under test:
 //   Scene tick × RetargetingSystem × AnimationSystem × root-motion pipeline.

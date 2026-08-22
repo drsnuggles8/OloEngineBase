@@ -7,7 +7,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V5+V6 particle pull. Stream 0 = the 8-byte
+// #691 (ADR 0011 §5): V5+V6 particle pull. Stream 0 = the 8-byte
 // {vec2 a_QuadPos} unit quad on the engine-wide binding 57; stream 1 =
 // ParticleBatchRenderer's 96-byte ParticleInstance on the reserved stream-1
 // binding 63 (24 float lanes; EntityID is an int lane, floatBitsToInt),
@@ -210,7 +210,7 @@ layout(location = 4) in vec4 v_ClipPosPrev;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Both slots move
+// Heap-bindless conversion (issue #691, bucket 1). Both slots move
 // together because ParticleBatchRenderer::BindParticleTextures stages both in
 // one call — converting one and leaving the other would leave the unconverted
 // sampler unbound once this program builds as the bindless variant (§5c).

@@ -833,7 +833,7 @@ static Ref<TestGraphNode> AddSetupNode(RenderGraph& graph,
 // =============================================================================
 
 // =============================================================================
-// Issue #691 step 3, slice 5 — the graph carries BOTH currencies during the
+// Issue #691 — the graph carries BOTH currencies during the
 // migration, as alternatives rather than duplicates. Exactly one is set per
 // entry, and neither is derivable from the other: `native -> handle` is
 // unrecoverable, and `handle -> native` may only happen inside
@@ -4046,7 +4046,7 @@ TEST(RenderGraphStructural, FinalPresentSinkUsesOrderingOnly)
     AddPassNode(graph, ui);
     AddPassNode(graph, final);
 
-    // Phase F contract: FinalPass is a side-effecting present sink.
+    // Contract: FinalPass is a side-effecting present sink.
     // UIComposite -> Final must be ordering-only, not framebuffer piping.
     graph.ConnectPass("PostProcessPass", "UICompositePass");
     graph.AddExecutionDependency("UICompositePass", "FinalPass");
@@ -5099,7 +5099,7 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
         << "Test setup requires non-overlapping lifetimes for alias reuse";
 }
 
-// Phase D: RG16Float is now a supported framebuffer format (maps to RG16F attachment).
+// RG16Float is now a supported framebuffer format (maps to RG16F attachment).
 // R8UNorm has no framebuffer equivalent and remains the canonical "unsupported" test case.
 TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAllocation)
 {
@@ -5153,7 +5153,7 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
     EXPECT_EQ(planIt->SkipReason, "unsupported-framebuffer-format");
 }
 
-// Phase D: RG16F framebuffer format is now a supported transient FB type.
+// RG16F framebuffer format is now a supported transient FB type.
 TEST(RenderGraphTransientPool, PhaseD_RG16FFramebufferFormatIsNowAllocatable)
 {
     RenderGraph graph;
@@ -5184,11 +5184,11 @@ TEST(RenderGraphTransientPool, PhaseD_RG16FFramebufferFormatIsNowAllocatable)
                                          { return e.Resource == "PhaseD_RG16FFB"; });
 
     ASSERT_NE(it, plan.end());
-    EXPECT_TRUE(it->WillAllocate) << "RG16F FB must be allocatable after Phase D fix";
+    EXPECT_TRUE(it->WillAllocate) << "RG16F FB must be allocatable";
     EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
 }
 
-// Phase D: SSAOPass-style setup that declares SSAORaw as a transient RG16F FB.
+// SSAOPass-style setup that declares SSAORaw as a transient RG16F FB.
 // Verifies the graph accepts it and plans allocation (no GPU context required).
 TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
 {
@@ -5229,7 +5229,7 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
 
     ASSERT_NE(it, plan.end()) << "SSAORaw not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "SSAORaw must be reachable";
-    EXPECT_TRUE(it->WillAllocate) << "SSAORaw must be planned for allocation (Phase D fix)";
+    EXPECT_TRUE(it->WillAllocate) << "SSAORaw must be planned for allocation";
     EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
 
     // The stable handle must be resolvable after BuildFrameGraph
@@ -5328,7 +5328,7 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOBlurFramebufferDeclaredAsTransientFram
     EXPECT_TRUE(handle.IsValid()) << "stable handle for SSAOBlur must be valid after BuildFrameGraph";
 }
 
-// Phase D Slice 2: RGBA32F framebuffer format is now a supported transient FB type.
+// RGBA32F framebuffer format is now a supported transient FB type.
 TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
 {
     RenderGraph graph;
@@ -5359,11 +5359,11 @@ TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
                                          { return e.Resource == "PhaseD_RGBA32FFB"; });
 
     ASSERT_NE(it, plan.end());
-    EXPECT_TRUE(it->WillAllocate) << "RGBA32F FB must be allocatable after Phase D Slice 2 fix";
+    EXPECT_TRUE(it->WillAllocate) << "RGBA32F FB must be allocatable";
     EXPECT_EQ(it->SkipReason, "") << "unexpected skip reason: " << it->SkipReason;
 }
 
-// Phase D Slice 2: SelectionOutline-style setup declaring JFAPing + JFAPong
+// SelectionOutline-style setup declaring JFAPing + JFAPong
 // as full-res RGBA32F transient framebuffers.
 TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFramebuffers)
 {
@@ -5410,7 +5410,7 @@ TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFra
 
         ASSERT_NE(it, plan.end()) << name << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << name << " must be reachable";
-        EXPECT_TRUE(it->WillAllocate) << name << " must be planned for allocation (Phase D Slice 2)";
+        EXPECT_TRUE(it->WillAllocate) << name << " must be planned for allocation";
         EXPECT_EQ(it->SkipReason, "") << name << " unexpected skip reason: " << it->SkipReason;
 
         const auto handle = graph.GetFramebufferHandle(name);
@@ -5433,7 +5433,7 @@ TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFra
         << "JFAPing and JFAPong have the same desc — should report equal estimated sizes";
 }
 
-// Phase D Slice 3: Bloom mip-chain setup declaring up to 5 RGBA16F scratch FBs.
+// Bloom mip-chain setup declaring up to 5 RGBA16F scratch FBs.
 TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffers)
 {
     RenderGraph graph;
@@ -5488,7 +5488,7 @@ TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffe
 
         ASSERT_NE(it, plan.end()) << mipName << " not found in transient plan";
         EXPECT_TRUE(it->Reachable) << mipName << " must be reachable";
-        EXPECT_TRUE(it->WillAllocate) << mipName << " must be planned for allocation (Phase D Slice 3)";
+        EXPECT_TRUE(it->WillAllocate) << mipName << " must be planned for allocation";
         EXPECT_EQ(it->SkipReason, "") << mipName << " unexpected skip reason: " << it->SkipReason;
 
         const auto handle = graph.GetFramebufferHandle(mipName);
@@ -5508,7 +5508,7 @@ TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffe
         << "BloomMip0 (640x360) should be larger than BloomMip1 (320x180)";
 }
 
-// Phase D Slice 4: GTAO edge scratch texture declared as transient R8 resource.
+// GTAO edge scratch texture declared as transient R8 resource.
 TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
 {
     RenderGraph graph;
@@ -5547,7 +5547,7 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
 
     ASSERT_NE(it, plan.end()) << "GTAOEdge not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "GTAOEdge must be reachable";
-    EXPECT_TRUE(it->WillAllocate) << "GTAOEdge must be planned for allocation (Phase D Slice 4)";
+    EXPECT_TRUE(it->WillAllocate) << "GTAOEdge must be planned for allocation";
     EXPECT_EQ(it->SkipReason, "") << "GTAOEdge unexpected skip reason: " << it->SkipReason;
     // R8 = 1 byte per texel
     EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 1ull)
@@ -5714,7 +5714,7 @@ TEST(RenderGraphTransientPool, PhaseD_HZBDepthDeclaredAsTransientMipChainTexture
     EXPECT_TRUE(handle.IsValid()) << "stable handle for HZBDepth must be valid after BuildFrameGraph";
 }
 
-// Phase D Slice 5: Water refraction scratch texture declared as transient RGBA16F resource.
+// Water refraction scratch texture declared as transient RGBA16F resource.
 TEST(RenderGraphTransientPool, PhaseD_WaterRefractionDeclaredAsTransientTexture)
 {
     RenderGraph graph;
@@ -5753,7 +5753,7 @@ TEST(RenderGraphTransientPool, PhaseD_WaterRefractionDeclaredAsTransientTexture)
 
     ASSERT_NE(it, plan.end()) << "WaterRefraction not found in transient plan";
     EXPECT_TRUE(it->Reachable) << "WaterRefraction must be reachable";
-    EXPECT_TRUE(it->WillAllocate) << "WaterRefraction must be planned for allocation (Phase D Slice 5)";
+    EXPECT_TRUE(it->WillAllocate) << "WaterRefraction must be planned for allocation";
     EXPECT_EQ(it->SkipReason, "") << "WaterRefraction unexpected skip reason: " << it->SkipReason;
     // RGBA16F = 8 bytes per texel
     EXPECT_EQ(it->EstimatedBytes, 1280ull * 720ull * 8ull)
@@ -6041,7 +6041,7 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
 
             RGResourceDesc invalidDesc;
             invalidDesc.Kind = RGResourceHandle::Kind::Framebuffer;
-            // Phase D: RG16Float is now supported. Use R8UNorm — it has no FB equivalent
+            // RG16Float is now supported. Use R8UNorm — it has no FB equivalent
             // and remains the canonical "unsupported-framebuffer-format" case.
             invalidDesc.Format = RGResourceFormat::R8UNorm;
             invalidDesc.Width = 256;
@@ -6344,7 +6344,7 @@ TEST(RenderGraphTransientPool, NonAllocatableTransientExtractionInvokesCallbackW
 }
 
 // =============================================================================
-// Phase D Slice 7 — OIT buffer as shared transient MRT framebuffer
+// OIT buffer as shared transient MRT framebuffer
 // =============================================================================
 
 // Verify that DeclareTransientFramebuffer registers a stable handle for a
@@ -7688,7 +7688,7 @@ TEST(RenderGraphTransientPool, AttachmentViewOnlyWriteExtendsParentFramebufferLi
 }
 
 // =============================================================================
-// Phase D Slice 8 — Post-process chain outputs as transient FBs
+// Post-process chain outputs as transient FBs
 //
 // Each post-process pass output (BloomColor, DOFColor, ToneMapColor, etc.) is
 // now declared as a transient framebuffer rather than imported, so the graph's
@@ -8209,7 +8209,7 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
     graph.SetFinalPass("Writer" + std::to_string(specs.size() - 1));
     graph.BuildFrameGraph();
 
-    // Use resource lifetime records (Phase G Slice 11 API) to confirm IsImported == false.
+    // Use resource lifetime records to confirm IsImported == false.
     const auto lifetimes = graph.GetResourceLifetimes();
     for (const auto& s : specs)
     {
@@ -8391,7 +8391,7 @@ TEST(RenderGraphTransientPool, TrimOnEmptyPoolIsNoop)
 }
 
 // =============================================================================
-// Phase G — Slice 1: pass work-type classification
+// Pass work-type classification
 //
 // These tests document the behavioural contracts for PassWorkType,
 // AsyncComputeCandidate, and NeverCull introduced in Phase G.
@@ -8494,7 +8494,7 @@ TEST(RenderGraphPassFlags, NodeSubmissionInfoReportsWorkTypeAndAsyncFlag)
 }
 
 // =============================================================================
-// RenderGraphComputeHoist — Phase G Slice 2: compute-pass scheduling hoist
+// RenderGraphComputeHoist — compute-pass scheduling hoist
 // =============================================================================
 
 TEST(RenderGraphComputeHoist, NoCandidatesLeavesOrderUnchanged)
@@ -8597,7 +8597,7 @@ TEST(RenderGraphComputeHoist, MultipleComputePassesAllHoisted)
 }
 
 // =============================================================================
-// RenderGraphDumpJson — Phase G Slice 3: PassWorkType + AsyncComputeCandidate in JSON dump
+// RenderGraphDumpJson — PassWorkType + AsyncComputeCandidate in JSON dump
 // =============================================================================
 
 TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
@@ -8681,7 +8681,7 @@ TEST(RenderGraphDumpJson, GraphDigestContainsComputeCountsForAllGraphicsPasses)
 }
 
 // =============================================================================
-// RenderGraphDumpDot — Phase G Slice 3: compute-pass coloring in DOT dump
+// RenderGraphDumpDot — compute-pass coloring in DOT dump
 // =============================================================================
 
 TEST(RenderGraphDumpDot, ComputePassColoredDifferentlyToGraphics)
@@ -8712,7 +8712,7 @@ TEST(RenderGraphDumpDot, ComputePassColoredDifferentlyToGraphics)
     // Async-compute candidate label prefix
     EXPECT_NE(dot.find("[async] ComputePass"), std::string::npos) << "Async candidate label must be prefixed";
 
-    // Batch lane annotations (Phase G.13)
+    // Batch lane annotations
     EXPECT_NE(dot.find("batch 0: lane=Compute"), std::string::npos)
         << "DOT dump must surface stable lane assignment per batch";
 
@@ -8733,7 +8733,7 @@ TEST(RenderGraphDumpDot, ComputePassColoredDifferentlyToGraphics)
 }
 
 // =============================================================================
-// RenderGraphAsyncBatch — Phase G Slice 4: GetAsyncComputeBatches()
+// RenderGraphAsyncBatch — GetAsyncComputeBatches()
 // =============================================================================
 
 TEST(RenderGraphAsyncBatch, NoCandidatesReturnsEmptyBatches)
@@ -8869,7 +8869,7 @@ TEST(RenderGraphAsyncBatch, ComputeBatchWaitsForGraphicsPrerequisite)
 }
 
 // =============================================================================
-// RenderGraphSubmissionPlan — Phase G Slice 5: GetSubmissionPlan()
+// RenderGraphSubmissionPlan — GetSubmissionPlan()
 // =============================================================================
 
 namespace
@@ -9224,7 +9224,7 @@ TEST(RenderGraphSubmissionPlan, PlanPreservesHoistedExecutionOrder)
 }
 
 // =============================================================================
-// RenderGraphExecutePlanDriven — Phase G Slice 6: Execute() via submission-plan IR
+// RenderGraphExecutePlanDriven — Execute() via submission-plan IR
 // =============================================================================
 
 TEST(RenderGraphExecutePlanDriven, PureGraphicsGraphPassesExecuteInOrder)
@@ -9356,7 +9356,7 @@ TEST(RenderGraphExecutePlanDriven, PostPassHookStillFiresForEachPass)
 }
 
 // =============================================================================
-// RenderGraphTemporalHistoryContracts — Phase G Slice 7: explicit temporal contracts
+// RenderGraphTemporalHistoryContracts — explicit temporal contracts
 // =============================================================================
 
 TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureRecordsContractAndInvokesCallback)
@@ -9684,7 +9684,7 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureFromFramebufferAt
 }
 
 // =============================================================================
-// RenderGraphAsyncBatchResources — Phase G Slice 8: cross-batch resource deps
+// RenderGraphAsyncBatchResources — cross-batch resource deps
 // =============================================================================
 
 TEST(RenderGraphAsyncBatchResources, NoBatchResourceDepsWhenNoAccessDeclarations)
@@ -9932,7 +9932,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
 }
 
 // ===========================================================================
-// Phase G Slice 10 — Explicit resource transition records
+// Explicit resource transition records
 // ===========================================================================
 
 TEST(RenderGraphResourceTransitions, NoTransitionsWhenNoBarriersPlanned)
@@ -10259,7 +10259,7 @@ TEST(RenderGraphResourceTransitions, ReadWhileAttachedIsFlaggedOnSamePassFeedbac
 
 TEST(RenderGraphSubmissionPlan, MemoryBarrierCommandsCarryDedupedTransitions)
 {
-    // Phase 5: the submission IR's MemoryBarrier commands carry the
+    // The submission IR's MemoryBarrier commands carry the
     // per-resource transitions (deduplicated) so an explicit-barrier backend
     // lowers layouts without re-querying the graph. GL ignores them; this
     // pins that they ARRIVE.
@@ -10375,7 +10375,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
 }
 
 // ============================================================================
-// Phase G Slice 11 — Unified resource lifetime records (GetResourceLifetimes)
+// Unified resource lifetime records (GetResourceLifetimes)
 // ============================================================================
 
 TEST(RenderGraphResourceLifetimes, NoLifetimesWhenNoResourcesDeclared)
@@ -10582,7 +10582,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
 }
 
 // ---------------------------------------------------------------------------
-// Phase G Slice 12: RGSubresourceRange propagation into barriers/transitions
+// RGSubresourceRange propagation into barriers/transitions
 // ---------------------------------------------------------------------------
 
 TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
@@ -10952,7 +10952,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
 }
 
 // ============================================================
-// Phase G Slice 14 — Cross-lane sync metadata
+// Cross-lane sync metadata
 // ============================================================
 
 TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
@@ -11125,7 +11125,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
 }
 
 // ============================================================
-// Phase G Slice 15 — Queue-aware scheduler validation
+// Queue-aware scheduler validation
 // ============================================================
 
 TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
@@ -11418,7 +11418,7 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
 }
 
 // ============================================================
-// Phase H Slice 1 — resolve-failure telemetry contracts
+// Resolve-failure telemetry contracts
 // ============================================================
 
 TEST(RenderGraphResolveFailureTelemetry, InvalidTypedHandleResolvesAreRecorded)

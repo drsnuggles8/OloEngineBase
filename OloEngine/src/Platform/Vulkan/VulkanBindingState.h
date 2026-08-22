@@ -5,7 +5,7 @@
 #if OLO_WITH_VULKAN
 
 // =============================================================================
-// VulkanBindingState — the process-global bind-point mirror (#691 Phase 7).
+// VulkanBindingState — the process-global bind-point mirror (#691).
 //
 // GL's binding model is PROCESS-GLOBAL state: glBindBufferBase points,
 // texture units, the current program and the bound framebuffer all live on
@@ -53,7 +53,7 @@ namespace OloEngine
         // renders wrong, not loudly. They must therefore stay above every
         // number ShaderBindingLayout can hand out, which the static_asserts
         // below enforce at compile time rather than at first sight of a black
-        // frame (#691 Phase 7: the auto-exposure block moving to 72 on the
+        // frame (#691: the auto-exposure block moving to 72 on the
         // #705 merge, and the A2 renumber pushing TEX_DDGI_VISIBILITY to 64
         // and TEX_SHADER_GRAPH_0 to 65, both walked past the old 64).
         //
@@ -86,7 +86,7 @@ namespace OloEngine
         void SetTextureHeapSlot(u32 slot, u32 heapSlot);
         [[nodiscard]] u32 GetTextureHeapSlot(u32 slot) const;
 
-        // --- sampler slots (#691 Phase 8) ------------------------------------
+        // --- sampler slots (#691) ------------------------------------
         // The SAMPLER-heap slot staged beside each texture slot: BindTexture
         // derives it from the image's recorded sampler state (or an explicit
         // RHI::SamplerDesc) and the draw assembly writes it into the root
@@ -106,7 +106,7 @@ namespace OloEngine
 
         // --- current render target -------------------------------------------
         // (The current SHADER deliberately lives on VulkanShader itself —
-        // s_CurrentlyBound / GetCurrentlyBound(), Phase 6's seam. One source
+        // s_CurrentlyBound / GetCurrentlyBound(), the pipeline seam. One source
         // of truth; this class does not duplicate it.)
         void SetCurrentFramebuffer(VulkanFramebuffer* framebuffer);
         [[nodiscard]] VulkanFramebuffer* GetCurrentFramebuffer() const;

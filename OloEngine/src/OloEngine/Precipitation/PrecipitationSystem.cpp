@@ -368,7 +368,7 @@ namespace OloEngine
             s_Data.m_FeedShader->Bind();
             // Former bare uniforms via ComputeShader::Set*, a deliberate no-op
             // on the Vulkan route — now one std140 refill per update (issue
-            // #691 Phase 8, the HZB pattern). The clipmap trio lets the
+            // #691, the HZB pattern). The clipmap trio lets the
             // compute convert world pos → clipmap UV.
             if (!s_FeedParamsUBO)
             {

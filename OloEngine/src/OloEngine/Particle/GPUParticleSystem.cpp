@@ -290,7 +290,7 @@ namespace OloEngine
         m_PrevPositionSSBO->Bind();
 
         // Dispatch emission compute. One std140 refill per dispatch — the
-        // former bare uniforms (issue #691 Phase 7). Legal on both backends:
+        // former bare uniforms (issue #691). Legal on both backends:
         // GL re-uploads the bound buffer, the Vulkan arena mints a fresh
         // per-dispatch address on every SetData.
         m_EmitShader->Bind();
@@ -318,7 +318,7 @@ namespace OloEngine
         m_PrevPositionSSBO->Bind();
 
         // Simulation parameters — one std140 refill per dispatch (the former
-        // bare uniforms, issue #691 Phase 7).
+        // bare uniforms, issue #691).
         m_SimulateShader->Bind();
         m_Params = UBOStructures::GPUParticleParamsUBO{};
         m_Params.DeltaTime = params.DeltaTime;

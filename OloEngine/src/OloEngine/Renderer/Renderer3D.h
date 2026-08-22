@@ -651,7 +651,7 @@ namespace OloEngine
         // One currency. The native trio this used to carry alongside the
         // identities existed only so RenderPipeline could ImportTexture() the
         // maps into the frame graph; ImportTextureHandle does that now
-        // (issue #691 step 3, item 4).
+        // (issue #691).
         static void SetGlobalIBL(RHI::ResourceHandle irradianceMap, RHI::ResourceHandle prefilterMap,
                                  RHI::ResourceHandle brdfLutMap, RHI::ResourceHandle environmentMap,
                                  f32 iblIntensity = 1.0f);
@@ -727,7 +727,7 @@ namespace OloEngine
             return s_Data.GlobalIBLIntensity;
         }
 
-        // (The ephemeral MCP sun-direction override from #316 Part 4 was
+        // (The ephemeral MCP sun-direction override from #316 was
         // retired by issue #633: olo_scene_set_time_of_day / set_sun_angle now
         // write the scene's TimeOfDayComponent — a real, serialized clock —
         // and TimeOfDaySystem drives the directional light + sky from it.)
@@ -923,7 +923,7 @@ namespace OloEngine
             return s_Data.RGraph->ResolveTexture(s_Data.RGraph->GetTextureHandle(resourceName));
         }
 
-        // Identity sibling of the above (issue #691 step 3). NOT interchangeable
+        // Identity sibling of the above (issue #691). NOT interchangeable
         // with it: `textureID` and `identity` are ALTERNATIVES on a
         // PhysicalTexture, so a resource imported through ImportTextureHandle
         // has an identity and NO native id — ResolveTexture answers 0 for it —
@@ -1130,7 +1130,7 @@ namespace OloEngine
         // ID snapshot (taken per prepass activation) so the per-draw resolve is
         // a handful of integer compares. IDs are 0 while shaders are unloaded,
         // which disables the swap safely.
-        // Identities, not driver names (issue #691 step 3, slice 6): these are
+        // Identities, not driver names (issue #691): these are
         // compared against PODMaterialData::shaderRendererID to decide whether a
         // material's program may be swapped for the depth-only one, and that
         // field is an identity now. Comparing programs by GL name across a
@@ -1646,7 +1646,7 @@ namespace OloEngine
         // is consumed by next frame's GPU instance cull.
         static void GenerateOcclusionHZB();
 
-        // Two-phase occlusion (#431 Stage 2), driven by GPUDrivenOcclusionPass at
+        // Two-phase occlusion (#431), driven by GPUDrivenOcclusionPass at
         // execute time:
         //   * BuildCurrentOcclusionHZB rebuilds the occlusion pyramid from THIS
         //     frame's partial depth (occluders + phase-1 survivors) and returns
@@ -1927,7 +1927,7 @@ namespace OloEngine
             // Water
             Ref<Shader> WaterShader;
             // Depth-only variant for the surface-depth capture: shared
-            // VS/TCS/TES displacement chain, no color outputs (#691 Phase 8).
+            // VS/TCS/TES displacement chain, no color outputs (#691).
             Ref<Shader> WaterDepthShader;
 
             // Decals

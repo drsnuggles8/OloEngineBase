@@ -1,10 +1,10 @@
 // =============================================================================
-// PBR_GBuffer.glsl - Deferred G-Buffer write shader (Phase 2)
+// PBR_GBuffer.glsl - Deferred G-Buffer write shader
 // Part of OloEngine Deferred Renderer
 //
 // Writes metallic-roughness PBR surface parameters into a 4-RT G-Buffer.
 // Lighting, IBL, shadow sampling and snow overlays are deferred to
-// DeferredLightingPass (Phase 3).
+// DeferredLightingPass.
 //
 // G-Buffer attachment layout (matches GBuffer.h):
 //   RT0 (RGBA8)   — Albedo.rgb  + Metallic(A)
@@ -17,7 +17,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
+// #691 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
 // vertex data is READ, not fetched -- binding 57 is the engine-wide vertex-pull
 // binding and the root struct carries this buffer's device address. The stream
 // is the engine `Vertex` (32 B: vec3 position @0, vec3 normal @12, vec2 uv @24),
@@ -121,7 +121,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;
     int u_AlphaMode;        // 0=Opaque, 1=Mask, 2=Blend
     int _pbrPad2;
-    // Per-material heap offsets (issue #691 Phase 3). MUST mirror
+    // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
     // declaration reads garbage rather than failing to link.
@@ -220,7 +220,7 @@ void main()
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
-    o_GBufferEmissive = vec4(emissive, 0.0); // flags reserved for Phase 3/4
+    o_GBufferEmissive = vec4(emissive, 0.0); // flags reserved
     o_GBufferVelocity = velocity;
     o_GBufferEntityID = u_EntityID;
 }

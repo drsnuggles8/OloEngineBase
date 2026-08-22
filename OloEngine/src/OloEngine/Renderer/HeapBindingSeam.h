@@ -4,7 +4,7 @@
 // HeapBindingSeam.h — the one place a bind forks into "write an offset" or
 // "bind the old way".
 //
-// Issue #691 Phase 3, ADR 0011 §1.1 / amendments (25) and (26).
+// Issue #691, ADR 0011 §1.1 / amendments (25) and (26).
 //
 // WHY THIS IS NOT A MEMBER OF RGCommandContext, where the sampler half started.
 // Most storage-image bindings in this engine are issued by COMPUTE SYSTEMS that
@@ -65,7 +65,7 @@ namespace OloEngine::HeapBinding
     // routing the fallback through the static `RenderCommand` facade instead
     // would keep compiling, keep working in the editor, and silently stop the
     // mock from ever seeing the call. That is the same shape as the `.data()`
-    // trap Phase 2 recorded: a change the type system cannot object to that
+    // trap the sweep recorded: a change the type system cannot object to that
     // redirects which object is actually spoken to.
     //
     // The heap path is identical either way — a heap write touches no backend.
@@ -121,7 +121,7 @@ namespace OloEngine::HeapBinding
     // defaulting the sampler therefore silently disables comparison for shaders
     // that never asked it to — which is exactly how converting PBR_MultiLight's
     // shadow samplers made DDGI's lit/dark bands collapse from 60/33 to 62/41
-    // (issue #691 Phase 3).
+    // (issue #691).
     //
     // `comparison == false` gives the raw-depth view the PCSS blocker search
     // reads; the seam derives ViewDesc::DepthCompare from the Compare field, so

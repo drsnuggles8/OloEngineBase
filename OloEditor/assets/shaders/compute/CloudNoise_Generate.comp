@@ -21,7 +21,7 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "../include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the
 // declaration moves into main() as a local built from the heap descriptor at
 // this image unit; the body below is unchanged either way.
 #ifndef OLO_BINDLESS
@@ -29,7 +29,7 @@ layout(rgba8, binding = 0) uniform writeonly image3D u_Output;
 #endif
 
 // ---- Parameters set by CloudNoise::EnsureGenerated() ----
-// Former bare uniforms, migrated to a std140 block (issue #691 Phase 8):
+// Former bare uniforms, migrated to a std140 block (issue #691):
 // GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
 // VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
 // hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.

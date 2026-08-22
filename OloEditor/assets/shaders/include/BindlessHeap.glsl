@@ -1,7 +1,7 @@
 // =============================================================================
 // BindlessHeap.glsl — the shader side of the heap-bindless binding model.
 //
-// Issue #691 Phase 3, ADR 0011 §1.1. Include this and index the heap instead of
+// Issue #691, ADR 0011 §1.1. Include this and index the heap instead of
 // declaring a `layout(binding = N) uniform sampler2D`:
 //
 //     #include "include/BindlessHeap.glsl"
@@ -108,7 +108,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // because a handle carries no type: `sampler2D(h)` and `isampler2D(h)` are
 // different reinterpretations of the SAME uvec2, and picking the float one for
 // an R32I texture reads garbage rather than failing. JumpFlood_Init is the
-// worked example (issue #691 Phase 3, bucket 1).
+// worked example (issue #691, bucket 1).
 #define OLO_HEAP_ISAMPLER_2D(offset) isampler2D(g_OloResourceHeap[offset])
 // …and the unsigned form, for an R16UI/R32UI lookup table. GTAO's Hilbert curve
 // LUT is the worked example.
@@ -122,7 +122,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // UNSET input lands on slot 0 (an unset environment probe, an unset IBL map, a
 // scene with no shadow cascade), so this is the common case rather than an edge
 // one, and it reads as a plausible frame that changes with whatever ran before.
-// It cost four wrong diagnoses as an "order-dependent" pop (issue #691 Phase 3).
+// It cost four wrong diagnoses as an "order-dependent" pop (issue #691).
 //
 // THE SUBSTITUTION LIVES HERE BECAUSE ONLY THE SHADER KNOWS THE TYPE. A TEX_*
 // slot does not imply one — TEX_USER_0..2 are generic slots that different
@@ -167,7 +167,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 #define OLO_HEAP_TEX_CUBE(texSlot) OLO_HEAP_SAMPLER_CUBE(OLO_HEAP_OFFSET(texSlot))
 
 // -----------------------------------------------------------------------------
-// PER-MATERIAL OFFSETS — the second offset SOURCE (#691 Phase 3, amendment (32)).
+// PER-MATERIAL OFFSETS — the second offset SOURCE (#691, amendment (32)).
 //
 // A material's textures change per draw, so routing them through the shared
 // g_OloHeapOffsets table would mean re-uploading that whole table every draw —
@@ -198,7 +198,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 #define OLO_MATERIAL_TEX_CUBE(offset) OLO_HEAP_SAMPLER_CUBE(offset)
 
 // -----------------------------------------------------------------------------
-// STORAGE IMAGES — the second descriptor kind (#691 Phase 3).
+// STORAGE IMAGES — the second descriptor kind (#691).
 //
 // GL image units and texture units are separate namespaces that BOTH start at
 // zero, so image unit `u` lives at table index OLO_HEAP_IMAGE_BASE + u. Without

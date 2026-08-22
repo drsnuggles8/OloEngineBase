@@ -46,7 +46,7 @@ namespace OloEngine
         f32 SimplifyErrorFactorSloppy = 2.0f;
     };
 
-    // Offline builder for the Nanite-style cluster LOD DAG (issue #629, step 1).
+    // Offline builder for the Nanite-style cluster LOD DAG (issue #629).
     //
     // Algorithm (mirrors meshoptimizer demo/clusterlod.h; see also "Nanite: A Deep Dive",
     // Karis 2021): split the mesh into leaf clusters, then repeatedly partition live

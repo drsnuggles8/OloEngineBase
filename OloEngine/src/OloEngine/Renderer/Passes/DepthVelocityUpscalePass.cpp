@@ -138,7 +138,7 @@ namespace OloEngine
         // samplers — and under the bindless variant the name is a #define rather
         // than a uniform, so each would log "uniform not found" every frame.
         // Converting a sampler means deleting its SetInt, not just moving the
-        // declaration (issue #691 Phase 3).
+        // declaration (issue #691).
         //
         // FrameTransient: both are graph-resolved. velocityTextureID may be
         // NullResource, which the seam stages as the reserved null offset.

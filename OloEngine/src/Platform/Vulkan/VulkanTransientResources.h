@@ -5,7 +5,7 @@
 #if OLO_WITH_VULKAN
 
 // =============================================================================
-// VulkanTransientResources.h — TRANSITIONAL UMBRELLA (#691 Phase 9 split).
+// VulkanTransientResources.h — TRANSITIONAL UMBRELLA (#691 split).
 //
 // The VMA-backed resource classes that lived here as one 11-type header now
 // live in per-class file pairs mirroring the OpenGL twin's layout. This
@@ -42,7 +42,7 @@
 
 namespace OloEngine
 {
-    // Teardown forensics (#691 Phase 8): logs every VulkanTexture2D /
+    // Teardown forensics (#691): logs every VulkanTexture2D /
     // VulkanStorageBuffer object still alive, with its Debug-captured
     // creation stack — the texture/storage twin of
     // VulkanRootObjectRegistry::LogSurvivingVertexArrays. No-op in

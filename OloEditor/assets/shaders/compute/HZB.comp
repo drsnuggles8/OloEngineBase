@@ -24,7 +24,7 @@ layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) i
 
 // ---------------------------------------------------------------------------
 // Batch parameters. Former bare uniforms, migrated to a std140 block (issue
-// #691 Phase 7): the Vulkan SPIR-V route cannot express non-block uniforms
+// #691): the Vulkan SPIR-V route cannot express non-block uniforms
 // and its ComputeShader::Set* calls are deliberate no-ops. Refilled before
 // EVERY 4-mip dispatch batch (C++ twin: UBOStructures::HZBParamsUBO).
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ layout(std140, binding = 59) uniform HZBParams
 // ---------------------------------------------------------------------------
 #include "../include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3).
+// Heap-bindless conversion (issue #691).
 //
 // NOTE THE SCOPE. These images are used by WriteMip(), not by main(), so the
 // bindless locals are declared THERE — an image built from a buffer read is not

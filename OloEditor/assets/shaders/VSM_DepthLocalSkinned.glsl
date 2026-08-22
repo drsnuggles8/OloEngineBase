@@ -16,7 +16,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5, decision A3): the SKINNED two-stream vertex pull —
+// #691 (ADR 0011 §5, decision A3): the SKINNED two-stream vertex pull —
 // engine `Vertex` on binding 57, the bone stream on the reserved binding 63.
 // Both strides are 8 floats; bone IDs are u32 read back through floatBitsToInt,
 // exactly the reinterpretation GL performs for the `Int4` attribute.

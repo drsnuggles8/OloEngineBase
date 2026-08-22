@@ -121,7 +121,7 @@ namespace
 
     // A headless / agent session can't click the recovery modal — synthetic Win32
     // clicks don't reach ImGui — so a newer auto-save would wedge the editor at a
-    // modal it can never dismiss (issue #316 Part 5). OLO_EDITOR_AUTOSAVE_RECOVERY
+    // modal it can never dismiss (issue #316). OLO_EDITOR_AUTOSAVE_RECOVERY
     // lets an automated launch pre-answer it: 'autosave'/'recover', 'original'/'keep',
     // or 'discard'/'delete' (case-insensitive). Unset / empty / unrecognized keeps
     // the interactive modal, so this never changes a human's editor.
@@ -488,7 +488,7 @@ namespace OloEngine
                 }
                 m_McpViewportSizeOverride = { width, height };
             };
-            // Consented, undoable project writes (#306 item C). The write tools run
+            // Consented, undoable project writes (#306). The write tools run
             // their mutation through the same undo stack as the editor's own edits,
             // so an agent's change is a single Ctrl-Z. Main-thread-only, like the
             // readers above (the MCP server calls it from a MarshalRead job).
@@ -534,7 +534,7 @@ namespace OloEngine
 #endif
                 return result;
             };
-            // olo_scene_open (#316 Part 5): open/switch the active scene. Resolves the
+            // olo_scene_open (#316): open/switch the active scene. Resolves the
             // path against the project asset directory when relative, stops Play mode
             // if running, and loads the scene DIRECTLY via LoadEditorSceneFile — never
             // raising the auto-save recovery modal (a remote agent can't click it).
@@ -582,7 +582,7 @@ namespace OloEngine
                                  std::to_string(result.EntityCount) + " entities).";
                 return result;
             };
-            // olo_scene_play / olo_scene_stop (#316 Part 5): toggle Play mode — the
+            // olo_scene_play / olo_scene_stop (#316): toggle Play mode — the
             // same OnScenePlay / OnSceneStop the editor's Play/Stop buttons drive.
             // Idempotent: a redundant call reports changed:false. Entering Play can
             // fail when the scene has no primary camera (OnScenePlay reverts to Edit),
@@ -695,7 +695,7 @@ namespace OloEngine
                 {
                     m_ShowMcpPanel = true; // surface the panel so the token is visible
 
-                    // Session write consent (issue #306 item C) defaults to Disabled
+                    // Session write consent (issue #306) defaults to Disabled
                     // and is never persisted, so a headless launch would otherwise
                     // refuse every olo_scene_open/olo_scene_play/olo_scene_stop call
                     // with no way to click the MCP panel's radio buttons.
@@ -758,11 +758,11 @@ namespace OloEngine
         // any non-GL backend it is skipped entirely and m_PickingPBOInitialized
         // stays false — which is already the "no picking this frame" gate in
         // OnUpdate. Hover-picking on Vulkan needs the RHI readback path
-        // (#691 Phase 8), not a port of this one.
+        // (#691), not a port of this one.
         if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
         {
             OLO_CORE_INFO("[RHI] Editor entity picking disabled: the PBO readback path is OpenGL-only "
-                          "(#691 Phase 8)");
+                          "(#691)");
             return;
         }
         glCreateBuffers(2, m_PickingPBOs);
@@ -1618,7 +1618,7 @@ namespace OloEngine
                     // 3D without the GL PBO ring (any non-GL backend — the
                     // ring's init is GL-guarded): synchronous 1x1 read of the
                     // EntityID attachment through the framebuffer virtual,
-                    // which lowers onto ReadTextureSubImage (#691 Phase 8b).
+                    // which lowers onto ReadTextureSubImage (#691b).
                     // One texel through a blocking one-shot per hovered frame
                     // is measurable but small; promote to an async ring if it
                     // ever shows up in a profile.
@@ -1848,7 +1848,7 @@ namespace OloEngine
 
             ImGui::Separator();
 
-            // Export the selected entity's mesh to glTF/glb (issue #655 Tier 3). Enabled only
+            // Export the selected entity's mesh to glTF/glb (issue #655). Enabled only
             // when the selection carries a MeshComponent with a built MeshSource.
             {
                 Entity meshSel = m_SceneHierarchyPanel.GetSelectedEntity();
@@ -2080,7 +2080,7 @@ namespace OloEngine
             m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
         // Display appropriate framebuffer based on mode. The ImTextureID
-        // comes from ImGuiLayer::GetFramebufferTextureID (#691 Phase 8):
+        // comes from ImGuiLayer::GetFramebufferTextureID (#691):
         // on GL it is the raw GL texture name as before, on Vulkan an
         // imgui_impl_vulkan descriptor set for the attachment.
         u64 textureID = 0;
@@ -2094,7 +2094,7 @@ namespace OloEngine
             if (auto colorBlindFramebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ColorBlindColor); colorBlindFramebuffer)
             {
                 // ImGuiLayer::GetFramebufferTextureID, not GetColorAttachmentRendererID
-                // (#691 Phase 8): on GL it is still the raw texture name, but on
+                // (#691): on GL it is still the raw texture name, but on
                 // Vulkan it is an imgui_impl_vulkan descriptor set. Passing the raw
                 // name would draw garbage there.
                 textureID = ImGuiLayer::GetFramebufferTextureID(*colorBlindFramebuffer, 0);
@@ -2374,7 +2374,7 @@ namespace OloEngine
 
     namespace
     {
-        // #691 Phase 8: toolbar icon button that stays clickable when the
+        // #691: toolbar icon button that stays clickable when the
         // icon has no ImTextureID on this backend (ImGuiLayer::GetTextureID
         // returns 0 — e.g. an unresolvable texture under Vulkan). Falls back
         // to a plain same-size button; passing 0 to ImGui::ImageButton would
@@ -2625,7 +2625,7 @@ namespace OloEngine
             MCP::RenderMcpServerPanel(*m_McpServer, m_Prefs.McpPort, m_Prefs.McpAutoStart, &m_ShowMcpPanel);
         }
 
-        // MCP per-action write-consent modal (issue #306 item C). Rendered every frame
+        // MCP per-action write-consent modal (issue #306). Rendered every frame
         // regardless of the panel's visibility so an agent's write in Prompt mode is
         // never left blocked because the user closed the panel. A no-op when idle.
         if (m_McpServer)
@@ -3732,7 +3732,7 @@ namespace OloEngine
         {
             // A headless / agent session can't click the recovery modal, so an
             // automated launch can pre-answer it via OLO_EDITOR_AUTOSAVE_RECOVERY
-            // (issue #316 Part 5). Unset -> show the modal as before.
+            // (issue #316). Unset -> show the modal as before.
             switch (ResolveAutoSaveRecoveryChoice())
             {
                 case AutoSaveRecoveryChoice::Autosave:
@@ -3779,7 +3779,7 @@ namespace OloEngine
         m_EditorScenePath = scenePath;
         FrameEditorCameraOnTerrain(newScene);
 
-        // One unified-timeline event for the whole load (#306 item B). The per-entity
+        // One unified-timeline event for the whole load (#306). The per-entity
         // EntitySpawn flood is suppressed during deserialize (SceneSerializer), so this
         // SceneLoad line stands in for it with the resulting entity count.
         DiagnosticsEventLog::Get().Record(
@@ -4882,7 +4882,7 @@ namespace OloEngine
 
     bool EditorLayer::OnAssetReloaded(AssetReloadedEvent const& e)
     {
-        // Unified diagnostics timeline (#306 item B): a hot-reload is exactly the kind of
+        // Unified diagnostics timeline (#306): a hot-reload is exactly the kind of
         // "what just happened" an agent wants to correlate with a visual/behaviour change.
         DiagnosticsEventLog::Get().Record(
             DiagnosticEventCategory::AssetReload,

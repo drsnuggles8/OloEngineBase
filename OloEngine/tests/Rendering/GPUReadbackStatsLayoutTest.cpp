@@ -197,7 +197,7 @@ TEST(GPUReadbackStatsLayout, BlockShapeMatchesTheCppAllocation)
 // SSBO 64 is TEX_DDGI_VISIBILITY in the sampler namespace. That is legal on GL
 // (disjoint namespaces) and legal on Vulkan too, EXCEPT within one shader — the
 // single-set model is exactly why TEX_DDGI_VISIBILITY had to move off 57 in
-// issue #691 Phase 7 Wave C (ADR item A2), when DDGI_Capture.glsl became the
+// issue #691 (ADR item A2), when DDGI_Capture.glsl became the
 // first shader to both pull vertices (SSBO 57) and include DDGICommon.glsl
 // (sampler 57).
 //

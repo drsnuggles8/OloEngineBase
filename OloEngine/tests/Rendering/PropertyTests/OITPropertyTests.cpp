@@ -2,7 +2,7 @@
 // OITPropertyTests.cpp
 //
 // Property-level (Layer 1) tests for the weighted-blended OIT path
-// (Phase 6, deferred renderer).
+// (deferred renderer).
 //
 // Coverage:
 //   * ComputeOITWeight matches the shader implementation in

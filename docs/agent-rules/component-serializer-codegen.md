@@ -44,10 +44,10 @@ member type onto it. Enum members are recognised via `CollectEnumTypes`, nested 
 
 | Type | Round-trip | Added by |
 |---|---|---|
-| `bool`, `int`, `u32`, `u64`, `f32`, `f64` | native yaml-cpp | #380 slice 4 |
-| `std::string` | native | #380 slice 4 |
-| `glm::vec2/3/4` | `Encode`/`Decode` in `Core/YAMLConverters.h` | #380 slice 4 |
-| `AssetHandle`, `UUID` (a `u64` wrapper) | `static_cast<u64>` on write; `.as<u64>` + the implicit `UUID(u64)` ctor on read | #451 first slice |
+| `bool`, `int`, `u32`, `u64`, `f32`, `f64` | native yaml-cpp | #380 |
+| `std::string` | native | #380 |
+| `glm::vec2/3/4` | `Encode`/`Decode` in `Core/YAMLConverters.h` | #380 |
+| `AssetHandle`, `UUID` (a `u64` wrapper) | `static_cast<u64>` on write; `.as<u64>` + the implicit `UUID(u64)` ctor on read | #451 |
 | `enum` / `enum class` | `static_cast<int>` on write; `.as<int>` on read, cast back via `static_cast<decltype(comp.member)>` | #451 enum slice |
 | `glm::quat`, `mat3`, `mat4`, `ivec2/3/4` | `Encode`/`Decode` helpers — the slice added `quat`/`ivec2`/`ivec4` converters plus `mat3`/`mat4`/`quat`/`ivec2`/`ivec4` `Emitter<<` overloads to `Core/YAMLConverters.h` | #451 glm slice |
 | `u8`, `u16`, `i8`, `i16` | widened to `u32`/`i32` on emit; read via `.as<decltype(member)>` | #451 glm slice |

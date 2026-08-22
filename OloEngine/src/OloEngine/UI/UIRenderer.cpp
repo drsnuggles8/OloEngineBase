@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "UIRenderer.h"
 
-// Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
+// Raw GL below is part of the issue #691 step-2 sweep backlog; the
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include "OloEngine/Accessibility/AccessibilitySettings.h"

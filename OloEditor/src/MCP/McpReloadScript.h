@@ -1,7 +1,7 @@
 #pragma once
 
 // Shared, editor-side schema + result shaping for the consented MCP write tool
-// `olo_reload_script` (issue #306 item C): reload the C# script assembly — the
+// `olo_reload_script` (issue #306): reload the C# script assembly — the
 // editor's Script ▸ Reload assembly (Ctrl+R) path, ScriptEngine::ReloadAssembly()
 // — so an agent can iterate on freshly-built C# scripts over MCP without
 // restarting the editor (the scripting counterpart of `olo_shader_reload`'s inner

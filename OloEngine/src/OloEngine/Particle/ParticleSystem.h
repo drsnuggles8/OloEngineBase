@@ -215,7 +215,7 @@ namespace OloEngine
         f32 LODDistance1 = 50.0f;    // Distance at which spawn rate starts to drop
         f32 LODMaxDistance = 200.0f; // Distance beyond which particles stop spawning
 
-        // Sub-systems (Phase 1)
+        // Sub-systems — core modules
         ParticleEmitter Emitter;
         ModuleColorOverLifetime ColorModule;
         ModuleSizeOverLifetime SizeModule;
@@ -225,13 +225,13 @@ namespace OloEngine
         ModuleDrag DragModule;
         ModuleNoise NoiseModule;
 
-        // Sub-systems (Phase 2)
+        // Sub-systems — collision, force fields, trails, sub-emitters
         ModuleCollision CollisionModule;
         std::vector<ModuleForceField> ForceFields;
         ModuleTrail TrailModule;
         ModuleSubEmitter SubEmitterModule;
 
-        // Phase 3 modules
+        // Texture-sheet animation
         ModuleTextureSheetAnimation TextureSheetModule;
 
       private:

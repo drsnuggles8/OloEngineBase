@@ -34,14 +34,14 @@ layout(std140, binding = 46) uniform FroxelFogData
 #include "../include/ThreadGroupSwizzle.glsl"
 
 // Sampler input converted alongside the C++ bind — see FroxelFogScatter.comp for
-// why the two cannot move separately (issue #691 Phase 3, bucket 1).
+// why the two cannot move separately (issue #691, bucket 1).
 #ifdef OLO_BINDLESS
 #define u_ScatterVolume OLO_HEAP_TEX_3D(0)
 #else
 layout(binding = 0) uniform sampler3D u_ScatterVolume;
 #endif
 
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the
 // declarations move into main() as locals built from the heap descriptors at
 // these image units; the body below is unchanged either way.
 #ifndef OLO_BINDLESS

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
-// HeapSlotLifetime / SamplerDesc for BindTextureOrHeapOffset (issue #691 Phase 3).
+// HeapSlotLifetime / SamplerDesc for BindTextureOrHeapOffset (issue #691).
 // RHITypes.h alone is not enough — those live with the resource descriptions.
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
@@ -80,7 +80,7 @@ namespace OloEngine
         void BindTexture(u32 slot, RHI::ResourceHandle texture) const;
 
         // ---------------------------------------------------------------------
-        // The heap-bindless form of the call above (issue #691 Phase 3).
+        // The heap-bindless form of the call above (issue #691).
         //
         // ONE call replaces the bind at a pass call site, and it forks for you:
         //
@@ -108,7 +108,7 @@ namespace OloEngine
         // is disabled, so a converted pass costs nothing on the slot-based path.
         void FlushHeapOffsets() const;
         void MemoryBarrier(MemoryBarrierFlags flags) const;
-        // Phase 5 (ADR 0011 §1.5): the pre-pass barrier batch carrying both
+        // ADR 0011 §1.5: the pre-pass barrier batch carrying both
         // currencies — the GL flags bitmask AND the handle-resolved
         // per-resource transitions. Forwards to RendererAPI::IssueBarrierBatch;
         // GL executes the flags exactly as MemoryBarrier() did, an
@@ -122,7 +122,7 @@ namespace OloEngine
         void BeginAsyncBatch(u32 batchIndex) const;
         void EndAsyncBatch(u32 batchIndex) const;
         [[nodiscard]] u32 ResolveTexture(RGTextureHandle handle) const;
-        // Identity form (issue #691 step 3, slice 5). Returns the null handle
+        // Identity form (issue #691). Returns the null handle
         // for a resource imported as a native id — a resource migrates its
         // whole creator/import/resolve/bind chain in one slice.
         [[nodiscard]] RHI::ResourceHandle ResolveTextureHandle(RGTextureHandle handle) const;

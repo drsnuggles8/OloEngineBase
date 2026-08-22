@@ -6,8 +6,8 @@
 
 // =============================================================================
 // VulkanTextureCubemap.h — the VMA-backed TextureCubemap backend twin of
-// OpenGLTextureCubemap (#691; split out of the single VulkanTransientResources.h
-// in Phase 9).
+// OpenGLTextureCubemap (#691; split out of the single VulkanTransientResources.h)
+// .
 //
 // This header exposes Vulkan types directly — it is included only by
 // Platform/Vulkan siblings and by OLO_WITH_VULKAN-guarded engine factory TUs
@@ -33,13 +33,13 @@ namespace OloEngine
     // -------------------------------------------------------------------------
     // VulkanTextureCubemap — a 6-layer 2D image with a CUBE view type.
     //
-    // Brought up for #691 Phase 7's live bring-up: Renderer3D::Init reaches
+    // Brought up for #691's live bring-up: Renderer3D::Init reaches
     // EnvironmentMap::InitializeIBLSystem, which creates cubemaps eagerly, so
     // WITHOUT this class the factory's assert killed the editor before the
     // first frame. Scope matches VulkanTexture2DArray's: a real image with a
     // real identity (so binds, barriers and the layout tracker all work), with
     // the CPU upload / mip-generation / readback halves warn-once no-ops —
-    // the IBL bake path that fills those faces is GPU-side and is Phase 8
+    // the IBL bake path that fills those faces is GPU-side and is later
     // work (SkyCubemapBake / IBLPrecompute still need the capture seam).
     // -------------------------------------------------------------------------
     class VulkanTextureCubemap : public TextureCubemap
@@ -104,7 +104,7 @@ namespace OloEngine
 
       private:
         // The shared single-submit face readback behind GetFaceData and
-        // GetData (#691 Phase 9, PR #794 review): copies `faceCount`
+        // GetData (#691, PR #794 review): copies `faceCount`
         // consecutive faces starting at `baseFace`, mip `mipLevel`, into ONE
         // readback buffer via ONE blocking one-shot submit (one mid-frame
         // flush first when a frame is recording), packed contiguously in face

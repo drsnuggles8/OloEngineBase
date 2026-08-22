@@ -14,7 +14,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. This draw site is Renderer3D::DrawInfiniteGrid's
 // FullscreenQuadVAO (Renderer3DLifecycle.cpp) — a bare {vec3 a_Position} NDC
 // quad at 12-byte stride, so the stride is 3 floats, NOT the 8-float engine
@@ -38,7 +38,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
-    // Reconstruction flavour of u_Projection (#691 Phase 8): this shader
+    // Reconstruction flavour of u_Projection (#691): this shader
     // unprojects at ndc z = ±1 and remaps depth with *0.5+0.5 itself — the
     // rasterizer flavour would double-apply the z remap on Vulkan. Identical
     // to u_Projection on GL.
@@ -62,7 +62,7 @@ void main() {
     vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
 #endif
     mat4 viewInverse = inverse(u_View);
-    // Reconstruction flavour: the ±1 ndc z below is GL-convention (#691 Phase 8).
+    // Reconstruction flavour: the ±1 ndc z below is GL-convention (#691).
     mat4 projInverse = inverse(u_ProjectionForReconstruction);
 
     v_NearPoint = UnprojectPoint(a_Position.x, a_Position.y, -1.0, viewInverse, projInverse);

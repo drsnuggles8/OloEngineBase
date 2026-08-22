@@ -5,9 +5,9 @@
 //
 // Zero one mip of the indirection texture.
 //
-// ── Slice 2: this now runs ONLY on a full rebuild ────────────────────────────
+// This now runs ONLY on a full rebuild ────────────────────────────
 //
-// Slice 1 ran it before every write pass, because "page P is no longer resident"
+// The original ran it before every write pass, because "page P is no longer resident"
 // was expressed as an absence: clear everything, re-stamp what is left. The
 // delta path expresses it as an explicit all-zero update instead
 // (VTIndirectionDelta::Unmap), so the per-frame clear is gone.

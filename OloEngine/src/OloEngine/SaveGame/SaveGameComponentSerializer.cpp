@@ -906,7 +906,7 @@ namespace OloEngine
             clampVec3(c.m_SixDOFRotationMinDeg, -180.0f, 180.0f, -45.0f);
             clampVec3(c.m_SixDOFRotationMaxDeg, -180.0f, 180.0f, 45.0f);
 
-            // CollideConnected tail (issue #308 item 1). Archives written before
+            // CollideConnected tail (issue #308). Archives written before
             // this flag existed end after the SwingTwist/SixDOF block, so default
             // to true — the long-standing behavior where jointed bodies collide.
             // A bool has no non-finite states, so no sanitization is needed.
@@ -915,7 +915,7 @@ namespace OloEngine
             else
                 ar << c.m_CollideConnected;
 
-            // Pulley + Gear/RackAndPinion tail (issue #308 item 4). Archives
+            // Pulley + Gear/RackAndPinion tail (issue #308). Archives
             // written before these constraint types existed end after the
             // CollideConnected flag, so default to the field defaults (a 1:1
             // rope that can contract but not extend, and a +Y connected axis).
@@ -2076,7 +2076,7 @@ namespace OloEngine
             ar << c.m_VoxelMesher;
         }
 
-        // ── Format v17: adaptive virtual texturing (issue #715, slice 1) ──
+        // ── Format v17: adaptive virtual texturing (issue #715) ──
         // Appended at the end when kSaveGameFormatVersion was bumped 16->17. A
         // save written before v17 omits the block and keeps VT off, which is the
         // pre-#715 splat path exactly.
@@ -2087,7 +2087,7 @@ namespace OloEngine
             ar << c.m_VTCacheTilesWide << c.m_VTMaxTileBakesPerFrame;
         }
 
-        // ── Format v19: adaptive images + compressed tiles (issue #715, slices 3+4) ──
+        // ── Format v19: adaptive images + compressed tiles (issue #715) ──
         // Appended at the end when kSaveGameFormatVersion was bumped 18->19. A
         // save written before v19 omits the block and keeps the constructor
         // defaults (adaptive path on), the same config a fresh scene gets.
@@ -2351,7 +2351,7 @@ namespace OloEngine
             ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
         }
 
-        // Planar (mirror) reflections (Phase 7) appended after the spectrum block
+        // Planar (mirror) reflections appended after the spectrum block
         // — same trailing-AtEnd() probe so archives written before it fall back to
         // the component defaults (planar reflections off).
         if (ar.IsLoading() && ar.AtEnd())

@@ -4,7 +4,7 @@
 // Internal seam between the backend-neutral RenderGraphFrameCapture
 // orchestration (Renderer/Debug/RenderGraphFrameCapture.cpp) and the GL-side
 // operations the RendererAPI facade deliberately does not model — issue #691
-// Phase 9, ADR 0011 §1.6 (what cannot convert in place RELOCATES).
+// ADR 0011 §1.6 (what cannot convert in place RELOCATES).
 //
 // Same shape as StateGuardBackend.h: free functions declared here, DEFINED in
 // Platform/OpenGL/OpenGLFrameCapture.cpp and resolved at link time, so the

@@ -1,7 +1,7 @@
 #pragma once
 
 // Pure, engine-light image-comparison core for the olo_render_compare_golden MCP
-// tool (issue #316 Part 4). The MCP handler in McpTools.cpp captures the editor
+// tool (issue #316). The MCP handler in McpTools.cpp captures the editor
 // viewport (optionally from a fixed camera pose), decodes both the capture and a
 // golden PNG into RGBA8 buffers, then hands them here for the numeric verdict.
 //

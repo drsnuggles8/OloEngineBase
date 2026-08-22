@@ -70,7 +70,7 @@ namespace OloEngine
 
         // The window-independent half (volk init, instance, debug messenger,
         // physical-device pick, device, queue, VMA allocator, command pool)
-        // lives in VulkanDevice since Phase 5 — this struct keeps only the
+        // lives in VulkanDevice — this struct keeps only the
         // presentation / frame-loop state. The surface is created by this
         // context (via the surfaceProvider callback) and OWNED by it;
         // VulkanDevice only borrows the handle for the queue-family pick.
@@ -82,10 +82,10 @@ namespace OloEngine
         VkExtent2D SwapchainExtent{};
         // The minImageCount requested at vkCreateSwapchainKHR — the ImGui
         // renderer backend's InitInfo wants it alongside the actual image
-        // count (#691 Phase 8).
+        // count (#691).
         u32 SwapchainMinImageCount = 0;
         std::vector<VkImage> SwapchainImages;
-        // Attachment views for dynamic rendering (#691 Phase 6 — the frame
+        // Attachment views for dynamic rendering (#691 — the frame
         // loop renders now, it no longer only clears).
         std::vector<VkImageView> SwapchainViews;
         // Present-wait semaphores are PER SWAPCHAIN IMAGE, not per frame in flight:
@@ -105,9 +105,9 @@ namespace OloEngine
         Frame Frames[kFramesInFlight]{};
         u32 FrameIndex = 0;
 
-        // --- #691 Phase 7 (Stage 1.6b) render seam ---------------------------
+        // --- #691 (Stage 1.6b) render seam ---------------------------
         // Each swapchain image published as neutral handle currency for the
-        // frame callback (replacing the Phase 6 pilot pass, whose golden proof
+        // frame callback (replacing the pilot pass, whose golden proof
         // now lives in VulkanPassSuiteTest): an adopted RHI handle plus a
         // VulkanImageInfoRegistry entry make the backbuffer reachable by
         // IssueBarrierBatch / the layout tracker exactly like any texture.
@@ -133,7 +133,7 @@ namespace OloEngine
 
             // The frame arena's slot buffers enqueue into the deferred-reclaim
             // queue; drain it NOW, while the device is provably idle — nothing
-            // else flushes the queue at shutdown (Phase 5 built it without a
+            // else flushes the queue at shutdown (it was built without a
             // production drain), and entries surviving past Device.Shutdown()
             // are dropped with a leak warning instead of destroyed.
             VulkanPipelineBuilder::Get().ReleaseAll();
@@ -141,7 +141,7 @@ namespace OloEngine
             // the LAST Ref on adopted textures/framebuffers a caller never
             // Destroy()ed — release them here so they retire through the
             // reclaim drain below; left alone they outlive vmaDestroyAllocator
-            // and abort (review finding, #691 Phase 8). Framebuffers first:
+            // and abort (review finding, #691). Framebuffers first:
             // they hold Refs to the textures.
             VulkanRawFramebufferRegistry::Get().ReleaseAll();
             VulkanRawTextureRegistry::Get().ReleaseAll();
@@ -205,7 +205,7 @@ namespace OloEngine
         // VulkanDevice::Init runs volkInitialize itself (headless tests bring a
         // device up without a window); it also runs here FIRST so the GLFW
         // support probe below can fail fast — before any instance work — exactly
-        // as the Phase 4 bring-up did. volkInitialize is safe to run twice.
+        // as the original bring-up did. volkInitialize is safe to run twice.
         if (volkInitialize() != VK_SUCCESS)
         {
             throw std::runtime_error(
@@ -256,7 +256,7 @@ namespace OloEngine
         // --- Swapchain (+ its per-image semaphores) ---------------------------
         CreateSwapchain();
 
-        // --- Engine descriptor heap (#691 Phase 7) ----------------------------
+        // --- Engine descriptor heap (#691) ----------------------------
         // RHI::DescriptorHeap runs on this backend too: slots [0,
         // kDescriptorHeapSlots) of the resource heap belong to it (reserved
         // BEFORE any draw-path slot-cache use), with the GL-parity
@@ -347,7 +347,7 @@ namespace OloEngine
         // FIFO is the one mode every conformant device carries; it is also vsync,
         // which matches the GL path's swap-interval default well enough for
         // bring-up. Window::SetVSync is a no-op under Vulkan until a real present
-        // -mode policy exists (Phase 5+).
+        // -mode policy exists.
         swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
         swapchainInfo.clipped = VK_TRUE;
 
@@ -360,7 +360,7 @@ namespace OloEngine
         d.SwapchainImages.resize(actualImageCount);
         vkGetSwapchainImagesKHR(device, d.Swapchain, &actualImageCount, d.SwapchainImages.data());
 
-        // Attachment views for dynamic rendering (#691 Phase 6).
+        // Attachment views for dynamic rendering (#691).
         d.SwapchainViews.resize(actualImageCount, VK_NULL_HANDLE);
         for (u32 i = 0; i < actualImageCount; ++i)
         {
@@ -671,7 +671,7 @@ namespace OloEngine
         // This fence wait is the one point in the frame that PROVES the GPU is
         // done with frame slot FrameIndex (kFramesInFlight ago). It is therefore
         // the only correct place to advance the deferred-reclaim generation —
-        // Phase 5 built the queue but nothing in production drained it, so a
+        // The queue was built but nothing in production drained it, so a
         // --rhi=vulkan session leaked every enqueued resource until exit.
         // NOTE: the acquire below can abort this frame without a submit
         // (OUT_OF_DATE), so this slot's generation advance can happen twice
@@ -714,11 +714,11 @@ namespace OloEngine
         fullColor.levelCount = 1;
         fullColor.layerCount = 1;
 
-        // #691 Phase 7 (Stage 1.6b): the render seam that replaced the Phase 6
+        // #691 (Stage 1.6b): the render seam that replaced the
         // pilot. The frame callback records through the global facade inside
         // this bracket, with the acquired backbuffer published as neutral
         // handle currency; its contract is to finish with a barrier to
-        // RHI::Access::Present. The Phase 4 clear path stays as the fallback
+        // RHI::Access::Present. The original clear path stays as the fallback
         // when no callback is installed (or it declines the frame).
         bool rendered = false;
         if (m_FrameRenderCallback)
@@ -751,7 +751,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("[Vulkan] frame render callback threw: {} — falling back to the clear frame", e.what());
                 callbackRendered = false;
             }
-            // --- ImGui overlay (#691 Phase 8) ------------------------------
+            // --- ImGui overlay (#691) ------------------------------
             // The UI is recorded INSIDE this bracket, after the 3D frame,
             // before the present transition. ImGuiLayer::End produced the
             // draw data during the frame callback above (RenderFrameLayers
@@ -796,8 +796,8 @@ namespace OloEngine
             // this submission against the presentation engine's read only at the
             // wait stage, and a layout transition whose srcStage is earlier than
             // that can begin before the wait — a WRITE_AFTER_READ hazard against
-            // vkAcquireNextImageKHR. Phase 4 shipped TOP_OF_PIPE here and passed,
-            // because only core validation ran; Phase 5's synchronization
+            // vkAcquireNextImageKHR. Bring-up shipped TOP_OF_PIPE here and passed,
+            // because only core validation ran; the synchronization
             // validation flagged it on its first live run (issue #691).
             toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
             toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
@@ -853,7 +853,7 @@ namespace OloEngine
         waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         waitInfo.semaphore = frame.ImageAvailable;
         // The wait stage must cover the first swapchain-image access in the
-        // submission (the Phase 5 sync-validation rule): CLEAR on the
+        // submission (the sync-validation rule): CLEAR on the
         // fallback path; with a frame callback the first access is whatever
         // the callback recorded, so ALL_COMMANDS is the conservative cover
         // (refine when the real frame loop settles on a fixed first stage).

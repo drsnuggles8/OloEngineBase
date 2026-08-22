@@ -5,7 +5,7 @@
 #if OLO_WITH_VULKAN
 
 // =============================================================================
-// VulkanBufferResources.h — #691 Phase 7: the buffer-shaped resource factories
+// VulkanBufferResources.h — #691: the buffer-shaped resource factories
 // (UniformBuffer / VertexBuffer / IndexBuffer / VertexArray) on Vulkan.
 //
 // The design center is ADR 0011 §4: per-draw data reaches shaders as ONE GPU
@@ -73,7 +73,7 @@ namespace OloEngine
         VertexArray,
         Shader,      ///< VulkanShader — resolved by BindShaderProgram packets.
         Framebuffer, ///< VulkanFramebuffer — resolved by the raw-handle framebuffer ops
-                     ///< (clears / blits / draw-attachment selection, #691 Phase 7 Wave C).
+                     ///< (clears / blits / draw-attachment selection, #691).
                      ///< Needed because the FB registers native = 0 (no VkFramebuffer
                      ///< exists under dynamic rendering), so ResourceRegistry cannot
                      ///< resolve it — the same "no native object" reason VAOs live here.
@@ -97,7 +97,7 @@ namespace OloEngine
         // hold.
         [[nodiscard]] const Entry* Lookup(RHI::ResourceHandle handle) const;
 
-        // Teardown forensics (#691 Phase 8 — the close-button VMA abort):
+        // Teardown forensics (#691 — the close-button VMA abort):
         // after the full renderer/layer teardown, every VertexArray still
         // registered here is a leak suspect keeping its vertex/index buffers'
         // VMA allocations alive into vmaDestroyAllocator. Logs each survivor
@@ -125,7 +125,7 @@ namespace OloEngine
     // -------------------------------------------------------------------------
     // VulkanRawBufferRegistry — the object-less buffer family behind the
     // CreateBufferHandle / AllocateBufferStorage / ReadBufferSubData /
-    // DeleteBuffer facade entries (#691 Phase 7 Wave C).
+    // DeleteBuffer facade entries (#691).
     //
     // GL's shape is a bare glCreateBuffers name whose storage is allocated
     // later by glNamedBufferData; production consumers are readback staging

@@ -8,7 +8,7 @@
 #include <backends/imgui_impl_opengl3.cpp>
 
 // The Vulkan renderer backend lives in its OWN TU (ImGuiBuildVulkan.cpp,
-// #691 Phase 8): sharing this unity TU with the GLFW/OpenGL3 backends
+// #691): sharing this unity TU with the GLFW/OpenGL3 backends
 // poisoned its include state (VkResult enum redefinition against the pinned
 // vulkan_core.h), and a dedicated TU that includes <volk.h> FIRST is the
 // same include-order rule every Platform/Vulkan TU already follows

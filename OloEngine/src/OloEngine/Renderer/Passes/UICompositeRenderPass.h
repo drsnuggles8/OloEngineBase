@@ -37,7 +37,7 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
-        // Phase F slice 44 — SetInputFramebufferHandle removed; Execute() self-resolves
+        // SetInputFramebufferHandle removed; Execute() self-resolves
 
         // Set a one-shot render callback invoked during Execute() after the background blit.
         // The callback is cleared after each frame. Scene sets this before RenderScene3D().

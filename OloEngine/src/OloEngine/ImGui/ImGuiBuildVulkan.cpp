@@ -2,7 +2,7 @@
 
 // The Dear ImGui Vulkan renderer backend, compiled against the SAME pinned
 // 1.4.357 Vulkan headers and volk function pointers as the engine's
-// Platform/Vulkan code (#691 Phase 8). Its OWN TU, deliberately: unity-built
+// Platform/Vulkan code (#691). Its OWN TU, deliberately: unity-built
 // beside the GLFW/OpenGL3 backends the include state broke (VkResult enum
 // redefinition against the pinned vulkan_core.h), and here <volk.h> comes
 // FIRST — the include-order rule every Platform/Vulkan TU follows (ADR 0011

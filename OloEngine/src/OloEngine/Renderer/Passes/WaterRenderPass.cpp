@@ -168,7 +168,7 @@ namespace OloEngine
         // Water always renders through the forward alpha-blend path now.
         // Copy scene colour for refraction sampling, then render into the
         // scene FB directly.
-        // Phase D / H follow-up: resolve both the source scene attachments and
+        // Follow-up: resolve both the source scene attachments and
         // the water refraction scratch from graph-published handles only.
         RHI::ResourceHandle sceneColorID{};
         RHI::ResourceHandle depthTextureID{};
@@ -203,7 +203,7 @@ namespace OloEngine
         // shaders, which each bind themselves inside CommandBucket::Execute. The
         // fork has no correct answer here, so the seam must do BOTH: stage the
         // offset for a bindless consumer and issue the bind for a slot-based one
-        // (issue #691 Phase 3; HeapBindingSeam.h, "published-global bindings").
+        // (issue #691; HeapBindingSeam.h, "published-global bindings").
         //
         // FrameTransient throughout: every one is graph-resolved or a per-frame
         // renderer target, so none may be memoised onto a pooled object.
@@ -336,7 +336,7 @@ namespace OloEngine
             // no color outputs — so the pipeline interface matches a bare
             // depth target on both backends. The scene-MRT color attachments
             // this target used to mirror for Vulkan interface parity are
-            // gone (#691 Phase 8).
+            // gone (#691).
             depthSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
             m_WaterDepthFB = Framebuffer::Create(depthSpec);
         }

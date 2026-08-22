@@ -312,7 +312,7 @@ namespace OloEngine::RHI
 
     // -------------------------------------------------------------------------
     // The debug escape hatch declared in RHIResources.h. Defined here because
-    // the registry is the only thing that can answer it — Phase 1 declared it
+    // the registry is the only thing that can answer it — it was declared
     // and left it undefined, which is why nothing could call it.
     // -------------------------------------------------------------------------
     auto GetNativeHandleForDebug(ResourceHandle handle) -> NativeHandle

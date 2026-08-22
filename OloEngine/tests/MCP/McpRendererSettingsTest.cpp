@@ -4,7 +4,7 @@
 // =============================================================================
 // McpRendererSettingsTest — unit test (headless, no GL, no live editor).
 //
-// Pins the consented MCP WRITE tool olo_renderer_settings_set (issue #306 item C):
+// Pins the consented MCP WRITE tool olo_renderer_settings_set (issue #306):
 // set a multi-valued, session-global renderer / post-process setting (FSR1 upscale
 // mode, tone-map operator, rendering path) so an agent can verify a rendering
 // feature LIVE at each value over MCP — the enum-valued sibling of the boolean

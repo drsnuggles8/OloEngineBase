@@ -18,7 +18,7 @@
 #include "include/FluidSplatCommon.glsl"
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): vertex pulling from the engine-wide binding 57.
+// #691 (ADR 0011 §5): vertex pulling from the engine-wide binding 57.
 // This stream is NOT the standard 20-byte one — the quad VB is a bare
 // {vec2 a_QuadPos} at 8-byte stride (everything else rides the particle
 // SSBOs); the pulled local under the attribute name keeps the body shared.
@@ -99,7 +99,7 @@ void main()
     // toward the camera.
     vec3 viewSurface = v_ViewCenter + radius * vec3(v_UV, nz);
 
-    // Reconstruction flavour (#691 Phase 8): this math applies the GL depth
+    // Reconstruction flavour (#691): this math applies the GL depth
     // remap itself, so it must NOT read the rasterizer-flavour u_Projection —
     // on Vulkan that matrix is already z-remapped and the *0.5+0.5 here would
     // apply it twice, squeezing every depth into [0.5,1] and discarding the

@@ -30,7 +30,7 @@ namespace OloEngine
             static std::unordered_set<std::string> s_Warned;
             if (s_Warned.insert(what).second)
             {
-                OLO_CORE_WARN("[RHI/Vulkan] TextureCubemap::{} is not implemented (#691 Phase 8: the IBL bake "
+                OLO_CORE_WARN("[RHI/Vulkan] TextureCubemap::{} is not implemented (#691: the IBL bake "
                               "path is GPU-side capture work) — no-op",
                               what);
             }
@@ -52,7 +52,7 @@ namespace OloEngine
 
         // Clamp an authored MipLevels to the chain the extent supports (the
         // DeriveMipLevels rule): an over-large count from a stale IBL cache
-        // is a vkCreateImage failure, not a request (#691 Phase 8).
+        // is a vkCreateImage failure, not a request (#691).
         const u32 fullChain = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height)))));
         m_MipLevels = 1u;
         if (spec.MipLevels > 0u)
@@ -165,7 +165,7 @@ namespace OloEngine
 
     bool VulkanTextureCubemap::SetFaceDataMip(u32 faceIndex, u32 mipLevel, void* data, u32 size)
     {
-        // #691 Phase 8: the cubemap CPU face upload — six layers of the
+        // #691: the cubemap CPU face upload — six layers of the
         // VulkanTexture2D staging shape. This is the IBL cache's load path
         // and the reflection-probe baker's face write, i.e. most of what
         // stood between the flat grey sky and a lit environment.
@@ -476,7 +476,7 @@ namespace OloEngine
     {
         // GL contract (OpenGLTextureCubemap::GetData): all six faces
         // contiguous in face order. ONE flush (if mid-frame) + ONE one-shot
-        // submit reads all six via ReadFaces (#691 Phase 9, PR #794 review —
+        // submit reads all six via ReadFaces (#691, PR #794 review —
         // the old shape looped GetFaceData six times, paying the flush +
         // blocking submit + readback-buffer create/destroy round per face).
         return ReadFaces(0u, 6u, mipLevel, outData, "VulkanTextureCubemap::GetData");

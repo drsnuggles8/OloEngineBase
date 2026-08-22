@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: plumbing
 // =============================================================================
-// VulkanDrawPathTest — #691 Phase 7 Stage 1.6a: the facade draw path.
+// VulkanDrawPathTest — #691.6a: the facade draw path.
 //
 // The first draw that travels the REAL pass shape end-to-end on Vulkan with
 // no pilot scaffolding: Framebuffer::Bind() publishes the target,
@@ -319,7 +319,7 @@ TEST_F(VulkanDrawPath, FacadeDrawRendersTintedTextureThroughRootData)
                     api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
                 });
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the draw path must not fall through to a stub";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "the draw path must not fall through to a stub";
 
     // Readback: the attachment is a VulkanTexture2D sitting in
     // SHADER_READ_ONLY — GetData's steady-state contract.
@@ -491,11 +491,11 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
     engineHeap.ResetFrameTransients();
     EXPECT_FALSE(engineHeap.OffsetOf(transient).IsValid()) << "the ring reset must retire transient views";
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 // =============================================================================
-// The compute SPIR-V route (#691 Phase 7 Stage 1.3, the amendment (56)
+// The compute SPIR-V route (#691.3, the amendment (56)
 // deferral): a .comp source compiles through shaderc(vulkan_1_4), reflects
 // into the shared binding vocabulary, gets a compute PSO with the SAME
 // mapping chain as graphics, and a facade DispatchCompute assembles root data
@@ -528,7 +528,7 @@ void main()
     spec.Height = 16;
     spec.Format = ImageFormat::RGBA8;
     spec.GenerateMips = false;
-    spec.SRGB = false; // sRGB drops STORAGE usage (the Phase 5 rule)
+    spec.SRGB = false; // sRGB drops STORAGE usage (the format rule)
     auto target = Texture2D::Create(spec);
     ASSERT_NE(target, nullptr);
 
@@ -567,7 +567,7 @@ void main()
                     api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
                 });
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the dispatch path must not fall through to a stub";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "the dispatch path must not fall through to a stub";
 
     std::vector<u8> pixels;
     ASSERT_TRUE(target->GetData(pixels, 0));
@@ -733,7 +733,7 @@ void main()
                     transitionAll(widened, RHI::Access::ColorAttachmentWrite, RHI::Access::ShaderSampleRead);
                 });
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the MRT draw path must not fall through to a stub";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "the MRT draw path must not fall through to a stub";
 
     // `target` is deliberately NOT const: Ref<T>::Raw() const-propagates, so a
     // const Ref hands back a const Framebuffer* and the downcast to the

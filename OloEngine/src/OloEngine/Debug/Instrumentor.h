@@ -4,7 +4,7 @@
 
 #if TRACY_ENABLE
 #include <tracy/Tracy.hpp>
-// <tracy/TracyOpenGL.hpp> is deliberately NOT included here (issue #691 Phase 2).
+// <tracy/TracyOpenGL.hpp> is deliberately NOT included here (issue #691).
 //
 // It needs the GL loader's symbols, so including it forces <glad/gl.h> into this
 // header — and this header is in OloEnginePCH.h, which means EVERY translation

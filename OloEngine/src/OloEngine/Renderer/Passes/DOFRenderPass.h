@@ -10,7 +10,7 @@ namespace OloEngine
 {
     // @brief Standalone depth-of-field post-process pass.
     //
-    // Phase F slice 22 — standalone DOF stage in the dynamic chain:
+    // Standalone DOF stage in the dynamic chain:
     //   AOApply/Bloom -> DOF -> MotionBlur -> TAA -> ...
     //
     // Inputs:

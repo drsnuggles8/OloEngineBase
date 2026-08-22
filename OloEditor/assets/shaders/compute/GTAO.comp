@@ -56,7 +56,7 @@ layout(std140, binding = 28) uniform GTAOParams
 // ---------------------------------------------------------------------------
 #include "../include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the
 // declarations move into main() as locals built from the heap descriptors at
 // these image units; the body below is unchanged either way.
 #ifndef OLO_BINDLESS

@@ -4,7 +4,7 @@
 // =============================================================================
 // McpReloadScriptTest — unit test (headless, no GL, no live editor, no Mono).
 //
-// Pins the consented MCP write tool olo_reload_script (issue #306 item C): reload
+// Pins the consented MCP write tool olo_reload_script (issue #306): reload
 // the C# script assembly — the scripting counterpart of olo_shader_reload's inner
 // loop. Two seams, the same shape as McpConsentedWriteTest / McpGenericFieldWrite:
 //

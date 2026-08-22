@@ -5,7 +5,7 @@
 #if OLO_WITH_VULKAN
 
 // =============================================================================
-// VulkanComputeShader — the compute half of the SPIR-V route (#691 Phase 7,
+// VulkanComputeShader — the compute half of the SPIR-V route (#691,
 // the amendment (56) "compute shaders still have no SPIR-V route" deferral).
 //
 // GL compute never travelled the shaderc pipeline at all (amendment (31):
@@ -16,7 +16,7 @@
 // VulkanPipelineBuilder::GetOrCreateCompute (same mapping chain — the two
 // paths structurally cannot drift).
 //
-// THE AUTHORING CONSEQUENCE (recorded for Wave B): a .comp that reaches this
+// THE AUTHORING CONSEQUENCE: a .comp that reaches this
 // route may not use default-block uniforms — SPIR-V has no queryable default
 // block, so SetInt/SetFloat/... are deliberate no-ops here (exactly like
 // VulkanShader's). Each ported compute pass migrates its bare uniforms into a

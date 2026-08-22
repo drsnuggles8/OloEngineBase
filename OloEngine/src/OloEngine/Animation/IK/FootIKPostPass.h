@@ -12,7 +12,7 @@ namespace OloEngine
 
 namespace OloEngine::Animation
 {
-    // Ground-adaptation foot & hand IK post-pass (issue #631 part 3). Mutates
+    // Ground-adaptation foot & hand IK post-pass (issue #631). Mutates
     // skeleton local transforms only; runs after ApplyIKPostPass and before the
     // spring-bone pass in both animation systems. Consumes the ground cache /
     // resolved hand targets in `state` (filled Scene-side from Jolt raycasts —

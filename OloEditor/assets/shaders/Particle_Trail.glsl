@@ -7,7 +7,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V7 trail pull — the 40-byte TrailVertex
+// #691 (ADR 0011 §5): V7 trail pull — the 40-byte TrailVertex
 // {pos3, color4, uv2, int EntityID} on the engine-wide binding 57 (10 float
 // lanes; EntityID is an int lane, floatBitsToInt). Non-instanced.
 layout(std430, binding = 57) readonly buffer OloVertexPull
@@ -84,7 +84,7 @@ layout(location = 4) in vec4 v_ClipPosPrev;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Both slots move
+// Heap-bindless conversion (issue #691, bucket 1). Both slots move
 // together because ParticleBatchRenderer::BindParticleTextures stages both in
 // one call — converting one and leaving the other would leave the unconverted
 // sampler unbound once this program builds as the bindless variant (§5c).

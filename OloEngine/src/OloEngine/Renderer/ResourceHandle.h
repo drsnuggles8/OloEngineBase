@@ -31,7 +31,7 @@ namespace OloEngine
     // `ResourceHandle`, a header that used `RHI::ResourceHandle` WITHOUT
     // including RHITypes.h did not fail with "unknown type": the name silently
     // degraded to this one, which was in scope and valid. That happened during
-    // issue #691 step 3 (RGCommandContext.h) and only surfaced because a
+    // issue #691 (RGCommandContext.h) and only surfaced because a
     // separately-compiled definition disagreed; in a header-only path it would
     // have compiled with the wrong type.
     //

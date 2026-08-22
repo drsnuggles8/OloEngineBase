@@ -62,7 +62,7 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        // 43 = the base 33, plus the five #691 Phase 8 compute blocks, plus
+        // 43 = the base 33, plus the five #691 compute blocks, plus
         // ColorBlindParams (#458), plus PrefixSumParams (#713),
         // TerrainCullParams (#714) and the two DDGI blocks (#707).
         const std::array<KnownBlock, 43> kKnownBlocks = { {
@@ -89,7 +89,7 @@ namespace OloEngine::Tests
             { "UnderwaterFogBlock", sizeof(UnderwaterFogUBOData) },
             { "FroxelFogData", sizeof(UBOStructures::FroxelFogUBO) },
             // The compute-shader params blocks introduced when issue #691
-            // Phase 7 migrated bare default-block uniforms into std140 blocks
+            // The sweep migrated bare default-block uniforms into std140 blocks
             // (SPIR-V cannot express a bare uniform). Listed here deliberately:
             // an unlisted block lands in `blocksSkippedUnknown` and is SKIPPED,
             // so without these entries the one test that compares a reflected
@@ -106,8 +106,8 @@ namespace OloEngine::Tests
             { "VirtualClusterCullParams", sizeof(UBOStructures::VirtualClusterCullUBO) },
             { "VirtualRasterParams", sizeof(UBOStructures::VirtualRasterUBO) },
             { "InstanceCullParams", sizeof(UBOStructures::InstanceCullUBO) },
-            // Issue #691 Phase 8 — the sweep's completion: the six compute
-            // shaders whose passes never ran in the Phase 7 live log.
+            // Issue #691 — the sweep's completion: the six compute
+            // shaders whose passes never ran in the live log.
             // OceanFFTParams is one block declared verbatim in all three
             // Ocean_*.comp passes.
             { "OceanFFTParams", sizeof(UBOStructures::OceanFFTUBO) },

@@ -83,7 +83,7 @@ namespace OloEngine
             Ref<ComputeShader> m_GenerateShader;
             Ref<Texture3D> m_WindField;   // 128³ RGBA16F
             Ref<UniformBuffer> m_WindUBO; // binding 15
-            // Wind_Generate.comp's former bare uniforms (issue #691 Phase 7),
+            // Wind_Generate.comp's former bare uniforms (issue #691),
             // at UBO_WIND_GENERATE. Distinct from m_WindUBO above: that one is
             // what every wind CONSUMER samples; this is the generator's own
             // grid/turbulence description. C++ twin:

@@ -3,7 +3,7 @@
 
 // Unit tests for the pure name tables + result-shaping behind the ephemeral
 // render-override tools olo_render_toggle_pass / olo_render_set_debug_view (issue
-// #316 Part 4 — the rendering A/B harness). The token<->field mapping and the
+// #316 — the rendering A/B harness). The token<->field mapping and the
 // response JSON schema live in a header-only free-function module with no renderer
 // / editor / GPU dependencies, precisely so they can be exercised here without a
 // live editor or GL context — the same split McpShaderReload.h / McpRenderExplain.h

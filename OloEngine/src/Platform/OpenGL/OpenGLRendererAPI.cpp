@@ -37,7 +37,7 @@ namespace OloEngine
         // still current, and this destructor does nothing if that already ran.
         // If it did NOT run we deliberately leak rather than touch dead GL.
         // A never-Init()ed instance held no GPU resources, so there is
-        // nothing to warn about: since Phase 5, RenderCommand's static-init
+        // nothing to warn about: RenderCommand's static-init
         // instance is deliberately replaced by RecreateForSelectedBackend()
         // before any use (ADR 0011 amendment (39)), and warning on THAT
         // destruction was pure noise.
@@ -176,7 +176,7 @@ namespace OloEngine
         }
 
         // ---------------------------------------------------------------------
-        // The Phase 3 descriptor heap (issue #691).
+        // The descriptor heap (issue #691).
         //
         // Sized generously rather than tightly on purpose: a heap that runs out
         // mid-frame falls back to the slot-based path, which is correct but
@@ -1336,8 +1336,8 @@ namespace OloEngine
     }
 
     // =========================================================================
-    // Phase 2 step 2 (issue #691) — the operations the call-site sweep found
-    // the facade had never abstracted. See ADR 0011's "Amendments from Phase 2
+    // Issue #691 — the operations the call-site sweep found
+    // the facade had never abstracted. See ADR 0011's "Amendments from the
     // step 2" for why each has the shape it does.
     // =========================================================================
 
@@ -1365,7 +1365,7 @@ namespace OloEngine
 
         glUseProgram(programID);
 
-        // PUBLISH WHETHER THIS PROGRAM READS THE HEAP (issue #691 Phase 3).
+        // PUBLISH WHETHER THIS PROGRAM READS THE HEAP (issue #691).
         //
         // OpenGLShader::Bind() does this from its own m_IsBindlessVariant, but the
         // command layer never goes through it — CommandDispatch binds by handle
@@ -2143,7 +2143,7 @@ namespace OloEngine
         // which is not a portable way to ask "does this backend support debug
         // markers" and which kept a backend dependency in a renderer TU. It also
         // does not match `gl[A-Z]`, so the boundary ratchet could never see it
-        // (issue #691 Phase 2 step 2; same class of problem as SlugFontProcessor's
+        // (issue #691; same class of problem as SlugFontProcessor's
         // `glad_glCreateTextures != nullptr` context probe, replaced in step 1).
         if (GLAD_GL_KHR_debug == 0)
         {
@@ -2226,7 +2226,7 @@ namespace OloEngine
     }
 
     // -------------------------------------------------------------------------
-    // Handle-taking siblings of the bind family (issue #691 step 3, slice 2).
+    // Handle-taking siblings of the bind family (issue #691).
     //
     // Each resolves the identity to a driver name and delegates to the existing
     // u32 form, so there is exactly one place per operation that talks to GL and
@@ -2274,7 +2274,7 @@ namespace OloEngine
     }
 
     // -------------------------------------------------------------------------
-    // Handle-returning raw creators (issue #691 step 3, slice 4).
+    // Handle-returning raw creators (issue #691).
     //
     // Each creates through the existing u32 form and registers the result, so
     // there is one place per operation that talks to GL. The Delete* siblings
@@ -2403,7 +2403,7 @@ namespace OloEngine
 
     // -------------------------------------------------------------------------
     // Handle-taking siblings of the texture copy / clear / upload-at-offset /
-    // readback family (issue #691 step 3, slice 5 — attachment consumers).
+    // readback family (issue #691 — attachment consumers).
     //
     // Same shape as the block above: resolve here, delegate to the one u32 form
     // that talks to GL. What made these necessary was migrating the framebuffer

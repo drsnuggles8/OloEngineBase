@@ -21,7 +21,7 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                // #691 Phase 8: the amendment (64) leftover — this assert
+                // #691: the amendment (64) leftover — this assert
                 // wedged the first --rhi=vulkan editor launch during
                 // ReflectionProbeArray::Init.
 #if OLO_WITH_VULKAN

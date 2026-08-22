@@ -14,13 +14,13 @@ namespace OloEngine
     // GraphicsContext.cpp — engine code — includes this header for the factory.
     struct VulkanContextData;
 
-    // #691 Phase 4 bring-up: instance / device / swapchain / per-frame sync, and a
+    // #691 bring-up: instance / device / swapchain / per-frame sync, and a
     // SwapBuffers() that clears the backbuffer to a fixed colour and presents.
-    // Since Phase 5 the window-independent half (instance, physical-device pick,
+    // The window-independent half (instance, physical-device pick,
     // device, queue, VMA allocator, command pool) lives in VulkanDevice — this
     // class keeps the surface, swapchain, and frame-loop state.
     // Nothing else — no rendering, no descriptor heaps in use (device selection
-    // gates on VK_EXT_descriptor_heap per ADR 0010, but Phase 5/6 are the first
+    // gates on VK_EXT_descriptor_heap per ADR 0010, but the execution and pipeline layers are the first
     // consumers). Init() throws std::runtime_error to REFUSE initialisation when
     // the loader is absent or no device satisfies the capability contract; the
     // message names the missing capability and directs the user to --rhi=opengl.
@@ -72,7 +72,7 @@ namespace OloEngine
             return s_Instance;
         }
 
-        // #691 Phase 8: submit everything the frame has recorded so far and
+        // #691: submit everything the frame has recorded so far and
         // WAIT for it, then re-enter the recording bracket on the reset
         // command buffer so the frame continues. This is what makes a
         // synchronous mid-frame readback (StorageBuffer::GetData between two
@@ -91,8 +91,8 @@ namespace OloEngine
         // price GL always paid for glGetBufferSubData.
         [[nodiscard]] bool FlushFrameRecordingAndWait();
 
-        // Swapchain facts the ImGui renderer backend needs at Init (#691
-        // Phase 8): imgui_impl_vulkan bakes the swapchain color format into
+        // Swapchain facts the ImGui renderer backend needs at Init (#691):
+        // imgui_impl_vulkan bakes the swapchain color format into
         // its pipeline (dynamic rendering) and sizes its per-frame buffers
         // from the image counts. Plain u32s — this header deliberately leaks
         // no Vk types (see the VulkanContextData note above); the format is

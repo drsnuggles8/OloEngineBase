@@ -291,7 +291,7 @@ namespace OloEngine
 
         // glfwSwapInterval needs a current GL context; under Vulkan (GLFW_NO_API)
         // it would only raise a GLFW error. Present pacing there is the swapchain's
-        // present mode — fixed at FIFO (vsync) for the Phase 4 bring-up.
+        // present mode — fixed at FIFO (vsync) for bring-up.
         if (Renderer::GetAPI() != RendererAPI::API::Vulkan)
         {
             if (enabled)

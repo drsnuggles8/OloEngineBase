@@ -260,7 +260,7 @@ namespace OloEngine
                 // it does.
                 //
                 // **The unmap is the whole reason this listener is load-bearing
-                // in slice 2.** Slice 1 could get away with only setting the
+                // by the incremental deltas.** The whole-map rebuild could get away with only setting the
                 // dirty flag, because the rebuild cleared everything first. With
                 // no clear pass, a page that leaves the cache without an entry
                 // here keeps its old physical address in the indirection map and
@@ -1203,7 +1203,7 @@ namespace OloEngine
         //
         // Every bind below goes through the HeapBinding seam rather than
         // RenderCommand directly — that is the sanctioned spelling (issue #691
-        // Phase 3; the RHI boundary ratchet counts raw facade bind sites), and it
+        // the RHI boundary ratchet counts raw facade bind sites), and it
         // forks on `Shader::IsBoundProgramBindless()` for the program IN FLIGHT.
         // These kernels declare their inputs slot-based, so the fork must be
         // allowed to see a VT program and take the fallback, which issues a real
@@ -1331,7 +1331,7 @@ namespace OloEngine
         const u32 mipCount = m_Config.MipCount();
         const RHI::ResourceHandle indirection = m_IndirectionTexture->GetRHIHandle();
 
-        // Slice 1's whole-map rebuild, kept as the fallback for the cases a
+        // The whole-map rebuild, kept as the fallback for the cases a
         // delta cannot express. Neither of the two real ones is "the map is
         // stale" — a stale map is precisely what a delta IS for — they are both
         // "the map's contents are not known":
@@ -1430,7 +1430,7 @@ namespace OloEngine
             // A 16-byte CPU write between two dispatches that read the same
             // buffer. GL orders it correctly (the earlier dispatch still sees the
             // old bytes) and the Vulkan backend gives the same guarantee through
-            // #691 Phase 8's write snapshots — see
+            // #691's write snapshots — see
             // docs/agent-rules/vulkan-command-ordered-buffer-writes.md. The
             // alternative, a bound RANGE per mip, needs a glBindBufferRange the
             // RHI facade does not expose.
@@ -1449,7 +1449,7 @@ namespace OloEngine
         // per level with a barrier between: level m reads level m+1's OUTPUT, so
         // batching them would let a level inherit a half-written parent.
         //
-        // Slice 2's change is the EXTENT, not the order: each level runs over the
+        // The incremental change is the EXTENT, not the order: each level runs over the
         // descendants of what changed above it plus what changed at it, and a
         // level with an empty rect is skipped outright. The top-down walk is what
         // makes one rect per level enough — level m+1 is already repaired by the

@@ -52,7 +52,7 @@ namespace OloEngine
         // storage, so the sampler2DArrayShadow bindings are unaffected.
         //
         // Created through the HANDLE form so each view carries an identity of
-        // its own (issue #691 step 3): the bind cache keys on it, while
+        // its own (issue #691): the bind cache keys on it, while
         // RenderPipeline still declares the graph resource by raw id. The two
         // spellings name the same object — the native id is read back out of
         // the registry rather than minted separately, so they cannot drift.
@@ -391,7 +391,7 @@ namespace OloEngine
         // pass applies the identical shift to the same matrices + casters,
         // keeping rendered depth and sampled depth in the same space. No-op near
         // origin.
-        // A8 seam, shader-reconstruction flavour (#691 Phase 7): these are the
+        // A8 seam, shader-reconstruction flavour (#691): these are the
         // SAMPLING half of the contract ShadowRenderPass's render half applies.
         // Consumers do `lightSpacePos.xyz / w * 0.5 + 0.5` (PBRCommon,
         // DeferredLighting(_MSAA), DDGI_Relight, FroxelFogScatter) to index a

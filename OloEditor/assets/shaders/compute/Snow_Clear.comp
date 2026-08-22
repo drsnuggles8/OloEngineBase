@@ -10,7 +10,7 @@ layout(local_size_x = 16, local_size_y = 16) in;
 
 #include "../include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the
 // declaration moves into main() as a local built from the heap descriptor at
 // this image unit; the body below is unchanged either way.
 #ifndef OLO_BINDLESS

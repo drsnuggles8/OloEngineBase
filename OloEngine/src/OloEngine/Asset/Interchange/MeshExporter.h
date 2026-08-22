@@ -34,7 +34,7 @@ namespace OloEngine
     };
 
     // Abstract writer from the engine's MeshSource to an on-disk interchange file. The export
-    // axis is deliberately separate from MeshImporter (issue #655 Tier 3): importing and
+    // axis is deliberately separate from MeshImporter (issue #655): importing and
     // exporting have different call sites and formats, so overloading one interface for both
     // would muddy each. glTF export (the first and only requested exporter) is implemented on
     // top of the already-vendored Assimp Exporter, so no new dependency is needed.

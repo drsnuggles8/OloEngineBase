@@ -6,13 +6,13 @@
 
 // =============================================================================
 // VulkanDescriptorSlotCache — get-or-create heap slots per (image, view,
-// descriptor kind, layout). Issue #691 Phase 7.
+// descriptor kind, layout). Issue #691.
 //
 // The draw path's BindTexture(slot, handle) needs "the heap slot whose
 // descriptor samples this texture" — one stable slot per view for the
 // texture's life, written once, recycled when the image is destroyed. This
 // cache is that mapping, layered over VulkanResourceHeap's dumb primitive
-// (bump allocation + descriptor writes) so the primitive stays as Phase 6
+// (bump allocation + descriptor writes) so the primitive stays as originally
 // shipped it.
 //
 // The LAYOUT is part of the key on purpose: a descriptor bakes the layout

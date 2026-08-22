@@ -24,9 +24,9 @@ namespace OloEngine
     //                       entity IDs in Deferred just like Forward.
     //   Depth (D32F)      — shared with subsequent lighting / OIT passes
     //
-    // The class is a thin convenience wrapper around a Framebuffer. Phase 2
-    // (SceneRenderPass G-Buffer write) and Phase 3 (DeferredLightingPass)
-    // drive actual usage; Phase 5 introduces an MSAA variant.
+    // The class is a thin convenience wrapper around a Framebuffer. The
+    // G-Buffer write (SceneRenderPass) and the read (DeferredLightingPass)
+    // drive actual usage; an MSAA variant came later.
     class GBuffer : public RefCounted
     {
       public:
@@ -41,7 +41,7 @@ namespace OloEngine
         };
 
         // Create a G-Buffer sized to (width, height). sampleCount = 1 means
-        // no MSAA (Phase 5 will allow 2/4/8). width/height must be > 0 or
+        // no MSAA (2/4/8 are allowed elsewhere). width/height must be > 0 or
         // creation is deferred (call Resize() to populate).
         [[nodiscard]] static Ref<GBuffer> Create(u32 width, u32 height, u32 sampleCount = 1);
 
@@ -89,7 +89,7 @@ namespace OloEngine
 
         // MSAA depth-only resolve — populates only the depth attachment of
         // the resolve framebuffer, leaving the colour attachments stale.
-        // Used by the per-sample deferred lighting path (Phase 5): decals
+        // Used by the per-sample deferred lighting path: decals
         // sample the resolved depth (single-sample) to reconstruct world
         // position, while writing into the multisample G-Buffer; the
         // lighting shader then samples the still-multisample colour
@@ -97,11 +97,11 @@ namespace OloEngine
         void ResolveDepthOnly();
 
         // Renderer IDs per attachment — handy for binding as samplers in
-        // DeferredLightingPass / OITResolvePass (Phase 3 / Phase 6). These
+        // DeferredLightingPass / OITResolvePass. These
         // return resolved (single-sample) IDs when MSAA is active.
         [[nodiscard]] u32 GetColorAttachmentID(AttachmentIndex index) const;
         [[nodiscard]] u32 GetDepthAttachmentID() const;
-        // Identity forms (issue #691 step 3). The G-Buffer attachments are
+        // Identity forms (issue #691). The G-Buffer attachments are
         // ordinary framebuffer attachments, so these just forward to the
         // framebuffer's own handle accessors.
         [[nodiscard]] RHI::ResourceHandle GetColorAttachmentHandle(AttachmentIndex index) const;
@@ -113,7 +113,7 @@ namespace OloEngine
         // in the per-sample deferred lighting shader.
         [[nodiscard]] u32 GetMSColorAttachmentID(AttachmentIndex index) const;
         [[nodiscard]] u32 GetMSDepthAttachmentID() const;
-        // Identity forms of the two above (issue #691 step 3, item 4). Needed
+        // Identity forms of the two above (issue #691). Needed
         // because the per-sample MSAA paths bind and COPY the multisample
         // attachments, and the facade takes identities only.
         [[nodiscard]] RHI::ResourceHandle GetMSColorAttachmentHandle(AttachmentIndex index) const;

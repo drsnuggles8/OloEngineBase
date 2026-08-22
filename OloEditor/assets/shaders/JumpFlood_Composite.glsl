@@ -2,7 +2,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// #691 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
 // binding 57 is the engine-wide vertex-pull binding; the root struct carries
 // this buffer's device address, so the SAME 20-byte {vec3 position, vec2 uv}
 // stream the attribute path consumes is read by index instead. OLO_VULKAN is
@@ -43,7 +43,7 @@ layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// Heap-bindless conversion (issue #691, bucket 1). The BODY below is
 // byte-identical between the two variants.
 #ifdef OLO_BINDLESS
 #define u_SceneColor OLO_HEAP_TEX_2D(0)

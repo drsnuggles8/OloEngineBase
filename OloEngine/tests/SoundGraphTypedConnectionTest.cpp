@@ -3,10 +3,10 @@
 #include <gtest/gtest.h>
 
 // =============================================================================
-// SoundGraphTypedConnectionTest — Phase 2 typed connections
+// SoundGraphTypedConnectionTest — typed connections
 // (docs/design/soundgraph-metasounds.md)
 //
-// Phase 2 replaced the choc::value::ValueView wiring (which never actually
+// Typed connections replaced the choc::value::ValueView wiring (which never actually
 // delivered node-to-node values at runtime — nodes read ParameterWrapper
 // copies, not the re-aliased views) with typed refs: AudioBufferRef carries a
 // whole block of f32 samples from a producer's AudioBuffer, FloatRef/IntRef/
@@ -24,7 +24,7 @@
 //   * Graph float parameters ramp per-sample through their ramp buffer when
 //     set with interpolation, and broadcast scalar updates otherwise.
 //   * The whole-graph Debug-build cost is block-rate: one second of audio
-//     processes far faster than real time (the Phase 1 bug was 5.27x slower).
+//     processes far faster than real time (the old per-sample bug was 5.27x slower).
 // =============================================================================
 
 #include "OloEngine/Asset/SoundGraphAsset.h"
@@ -301,13 +301,13 @@ TEST(SoundGraphTypedConnections, GraphFloatParameterRampsPerSample)
 }
 
 // =============================================================================
-// Phase 3 — compiled execution plan (docs/design/soundgraph-metasounds.md)
+// Compiled execution plan (docs/design/soundgraph-metasounds.md)
 //
-// Phase 3 lowers the topological node order to a flat array of operator handles
+// The compiled plan lowers the topological node order to a flat array of operator handles
 // ({devirtualized thunk, node} pairs) the audio thread walks directly, and pools
 // every node's audio-output buffer into one contiguous allocation. The behavioural
 // contract is unchanged — the typed-connection tests above already run through the
-// compiled plan + pool and pin output correctness. These pin the Phase 3 mechanics:
+// compiled plan + pool and pin output correctness. These pin its mechanics:
 //   * Factory-created nodes carry a devirtualized process thunk (not the vtable
 //     fallback) and that thunk actually invokes the node's Process.
 //   * CreateInstance relocates node output buffers into the contiguous pool while
@@ -410,7 +410,7 @@ TEST(SoundGraphCompiledPlan, NodeOutputBuffersArePooledContiguously)
 
 TEST(SoundGraphTypedConnections, DebugBlockProcessingKeepsRealTimeHeadroom)
 {
-    // Regression net for the Phase 1 perf bug: one second of audio (100 blocks
+    // Regression net for the old per-sample perf bug: one second of audio (100 blocks
     // of 480 frames) through an oscillator → multiply → output graph processed
     // in a small fraction of real time even in Debug (pre-Phase-2 the per-sample
     // node walk took ~5.3 seconds per second of audio). The functional part —

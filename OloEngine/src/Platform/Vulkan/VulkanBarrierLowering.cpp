@@ -28,7 +28,7 @@ namespace OloEngine::VulkanBarrierLowering
         // COLOR_ATTACHMENT usage (VUID-VkImageMemoryBarrier2-oldLayout-
         // 01208) — and then poisoned the layout tracker so the next
         // scope-open emitted the inverse oldLayout error (found by the
-        // pass-suite ShaderDebugDraw/Particle tenants, #691 Wave C).
+        // pass-suite ShaderDebugDraw/Particle tenants, #691).
         [[nodiscard]] RHI::Access NormalizeAttachmentAccessForAspect(const RHI::Access access,
                                                                      const RHI::TextureAspect aspect)
         {

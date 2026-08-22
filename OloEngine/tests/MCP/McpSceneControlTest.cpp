@@ -5,7 +5,7 @@
 // McpSceneControlTest — unit test (headless, no GL, no live editor, no scene).
 //
 // Pins the consented MCP scene-control write tools olo_scene_open / olo_scene_play /
-// olo_scene_stop (issue #316 Part 5): the scriptable scene switch + play-mode toggle.
+// olo_scene_stop (issue #316): the scriptable scene switch + play-mode toggle.
 // Two seams, the same shape as McpReloadScriptTest / McpConsentedWriteTest:
 //
 //   1. The dispatch seam (McpServer.cpp, compiled into the test binary): a tool

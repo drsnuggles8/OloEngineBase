@@ -510,7 +510,7 @@ namespace OloEngine::Audio::SoundGraph
                 }
 
                 // Apply default value plugs to the node: write the asset-authored
-                // value into the input ref's inline default cell. (Phase 2 removed
+                // value into the input ref's inline default cell. (Typed refs removed
                 // the old double-bookkeeping where a StreamWriter wrote one state
                 // bucket and ApplyAssetDefaultToParameter had to overlay another.)
                 for (const auto& defaultPlug : nodeDesc.m_DefaultValuePlugs)
@@ -637,7 +637,7 @@ namespace OloEngine::Audio::SoundGraph
         CreateGraphNodes(graph, prototype);
 
         // Step 3.5: Pool all node audio-output buffers into one contiguous allocation
-        // (Phase 3). MUST run after every node exists and before EstablishConnections
+        // MUST run after every node exists and before EstablishConnections
         // captures producer Data() pointers — AllocateNodeOutputPool repoints those
         // buffers, so wiring must observe the final (pooled) addresses.
         graph->AllocateNodeOutputPool();

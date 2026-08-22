@@ -17,7 +17,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// #691 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
 // the pipeline has no vertex-input state at all. Binding 57 is the engine-wide
 // vertex-pull binding (ShaderBindingLayout::SSBO_VERTEX_PULL); the root struct
 // carries this buffer's device address, so the SAME 20-byte
@@ -60,7 +60,7 @@ layout(location = 0) out vec4 o_Color;
 // Overdraw accumulation buffer (red channel = raw fragment count).
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY is
+// Heap-bindless conversion (issue #691, bucket 1). The BODY is
 // byte-identical between the two variants — only the declaration moves, and it
 // names the same binding number the pass binds with.
 #ifdef OLO_BINDLESS

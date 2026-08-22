@@ -157,7 +157,7 @@ namespace OloEngine
         // companion is gone — redundant against the shader's own
         // `layout(binding = 0)`, and a "uniform not found" warning every frame
         // under the bindless variant where the name is a #define
-        // (issue #691 Phase 3).
+        // (issue #691).
         context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         CASUBOData casData;

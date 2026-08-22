@@ -51,7 +51,7 @@ namespace OloEngine::MCP
         constexpr int kMethodNotFound = -32601;
         constexpr int kInvalidParams = -32602;
 
-        // DoS hardening (issue #306 item D): the largest request body POST /mcp will
+        // DoS hardening (issue #306): the largest request body POST /mcp will
         // buffer before dispatch. cpp-httplib defaults its payload cap to SIZE_MAX,
         // so without this a single request could buffer an arbitrarily large body
         // into memory. A real JSON-RPC call (or batch) is a few KB; 8 MiB is generous
@@ -70,7 +70,7 @@ namespace OloEngine::MCP
                          { "error", { { "code", code }, { "message", message } } } };
         }
 
-        // ---- tools/call argument validation (issue #357 / #306 item D) ---------
+        // ---- tools/call argument validation (issue #357 / #306) ---------
         //
         // A deliberately small JSON-Schema-subset validator covering exactly what
         // the schema-builder DSL (McpSchemaBuilder.h) can emit — see
@@ -313,7 +313,7 @@ namespace OloEngine::MCP
         // reject an unknown top-level field.
         constexpr const char* kToolsetMetaKey = "io.oloengine/toolset";
 
-        // ---- per-call progress/cancellation scope (issue #357 item B) ----------
+        // ---- per-call progress/cancellation scope (issue #357) ----------
         //
         // One tools/call executes synchronously on one dispatch thread, so a
         // thread_local scope gives EmitProgress / IsCurrentCallCancelled access to
@@ -359,7 +359,7 @@ namespace OloEngine::MCP
         // (issue #357 P5b) is negotiable because every applicable delta vs
         // 2025-06-18 is covered: SEP-1303 input-validation-as-tool-error (see
         // HandleToolsCall), 403 on bad Origin (already), progress/cancellation
-        // utilities (#357 item B), JSON Schema 2020-12-compatible tool schemas
+        // utilities (#357), JSON Schema 2020-12-compatible tool schemas
         // (the builder emits a compatible subset), and the OAuth / elicitation /
         // sampling / tasks additions are optional capabilities we do not
         // advertise. Shared by HandleInitialize's negotiation and the transport's
@@ -409,7 +409,7 @@ namespace OloEngine::MCP
         constexpr i64 kToolsListTtlMs = 300000;
 
         // resources/list: the base catalogue is static, but capture tools publish and
-        // evict ephemeral resources while serving (issue #673 Tier 1), also pushed via
+        // evict ephemeral resources while serving (issue #673), also pushed via
         // notifications/resources/list_changed. Shorter than tools/list because that
         // ephemeral churn is more frequent; the push again bounds staleness.
         constexpr i64 kResourcesListTtlMs = 60000;
@@ -631,7 +631,7 @@ namespace OloEngine::MCP
             }
         }
 
-        // ---- SSE server-push stream (issue #306 item B) -------------------------
+        // ---- SSE server-push stream (issue #306) -------------------------
 
         // Worst-case push latency: the content provider is invoked back-to-back by
         // httplib, so the stream loop sleeps this long each cycle to avoid busy-spin.
@@ -1209,7 +1209,7 @@ namespace OloEngine::MCP
                      { HandlePost(req, res); });
 
         // Streamable-HTTP GET opens a persistent server-push SSE stream: new
-        // diagnostics events are pushed as MCP notifications (issue #306 item B).
+        // diagnostics events are pushed as MCP notifications (issue #306).
         m_Http->Get("/mcp", [this](const httplib::Request& req, httplib::Response& res)
                     { HandleGetStream(req, res); });
 
@@ -1270,7 +1270,7 @@ namespace OloEngine::MCP
         m_ConsentCv.notify_all();
 
         // Same reasoning for workers blocked on an outbound child's response
-        // (issue #673 Tier 1): fail every pending bridged call and join the
+        // (issue #673): fail every pending bridged call and join the
         // client reader threads BEFORE the pool join below.
         ShutdownClients();
 
@@ -1591,7 +1591,7 @@ namespace OloEngine::MCP
             return;
         }
 
-        // 4. Streamable-HTTP upgrade (issue #357 item B): a single tools/call that
+        // 4. Streamable-HTTP upgrade (issue #357): a single tools/call that
         // opts into progress (params._meta.progressToken) and accepts SSE gets its
         // response as a text/event-stream — progress frames as they happen, then
         // the final response frame. Everything else keeps the plain-JSON path.
@@ -1721,7 +1721,7 @@ namespace OloEngine::MCP
                 }
 
                 // Resource-list changes (ephemeral capture publishes/evictions,
-                // #673 Tier 1) — same polled-generation delivery as the tools
+                // #673) — same polled-generation delivery as the tools
                 // block above, same single-writer-thread constraint. Advertised
                 // via capabilities.resources.listChanged.
                 if (const u64 generation = ResourcesGeneration(); generation != resourcesGeneration)
@@ -1979,7 +1979,7 @@ namespace OloEngine::MCP
             method = request["method"].get<std::string>();
 
         // Notifications (no id) get no response. `notifications/cancelled` is the
-        // one notification with a side effect (issue #357 item B): flag the named
+        // one notification with a side effect (issue #357): flag the named
         // in-flight tools/call so its handler can stop cooperatively. An unknown /
         // already-finished requestId is a spec-sanctioned no-op (the race is
         // inherent — cancellation "MAY arrive after processing completes").
@@ -2064,7 +2064,7 @@ namespace OloEngine::MCP
         Json result;
         result["protocolVersion"] = version;
         // `logging` is advertised because the GET /mcp SSE stream pushes diagnostics
-        // events as `notifications/message` log notifications (issue #306 item B).
+        // events as `notifications/message` log notifications (issue #306).
         // It is DEPRECATED as of spec 2026-07-28 (SEP-2577, ≥12-month offramp), so
         // it now has a successor running beside it rather than replacing it: the
         // `olo://events/recent` resource plus `resources.subscribe` below. Both
@@ -2077,7 +2077,7 @@ namespace OloEngine::MCP
         // rescan <project assets>/McpTools while the server is serving and swap the
         // registry, then emit `notifications/tools/list_changed` on every live SSE
         // stream. `resources.listChanged` is TRUE since the resource-link work
-        // (#673 Tier 1): capture tools publish ephemeral resources while serving
+        // (#673): capture tools publish ephemeral resources while serving
         // (RegisterEphemeralResource), announced the same generation-polled way.
         // Prompts are still fixed for a server run.
         //
@@ -2234,7 +2234,7 @@ namespace OloEngine::MCP
         // Enforce the tool's declared inputSchema BEFORE anything else user-visible,
         // so a malformed call fails with a clean, field-naming message instead of
         // depending on whatever ad-hoc checks that one handler happens to do (issue
-        // #357 conformance / #306 item D hardening). A permissive (empty / non-object)
+        // #357 conformance / #306 hardening). A permissive (empty / non-object)
         // schema validates nothing. This must precede the consent gate below: a
         // malformed write should never raise the per-action consent modal (the human
         // would be asked to approve a call that can't run) — validate first, prompt only
@@ -2253,7 +2253,7 @@ namespace OloEngine::MCP
             return MakeResult(id, Json{ { "content", invalid.Content }, { "isError", true } });
         }
 
-        // ---- per-call progress/cancellation scope (issue #357 item B) ----------
+        // ---- per-call progress/cancellation scope (issue #357) ----------
         // Register this call in the in-flight registry so a concurrently-arriving
         // `notifications/cancelled` (matched by exact id value) can flag it, and
         // install the thread-local scope EmitProgress / IsCurrentCallCancelled
@@ -2291,7 +2291,7 @@ namespace OloEngine::MCP
         } inFlightGuard{ *this, idKey };
         const CallScopeGuard scopeGuard(scope);
 
-        // Session write consent (issue #306 item C): a project-mutating tool is gated
+        // Session write consent (issue #306): a project-mutating tool is gated
         // by the WriteConsentMode the user set in the MCP panel (default Disabled,
         // never persisted). This stacks on top of the enabled + bearer-token gate:
         // even an authenticated agent stays read-only w.r.t. the project until the

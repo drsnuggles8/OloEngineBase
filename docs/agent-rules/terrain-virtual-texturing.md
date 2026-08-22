@@ -6,9 +6,9 @@ kernels, and the BC7 compressor),
 `OloEditor/assets/shaders/include/TerrainVirtualTexture.glsl`,
 `include/TerrainLayerBlend.glsl`, `include/TerrainParamsBlock.glsl`.
 
-Landed with issue #715: slice 1 (fixed grid, uncompressed cache, mip-chained indirection map),
-slice 2 (incremental indirection deltas — §4), slice 3 (adaptive variable-size virtual images —
-§9), and slice 4 (BC7-compressed cache tiles — §10).
+Landed with issue #715: the fixed grid, uncompressed cache and mip-chained indirection map;
+incremental indirection deltas (§4); adaptive variable-size virtual images (§9); and
+BC7-compressed cache tiles (§10).
 
 **Read this before changing anything in the loop.** Every defect this subsystem can have is a
 *wrong address*, and a wrong address does not look like an error — it looks like the terrain
@@ -110,8 +110,8 @@ resident. Turning the branch on before that samples a zeroed cache, which is not
 
 ## 4. Publishing is a DELTA, and three things keep it equal to the rebuild
 
-Slice 1 republished the indirection map by rebuilding it: clear every mip, re-stamp every resident
-page, re-propagate every level. Slice 2 replaced that with the reference's delta list
+The original republished the indirection map by rebuilding it: clear every mip, re-stamp every
+resident page, re-propagate every level. That was replaced with the reference's delta list
 (`VTIndirectionDelta`), which writes only the texels that changed and re-propagates only their
 descendants. The rebuild is still there — it is the only thing that can define a map whose contents
 are *unknown* rather than merely stale — and it runs on exactly three triggers:
@@ -200,7 +200,7 @@ about how sensitive the comparison is. `TheEquivalenceCheckFailsWhenTheDeltaOmit
 require the comparison to *reject* it. If you weaken either rule, those two are what tell you the
 first test has stopped watching.
 
-**And that whole set compares a CPU model of the three kernels, not the kernels.** Slice 2 changed
+**And that whole set compares a CPU model of the three kernels, not the kernels.** The delta path changed
 two of them, so the GPU half is
 `TerrainVirtualTextureVisualEvidenceTest.TheDeltaPublishesTheSameFrameAsTheFullRebuild`: the same
 scene published both ways, against a floor measured from a second delta-path run through the identical
@@ -355,7 +355,7 @@ whole cache would be a per-frame stutter.
 
 ## 9. The adaptive layer (slice 3) — everything is still atlas space, and that is the design
 
-Slice 3 did **not** rewrite the loop. Every mechanism in §1–§8 keeps operating verbatim in what is
+Adaptive images did **not** rewrite the loop. Every mechanism in §1–§8 keeps operating verbatim in what is
 now the virtual **atlas**: feedback words, page keys, the indirection mip chain, the delta, the
 fill — none of their formats changed. Adaptivity is one inserted mapping (terrain UV → the owning
 sector's image rect → atlas UV) plus a CPU policy that moves those rects. Consequences worth not

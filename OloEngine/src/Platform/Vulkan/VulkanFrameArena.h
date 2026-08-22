@@ -1,7 +1,7 @@
 #pragma once
 
 // VulkanFrameArena — the per-frame GPU-visible bump allocator behind the
-// root-data pointer model. Issue #691 Phase 6, ADR 0011 §4.
+// root-data pointer model. Issue #691, ADR 0011 §4.
 //
 // WHAT THIS IS FOR. Every draw/dispatch packs its per-object data (transforms,
 // material scalars, texture-heap indices, buffer device addresses) into one
@@ -129,7 +129,7 @@ namespace OloEngine
         // Root-data assembly substitutes this for an unfed buffer binding so
         // the shader reads deterministic zeros instead of dereferencing GPU
         // address 0 — the null deref is a page fault that escalates to
-        // VK_ERROR_DEVICE_LOST (#691 Phase 8, the IBL-bake incident). Returns
+        // VK_ERROR_DEVICE_LOST (#691, the IBL-bake incident). Returns
         // 0 when no device is up (the caller's draw is already doomed then).
         // In-bounds contract only: an SSBO runtime array indexed past
         // kNullBlockBytes still faults — shaders guard their counts.
@@ -140,7 +140,7 @@ namespace OloEngine
         // Root structs are tens of bytes and per-draw block payloads hundreds;
         // 16 MiB per slot is far past any current frame's total (10k instanced
         // draws x 224 B InstanceData ~= 2.2 MiB) while costing 32 MiB of BAR —
-        // generous beats a mid-frame cliff. Revisit with real Phase 7 numbers.
+        // generous beats a mid-frame cliff. Revisit with real numbers.
         static constexpr u64 kSlotCapacityBytes = 16ull * 1024 * 1024;
         // Null-block size: covers any UBO block (the 16 KiB
         // maxUniformBufferRange floor, ×4 for headroom) so an unfed uniform

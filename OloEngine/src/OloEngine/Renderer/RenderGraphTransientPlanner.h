@@ -14,7 +14,7 @@ namespace OloEngine::RenderGraphTransientPlanner
 {
     // Transient-resource planner extracted from
     // `RenderGraph::RebuildTransientPlan` (+ its four descriptor helpers)
-    // as part of the Phase 7 module split (2026-05-11). The planner computes
+    // as part of the module split (2026-05-11). The planner computes
     // per-frame lifetimes for graph-declared transient resources, decides
     // whether each is allocatable, and assigns alias slots that let
     // non-overlapping transients share pool-allocated backing.

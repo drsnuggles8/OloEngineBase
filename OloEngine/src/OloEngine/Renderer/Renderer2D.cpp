@@ -315,7 +315,7 @@ namespace OloEngine
         // they survive to static destruction — AFTER the window destroyed the
         // graphics context. GL never noticed; on Vulkan every one of these is
         // a VMA allocation still alive at vmaDestroyAllocator, which aborts
-        // with "allocations not freed" on window close (#691 Phase 8).
+        // with "allocations not freed" on window close (#691).
         s_Data.QuadVertexArray.Reset();
         s_Data.QuadVertexBuffer.Reset();
         s_Data.QuadShader.Reset();
@@ -337,7 +337,7 @@ namespace OloEngine
         // The camera UBO too: no VMA allocation behind it on Vulkan (frame-
         // arena backed), but its destructor unregisters from the binding-state
         // and root-object singletons — at static-destruction time those may
-        // already be gone (review finding, #691 Phase 8).
+        // already be gone (review finding, #691).
         s_Data.CameraUniformBuffer.Reset();
         for (auto& slot : s_Data.TextureSlots)
         {
@@ -364,7 +364,7 @@ namespace OloEngine
         // directly, so it needs the same Vulkan clip-space adjustment the 3D
         // camera packing applies (RenderPipeline / CommandDispatch) — without
         // it every Renderer2D scene rendered vertically mirrored under
-        // Vulkan (#691 Phase 8, found by the 80-scene A/B sweep's
+        // Vulkan (#691, found by the 80-scene A/B sweep's
         // LuaGameplayTest). Identity on GL.
         s_Data.CameraBuffer.ViewProjection =
             RHI::AdjustProjectionForBackend(MakeViewProjectionRelative(viewProjectionWorld, s_Data.RenderOrigin));
@@ -529,7 +529,7 @@ namespace OloEngine
             // offsets from the shared table — the shader above is already bound, so
             // the fork on IsBoundProgramBindless() is answerable, and a slot-based
             // draw (Renderer2D_Quad, which keeps its 32-sampler array) takes the
-            // fallback and gets its real bind (issue #691 Phase 3).
+            // fallback and gets its real bind (issue #691).
             //
             // Persistent: these are font atlases and asset textures that outlive
             // the frame, so their descriptors are memoised rather than ringed.

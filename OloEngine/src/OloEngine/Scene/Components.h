@@ -979,7 +979,7 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_BreakTorque = 0.0f;
 
-        // Powered joint motors + friction (issue #308 item 3). Only the Hinge and
+        // Powered joint motors + friction (issue #308). Only the Hinge and
         // Slider arms of JoltScene::CreateConstraint read these; other joint types
         // ignore them. The motor is configured once from these authored fields at
         // constraint-creation time and left running — no per-frame scripting needed
@@ -1088,7 +1088,7 @@ namespace OloEngine
         glm::vec3 m_SixDOFRotationMaxDeg = { 45.0f, 45.0f, 45.0f };
 
         // Whether the two bodies this joint connects still collide with each
-        // other (issue #308 item 1). Defaults to true, so existing scenes are
+        // other (issue #308). Defaults to true, so existing scenes are
         // unchanged; a designer unticks it to let the jointed bodies overlap —
         // the usual choice for ragdoll links and tightly-coupled mechanisms.
         // Jolt has no per-constraint "collide connected" flag for two-body
@@ -1099,7 +1099,7 @@ namespace OloEngine
         OLO_PROPERTY()
         bool m_CollideConnected = true;
 
-        // Pulley joint (issue #308 item 4). Connects two bodies over two fixed
+        // Pulley joint (issue #308). Connects two bodies over two fixed
         // world-space points, like a rope through two pulleys: the constraint
         // keeps Length1 + Ratio*Length2 within [MinLength, MaxLength], where
         // Length1 = |worldAnchorA - FixedPointA| (this body, anchored at
@@ -1122,7 +1122,7 @@ namespace OloEngine
         OLO_PROPERTY()
         f32 m_PulleyMaxLength = -1.0f;
 
-        // Gear / RackAndPinion joints (issue #308 item 4), body-to-body v1 form.
+        // Gear / RackAndPinion joints (issue #308), body-to-body v1 form.
         // Both couple two bodies that are EACH already constrained by their own
         // joint entity (a Hinge per gear; a Hinge on the pinion + a Slider on the
         // rack) — the coupling only relates their motion rates, it does not pin
@@ -1341,7 +1341,7 @@ namespace OloEngine
         AllWheelDrive = 2
     };
 
-    // A wheeled vehicle (issue #308 item 5) backed by Jolt's VehicleConstraint +
+    // A wheeled vehicle (issue #308) backed by Jolt's VehicleConstraint +
     // WheeledVehicleController. MVP slice: the chassis IS this entity's
     // Rigidbody3DComponent (which must be Dynamic to be driven). JoltScene builds
     // a standard four-wheel car around the chassis at runtime start — two
@@ -1354,7 +1354,7 @@ namespace OloEngine
     // (m_ThrottleInput / m_SteerInput / m_BrakeInput) is read each step — leave it
     // at 0 for a car that just settles on its suspension, or drive it from a
     // script. A keyboard hookup and a designer-tunable wheel array are follow-ups;
-    // Ragdolls (the other half of #308 item 5) remain open.
+    // Ragdolls (the other half of #308) remain open.
     struct VehicleComponent
     {
         // --- Wheel layout, in the chassis body's local space (meters) ---
@@ -1848,7 +1848,7 @@ namespace OloEngine
         }
     };
 
-    // A physics ragdoll (issue #308 item 5) built from an animation skeleton's
+    // A physics ragdoll (issue #308) built from an animation skeleton's
     // bone hierarchy. FOUNDATION slice: at physics start, JoltScene expands this
     // component into a chain of per-bone rigidbodies linked by SwingTwist joints
     // (the ragdoll-friendly cone + twist constraint), reusing the existing
@@ -1926,7 +1926,7 @@ namespace OloEngine
         }
     };
 
-    // Cloth / soft-body simulation (issue #460, first slice). A procedural grid of
+    // Cloth / soft-body simulation (issue #460). A procedural grid of
     // particles is created as a Jolt soft body at runtime start; it simulates under
     // gravity and collides with the static/rigid world, and the deformed vertices are
     // read back each frame to drive a live render mesh. Every field is authored data —
@@ -3773,7 +3773,7 @@ namespace OloEngine
         auto operator==(const UIInputFieldComponent&) const -> bool = default;
     };
 
-    // --- Phase 4: Complex Widgets ---
+    // Complex Widgets ---
 
     enum class UIScrollDirection : u8
     {
@@ -3994,7 +3994,7 @@ namespace OloEngine
         u32 m_StreamingLoadRadius = 3; // Tile load radius around camera
         u32 m_StreamingMaxTiles = 25;  // LRU tile budget
 
-        // ── Adaptive virtual texturing (serialized, issue #715 slice 1) ──
+        // ── Adaptive virtual texturing (serialized, issue #715) ──
         //
         // An ALTERNATIVE surfacing path, not a replacement: with this off the
         // splat blend in Terrain_PBR / Terrain_GBuffer runs exactly as before.
@@ -4311,14 +4311,14 @@ namespace OloEngine
         AssetHandle m_NormalMap1 = 0;
         AssetHandle m_NoiseTexture = 0;
 
-        // Depth-based effects (Phase 2)
+        // Depth-based effects
         bool m_RefractionEnabled = true;
         f32 m_DepthSofteningDistance = 2.0f;
         f32 m_RefractionDistortion = 0.05f;
         f32 m_RefractionHeightFactor = 0.5f;
         glm::vec3 m_RefractionColor = { 0.0f, 0.05f, 0.1f };
 
-        // Foam (Phase 3)
+        // Foam
         AssetHandle m_FoamTexture = 0;
         f32 m_FoamHeightStart = 0.3f;
         f32 m_FoamFadeDistance = 0.5f;
@@ -4331,14 +4331,14 @@ namespace OloEngine
         glm::vec3 m_SSSColor = { 0.0f, 0.5f, 0.4f };
         f32 m_SSSIntensity = 0.5f;
 
-        // Screen Space Reflections (Phase 4)
+        // Screen Space Reflections
         bool m_SSREnabled = true;
         f32 m_SSRMaxSteps = 64.0f;
         f32 m_SSRStepSize = 0.1f;
         f32 m_SSRMaxDistance = 50.0f;
         f32 m_SSRThickness = 0.5f;
 
-        // Planar (mirror) reflections (Phase 7) — a true second render of the
+        // Planar (mirror) reflections — a true second render of the
         // opaque scene from a camera mirrored across this surface, produced by
         // PlanarReflectionRenderPass and sampled projectively in the shader.
         // Forward / forward+ path only; one reflective surface drives the single
@@ -4348,13 +4348,13 @@ namespace OloEngine
         f32 m_PlanarReflectionIntensity = 1.0f;
         f32 m_PlanarReflectionDistortion = 0.02f;
 
-        // Tessellation (Phase 5)
+        // Tessellation
         f32 m_TessellationFactor = 8.0f;
         bool m_TessellationEnabled = false;
         f32 m_TessMinDistance = 10.0f;
         f32 m_TessMaxDistance = 200.0f;
 
-        // Underwater rendering (Phase 6 — WATER_FUTURE_IMPROVEMENTS.md §7.2)
+        // Underwater rendering (WATER_FUTURE_IMPROVEMENTS.md §7.2)
         // Applied as a screen-space exponential color shift when the camera
         // sits below the water plane. Density is a per-metre absorption
         // coefficient; the depth-fade math mirrors UnderwaterFog::Apply()

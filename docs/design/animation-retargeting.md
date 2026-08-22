@@ -81,7 +81,7 @@ All four follow-ups have now shipped:
    `SkeletonRetargetMap::BuildByHumanoidRole`. The auto-mapper is
    heuristic — Blender/Rigify's numbered-spine metarig is best-effort, and an
    unconventional rig may need `SetBone` overrides.
-2. ~~**Full per-bone translation retargeting**~~ — **done** (issue #631 part 2):
+2. ~~**Full per-bone translation retargeting**~~ — **done** (issue #631):
    `RetargetOptions::TranslationMode::PerBoneRatio` transfers every mapped
    non-root bone's translation delta scaled by the target/source bone-length
    ratio (`|targetRest.Translation| / |sourceRest.Translation|`, falling back to
@@ -89,7 +89,7 @@ All four follow-ups have now shipped:
    both `RetargetLocalPose` and the `RetargetClip` bake; default stays
    `RootOnly` (the first-slice behavior). IK-preserving foot/hand placement is
    handled downstream by `FootIKComponent` (docs/design/locomotion.md).
-3. ~~**Live (un-baked) runtime retargeting**~~ — **done** (issue #631 part 2):
+3. ~~**Live (un-baked) runtime retargeting**~~ — **done** (issue #631):
    `RetargetingComponent` (`Animation/Retargeting/RetargetingComponent.h`) +
    `RetargetingSystem`, running as the `"Retargeting"` gameplay-scheduler node
    before the animation systems (and in the editor-preview tick). The source rig
@@ -104,7 +104,7 @@ All four follow-ups have now shipped:
    against the runtime `RetargetingStateComponent` cache). Full cross-binding:
    generated tuple/serializers, SaveGame `Serialize()`+`RegisterAll`, Lua
    usertype, `OLO_PROPERTY` C# glue, editor DrawComponent undo.
-4. ~~**Editor authoring UI**~~ — **done** (issue #631 part 2): the
+4. ~~**Editor authoring UI**~~ — **done** (issue #631): the
    "Animation Retargeting" inspector block (SceneHierarchyPanel) — source
    entity/model pickers (drag-drop `CONTENT_BROWSER_MODEL`), mode toggles, and a
    "Target Role Assignments" table showing each bone's `AutoDetect` result with

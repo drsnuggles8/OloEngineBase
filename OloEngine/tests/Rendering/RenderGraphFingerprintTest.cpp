@@ -58,7 +58,7 @@ namespace OloEngine::Tests
         // The IDENTITIES the blackboard imports (as opposed to declares). They are
         // not settings, so they need their own hook.
         //
-        // Handles, not raw GL ids, since issue #691 step 3 slice 6 — and the
+        // Handles, not raw GL ids, since issue #691 — and the
         // fingerprint hashes them for a reason this test now covers by
         // construction: ShadowMap/DDGI free their textures BEFORE recreating, so
         // GL may reissue the same name and a raw-id hash would see no change.

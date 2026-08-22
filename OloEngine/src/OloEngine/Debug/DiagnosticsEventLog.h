@@ -5,7 +5,7 @@
 // giving an agent a unified diagnostics timeline. It mirrors the script-error ring
 // buffer (Scripting/ScriptError.h) and the engine log ring buffer (Core/Log.h):
 // real engine seams push structured records from the game thread; the read-only MCP
-// diagnostics server (#306 item B) reads them from its handler thread, so every
+// diagnostics server (#306) reads them from its handler thread, so every
 // access is mutex-guarded.
 //
 // "Expose, don't embed": this records structured events only — it performs no

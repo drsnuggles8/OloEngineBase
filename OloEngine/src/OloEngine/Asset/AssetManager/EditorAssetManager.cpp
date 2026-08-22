@@ -333,7 +333,7 @@ namespace OloEngine
         // Material's Ref<Texture2D> members, sprites, decals, UI — keep pointing at the
         // pre-edit object until the whole scene is reloaded. An in-place refresh keeps
         // the same object identity, so every existing Ref sees the new pixels on the
-        // next bind (issue #544 Part B).
+        // next bind (issue #544).
         Ref<Asset> asset;
         if (type == AssetType::Texture2D)
         {

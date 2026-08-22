@@ -291,7 +291,7 @@ namespace OloEngine
         return glm::uvec2(tileIndex % config.CacheTilesWide, tileIndex / config.CacheTilesWide);
     }
 
-    // ── Adaptive virtual images (slice 3 of #715) ────────────────────────────
+    // ── Adaptive virtual images (#715) ────────────────────────────
     //
     // The atlas allocator hands each sector a power-of-two square at a
     // power-of-two-ALIGNED origin (AtlasAllocator's buddy structure guarantees
@@ -470,12 +470,12 @@ namespace OloEngine
     [[nodiscard]] glm::vec4 VTPageTerrainUVRect(const TerrainVirtualTextureConfig& config,
                                                 const VTSectorSnapshot& sector, u32 sectorIndex, u32 pageKey);
 
-    // ── Incremental indirection updates (slice 2 of #715) ────────────────────
+    // ── Incremental indirection updates (#715) ────────────────────
     //
     // @brief One frame's worth of indirection-texel CHANGES, plus the region the
     // coarse→fine propagation has to be re-run over because of them.
     //
-    // Slice 1 republished the indirection map by REBUILDING it: clear every mip,
+    // The original republished the indirection map by REBUILDING it: clear every mip,
     // re-stamp every resident page, re-propagate every level — ~1.33 *
     // VirtualPagesWide^2 texel writes plus as many again in reads, on every frame
     // where residency changed at all, to express a change of typically under a

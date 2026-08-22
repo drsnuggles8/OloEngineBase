@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-    // @brief Virtual-geometry shadow casting (issue #629, slice 6).
+    // @brief Virtual-geometry shadow casting (issue #629).
     //
     // Called by ShadowRenderPass per shadow view — every CSM cascade AND every
     // local-light atlas entry (spot tile / point-light cube face) — after the

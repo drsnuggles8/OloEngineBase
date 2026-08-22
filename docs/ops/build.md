@@ -366,8 +366,8 @@ not a CMake preset). Selection order, first hit wins:
 
 1. `--rhi=opengl` / `--rhi=vulkan` on the command line (case-insensitive).
 2. `config/renderer.yaml` (`Renderer: { RHI: <name> }`) — looked up under the
-   process working directory first, then next to the executable (#691
-   Phase 9; the exe-dir fallback is what rescues a packaged game launched
+   process working directory first, then next to the executable (#691;
+   the exe-dir fallback is what rescues a packaged game launched
    with a stale shortcut "Start in"). The editor's **Renderer Settings**
    dropdown writes this file; a packaged game ships one from the Build Game
    pipeline (`GameBuildSettings::DefaultRendererBackend`). Applies on

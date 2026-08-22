@@ -2,7 +2,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// #691 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
 // binding 57 is the engine-wide vertex-pull binding; the root struct carries
 // this buffer's device address, so the SAME 20-byte {vec3 position, vec2 uv}
 // stream the attribute path consumes is read by index instead. OLO_VULKAN is
@@ -56,7 +56,7 @@ layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
-// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// Texture inputs. Under heap-bindless (issue #691) these become heap
 // lookups keyed by the SAME slot numbers the bindful branch declares, so the two
 // variants cannot disagree about which texture is which — and note the shader
 // BODY below is byte-identical between them. The include is inert without
@@ -129,7 +129,7 @@ float projectedRadiusInPixels(float viewZ)
 {
     // u_Projection[1][1] is the Y scale factor (1 / tan(fov/2)) — abs()
     // because this block's matrix carries the shader-reconstruction row flip
-    // on Vulkan ([1][1] negative, #691 Phase 8); a magnitude is wanted here
+    // on Vulkan ([1][1] negative, #691); a magnitude is wanted here
     // and abs is a no-op on GL.
     return (u_Radius * abs(u_Projection[1][1]) * float(u_ScreenHeight)) / (2.0 * abs(viewZ));
 }

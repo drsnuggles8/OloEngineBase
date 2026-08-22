@@ -110,10 +110,12 @@ shader — `FoliageRenderer` already skips rendering an invalid impostor). Zero 
 changes, zero rendering-path changes, and the existing evidence test's assumptions all
 still hold, because a *successful* reservation changes nothing about how the bake proceeds.
 
-**If #715 slice 3 (or anything else) wants real spatial sharing for VT/impostor
-textures later**, the allocator underneath is already the right tool — `AtlasAllocator`
-doesn't know or care that this consumer only ever asked for accounting, not placement. The
-three numbered risks above are the checklist for that work, not a reason it can't be done.
+**The terrain virtual texture (#715) went on to want real spatial sharing, and got it
+from the same allocator** — its adaptive variable-size virtual images are placed by
+`AtlasAllocator`, not merely accounted for. That is the proof the split works:
+`AtlasAllocator` doesn't know or care that the impostor consumer only ever asked for
+accounting while the VT consumer asks for placement. The three numbered risks above are
+the checklist for any further consumer that wants placement, not a reason it can't be done.
 
 ## The vector::resize non-RAII leak trap
 

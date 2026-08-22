@@ -208,7 +208,7 @@ namespace OloEngine
         // (The old TEX_SHADOW CSM bind is gone: the per-pixel light-shaft
         // lookup moved into FroxelFogScatter.comp with the raymarch (issue
         // #435), and PostProcess_Fog.glsl declares no shadow sampler — the
-        // bind fed a slot no shader read. #691 Phase 7 Wave A.)
+        // bind fed a slot no shader read. #691.)
 
         // Integrated froxel fog volume (issue #435): the shader's volumetric
         // branch fetches it with one trilinear tap per pixel. When the froxel
@@ -263,7 +263,7 @@ namespace OloEngine
         // All three SetInt sampler companions are gone with the binds: already
         // redundant against the shader's own `layout(binding = N)`, and a
         // "uniform not found" warning every frame under the bindless variant
-        // where each name is a #define (issue #691 Phase 3).
+        // where each name is a #define (issue #691).
 
         // Scene colour at slot 0.
         context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);

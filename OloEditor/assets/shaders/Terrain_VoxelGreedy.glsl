@@ -18,7 +18,7 @@
 #include "include/VoxelQuadUnpack.glsl"
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): two-stream vertex pull, same
+// #691 (ADR 0011 §5, amendment (76)): two-stream vertex pull, same
 // shape as Foliage_Instance.glsl. Stream 0 on binding 57 is the 8-byte shared
 // unit quad {vec2 corner}; stream 1 on binding 63 is the per-chunk 8-byte
 // instance VB {uint geometry, uint material}, indexed by gl_InstanceIndex.

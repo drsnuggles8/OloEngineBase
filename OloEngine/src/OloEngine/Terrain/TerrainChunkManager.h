@@ -33,7 +33,7 @@ namespace OloEngine
         void GenerateAllChunks(const TerrainData& terrainData,
                                f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
-        // Rebuild a single chunk (for brush editing in Phase 4)
+        // Rebuild a single chunk (for brush editing)
         void RebuildChunk(const TerrainData& terrainData, u32 chunkX, u32 chunkZ,
                           f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
@@ -109,7 +109,7 @@ namespace OloEngine
             return m_Quadtree;
         }
 
-        // Enable/disable tessellation (fallback to Phase 1 triangle rendering)
+        // Enable/disable tessellation (fallback to plain triangle rendering)
         bool TessellationEnabled = true;
 
         // The INCLUSIVE chunk-grid rectangle a quadtree node covers, in chunk

@@ -1,7 +1,7 @@
 #pragma once
 
 // Shared, editor-side core behind the GENERIC consented, undoable MCP write tool
-// `olo_entity_set_field` (issue #306 item C, second slice) and its read companion
+// `olo_entity_set_field` (issue #306) and its read companion
 // `olo_entity_list_fields`. The first write slice (`olo_set_collision_layer`,
 // McpSetCollisionLayer.h) shipped one tool per field; this is the catch-all that
 // mutates ANY registered component field through one tool, so an agent can apply

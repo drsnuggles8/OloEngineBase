@@ -264,7 +264,7 @@ TEST_F(PhysicsJoint3DTest, ConeJointConfinesSwingWithinHalfAngle)
 }
 
 // =============================================================================
-// Breakable joints (issue #308 item 2). At runtime the per-step constraint
+// Breakable joints (issue #308). At runtime the per-step constraint
 // impulse is read back, converted to a force/torque, and compared against the
 // authored m_BreakForce / m_BreakTorque thresholds; over-threshold joints are
 // removed and a JointBrokeEvent is published on the Scene's GameplayEventBus.
@@ -403,7 +403,7 @@ TEST_F(PhysicsJoint3DTest, UnbreakableByDefaultIgnoresLoad)
 }
 
 // =============================================================================
-// Powered joints — motors + friction (issue #308 item 3). The Hinge / Slider
+// Powered joints — motors + friction (issue #308). The Hinge / Slider
 // arms of JoltScene::CreateConstraint read the authored motor fields and put the
 // Jolt constraint into the requested motor state at creation time. Each test
 // stands the joint up so that the motor / friction it configures produces motion
@@ -606,7 +606,7 @@ TEST_F(PhysicsJoint3DTest, SliderFrictionResistsSlideWithoutMotor)
 }
 
 // =============================================================================
-// Springy (soft) limits — issue #308 item 3, SpringSettings. A limit-spring
+// Springy (soft) limits — issue #308, SpringSettings. A limit-spring
 // frequency > 0 turns the hinge/slider limits into springs: the body may
 // overshoot the limit and a restoring force at that frequency pulls it back.
 // Jolt's frequency mode is mass-normalized, so the static sag under gravity is
@@ -688,7 +688,7 @@ TEST_F(PhysicsJoint3DTest, HingeSoftLimitSpringSagsPastHardStop)
 }
 
 // =============================================================================
-// SwingTwist (issue #308 item 4). A ragdoll-friendly ball joint: the swing is
+// SwingTwist (issue #308). A ragdoll-friendly ball joint: the swing is
 // confined to a cone (two half-angles) and the twist about the axis is limited
 // to an authored range. Both are exercised below with position / rotation
 // assertions that a broken constraint fails by a wide margin.
@@ -812,7 +812,7 @@ TEST_F(PhysicsJoint3DTest, SwingTwistNormalisesInvertedTwistRange)
 }
 
 // =============================================================================
-// SixDOF (issue #308 item 4). Each of the 3 translation + 3 rotation DOF is
+// SixDOF (issue #308). Each of the 3 translation + 3 rotation DOF is
 // independently Locked / Limited / Free. The frame's X axis is m_Axis; the
 // other two axes are derived perpendicular. Default: every axis Locked.
 // =============================================================================
@@ -929,7 +929,7 @@ TEST_F(PhysicsJoint3DTest, SixDOFLimitedTranslationStopsAtBound)
 }
 
 // =============================================================================
-// Pulley (issue #308 item 4). Two bodies hang from two fixed world-space points;
+// Pulley (issue #308). Two bodies hang from two fixed world-space points;
 // the rope keeps |A-FixedA| + Ratio*|B-FixedB| within [Min, Max]. A heavier body
 // descends and, through the taut rope, LIFTS the lighter body — which a free body
 // would never do (it would fall). The segment-length sum is conserved.
@@ -982,7 +982,7 @@ TEST_F(PhysicsJoint3DTest, PulleyLiftsLighterBodyAsHeavierBodyDescends)
 }
 
 // =============================================================================
-// Gear (issue #308 item 4), body-to-body v1 form. Couples two bodies' rotation
+// Gear (issue #308), body-to-body v1 form. Couples two bodies' rotation
 // about their axes by a ratio: connectedRotation = -ratio * thisRotation. With
 // gravity off and only an initial spin on gear A, the gear must drive gear B in
 // the OPPOSITE direction at the authored ratio — a free gear B never moves.
@@ -1030,7 +1030,7 @@ TEST_F(PhysicsJoint3DTest, GearCouplesRotationByRatio)
 }
 
 // =============================================================================
-// RackAndPinion (issue #308 item 4), body-to-body v1 form. The CONNECTED body is
+// RackAndPinion (issue #308), body-to-body v1 form. The CONNECTED body is
 // the pinion (rotates about m_ConnectedAxis); THIS body is the rack (slides along
 // m_Axis): pinionRotation = ratio * rackTranslation. Pushing the rack along its
 // axis must spin the pinion — a free pinion never moves — by ratio·displacement.
@@ -1248,7 +1248,7 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     j.m_SixDOFTranslationMax = { 1.5f, 0.75f, 2.5f };
     j.m_SixDOFRotationMinDeg = { -60.0f, -30.0f, -15.0f };
     j.m_SixDOFRotationMaxDeg = { 60.0f, 90.0f, 45.0f };
-    // Pulley + Gear/RackAndPinion fields (issue #308 item 4).
+    // Pulley + Gear/RackAndPinion fields (issue #308).
     j.m_PulleyFixedPointA = { 1.25f, 6.5f, -0.75f };
     j.m_PulleyFixedPointB = { -2.0f, 7.0f, 1.5f };
     j.m_PulleyRatio = 3.0f;
@@ -1308,7 +1308,7 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_HingeLimitSpringDamping, 0.8f, kEps);
     EXPECT_NEAR(rj.m_SliderLimitSpringFrequency, 4.0f, kEps);
     EXPECT_NEAR(rj.m_SliderLimitSpringDamping, 1.2f, kEps);
-    // SwingTwist + SixDOF fields (issue #308 item 4).
+    // SwingTwist + SixDOF fields (issue #308).
     EXPECT_NEAR(rj.m_SwingNormalHalfAngleDeg, 33.0f, kEps);
     EXPECT_NEAR(rj.m_SwingPlaneHalfAngleDeg, 18.0f, kEps);
     EXPECT_NEAR(rj.m_TwistMinAngleDeg, -22.0f, kEps);
@@ -1331,7 +1331,7 @@ TEST_F(PhysicsJoint3DTest, ComponentSurvivesSaveGameRoundTrip)
     EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.x, 60.0f, kEps);
     EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.y, 90.0f, kEps);
     EXPECT_NEAR(rj.m_SixDOFRotationMaxDeg.z, 45.0f, kEps);
-    // Pulley + Gear/RackAndPinion fields (issue #308 item 4).
+    // Pulley + Gear/RackAndPinion fields (issue #308).
     EXPECT_NEAR(rj.m_PulleyFixedPointA.x, 1.25f, kEps);
     EXPECT_NEAR(rj.m_PulleyFixedPointA.y, 6.5f, kEps);
     EXPECT_NEAR(rj.m_PulleyFixedPointA.z, -0.75f, kEps);

@@ -107,7 +107,7 @@ layout(std430, binding = 18) readonly buffer FogSphereAreaLightBuf { FogSphereAr
 #include "../include/BindlessHeap.glsl"
 #include "../include/ThreadGroupSwizzle.glsl"
 
-// Heap-bindless conversion of the SAMPLER inputs (issue #691 Phase 3, bucket 1).
+// Heap-bindless conversion of the SAMPLER inputs (issue #691, bucket 1).
 //
 // THESE HAD TO MOVE WITH THE C++ SIDE, not after it. This shader already builds
 // as the bindless variant (its output image is converted below), so
@@ -139,7 +139,7 @@ layout(binding = 2) uniform sampler3D u_HistoryVolume;
 
 // Output scatter volume: rgb = in-scattered radiance, a = extinction
 
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the
 // declarations move into main() as locals built from the heap descriptors at
 // these image units; the body below is unchanged either way.
 #ifndef OLO_BINDLESS

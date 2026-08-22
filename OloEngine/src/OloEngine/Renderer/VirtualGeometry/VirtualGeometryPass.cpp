@@ -301,7 +301,7 @@ namespace OloEngine
         bool const twoPhase = prevHZB.IsUsable() && !Renderer3D::IsCullingCameraFrozen();
 
         // ── 1. DAG-cut + cull compute, one dispatch per instance ──
-        // The cull program's whole parameter set (issue #691 Phase 7): what
+        // The cull program's whole parameter set (issue #691): what
         // used to be ~18 bare uniforms poked through ComputeShader::Set* is one
         // std140 block re-uploaded before every dispatch. Declared out here
         // because both phases and the occlusion lambda below fill it.
@@ -368,7 +368,7 @@ namespace OloEngine
             // Persistent: the retained occlusion pyramid is renderer-owned, not
             // graph-pooled. The shader is bound by the caller before this lambda
             // runs, so the seam's program fork is already correct
-            // (issue #691 Phase 3).
+            // (issue #691).
             HeapBinding::BindTextureOrOffset(0, hzb.HZBTexture, RHI::HeapSlotLifetime::Persistent);
             // Still needed on the SLOT path, and harmless on the heap path: the
             // fallback issues a real bind behind CommandDispatch's redundant-bind
@@ -378,7 +378,7 @@ namespace OloEngine
             // The SetInt('u_HZB', 0) companion is gone: redundant against the
             // shader's own layout(binding = 0), and a per-frame 'uniform not found'
             // warning under the bindless variant where the name is a #define.
-            // A8 seam, shader-reconstruction flavour (#691 Phase 7): same
+            // A8 seam, shader-reconstruction flavour (#691): same
             // contract as GPUFrustumCuller's uploads — VirtualClusterCull.comp
             // samples the HZB at `ndc.xy * 0.5 + 0.5` against a pyramid built
             // from row-mirrored depth. Row flip only. Identity on GL.
@@ -439,7 +439,7 @@ namespace OloEngine
         // a reject nobody re-tests would be a hole. ──
         m_CullShader->Bind();
         // The former bare uniforms, now ONE std140 block refilled per dispatch
-        // (issue #691 Phase 7). Note this is a FRESH struct per phase, so a
+        // (issue #691). Note this is a FRESH struct per phase, so a
         // control the phase does not set reads 0 — which is what the old
         // per-program uniform state gave only by accident, and is why phase 2
         // had to explicitly zero u_DebugDrawClusters below.
@@ -461,7 +461,7 @@ namespace OloEngine
         bindOcclusionInputs(prevHZB);
         // Once, before the loop. bindOcclusionInputs stages the HZB offset a
         // single time above, so re-publishing it per instance uploaded the same
-        // unchanged table N times (issue #691 Phase 3).
+        // unchanged table N times (issue #691).
         HeapBinding::FlushOffsets();
         for (sizet i = 0; i < instances.size(); ++i)
         {
@@ -553,7 +553,7 @@ namespace OloEngine
             {
                 // Image units 0/1 (separate namespace from the sampler texture units).
                 //
-                // DELIBERATELY NOT CONVERTED to the heap (issue #691 Phase 3). These feed
+                // DELIBERATELY NOT CONVERTED to the heap (issue #691). These feed
                 // VirtualMeshGBuffer.glsl, and the bindless compile route produces no
                 // SPIR-V and therefore never runs Reflect() — so a G-Buffer shader taken
                 // down it would have m_IsDeferredCapable stay false and be misrouted out
@@ -673,7 +673,7 @@ namespace OloEngine
             cullParams.Phase2 = 1;
             cullParams.WriteRejected = 0;
             // Explicitly OFF for phase 2: emitting here would draw a second
-            // sphere over every disoccluded cluster. Since #691 Phase 7 the
+            // sphere over every disoccluded cluster. Since #691 the
             // fresh struct already zeroes it — this assignment stays as the
             // statement of intent, not as the mechanism.
             cullParams.DebugDrawClusters = 0;
@@ -698,7 +698,7 @@ namespace OloEngine
             if (rejectGroups > 0)
             {
                 // Publish the HZB offset staged by bindOcclusionInputs before the
-                // dispatch reads it (issue #691 Phase 3).
+                // dispatch reads it (issue #691).
                 HeapBinding::FlushOffsets();
                 // One dispatch, one refill. u_InstanceIndex stays 0 here and
                 // that is correct: Phase2() returns before main() ever reads it
@@ -738,7 +738,7 @@ namespace OloEngine
             const Ref<ComputeShader>& rasterShader = useInt64 ? m_RasterShaderInt64 : m_RasterShader;
 
             rasterShader->Bind();
-            // Former bare uniforms, one std140 block (issue #691 Phase 7).
+            // Former bare uniforms, one std140 block (issue #691).
             UBOStructures::VirtualRasterUBO rasterParams{};
             rasterParams.ViewportWidth = registry.GetVisbufferWidth();
             rasterParams.ViewportHeight = registry.GetVisbufferHeight();
@@ -806,7 +806,7 @@ namespace OloEngine
                     // UploadMaterialForDirectDraw above writes this instance's
                     // per-material heap offsets into the material UBO; publish
                     // whatever it also staged on the shared table before the draw
-                    // reads it (issue #691 Phase 3).
+                    // reads it (issue #691).
                     context.FlushHeapOffsets();
                     context.DrawIndexed(fullscreen);
                 }
@@ -828,7 +828,7 @@ namespace OloEngine
             // describes the program in flight. Binding the images first would take the
             // fallback path even with the heap enabled.
             m_ColorizeShader->Bind();
-            // Shares VirtualRasterParams with the SW raster (issue #691 Phase 7);
+            // Shares VirtualRasterParams with the SW raster (issue #691);
             // the colorize's former u_Width/u_Height ARE ViewportWidth/Height.
             UBOStructures::VirtualRasterUBO colorizeParams{};
             colorizeParams.ViewportWidth = registry.GetDebugWidth();

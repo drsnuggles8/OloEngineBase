@@ -254,7 +254,7 @@ namespace OloEngine::Animation
         }
 
         // Ground-adaptation foot/hand IK after aim/limb/chain IK so it corrects
-        // the final intent pose (issue #631 part 3)
+        // the final intent pose (issue #631)
         if (footIK && footIKState && footIK->Enabled)
         {
             ApplyFootIKPostPass(skeleton, *footIK, *footIKState, entityWorldTransform, deltaTime);

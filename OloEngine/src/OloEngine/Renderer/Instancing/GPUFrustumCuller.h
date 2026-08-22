@@ -83,7 +83,7 @@ namespace OloEngine
             }
         };
 
-        // Result of a two-phase phase-1 cull (#431 Stage 2). Phase 1 (dispatched
+        // Result of a two-phase phase-1 cull (#431). Phase 1 (dispatched
         // at submission, against the PREVIOUS frame's HZB) writes the survivors +
         // their indirect command (drawn first) AND appends frustum-visible but
         // occluded instances to a reject buffer. `DispatchPhase2()` later re-tests
@@ -164,7 +164,7 @@ namespace OloEngine
                         const glm::vec4& localBoundingSphere,
                         f32 radiusExpansion);
 
-        // Two-phase phase 1 (#431 Stage 2). Dispatched at submission against the
+        // Two-phase phase 1 (#431). Dispatched at submission against the
         // per-frame occlusion inputs (SetOcclusion → previous frame's HZB):
         // frustum-tests every instance, draws survivors via Phase1*, and appends
         // frustum-visible-but-occluded instances to the reject buffer for phase
@@ -175,7 +175,7 @@ namespace OloEngine
                                               const glm::vec4& localBoundingSphere,
                                               f32 radiusExpansion);
 
-        // Two-phase phase 2 (#431 Stage 2). Re-tests `result`'s reject buffer
+        // Two-phase phase 2 (#431). Re-tests `result`'s reject buffer
         // against `currentHZB` (this frame's depth pyramid, no reprojection) and
         // fills Phase2Output / Phase2Indirect with the instances that turned out
         // visible. Call at execute time, after the current-frame HZB is built.
@@ -200,7 +200,7 @@ namespace OloEngine
             Ref<StorageBuffer> IndirectBuffer; // binding 17 — DrawElementsIndirectCommand
             u32 Capacity = 0;                  // in instances
 
-            // Two-phase additions (#431 Stage 2), allocated lazily by
+            // Two-phase additions (#431), allocated lazily by
             // EnsureTwoPhaseBuffers() only when the slot drives a two-phase cull
             // so the frustum-only / single-phase paths pay no extra VRAM.
             Ref<StorageBuffer> RejectedBuffer;  // binding 18 (write) / 16 (phase-2 read)
@@ -235,7 +235,7 @@ namespace OloEngine
         u32 m_DebugOutputCapacity = 0;
 
         // InstanceFrustumCull/InstanceOcclusionCull.comp's former bare uniforms
-        // (issue #691 Phase 7), at UBO_INSTANCE_CULL — one block shared verbatim
+        // (issue #691), at UBO_INSTANCE_CULL — one block shared verbatim
         // by both .comp files. GLSL-for-Vulkan forbids a non-opaque uniform
         // outside a block, and ComputeShader::Set* is a deliberate no-op on that
         // route, so the whole cull read zeros there. C++ twin:

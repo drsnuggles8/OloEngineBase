@@ -12,7 +12,7 @@ namespace OloEngine
     /// @brief Always-on GPU timing for the whole frame and each render-graph pass.
     ///
     /// Ring-buffered timestamp query pairs (RHI::QueryType::Timestamp through the
-    /// RenderCommand facade — backend-neutral since #691 Phase 9): frame N stamps
+    /// RenderCommand facade — backend-neutral since #691): frame N stamps
     /// begin/end timestamps around the frame's render and around every executed
     /// pass; the results are resolved a few frames later via a non-blocking
     /// availability check, so the published numbers always describe the most

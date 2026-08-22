@@ -123,7 +123,7 @@ namespace OloEngine
         // keep every loaded asset — and its GPU buffers — alive until static
         // destruction, which is AFTER the window destroys the graphics
         // context (on Vulkan that is a VMA "allocations not freed" abort at
-        // vmaDestroyAllocator, #691 Phase 8).
+        // vmaDestroyAllocator, #691).
         static void Unload()
         {
             s_AssetManager = nullptr;

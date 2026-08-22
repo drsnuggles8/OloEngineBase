@@ -34,7 +34,7 @@ namespace OloEngine
     // it before the graphics context dies — a function-local static Ref is
     // unreachable from Shutdown and its destructor runs at static-destruction
     // time, after the binding-state/root-object singletons it unregisters
-    // from may already be gone (review finding, #691 Phase 8).
+    // from may already be gone (review finding, #691).
     static Ref<UniformBuffer> s_IBLCameraUBO = nullptr;
 
     // Helper method to update camera matrices UBO for IBL rendering
@@ -59,7 +59,7 @@ namespace OloEngine
         cameraData.Projection = RHI::AdjustCaptureProjectionForBackend(projection);
         cameraData.Position = glm::vec3(0.0f); // IBL rendering is done from origin
         cameraData._padding0 = 0.0f;
-        // Capture flavour's reconstruction sibling = the raw matrix (#691 Phase 8).
+        // Capture flavour's reconstruction sibling = the raw matrix (#691).
         cameraData.ProjectionForReconstruction = projection;
 
         // Scene rendering may have bound a different buffer to UBO_CAMERA since
@@ -416,7 +416,7 @@ namespace OloEngine
             RenderCommand::DrawIndexed(vertexArray);
 
             // Now copy from framebuffer to cubemap face. Both operands are
-            // identities (issue #691 step 3): the source is the framebuffer's
+            // identities (issue #691): the source is the framebuffer's
             // colour attachment, the destination the cubemap's own object.
             RenderCommand::CopyImageSubDataFull(
                 framebuffer->GetColorAttachmentHandle(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
@@ -551,7 +551,7 @@ namespace OloEngine
         // RenderToCubemap draw below. On Vulkan its destructor clears the
         // published binding-state occupant, so a block-scoped UBO left the
         // bake shader reading a NULL device address — a GPU page fault that
-        // escalated to VK_ERROR_DEVICE_LOST (#691 Phase 8). GL only tolerated
+        // escalated to VK_ERROR_DEVICE_LOST (#691). GL only tolerated
         // the dangling bind by accident of its object lifetime rules.
         Ref<UniformBuffer> paramsUBO;
         if (advancedAvailable)

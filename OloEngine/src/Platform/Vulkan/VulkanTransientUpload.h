@@ -6,7 +6,7 @@
 
 // =============================================================================
 // VulkanTransientUpload.h — the staging/upload/readback plumbing shared by the
-// per-class transient-resource TUs (#691 Phase 9: these helpers were the
+// per-class transient-resource TUs (#691: these helpers were the
 // anonymous-namespace members that kept the old VulkanTransientResources.cpp
 // one TU; the split promoted the genuinely shared ones here, and each class
 // keeps its single-consumer helpers in its own .cpp's anonymous namespace).
@@ -20,7 +20,7 @@
 // at OloEngine scope they collided with those copies by name, so build
 // correctness rested on a hand-maintained unity-exclusion list — the
 // two-mirrors-drift shape this repo has a whole doc genre about (review
-// finding, #691 Phase 9). The nesting makes the collision unrepresentable;
+// finding, #691). The nesting makes the collision unrepresentable;
 // no exclusion list is load-bearing any more.
 // =============================================================================
 
@@ -50,7 +50,7 @@ namespace OloEngine::VulkanUpload
 {
 
     // Teardown forensics for object textures / storage buffers (#691
-    // Phase 8 — the close-button VMA abort): a Ref surviving the full
+    // The close-button VMA abort): a Ref surviving the full
     // renderer teardown keeps its VMA allocation alive into
     // vmaDestroyAllocator. The VAO twin lives in VulkanBufferResources
     // (LogSurvivingVertexArrays); this covers the classes owned by the
@@ -92,7 +92,7 @@ namespace OloEngine::VulkanUpload
     //  - DEPTH24STENCIL8 maps to D32_SFLOAT_S8_UINT, not D24_UNORM_S8_UINT:
     //    Vulkan mandates support for at least one of the two and AMD ships
     //    only the D32 variant, so this is the portable pick (more depth
-    //    precision, same aspects). Format-feature querying is Phase 6.
+    //    precision, same aspects). Format-feature querying is not implemented.
     //  - `srgb` is honoured only where the engine defines it (8-bit color
     //    and BC7), matching TextureSpecification::SRGB's contract.
     [[nodiscard]] VkFormat ImageFormatToVkFormat(ImageFormat format, bool srgb);
@@ -111,13 +111,13 @@ namespace OloEngine::VulkanUpload
     // upload-path plumbing (the graph's barriers go through
     // VulkanBarrierLowering, not this). The layer pair defaults to the
     // single-layer shape every 2D upload uses; the cubemap face paths
-    // (#691 Phase 8) pass a face index.
+    // (#691) pass a face index.
     void RecordImageBarrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
                             VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
                             VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess, u32 baseMip, u32 mipCount,
                             u32 baseLayer = 0u, u32 layerCount = 1u);
 
-    // "Is a Vulkan frame recording?" probe (#691 Phase 9, extracted from ten
+    // "Is a Vulkan frame recording?" probe (#691, extracted from ten
     // per-site copies — PR #794 review). Returns the live VulkanRendererAPI
     // exactly when BOTH hold: (1) the process RendererAPI is the Vulkan one,
     // and (2) a frame command buffer is currently recording

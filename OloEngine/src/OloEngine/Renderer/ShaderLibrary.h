@@ -60,7 +60,7 @@ namespace OloEngine
         // before the graphics context dies: the library is a static member
         // (Renderer3D::m_ShaderLibrary), and shaders surviving to static
         // destruction leak their VkShaderModules into vkDestroyDevice
-        // (VUID-vkDestroyDevice-device-05137, #691 Phase 8).
+        // (VUID-vkDestroyDevice-device-05137, #691).
         void Clear()
         {
             m_Shaders.clear();

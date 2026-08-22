@@ -112,7 +112,7 @@ namespace OloEngine
         static_assert(UBOStructures::DDGIVolumeUBO::MaxCascades == static_cast<u32>(DDGI::kMaxCascades),
                       "DDGIVolumeUBO's cascade arrays must be sized by DDGI::kMaxCascades");
 
-        // Overloaded rather than converted (issue #691 step 3, slice 5). The
+        // Overloaded rather than converted (issue #691). The
         // atlases are framebuffer ATTACHMENTS and migrated to identities; the
         // 1x1 placeholder/white/probe-data textures this pass creates itself are
         // still native and belong to a later resource-grain slice.
@@ -298,7 +298,7 @@ namespace OloEngine
         if (m_VolumeSubmitted)
             EnsureResources();
 
-        // ImportTextureHandle since issue #691 step 3 item 4. Slice 5 left this
+        // ImportTextureHandle since issue #691, which left this
         // native because the diagnostics could not read a handle-imported
         // resource; Debug::NativeTextureIdForDiagnostics (#736) closed that.
         const auto importAtlas = [&builder](const char* name, RHI::ResourceHandle texture, RGResourceFormat format,
@@ -1294,7 +1294,7 @@ namespace OloEngine
             const glm::mat4 view = glm::lookAt(glm::vec3(0.0f), kFaceTargets[face], kFaceUps[face]);
             const glm::mat4 vp = proj * view;
 
-            // A8 seam, CAPTURE flavour (#691 Wave C item 15): the z remap
+            // A8 seam, CAPTURE flavour (#691): the z remap
             // without the y flip. The atlas is DIRECTION-addressed by the
             // relight, so the screen-space y flip would store every face
             // row-mirrored relative to the GL bake while direction->texel
@@ -1308,7 +1308,7 @@ namespace OloEngine
             camera._padding0 = 0.0f;
             camera.PrevViewProjection = RHI::AdjustCaptureProjectionForBackend(vp);
             camera.RenderOrigin = m_RenderOrigin;
-            // Capture flavour's reconstruction sibling = the raw matrix (#691 Phase 8).
+            // Capture flavour's reconstruction sibling = the raw matrix (#691).
             camera.ProjectionForReconstruction = proj;
             m_CaptureCameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
 

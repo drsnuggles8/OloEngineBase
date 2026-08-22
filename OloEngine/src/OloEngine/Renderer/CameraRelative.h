@@ -8,7 +8,7 @@
 #include <cmath>
 
 // =============================================================================
-// Camera-relative rendering (issue #429, first slice)
+// Camera-relative rendering (issue #429)
 // =============================================================================
 //
 // Large world coordinates (tens of kilometres from the world origin) exceed the

@@ -52,7 +52,7 @@ namespace OloEngine::Audio::SoundGraph
 
         explicit WavePlayer(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            // Phase 4: sample-accurate Play/Stop. The handlers record the trigger's
+            // Sample-accurate Play/Stop. The handlers record the trigger's
             // frame offset within the block (docs/design/soundgraph-metasounds.md);
             // Process() applies Start/StopPlayback at that exact frame. A
             // block-boundary event (no offset) fires at frame 0 — the old behavior.
@@ -137,14 +137,14 @@ namespace OloEngine::Audio::SoundGraph
 
         void Process(u32 numFrames) final
         {
-            // Phase 2: called once per block. The per-block setup below (async-load
+            // Called once per block. The per-block setup below (async-load
             // polling, event-flag checks) amortises across numFrames — this is the
-            // amortisation Phase 1A put in place and Phase 2's typed wiring unlocked.
+            // amortisation the earlier work put in place and typed wiring unlocked.
             OLO_PROFILE_FUNCTION();
 
             CheckAsyncLoadCompletion();
 
-            // Phase 4: Play/Stop carry a frame offset within the block. Consume the
+            // Play/Stop carry a frame offset within the block. Consume the
             // pending offsets and apply the state change at the exact frame inside
             // the per-sample loop below, instead of quantising to the block boundary.
             // kNotFired (-1) never matches a frame index, so an un-fired trigger is a
@@ -225,7 +225,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
       private:
-        // triggerOffset (Phase 4) is the frame within the current block at which
+        // triggerOffset is the frame within the current block at which
         // the Play fired; it is forwarded to the OnPlay output event so chained
         // trigger consumers stay sample-accurate. Defaults to 0 (block boundary)
         // for the pending-playback path in CheckAsyncLoadCompletion.
@@ -275,7 +275,7 @@ namespace OloEngine::Audio::SoundGraph
             DBG("WavePlayer: Started playing");
         }
 
-        // triggerOffset (Phase 4): the frame at which the Stop / natural-finish
+        // triggerOffset: the frame at which the Stop / natural-finish
         // occurred, forwarded to OnStop / OnFinished. Defaults to 0 (block boundary).
         void StopPlayback(bool notifyOnFinish, i32 triggerOffset = 0)
         {
@@ -724,7 +724,7 @@ namespace OloEngine::Audio::SoundGraph
         FMutex m_LoadTasksMutex;
         std::vector<Tasks::TTask<void>> m_LoadTasks;
 
-        // Phase 4: sample-accurate Play/Stop triggers. The InputEvent handlers
+        // Sample-accurate Play/Stop triggers. The InputEvent handlers
         // Fire() these with the event's frame offset; Process() Consume()s them and
         // splits its per-sample loop at that frame. (Replaces the old block-boundary
         // Flag dirty-bits.)

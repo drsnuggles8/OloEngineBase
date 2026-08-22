@@ -6,7 +6,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5, decision A3): the SKINNED two-stream vertex pull.
+// #691 (ADR 0011 §5, decision A3): the SKINNED two-stream vertex pull.
 // The engine `Vertex` stream (V1: 32 B -- vec3 position @0, vec3 normal @12,
 // vec2 uv @24) arrives on the engine-wide vertex-pull binding 57. The BONE
 // stream (V2: 32 B -- uvec4 BoneIDs @0, vec4 Weights @16) is a SECOND vertex

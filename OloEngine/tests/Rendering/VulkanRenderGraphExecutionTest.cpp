@@ -1,13 +1,13 @@
 // OLO_TEST_LAYER: plumbing
 //
-// #691 Phase 5, the device-gated half: the render graph's execution layer on
+// #691, the device-gated half: the render graph's execution layer on
 // a REAL Vulkan device under the validation layer (debug builds also enable
 // synchronization validation — the actual test of the barrier translation).
 //
 // What runs on-device here:
 //   1. TransientPool acquisitions materialize as VMA-backed VulkanTexture2D /
 //      VulkanStorageBuffer through the ordinary factories (the pool itself is
-//      backend-neutral — the factory arm IS the Phase 5 seam), including LIFO
+//      backend-neutral — the factory arm IS the seam), including LIFO
 //      reuse across a simulated frame and Trim-driven deferred reclaim.
 //   2. The graph's transition records, resolved to RHI::Barriers and lowered
 //      to vkCmdPipelineBarrier2 batches through VulkanRendererAPI, with the
@@ -16,7 +16,7 @@
 //   3. The poison instrument's clears (ClearTextureFloat / ClearBufferFloat).
 //   4. CommandBucket packets dispatched through the SAME Molecular-Matters
 //      dispatch table against the Vulkan backend (state packets record
-//      dynamic state; draw packets hit the loud Phase 6 stubs and are
+//      dynamic state; draw packets hit the loud unimplemented stubs and are
 //      COUNTED, never silent).
 //
 // The gate: VulkanDevice::GetValidationErrorCount() must stay 0 across all
@@ -232,7 +232,7 @@ class VulkanRenderGraphExecution : public ::testing::Test
             vkDestroyFence(m_Device->GetDevice(), m_Fence, nullptr);
         // Command buffer returns with the pool inside VulkanDevice::Shutdown.
         EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u)
-            << "The Phase 5 bar: ZERO validation errors (sync validation included in debug builds)";
+            << "The bar: ZERO validation errors (sync validation included in debug builds)";
         m_Device->Shutdown();
         m_Device.reset();
     }
@@ -290,7 +290,7 @@ TEST_F(VulkanRenderGraphExecution, TransientPoolMaterializesVmaResourcesAndReuse
 
     // LIFO reuse: release-all then re-acquire the same descriptor must hand
     // back the SAME physical object (the pool's aliasing model is
-    // backend-neutral — Phase 5 must not have disturbed it).
+    // backend-neutral — the execution layer must not have disturbed it).
     const auto firstHandle = tex->GetRHIHandle();
     pool.ReleaseAll();
     const auto reacquired = pool.AcquireTexture(spec);
@@ -469,7 +469,7 @@ TEST_F(VulkanRenderGraphExecution, PoisonClearsAndBucketDispatchRunOnVulkan)
     // The same recorded CommandBucket packets the GL dispatcher executes,
     // against the Vulkan backend, through the SAME Molecular-Matters
     // dispatch table: state packets apply (dynamic state or recorded
-    // pipeline-key state), draw packets would hit the LOUD Phase 6 stub
+    // pipeline-key state), draw packets would hit the LOUD unimplemented stub
     // counter — dispatched, counted, never silent.
     //
     // Initialize is idempotent (re-assigns the same table); Shutdown is
@@ -495,11 +495,11 @@ TEST_F(VulkanRenderGraphExecution, PoisonClearsAndBucketDispatchRunOnVulkan)
         bucket.Submit(depthTest, meta1, allocator.get());
         bucket.SortCommands();
 
-        const u64 stubsBefore = api.GetPhase6StubHitCount();
+        const u64 stubsBefore = api.GetUnimplementedStubHitCount();
         SubmitFrame(api, [&]
                     { bucket.Execute(api); });
-        EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
-            << "Pure state packets must dispatch without touching a Phase 6 stub";
+        EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
+            << "Pure state packets must dispatch without touching an unimplemented stub";
         bucket.Reset(*allocator);
     }
 
@@ -509,7 +509,7 @@ TEST_F(VulkanRenderGraphExecution, PoisonClearsAndBucketDispatchRunOnVulkan)
 }
 
 // -----------------------------------------------------------------------------
-// #691 Phase 6, ADR 0011 §4: the frame arena hands out persistently-mapped,
+// #691, ADR 0011 §4: the frame arena hands out persistently-mapped,
 // device-addressable byte ranges — the memory every root-data struct lives in.
 // This is also the test that proves bufferDeviceAddress is genuinely ENABLED
 // (vkGetBufferDeviceAddress on a feature-disabled device is a validation
@@ -617,7 +617,7 @@ TEST(GpuFenceValueDispenser, AnchorsAboveTheCounterAndSaturatesInsteadOfWrapping
 }
 
 // -----------------------------------------------------------------------------
-// #691 Phase 6, ADR 0011 §6: RHI::GpuFence is a timeline semaphore — one
+// #691, ADR 0011 §6: RHI::GpuFence is a timeline semaphore — one
 // monotonic counter serving the GPU queue side (staged Signal/Wait drained
 // into a submit) and the CPU side (HostSignal / HostWait / CompletedValue).
 // -----------------------------------------------------------------------------

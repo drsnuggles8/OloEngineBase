@@ -2,7 +2,7 @@
 // =============================================================================
 // BindlessShaderPipelineTest.cpp
 //
-// Issue #691 Phase 3. Pins the single constraint that decides how heap-bindless
+// Issue #691. Pins the single constraint that decides how heap-bindless
 // can reach a shader on the OpenGL backend, because it is a property of the
 // TOOLCHAIN rather than of our code and a version bump could silently change
 // it in either direction.
@@ -19,7 +19,7 @@
 // tier 1 rejects it, then NO production shader can be written in bindless GLSL
 // without a compile path that bypasses SPIR-V entirely — which is a structural
 // finding about the rehearsal, not an implementation detail, and it is exactly
-// the kind of thing Phase 3 exists to discover before Phase 4 spends
+// the kind of thing the bindless rehearsal exists to discover before device bring-up spends
 // Vulkan-specific effort on the same assumption.
 //
 // WHY THIS IS A TEST AND NOT A COMMENT. A comment recording "shaderc rejects
@@ -156,7 +156,7 @@ void main()
             << "  shaderc now accepts GL_ARB_bindless_texture for the Vulkan target environment,\n"
             << "  so bindless shaders no longer need the raw-GLSL compile route\n"
             << "  (OpenGLShader's bindless path). Delete that route and this test, and update\n"
-            << "  docs/agent-rules/rhi-abstraction-boundary.md's Phase 3 section.\n";
+            << "  docs/agent-rules/rhi-abstraction-boundary.md's bindless section.\n";
 
         if (!vulkan.Succeeded)
         {
@@ -187,7 +187,7 @@ void main()
     }
 
     // =========================================================================
-    // THE §5c GUARD (issue #691 Phase 3).
+    // THE §5c GUARD (issue #691).
     //
     // docs/agent-rules/glsl-shaders.md §5c states the rule in prose:
     //
@@ -513,7 +513,7 @@ void main()
     // the side that substitutes the right null. Two declarations of one constant
     // drift, and drift here is silent: the shader would build a samplerCube from
     // whatever slot the stale number names, which is undefined rather than wrong
-    // in any way a test would notice (issue #691 Phase 3).
+    // in any way a test would notice (issue #691).
     TEST(BindlessShaderPipeline, GlslNullOffsetsMatchTheReservedHeapSlots)
     {
         namespace fs = std::filesystem;
@@ -893,7 +893,7 @@ void main()
     }
 
     // =========================================================================
-    // THE COMPLETENESS GUARD (issue #691 Phase 3, closing bucket 1).
+    // THE COMPLETENESS GUARD (issue #691, closing bucket 1).
     //
     // The test above asks "is a converted shader converted WHOLE". This one asks
     // the other half: "is every shader that COULD be converted either converted
@@ -1016,7 +1016,7 @@ void main()
               "issue #715: two STORAGE IMAGES (a level and the level above it) rebound per iteration "
               "through the seam's fallback in TerrainVirtualTexture::PublishIndirection" },
             { "compute/TerrainVTCompressBC7.comp",
-              "issue #715 slice 4: two STORAGE IMAGES (RGBA8 scratch in, RGBA32UI block staging out) "
+              "issue #715: two STORAGE IMAGES (RGBA8 scratch in, RGBA32UI block staging out) "
               "bound through the seam's fallback in TerrainVirtualTexture::CompressAndCopyTiles" },
 
             // ---- 2. A SAMPLER TARGET WITH NO RESERVED NULL -------------------
@@ -1037,7 +1037,7 @@ void main()
             // removes. The right conversion carries a heap OFFSET per quad and
             // indexes g_OloResourceHeap directly, deleting the array AND the
             // switch — a vertex-format change, not a declaration wrap, and one
-            // that belongs with the Vulkan shader path (Phase 6) where the payoff
+            // that belongs with the Vulkan shader path where the payoff
             // is real.
             //
             // Its sibling Renderer2D_Text.glsl IS converted: it declares two
@@ -1047,7 +1047,7 @@ void main()
             // about the ARRAY and not about the 2D path.
             { "Renderer2D_Quad.glsl",
               "2D batcher's 32-slot sampler array: bindless replaces the mechanism, so the conversion "
-              "is a vertex-format change (Phase 6)" },
+              "is a vertex-format change" },
         });
 
         // ---- 4. A HARNESS FIXTURE HAS NO SEAM TO STAGE THROUGH ---------------
@@ -1175,7 +1175,7 @@ void main()
         EXPECT_TRUE(undecided.empty())
             << "These shaders declare a sampler or image, are NOT on the bindless route, and carry no\n"
                "recorded reason. That is not a bug — an unconverted shader gets a real bind and renders\n"
-               "correctly — it is an unmade decision, and it is what keeps Phase 3 from having an end.\n"
+               "correctly — it is an unmade decision, and it is what keeps the bindless work from having an end.\n"
                "Either convert it (glsl-shaders.md §5a, and move its C++ bind in the SAME change per §5c),\n"
                "or add it to kSlotBasedByDesign with the reason it stays."
             << report;

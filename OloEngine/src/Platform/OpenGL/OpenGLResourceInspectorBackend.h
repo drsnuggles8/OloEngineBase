@@ -10,7 +10,7 @@
 namespace OloEngine
 {
     // @brief OpenGL implementation of GPUResourceInspector's data plane
-    //        (#691 Phase 9, ADR 0011 §1.6).
+    //        (#691, ADR 0011 §1.6).
     //
     // Holds everything that used to be the inspector's direct glad usage: the
     // DSA introspection queries, the synchronous glGetTextureSubImage

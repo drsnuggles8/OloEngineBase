@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: cullinglod
 //
-// Contract tests for the Nanite-style cluster LOD DAG builder (issue #629, step 1).
+// Contract tests for the Nanite-style cluster LOD DAG builder (issue #629).
 // Everything here is pure CPU: procedural meshes in, DAG invariants out. The two
 // load-bearing contracts from the issue's acceptance criteria:
 //   - the DAG error is ALWAYS monotone along every refinement edge (and the LOD spheres

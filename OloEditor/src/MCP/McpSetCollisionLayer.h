@@ -1,7 +1,7 @@
 #pragma once
 
 // Shared, editor-side logic behind the first consented, undoable MCP write tool
-// `olo_set_collision_layer` (issue #306 item C, first slice). Split out of
+// `olo_set_collision_layer` (issue #306). Split out of
 // McpTools.cpp into this header so it can be unit-tested without the httplib /
 // real-tool translation unit — the same "extract the reusable core into a header"
 // pattern McpPhysicsExplain.h / McpRenderOverrides.h / McpSchemaBuilder.h use, so

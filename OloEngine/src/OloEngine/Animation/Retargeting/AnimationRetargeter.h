@@ -32,7 +32,7 @@ namespace OloEngine::Animation
         // two rest poses when the rigs differ in overall scale; defaults to 1:1.
         f32 RootTranslationScale = 1.0f;
 
-        // How NON-root mapped bones transfer translation (issue #631 part 2 —
+        // How NON-root mapped bones transfer translation (issue #631 —
         // deferral #2 of docs/design/animation-retargeting.md).
         enum class TranslationMode : u8
         {

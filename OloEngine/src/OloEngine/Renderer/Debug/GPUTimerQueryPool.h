@@ -9,7 +9,7 @@ namespace OloEngine
 {
     /// @brief Pool of elapsed-time GPU query objects for per-command timing.
     ///
-    /// Backend-neutral since #691 Phase 9: RHI::QueryType::TimeElapsed queries
+    /// Backend-neutral since #691: RHI::QueryType::TimeElapsed queries
     /// through the RenderCommand facade (GL_TIME_ELAPSED on GL, a timestamp
     /// pair on Vulkan), with double-buffered readback:
     /// Frame N issues queries, Frame N+1 reads results (avoids GPU stalls).

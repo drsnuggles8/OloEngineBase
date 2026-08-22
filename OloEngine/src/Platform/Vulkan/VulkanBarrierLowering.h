@@ -2,7 +2,7 @@
 
 // =============================================================================
 // VulkanBarrierLowering — the pure RHI::Access → Vulkan synchronization2
-// lowering (issue #691 Phase 5, ADR 0011 §1.5).
+// lowering (issue #691, ADR 0011 §1.5).
 //
 // This is the Vulkan half of the two-currency barrier contract: the render
 // graph's planner derives (FromAccess, ToAccess, range, lanes) as the neutral
@@ -71,7 +71,7 @@ namespace OloEngine::VulkanBarrierLowering
     // (3-channel formats widen to RGBA, D24S8 lowers to D32_S8 — the
     // VulkanTransientResources choices, mirrored so a view reinterpretation
     // names the format the image actually has). No default: -Wswitch makes a
-    // new RHI::Format member a compile error here (#691 Phase 7).
+    // new RHI::Format member a compile error here (#691).
     [[nodiscard]] VkFormat ToVkFormat(RHI::Format format);
 
     // Assemble a full VkImageMemoryBarrier2 from a neutral barrier plus the
@@ -89,7 +89,7 @@ namespace OloEngine::VulkanBarrierLowering
     // tracker answers UNDEFINED the source masks are forced to NONE too:
     // contents are discarded, so there is nothing to make available.
     //
-    // Queue-family indices are IGNORED — Phase 5 runs one combined queue
+    // Queue-family indices are IGNORED — the backend runs one combined queue
     // (ADR 0010 contract row); IsCrossQueue stays informational until a real
     // second queue exists.
     [[nodiscard]] VkImageMemoryBarrier2 BuildImageBarrier(const RHI::Barrier& barrier,

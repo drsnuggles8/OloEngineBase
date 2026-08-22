@@ -14,7 +14,7 @@
 #include "include/FluidSplatCommon.glsl"
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): vertex pulling from the engine-wide binding 57.
+// #691 (ADR 0011 §5): vertex pulling from the engine-wide binding 57.
 // Same non-standard 8-byte {vec2 a_QuadPos} stream as FluidDepthSplat; the
 // pulled local under the attribute name keeps the body shared.
 layout(std430, binding = 57) readonly buffer OloVertexPull
@@ -94,7 +94,7 @@ void main()
     // Same analytic sphere surface as the depth splat, used only for the
     // scene-depth rejection here — depth test is off and no depth is written.
     vec3 viewSurface = v_ViewCenter + radius * vec3(v_UV, nz);
-    // Reconstruction flavour (#691 Phase 8): the *0.5+0.5 below is the GL
+    // Reconstruction flavour (#691): the *0.5+0.5 below is the GL
     // remap; the rasterizer-flavour u_Projection would double-apply it on
     // Vulkan (see FluidDepthSplat).
     vec4 clipPos = u_ProjectionForReconstruction * vec4(viewSurface, 1.0);

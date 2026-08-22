@@ -82,7 +82,7 @@ namespace OloEngine
         // multiple of resourceHeapAlignment (VUID-11235) — a plain
         // vmaCreateBuffer only honours the buffer's own memory requirement,
         // and a suballocation that lands 16-aligned binds a misaligned heap.
-        // Latent through Phase 6 (the pilot's allocation happened to land
+        // Latent for a long time (the pilot's allocation happened to land
         // aligned); surfaced the moment the allocation order changed.
         const VkDeviceSize heapAlignment = std::max<VkDeviceSize>(heapProps.resourceHeapAlignment, 1);
 
@@ -222,11 +222,11 @@ namespace OloEngine
         bindInfo.reservedRangeOffset = 0;
         bindInfo.reservedRangeSize = m_ReservedRangeSize;
         vkCmdBindResourceHeapEXT(cmd, &bindInfo);
-        // The SAMPLER heap rides along (#691 Phase 8): every pipeline's
+        // The SAMPLER heap rides along (#691): every pipeline's
         // combined-image-sampler mappings source their sampler half from it,
         // so any recording that binds this heap needs both or the first draw
         // trips VUID-11308. Cascading here (like Release) is what keeps
-        // hand-recording callers — the Phase 6 pilot test was the first —
+        // hand-recording callers — the pilot test was the first —
         // from having to know a second heap exists.
         VulkanSamplerHeap::Get().CmdBind(cmd);
     }
@@ -250,8 +250,8 @@ namespace OloEngine
         // descriptors pointing at them just did).
         VulkanDescriptorSlotCache::Get().Reset();
         VulkanDescriptorHeapBackend::Get().ReleaseDeviceObjects();
-        // The SAMPLER heap is the other half of the same binding model (#691
-        // Phase 8) with the identical lifetime — cascading here is what keeps
+        // The SAMPLER heap is the other half of the same binding model (#691)
+        // with the identical lifetime — cascading here is what keeps
         // every device-gated test fixture (five of them release this heap at
         // teardown) from having to know a second heap exists. Found the hard
         // way: the first fixture teardown after the sampler heap landed

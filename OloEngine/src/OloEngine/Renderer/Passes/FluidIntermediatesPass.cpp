@@ -176,7 +176,7 @@ namespace OloEngine
         // (water-identical slot/uniform name so IsKnownTextureBinding passes).
         // PUBLISH: consumed by BOTH splat shaders drawn below, neither of which is
         // bound at this point, so the seam's program fork has no correct answer
-        // here (issue #691 Phase 3).
+        // here (issue #691).
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID,
                                                  RHI::HeapSlotLifetime::FrameTransient);
         HeapBinding::FlushOffsets();
@@ -192,7 +192,7 @@ namespace OloEngine
         RenderCommand::BindFramebuffer(m_DepthFBO);
         {
             // The clear-program guard that used to be constructed here now lives
-            // inside the backend clear (issue #691 Phase 2 step 2) — it is an
+            // inside the backend clear (issue #691) — it is an
             // OpenGL driver hazard, so it is backend knowledge, and keeping it
             // here meant including a Platform/OpenGL header from a render pass.
             constexpr glm::vec4 kNoFluidSentinel(0.0f);

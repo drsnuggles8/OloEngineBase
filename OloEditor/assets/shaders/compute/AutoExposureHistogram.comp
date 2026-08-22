@@ -23,7 +23,7 @@ layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) i
 #include "../include/BindlessHeap.glsl"
 #include "../include/ThreadGroupSwizzle.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1), converted with
+// Heap-bindless conversion (issue #691, bucket 1), converted with
 // ToneMapRenderPass's histogram bind.
 #ifdef OLO_BINDLESS
 #define u_HDRColor OLO_HEAP_TEX_2D(0)
@@ -36,7 +36,7 @@ layout(std430, binding = 19) buffer HistogramBuffer
     uint histogram[NUM_BINS];
 };
 
-// Former bare uniforms, migrated to a std140 block (issue #691 Phase 7): the
+// Former bare uniforms, migrated to a std140 block (issue #691): the
 // Vulkan SPIR-V route cannot express non-block uniforms and its
 // ComputeShader::Set* calls are deliberate no-ops. The block is shared
 // VERBATIM with AutoExposureAverage.comp (one C++ struct fills both;

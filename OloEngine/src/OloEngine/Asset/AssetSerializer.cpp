@@ -708,7 +708,7 @@ namespace OloEngine
     {
 #if defined(OLO_WITH_MATERIALX)
         // A MaterialX document (.mtlx) is XML, not the engine's YAML material format — route it
-        // through the MaterialX reader (issue #655 Tier 3). Any other extension uses the YAML
+        // through the MaterialX reader (issue #655). Any other extension uses the YAML
         // path below.
         std::string materialExt = metadata.FilePath.extension().string();
         std::ranges::transform(materialExt, materialExt.begin(),
@@ -5097,7 +5097,7 @@ namespace OloEngine
         out << YAML::Key << "NoiseStrength" << YAML::Value << sys.NoiseModule.Strength;
         out << YAML::Key << "NoiseFrequency" << YAML::Value << sys.NoiseModule.Frequency;
 
-        // Phase 2 modules
+        // Collision, force fields, trails and sub-emitters
         out << YAML::Key << "CollisionEnabled" << YAML::Value << sys.CollisionModule.Enabled;
         out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.CollisionModule.Mode));
         out << YAML::Key << "CollisionPlaneNormal" << YAML::Value << sys.CollisionModule.PlaneNormal;

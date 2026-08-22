@@ -1,7 +1,7 @@
 #pragma once
 
 // VulkanResourceHeap — the VK_EXT_descriptor_heap resource-heap buffer.
-// Issue #691 Phase 6 (ADR 0011 §1.2's heap, realised on the backend it was
+// Issue #691 (ADR 0011 §1.2's heap, realised on the backend it was
 // designed for).
 //
 // The heap is a plain BDA-addressable buffer (VK_BUFFER_USAGE_DESCRIPTOR_
@@ -17,9 +17,9 @@
 // engine's RHI::DescriptorHeap backend. The engine-side heap singleton (slot
 // lifetime, generations, poisoning, the offset-table seam) runs only where
 // the GL renderer initialises it; under --rhi=vulkan the renderer is not up
-// yet (amendment 49 — the frame loop is Phase 6's own). A
+// yet (amendment 49 — the frame loop owns that). A
 // VulkanDescriptorHeapBackend : RHI::IDescriptorHeapBackend composes over
-// this class when the render graph starts executing on Vulkan (Phase 7) —
+// this class when the render graph starts executing on Vulkan —
 // the interface was audited for fit (AcquireDescriptor → write here,
 // UploadSlots → memcpy into the slot region, BindHeap → CmdBind).
 //
@@ -50,7 +50,7 @@ namespace OloEngine
         static constexpr u32 InvalidSlot = 0xFFFFFFFFu;
 
         // Reserve slots [0, count) for an EXTERNAL slot manager (the engine
-        // RHI::DescriptorHeap, #691 Phase 7): bump allocation then starts at
+        // RHI::DescriptorHeap, #691): bump allocation then starts at
         // `count`, so the two spaces cannot collide. Idempotent; false when
         // the heap is absent, count exceeds capacity, or dynamic allocation
         // already handed out a slot below `count` (install the engine heap
@@ -68,7 +68,7 @@ namespace OloEngine
         // embedded per pipeline (VulkanPipelineBuilder). Returns false on
         // failure.
         [[nodiscard]] bool WriteSampledImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout);
-        // The STORAGE_IMAGE sibling (#691 Phase 7 — compute/imageStore
+        // The STORAGE_IMAGE sibling (#691 — compute/imageStore
         // bindings). `layout` is GENERAL in every current use (the barrier
         // lowering puts storage accesses there).
         [[nodiscard]] bool WriteStorageImage(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout);

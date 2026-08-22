@@ -51,7 +51,7 @@ namespace OloEngine::Audio::SoundGraph
         virtual ~NodeProcessor() = default;
 
         //==============================================================================
-        /// Compiled-plan dispatch (Phase 3 — docs/design/soundgraph-metasounds.md)
+        /// Compiled-plan dispatch (docs/design/soundgraph-metasounds.md)
         ///
         /// A free-function thunk that invokes a node's Process *non-virtually*.
         /// SoundGraph::CompileExecutionPlan snapshots one per node into a flat
@@ -59,7 +59,7 @@ namespace OloEngine::Audio::SoundGraph
         /// function pointer instead of dispatching through the NodeProcessor vtable.
         /// (At block rate the dispatch cost is tiny either way — see the doc's
         /// honest-framing notes — but storing the operator handles flat is the
-        /// "compiled plan" the refactor specifies and the seam Phase 4's
+        /// "compiled plan" the refactor specifies and the seam the
         /// sample-offset trigger splitting will hang off of.)
         using ProcessFn = void (*)(NodeProcessor*, u32);
 
@@ -112,7 +112,7 @@ namespace OloEngine::Audio::SoundGraph
         struct InputEvent : public Input
         {
             using EventFunction = std::function<void(f32)>;
-            // Phase 4: sample-accurate handler — receives the trigger's frame
+            // Sample-accurate handler — receives the trigger's frame
             // offset within the block (docs/design/soundgraph-metasounds.md).
             // Trigger-consuming nodes register one of these so they can Fire their
             // TriggerRef at the exact offset; value-only handlers ignore the offset.
@@ -152,7 +152,7 @@ namespace OloEngine::Audio::SoundGraph
             {
             }
 
-            // sampleOffset (Phase 4) is forwarded to every destination so a node
+            // sampleOffset is forwarded to every destination so a node
             // firing a trigger mid-block (at frame `sampleOffset`) lets downstream
             // trigger consumers act at that exact frame. Defaults to 0 so existing
             // single-argument fires keep their block-boundary timing.
@@ -202,7 +202,7 @@ namespace OloEngine::Audio::SoundGraph
             return *element->second;
         }
 
-        // Phase 4 overload: registers a sample-offset-aware handler (a lambda taking
+        // Sample-offset overload: registers a sample-offset-aware handler (a lambda taking
         // (f32 value, i32 sampleOffset)). Distinct from the value-only overload by
         // the handler's arity, so existing AddInEvent(id, [](f32){...}) call sites
         // keep resolving to the legacy overload above.
@@ -225,7 +225,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         //==============================================================================
-        /// Typed stream endpoints (Phase 2 — docs/design/soundgraph-metasounds.md)
+        /// Typed stream endpoints (docs/design/soundgraph-metasounds.md)
         ///
         /// Inputs register a pointer to the node's ref member (AudioBufferRef /
         /// ValueRef<T>); outputs register a pointer to the node's output storage
@@ -476,7 +476,7 @@ namespace OloEngine::Audio::SoundGraph
             m_SampleRate = sampleRate;
         }
         virtual void Init() {}
-        // Block-rate process entry. Called once per block (Phase 2); derived nodes
+        // Block-rate process entry. Called once per block; derived nodes
         // produce `numFrames` samples per call. Audio-rate outputs write into their
         // AudioBuffer members; control-rate outputs update their scalar members once
         // per block. numFrames is guaranteed <= kMaxAudioBlockFrames by SoundGraph.

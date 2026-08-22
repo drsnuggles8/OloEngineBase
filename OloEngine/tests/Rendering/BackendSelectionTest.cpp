@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: unit
 //
-// #691 Phase 4: the runtime backend-selection chain (ADR 0011 §2) —
+// #691: the runtime backend-selection chain (ADR 0011 §2) —
 // `--rhi=<name>` flag → config-file fallback → OpenGL default. Pure parse
 // logic, fully headless: SelectRendererBackend touches no GL/Vulkan state and
 // never writes RendererAPI::s_API itself (Application applies the result), so
@@ -161,7 +161,7 @@ namespace
         EXPECT_TRUE(selection.Diagnostic.empty());
     }
 
-    // #691 Phase 9: the writer and the parser share one schema owner. This is
+    // #691: the writer and the parser share one schema owner. This is
     // the drift gate — if either side changes shape, the round-trip breaks
     // here rather than in a shipped game's config directory.
     TEST(BackendSelection, WriteRendererConfigRoundTripsThroughTheParser)
@@ -188,7 +188,7 @@ namespace
         std::filesystem::remove(path, ec);
     }
 
-    // #691 Phase 9: config-path resolution — cwd wins when its file exists,
+    // #691: config-path resolution — cwd wins when its file exists,
     // the exe-dir file rescues a wrong working directory, and the creation
     // default stays cwd-anchored so a fresh editor write cannot land in the
     // build output tree.

@@ -1,7 +1,7 @@
 #version 450 core
 
 // =============================================================================
-// Terrain virtual texture — BC7 tile compression (issue #715, slice 4).
+// Terrain virtual texture — BC7 tile compression (issue #715).
 //
 // One invocation per 4x4 block: the baked RGBA8 scratch tiles are compressed to
 // BC7 on the GPU each frame, so the physical cache can hold BC7 instead of raw

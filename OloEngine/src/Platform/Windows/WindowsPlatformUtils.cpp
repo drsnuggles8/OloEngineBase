@@ -130,7 +130,7 @@ namespace OloEngine
         // Headless / agent sessions cannot click a native modal — a
         // WM_CLOSE-driven shutdown with a dirty scene would block on this
         // MessageBox forever (the same shape as the auto-save recovery
-        // modal, OLO_EDITOR_AUTOSAVE_RECOVERY, issue #316 Part 5).
+        // modal, OLO_EDITOR_AUTOSAVE_RECOVERY, issue #316).
         // OLO_EDITOR_UNSAVED_PROMPT pre-answers every unsaved-changes
         // prompt: 'save'/'yes', 'discard'/'no', 'cancel'. Unset /
         // unrecognized keeps the interactive dialog, so a human's editor

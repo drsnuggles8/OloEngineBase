@@ -11,9 +11,9 @@
 // alpha = 255 marks the texel as a DIRECT mapping; the propagation pass leaves
 // those alone and fills everything else from the coarser level.
 //
-// ── Slice 2: the list is a DELTA, and it carries unmappings too ──────────────
+// The list is a DELTA, and it carries unmappings too ──────────────
 //
-// Slice 1 handed this pass every resident page after clearing the whole map.
+// The original handed this pass every resident page after clearing the whole map.
 // Since slice 2 it is the frame's *changes* — and an eviction is one of them,
 // written as an all-zero texel (alpha = 0), exactly what the clear pass used to
 // leave behind. That is the entry that stops an evicted page's stale physical

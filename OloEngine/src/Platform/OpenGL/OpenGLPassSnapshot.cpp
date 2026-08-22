@@ -2,7 +2,7 @@
 // OpenGLPassSnapshot.cpp
 //
 // GL definitions for the RenderGraphPassSnapshot clone engine declared in
-// Renderer/Debug/PassSnapshotBackend.h (#691 Phase 9, ADR 0011 §1.6). The
+// Renderer/Debug/PassSnapshotBackend.h (#691, ADR 0011 §1.6). The
 // orchestration — request lifecycle, scratch-slot cache, result bookkeeping —
 // stays in Renderer/Debug/RenderGraphPassSnapshot.cpp; every glad call of the
 // bitwise clone lives here, in native u32 currency end to end (see the seam

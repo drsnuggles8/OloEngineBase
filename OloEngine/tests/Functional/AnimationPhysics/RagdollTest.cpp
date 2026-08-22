@@ -10,7 +10,7 @@
 //   simulation, all driven through the real Scene::OnPhysics3DStart /
 //   OnUpdateRuntime path.
 //
-// FOUNDATION slice (issue #308 item 5): at physics start JoltScene::CreateRagdolls
+// FOUNDATION slice (issue #308): at physics start JoltScene::CreateRagdolls
 // expands every enabled RagdollComponent into a chain of per-bone Rigidbody3D +
 // sphere-collider + SwingTwist-joint components on the skeleton's bone entities
 // (reusing the existing constraint infrastructure rather than Jolt's dedicated

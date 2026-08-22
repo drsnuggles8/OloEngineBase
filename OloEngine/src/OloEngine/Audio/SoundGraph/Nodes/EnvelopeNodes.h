@@ -51,7 +51,7 @@ namespace OloEngine::Audio::SoundGraph
 
         explicit ADEnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            // Phase 4: the trigger handler records the event's frame offset within
+            // The trigger handler records the event's frame offset within
             // the block (docs/design/soundgraph-metasounds.md); Process() starts
             // the attack at that exact frame. A block-boundary event fires at frame 0.
             AddInEvent(IDs::s_Trigger, [this](float v, i32 sampleOffset)
@@ -98,7 +98,7 @@ namespace OloEngine::Audio::SoundGraph
                 m_CachedSampleRate = m_SampleRate;
             }
 
-            // Phase 4: the trigger carries a frame offset within the block. Consume
+            // The trigger carries a frame offset within the block. Consume
             // it and start the attack at that exact frame inside the loop, instead
             // of quantising to the block boundary. kNotFired (-1) never matches a
             // frame; an offset at/after numFrames clamps to the last frame.
@@ -168,7 +168,7 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_AttackProgress{ 0.0f };
         f32 m_DecayProgress{ 0.0f };
 
-        // Phase 4: sample-accurate retrigger. The InputEvent handler Fire()s this
+        // Sample-accurate retrigger. The InputEvent handler Fire()s this
         // with the event's frame offset; Process() Consume()s it to start the attack
         // at that exact frame (replaces the old block-boundary Flag).
         TriggerRef m_TriggerInput;
@@ -203,7 +203,7 @@ namespace OloEngine::Audio::SoundGraph
                 m_DecayRate = 1.0f / (decayTime * m_SampleRate);
         }
 
-        // triggerOffset (Phase 4) is the frame the attack started at, forwarded to
+        // triggerOffset is the frame the attack started at, forwarded to
         // the OnTrigger output event so chained trigger consumers stay sample-accurate.
         void StartAttack(i32 triggerOffset = 0)
         {
@@ -233,7 +233,7 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        // frame (Phase 4) is the current block frame, so a decay that completes
+        // frame is the current block frame, so a decay that completes
         // mid-block fires OnComplete — and, when looping, the retrigger's OnTrigger —
         // at that exact frame rather than at the block boundary.
         void ProcessDecay(i32 frame)
@@ -280,7 +280,7 @@ namespace OloEngine::Audio::SoundGraph
 
         explicit ADSREnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            // Phase 4: the trigger / release handlers record the event's frame
+            // The trigger / release handlers record the event's frame
             // offset within the block; Process() starts the attack / release at that
             // exact frame. A block-boundary event fires at frame 0.
             AddInEvent(IDs::s_Trigger, [this](float v, i32 sampleOffset)
@@ -336,7 +336,7 @@ namespace OloEngine::Audio::SoundGraph
                 m_CachedSampleRate = m_SampleRate;
             }
 
-            // Phase 4: trigger and release each carry a frame offset within the
+            // Trigger and release each carry a frame offset within the
             // block. Consume them and apply the attack / release at their exact
             // frames inside the loop. kNotFired (-1) never matches a frame; an
             // offset at/after numFrames clamps to the last frame.
@@ -434,7 +434,7 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_DecayProgress{ 0.0f };
         f32 m_ReleaseProgress{ 0.0f };
 
-        // Phase 4: sample-accurate trigger / release. The InputEvent handlers Fire()
+        // Sample-accurate trigger / release. The InputEvent handlers Fire()
         // these with the event's frame offset; Process() Consume()s them to start the
         // attack / release at that exact frame (replaces the old block-boundary Flags).
         TriggerRef m_TriggerInput;
@@ -477,7 +477,7 @@ namespace OloEngine::Audio::SoundGraph
                 m_ReleaseRate = 1.0f / (releaseTime * m_SampleRate);
         }
 
-        // triggerOffset / releaseOffset (Phase 4): the frame the attack / release
+        // triggerOffset / releaseOffset: the frame the attack / release
         // started at, forwarded to OnTrigger / OnRelease so chained trigger consumers
         // stay sample-accurate.
         void StartAttack(i32 triggerOffset = 0)
@@ -540,7 +540,7 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        // frame (Phase 4) is the current block frame, so a release that completes
+        // frame is the current block frame, so a release that completes
         // mid-block fires OnComplete at that exact frame rather than the block boundary.
         void ProcessRelease(i32 frame)
         {

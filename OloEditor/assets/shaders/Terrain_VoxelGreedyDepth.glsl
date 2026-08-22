@@ -14,7 +14,7 @@
 #include "include/VoxelQuadUnpack.glsl"
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): two-stream vertex pull. Stream 0
+// #691 (ADR 0011 §5, amendment (76)): two-stream vertex pull. Stream 0
 // (binding 57) = shared unit quad {vec2 corner}; stream 1 (binding 63) = the
 // per-chunk instance VB {uint geometry, uint material}. The material is unused
 // by a depth stage but the stride must still match the C++ layout.

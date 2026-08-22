@@ -79,7 +79,7 @@ namespace OloEngine
 
         // Fall back to the file shipped next to the executable — this is what
         // rescues a packaged game launched with an unexpected working directory
-        // (#691 Phase 9). Only when that file actually exists: the creation
+        // (#691). Only when that file actually exists: the creation
         // default below stays base-anchored so a fresh editor write lands in
         // OloEditor/config/, not in the build output tree.
         if (!exeDir.empty())

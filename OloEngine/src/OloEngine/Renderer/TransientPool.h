@@ -85,7 +85,7 @@ namespace OloEngine
         };
         [[nodiscard]] PoolStats GetStats() const;
 
-        // **Phase D Exit Criterion:** Report potential aliasing opportunities.
+        // Report potential aliasing opportunities.
         // Returns estimated memory savings if lifetime-based aliasing were applied.
         // For GL, aliasing is a forward-looking optimization; this reports the
         // analysis for debugging and future transient allocation decisions.
@@ -126,7 +126,7 @@ namespace OloEngine
         {
             std::string Kind; ///< "texture" | "framebuffer" | "buffer"
             u32 RendererID = 0;
-            /// The IDENTITY of the same object (issue #691 step 3, item 4).
+            /// The IDENTITY of the same object (issue #691).
             ///
             /// Carried ALONGSIDE the driver name, not instead of it: the report
             /// is read by a human or an agent, and a GL id is what a RenderDoc

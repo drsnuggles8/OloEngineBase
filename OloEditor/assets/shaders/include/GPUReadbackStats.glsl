@@ -38,7 +38,7 @@
 // engine-wide for the Vulkan vertex-pull streams. 64 is the one number never
 // claimed as an SSBO -- it is TEX_DDGI_VISIBILITY in the SAMPLER namespace. On
 // Vulkan's single-set model a shader that reads sampler 64 AND storage 64 is a
-// real within-shader collision (issue #691 Phase 7 Wave C, ADR item A2), so
+// real within-shader collision (issue #691, ADR item A2), so
 // GPUReadbackStatsLayoutTest.NoStatsConsumerAlsoSamplesBinding64 asserts that no
 // shader includes both this file and DDGICommon.glsl. If you need stats in a GI
 // pass, that test is the thing that will stop you, and the fix is to renumber --

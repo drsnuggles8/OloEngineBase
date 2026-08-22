@@ -89,7 +89,7 @@ namespace OloEngine
         // pool — and a Persistent view of a pooled target memoises an offset onto
         // an object the planner may reassign next frame, so the cached binding
         // then points at whatever took its place. Every consumer must ask rather
-        // than assume (issue #691 Phase 3).
+        // than assume (issue #691).
         [[nodiscard]] auto GetHZBLifetime() const -> RHI::HeapSlotLifetime
         {
             return m_ExternalHZBTexture.IsValid() ? RHI::HeapSlotLifetime::FrameTransient

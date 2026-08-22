@@ -7,7 +7,7 @@
 // =============================================================================
 // VulkanDeferredReclaim.h — generation-waited destruction for the Vulkan
 // backend's VMA allocations and non-VMA device objects (#691; split out of
-// the single VulkanTransientResources.h in Phase 9 — no GL twin, the driver
+// the single VulkanTransientResources.h — no GL twin, the driver
 // refcounts GL names).
 //
 // This header exposes Vulkan types directly — it is included only by
@@ -57,13 +57,13 @@ namespace OloEngine
 
         void Enqueue(VkImage image, VmaAllocation allocation);
         void Enqueue(VkBuffer buffer, VmaAllocation allocation);
-        // Phase 6: non-VMA device objects share the same generation discipline.
+        // Non-VMA device objects share the same generation discipline.
         // A semaphore may be referenced by an in-flight submit's wait/signal
         // list; a pipeline by an in-flight command buffer (ADR 0011 §3(d) —
         // hot-reload destruction is deferred, never inline).
         void Enqueue(VkSemaphore semaphore);
         void Enqueue(VkPipeline pipeline);
-        // Phase 7: attachment views (vkCmdBeginRendering references them from
+        // Attachment views (vkCmdBeginRendering references them from
         // in-flight command buffers exactly like pipelines).
         void Enqueue(VkImageView view);
         // Phase 7 Wave C: occlusion query pools. vkCmdResetQueryPool /

@@ -1,7 +1,7 @@
 // OLO_TEST_LAYER: plumbing
 //
 // Headless contract tests for the Vulkan barrier lowering (issue #691
-// Phase 5, ADR 0011 §1.5) — the CPU layer that pins the formula before any
+// ADR 0011 §1.5) — the CPU layer that pins the formula before any
 // device exists (CLAUDE.md rendering-verification rule, step 1).
 //
 // Everything here is pure: RHI::Access → (stage2, access2, layout) tables,

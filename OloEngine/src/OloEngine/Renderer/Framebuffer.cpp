@@ -23,7 +23,7 @@ namespace OloEngine
             case RendererAPI::API::Vulkan:
             {
 #if OLO_WITH_VULKAN
-                // #691 Phase 5: the TransientPool's attribute-only path. A
+                // #691: the TransientPool's attribute-only path. A
                 // Vulkan resource cannot exist without a device, so fall
                 // through to the loud assert when none is up.
                 if (VulkanDevice::Get() != nullptr)

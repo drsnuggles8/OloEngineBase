@@ -19,7 +19,7 @@ namespace OloEngine
             // GL/ImGui editor UI which needs a real OpenGL 4.6 context, and the
             // app runs window-less there. See CreateApplication below.
             //
-            // #691 Phase 8: the layer is pushed on BOTH backends and drives a
+            // #691: the layer is pushed on BOTH backends and drives a
             // FULL editor session on each. Under --rhi=vulkan the scene
             // renders through the Vulkan graph and the ImGui editor UI
             // composites over the swapchain via the Vulkan ImGui backend
@@ -32,7 +32,7 @@ namespace OloEngine
                 {
                     OLO_CORE_INFO("[RHI] EditorLayer under --rhi=vulkan: full editor session — the scene "
                                   "renders through the graph and the ImGui editor UI composites over the "
-                                  "swapchain via the Vulkan ImGui backend (#691 Phase 8)");
+                                  "swapchain via the Vulkan ImGui backend (#691)");
                 }
             }
         }

@@ -5,7 +5,7 @@
 namespace OloEngine
 {
     // @brief The three resources a terrain draw needs bound for the virtual-
-    // texture path (issue #715, slice 1).
+    // texture path (issue #715).
     //
     // Its own header, small on purpose: it is a parameter of
     // `Renderer3D::DrawTerrainPatch` AND a member of `DrawTerrainPatchCommand`,

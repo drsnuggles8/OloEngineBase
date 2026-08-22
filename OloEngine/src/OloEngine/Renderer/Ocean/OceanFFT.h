@@ -12,7 +12,7 @@ namespace OloEngine::Ocean
     // Tessendorf FFT ocean (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1).
     //
     // This is a *reference*: it pins the spectrum + inverse-FFT math on the CPU
-    // so the GPU butterfly compute port (Phase 2) can be validated against a
+    // so the GPU butterfly compute port can be validated against a
     // known-correct result, and so gameplay/physics (buoyancy) can sample the
     // exact ocean the GPU renders without a readback. Correctness and clarity
     // matter more than raw speed here — the per-frame GPU path does the heavy

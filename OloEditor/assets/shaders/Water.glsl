@@ -72,7 +72,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
     float _padding1;
-    // Reconstruction flavour of u_Projection (#691 Phase 8) — for the SSR
+    // Reconstruction flavour of u_Projection (#691) — for the SSR
     // marcher's unproject and the near/far row extraction below, which apply
     // GL-convention depth math themselves. Identical to u_Projection on GL.
     mat4 u_ProjectionForReconstruction;
@@ -269,7 +269,7 @@ float fbmNoise(vec2 p)
 // Reconstruct view-space position from screen UV and depth
 vec3 viewPosFromDepth(vec2 uv, float depth)
 {
-    // Reconstruction flavour (#691 Phase 8): the depth*2-1 below is the GL
+    // Reconstruction flavour (#691): the depth*2-1 below is the GL
     // unmap, so the matrix must carry GL-convention z rows — the rasterizer
     // flavour would double-apply the remap on Vulkan.
     // NDC: [-1, 1]
@@ -469,8 +469,8 @@ void main()
     vec2 screenUV = gl_FragCoord.xy * u_ScreenParams.zw;
 
     // --- Depth Softening ---
-    // GL-convention row extraction — needs the reconstruction flavour (#691
-    // Phase 8): the rasterizer flavour's remapped z rows break this formula.
+    // GL-convention row extraction — needs the reconstruction flavour (#691)
+    // The rasterizer flavour's remapped z rows break this formula.
     float nearPlane = u_ProjectionForReconstruction[3][2] / (u_ProjectionForReconstruction[2][2] - 1.0);
     float farPlane  = u_ProjectionForReconstruction[3][2] / (u_ProjectionForReconstruction[2][2] + 1.0);
 

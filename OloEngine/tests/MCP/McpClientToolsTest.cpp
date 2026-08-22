@@ -3,7 +3,7 @@
 #include <gtest/gtest.h>
 
 // The registry-merge contract for tools bridged from an OUTBOUND MCP client
-// connection (#673 Tier 1, bullet 1) — the trust seam, tested independently of
+// connection (#673, bullet 1) — the trust seam, tested independently of
 // any child process (the stdio transport has its own tests): foreign tool
 // definitions are runtime network data, so ReplaceClientTools must
 // validate-and-reject (never assert), confine every accepted tool to the

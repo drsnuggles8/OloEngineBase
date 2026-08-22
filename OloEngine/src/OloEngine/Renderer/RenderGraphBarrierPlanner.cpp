@@ -384,7 +384,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
             // The consumer's access was captured AT EMISSION (a read access
             // for RAW barriers, a WRITE access for WAW barriers) — the old
             // rescan of read declarations here silently defaulted every WAW
-            // consumer to ShaderSample (ADR 0011 §1.5, fixed in Phase 5).
+            // consumer to ShaderSample (ADR 0011 §1.5).
             t.ToAccess = barrier.ToAccess;
 
             // Read-while-attached: the consuming pass reads the resource

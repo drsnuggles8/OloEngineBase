@@ -12,7 +12,7 @@
 namespace OloEngine::RenderGraphReachability
 {
     // Backward reachability scan extracted from `RenderGraph::ComputeReachability`
-    // as part of the Phase 7 module split (2026-05-11). The pure-BFS portion
+    // as part of the module split (2026-05-11). The pure-BFS portion
     // — building the resource-writer map, seeding the worklist from the final
     // pass + extract / history / external-sink roots, then expanding through
     // dependency edges and Read→Writer chains — lives here. The mutating

@@ -1,7 +1,7 @@
 // OLO_TEST_LAYER: unit
 // =============================================================================
 // RootMotionTest — CPU contract tests for the root-motion consumption pipeline
-// (issue #631, part 1). Pins the extraction math the runtime relies on:
+// (issue #631). Pins the extraction math the runtime relies on:
 //   * per-clip wrap-aware delta extraction (single tick, loop wrap, multi-loop,
 //     non-looping clamp, rotation accumulation),
 //   * translation / rotation masking and the in-place pose pinning that removes

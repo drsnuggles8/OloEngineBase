@@ -10,7 +10,7 @@ namespace OloEngine
 {
 
     // Two kinds of member below, and the distinction is the whole point of
-    // issue #691 Phase 2 step 3:
+    // issue #691:
     //
     //   * the `override`s take RHI::ResourceHandle. They ARE the facade, and no
     //     caller above Platform/ can express anything else.
@@ -159,7 +159,7 @@ namespace OloEngine
         void BeginConditionalRender(RHI::ResourceHandle query) override;
         void EndConditionalRender() override;
 
-        // --- Phase 2 step 2 additions (issue #691) ---------------------------
+        // --- Call-site sweep additions (issue #691) --------------------------
         void BindUniformBuffer(u32 bindingPoint, u32 bufferID);
         void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
         void BindStorageBuffer(u32 bindingPoint, u32 bufferID);
@@ -332,8 +332,8 @@ namespace OloEngine
         GLint m_MaxPatchVertices = 0;
         // Cached in Init(): GL_ARB_gpu_shader_int64 && GL_NV_shader_atomic_int64 (issue #629).
         bool m_SupportsInt64Atomics = false;
-        // The ARB_bindless_texture half of RHI::DescriptorHeap (issue #691
-        // Phase 3). Installed into the process-wide neutral heap by Init(); a
+        // The ARB_bindless_texture half of RHI::DescriptorHeap (issue #691).
+        // Installed into the process-wide neutral heap by Init(); a
         // member rather than a static so its GL objects cannot outlive the
         // context. Inert when the extension is absent.
         OpenGLDescriptorHeapBackend m_DescriptorHeapBackend;

@@ -98,7 +98,7 @@ namespace OloEngine
         Ref<UniformBuffer> m_ProbeUBO;
         Ref<StorageBuffer> m_GridSSBO;
         Ref<ComputeShader> m_CullShader;
-        // The cull dispatch's former bare uniforms (#691 Phase 8) — refilled
+        // The cull dispatch's former bare uniforms (#691) — refilled
         // per dispatch, the HZB pattern.
         Ref<UniformBuffer> m_CullParamsUBO;
 

@@ -12,7 +12,7 @@ namespace OloEngine
             s_RendererAPI->Init();
         }
 
-        // ADR 0011 amendment (39), Phase 5. `s_RendererAPI` is constructed at
+        // ADR 0011 amendment (39). `s_RendererAPI` is constructed at
         // STATIC INIT (RenderCommand.cpp), before `--rhi=` parses — so the
         // static-init instance is always the OpenGL default regardless of the
         // selected backend. Application's constructor calls this immediately
@@ -231,7 +231,7 @@ namespace OloEngine
             s_RendererAPI->BindTexture(slot, texture);
         }
 
-        // Explicit-sampler form (#691 Phase 8) — see RendererAPI::BindTexture.
+        // Explicit-sampler form (#691) — see RendererAPI::BindTexture.
         static void BindTexture(u32 slot, RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler)
         {
             s_RendererAPI->BindTexture(slot, texture, sampler);
@@ -345,7 +345,7 @@ namespace OloEngine
             s_RendererAPI->MemoryBarrier(flags);
         }
 
-        // Phase 5 (ADR 0011 §1.5): the render graph's pre-pass barrier batch
+        // ADR 0011 §1.5: the render graph's pre-pass barrier batch
         // carrying both currencies — GL executes `flags`, explicit-barrier
         // backends lower `barriers`.
         static void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers)
@@ -364,7 +364,7 @@ namespace OloEngine
             s_RendererAPI->SetBlendFuncForAttachment(attachment, src, dst);
         }
 
-        // GPU-side image copy — both operands together (issue #691 step 3, slice 5).
+        // GPU-side image copy — both operands together (issue #691).
         static void CopyImageSubData(RHI::ResourceHandle src, RendererAPI::TextureTargetType srcTarget,
                                      RHI::ResourceHandle dst, RendererAPI::TextureTargetType dstTarget,
                                      u32 width, u32 height)
@@ -373,7 +373,7 @@ namespace OloEngine
         }
 
         // Full image copy with source/dest z offsets (cubemap face copies).
-        // Both operands together (issue #691 step 3, slice 5).
+        // Both operands together (issue #691).
         static void CopyImageSubDataFull(RHI::ResourceHandle src, RendererAPI::TextureTargetType srcTarget,
                                          i32 srcLevel, i32 srcZ,
                                          RHI::ResourceHandle dst, RendererAPI::TextureTargetType dstTarget,
@@ -386,7 +386,7 @@ namespace OloEngine
         }
 
         // Region copy with full (x, y, z) offsets on both operands (terrain VT
-        // tile stage, issue #715 slice 4). Block-copy contract on the facade
+        // tile stage, issue #715). Block-copy contract on the facade
         // declaration: width/height are SOURCE texels, dst offsets must be
         // block-aligned when the dest is block-compressed.
         static void CopyImageSubDataRegion(RHI::ResourceHandle src, RendererAPI::TextureTargetType srcTarget,
@@ -476,9 +476,9 @@ namespace OloEngine
         }
 
         // =====================================================================
-        // Phase 2 step 2 additions (issue #691). One-line forwarders, same as
+        // Call-site sweep additions (issue #691). One-line forwarders, same as
         // everything above — see RendererAPI.h for the shape rationale and
-        // ADR 0011's "Amendments from Phase 2 step 2" for the design.
+        // ADR 0011's "Amendments from the call-site sweep" for the design.
         // =====================================================================
 
         static void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
@@ -642,7 +642,7 @@ namespace OloEngine
             s_RendererAPI->ClearBufferFloat(buffer, value);
         }
 
-        // The resource creators (issue #691 step 3, slice 4; the u32 siblings
+        // The resource creators (issue #691; the u32 siblings
         // they were added beside are gone as of item 4). Each Delete* both
         // destroys the object and retires its identity.
         [[nodiscard]] static RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
@@ -833,7 +833,7 @@ namespace OloEngine
         }
 
         // See RendererAPI.h: the one virtual with no faithful Vulkan lowering.
-        // Phase 6 deletes it by moving u_GridScale into a UBO.
+        // The pipeline work deletes it by moving u_GridScale into a UBO.
         static void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value)
         {
             s_RendererAPI->SetProgramUniformFloat(program, name, value);

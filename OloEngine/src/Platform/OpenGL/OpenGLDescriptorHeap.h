@@ -1,9 +1,9 @@
 #pragma once
 
 // =============================================================================
-// OpenGLDescriptorHeap.h — the ARB_bindless_texture half of the Phase 3 heap.
+// OpenGLDescriptorHeap.h — the ARB_bindless_texture half of the descriptor heap.
 //
-// Issue #691 Phase 3, ADR 0011 §1.2 / §1.2a.
+// Issue #691, ADR 0011 §1.2 / §1.2a.
 //
 // `RHI::DescriptorHeap` (Renderer/RHI/) owns slot allocation, the two lifetime
 // classes, generation validation and poisoning — all backend-independent. This
@@ -91,7 +91,7 @@ namespace OloEngine
             /// sampling intent and the descriptor inherited the texture object's
             /// state. That is parity with the slot path on GL and has no Vulkan
             /// equivalent — a VkSampler must be described — so this counts the
-            /// sites Phase 4 has to give real sampler state (issue #691 Phase 3).
+            /// sites that still have to be given real sampler state (issue #691).
             u64 DefaultSamplerInherits = 0;
         };
         [[nodiscard]] auto GetStats() const -> Stats;
@@ -128,7 +128,7 @@ namespace OloEngine
         // One null image per FORMAT. glGetImageHandleARB bakes the format into
         // the handle and a mismatched `layout(...)` qualifier is undefined, so a
         // single R32F null cannot serve an r32ui or rgba8 binding — the sampler
-        // TARGET argument one axis over (issue #691 Phase 3).
+        // TARGET argument one axis over (issue #691).
         struct NullImage
         {
             GLuint Texture = 0u;
@@ -143,7 +143,7 @@ namespace OloEngine
         // texture's target or the read is undefined. A shader whose environment
         // probe is unset resolves to a null offset and builds `samplerCube` from
         // it — so a 2D null there is not a safe fallback, it is the bug
-        // (issue #691 Phase 3). The array-shadow null carries a depth format and a
+        // (issue #691). The array-shadow null carries a depth format and a
         // comparison sampler because `sampler2DArrayShadow` demands both.
         GLuint m_NullCubeTexture = 0u;
         u64 m_NullCubeDescriptor = 0u;

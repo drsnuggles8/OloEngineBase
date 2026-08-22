@@ -338,13 +338,13 @@ Scope `cpp:S1771` (and the related `cpp:S1067` on defaulted comparisons) out for
 
 ---
 
-## 10. Analysis-setup hygiene — `sonar.tests` / coverage / Python version (#411, slice 1)
+## 10. Analysis-setup hygiene — `sonar.tests` / coverage / Python version (#411)
 
 These are **analysis-pipeline configuration** fixes, not rule tuning — they change how
 SonarCloud is *told to analyse* the project, not which rules fire. Applied in
 `sonar-project.properties`:
 
-- **`sonar.tests=OloEngine/tests`** (#411 item 2) — silences the warning that files under
+- **`sonar.tests=OloEngine/tests`** (#411) — silences the warning that files under
   `OloEngine/tests` "look like test code but `sonar.tests` is not configured; rules targeting
   production code were not executed on these files." Declaring the test root makes the
   classification explicit.
@@ -354,7 +354,7 @@ SonarCloud is *told to analyse* the project, not which rules fire. Applied in
   `File ... can't be indexed twice`. The exclusion removes them from the production-source set,
   leaving them indexed only as tests. (This is the documented SonarQube remedy for a
   `sonar.sources=.` + `sonar.tests` overlap — keep them disjoint.)
-- **`sonar.coverage.exclusions=OloEngine/tests/**/*`** (#411 item 4) — test files must never
+- **`sonar.coverage.exclusions=OloEngine/tests/**/*`** (#411) — test files must never
   count toward production-code coverage. No coverage report is imported in CI yet (see the
   0%-coverage note under Open items), so this is a no-op today — kept as correct hygiene.
 - **`sonar.python.version=3.10`** — kills the "analysed as compatible with all Python 3
@@ -364,7 +364,7 @@ Note: SCM-ignored paths (`build/`, `OloEngine/vendor/*`, the generated `compile_
 are dropped from indexing automatically by SonarQube's default SCM-exclusion, so no
 `**/vendor/**` / `**/build/**` `sonar.exclusions` were needed.
 
-### ✅ Resolved: build-wrapper `compile_commands.json` migration (#411 item B)
+### ✅ Resolved: build-wrapper `compile_commands.json` migration (#411)
 
 The scan warns that `sonar.cfamily.build-wrapper-output` is deprecated in favour of
 `sonar.cfamily.compile-commands`, and also that the build-wrapper dump
@@ -493,7 +493,7 @@ For completeness, some rules that *look* noisy but are worth keeping at their cu
 
 ---
 
-## ✅ Investigated: "Architecture" view only shows two `.py` files (#411 item 1)
+## ✅ Investigated: "Architecture" view only shows two `.py` files (#411)
 
 **Not fixable on our end — a SonarCloud C++ platform limitation, not a config bug.**
 SonarCloud's Architecture feature (dependency-graph / "Architecture as Code") currently

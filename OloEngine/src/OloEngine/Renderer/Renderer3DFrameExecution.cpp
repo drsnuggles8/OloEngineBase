@@ -240,7 +240,7 @@ namespace OloEngine
             pipeline.UploadExecutionState(s_Data);
         }
 
-        // Phase C: compile graph-native pass declarations before execution.
+        // Compile graph-native pass declarations before execution.
         s_Data.RGraph->BuildFrameGraph(frameFingerprint);
 
         bool buildStatsChanged = false;
@@ -304,7 +304,7 @@ namespace OloEngine
         // occlusion is disabled.
         GenerateOcclusionHZB();
 
-        // Central frame-capture commit (issue #463 / #316 Part 4). The whole render
+        // Central frame-capture commit (issue #463 / #316). The whole render
         // graph has now executed, so every command-bucket pass (Scene, Water,
         // Foliage, Decal, ForwardOverlay) has accumulated its own per-pass bucket
         // into the pending capture. Commit it here — relocated out of

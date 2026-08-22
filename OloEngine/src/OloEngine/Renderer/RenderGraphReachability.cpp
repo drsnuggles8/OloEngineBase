@@ -78,7 +78,7 @@ namespace OloEngine::RenderGraphReachability
         for (const auto& resourceName : input.ExtractedResourceNames)
             enqueueWritersForResource(resourceName);
 
-        // Phase 1: walk explicit dependency edges (BFS).
+        // Walk explicit dependency edges (BFS).
         std::unordered_set<std::string> visited;
         while (!stack.empty())
         {
@@ -95,7 +95,7 @@ namespace OloEngine::RenderGraphReachability
             }
         }
 
-        // Phase 2: iterative Read→Writer expansion. For each already-reachable
+        // Iterative Read→Writer expansion. For each already-reachable
         // pass, add the writer of any resource it reads. Repeat until stable —
         // this handles wrapped passes whose ordering edges are derivation-only.
         bool anyNew = true;

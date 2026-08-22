@@ -120,7 +120,7 @@ namespace OloEngine
         // shaders on the first Compact() after a move.
         Ref<GPUPrefixSum> m_PrefixSum;
 
-        // Emit/simulate/compact parameters (issue #691 Phase 7). These were
+        // Emit/simulate/compact parameters (issue #691). These were
         // bare `uniform` declarations fed by ComputeShader::Set*, which the
         // Vulkan SPIR-V route cannot express at all and whose Set* feeders are
         // a no-op there. One block at UBO_PARTICLE_SIM, shared verbatim by the

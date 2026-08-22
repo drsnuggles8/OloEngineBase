@@ -43,7 +43,7 @@ namespace OloEngine
     namespace
     {
         // Helper function to convert OpenGL shader stage to our enum.
-        // Moved here from ShaderDebugger.h (#691 Phase 9): that header is
+        // Moved here from ShaderDebugger.h (#691): that header is
         // graphics-API-neutral now and cannot name GLenum, and this file is
         // the helper's one caller. [[maybe_unused]] because the only use is
         // inside OLO_SHADER_SET_SOURCE, which compiles away outside OLO_DEBUG.
@@ -341,7 +341,7 @@ namespace OloEngine
         }
 
         // The shaderc TARGET ENV is part of the filename (ADR 0011 §3(b),
-        // #691 Phase 6): tier 1 is a SHARED artefact — the GL path
+        // #691): tier 1 is a SHARED artefact — the GL path
         // cross-compiles this SPIR-V through SPIRV-Cross, while the Vulkan
         // backend consumes its own tier compiled against a newer env
         // (".cached_vulkan14.*", VulkanShader). Encoding the env makes the two
@@ -419,7 +419,7 @@ namespace OloEngine
         // The bindless variant is tried FIRST and is allowed to decline. It
         // cannot share the path below — glslang rejects GL_ARB_bindless_texture
         // when generating SPIR-V, so tier 1 would fail on the very shaders this
-        // route exists for (issue #691 Phase 3, BindlessShaderPipelineTest).
+        // route exists for (issue #691, BindlessShaderPipelineTest).
         // On any failure it falls through to the ordinary path, so a broken
         // bindless branch costs the optimisation and not the shader.
         if (WantsBindlessVariant(shaderSources) && CreateProgramFromRawGLSL(shaderSources))
@@ -819,7 +819,7 @@ namespace OloEngine
     }
 
     // -------------------------------------------------------------------------
-    // The heap-bindless compile route (issue #691 Phase 3).
+    // The heap-bindless compile route (issue #691).
     // -------------------------------------------------------------------------
 
     bool OpenGLShader::WantsBindlessVariant(const std::unordered_map<GLenum, std::string>& sources)
@@ -893,7 +893,7 @@ namespace OloEngine
         // both defines the material accessor macros and names the UBO field inside
         // them. Keying on either token marks every shader that merely INCLUDES the
         // header as a reader, which makes BindPBRTextures skip the material binds
-        // engine-wide and renders meshes unlit with no error (issue #691 Phase 3).
+        // engine-wide and renders meshes unlit with no error (issue #691).
         m_ReadsMaterialHeapOffsets =
             std::ranges::any_of(sources,
                                 [](const auto& entry)
@@ -1603,7 +1603,7 @@ namespace OloEngine
         // RendererAPI::BindShaderProgram — can still publish it. Registered
         // unconditionally (true AND false) because GL reissues freed program
         // names: a slot-based program inheriting a retired bindless id would
-        // otherwise be told it reads the heap (issue #691 Phase 3).
+        // otherwise be told it reads the heap (issue #691).
         Shader::RegisterProgramBindless(m_RendererID, m_IsBindlessVariant);
 
         // AND THE MATERIAL-OFFSET FLAG, for the same reason and in the same place.
@@ -1613,7 +1613,7 @@ namespace OloEngine
         // and BindPBRTextures went on issuing the five material binds that program
         // had already withdrawn. Gated on m_IsBindlessVariant so a slot-based
         // program inheriting a retired bindless program id cannot be told it reads
-        // the heap (issue #691 Phase 3).
+        // the heap (issue #691).
         Shader::RegisterProgramMaterialOffsets(m_RendererID, m_IsBindlessVariant && m_ReadsMaterialHeapOffsets);
 
         // Name the program for GPU debuggers (RenderDoc/NSight) and register it
@@ -2404,7 +2404,7 @@ namespace OloEngine
         // heap. The heap's enabled flag is global; this is per shader, because
         // the bindless route may have declined and fallen back. Without it,
         // RGCommandContext::BindTextureOrHeapOffset would skip the bind for a
-        // program that reads sampler binding points (issue #691 Phase 3).
+        // program that reads sampler binding points (issue #691).
         Shader::SetBoundProgramBindless(m_IsBindlessVariant);
         Shader::SetBoundProgramMaterialOffsets(m_ReadsMaterialHeapOffsets);
 
@@ -2425,7 +2425,7 @@ namespace OloEngine
         // this flag and Unbind() has to retract it, or a bind issued between an
         // Unbind and the next Bind takes the heap path on the strength of a
         // program that is no longer in flight — recording an offset and skipping
-        // the bind for nobody (issue #691 Phase 3).
+        // the bind for nobody (issue #691).
         Shader::SetBoundProgramBindless(false);
         Shader::SetBoundProgramMaterialOffsets(false);
     }

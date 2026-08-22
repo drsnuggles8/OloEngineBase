@@ -243,7 +243,7 @@ editor **aborts** rather than exiting.
 Two things this rules out. `~Application` *already* detaches the layers and calls
 `Project::Unload()` before `Renderer::Shutdown()`, deliberately, with a comment
 explaining that the asset manager's Refs would otherwise outlive the graphics
-context (#691 Phase 8). **The teardown order was right; the object had one more
+context (#691). **The teardown order was right; the object had one more
 owner than the order accounted for.** When a survivor is a whole aggregate — a
 scene, a model, an asset pack — rather than a single cached resource, look for
 the extra owner before you reach for the teardown order: reordering teardown to

@@ -1,6 +1,6 @@
 #pragma once
 
-// Outbound MCP client, stdio transport (issue #673 Tier 1, bullet 1): the
+// Outbound MCP client, stdio transport (issue #673, bullet 1): the
 // editor's MCP server can now also CONSUME tools — spawn a local MCP server
 // process (e.g. a filesystem or web-fetch server), speak newline-delimited
 // JSON-RPC over its stdin/stdout, and fold its tools into the native registry

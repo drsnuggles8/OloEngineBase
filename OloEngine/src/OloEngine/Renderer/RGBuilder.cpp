@@ -154,7 +154,7 @@ namespace OloEngine
         RGReadUsage usage,
         const RGSubresourceRange& range)
     {
-        // Phase C stub: record read declaration to graph for validation
+        // Stub: record read declaration to graph for validation
         // and dependency tracking. For now, just return the handle;
         // full implementation will populate m_Graph's dependency DAG.
         OLO_CORE_ASSERT(handle.IsValid(), "Cannot read an invalid texture handle");
@@ -287,7 +287,7 @@ namespace OloEngine
 
         (void)usage;
         (void)range;
-        // Phase C stub: record write for dependency tracking
+        // Stub: record write for dependency tracking
     }
 
     void RGBuilder::Write(

@@ -2,7 +2,7 @@
 // =============================================================================
 // ClothVisualEvidenceTest.cpp
 //
-// Visual evidence (PNG) for cloth / soft-body rendering (issue #460, first slice).
+// Visual evidence (PNG) for cloth / soft-body rendering (issue #460).
 // Drives the REAL runtime pipeline — Scene::OnPhysics3DStart builds the Jolt soft
 // bodies, then Scene::OnUpdateRuntime -> RenderScene3D steps the simulation and
 // renders the deforming cloth meshes read back from Jolt — and reads the final

@@ -2,9 +2,9 @@
 
 // =============================================================================
 // VulkanImGuiBackend — the Dear ImGui renderer backend on --rhi=vulkan
-// (issue #691 Phase 8).
+// (issue #691).
 //
-// Phase 7 ran the ImGui layer PLATFORM-ONLY under Vulkan (GLFW input, panel
+// The ImGui layer originally ran PLATFORM-ONLY under Vulkan (GLFW input, panel
 // logic, no draw-data submission — see ImGuiLayer.cpp). This class wires the
 // vendored imgui_impl_vulkan (ImGui 1.93 WIP, IMGUI_IMPL_VULKAN_USE_VOLK,
 // dynamic rendering — compiled by ImGuiBuild.cpp) into the engine's frame
@@ -69,7 +69,7 @@ namespace OloEngine
         // Requires ImGui::CreateContext() and the GLFW platform backend to be
         // up (ImGuiLayer::OnAttach calls this right after
         // ImGui_ImplGlfw_InitForVulkan). Returns false — leaving the layer in
-        // Phase 7 platform-only mode — when no context/device/swapchain
+        // Platform-only mode — when no context/device/swapchain
         // exists (e.g. minimised at startup: the swapchain format is unknown,
         // and the UI pipeline bakes it). Idempotent.
         [[nodiscard]] static bool Init();

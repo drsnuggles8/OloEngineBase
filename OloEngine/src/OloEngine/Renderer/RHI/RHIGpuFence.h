@@ -3,7 +3,7 @@
 // =============================================================================
 // RHIGpuFence.h — the split-barrier / timeline signal-wait primitive.
 //
-// Issue #691 Phase 6, ADR 0011 §6.
+// Issue #691, ADR 0011 §6.
 //
 // WHAT THIS IS FOR. A split barrier is a plain GPU-memory location plus two
 // operations — Signal(value, op) on the producing side and Wait(value,
@@ -19,11 +19,11 @@
 // stays exactly as decided. A GpuFence exists for the specific case where a
 // blocking barrier would leave the GPU idle across a longer span (cross-pass
 // tail latency, cross-frame dependencies). WHICH render-graph passes are worth
-// splitting is a Phase 7 per-pass profiling decision; Phase 6 only establishes
+// splitting is a per-pass profiling decision; this header only establishes
 // that the primitive exists and what shape it has. The existing
 // `RendererAPI::CreateFence`/`ClientWaitFence` family (GL's one-shot binary
 // `GLsync`, consumed by `FrameResourceManager`) is untouched — migrating that
-// chain onto GpuFence is the §6 follow-up, not a Phase 6 requirement.
+// chain onto GpuFence is the §6 follow-up, not a requirement here.
 //
 // VALUE DISCIPLINE. Values are monotonic. The Vulkan timeline contract
 // requires every signal to strictly increase the counter, so `AtomicMax` /
@@ -32,7 +32,7 @@
 // same monotonicity requirement on this backend — a `Set` to a value at or
 // below the current counter is a caller bug and asserts.
 //
-// BACKEND AVAILABILITY. Phase 6 implements the Vulkan backend only
+// BACKEND AVAILABILITY. Only the Vulkan backend is implemented
 // (`Platform/Vulkan/VulkanGpuFence`). `Create()` returns null on other
 // backends — callers branch on the returned pointer the same way heap callers
 // branch on `IsBindlessSupported()`: every call site must be able to take the

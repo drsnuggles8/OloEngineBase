@@ -207,7 +207,7 @@ namespace OloEngine
         }
 
         // ---------------------------------------------------------------------
-        // The heap-bindless compile route (issue #691 Phase 3).
+        // The heap-bindless compile route (issue #691).
         //
         // A shader written against include/BindlessHeap.glsl cannot travel the
         // normal path at ALL: tier 1 targets Vulkan SPIR-V and glslang rejects
@@ -263,7 +263,7 @@ namespace OloEngine
         // True when this program declares u_MaterialHeapOffsets, i.e. reads its
         // MATERIAL textures from the material UBO rather than from sampler
         // bindings. NOT the same as m_IsBindlessVariant — see
-        // Shader::ReadsMaterialHeapOffsets (issue #691 Phase 3).
+        // Shader::ReadsMaterialHeapOffsets (issue #691).
         bool m_ReadsMaterialHeapOffsets = false;
 
         // Paths resolved during #include expansion — used to invalidate shader

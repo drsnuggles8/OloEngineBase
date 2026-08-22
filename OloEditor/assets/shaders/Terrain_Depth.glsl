@@ -1,13 +1,13 @@
 // =============================================================================
 // Terrain_Depth.glsl - Terrain Depth-Only Shader for Shadow Maps
-// Part of OloEngine Terrain System (Phase 2) — with tessellation
+// Part of OloEngine Terrain System — with tessellation
 // =============================================================================
 
 #type vertex
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the terrain patch VBO (TerrainChunk.cpp /
 // TerrainVertex.h — 32 B: vec3 Position @0, vec2 TexCoord @12, vec3 Normal
 // @20), so the stride is 8 floats but the FIELD ORDER differs from the
@@ -119,7 +119,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Sampled in the
+// Heap-bindless conversion (issue #691, bucket 1). Sampled in the
 // VERTEX stage for displacement, which is fine: the heap SSBO (45) and the
 // offset table (56) are program-wide, not fragment-only.
 //

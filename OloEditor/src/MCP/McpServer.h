@@ -61,7 +61,7 @@ namespace OloEngine
 {
     // The editor's undo/redo stack (OloEditor/src/UndoRedo/EditorCommand.h). Only
     // forward-declared here: EditorMcpContext exposes a pointer to it so consented
-    // write tools (issue #306 item C) can route their mutation through a single
+    // write tools (issue #306) can route their mutation through a single
     // undoable command, without this header pulling in the editor command classes.
     class CommandHistory;
 } // namespace OloEngine
@@ -74,7 +74,7 @@ namespace OloEngine::MCP
     inline constexpr u16 DefaultPort = 7345;
 
     // JSON-RPC error code for a request abandoned via `notifications/cancelled`
-    // (issue #357 item B). MCP does not reserve a code; -32800 is the
+    // (issue #357). MCP does not reserve a code; -32800 is the
     // LSP-established convention for "request cancelled" in the
     // implementation-defined range. Per spec the server SHOULD NOT respond to a
     // cancelled request at all — the SSE transport suppresses the response
@@ -84,7 +84,7 @@ namespace OloEngine::MCP
 
     // Standard base64 (RFC 4648, with padding). Shared by the capture tools'
     // inline `image` content blocks (McpTools*.cpp) and resources/read's binary
-    // `blob` contents variant (issue #673 Tier 1) — which is why it lives here
+    // `blob` contents variant (issue #673) — which is why it lives here
     // rather than in the editor-internal McpToolsCommon.h.
     inline std::string Base64Encode(const std::vector<u8>& data)
     {
@@ -115,7 +115,7 @@ namespace OloEngine::MCP
     }
 
     // How a project-mutating (ToolDef::ProjectWrite) tool call is authorized at
-    // dispatch (issue #306 item C). Supersedes the old binary "Allow writes" gate,
+    // dispatch (issue #306). Supersedes the old binary "Allow writes" gate,
     // which maps onto the two extremes (Disabled / AllowSession); the middle mode
     // adds the per-action consent DIALOG. OFF by default and never persisted, so
     // every editor launch starts read-only and the human opts in for the session.
@@ -165,13 +165,13 @@ namespace OloEngine::MCP
         // reference to a server resource the client fetches on demand via
         // resources/read, instead of an inline base64 `image`/`blob` payload.
         // Append it to `Content` by hand — capture tools offer this as an opt-in
-        // delivery mode for large captures (issue #673 Tier 1). `sizeBytes` is
+        // delivery mode for large captures (issue #673). `sizeBytes` is
         // emitted as `size` only when non-zero.
         [[nodiscard]] static Json ResourceLinkBlock(const std::string& uri, const std::string& name,
                                                     const std::string& description, const std::string& mimeType,
                                                     u64 sizeBytes = 0);
 
-        // ---- audience-tagged content blocks (#673 Tier 2) ---------------------
+        // ---- audience-tagged content blocks (#673) ---------------------
         //
         // Which side of the session one CONTENT BLOCK is meant for (MCP spec
         // 2025-06-18 `Annotations.audience`). This is a different spec field on a
@@ -226,7 +226,7 @@ namespace OloEngine::MCP
     // reads in server.MarshalRead(...).
     using ToolHandler = std::function<ToolResult(McpServer& server, const Json& arguments)>;
 
-    // ---- outbound MCP client (issue #673 Tier 1; see McpClient.h) --------------
+    // ---- outbound MCP client (issue #673; see McpClient.h) --------------
 
     class IMcpClientTransport;
 
@@ -318,7 +318,7 @@ namespace OloEngine::MCP
         // editor-only camera/viewport/render-override tools. A project-write tool is
         // gated behind the session "Allow writes" toggle: HandleToolsCall rejects it
         // with a clean JSON-RPC error when writes are disabled (the default). Issue
-        // #306 item C; should be paired with `readOnlyHint:false` annotations.
+        // #306; should be paired with `readOnlyHint:false` annotations.
         bool ProjectWrite = false;
         // True for a tool registered from a project Lua script (McpScriptTools,
         // issue #357 / ADR 0005) rather than compiled-in. Script tools are
@@ -327,7 +327,7 @@ namespace OloEngine::MCP
         // live-reload item); see ReplaceScriptTools / UnregisterScriptTools.
         bool ScriptOwned = false;
         // Non-empty for a tool BRIDGED from an outbound MCP client connection
-        // (issue #673 Tier 1): the alias of the external server it proxies to.
+        // (issue #673): the alias of the external server it proxies to.
         // Foreign provenance is deliberately a separate discriminator from
         // ScriptOwned — ReplaceScriptTools wipes every ScriptOwned tool on a
         // script rescan, and the two trust tiers are different (ADR 0005: a
@@ -343,7 +343,7 @@ namespace OloEngine::MCP
         // `icons` key). Validated by McpServer::IsValidIcons at registration.
         Json Icons;
         // Opt in to AUDIENCE-TAGGED content blocks for this tool's typed results
-        // (#673 Tier 2). When true, HandleToolsCall re-shapes a successful
+        // (#673). When true, HandleToolsCall re-shapes a successful
         // ToolResult::Structured() into the dual-audience pair via
         // ToolResult::StructuredDualAudience — a compact JSON block tagged
         // audience ["assistant"] plus a Markdown report tagged ["user"], headed by
@@ -382,7 +382,7 @@ namespace OloEngine::MCP
         u32 ViewportHeight = 0;
     };
 
-    // Outcome of a consented script reload (issue #306 item C), returned by
+    // Outcome of a consented script reload (issue #306), returned by
     // EditorMcpContext::ReloadScriptAssembly. `Available` is false when C# scripting
     // is not compiled into this build or the engine has no core assembly loaded — the
     // tool then reports that honestly instead of pretending it reloaded. `Ok` is true
@@ -397,7 +397,7 @@ namespace OloEngine::MCP
         std::string Message;
     };
 
-    // Outcome of a consented scene switch (issue #316 Part 5), returned by
+    // Outcome of a consented scene switch (issue #316), returned by
     // EditorMcpContext::OpenSceneFromMcp. `Available` is false in a host that owns
     // no editor (the headless attach / dispatch tests) — the tool then reports that
     // honestly. `Ok` is true only when the scene actually loaded; on failure
@@ -415,7 +415,7 @@ namespace OloEngine::MCP
         std::string Message;
     };
 
-    // Outcome of a consented play-mode toggle (issue #316 Part 5), returned by
+    // Outcome of a consented play-mode toggle (issue #316), returned by
     // EditorMcpContext::SetScenePlayState. `Available` is false in a host with no
     // editor. `Ok` is true when the editor is in the requested mode afterwards;
     // `Changed` is true only when this call actually transitioned (entering Play can
@@ -664,7 +664,7 @@ namespace OloEngine::MCP
         // report nothing about liveness rather than guessing.
         std::function<McpEditorLiveness()> GetEditorLiveness;
 
-        // ---- Consented, undoable project writes (issue #306 item C) ------------
+        // ---- Consented, undoable project writes (issue #306) ------------
         // The editor's undo/redo stack, so a write tool can apply its mutation as a
         // single undoable command (a Ctrl-Z). Main-thread-only, like the readers
         // above — call it from inside a MarshalRead job, alongside GetActiveScene.
@@ -683,7 +683,7 @@ namespace OloEngine::MCP
         std::function<McpScriptReloadResult()> ReloadScriptAssembly;
 
         // Open / switch the active scene — the consented-write scene switch
-        // (issue #316 Part 5). Loads the scene at `path` (resolved against the
+        // (issue #316). Loads the scene at `path` (resolved against the
         // project asset directory when relative) directly, the same install path
         // as the editor's Open Scene menu but WITHOUT the auto-save recovery modal
         // (a remote agent can't click it) and without the file dialog. Stops Play
@@ -695,7 +695,7 @@ namespace OloEngine::MCP
         std::function<McpSceneOpenResult(const std::string& path)> OpenSceneFromMcp;
 
         // Toggle Play mode — the consented-write, fully-reversible play/stop switch
-        // (issue #316 Part 5). `play` true enters Play (OnScenePlay: copies the
+        // (issue #316). `play` true enters Play (OnScenePlay: copies the
         // scene + starts the runtime), false stops it (OnSceneStop: restores the
         // authored scene). Idempotent — a redundant call is a no-op reported as
         // Changed:false. Main-thread-only (mutates scene state / runs runtime
@@ -738,7 +738,7 @@ namespace OloEngine::MCP
     // An MCP resource: a passive, addressable blob (vs. an active tool). The reader
     // returns the resource's text; it may marshal/throw exactly like a tool handler.
     using ResourceReader = std::function<std::string(McpServer& server)>;
-    // Binary sibling of ResourceReader (issue #673 Tier 1, resource links): returns
+    // Binary sibling of ResourceReader (issue #673, resource links): returns
     // raw bytes that resources/read emits as the spec's base64 `blob` contents
     // variant. Same threading/throw contract as ResourceReader.
     using ResourceBlobReader = std::function<std::vector<u8>(McpServer& server)>;
@@ -820,7 +820,7 @@ namespace OloEngine::MCP
             return m_Token;
         }
         // Number of live server-push SSE streams currently connected on GET /mcp
-        // (issue #306 item B). Surfaced in the panel so the user can see an agent is
+        // (issue #306). Surfaced in the panel so the user can see an agent is
         // watching; lock-free, safe to read from any thread.
         [[nodiscard]] int ActiveStreamCount() const
         {
@@ -838,7 +838,7 @@ namespace OloEngine::MCP
             return m_RedactPaths.load(std::memory_order_relaxed);
         }
 
-        // Session-level write consent (issue #306 item C). OFF by default (Disabled)
+        // Session-level write consent (issue #306). OFF by default (Disabled)
         // and NOT persisted, so every editor launch starts read-only and the user
         // opts in for the session via the MCP panel. Distinct from the enabled +
         // bearer-token gate: even an authenticated agent cannot mutate the project
@@ -946,7 +946,7 @@ namespace OloEngine::MCP
         // ---- the resource registry: same copy-on-write contract as the tools ----
         //
         // Startup resources (RegisterResource) were once a fixed-for-a-run plain
-        // vector; the resource-link work (issue #673 Tier 1) made the registry
+        // vector; the resource-link work (issue #673) made the registry
         // MUTABLE while serving — capture tools publish ephemeral resources from
         // httplib worker threads — so it now mirrors the m_Tools snapshot exactly:
         // writers serialize on m_ResourcesWriteMutex and publish a fresh immutable
@@ -990,7 +990,7 @@ namespace OloEngine::MCP
         void RegisterResource(ResourceDef resource);
         void RegisterPrompt(PromptDef prompt);
 
-        // Publish a RUNTIME resource (issue #673 Tier 1, resource links) — the
+        // Publish a RUNTIME resource (issue #673, resource links) — the
         // capture a tool just handed out as a resource_link block. Marks it
         // Ephemeral, replaces any existing resource with the same URI, then
         // evicts the OLDEST ephemeral resources until both bounds hold (count
@@ -1023,7 +1023,7 @@ namespace OloEngine::MCP
         void UnregisterScriptTools();
 
         // Swap every tool bridged from the outbound client connection `alias` for
-        // `clientTools` in one atomic publish (issue #673 Tier 1) — the foreign
+        // `clientTools` in one atomic publish (issue #673) — the foreign
         // sibling of ReplaceScriptTools, with a per-alias filter so multiple
         // connections coexist. Pass {} on disconnect / child death.
         //
@@ -1051,7 +1051,7 @@ namespace OloEngine::MCP
         // The reserved tool-name namespace for one connection: "ext.<alias>.".
         [[nodiscard]] static std::string ClientToolPrefix(const std::string& alias);
 
-        // ---- outbound stdio client connections (issue #673 Tier 1) ------------
+        // ---- outbound stdio client connections (issue #673) ------------
         // Defined in McpClient.cpp (the client module), not McpServer.cpp — the
         // dispatch core stays transport-agnostic. The server OWNS the
         // connections so Stop() can fail their pending calls BEFORE joining the
@@ -1102,7 +1102,7 @@ namespace OloEngine::MCP
         // Lua registration path.
         [[nodiscard]] static bool IsValidIcons(const Json& icons);
 
-        // ---- Progress + cancellation (issue #357 item B) -----------------------
+        // ---- Progress + cancellation (issue #357) -----------------------
         //
         // Both utilities are wired through a per-call, per-thread scope that
         // HandleToolsCall installs around each handler invocation, so the 50+
@@ -1147,7 +1147,7 @@ namespace OloEngine::MCP
         // origin / auth / session-validation checks, then defers all JSON-RPC
         // parsing and routing here. They are public so the protocol can be unit
         // tested without binding a socket or constructing httplib types (issue
-        // #306 item D); they are also the reuse point for any future MCP transport.
+        // #306); they are also the reuse point for any future MCP transport.
 
         // Route one parsed JSON-RPC message and return the response object, or a
         // null Json for a notification (a message with no "id" — no response is
@@ -1241,12 +1241,12 @@ namespace OloEngine::MCP
 
         // GET /mcp handler: opens a persistent text/event-stream (SSE) and pushes
         // newly-recorded diagnostics events to the agent as MCP JSON-RPC
-        // notifications (issue #306 item B). Same origin + bearer + session gates as
+        // notifications (issue #306). Same origin + bearer + session gates as
         // HandlePost; then it streams on the worker thread until the client
         // disconnects or the server stops. Defined in McpServer.cpp.
         void HandleGetStream(const httplib::Request& req, httplib::Response& res);
 
-        // Streamable-HTTP upgrade for a progress-opted call (issue #357 item B):
+        // Streamable-HTTP upgrade for a progress-opted call (issue #357):
         // HandlePost routes here (after the auth/origin/session gates) when the
         // body is a single tools/call carrying params._meta.progressToken and the
         // client accepts text/event-stream. The response becomes an SSE stream:
@@ -1275,7 +1275,7 @@ namespace OloEngine::MCP
         [[nodiscard]] Json HandlePromptsList(const Json& id) const;
         [[nodiscard]] Json HandlePromptsGet(const Json& id, const Json& params) const;
 
-        // Prompt-mode consent handshake (issue #306 item C). Called from
+        // Prompt-mode consent handshake (issue #306). Called from
         // HandleToolsCall on a worker thread for a ProjectWrite tool when the mode is
         // Prompt: enqueue a prompt, block until the panel resolves it (or the timeout
         // / a mode change / shutdown intervenes), and return the decision. MUST run on
@@ -1373,7 +1373,7 @@ namespace OloEngine::MCP
 
         std::atomic<bool> m_RedactPaths{ false };
 
-        // Session write consent mode (issue #306 item C); see SetWriteConsentMode.
+        // Session write consent mode (issue #306); see SetWriteConsentMode.
         // Default Disabled (read-only), never persisted — every launch starts safe.
         std::atomic<WriteConsentMode> m_ConsentMode{ WriteConsentMode::Disabled };
 
@@ -1399,7 +1399,7 @@ namespace OloEngine::MCP
         bool m_ConsentAborting = false;                // guarded by m_ConsentMutex
         std::atomic<i64> m_ConsentTimeoutMs{ 120000 }; // human-response deadline
 
-        // Count of live GET /mcp SSE push streams (issue #306 item B). Bumped while a
+        // Count of live GET /mcp SSE push streams (issue #306). Bumped while a
         // stream's content provider runs; surfaced via ActiveStreamCount().
         std::atomic<int> m_ActiveStreams{ 0 };
 

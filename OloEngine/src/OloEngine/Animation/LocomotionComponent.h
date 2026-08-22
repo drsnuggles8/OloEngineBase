@@ -9,7 +9,7 @@
 
 namespace OloEngine
 {
-    // Velocity-driven locomotion controller (issue #631 part 4): maps the
+    // Velocity-driven locomotion controller (issue #631): maps the
     // character's velocity, local movement direction, and turn rate onto the
     // animation graph's parameters each tick, selects a gait with hysteresis,
     // and stride-warps the active locomotion state's playback rate so the

@@ -27,7 +27,7 @@ namespace OloEngine::Animation
         // noise/noiseState enable the procedural noise post-pass (runs *before*
         // IK); springBone/springBoneState enable the spring-bone post-pass (runs
         // after IK); footIK/footIKState enable the ground-adaptation pass (runs
-        // between IK and spring bones — issue #631 part 3). Each pair must be
+        // between IK and spring bones — issue #631). Each pair must be
         // non-null for its pass to run.
         // morphTarget, when non-null, receives morph-target (blend-shape) weights
         // sampled from the active clip(s) of the graph this frame; CPU evaluation

@@ -218,7 +218,7 @@ namespace OloEngine
         RenderCommand::ClearColorAndDepth();
 
         // Through the seam: the bake shader is already bound above, so the fork
-        // on IsBoundProgramBindless() is answerable (issue #691 Phase 3).
+        // on IsBoundProgramBindless is answerable (issue #691).
         HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE, albedo->GetRHIHandle(),
                                          RHI::HeapSlotLifetime::Persistent);
 

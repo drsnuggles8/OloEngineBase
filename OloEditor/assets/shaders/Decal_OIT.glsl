@@ -16,7 +16,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
+// #691 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
 // vertex data is READ, not fetched -- binding 57 is the engine-wide vertex-pull
 // binding and the root struct carries this buffer's device address. The stream
 // is the engine `Vertex` (32 B: vec3 position @0, vec3 normal @12, vec2 uv @24),

@@ -21,7 +21,7 @@ namespace OloEngine
         // Release the lazily-created static cube mesh. Must run before the
         // graphics context dies: the mesh's vertex arrays are VMA
         // allocations, and a static Ref surviving into vmaDestroyAllocator
-        // is the Vulkan close-crash shape (#691 Phase 8).
+        // is the Vulkan close-crash shape (#691).
         static void Shutdown();
 
         // Standard IBL generation methods (backward compatibility)

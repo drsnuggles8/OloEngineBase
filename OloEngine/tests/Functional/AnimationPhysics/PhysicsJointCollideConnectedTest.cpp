@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 
 // =============================================================================
-// PhysicsJointCollideConnectedTest — Functional Test (issue #308 item 1).
+// PhysicsJointCollideConnectedTest — Functional Test (issue #308).
 //
 // Cross-subsystem seam under test:
 //   PhysicsJoint3DComponent::m_CollideConnected (authored ECS data) ×

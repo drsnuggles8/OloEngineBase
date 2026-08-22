@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: L3
 //
-// GPU round-trip for the terrain VT BC7 tile compressor (issue #715, slice 4).
+// GPU round-trip for the terrain VT BC7 tile compressor (issue #715).
 //
 // TerrainVTCompressBC7.comp encodes the baked RGBA8 scratch tiles to BC7
 // mode-6 blocks on the GPU. This test drives the REAL kernel on a live GL 4.6

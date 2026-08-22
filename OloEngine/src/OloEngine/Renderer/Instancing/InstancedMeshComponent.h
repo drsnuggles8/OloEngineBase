@@ -34,7 +34,7 @@ namespace OloEngine
     //     space. (Parented authoring tools can pre-multiply at write time.)
     //
     // Serialization, editor inspector, and scripting bindings are added in
-    // Phase 5 of the GPU instancing rollout — the component is C++-only for
+    // Part of the GPU instancing rollout — the component is C++-only for
     // now.
     struct InstancedMeshComponent
     {

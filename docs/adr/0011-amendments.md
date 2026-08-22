@@ -2,7 +2,7 @@
 
 The amendment **bodies** for
 [0011-rhi-neutral-resource-and-binding-model.md](0011-rhi-neutral-resource-and-binding-model.md).
-Split out in #691 Phase 9 for one reason: the decisions in §0–§6 are what bind
+Split out in #691 for one reason: the decisions in §0–§6 are what bind
 a reader, the amendments are what a reader *seeks into*, and keeping ~1,900
 lines of the second in front of the first made every agent pay for the whole
 corpus to read one contract.
@@ -1738,4 +1738,4 @@ gained the autotools row. Standing consequences:
   red nightly is a paged failure, not background noise.
 
 ---
-
+

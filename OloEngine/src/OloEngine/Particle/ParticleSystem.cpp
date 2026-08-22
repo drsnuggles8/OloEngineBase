@@ -412,7 +412,7 @@ namespace OloEngine
             SizeModule.Apply(m_Pool);
         }
 
-        // 3. Apply Phase 2 modules
+        // 3. Apply collision, force-field, trail and sub-emitter modules
         for (const auto& forceField : ForceFields)
         {
             forceField.Apply(scaledDt, m_Pool);

@@ -385,7 +385,7 @@ namespace OloEngine
         // seam's default SamplerDesc{} is ClampToEdge with mip filtering on, so a
         // converted shader read outside the cascade returned the edge texel instead
         // of 'lit' — the same parity break the comparison samplers had before
-        // HeapBinding::ShadowDepthSampler existed (issue #691 Phase 3).
+        // HeapBinding::ShadowDepthSampler existed (issue #691).
         const RHI::SamplerDesc rawShadowSampler = HeapBinding::ShadowDepthSampler(false);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID,
                                         RHI::HeapSlotLifetime::FrameTransient, rawShadowSampler,

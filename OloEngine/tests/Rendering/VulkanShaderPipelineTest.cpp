@@ -1,10 +1,10 @@
 // OLO_TEST_LAYER: plumbing
 //
-// #691 Phase 6 — the shader path end to end on a live device: VulkanShader
+// #691 — the shader path end to end on a live device: VulkanShader
 // (direct SPIR-V, vulkan_1_4 tier), VulkanResourceHeap (VK_EXT_descriptor_heap
 // descriptors), VulkanPipelineBuilder (thin PSO, dynamic rendering, root-data
 // binding mappings), VulkanFrameArena (root structs in mapped BDA memory) and
-// vkCmdPushDataEXT — the ADR 0011 §4/§5 shape every Phase 7 pass copies.
+// vkCmdPushDataEXT — the ADR 0011 §4/§5 shape every ported pass copies.
 //
 // The checkpoint test renders the SAME shader the GL golden pins
 // (PostProcess_FXAA.glsl) over the SAME procedurally generated hard-edge
@@ -211,7 +211,7 @@ namespace
                 vkDestroyFence(m_Device->GetDevice(), m_Fence, nullptr);
             }
             EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u)
-                << "The Phase 5/6 bar: ZERO validation errors (sync validation included in debug builds)";
+                << "The bar: ZERO validation errors (sync validation included in debug builds)";
             m_Device->Shutdown();
             m_Device.reset();
         }
@@ -430,7 +430,7 @@ void main()
 }
 )";
 
-    Ref<Shader> shader = Shader::Create("Phase6PilotTriangle", vertexSrc, fragmentSrc);
+    Ref<Shader> shader = Shader::Create("PilotTriangle", vertexSrc, fragmentSrc);
     ASSERT_TRUE(shader);
     ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
     auto* vkShader = static_cast<VulkanShader*>(shader.get());
@@ -743,7 +743,7 @@ TEST_F(VulkanShaderPipeline, FxaaGoldenPassRendersCorrectlyOnVulkan)
         stbi_image_free(golden);
         const f64 rmse = std::sqrt(sumSq / static_cast<f64>(result.size()));
         EXPECT_LT(rmse, 0.02) << "Vulkan FXAA output diverges from the GL golden beyond the hard-fail band";
-        OLO_CORE_INFO("[Phase6] Vulkan FXAA vs GL golden RMSE = {}", rmse);
+        OLO_CORE_INFO("[VulkanFXAA] vs GL golden RMSE = {}", rmse);
     }
 
     // --- The #734 driver-independent property invariants ---------------------

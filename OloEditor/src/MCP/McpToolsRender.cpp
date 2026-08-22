@@ -134,7 +134,7 @@ namespace OloEngine::MCP
         // (JSON) or CommandPacketDebugger::BuildMarkdownReport (the Command Bucket
         // Inspector's LLM-analysis report). After capture, the live render graph is
         // read once more to attribute the captured bucket to its owning pass and place
-        // it in the whole-graph command-bucket landscape (#316 Part 4). Pure read — no
+        // it in the whole-graph command-bucket landscape (#316). Pure read — no
         // override / mutation.
         ToolResult Handle_RenderFrameBreakdown(McpServer& server, const Json& args)
         {
@@ -203,7 +203,7 @@ namespace OloEngine::MCP
 
             // Gather the live render graph's command-bucket landscape so the
             // captured single-pass bucket can be placed in the whole-graph picture
-            // (#316 Part 4). The graph is main-thread state, so the walk runs inside
+            // (#316). The graph is main-thread state, so the walk runs inside
             // MarshalRead; the shaping stays in the pure FrameBreakdown core. A
             // missing graph (2D mode / no frame yet) just omits the attribution.
             FrameBreakdown::GraphAttribution attribution;
@@ -246,7 +246,7 @@ namespace OloEngine::MCP
             return ToolResult::Structured(o);
         }
 
-        // ---- Render-target capture (Part 4 of #316) ----------------------------
+        // ---- Render-target capture (#316) ----------------------------
 
         const char* RGFormatName(RGResourceFormat format)
         {
@@ -446,7 +446,7 @@ namespace OloEngine::MCP
         // Read-only structured export of the live RenderGraph topology — passes,
         // execution order, pass-dependency edges, and resources with their
         // producers/consumers — so an agent can reason about the render pipeline
-        // (#316 Part 4, "LLM-analysis exports"). The RenderGraph is main-thread
+        // (#316, "LLM-analysis exports"). The RenderGraph is main-thread
         // state, so the enumeration runs inside MarshalRead; the JSON / Mermaid
         // shaping is the pure, unit-tested RenderGraphTopology core.
         ToolResult Handle_RenderGraphTopologyExport(McpServer& server, const Json& args)
@@ -696,7 +696,7 @@ namespace OloEngine::MCP
                 return result;
             }
 
-            // ONE row order per backend (#691 Phase 9, ADR 0011 amendment
+            // ONE row order per backend (#691, ADR 0011 amendment
             // (85), retiring (79)'s per-target flipY knob): every off-screen
             // target is top-down under Vulkan and bottom-up under GL, so the
             // top-left-origin capture region converts iff the backend is GL —
@@ -918,7 +918,7 @@ namespace OloEngine::MCP
             if (const auto regionError = CaptureRegionArg::Parse(args, region))
                 return ToolResult::Error(*regionError);
 
-            // Opt-in resource-link delivery (issue #673 Tier 1): publish the PNG
+            // Opt-in resource-link delivery (issue #673): publish the PNG
             // as an ephemeral olo://capture resource instead of inlining base64.
             const bool deliverLink = args.value("delivery", std::string{ "inline" }) == "resource_link";
 
@@ -949,7 +949,7 @@ namespace OloEngine::MCP
 
             // The pass-snapshot clone machinery is GL (glCopyImageSubData of
             // the live target mid-frame); end-of-frame captures work on every
-            // backend through the facade arm below (#691 Phase 8b).
+            // backend through the facade arm below (#691b).
             if (!afterPass.empty() && RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
                 return ToolResult::Error(
                     "'afterPass' snapshots are OpenGL-only for now — the mid-frame clone machinery has no "
@@ -1074,7 +1074,7 @@ namespace OloEngine::MCP
             if (deliverLink)
             {
                 // Publish the capture as an ephemeral resource and hand back a
-                // resource_link instead of inline base64 (issue #673 Tier 1).
+                // resource_link instead of inline base64 (issue #673).
                 const Json::binary_t& png = result["png"].get_binary();
                 std::vector<u8> bytes(png.begin(), png.end());
                 Json linkBlock = PublishCaptureResourceLink(
@@ -1098,7 +1098,7 @@ namespace OloEngine::MCP
             return toolResult;
         }
 
-        // ---- olo_render_toggle_pass / olo_render_set_debug_view (#316 Part 4) ---
+        // ---- olo_render_toggle_pass / olo_render_set_debug_view (#316) ---
         // Ephemeral render-override A/B harness. Both tools mutate ONLY the
         // renderer's session-global settings (Renderer3D::GetPostProcessSettings()
         // / GetFogSettings()), never the loaded scene's own copy — so a change is
@@ -1952,7 +1952,7 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        // ---- olo_render_compare_golden (Part 4 of #316) ------------------------
+        // ---- olo_render_compare_golden (#316) ------------------------
 
         // Resolve a caller-supplied golden path to a safe, repo-relative location
         // under the visual-test artifact root. Rejects absolute paths and ".."
@@ -3270,7 +3270,7 @@ namespace OloEngine::MCP
 
             // GL-only for now: the probe reads typed channel values through
             // glGetTextureSubImage with per-format (format, type) pairs. The
-            // facade readback (#691 Phase 8b) covers image captures; porting
+            // facade readback (#691b) covers image captures; porting
             // the typed probe is follow-up work — refuse cleanly rather than
             // call a null GL pointer (a live Vulkan editor crashed exactly
             // there: SEH execute-at-0x0).
@@ -3497,7 +3497,7 @@ namespace OloEngine::MCP
         ToolResult Handle_RenderProbePixel(McpServer& server, const Json& args)
         {
             // GL-only for now (typed per-format glGetTextureSubImage reads;
-            // #691 Phase 8b guards every GL-hardcoded tool so a Vulkan
+            // #691b guards every GL-hardcoded tool so a Vulkan
             // session gets a refusal, not a null-pointer SEH crash).
             if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
                 return ToolResult::Error(
@@ -4897,7 +4897,7 @@ namespace OloEngine::MCP
             // NATIVE ids, matching this tool's published schema ("Bound GL
             // texture id per slot ... 0 = none") and comparable with the ids
             // olo_render_list_targets reports. The fields are identities since
-            // issue #691 step 3, so resolve rather than reformat — printing
+            // issue #691, so resolve rather than reformat — printing
             // "#3:1" here would silently break every existing consumer.
             Json textures;
             textures["albedo"] = Debug::NativeTextureIdForDiagnostics(data.albedoMapID);
@@ -5078,7 +5078,7 @@ namespace OloEngine::MCP
                 return false;
             // GL staging copy below; under any other backend refuse (callers
             // report the read as unavailable). StorageBuffer::GetData is the
-            // portable route when this gets its facade arm (#691 Phase 8b).
+            // portable route when this gets its facade arm (#691b).
             if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
                 return false;
 
@@ -5102,9 +5102,9 @@ namespace OloEngine::MCP
                 // ReadStorageBufferStaged is a GL staging copy; report the
                 // backend limitation up front rather than letting it read as
                 // a readback failure (StorageBuffer::GetData is the portable
-                // route when this gains its facade arm, #691 Phase 8b).
+                // route when this gains its facade arm, #691b).
                 if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
-                    return Json{ { "__error", "Cluster-grid SSBO readback is OpenGL-only for now — this backend has no staged-read path yet (#691 Phase 8b)." } };
+                    return Json{ { "__error", "Cluster-grid SSBO readback is OpenGL-only for now — this backend has no staged-read path yet (#691b)." } };
 
                 ClusterGrid::GridDims dims;
                 dims.CountX = lightGrid.GetClusterCountX();
@@ -5273,7 +5273,7 @@ namespace OloEngine::MCP
         {
             FroxelFog::VolumeSample sample;
             // GL-only for now — the volume probe reads through raw
-            // glGetTextureSubImage (#691 Phase 8b guard, see the probe tools).
+            // glGetTextureSubImage (#691b guard, see the probe tools).
             if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
             {
                 sample.Unavailable = std::string(label) + " probe is OpenGL-only for now.";
@@ -5427,7 +5427,7 @@ namespace OloEngine::MCP
                                      "slice was sampled.";
                 }
 
-                // The fog volumes are identities now (issue #691 step 3, item 4); this
+                // The fog volumes are identities now (issue #691); this
                 // probe reads them back with raw GL, which is the sanctioned use of the
                 // diagnostics hatch.
                 probe.Raw = ProbeVolumeTexel(Debug::NativeTextureIdForDiagnostics(state.ScatterTextureID),
@@ -6319,7 +6319,7 @@ namespace OloEngine::MCP
             tool.Name = "olo_renderer_settings_set";
             tool.Toolset = "render";
             tool.Title = "Set renderer / post-process setting";
-            // A project-WRITE tool (#306 item C): it mutates the session-global
+            // A project-WRITE tool (#306): it mutates the session-global
             // renderer settings, which crosses the read-only line, so it is gated
             // behind the "Allow writes" session toggle like the other writes.
             // readOnlyHint:false; idempotent (setting a value twice leaves the same

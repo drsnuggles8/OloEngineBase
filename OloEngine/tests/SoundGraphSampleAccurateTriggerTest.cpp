@@ -2,13 +2,13 @@
 #include <gtest/gtest.h>
 
 // =============================================================================
-// SoundGraphSampleAccurateTriggerTest — Phase 4 sample-accurate triggers
+// SoundGraphSampleAccurateTriggerTest — sample-accurate triggers
 // (docs/design/soundgraph-metasounds.md)
 //
-// Phase 4 makes trigger-consuming nodes split their per-frame Process() at the
+// Sample-accurate triggers make trigger-consuming nodes split their per-frame Process() at the
 // frame offset a trigger carries, so an event that arrives mid-block takes
 // effect at the exact sample instead of being quantised to the block boundary
-// (the Phase 1-3 behavior). The mechanism:
+// (the older behaviour). The mechanism:
 //   * Trigger / TriggerRef (StreamRefs.h) carry an i32 frame offset.
 //   * InputEvent / OutputEvent thread an i32 sampleOffset through the event
 //     system (NodeProcessor.h) so a producer firing mid-block tells consumers

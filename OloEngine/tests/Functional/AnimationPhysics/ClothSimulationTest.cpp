@@ -7,7 +7,7 @@
 // Cross-subsystem seam under test:
 //   Cloth (ClothComponent → Jolt SoftBodySharedSettings / soft body) × Physics3D
 //   (gravity integration + soft-body-vs-rigid collision) driven by the real
-//   Scene::OnPhysics3DStart / OnUpdateRuntime path (issue #460, first slice).
+//   Scene::OnPhysics3DStart / OnUpdateRuntime path (issue #460).
 //
 //   Before #460 Jolt's soft-body shape was rejected outright ("defaulting to Box").
 //   These tests pin the new wiring — a ClothComponent produces a Jolt soft body that:

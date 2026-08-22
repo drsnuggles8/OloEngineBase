@@ -22,7 +22,7 @@ namespace OloEngine
     //
     // Current iteration supports directional / point / spot lights via
     // the `MultiLightBuffer` UBO; shadow sampling, IBL, Forward+ tile
-    // evaluation and per-sample MSAA lighting are Phase 3/5 follow-ups.
+    // evaluation and per-sample MSAA lighting are follow-ups.
     //
     // If `RenderingPath::Deferred` is inactive or the G-Buffer was not
     // provided, Execute() is a no-op — the pass is safe to register
@@ -47,7 +47,7 @@ namespace OloEngine
         {
             m_GBuffer = gbuffer;
         }
-        // Phase F slice 41 — SetSceneColorHandle removed; Execute() self-resolves
+        // SetSceneColorHandle removed; Execute() self-resolves
         // Forwarded from RendererSettings; 0 = lighting, non-zero = skip
         // (SceneRenderPass's BlitGBufferDebug already wrote a channel).
         void SetDebugChannel(u32 channel) noexcept

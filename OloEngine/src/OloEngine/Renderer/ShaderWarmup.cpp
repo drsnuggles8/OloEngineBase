@@ -280,7 +280,7 @@ void main()
         // record → submit → present) drops facade draws issued outside the
         // bracket — the GL immediate-then-swap shape below presented only the
         // clear-fallback frame (a bare blue window for the whole warmup,
-        // #691 Phase 8). Exchange the frame callback for one that records
+        // #691). Exchange the frame callback for one that records
         // this progress frame INSIDE the bracket, present, restore. During
         // startup the exchanged-out callback is simply null; a nested call
         // (RenderProgressFrame reached from inside a frame) is dropped by the

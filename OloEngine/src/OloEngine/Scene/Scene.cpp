@@ -2,7 +2,7 @@
 #include "Scene.h"
 #include "Entity.h"
 
-// Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
+// Raw GL below is part of the issue #691 step-2 sweep backlog; the
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include <algorithm>
@@ -484,7 +484,7 @@ namespace OloEngine
         // Mute the per-entity EntitySpawn flood: a whole-scene copy (Play / Simulate /
         // duplicate) recreates every entity, which is internal churn, not the kind of
         // spawn the "what just happened" timeline cares about. Play itself is recorded
-        // once by OnRuntimeStart. (#306 item B)
+        // once by OnRuntimeStart. (#306)
         DiagnosticsEventLog::SuppressScope suppressSpawnFlood;
 
         Ref<Scene> newScene = Ref<Scene>::Create();
@@ -576,7 +576,7 @@ namespace OloEngine
         m_EntityMap.Add(uuid, entity);
         m_EntityNameMap.emplace(tag.Tag, static_cast<entt::entity>(entity));
 
-        // Unified diagnostics timeline (#306 item B). Suppressed during whole-scene
+        // Unified diagnostics timeline (#306). Suppressed during whole-scene
         // bulk creation (Scene::Copy on Play, deserialize on load) so the ring buffer
         // records interactive/runtime spawns rather than internal churn.
         DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::EntitySpawn,
@@ -841,7 +841,7 @@ namespace OloEngine
         m_RuntimeSnowPrevPositions.Remove(entityUUID);
         m_EditorSnowPrevPositions.Remove(entityUUID);
 
-        // Unified diagnostics timeline (#306 item B), recorded only once the destroy
+        // Unified diagnostics timeline (#306), recorded only once the destroy
         // has actually gone through (the early returns above bail before this).
         DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::EntityDestroy,
                                           "Destroyed entity '" + entityName + "'", static_cast<u64>(entityUUID));
@@ -1470,7 +1470,7 @@ namespace OloEngine
             }
         }
 
-        // Unified diagnostics timeline (#306 item B): the single authoritative fire for
+        // Unified diagnostics timeline (#306): the single authoritative fire for
         // "entered Play mode" — the editor copies the scene then calls this; OloRuntime
         // calls it on game start. OnSimulationStart deliberately does not record (it is
         // not a gameplay play).
@@ -1719,7 +1719,7 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
-        // Unified diagnostics timeline (#306 item B): the authoritative "left Play mode"
+        // Unified diagnostics timeline (#306): the authoritative "left Play mode"
         // fire. Recorded up front, while the scene is still intact. Teardown below tears
         // down systems but does not route through Scene::DestroyEntity, so no spurious
         // EntityDestroy flood follows.
@@ -2927,11 +2927,11 @@ namespace OloEngine
         constexpr std::string_view kRootMotion = "RootMotion";
         // The per-entity clip lists (AnimationStateComponent::m_AvailableClips):
         // written by the live-retargeting bake, sampled by both animation
-        // systems (issue #631 part 2).
+        // systems (issue #631).
         constexpr std::string_view kAnimationClips = "AnimationClips";
         // AnimationGraphComponent::Parameters (+ stride-warped state playback
         // rates): written by the locomotion controller, consumed by the graph
-        // evaluation (issue #631 part 4).
+        // evaluation (issue #631).
         constexpr std::string_view kAnimationParams = "AnimationParams";
         // The rebuilt SceneSpatialIndex.
         constexpr std::string_view kSpatialIndex = "SpatialIndex";
@@ -3064,7 +3064,7 @@ namespace OloEngine
                             { WeatherSystem::Tick(s, ts); })
                 .Before("PhysicsKick");
 
-            // Locomotion controller (issue #631 part 4): measures character
+            // Locomotion controller (issue #631): measures character
             // velocity (last tick's controller velocity / transform deltas —
             // pre-kick reads of fenced Jolt state are legal), selects gait with
             // hysteresis, writes graph parameters + stride warp for the graph
@@ -3074,7 +3074,7 @@ namespace OloEngine
                 .Reads(kLocalTransforms)
                 .Writes(kAnimationParams);
 
-            // Live-retargeting bake (issue #631 part 2): splices retargeted
+            // Live-retargeting bake (issue #631): splices retargeted
             // clips into per-entity clip lists BEFORE the animation systems
             // sample them (RAW edge on AnimationClips). Idempotent per settings
             // — steady-state ticks are a cheap settings-equality walk.
@@ -3572,7 +3572,7 @@ namespace OloEngine
 
     void Scene::UpdateLocomotion(Timestep ts)
     {
-        // Velocity-driven locomotion controller (issue #631 part 4) — see
+        // Velocity-driven locomotion controller (issue #631) — see
         // LocomotionSystem. Runtime path only: in edit mode nothing moves the
         // character, so there is nothing to measure.
         Animation::LocomotionSystem::OnUpdate(this, ts.GetSeconds());
@@ -3580,7 +3580,7 @@ namespace OloEngine
 
     void Scene::UpdateRetargeting(Timestep /*ts*/)
     {
-        // Live-retargeting clip bake (issue #631 part 2) — see RetargetingSystem.
+        // Live-retargeting clip bake (issue #631) — see RetargetingSystem.
         Animation::RetargetingSystem::OnUpdate(this);
     }
 
@@ -4558,7 +4558,7 @@ namespace OloEngine
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
 
         // Live-retargeting bake also runs in edit mode so the retargeted clips
-        // preview without entering Play (issue #631 part 2). Idempotent per
+        // preview without entering Play (issue #631). Idempotent per
         // settings — steady-state ticks are a cheap equality walk.
         Animation::RetargetingSystem::OnUpdate(this);
 
@@ -6459,7 +6459,7 @@ namespace OloEngine
             // procedural sky to the combined day/night AtmosphereSky bake and
             // becomes the single authoritative sun source (issue #633). The
             // old m_LinkSunToDirectionalLight pull and the ephemeral MCP sun
-            // override (#316 Part 4) are retired: TimeOfDaySystem::Apply
+            // override (#316) are retired: TimeOfDaySystem::Apply
             // drives the directional light BEFORE this runs, and the MCP
             // tools now write the TimeOfDayComponent's real clock instead.
             TimeOfDayComponent* timeOfDay = nullptr;
@@ -7937,7 +7937,7 @@ namespace OloEngine
                         }
                     }
 
-                    // ── Adaptive virtual texturing (issue #715, slice 1) ──
+                    // ── Adaptive virtual texturing (issue #715) ──
                     //
                     // Runs HERE, in the update pass, rather than as a render-graph
                     // pass: its Update() branches on a runtime toggle, and a
@@ -9274,9 +9274,9 @@ namespace OloEngine
                 // stage reconstructs world position from uv + row-mirrored
                 // scene depth on Vulkan, so the inverse must come from the
                 // ADJUSTED forward matrix (identity on GL). This was the one
-                // uv->world consumer the Wave C sweep missed — the raw inverse
+                // uv->world consumer the sweep missed — the raw inverse
                 // misclassified the per-pixel waterline and flooded the whole
-                // VehiclesTest frame with underwater fog under Vulkan (Phase 8
+                // VehiclesTest frame with underwater fog under Vulkan (
                 // parity gate).
                 uwData.InverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(viewProjection);
                 Renderer3D::UploadUnderwaterFogUBO(uwData);
@@ -10929,7 +10929,7 @@ namespace OloEngine
 
     // Specialisation: when a RetargetingComponent is removed, drop the baked
     // clip cache so a re-added component rebakes from its authored settings
-    // (issue #631 part 2). (Defined after the RetargetingStateComponent no-op
+    // (issue #631). (Defined after the RetargetingStateComponent no-op
     // above so the RemoveComponent instantiation sees that specialisation.)
     template<>
     void Scene::OnComponentRemoved<RetargetingComponent>(Entity entity, RetargetingComponent& /*component*/)

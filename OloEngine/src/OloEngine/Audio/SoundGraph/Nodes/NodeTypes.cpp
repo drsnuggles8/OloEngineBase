@@ -18,7 +18,7 @@ namespace OloEngine::Audio::SoundGraph
 
     /// This macro defines the out-of-line 'void RegisterEndpoints()' declared by node
     /// processor types that need custom constructor / Init() behavior. (The old
-    /// InitializeInputs step is gone — Phase 2 typed refs are born pointing at their
+    /// InitializeInputs step is gone — typed refs are born pointing at their
     /// inline defaults and re-pointed by connections, so there is no second pass.)
     /// Registration returning false means the node has no visible DESCRIBE_NODE
     /// specialization — every endpoint silently missing. Fail fast at construction

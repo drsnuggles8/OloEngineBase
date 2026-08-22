@@ -122,7 +122,7 @@ namespace OloEngine
         // then maps it into the decal box with the world-space inverseDecalTransform.
         cmd->decalTransform = decalTransform;
         cmd->inverseDecalTransform = inverseDecalTransform;
-        // A8 seam, shader-reconstruction flavour (#691 Phase 7): the shader
+        // A8 seam, shader-reconstruction flavour (#691): the shader
         // builds `ndc = vec3(screenUV*2-1, depth*2-1)` and multiplies by this,
         // so it needs inverse(Y * VP), not inverse(VP). Recomputed from the
         // flipped forward rather than flipping the stored inverse — inverting

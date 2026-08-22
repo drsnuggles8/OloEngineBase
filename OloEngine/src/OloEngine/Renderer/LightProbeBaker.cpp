@@ -74,7 +74,7 @@ namespace OloEngine
             scene->RenderScene3D(captureCamera, transform);
 
             // Read back RGBA16F pixel data from the color attachment, by
-            // identity rather than driver name (issue #691 step 3).
+            // identity rather than driver name (issue #691).
             RHI::ResourceHandle const colorAttachment = fbo->GetColorAttachmentHandle(0);
             const bool readOk = RenderCommand::ReadTextureImage(
                 colorAttachment, 0, RHI::Format::RGBA32Float,

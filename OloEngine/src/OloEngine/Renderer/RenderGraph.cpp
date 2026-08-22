@@ -1002,7 +1002,7 @@ namespace OloEngine
             // state actually changes. A no-op re-import keeps prior handle
             // copies valid for callers caching handles across frames.
             // A slot whose previous occupant carried the IDENTITY currency (a
-            // materialized transient sets BOTH — Phase 5) changes occupants
+            // materialized transient sets BOTH) changes occupants
             // even when the native id happens to match: the native import
             // below clears phys.Handle, so cached RGBufferHandles must fail
             // their generation check rather than silently resolve to the new
@@ -3223,7 +3223,7 @@ namespace OloEngine
         MaterializeTransientResources();
 
         // Run the pre-built submission-plan IR through the extracted plan
-        // executor module (Phase 7 slice 7). The executor is a thin loop
+        // executor module. The executor is a thin loop
         // over the cached IR that dispatches each command to the abstract
         // RGCommandContext — backend bindings stay one level deeper in
         // OpenGLRendererAPI.
@@ -3299,7 +3299,7 @@ namespace OloEngine
         m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
 
         // The descriptor heap's frame-transient ring resets at exactly this
-        // moment and for exactly this reason (issue #691 Phase 3, ADR 0011
+        // moment and for exactly this reason (issue #691, ADR 0011
         // §1.2): `ReleaseAll` is when the physical objects the transient
         // descriptors named stop being owned by the passes that used them.
         // Retiring the views here bumps their generations, so a transient
@@ -3526,7 +3526,7 @@ namespace OloEngine
                         texHandleIt->second.Index < m_PhysicalTextures.size())
                     {
                         // BOTH currencies, read off the one pooled Ref in one
-                        // statement (issue #691 step 3, slice 7). See
+                        // statement (issue #691). See
                         // PhysicalTexture: the "exactly one is set" rule covers
                         // IMPORTS, where the importer only ever has one. The
                         // planner holds the object, so it has both and they
@@ -3635,7 +3635,7 @@ namespace OloEngine
                     {
                         // The graph holds the pooled Ref itself, so it sets BOTH
                         // currencies off one pointer — the PhysicalTexture
-                        // slice-7 contract, extended to buffers in Phase 5.
+                        // executor contract, extended to buffers.
                         m_PhysicalBuffers[bufferHandleIt->second.Index].BufferID = bufferIt->second ? bufferIt->second->GetRendererID() : 0;
                         m_PhysicalBuffers[bufferHandleIt->second.Index].Handle = bufferIt->second ? bufferIt->second->GetRHIHandle() : RHI::ResourceHandle{};
                     }
@@ -4210,11 +4210,11 @@ namespace OloEngine
     // command stream that a backend can replay without touching the graph.
     std::vector<RenderGraph::SubmissionCommand> RenderGraph::GetSubmissionPlan() const
     {
-        // Delegate to the extracted submission-plan module (Phase 7 slice 6).
+        // Delegate to the extracted submission-plan module.
         // GetAsyncComputeBatches itself delegates; here we just plumb the
         // results into the IR builder.
         const auto batches = GetAsyncComputeBatches();
-        // Phase 5: derive the transition records once so every emitted
+        // Derive the transition records once so every emitted
         // MemoryBarrier command carries its per-resource transitions for the
         // explicit-barrier backend (GL ignores them; ADR 0011 §1.5).
         const auto transitions = GetResourceTransitions();
@@ -4239,7 +4239,7 @@ namespace OloEngine
     // -------------------------------------------------------------------
     std::vector<RenderGraph::ResourceTransition> RenderGraph::GetResourceTransitions() const
     {
-        // Delegate to the extracted barrier-planner module (Phase 7 split).
+        // Delegate to the extracted barrier-planner module.
         return RenderGraphBarrierPlanner::BuildResourceTransitions({
             .PlannedBarriers = m_PlannedBarriers,
             .ExecutionOrder = m_ExecutionOrder,
@@ -4638,7 +4638,7 @@ namespace OloEngine
         }
 
         // Delegate the BFS / iterative read→writer expansion to the
-        // RenderGraphReachability module (Phase 7 split).
+        // RenderGraphReachability module.
         m_ReachablePasses = RenderGraphReachability::ComputeReachableSet({
             .HasExplicitFinalPass = m_HasExplicitFinalPass,
             .FinalPassName = m_FinalPassName,
@@ -4707,7 +4707,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Delegate to the extracted barrier-planner module (Phase 7 split).
+        // Delegate to the extracted barrier-planner module.
         // The module is backend-agnostic: it consumes the compiled-frame access
         // declarations + execution order, produces a `PlannedBarrier` list and
         // a per-pass barrier-flag map. The OpenGL backend then translates the
@@ -4939,7 +4939,7 @@ namespace OloEngine
             // submission-plan rebuild. The validator only needs topo order.
         }
 
-        // Delegate to the extracted hazard-validator module (Phase 7 split).
+        // Delegate to the extracted hazard-validator module.
         return RenderGraphHazardValidator::Validate({
             .IsPassReachable = [this](const std::string& passName)
             { return IsPassReachable(passName); },
@@ -4978,9 +4978,9 @@ namespace OloEngine
                    kind == RGResourceHandle::Kind::StorageBuffer;
         };
 
-        // Phase A — pure registry build (descriptor merging + access walking +
+        // Pure registry build (descriptor merging + access walking +
         // kind-mismatch diagnostics + canonical sort). Delegated to the
-        // RenderGraphResourceRegistry module (Phase 7 split).
+        // RenderGraphResourceRegistry module.
         auto built = RenderGraphResourceRegistry::Build({
             .ImportedResources = m_ImportedResources,
             .TransientResourceDescs = m_TransientResourceDescs,
@@ -4995,10 +4995,10 @@ namespace OloEngine
         m_RegisteredResources = std::move(built.Sorted);
         m_ResourceRegistryDiagnostics = std::move(built.Diagnostics);
 
-        // Phase B — reconcile per-type handle slot tables + allocate handles
+        // Reconcile per-type handle slot tables + allocate handles
         // for live resources. The generic slot-allocator pattern is shared
         // across the three handle families and lives in the
-        // RenderGraphHandleAllocator module (Phase 7 slice 8).
+        // RenderGraphHandleAllocator module.
         std::unordered_set<std::string> activeTextureNames;
         std::unordered_set<std::string> activeBufferNames;
         std::unordered_set<std::string> activeFramebufferNames;
@@ -5090,7 +5090,7 @@ namespace OloEngine
     void RenderGraph::RebuildTransientPlan()
     {
         // Delegate the lifetime scan + alias-slot assignment to the
-        // RenderGraphTransientPlanner module (Phase 7 slice 5).
+        // RenderGraphTransientPlanner module.
         m_TransientPlan = RenderGraphTransientPlanner::ComputePlan({
             .TransientResourceDescs = m_TransientResourceDescs,
             .ExecutionOrder = m_ExecutionOrder,
@@ -5400,7 +5400,7 @@ namespace OloEngine
             }
         };
 
-        // Phase 5: transitions carry the unified RHI::Access pair
+        // Transitions carry the unified RHI::Access pair
         // (ADR 0011 §1.5) instead of the read/write usage split above.
         const auto accessToString = [](const RHI::Access access)
         {

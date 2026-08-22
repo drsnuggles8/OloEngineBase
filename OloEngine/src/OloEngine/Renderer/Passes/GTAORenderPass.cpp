@@ -44,7 +44,7 @@ namespace OloEngine
     {
         SetName("GTAOPass");
         // Phase G slice 1 — compute-only; HZB + GTAO main pass + denoise all dispatch compute.
-        // Candidate for async-compute overlap once multi-queue scheduling is added (Phase G.2).
+        // Candidate for async-compute overlap once multi-queue scheduling is added.
         SetPassWorkType(PassWorkType::Compute);
         SetAsyncComputeCandidate(true);
     }
@@ -254,7 +254,7 @@ namespace OloEngine
             return;
         }
 
-        // Phase D / H follow-up: resolve the GTAO edge scratch texture from
+        // Follow-up: resolve the GTAO edge scratch texture from
         // the transient pool only. The execute path no longer falls back to
         // an owned edge texture.
         //
@@ -276,7 +276,7 @@ namespace OloEngine
         if (willDispatchDenoise && m_SelectedDenoisePongTexture.IsValid())
             denoisePongTexID = context.ResolveTextureHandle(m_SelectedDenoisePongTexture);
 
-        // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
+        // Self-resolving SceneDepth and SceneNormals: look
         // up directly from the render graph blackboard so no per-frame
         // side-channel setter calls are needed from EndScene().
         RHI::ResourceHandle depthID{};
@@ -519,7 +519,7 @@ namespace OloEngine
         //
         // The Hilbert LUT genuinely is pass-owned and stays Persistent; the view
         // normals come from the transient pool and take a per-frame ring slot
-        // (issue #691 Phase 3).
+        // (issue #691).
         const RHI::ResourceHandle hzbID = m_HZBGenerator.GetHZBTexture();
         HeapBinding::BindTextureOrOffset(GTAO_HZB_TEXTURE_SLOT, hzbID,
                                          m_HZBGenerator.GetHZBLifetime());
@@ -566,7 +566,7 @@ namespace OloEngine
         bool readFromTex0 = true;
 
         // Former bare uniform via ComputeShader::SetInt — a no-op on the
-        // Vulkan route (issue #691 Phase 7). Refilled per pass: each SetData
+        // Vulkan route (issue #691). Refilled per pass: each SetData
         // is a fresh per-dispatch address on the arena-versioned backend.
         if (!m_DenoiseUBO)
         {

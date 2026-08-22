@@ -432,7 +432,7 @@ namespace OloEngine
         // scene pass still renders into the legacy scene/G-Buffer
         // attachments, but downstream consumers now sample the exported graph
         // textures instead of importing those attachments directly.
-        // Identities throughout (issue #691 step 3, slice 7): the export target
+        // Identities throughout (issue #691): the export target
         // is a graph TRANSIENT, which only began answering ResolveTextureHandle
         // once the planner recorded a handle for pooled textures. The self-copy
         // guard now compares OBJECTS -- under driver names a recycled name could
@@ -472,7 +472,7 @@ namespace OloEngine
         copySceneExport(m_SelectedVelocityExport, sourceVelocity);
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
-        // Phase 3, copy the selected G-Buffer channel into the forward scene
+        // Copy the selected G-Buffer channel into the forward scene
         // target's color[0] so post-process and the editor viewport display
         // *something* instead of whatever is left of the cleared forward FB.
         if (deferredActive && m_GBuffer)
@@ -640,7 +640,7 @@ namespace OloEngine
 
             m_DebugRMAShader->Bind();
             // Persistent: these are the pass's OWN G-Buffer attachments, not
-            // graph-pooled targets (issue #691 Phase 3).
+            // graph-pooled targets (issue #691).
             HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
                                              m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo),
                                              RHI::HeapSlotLifetime::Persistent);

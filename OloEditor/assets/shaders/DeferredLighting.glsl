@@ -1,5 +1,5 @@
 // =============================================================================
-// DeferredLighting.glsl - Deferred lighting composition pass (Phase 3, full)
+// DeferredLighting.glsl - Deferred lighting composition pass (full)
 // Part of OloEngine Deferred Renderer
 //
 // Reads the 4-RT G-Buffer produced by PBR_GBuffer{,_Skinned}.glsl and
@@ -22,7 +22,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// #691 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
 // the pipeline has no vertex-input state at all. Binding 57 is the engine-wide
 // vertex-pull binding (ShaderBindingLayout::SSBO_VERTEX_PULL); the root struct
 // carries this buffer's device address, so the SAME 20-byte
@@ -116,7 +116,7 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     vec4 u_MSAAParams;       // x=SampleCount (float, >=1), yzw reserved
 };
 
-// Texture inputs. Under heap-bindless (issue #691 Phase 3) every one of these
+// Texture inputs. Under heap-bindless (issue #691) every one of these
 // becomes a heap lookup keyed by the SAME slot number the bindful branch
 // declares, so the two variants cannot disagree about which texture is which,
 // and the shader BODY below is byte-identical between them.

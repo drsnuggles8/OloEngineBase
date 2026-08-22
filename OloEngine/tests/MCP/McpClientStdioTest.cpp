@@ -2,7 +2,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
-// The outbound MCP client's protocol + lifecycle layer (#673 Tier 1, bullet 1),
+// The outbound MCP client's protocol + lifecycle layer (#673, bullet 1),
 // driven end-to-end through McpServer::ConnectClientWithTransport with an
 // IN-MEMORY fake transport — no child process, socket, or GL: protocol-era
 // negotiation (#777 — the `server/discover` probe and its fallback to the

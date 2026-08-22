@@ -8,7 +8,7 @@
 namespace OloEngine::Utils
 {
     // ---------------------------------------------------------------------
-    // Handle -> GL name. The backend's half of issue #691 Phase 2 step 3.
+    // Handle -> GL name. The backend's half of issue #691.
     //
     // One of the two sanctioned ways out of an RHI::ResourceHandle (the other
     // is GetNativeHandleForDebug, for Renderer/Debug/). It lives HERE, inside
@@ -141,7 +141,7 @@ namespace OloEngine::Utils
     }
 
     // THE TWO CALLS EVERY TEXTURE DESTRUCTOR OWES, in one place so a new texture
-    // type cannot ship with only one of them (issue #691 Phase 3).
+    // type cannot ship with only one of them (issue #691).
     //
     //   * `CommandDispatch::InvalidateTextureBinding` drops the slot path's
     //     "this unit already has this texture" cache, so a future bind with a

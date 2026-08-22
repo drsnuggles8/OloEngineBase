@@ -44,7 +44,7 @@ namespace OloEngine
 
       private:
         Ref<ComputeShader> m_CullingShader;
-        // LightCulling.comp's former bare uniforms (issue #691 Phase 7), at
+        // LightCulling.comp's former bare uniforms (issue #691), at
         // UBO_LIGHT_CULLING. C++ twin: UBOStructures::LightCullingUBO.
         Ref<UniformBuffer> m_ParamsUBO;
     };

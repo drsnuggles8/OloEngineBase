@@ -364,7 +364,7 @@ report a rendering change as done on the strength of unit tests alone" is
 enforced by exactly these tools plus the MCP capture endpoints they back
 (`olo_render_capture_target`, `olo_render_transient_plan`). If they stay
 GL-only, every Vulkan pass in Phase 7 is unverifiable by the loop the repo
-mandates — which is what #691 Phase 8 is already warning about.
+mandates — which is what #691 is already warning about.
 
 So they are a *third* category, distinct from both "sweep to zero" and
 "legitimately native": **neutral interface in `Renderer/Debug/`, GL
@@ -888,7 +888,7 @@ Phase 7** wherever profiling shows a real latency-hiding opportunity.
 > comments and other docs, so a citation must always resolve. An entry may
 > be *removed* only when nothing outside this file references it — pure
 > phase-status records, and corrections already folded into the section
-> they corrected — and removal leaves a permanent gap. (#691 Phase 9
+> they corrected — and removal leaves a permanent gap. (#691
 > removed (5), (18), (54), (55) and (69) on those grounds.) Anything still
 > cited stays, even when dead, as a tombstone.
 >

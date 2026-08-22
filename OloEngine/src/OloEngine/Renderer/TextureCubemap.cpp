@@ -14,7 +14,7 @@ namespace OloEngine
 #if OLO_WITH_VULKAN
     namespace
     {
-        // The Vulkan arm of the face-path load (#691 Phase 8): six stbi loads
+        // The Vulkan arm of the face-path load (#691): six stbi loads
         // into the spec-constructed cubemap via the CPU face upload. Mirrors
         // OpenGLTextureCubemap::LoadFaces' contract — faces are NOT
         // vertically flipped (unlike Texture2D), extent comes from face 0,

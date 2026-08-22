@@ -785,7 +785,7 @@ TEST_F(LocalizationFixture, ResolveLocalizedTextDispatchesByPrefix)
 }
 
 // -----------------------------------------------------------------------------
-// Phase 5 — pseudo-loc / missing-key reporting / number formatting /
+// Pseudo-loc / missing-key reporting / number formatting /
 // negotiation / OS detect / persistence / dangling-param lint / save-to-disk.
 // -----------------------------------------------------------------------------
 
@@ -1003,7 +1003,7 @@ TEST_F(LocalizationFixture, SaveLocaleToFileRoundTripsWithEdits)
 }
 
 // -----------------------------------------------------------------------------
-// Phase 6 — UTF-8, gender tokens, asset localization, metadata + max-length.
+// UTF-8, gender tokens, asset localization, metadata + max-length.
 // -----------------------------------------------------------------------------
 
 TEST(UTF8, DecodesAsciiAndMultiByteSequences)
@@ -1149,7 +1149,7 @@ TEST_F(LocalizationFixture, MaxLengthLintCatchesOverflowing)
 }
 
 // -----------------------------------------------------------------------------
-// Phase 7 — select tokens, currency, list, date/time, relative time.
+// Select tokens, currency, list, date/time, relative time.
 // -----------------------------------------------------------------------------
 
 TEST(TextFormatter, SelectTokenDispatchesByLabelWithElseFallback)

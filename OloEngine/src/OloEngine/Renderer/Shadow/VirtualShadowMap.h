@@ -288,7 +288,7 @@ namespace OloEngine
         inline constexpr f32 kLocalKindPoint = 2.0f;
 
         // UBO_VIRTUAL_SHADOW_DRAW — per-dispatch / per-draw scratch, refilled
-        // immediately before each use (the #691 Phase 7 pattern). Two disjoint
+        // immediately before each use (the #691 pattern). Two disjoint
         // consumers share it because they never overlap in time:
         //   .x — VSM_BuildHPB: the mip being written
         //      — VSM_CullCasters: the caster count

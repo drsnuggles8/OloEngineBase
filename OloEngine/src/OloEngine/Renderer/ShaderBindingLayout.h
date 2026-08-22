@@ -42,7 +42,7 @@ namespace OloEngine
             // grid cell, so the add-back is a no-op near origin.
             glm::vec3 RenderOrigin = glm::vec3(0.0f);
             f32 _padding1 = 0.0f;
-            // The SHADER-RECONSTRUCTION flavour of Projection (#691 Phase 8).
+            // The SHADER-RECONSTRUCTION flavour of Projection (#691).
             // `Projection` above carries the rasterizer flavour (full F: y flip
             // + z remap on Vulkan), which every `gl_Position` consumer needs —
             // but a shader doing its own `(clip.z/clip.w)*0.5+0.5`, extracting
@@ -69,7 +69,7 @@ namespace OloEngine
         // matrices at runtime. Expected: 3*mat4(192) + vec3+pad(16) +
         // mat4(64) + vec3+pad(16) = 288 B (the trailing vec3 is the
         // camera-relative render origin, issue #429; the trailing mat4 is the
-        // reconstruction-flavour projection, issue #691 Phase 8 — 288 + 64 =
+        // reconstruction-flavour projection, issue #691 — 288 + 64 =
         // 352). Alignment is not asserted: GLM mat4 is not 16-byte-aligned by
         // default, but the C++-side SetData() call uploads the raw byte
         // buffer so only total size matters.
@@ -161,7 +161,7 @@ namespace OloEngine
             i32 AlphaMode = 0;           // 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum)
             i32 _pbrPad2 = 0;
 
-            // PER-MATERIAL HEAP OFFSETS (issue #691 Phase 3, ADR 0011 amendment (32)).
+            // PER-MATERIAL HEAP OFFSETS (issue #691, ADR 0011 amendment (32)).
             //
             // WHY THESE LIVE HERE AND NOT IN THE SHARED OFFSET TABLE. That table is
             // indexed by `TEX_*` slot and published by `HeapBinding::FlushOffsets()`
@@ -331,7 +331,7 @@ namespace OloEngine
             glm::vec4 VTParams2{ 0.0f }; // x = enabled, y = feedback frame slot, z = downscale, w = log2(downscale)
             glm::vec4 VTParams3{ 0.0f }; // x = sectorsWide, y = trilinear, zw = reserved
 
-            // The adaptive sector table (issue #715 slice 3): two vec4s per
+            // The adaptive sector table (issue #715): two vec4s per
             // sector, row-major. Rides this UBO because the SSBO namespace has
             // exactly one free binding under the 84 minimum and a 2 KB fixed
             // array does not earn it. Mirrors kVTMaxSectorCount in
@@ -650,8 +650,8 @@ namespace OloEngine
         static_assert(sizeof(FroxelFogUBO) % 16 == 0, "FroxelFogUBO must be 16-byte aligned for std140");
         static_assert(sizeof(FroxelFogUBO) == 240, "FroxelFogUBO std140 size drifted from GLSL expectation (240 B)");
 
-        // @brief Auto-exposure metering/adaptation parameters (issue #691
-        // Phase 7), uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
+        // @brief Auto-exposure metering/adaptation parameters (issue #691),
+        // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
         // AutoExposureParams block shared verbatim by
         // compute/AutoExposureHistogram.comp and compute/AutoExposureAverage.comp
         // — these values were bare uniforms fed by ComputeShader::Set*, which
@@ -684,7 +684,7 @@ namespace OloEngine
         static_assert(sizeof(AutoExposureUBO) % 16 == 0, "AutoExposureUBO must be 16-byte aligned for std140");
         static_assert(sizeof(AutoExposureUBO) == 64, "AutoExposureUBO std140 size drifted from GLSL expectation (64 B)");
 
-        // @brief HZB downsample-batch parameters (issue #691 Phase 7),
+        // @brief HZB downsample-batch parameters (issue #691),
         // uploaded at UBO_HZB (59). GLSL twin: the HZBParams block in
         // compute/HZB.comp. Refilled before EVERY 4-mip dispatch batch (the
         // values change per batch) — legal on both routes: GL re-uploads the
@@ -710,7 +710,7 @@ namespace OloEngine
         static_assert(sizeof(HZBParamsUBO) % 16 == 0, "HZBParamsUBO must be 16-byte aligned for std140");
         static_assert(sizeof(HZBParamsUBO) == 48, "HZBParamsUBO std140 size drifted from GLSL expectation (48 B)");
 
-        // @brief GTAO denoise direction (issue #691 Phase 7), uploaded at
+        // @brief GTAO denoise direction (issue #691), uploaded at
         // UBO_GTAO_DENOISE (60). GLSL twin: the GTAODenoiseParams block in
         // compute/GTAO_Denoise.comp. Refilled per ping-pong pass.
         struct GTAODenoiseUBO
@@ -729,7 +729,7 @@ namespace OloEngine
         static_assert(sizeof(GTAODenoiseUBO) == 16, "GTAODenoiseUBO std140 size drifted from GLSL expectation (16 B)");
 
         // =====================================================================
-        // Compute bare-uniform migration (issue #691 Phase 7)
+        // Compute bare-uniform migration (issue #691)
         //
         // The eight blocks below all exist for ONE reason: GLSL-for-Vulkan
         // forbids a non-opaque uniform outside a block, so every `uniform float
@@ -909,7 +909,7 @@ namespace OloEngine
         // block in compute/VirtualClusterCull.comp. Refilled PER DISPATCH: the
         // main view loops one dispatch per instance with InstanceIndex changing,
         // and the shadow path re-fills the whole block in ortho mode. Per-
-        // dispatch SetData is the documented Phase 7 pattern (GL re-uploads the
+        // dispatch SetData is the documented pattern (GL re-uploads the
         // bound buffer; the Vulkan arena mints a fresh address each SetData).
         struct VirtualClusterCullUBO
         {
@@ -1136,12 +1136,12 @@ namespace OloEngine
         static_assert(sizeof(PrecipitationFeedUBO) == 32,
                       "PrecipitationFeedUBO std140 size drifted from GLSL expectation (32 B)");
 
-        // @brief Reflection-probe cluster-cull params (issue #691 Phase 8),
+        // @brief Reflection-probe cluster-cull params (issue #691),
         // uploaded at UBO_REFLECTION_PROBE_CULL (77). GLSL twin: the
         // ReflectionProbeCullParams block in compute/ReflectionProbeCull.comp.
-        // The SEVENTH bare-uniform compute file — invisible to the Phase 7
+        // The SEVENTH bare-uniform compute file — invisible to the
         // sweep because its pass never ran in that session's live log; found
-        // by the first --rhi=vulkan editor launch of Phase 8.
+        // by the first --rhi=vulkan editor launch afterwards.
         struct ReflectionProbeCullUBO
         {
             glm::mat4 ViewMatrix;              // 0   — RELATIVE world -> view
@@ -1583,7 +1583,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 48, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
-    // 96 -> 144: three uvec4 of per-material heap offsets (issue #691 Phase 3).
+    // 96 -> 144: three uvec4 of per-material heap offsets (issue #691).
     // Every .glsl declaring PBRMaterialUBO must gain the matching trailing
     // `uvec4 u_MaterialHeapOffsets[3];` — this assert is what stops the C++ and
     // GLSL layouts drifting, which std140 would otherwise punish by silently
@@ -1670,10 +1670,10 @@ namespace OloEngine
         static constexpr u32 UBO_AUTO_EXPOSURE = 72;        // (was 58 until the #705 reflection-probe
                                                             // block claimed 58 on master — moved on merge;
                                                             // GLSL twins in the two AutoExposure*.comp files
-                                                            // move with it)        // Auto-exposure metering/adaptation params (AutoExposureUBO — issue #691 Phase 7: the histogram/average computes' former bare uniforms, which the Vulkan SPIR-V route cannot express)
-        static constexpr u32 UBO_HZB = 59;                  // HZB downsample-batch params (HZBParamsUBO — issue #691 Phase 7: HZB.comp's former "push-constant-style" bare uniforms; refilled per 4-mip batch)
-        static constexpr u32 UBO_GTAO_DENOISE = 60;         // GTAO denoise direction (GTAODenoiseUBO — issue #691 Phase 7: the per-ping-pong-pass blur axis; NOT folded into UBO_GTAO 28, whose GLSL block is declared at two different lengths across GTAO.comp / GTAO_Denoise.comp)
-        // The compute bare-uniform sweep (issue #691 Phase 7). Every one of
+                                                            // move with it)        // Auto-exposure metering/adaptation params (AutoExposureUBO — issue #691: the histogram/average computes' former bare uniforms, which the Vulkan SPIR-V route cannot express)
+        static constexpr u32 UBO_HZB = 59;                  // HZB downsample-batch params (HZBParamsUBO — issue #691: HZB.comp's former "push-constant-style" bare uniforms; refilled per 4-mip batch)
+        static constexpr u32 UBO_GTAO_DENOISE = 60;         // GTAO denoise direction (GTAODenoiseUBO — issue #691: the per-ping-pong-pass blur axis; NOT folded into UBO_GTAO 28, whose GLSL block is declared at two different lengths across GTAO.comp / GTAO_Denoise.comp)
+        // The compute bare-uniform sweep (issue #691). Every one of
         // these replaces a set of default-block `uniform` declarations that the
         // Vulkan SPIR-V route rejects outright and whose ComputeShader::Set*
         // feeders are a no-op there. See the UBOStructures twins above for the
@@ -1706,9 +1706,9 @@ namespace OloEngine
         static constexpr u32 UBO_VIRTUAL_CLUSTER_CULL = 69; // Virtual-geometry cluster cull params (VirtualClusterCullUBO) — refilled per instance dispatch
         static constexpr u32 UBO_VIRTUAL_RASTER = 70;       // Virtual-geometry SW raster + debug colorize params (VirtualRasterUBO)
         static constexpr u32 UBO_INSTANCE_CULL = 71;        // GPU instance frustum/occlusion cull params (InstanceCullUBO)
-        // The Phase 8 completion of the same sweep — the six compute shaders
-        // whose passes never ran in the Phase 7 live log but carried the
-        // identical bare-uniform debt (issue #691 Phase 8).
+        // The completion of the same sweep — the six compute shaders
+        // whose passes never ran in the live log but carried the
+        // identical bare-uniform debt (issue #691).
         static constexpr u32 UBO_OCEAN_FFT = 73;             // Ocean FFT chain params (OceanFFTUBO) — one block shared by SpectrumEvolve/FFTButterfly/Assemble, refilled per dispatch
         static constexpr u32 UBO_CLOUD_NOISE_GEN = 74;       // Cloud-noise volume bake params (CloudNoiseGenUBO) — startup bake, two dispatches
         static constexpr u32 UBO_CLOUD_SHADOW_GEN = 75;      // Cloud shadow-map generation params (CloudShadowGenUBO) — the generator side; consumers read UBO_ATMOSPHERE_SHADING (54)
@@ -1718,7 +1718,7 @@ namespace OloEngine
         // (The GL 4.6 GL_MAX_UNIFORM_BUFFER_BINDINGS minimum guarantee of 84 is
         // asserted once, against UBO_BINDING_LIMIT, below — naming a single
         // hand-picked constant here is what let the range drift unnoticed.)
-        // The heap-offset table (issue #691 Phase 3). std140 uvec4[] of
+        // The heap-offset table (issue #691). std140 uvec4[] of
         // RHI::HeapOffset values, indexed by the SAME TEX_* constant a slot-based
         // shader would have used in `layout(binding = N)`. That reuse is the
         // point: it is ADR 0011 §1.1's "the number survives, promoted from a
@@ -1749,7 +1749,7 @@ namespace OloEngine
         // Deliberately NOT folded into UBO_USER_0 (PostProcessUBOData): that
         // block is full, and growing it would change the std140 layout every
         // PostProcess_*.glsl declares.
-        // 78, NOT 73: issue #691 Phase 8 claimed 73 for UBO_OCEAN_FFT while this
+        // 78, NOT 73: issue #691 claimed 73 for UBO_OCEAN_FFT while this
         // branch was open. Two UBOs sharing a binding point is silent data
         // corruption, not a build error, so this moved on merge — and the GLSL
         // block in PostProcess_ColorBlind.glsl plus ColorBlindMath's binding
@@ -1785,7 +1785,7 @@ namespace OloEngine
         // about which clip level covers a world position (the archetypal VSM bug:
         // mark level L, sample level L+1, read an unallocated page, render
         // unshadowed). The pass block is per-dispatch/per-draw scratch, refilled
-        // immediately before each use per the #691 Phase 7 pattern.
+        // immediately before each use per the #691 pattern.
         //
         // 81/82, third numbering in one PR: #713 took 79 and #714 took 80 while
         // this branch was in flight, and the LATER arrival is the one that moves
@@ -1945,7 +1945,7 @@ namespace OloEngine
         // include/DDGICommon.glsl (and exposed as the shared binding a future
         // froxel-fog bounce term can sample).
         static constexpr u32 TEX_DDGI_IRRADIANCE = 56; // RGBA16F octahedral irradiance atlas (6x6 interior + 1px border per probe)
-        // TEX_DDGI_VISIBILITY was 57 and is now 64 (issue #691 Phase 7 Wave C,
+        // TEX_DDGI_VISIBILITY was 57 and is now 64 (issue #691,
         // ADR item A2): 57 was triple-booked across GL's disjoint namespaces
         // (UBO_DEBUG_DRAW = 57 + this sampler + the SSBO_VERTEX_PULL stream
         // below), and DDGI_Capture.glsl is the first shader that PULLS its
@@ -1990,7 +1990,7 @@ namespace OloEngine
         static constexpr u32 TEX_VOLUMETRIC_SHADOW = 66; // sampler3D R32F — optical depth from the light (2 stacked cascades)
         // Moved 65 -> 66 for TEX_VSM_PHYSICAL, then 66 -> 67 for
         // TEX_VOLUMETRIC_SHADOW, per the established shift procedure.
-        // Terrain adaptive virtual texturing (issue #715, slice 1). GLSL twin:
+        // Terrain adaptive virtual texturing (issue #715). GLSL twin:
         // include/TerrainVirtualTexture.glsl, which is the ONLY place either is
         // declared.
         //
@@ -2016,7 +2016,7 @@ namespace OloEngine
         static_assert(TEX_SHADER_GRAPH_0 < 80, "Engine texture slots exceed GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
 
         // =============================================================================
-        // STORAGE-IMAGE (imageLoad / imageStore) BINDINGS — issue #691 Phase 3
+        // STORAGE-IMAGE (imageLoad / imageStore) BINDINGS — issue #691
         //
         // Image units are a SEPARATE GL namespace from texture units:
         // glBindImageTexture(unit, ...) and glBindTextureUnit(slot, ...) both start
@@ -2133,7 +2133,7 @@ namespace OloEngine
         static constexpr u32 SSBO_VIRTUAL_INDICES = 42;       // u32[]: pooled cluster-local index buffer (same GL buffer the MDI path uses as element array)
         static constexpr u32 SSBO_VIRTUAL_GROUP_STATES = 43;  // u32[group]: bit0 = page resident (CPU), bit1 = page requested (GPU atomicOr), bit2 = touched for LRU (GPU atomicOr)
         static constexpr u32 SSBO_VIRTUAL_REJECTED = 44;      // { uint Count; pad[3]; VirtualVisibleCluster[] }: clusters the two-phase cull's phase 1 found hidden by the PREVIOUS frame's Hi-Z, re-tested by phase 2 (issue #682)
-        // The shader-visible descriptor heap (issue #691 Phase 3). uvec2[] of
+        // The shader-visible descriptor heap (issue #691). uvec2[] of
         // ARB_bindless_texture handles, indexed by an RHI::HeapOffset that
         // travels to the shader as ordinary UBO data. This is the binding that
         // replaces BINDING ITSELF: under heap-bindless a pass writes an offset
@@ -2304,7 +2304,7 @@ namespace OloEngine
         static constexpr u32 SSBO_TERRAIN_LOD_MAP = 61;       // uint[(1<<depth)^2]: selected level per finest-node texel
         static constexpr u32 SSBO_TERRAIN_DRAW_ARGS = 62;     // DrawElementsIndirectCommand (also bound as GL_DRAW_INDIRECT_BUFFER, so it must be its own buffer at offset 0)
 
-        // Terrain adaptive virtual texturing (issue #715, slice 1). Three
+        // Terrain adaptive virtual texturing (issue #715). Three
         // buffers, and NO new UBO — deliberately: the UBO namespace has exactly
         // one free slot under the GL 4.6 minimum of 84 (UBO_BINDING_LIMIT is
         // 83), and a feature that wants a per-dispatch parameter block has no
@@ -2336,7 +2336,7 @@ namespace OloEngine
         // namespaces) and legal on Vulkan too, EXCEPT inside a single shader:
         // on Vulkan's single-set model a shader that reads sampler 64 and
         // storage 64 is a real collision -- that is precisely why
-        // TEX_DDGI_VISIBILITY moved off 57 in issue #691 Phase 7 Wave C (ADR
+        // TEX_DDGI_VISIBILITY moved off 57 in issue #691 (ADR
         // item A2). Sampler 64 is read only through include/DDGICommon.glsl, so
         // the constraint has a checkable form: NO shader may include both
         // DDGICommon.glsl and GPUReadbackStats.glsl. That is asserted by
@@ -2349,8 +2349,8 @@ namespace OloEngine
         // did) or renumber. Say so in your issue before you start.
         static constexpr u32 SSBO_GPU_STATS = 64;
 
-        // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691
-        // Phase 7 Wave C, ADR items A2/A3). On the Vulkan backend pipelines
+        // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691,
+        // ADR items A2/A3). On the Vulkan backend pipelines
         // carry no vertex-input state — a shader's OLO_VULKAN branch reads its
         // vertex data from these readonly SSBOs by gl_VertexIndex, and
         // VulkanRendererAPI::AssembleAndPushRootData maps each binding to the
@@ -2365,7 +2365,7 @@ namespace OloEngine
         //        any second-stream VAO rides it: FoliageRenderer's 48-byte
         //        per-instance card records and ParticleBatchRenderer's 96-byte
         //        billboard instance records pull it by gl_InstanceIndex
-        //        (issue #691 Wave C batch 2).
+        //        (issue #691).
         // A VAO with fewer streams than a bound shader pulls resolves the
         // missing binding to the null (zero) address — deterministic zeros +
         // the draw path's warn-once, never a crash. Both numbers are RESERVED
@@ -2541,7 +2541,7 @@ namespace OloEngine
                     return name.contains("HZB") || name.contains("hzb");
                 case UBO_GTAO_DENOISE:
                     return name.contains("GTAODenoise") || name.contains("gtaoDenoise");
-                // Issue #691 Phase 7 compute bare-uniform sweep.
+                // Issue #691 compute bare-uniform sweep.
                 case UBO_PARTICLE_SIM:
                     return name.contains("ParticleSim") || name.contains("particleSim");
                 case UBO_WIND_GENERATE:
@@ -2558,7 +2558,7 @@ namespace OloEngine
                     return name.contains("VirtualRaster") || name.contains("virtualRaster");
                 case UBO_INSTANCE_CULL:
                     return name.contains("InstanceCull") || name.contains("instanceCull");
-                // Issue #691 Phase 8 — the sweep's completion.
+                // Issue #691 — the sweep's completion.
                 case UBO_OCEAN_FFT:
                     return name.contains("OceanFFT") || name.contains("oceanFFT");
                 case UBO_CLOUD_NOISE_GEN:

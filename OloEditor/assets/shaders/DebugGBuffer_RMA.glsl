@@ -8,7 +8,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V3 fullscreen-triangle pull (20 B
+// #691 (ADR 0011 §5): V3 fullscreen-triangle pull (20 B
 // {vec3 position, vec2 uv} => 5 floats per vertex) on the engine-wide vertex
 // binding 57 — byte-identical to FullscreenBlit.glsl's branch. The uv lane is
 // declared but unused here (this shader texelFetches by gl_FragCoord), exactly
@@ -39,7 +39,7 @@ layout(location = 0) out vec4 o_Color;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). This is a G-Buffer
+// Heap-bindless conversion (issue #691, bucket 1). This is a G-Buffer
 // CONSUMER (a debug viewer), not a producer — it declares no o_GBuffer*/gAlbedo
 // outputs, so CreateProgramFromRawGLSL's misroute guard does not apply.
 #ifdef OLO_BINDLESS

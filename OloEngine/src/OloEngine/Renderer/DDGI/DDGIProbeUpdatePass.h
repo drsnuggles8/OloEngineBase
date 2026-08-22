@@ -177,7 +177,7 @@ namespace OloEngine
         [[nodiscard]] RHI::ResourceHandle GetIrradianceAtlasID(u32 pingIndex) const;
         [[nodiscard]] RHI::ResourceHandle GetVisibilityAtlasID(u32 pingIndex) const;
 
-        // Identity siblings of the two accessors above (issue #691 step 3).
+        // Identity siblings of the two accessors above (issue #691).
         // The FINGERPRINT reads these, not the raw ids, and that is a
         // correctness fix rather than a type change: EnsureResources calls
         // DestroyResources BEFORE recreating, so a Resolution / HitCacheTexels

@@ -12,7 +12,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
+// #691 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
 // vertex data is READ, not fetched -- binding 57 is the engine-wide vertex-pull
 // binding and the root struct carries this buffer's device address. The stream
 // is the engine `Vertex` (32 B: vec3 position @0, vec3 normal @12, vec2 uv @24),
@@ -102,7 +102,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;       // Runtime IBL strength multiplier
     int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
     int _pbrPad2;
-    // Per-material heap offsets (issue #691 Phase 3). MUST mirror
+    // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
     // declaration reads garbage rather than failing to link.

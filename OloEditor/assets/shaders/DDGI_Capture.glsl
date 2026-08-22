@@ -21,7 +21,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
+// #691 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
 // pipeline has no vertex-input state, so attributes are READ from binding 57
 // (the engine-wide vertex-pull binding; the root struct carries this buffer's
 // device address). The casters are MeshSource VAOs, whose stream is the
@@ -110,7 +110,7 @@ void main()
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Each name maps to
+// Heap-bindless conversion (issue #691, bucket 1). Each name maps to
 // the SAME binding number the pass binds with, so the two variants cannot
 // disagree; the shader BODY is byte-identical between them.
 #ifdef OLO_BINDLESS
