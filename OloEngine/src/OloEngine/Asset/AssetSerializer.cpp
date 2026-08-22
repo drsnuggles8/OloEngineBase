@@ -109,21 +109,31 @@ namespace OloEngine
 
     bool TextureSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
+        // metadata.FilePath is project-root-relative (e.g. "Assets/Textures/Foo.png"),
+        // not relative to the process's current working directory — OloEditor runs with
+        // cwd = OloEditor/, one level above the project (OloEditor/SandboxProject/), so
+        // reading metadata.FilePath verbatim resolves against the wrong base. Every other
+        // AssetSerializer::TryLoadData in this file prefixes Project::GetProjectDirectory();
+        // this one has to do the same for the actual file read, while keeping the
+        // project-relative spelling as the texture's reported identity (GetPath(), and what
+        // scene YAML round-trips) so saved scenes stay portable across machines/checkouts.
+        const std::filesystem::path fullPath = Project::GetProjectDirectory() / metadata.FilePath;
+
         // Offline block-compressed container (#440): read the BCn mip chain and upload
         // it straight into a GPU-compressed texture.
         if (IsOloTexPath(metadata.FilePath))
         {
             CompressedTextureImage image;
-            if (!TextureCompression::ReadFile(metadata.FilePath.string(), image))
+            if (!TextureCompression::ReadFile(fullPath.string(), image))
             {
-                OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to read .olotex: {}", metadata.FilePath.string());
+                OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to read .olotex: {}", fullPath.string());
                 return false;
             }
             image.SourcePath = metadata.FilePath.string(); // so GetPath() -> pack re-read works
             Ref<Texture2D> texture = Texture2D::Create(image);
             if (!texture || !texture->IsLoaded())
             {
-                OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to create compressed texture: {}", metadata.FilePath.string());
+                OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to create compressed texture: {}", fullPath.string());
                 return false;
             }
             texture->m_Handle = metadata.Handle;
@@ -133,10 +143,10 @@ namespace OloEngine
 
         const std::string filename = metadata.FilePath.filename().string();
         const bool srgb = IsLikelyColorTextureByName(filename);
-        Ref<Texture2D> texture = Texture2D::Create(metadata.FilePath.string(), srgb);
+        Ref<Texture2D> texture = Texture2D::Create(fullPath.string(), srgb, metadata.FilePath.string());
         if (!texture)
         {
-            OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to create texture: {}", metadata.FilePath.string());
+            OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to create texture: {}", fullPath.string());
             return false;
         }
 
@@ -145,7 +155,7 @@ namespace OloEngine
         if (!result)
         {
             texture->SetFlag(AssetFlag::Invalid, true);
-            OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to load texture: {}", metadata.FilePath.string());
+            OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to load texture: {}", fullPath.string());
         }
 
         asset = texture; // Direct assignment - Ref<Texture2D> should convert to Ref<Asset>
@@ -158,14 +168,19 @@ namespace OloEngine
 
         // This method is safe to call from any thread - no GPU/GL calls here
 
+        // metadata.FilePath is project-root-relative — see the matching comment in
+        // TryLoadData. Read from the project-rooted absolute path; keep the identity
+        // (image.SourcePath / rawData.DebugName) as the relative spelling.
+        const std::filesystem::path fullPath = Project::GetProjectDirectory() / metadata.FilePath;
+
         // Offline block-compressed container (#440): reading the .olotex blob is pure
         // CPU work, so it belongs on the worker thread; GPU upload happens in Finalize.
         if (IsOloTexPath(metadata.FilePath))
         {
             CompressedTextureImage image;
-            if (!TextureCompression::ReadFile(metadata.FilePath.string(), image))
+            if (!TextureCompression::ReadFile(fullPath.string(), image))
             {
-                OLO_CORE_ERROR("TextureSerializer::TryLoadRawData - Failed to read .olotex: {}", metadata.FilePath.string());
+                OLO_CORE_ERROR("TextureSerializer::TryLoadRawData - Failed to read .olotex: {}", fullPath.string());
                 return false;
             }
             image.SourcePath = metadata.FilePath.string(); // so GetPath() -> pack re-read works
@@ -173,7 +188,7 @@ namespace OloEngine
             return true;
         }
 
-        std::string path = metadata.FilePath.string();
+        std::string path = fullPath.string();
 
         int width = 0;
         int height = 0;

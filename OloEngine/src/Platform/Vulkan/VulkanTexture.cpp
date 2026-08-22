@@ -166,7 +166,7 @@ namespace OloEngine
         VulkanUpload::TrackLive(this, "VulkanTexture2D(spec)");
     }
 
-    VulkanTexture2D::VulkanTexture2D(const std::string& path, bool srgb)
+    VulkanTexture2D::VulkanTexture2D(const std::string& path, bool srgb, const std::string& identityPath)
     {
         VulkanUpload::TrackLive(this, "VulkanTexture2D(path)");
         OLO_PROFILE_FUNCTION();
@@ -196,7 +196,7 @@ namespace OloEngine
         }
 
         m_Specification.SRGB = srgb;
-        Invalidate(path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
+        Invalidate(identityPath.empty() ? path : identityPath, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
         ::stbi_image_free(data);
     }
 

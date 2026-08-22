@@ -330,7 +330,7 @@ namespace OloEngine
         m_IsLoaded = true;
     }
 
-    OpenGLTexture2D::OpenGLTexture2D(const std::string& path, bool srgb)
+    OpenGLTexture2D::OpenGLTexture2D(const std::string& path, bool srgb, const std::string& identityPath)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -364,7 +364,7 @@ namespace OloEngine
             return;
         }
 
-        InvalidateImpl(path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
+        InvalidateImpl(identityPath.empty() ? path : identityPath, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
 
         ::stbi_image_free(data);
     }

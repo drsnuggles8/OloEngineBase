@@ -44,7 +44,7 @@ namespace OloEngine
         // File load (#691): stbi with the SAME thread-local vertical
         // flip the GL twin uses — asset bytes must be identical across
         // backends, since UV sampling is convention-free.
-        VulkanTexture2D(const std::string& path, bool srgb);
+        VulkanTexture2D(const std::string& path, bool srgb, const std::string& identityPath = "");
         ~VulkanTexture2D() override;
 
         const TextureSpecification& GetSpecification() const override
