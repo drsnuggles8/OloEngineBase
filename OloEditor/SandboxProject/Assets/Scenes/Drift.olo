@@ -1,0 +1,652 @@
+Scene: Drift.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.1
+  BloomIntensity: 0.22
+  BloomIterations: 4
+  VignetteEnabled: true
+  VignetteIntensity: 0.28
+  VignetteSmoothness: 0.35
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+FogSettings:
+  Enabled: true
+  Mode: 1
+  Color: [0.66, 0.76, 0.86]
+  Density: 0.0009
+  Start: 420
+  End: 1800
+  HeightFalloff: 0
+  HeightOffset: 0
+  MaxOpacity: 0.85
+  EnableScattering: false
+  RayleighStrength: 0.5
+  MieStrength: 0.003
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 5
+WindSettings:
+  Enabled: false
+  Direction: [1, 0, 0]
+  Speed: 0
+  GustStrength: 0
+  GustFrequency: 0
+  TurbulenceIntensity: 0
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+# =============================================================================
+# Drift — issue #879, the first weekend of the first game (#878).
+#
+# One boat, one sea, one island to steer at. Everything here is CONTENT: no
+# engine change ships with this scene. The pieces it leans on already existed —
+# BoatSystem (#438), BuoyancySystem sampling the real displaced FFT surface,
+# CameraRigComponent (#645), InputActionManager.
+#
+# BEFORE YOU PLAY: turn GTAO OFF (Renderer Settings panel). The boat's sail
+# picks up flickering black speckle with it on, and the AO technique is not
+# scene-serialized so this file cannot ask for it. Full write-up on the Sun
+# entity's CastShadows field below.
+#
+# HOW TO SAIL IT
+#   W / S            throttle ahead / astern      (gamepad: right / left trigger)
+#   A / D            rudder to port / starboard    (gamepad: left stick X)
+#   C (hold)         look astern                   (gamepad: right stick click)
+#
+# The bindings are action NAMES resolved through <project>/Config/InputActions.yaml
+# in the Vehicle context — nothing in the scripts touches a key code, which is
+# what leaves #883's rebinding UI with nothing to rewrite.
+#
+# LAYOUT
+#   The boat starts at (0, 0, -250) pointing at the island, which is centred on
+#   (0, ., 300) and about 20 seconds off at full ahead — far enough that the run
+#   out to it is the thing being judged rather than a formality.
+#
+#   The sea is 2 km square, deliberately. #878 records why: the floating-origin
+#   rebase touches four subsystems that each need a different fix, and a weekend
+#   dies there. At this size nothing near the boat is far enough from the origin
+#   for f32 cancellation to show, so camera-relative rendering stays uninvoked.
+#
+# SEA STATE
+#   The WaterComponent below is the MODERATE state — the one the boat is tuned
+#   against. The two others used for the capture evidence are the same scene
+#   with only these two fields changed:
+#     calm     WaveAmplitude 0.05   WaveSpeed 0.8
+#     moderate (as authored)         WaveAmplitude 0.12   WaveSpeed 1.0
+#     rough    WaveAmplitude 0.22   WaveSpeed 1.3
+#
+#   WaveAmplitude is NOT metres of wave height. It is scaled by WaveFrequency
+#   and the two steepness terms, and the product is what the surface actually
+#   displaces: 0.45 here put crests several metres up, deep enough that the
+#   camera pivot sat INSIDE the swell and the transparent water plane was drawn
+#   over the boat every few seconds. That reads as "the boat is sinking" and, on
+#   the sail, as a dithered stipple that looks exactly like shadow acne and is
+#   not — it is the water surface's own transparency dither in front of it.
+#   Calibrate this by looking at the frame, never by reading it as a height.
+#   They are worth trying in that order: the boat's character changes far more
+#   between them than any single hull coefficient changes it.
+#
+#   The sea runs on the GERSTNER path, NOT the FFT ocean, and that is a measured
+#   decision rather than a default. See the note on UseFFT below.
+#
+# TUNING NOTE — where the numbers live
+#   Hull behaviour is entirely in BoatComponent / BuoyancyComponent below, so a
+#   feel change is a scene edit and needs no rebuild. Input shaping (throttle
+#   spool, rudder slew, the speed-dependent rudder falloff) is in
+#   DriftBoatController.lua; camera feel is in DriftFollowCamera.lua. Those three
+#   places are the whole tuning surface.
+# =============================================================================
+Entities:
+  # ── Camera ────────────────────────────────────────────────────────────────
+  # A root entity, never a child of the boat: CameraRigSystem writes an absolute
+  # world pose and a parent transform would be applied to it twice.
+  #
+  # RuntimeControl is OFF. The free-fly camera and the rig would both write this
+  # transform every tick, and the rig — running last — would win silently.
+  #
+  # Target is the Camera Target proxy, NOT the boat. DriftFollowCamera.lua has
+  # the full reasoning; the short version is that the rig reads a non-player
+  # target's facing as rotation * (0,0,-1) while every Jolt vehicle is
+  # +Z-forward, so aimed at the boat the rig frames it head-on.
+  #
+  # BoomLength / PivotOffset are the values the script eases between, so the
+  # first tick starts from a sane pose rather than from zero.
+  - Entity: 879000000000000
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 2.6, -259]
+      Rotation: [-0.2443461, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 1.1
+        PerspectiveNear: 0.15
+        PerspectiveFar: 2500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 25
+    CameraRigComponent:
+      Target: 879000000000010
+      PivotOffset: [0, 2.6, 0]
+      BoomLength: 9
+      # The boom probe is a physics raycast, so it sees the island's heightfield
+      # body and nothing else — water is not a physics body. The camera stays
+      # clear of the sea by sitting high with an upward-tilted boom instead.
+      CollisionEnabled: true
+      ProbeRadius: 0.5
+      MinBoomLength: 3.5
+      BoomReturnSpeed: 5
+      # The wave damper. The pivot rides the boat's heave; without this the whole
+      # frame pumps with the swell and the horizon is unreadable. Long enough to
+      # sit above the wave period, short enough not to lag the boat.
+      PositionSmoothTime: 0.22
+      HeadBobAmplitude: 0
+      HeadBobFrequency: 1.1
+      # Pitched DOWN at the boat, which also tilts the boom UP: at 9-13.5 m of
+      # boom that puts the eye 3.4-5.1 m above the pivot, i.e. 6-7.7 m above the
+      # waterline. The roughest sea state here crests around 3 m.
+      FallbackPitchDeg: -21.5
+
+  # ── Camera target proxy ───────────────────────────────────────────────────
+  # A root transform that tracks the boat's position and carries its heading
+  # turned through 180 degrees, smoothed. See DriftFollowCamera.lua.
+  - Entity: 879000000000010
+    TagComponent:
+      Tag: Camera Target
+    TransformComponent:
+      Translation: [0, 0, -250]
+      Rotation: [0, 3.1415927, 0]
+      Scale: [1, 1, 1]
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/DriftFollowCamera.lua
+
+  # ── Sun ───────────────────────────────────────────────────────────────────
+  # Low and behind-left of the start heading, so the swell reads as relief and
+  # the sea has a specular track to steer along rather than being flat blue.
+  - Entity: 879000000000001
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 80, 0]
+      Rotation: [-0.5235988, 0.6108652, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.32, -0.78, 0.54]
+      Color: [1, 0.94, 0.84]
+      Intensity: 3.2
+      # OFF, and this is the one setting here I am not happy about.
+      #
+      # The boat model's sail and deck pick up heavy hatched black speckling
+      # that FLICKERS as the boat moves. It took several rounds to characterise
+      # because it is intermittent — any single capture can be clean, so "that
+      # fixed it" is easy to believe and wrong three times running.
+      #
+      # There are TWO independent contributors, and turning off either one alone
+      # still leaves the other:
+      #
+      #   1. The directional light's CSM shadow pass. This is what CastShadows
+      #      below turns off, and it is the only one of the two a SCENE can
+      #      control.
+      #   2. GTAO. Toggling the gtao pass off (Renderer Settings panel, or
+      #      olo_render_toggle_pass) removes the speckle on its own, with
+      #      shadows still on — proving it is not all shadow acne.
+      #
+      # Verified clean only with BOTH off, across several frames including
+      # mid-turn. So opening this scene cold still needs one manual step:
+      # turn GTAO off. PostProcessSettings::ActiveAOTechnique is not
+      # scene-serialized (only SSAOEnabled is) and the project's quality tiering
+      # re-derives GTAO on every scene load, so the scene cannot ask for it.
+      # Filed against the engine.
+      #
+      # What was RULED OUT for the shadow half: resolution (the CSM is
+      # 4096 x 4096 with four cascades, per olo_render_list_targets), bias
+      # (0.02 / 0.3 gave a clean capture that did not hold), and cascade fit
+      # (MaxShadowDistance 120 -> 35 with CascadeSplitLambda 0.85 -> 0.4, which
+      # moves the boat off the cascade 1/2 seam its 9-13 m boom parks it on —
+      # several clean frames, then speckle again). The tuned values are kept
+      # below for whoever picks this up.
+      #
+      # Common factor worth chasing: both passes sample the depth/normal
+      # buffers, and the sail is thin, near-zero-thickness geometry. The asset
+      # import already warns about it in the log — "12 of 12 triangles are
+      # degenerate (zero-UV-area)".
+      CastShadows: false
+      # THE SHADOW SETTINGS ARE LOAD-BEARING. At the stock values this scene
+      # showed heavy blocky self-shadow acne — hard black chunks on the sail and
+      # deck that crawled as the boat moved. Two things about it are worth not
+      # re-deriving, because both misled the first two attempts at a fix:
+      #
+      #   * It is NOT a resolution problem. The CSM here is 4096 x 4096 with four
+      #     cascades (olo_render_list_targets reports ShadowMapCSM at 4096), so
+      #     texel density was never the constraint. Raising ShadowBias alone
+      #     appeared to fix it once and had not — the boat simply happened to be
+      #     riding high in that capture.
+      #   * The cascade fit uses min(cameraFar, MaxShadowDistance), and the
+      #     splits are lerp(uniform, log, CascadeSplitLambda) — so at 120 m with
+      #     lambda 0.85 the splits land at 5.2 / 12.6 / 32.7 / 120 m and the
+      #     rig's own 9-13 m boom parks the boat right on the cascade 1/2 seam,
+      #     in the far coarser of the two. Pulling MaxShadowDistance in to 35 m
+      #     and dropping lambda to 0.4 puts the whole boat inside one tight
+      #     near cascade, and the acne goes away outright.
+      #
+      # A raked, near-vertical thin sheet (the sail) is textbook acne geometry,
+      # so lean on NORMAL bias rather than depth bias: it offsets along the
+      # surface normal, which is what a thin sheet needs, and peter-pans far less
+      # than the equivalent depth bias.
+      #
+      # 35 m costs nothing here — the only shadow a player can resolve is the
+      # boat's own, and the island is 300 m away.
+      #
+      # Turning Virtual Shadow Maps on (Renderer Settings panel) also fixes it
+      # completely and was how the diagnosis was confirmed, but VSM is a renderer
+      # setting rather than a scene field, so a scene cannot ask for it and the
+      # island would stop casting. The CSM tuning above is the shippable fix.
+      ShadowBias: 0.008
+      ShadowNormalBias: 0.8
+      MaxShadowDistance: 35
+      CascadeSplitLambda: 0.4
+      CascadeDebugVisualization: false
+
+  - Entity: 879000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.7
+
+  # ── Sea ───────────────────────────────────────────────────────────────────
+  # The one surface BuoyancySystem, BoatSystem and the water shader all read.
+  # UseFFT puts every one of them on the Tessendorf field: BuoyancySystem floats
+  # the hull on the displaced surface (BuoyancySystem.cpp -> WaterProbe::
+  # SampleSurfaceY) and BoatSystem samples the same field at the propeller and
+  # the keel, so a crest that lifts the stern really does take the bite out of
+  # the throttle. That coupling is most of what makes this feel like water.
+  - Entity: 879000000000003
+    TagComponent:
+      Tag: Sea
+    TransformComponent:
+      # Centred on the middle of the playable water, not on the world origin:
+      # the tile is 1 km square and has to cover the start line at z = -250 and
+      # the island out at z = 540. WaterProbe::CollectEnabledVolumes takes the
+      # tile's bounds from this transform, so a boat outside them gets no
+      # buoyancy and no thrust at all — it is a hard edge, not a fade.
+      Translation: [0, 0, 120]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    WaterComponent:
+      WorldSizeX: 1000
+      WorldSizeZ: 1000
+      # THE sea, not a fallback — see the UseFFT note below. Two crossed wave
+      # trains at slightly different headings: a single train gives the boat a
+      # metronomic pitch that reads as a treadmill, and the beat between two is
+      # most of what makes a swell feel like water. Amplitude is the sea-state
+      # knob (see the header).
+      WaveAmplitude: 0.12
+      WaveFrequency: 0.55
+      WaveSpeed: 1
+      WaveDir0: [1, 0.15]
+      WaveSteepness0: 0.25
+      WaveDir1: [0.6, 0.8]
+      WaveSteepness1: 0.15
+      WaterColor: [0.09, 0.33, 0.44]
+      DeepColor: [0.015, 0.075, 0.14]
+      Transparency: 0.45
+      Reflectivity: 0.85
+      FresnelPower: 5
+      SpecularIntensity: 1.4
+      # Surface detail. The swell alone reads as satin — these are what make it
+      # read as water: a scrolling normal map at a tiling much finer than the
+      # wave geometry, plus foam that only appears on the crests. Both are
+      # per-metre, so they stay right if the sea state changes.
+      NoiseIntensity: 0.65
+      NormalMapTiling: 5
+      NormalMapScrollSpeed0: 0.05
+      NormalMapScrollSpeed1: 0.035
+      FoamHeightStart: 0.16
+      FoamBrightness: 1.1
+      FoamFadeDistance: 0.35
+      # Refraction pulled well down from the defaults. The submerged half of the
+      # hull is visible THROUGH the surface, and at the stock distortion it came
+      # through as a stippled ghost lying alongside the boat that reads as a
+      # broken reflection.
+      RefractionDistortion: 0.018
+      RefractionHeightFactor: 0.25
+      DepthSofteningDistance: 1
+      # 384 across 1 km is 2.6 m per quad against a 140 m FFT patch, i.e. ~54
+      # samples per dominant wavelength. At the first-authored 256 across 2 km
+      # (7.8 m per quad, 90 m patch) the surface aliased badly: the submerged
+      # half of the hull came through the refraction as a striped, stippled
+      # ghost lying alongside the boat, which reads as a broken reflection and
+      # is not one. Grid density against patch size is the knob, not any of the
+      # reflection settings — those were already off at runtime when the ghost
+      # was there.
+      GridResolutionX: 384
+      GridResolutionZ: 384
+      Enabled: true
+      # Off: the mirror replay reports itself disabled at runtime in this scene
+      # anyway ("[PlanarReflection] mirror replay off" in the log), so leaving
+      # the flag on only advertises a feature the frame does not have.
+      PlanarReflectionsEnabled: false
+      PlanarReflectionIntensity: 1
+      PlanarReflectionDistortion: 0.025
+      UnderwaterFogColor: [0.04, 0.18, 0.3]
+      UnderwaterFogDensity: 0.09
+      RenderFromBelow: true
+      # FFT OFF, deliberately, after an A/B on this exact scene.
+      #
+      # The Tessendorf path is the better ocean on paper and BuoyancySystem does
+      # track its displaced surface — but here it renders the open sea as large,
+      # hard-edged flat plateaus: irregular polygons a few tens of metres across,
+      # darker inside with pale rims, scattered to the horizon. They read as
+      # shallows or ice floes, not as water. What was ruled OUT, each by its own
+      # capture: planar reflections (already reported disabled at runtime by the
+      # log before the artifact was ever investigated), SSR (off, unchanged),
+      # foam (off — removes the pale rims, leaves the plateaus), grid density
+      # (256/2 km -> 384/1 km -> 512/600 m, unchanged), FFT patch size
+      # (90 -> 140 -> 220, unchanged), choppiness (0.9 -> 0.5, unchanged), and
+      # water tessellation (made it dramatically worse — whole continents). It
+      # scales with FFTAmplitude and vanishes as the surface flattens, so it is
+      # in how the FFT displacement is shaded, not in any of the reflection or
+      # foam terms. Filed as an engine issue with the captures attached.
+      #
+      # The Gerstner path renders the same sea state as a clean rolling swell,
+      # and WaterProbe::SampleSurfaceY reads it exactly the same way, so the
+      # boat still floats on the real displaced surface and BoatSystem still
+      # loses propeller bite when a crest lifts the stern. Nothing about the
+      # feel work depends on which of the two is driving the height field.
+      UseFFT: false
+      FFTResolution: 128
+      FFTPatchSize: 140
+      FFTWindSpeed: 8
+      FFTWindDirection: [1, 0.2]
+      FFTAmplitude: 0.55
+      FFTChoppiness: 0.9
+      FFTHeightScale: 1
+
+  # ── Seafloor ──────────────────────────────────────────────────────────────
+  # Visual depth reference only (no collider): it is what stops the open sea
+  # reading as an infinite void through the transparency.
+  - Entity: 879000000000004
+    TagComponent:
+      Tag: Seafloor
+    TransformComponent:
+      Translation: [0, -22, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2000, 1, 2000]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.29, 0.24]
+      Metallic: 0
+      Roughness: 0.95
+
+  # ── Island ────────────────────────────────────────────────────────────────
+  # The steering target. A single procedural heightfield tile whose origin is a
+  # CORNER (SceneCameraFraming.cpp treats the terrain centre as translation +
+  # half the world size), so a 480 m tile centred on (0, ., 300) starts at
+  # x = -240, z = 60.
+  #
+  # It is sunk so that only the upper third of the height range clears the
+  # water: TerrainGenerator has no radial falloff, so "island" here is a
+  # landmass whose waterline does the shaping. Heights run 0..HeightScale from
+  # the entity's y, i.e. -70..+50 — sea level cuts it at 0.583 of the range,
+  # which is what the layer rules below are banded around.
+  #
+  # CollisionEnabled builds a static Jolt heightfield at runtime start, so the
+  # boat can genuinely run aground and the camera boom has something to pull in
+  # against near the shore.
+  - Entity: 879000000000005
+    TagComponent:
+      Tag: Island
+    TransformComponent:
+      Translation: [-240, -70, 60]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 480
+      WorldSizeZ: 480
+      HeightScale: 120
+      CollisionEnabled: true
+      ProceduralEnabled: true
+      ProceduralSeed: 879
+      ProceduralResolution: 512
+      ProceduralOctaves: 6
+      ProceduralFrequency: 2.2
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.46
+      ShapingRidgeBlend: 0.5
+      ShapingWarpStrength: 0.16
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1.15
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      LayerRules:
+        # Sand: the band either side of the waterline (0.583 of the range).
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.63
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 40
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.64
+          MaxHeight: 0.88
+          HeightBlend: 0.06
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 30
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 34
+          MaxSlopeDeg: 90
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.93
+          MaxHeight: 1
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 45
+          SlopeBlend: 10
+          Strength: 1
+      TessellationEnabled: false
+      TargetTriangleSize: 8
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: Sand
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 22
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.78, 0.72, 0.55]
+          Roughness: 0.95
+          Metallic: 0
+        - Name: Scrub
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 24
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.3, 0.42, 0.22]
+          Roughness: 0.92
+          Metallic: 0
+        - Name: Rock
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 14
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.44, 0.41, 0.38]
+          Roughness: 0.85
+          Metallic: 0
+        - Name: Cliff top
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.55, 0.53, 0.48]
+          Roughness: 0.8
+          Metallic: 0
+
+  # ── The boat ──────────────────────────────────────────────────────────────
+  # THE HULL NUMBERS. Derived rather than guessed, so they can be re-derived
+  # after a change instead of being poked at:
+  #
+  #   * The probe box is the collider box (2 x 0.8 x 5 m = 8 m^3). At 1000 kg/m^3
+  #     that supports 8000 kg fully submerged, so a 4000 kg hull floats at
+  #     exactly half immersion — origin ON the waterline, which is a boat's
+  #     normal working state and the state every offset below assumes.
+  #   * With the origin at the waterline, the propeller (y = -0.3) and the keel
+  #     (y = -0.4, taken from ProbeExtents.y by BoatSystem) both sit clear of the
+  #     ImmersionDepth ramp, so the boat makes full thrust in flat water and
+  #     loses it only when a wave genuinely lifts the stern.
+  #   * Top speed is NOT thrust / (ForwardDrag * mass). BuoyancyComponent's own
+  #     LinearDrag damps the same velocity, scaled by the submerged fraction, so
+  #     the effective coefficient is ForwardDrag + LinearDrag * submergence ~=
+  #     0.7 + 0.8 * 0.5 = 1.1. Measured: 30000 N gave 6.7 m/s and 42000 N gives
+  #     ~9.5 m/s, i.e. 42000 / (1.1 * 4000) = 9.5 — the combined figure, not the
+  #     hull-drag-only one, which would have predicted 15 m/s.
+  #   * Steady turn rate at full rudder is MaxRudderTorque / (YawDrag * mass) =
+  #     6500 / (2.2 * 4000) = 0.74 rad/s. DriftBoatController then trims the
+  #     rudder command back at speed. Measured full-ahead-full-rudder turning
+  #     circle: about 40 m across, closing in ~14 s — a boat, not a jet ski.
+  #
+  # LinearDrag / AngularDrag on the rigidbody are ZERO on purpose. Buoyancy and
+  # the hull model own all the damping; a second global damper on top of them
+  # deadens the wave response the buoyancy probes exist to produce.
+  - Entity: 879000000000020
+    TagComponent:
+      Tag: Boat
+    TransformComponent:
+      Translation: [0, 0, -250]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 2600
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [1, 0.4, 2.5]
+    BuoyancyComponent:
+      Enabled: true
+      ProbeExtents: [1, 0.6, 2.5]
+      FluidDensity: 1000
+      BuoyancyScale: 1
+      # Vertical bobbing damper. Low enough that the hull still rides the swell.
+      LinearDrag: 0.8
+      # Rocking damper. This is the knob that decides whether the swell reads as
+      # a boat working in a seaway or as a bath toy; 1.2 keeps the roll alive
+      # without letting it build.
+      AngularDrag: 2.2
+      SubmergenceRamp: 0.8
+    BoatComponent:
+      Enabled: true
+      MaxThrust: 22000
+      ThrustOffsetZ: -2.2
+      ThrustOffsetY: -0.55
+      MaxRudderTorque: 5400
+      # Full rudder authority only from 7 m/s up. Below that the rudder is soft,
+      # which is what stops the boat pivoting on the spot in the harbour and
+      # gives the low-speed handling a distinct character from the high-speed.
+      RudderAuthoritySpeed: 7
+      # Lateral >> forward is the hull: it is what makes the boat TRACK through a
+      # turn instead of sliding broadside. Dropping this toward the forward value
+      # is how you would author a hovercraft.
+      LateralDrag: 3.5
+      ForwardDrag: 0.7
+      YawDrag: 2.2
+      ImmersionDepth: 0.3
+      ThrottleInput: 0
+      SteerInput: 0
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/DriftBoatController.lua
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 879000000000021
+
+  # ── Hull mesh ─────────────────────────────────────────────────────────────
+  # A CHILD of the physics root, and that is load-bearing: DriftBoatController
+  # rolls this entity to heel the boat into its turns. BoatSystem applies hull
+  # drag at the centre of mass, so the physics body cannot roll into a turn on
+  # its own — and rolling the root instead would tilt the collider, the buoyancy
+  # probe box and the camera's yaw source along with the visual.
+  - Entity: 879000000000021
+    TagComponent:
+      Tag: Boat Hull
+    TransformComponent:
+      # This offset is a VISUAL waterline, and it is worth more than it looks.
+      # At -0.78 a good chunk of hull sat below the surface and came through the
+      # refraction as a stippled brown slick trailing the boat, which reads as a
+      # rendering fault rather than as a submerged hull. Raising it to -0.5 puts
+      # the mesh's own waterline near the real one and the artifact goes away.
+      Translation: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.57, 0.57, 0.57]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 879000000000020
+      Children: []
