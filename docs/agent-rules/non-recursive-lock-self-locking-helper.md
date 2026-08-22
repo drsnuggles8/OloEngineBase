@@ -171,6 +171,48 @@ resolves to `Ignore`, so touching a file proves nothing by itself:
    `submitted` prove the reload republished the asset rather than dropping it. Liveness alone does
    not.
 
+## 6a. The detector — you should not need this document to find it twice
+
+Everything above is discipline, and discipline is what failed here: the same line was
+rediscovered the same day, by a second person, through a different trigger. So the check is now in
+the code. `FSharedMutex` asks, before every blocking acquisition, whether the calling thread
+already holds that lock, and says so:
+
+```
+Self-deadlock on a non-recursive lock at 0x2a6d683e874: this thread already holds it (exclusive),
+and is now asking for it exclusive. The acquisition below this line will park the thread FOREVER
+— no further log lines, no CPU, no crash record. …
+```
+
+Measured against the #863 bug deliberately reintroduced: the regression test used to fail after
+**30,023 ms** with a timeout that named nothing, and now fails in **0.3 s** with the lock, both
+modes and the cause printed. That is the difference between "something is wrong somewhere" and a
+diagnosis.
+
+Four things about it worth knowing before you touch it
+(`OloEngine/src/OloEngine/Threading/LockDebug.h`):
+
+- **It costs the mutex nothing.** The held-lock table is `thread_local`, keyed by mutex address.
+  `sizeof(FSharedMutex)` is still four bytes in every configuration — no layout to go stale in an
+  incremental build (cf. [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md)).
+- **It is gated on `NDEBUG`, not `OLO_DEBUG`, and reports out of line rather than through
+  `OLO_CORE_ASSERT`.** `OLO_DEBUG` is **PRIVATE** to the `OloEngine` target, so it is absent when
+  these headers are compiled into `OloEditor` or `OloEngine-Tests` — those TUs receive neither
+  `OLO_DEBUG` nor `NDEBUG`. Gating an *inline* function's body on a per-target macro is an ODR
+  violation whose arbitrary winner might be the copy with the detector compiled out. This is the
+  same hazard `CLAUDE.md` describes for `ENTT_USE_ATOMIC`, and it is worth remembering generally:
+  **`OLO_CORE_ASSERT` inside header/inline engine code is a no-op wherever that header lands
+  outside the engine library.**
+- **All four re-acquisition combinations are flagged**, including shared→shared: waiting writers
+  get priority over new readers, so a recursive shared lock deadlocks *whenever a writer happens
+  to be queued* — intermittently, which is worse to debug than always.
+- **It found something the first time it ran.** `SharedMutexTest.MultipleReaders` modelled
+  "multiple readers" as three shared locks on one thread. It was the only hit across 6412 tests,
+  and it now uses three real threads.
+
+`FMutex` is deliberately *not* instrumented — it sits in the task scheduler's hot path and inside
+the locking primitives themselves, where both the cost and the re-entrancy question are different.
+
 ## 7. Checklist
 
 - Calling a sibling method from inside a locked scope? Open it and check what it locks. "It's just
@@ -184,7 +226,9 @@ resolves to `Ignore`, so touching a file proves nothing by itself:
   class — or restructure into sequential scopes and buy the stronger invariant instead.
 - `FSharedMutex` is **not** recursive, and an exclusive lock and a shared lock may not be held
   simultaneously by the same thread. If you genuinely need recursion, `FSharedRecursiveMutex`
-  exists — but wanting it is usually a sign the structure is wrong, not the mutex.
+  exists — but wanting it is usually a sign the structure is wrong, not the mutex. §6a will now
+  tell you at runtime if you get this wrong; do not treat that as permission to stop thinking
+  about it, because the detector only sees the acquisitions that actually execute.
 
 ## Related
 
