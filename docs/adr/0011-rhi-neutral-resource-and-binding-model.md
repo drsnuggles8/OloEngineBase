@@ -996,6 +996,7 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (86) | `OloServer` stays backend-less; GPU flags fall back to CPU paths | live |
 | (87) | (77)'s cadence confirmed wired; the nightly GPU lane was silently red | live |
 | (88) | Inspector's Vulkan arm discovers from `ResourceRegistry::Snapshot()`; the snapshot clone mints its own identity, so every MCP render tool answers on both backends | live |
+| (89) | Baked-lightmap UV2 rides `SSBO_BONE_PULL` (63) — no third reserved pull number; reuse is a per-shader constraint, not global | live |
 
 Phase 1 said explicitly that "nothing here is load-bearing until Phase 2
 begins," and that if the sweep discovered a decision was wrong the ADR should be
