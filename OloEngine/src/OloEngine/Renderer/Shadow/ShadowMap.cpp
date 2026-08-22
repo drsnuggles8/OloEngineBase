@@ -60,8 +60,6 @@ namespace OloEngine
             m_CSMTextureArray->GetRHIHandle(), MAX_CSM_CASCADES);
         m_AtlasRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(
             m_AtlasTexture->GetRHIHandle(), 1);
-        m_CSMRawViewID = Debug::NativeTextureIdForDiagnostics(m_CSMRawViewHandle);
-        m_AtlasRawViewID = Debug::NativeTextureIdForDiagnostics(m_AtlasRawViewHandle);
 
         // Create shadow UBO at binding 6
         m_ShadowUBO = UniformBuffer::Create(
@@ -118,13 +116,11 @@ namespace OloEngine
             RenderCommand::DeleteTexture(m_CSMRawViewHandle);
             m_CSMRawViewHandle = {};
         }
-        m_CSMRawViewID = 0;
         if (m_AtlasRawViewHandle.IsValid())
         {
             RenderCommand::DeleteTexture(m_AtlasRawViewHandle);
             m_AtlasRawViewHandle = {};
         }
-        m_AtlasRawViewID = 0;
 
         m_VirtualShadowMap.Shutdown();
 

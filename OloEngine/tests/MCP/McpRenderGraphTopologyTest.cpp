@@ -277,49 +277,98 @@ TEST(McpRenderGraphTopology, DotDoublesALiteralBackslashSoItCannotEscapeTheClosi
     EXPECT_NE(std::string::npos, BuildMermaid(snap).find("n0[\"Path\\To\\Pass\"]"));
 }
 
-// ---- Resolved GL ids + per-pass access lists (issue #607) -------------------
+// ---- Resolved physical backing + per-pass access lists (issues #607, #890) --
 
-TEST(McpRenderGraphTopology, ResourceEmitsResolvedGlIdsWhenSet)
+TEST(McpRenderGraphTopology, ResourceEmitsBothCurrenciesWhenSet)
 {
     Snapshot snap;
     ResourceInfo tex;
     tex.Name = "SceneDepth";
     tex.Kind = "Texture2D";
-    tex.GLTextureId = 42;
+    tex.NativeTextureHandle = 42;
+    tex.TextureIdentity = 0x0000000100000007ull;
     tex.ViewOfParentLayer = 3;
     snap.Resources.push_back(std::move(tex));
 
     ResourceInfo fb;
     fb.Name = "SceneColor";
     fb.Kind = "Framebuffer";
-    fb.GLFramebufferId = 7;
-    fb.GLColorAttachmentIds = { 10, 11 };
-    fb.GLDepthAttachmentId = 12;
+    fb.NativeFramebufferHandle = 7;
+    fb.NativeColorAttachmentHandles = { 10, 11 };
+    fb.ColorAttachmentIdentities = { 0x0000000100000021ull, 0x0000000100000022ull };
+    fb.NativeDepthAttachmentHandle = 12;
+    fb.DepthAttachmentIdentity = 0x0000000100000023ull;
     snap.Resources.push_back(std::move(fb));
 
     ResourceInfo unbacked;
     unbacked.Name = "OptionalVelocity";
-    unbacked.Kind = "Texture2D"; // no ids resolved
+    unbacked.Kind = "Texture2D"; // nothing resolved, in either currency
     snap.Resources.push_back(std::move(unbacked));
 
     const Json j = BuildJson(snap);
     const Json& texJson = j["resources"][0];
-    ASSERT_TRUE(texJson.contains("gl"));
-    EXPECT_EQ(42u, texJson["gl"]["textureId"].get<u32>());
-    EXPECT_EQ(3u, texJson["gl"]["viewOfParentLayer"].get<u32>());
+    ASSERT_TRUE(texJson.contains("native"));
+    EXPECT_EQ("0x2A", texJson["native"]["texture"].get<std::string>());
+    ASSERT_TRUE(texJson.contains("identity"));
+    EXPECT_EQ("#7:1", texJson["identity"]["texture"].get<std::string>());
+    EXPECT_EQ(3u, texJson["identity"]["viewOfParentLayer"].get<u32>());
 
     const Json& fbJson = j["resources"][1];
-    ASSERT_TRUE(fbJson.contains("gl"));
-    EXPECT_EQ(7u, fbJson["gl"]["framebufferId"].get<u32>());
-    ASSERT_EQ(2u, fbJson["gl"]["colorAttachmentIds"].size());
-    EXPECT_EQ(10u, fbJson["gl"]["colorAttachmentIds"][0].get<u32>());
-    EXPECT_EQ(12u, fbJson["gl"]["depthAttachmentId"].get<u32>());
+    EXPECT_EQ("0x7", fbJson["native"]["framebuffer"].get<std::string>());
+    ASSERT_EQ(2u, fbJson["native"]["colorAttachments"].size());
+    EXPECT_EQ("0xA", fbJson["native"]["colorAttachments"][0].get<std::string>());
+    EXPECT_EQ("0xC", fbJson["native"]["depthAttachment"].get<std::string>());
+    EXPECT_EQ("#33:1", fbJson["identity"]["colorAttachments"][0].get<std::string>());
+    EXPECT_EQ("#35:1", fbJson["identity"]["depthAttachment"].get<std::string>());
 
-    // No resolved backing -> no "gl" block at all (absence is the signal).
-    EXPECT_FALSE(j["resources"][2].contains("gl"));
+    // No resolved backing -> neither block at all (absence is the signal).
+    EXPECT_FALSE(j["resources"][2].contains("native"));
+    EXPECT_FALSE(j["resources"][2].contains("identity"));
 }
 
-TEST(McpRenderGraphTopology, PassAccessesInvertProducersConsumersWithPhysicalIds)
+// The Vulkan shape (issue #890): a framebuffer-backed resource whose native
+// attachment handles are all 0 by design still reports its identity, so the
+// "which physical object is this" question stays answerable. Emitting only the
+// native block made every such resource look identical — and unbacked.
+TEST(McpRenderGraphTopology, IdentityIsEmittedWhenTheNativeHandleIsZero)
+{
+    Snapshot snap;
+    ResourceInfo fb;
+    fb.Name = "SceneColor";
+    fb.Kind = "Framebuffer";
+    fb.NativeColorAttachmentHandles = { 0, 0, 0, 0 }; // VulkanFramebuffer, by design
+    fb.ColorAttachmentIdentities = { 0x0000000100000007ull, 0, 0, 0 };
+    snap.Resources.push_back(std::move(fb));
+
+    const Json j = BuildJson(snap);
+    const Json& fbJson = j["resources"][0];
+
+    // The native block is still emitted, and that is deliberate: the array
+    // carries the attachment COUNT and keeps index-correspondence with the
+    // identity array, so "0x0" reads as "this attachment has no native name"
+    // rather than the resource vanishing from the export entirely.
+    ASSERT_TRUE(fbJson.contains("native"));
+    ASSERT_EQ(4u, fbJson["native"]["colorAttachments"].size());
+    EXPECT_EQ("0x0", fbJson["native"]["colorAttachments"][0].get<std::string>());
+    EXPECT_FALSE(fbJson["native"].contains("framebuffer")) << "a scalar 0 IS omitted";
+
+    // ...and the identity is there to answer the question the native handles
+    // cannot. This is the whole point of #890: on Vulkan this is the only
+    // field that distinguishes one framebuffer attachment from another.
+    ASSERT_TRUE(fbJson.contains("identity"));
+    EXPECT_EQ("#7:1", fbJson["identity"]["colorAttachments"][0].get<std::string>());
+    EXPECT_EQ("", fbJson["identity"]["colorAttachments"][1].get<std::string>())
+        << "an attachment with no identity reads as empty, not as a token naming nothing";
+
+    // And the pass-access key still resolves through the identity.
+    ResourceInfo probe;
+    probe.ColorAttachmentIdentities = { 0x0000000100000007ull, 0, 0, 0 };
+    probe.NativeColorAttachmentHandles = { 0, 0, 0, 0 };
+    EXPECT_EQ(0x0000000100000007ull,
+              OloEngine::MCP::RenderGraphTopology::AccessedPhysicalKey(probe));
+}
+
+TEST(McpRenderGraphTopology, PassAccessesInvertProducersConsumersWithPhysicalKeys)
 {
     Snapshot snap;
     snap.Passes.push_back(PassInfo{ "GTAOPass", "Compute", true, false, false, false });
@@ -328,42 +377,57 @@ TEST(McpRenderGraphTopology, PassAccessesInvertProducersConsumersWithPhysicalIds
     ResourceInfo depth;
     depth.Name = "SceneDepth";
     depth.Kind = "Texture2D";
-    depth.GLTextureId = 99;
+    depth.NativeTextureHandle = 99;
+    depth.TextureIdentity = 0x0000000100000009ull;
     depth.Producers = { "ParticlePass" };
     depth.Consumers = { "GTAOPass" };
     snap.Resources.push_back(std::move(depth));
 
     const Json j = BuildJson(snap);
     // GTAOPass reads SceneDepth; ParticlePass writes it — both accesses carry
-    // the SAME resolved physical id, the one-call aliasing answer.
+    // the SAME physical key, the one-call aliasing answer.
     const Json& gtao = j["passes"][0];
     ASSERT_TRUE(gtao.contains("accesses"));
     ASSERT_EQ(1u, gtao["accesses"].size());
     EXPECT_EQ("SceneDepth", gtao["accesses"][0]["resource"].get<std::string>());
     EXPECT_EQ("read", gtao["accesses"][0]["mode"].get<std::string>());
-    EXPECT_EQ(99u, gtao["accesses"][0]["glTextureId"].get<u32>());
+    EXPECT_EQ("#9:1", gtao["accesses"][0]["physicalKey"].get<std::string>());
+    EXPECT_EQ("0x63", gtao["accesses"][0]["nativeTexture"].get<std::string>());
 
     const Json& particle = j["passes"][1];
     ASSERT_TRUE(particle.contains("accesses"));
     EXPECT_EQ("write", particle["accesses"][0]["mode"].get<std::string>());
-    EXPECT_EQ(99u, particle["accesses"][0]["glTextureId"].get<u32>());
+    EXPECT_EQ("#9:1", particle["accesses"][0]["physicalKey"].get<std::string>());
 }
 
-TEST(McpRenderGraphTopology, AccessPhysicalIdFallsBackToFramebufferAttachments)
+TEST(McpRenderGraphTopology, AccessPhysicalKeyFallsBackToFramebufferAttachments)
 {
-    using OloEngine::MCP::RenderGraphTopology::AccessedPhysicalTextureId;
+    using OloEngine::MCP::RenderGraphTopology::AccessedPhysicalKey;
 
     ResourceInfo colorFb;
-    colorFb.GLColorAttachmentIds = { 21 };
-    colorFb.GLDepthAttachmentId = 22;
-    EXPECT_EQ(21u, AccessedPhysicalTextureId(colorFb));
+    colorFb.ColorAttachmentIdentities = { 21 };
+    colorFb.DepthAttachmentIdentity = 22;
+    EXPECT_EQ(21ull, AccessedPhysicalKey(colorFb));
 
     ResourceInfo depthOnlyFb;
-    depthOnlyFb.GLDepthAttachmentId = 22;
-    EXPECT_EQ(22u, AccessedPhysicalTextureId(depthOnlyFb));
+    depthOnlyFb.DepthAttachmentIdentity = 22;
+    EXPECT_EQ(22ull, AccessedPhysicalKey(depthOnlyFb));
 
     ResourceInfo tex;
-    tex.GLTextureId = 5;
-    tex.GLColorAttachmentIds = { 21 }; // texture id wins when both set
-    EXPECT_EQ(5u, AccessedPhysicalTextureId(tex));
+    tex.TextureIdentity = 5;
+    tex.ColorAttachmentIdentities = { 21 }; // the texture identity wins when both are set
+    EXPECT_EQ(5ull, AccessedPhysicalKey(tex));
+
+    // The IDENTITY outranks the native handle, which is the #890 ordering: on
+    // Vulkan the native value is 0 for exactly the resources whose identity is
+    // the only thing that can distinguish them.
+    ResourceInfo both;
+    both.TextureIdentity = 5;
+    both.NativeTextureHandle = 999;
+    EXPECT_EQ(5ull, AccessedPhysicalKey(both));
+
+    // Native-only (a resource imported as a bare native id) still resolves.
+    ResourceInfo nativeOnly;
+    nativeOnly.NativeTextureHandle = 999;
+    EXPECT_EQ(999ull, AccessedPhysicalKey(nativeOnly));
 }

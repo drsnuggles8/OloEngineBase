@@ -36,7 +36,7 @@ TEST(McpRenderValidate, ConsumedButUnbackedFlag)
     EXPECT_TRUE(IsUnbackedConsumed(consumedUnbacked));
 
     ResourceIdentity consumedBacked = consumedUnbacked;
-    consumedBacked.GLTextureId = 5;
+    consumedBacked.NativeTextureHandle = 5;
     EXPECT_FALSE(IsUnbackedConsumed(consumedBacked));
 
     ResourceIdentity unconsumed;
@@ -44,22 +44,153 @@ TEST(McpRenderValidate, ConsumedButUnbackedFlag)
     EXPECT_FALSE(IsUnbackedConsumed(unconsumed)); // nobody reads it — not a hazard
 }
 
+// The #890 regression, in the exact shape the live Vulkan editor produced it.
+//
+// A framebuffer-backed resource under Vulkan reports native handle 0 for every
+// attachment — VulkanFramebuffer::GetColorAttachmentRendererID returns 0 by
+// design, "no GL name exists here". The old predicate read only that number, so
+// `olo_render_validate` returned a false `ok: false` naming 11 resources that
+// olo_render_capture_target read real HDR scene content out of in the same
+// session. Whatever else changes, a resource carrying an identity and real
+// storage must never be called unbacked.
+TEST(McpRenderValidate, VulkanShapedResourceWithNoNativeHandleIsNotUnbacked)
+{
+    ResourceIdentity sceneColor;
+    sceneColor.Name = "SceneColor";
+    sceneColor.HasConsumers = true;
+    sceneColor.NativeTextureHandle = 0; // the Vulkan framebuffer attachment
+    sceneColor.TextureIdentity = 0x0000000100000007ull;
+    sceneColor.TextureHasStorage = true;
+
+    EXPECT_TRUE(HasTextureBacking(sceneColor));
+    EXPECT_FALSE(IsUnbackedConsumed(sceneColor))
+        << "a native handle of 0 is legitimate on Vulkan and must never be read as 'unbacked'";
+}
+
+// The mirror image, and the one that a green test suite let through once
+// already: a resource can carry a perfectly VALID identity and still have no
+// storage this frame (a transient the planner never allocated). The identity
+// means the backend could be ASKED — it is not itself an answer, and it must
+// never override a negative storage query.
+//
+// Caught live: after the first cut of this fix, Vulkan reported `ok: true`
+// with an empty list while `olo_render_target_stats` still answered "has no
+// storage at mip 0" for GTAOEdge. The unit test passed because it encoded the
+// assumption (identity == 0) instead of the real shape.
+TEST(McpRenderValidate, AValidIdentityDoesNotOverrideANegativeStorageAnswer)
+{
+    ResourceIdentity gtaoEdge;
+    gtaoEdge.Name = "GTAOEdge";
+    gtaoEdge.HasConsumers = true;
+    gtaoEdge.TextureIdentity = 0x000000010000003Cull; // a live handle...
+    gtaoEdge.TextureHasStorage = false;               // ...with nothing behind it
+    gtaoEdge.NativeTextureHandle = 60;                // and a recycled native name
+
+    EXPECT_FALSE(HasTextureBacking(gtaoEdge));
+    EXPECT_TRUE(IsUnbackedConsumed(gtaoEdge))
+        << "the storage query is final in BOTH directions; neither a live identity nor a "
+           "recycled native name may talk it out of a negative answer";
+}
+
+// The native handle is consulted ONLY when there is no identity to ask about
+// — a resource imported as a bare native id. There it can confirm backing,
+// and it still can never deny it.
+TEST(McpRenderValidate, NativeHandleOnlyAnswersWhenThereIsNoIdentity)
+{
+    ResourceIdentity nativeImport;
+    nativeImport.HasConsumers = true;
+    nativeImport.TextureIdentity = 0; // nothing to interrogate
+    nativeImport.TextureHasStorage = false;
+    nativeImport.NativeTextureHandle = 42;
+    EXPECT_TRUE(HasTextureBacking(nativeImport));
+    EXPECT_FALSE(IsUnbackedConsumed(nativeImport));
+
+    ResourceIdentity nothing;
+    nothing.HasConsumers = true;
+    EXPECT_FALSE(HasTextureBacking(nothing));
+    EXPECT_TRUE(IsUnbackedConsumed(nothing));
+}
+
+// The other half of the same live result, and the reason the fix is a storage
+// query rather than "the identity is non-null". Two of the thirteen resources
+// the tool flagged on Vulkan — GTAOEdge and GTAODenoisePong — were TRUE
+// positives: olo_render_target_stats answered "has no storage at mip 0" for
+// both. A fix that only stopped trusting the native id would have turned a
+// noisy tool into a silent one.
+TEST(McpRenderValidate, GenuinelyUnbackedConsumedResourceIsStillFlagged)
+{
+    ResourceIdentity gtaoEdge;
+    gtaoEdge.Name = "GTAOEdge";
+    gtaoEdge.HasConsumers = true;
+    gtaoEdge.NativeTextureHandle = 0;
+    gtaoEdge.TextureIdentity = 0; // nothing resolved, in either currency
+    gtaoEdge.TextureHasStorage = false;
+
+    EXPECT_FALSE(HasTextureBacking(gtaoEdge));
+    EXPECT_TRUE(IsUnbackedConsumed(gtaoEdge));
+}
+
+// A buffer-backed resource has the same asymmetry: every Vulkan buffer class
+// answers 0 to GetRendererID(), so the identity is the only currency that can
+// say "there is an object here".
+TEST(McpRenderValidate, BufferBackingIsDecidedFromTheIdentityToo)
+{
+    ResourceIdentity buffer;
+    buffer.Name = "ClusterLightGrid";
+    buffer.HasConsumers = true;
+    buffer.NativeBufferHandle = 0;
+    buffer.BufferIdentity = 0x0000000200000011ull;
+
+    EXPECT_TRUE(HasBufferBacking(buffer));
+    EXPECT_FALSE(IsUnbackedConsumed(buffer));
+}
+
+// PhysicalKey prefers the identity, so two versions that share one object are
+// recognised as sharing it even when neither carries a native handle. Keying on
+// the native value instead collapsed every Vulkan framebuffer attachment onto
+// 0 — which reads as "they all share one texture" rather than "we cannot tell".
+TEST(McpRenderValidate, PhysicalKeyPrefersIdentityOverNativeHandle)
+{
+    ResourceIdentity a;
+    a.TextureIdentity = 0x0000000100000007ull;
+    a.NativeTextureHandle = 999;
+    EXPECT_EQ(0x0000000100000007ull, PhysicalKey(a));
+
+    ResourceIdentity nativeOnly; // imported as a bare native id: no identity to give
+    nativeOnly.NativeTextureHandle = 42;
+    EXPECT_EQ(42ull, PhysicalKey(nativeOnly));
+
+    ResourceIdentity unbacked;
+    EXPECT_EQ(0ull, PhysicalKey(unbacked)) << "unbacked is not a physical object everything shares";
+}
+
+// The token spelling matches the engine's own fmt formatter for RHI::Handle,
+// so a value copied out of an MCP reply matches what a log line prints.
+TEST(McpRenderValidate, IdentityTokenMatchesTheEngineSpelling)
+{
+    EXPECT_EQ("#7:1", OloEngine::MCP::IdentityToken(0x0000000100000007ull));
+    EXPECT_EQ("", OloEngine::MCP::IdentityToken(0)) << "0 is 'no identity', not '#0:0'";
+    EXPECT_EQ("0x1F", OloEngine::MCP::NativeHandleHex(31));
+    // The value that used to be truncated: a 64-bit handle survives intact.
+    EXPECT_EQ("0x1D2C3B4A5F6E7", OloEngine::MCP::NativeHandleHex(0x1D2C3B4A5F6E7ull));
+}
+
 TEST(McpRenderValidate, VersionGroupsReportDistinctPhysicalIds)
 {
     std::vector<ResourceIdentity> identities;
     ResourceIdentity base;
     base.Name = "SceneColor";
-    base.GLTextureId = 10;
+    base.TextureIdentity = 10;
     base.LastWriter = "Lighting";
     identities.push_back(base);
     ResourceIdentity version;
     version.Name = "SceneColor@ParticlePass";
-    version.GLTextureId = 11; // copy-on-write: a DIFFERENT physical texture
+    version.TextureIdentity = 11; // copy-on-write: a DIFFERENT physical resource
     version.LastWriter = "ParticlePass";
     identities.push_back(version);
     ResourceIdentity lone;
     lone.Name = "SceneDepth"; // single version — no group emitted
-    lone.GLTextureId = 12;
+    lone.TextureIdentity = 12;
     identities.push_back(lone);
 
     const Json groups = VersionGroupsJson(identities);
@@ -77,7 +208,7 @@ TEST(McpRenderValidate, VersionGroupSharedPhysicalIdIsNotFlagged)
     {
         ResourceIdentity identity;
         identity.Name = name;
-        identity.GLTextureId = 33; // SSA versions aliasing ONE physical texture
+        identity.TextureIdentity = 33; // SSA versions aliasing ONE physical texture
         identities.push_back(identity);
     }
     const Json groups = VersionGroupsJson(identities);

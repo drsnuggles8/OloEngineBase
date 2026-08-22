@@ -230,7 +230,7 @@ and for what to do when adding a tool.
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
 | `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, the DDGI atlases, the froxel-fog volumes, post-process stages, …) as a PNG image block; depth is min-max normalised by default. `layer` picks one slice of an **array / cube / 3D** target (CSM cascade 0–3, cubemap faces, froxel z-slices); out-of-range is an error, never a silent layer-0 capture. `afterPass` captures the resource **as of that pass's execution** (mid-frame snapshot) instead of end-of-frame — see [Mid-frame state & exact texels](#mid-frame-state--exact-texels-afterpass-texel-space-stats-validate). `region`:{x,y,w,h} reads back a sub-rect at **native resolution** rather than the whole target rescaled to `maxWidth` — the only way to measure a pixel-scale artifact; the reply's `meta.region.nativeResolution` says whether the PNG is genuinely 1:1 |
 | `olo_gpu_readback_stats` | **(read; consented write with `enabled`)** the structured **GPU readback-stats channel** (issue #721) — per-frame counters that GPU-driven passes publish by atomic (instance-cull decisions split by which test rejected them; virtual-shadow page allocations / evictions / failures), plus **capacity-overflow flags** naming any pass that silently truncated its output. Read `overflows` FIRST: a raised flag means the frame rendered wrong and the counters say by how much. Sibling of `olo_shader_debug_draw` below — that one draws what a GPU pass decided, this one counts it. Numbers arrive a few frames late by design (fenced device-to-host ring, never a synchronous readback and never a `ClientWaitFence`), so `frameIndex` / `latencyFrames` say which frame they describe and `ringSaturated` warns when captures are being skipped and they are staler still. Passing `enabled` switches the channel off/on — the only way to A/B the instrument's own cost against frame time, which is the first thing to ask of a diagnostic that ships on by default |
-| `olo_render_transient_plan` | the render graph's **transient plan + pool state** — the layer under `olo_render_graph_topology_export` where aliasing is decided. Per entry: alias group/slot, `willAllocate` + the planner's `skipReason`, `firstPass`→`lastPass` lifetime, resolved `glTexture` id, `versionAliasOf` (what a `WriteNewVersion` rename aliases), and its poison hue. Per pool: bucket descriptors with free counts, byte totals, and this frame's unsorted `acquireOrder` (two entries sharing a `glId` shared one GPU object). See [Transient plan & pool introspection](#transient-plan--pool-introspection-olo_render_transient_plan) |
+| `olo_render_transient_plan` | the render graph's **transient plan + pool state** — the layer under `olo_render_graph_topology_export` where aliasing is decided. Per entry: alias group/slot, `willAllocate` + the planner's `skipReason`, `firstPass`→`lastPass` lifetime, resolved `identity` + `nativeTexture`, `versionAliasOf` (what a `WriteNewVersion` rename aliases), and its poison hue. Per pool: bucket descriptors with free counts, byte totals, and this frame's unsorted `acquireOrder` (two entries sharing an `identity` shared one GPU object). See [Transient plan & pool introspection](#transient-plan--pool-introspection-olo_render_transient_plan) |
 | `olo_render_debug_set` | **(consented write)** flip the two transient-corruption instruments LIVE instead of via env var + editor restart: `poisonTransients` (clear every pool-acquired transient to a per-resource hue at materialize time — turns a stochastic stale-read artifact into a deterministic per-resource-coloured one; the reply carries the whole resource→colour map up front) and `disableAliasing` (every transient gets its own backing; the pool is evicted on the flip so the A/B isn't mixed). Omitting a flag leaves it unchanged; `restoreWith` puts both back. Gated behind **Agent writes** |
 | `olo_shader_debug_draw` | **(consented write)** drive the GPU-pushable shader debug-draw channels (issue #725) — the instrument for GPU-driven passes, whose cull decisions and bounds are computed on the GPU and otherwise never come back. Any shader that includes `include/DebugDrawCommon.glsl` can atomic-append a line / circle / rectangle / AABB / box / cone / sphere; this draws every channel with one indirect call at the end of the SceneColor chain, depth-tested against the real scene. `enabled` is the master switch — off means no uploads, no readback and no draw, and every push site collapses to a single scalar guard read (the header-only channel buffers stay allocated and bound, because reading an unbound SSBO is undefined in GL), `lineWidth` the screen-space quad width, `clusterBounds` a bit field turning on the shipped virtual-geometry consumer (1 drawn / 2 frustum-culled / 4 cone-culled / 8 Hi-Z occluded, Deferred path only) and `clusterStride` its sub-sampling. The per-channel counters in the reply ARE the overflow flag: `requested` is unclamped and `drawn` is capped at `capacity`, so `overflowed`/`dropped` distinguish "I pushed nothing" from "I pushed too much and the rest was thrown away". Counters are one frame behind by design (DeviceToHost staging copy, no stall) |
 | `olo_render_probe_pixel` | the exact NUMBERS under one pixel: every decoded G-Buffer channel (albedo, metallic, decoded world normal, roughness, AO, emissive, velocity, integer entityID, raw + linearized depth) plus the final presented colour — or, with `target`, the raw channels of ONE named resource. Every reply echoes `mappedCoord` (the exact texel read); `space`:"texel" + `mip` address an exact texel of a padded resource (the HZB pyramid), `layer` picks an array slice, `afterPass` probes mid-frame state . **Both backends since #810** — the readback goes through the facade spine (`RenderCommand::ReadTextureSubImage`) rather than raw GL, `afterPass` included: the mid-frame clone allocates through `CreateMatchingTextureHandle` and copies into the current frame's command buffer |
@@ -1160,7 +1160,7 @@ with counts). "Is this HZB region exactly 1.0f?" is one call:
 **`olo_render_validate`** is the on-demand frame-validation sweep: compiled resource
 hazards, barrier/build diagnostics, resolve failures, resources that are *consumed but
 resolve to no physical backing*, and versioned-name groups (`SceneColor@ParticlePass`)
-with their resolved GL ids. The optional `compare` block is the bitwise instrument:
+with their resolved backing. The optional `compare` block is the bitwise instrument:
 
 ```jsonc
 // olo_render_validate { "compare": { "a": "SceneDepth", "b": "HZB", "afterPass": "GTAOPass" } }
@@ -1171,6 +1171,14 @@ with their resolved GL ids. The optional `compare` block is the bitwise instrume
 With `compare.afterPass`, BOTH sides are cloned by the *same* hook firing, so the verdict
 describes one consistent frame. Note the format caveat: a D24 depth source quantizes on
 float readback, so only same-conversion pairs (D32F/R32F) compare bit-exactly.
+
+`consumedButUnbacked` is decided from the resource's **identity plus a storage query**, not
+from a native handle (issue #890). It used to read a GL-shaped `u32`, which is 0 for every
+Vulkan framebuffer attachment by design — so on Vulkan the tool returned `ok: false` naming
+13 resources that `olo_render_capture_target` read real HDR pixels out of in the same
+session. Two of those 13 (`GTAOEdge`, `GTAODenoisePong`) were genuine and are still
+reported; if a name appears here, confirm it with `olo_render_target_stats`, which answers
+*"has no storage at mip 0"* for a resource that truly has none.
 
 The **DDGI probe atlases** (`DDGIIrradianceAtlas0/1`, `DDGIVisibilityAtlas0/1`,
 `DDGIProbeData`) and the **froxel-fog volumes** (`FroxelFogScatter0/1`,
@@ -1230,13 +1238,13 @@ obtained by rebuilding the engine with hand-rolled instrumentation (issue #607).
 
 - **Per plan entry** — alias group + slot, `willAllocate` and the planner's `skipReason`
   when it doesn't, the `firstPass` → `lastPass` lifetime (with execution-order indices),
-  `estimatedBytes`, `reachable`, the **resolved `glTexture` id**, `versionAliasOf` (what a
-  `WriteNewVersion` rename is an alias *of*), and the `poisonColor` the resource would
-  leak as.
+  `estimatedBytes`, `reachable`, the **resolved `identity`** (plus `nativeTexture` for
+  capture correlation), `versionAliasOf` (what a `WriteNewVersion` rename is an alias
+  *of*), and the `poisonColor` the resource would leak as.
 - **Per pool** — bucket descriptors with free counts, estimated/acquired bytes, and this
   frame's **`acquireOrder`** (deliberately unsorted — it is the order the alias-slot
   assigner consumed the pool, and a LIFO pool's reuse pattern is only readable in that
-  order; two entries sharing a `glId` shared one GPU object).
+  order; two entries sharing an `identity` shared one GPU object).
 
 `topologyGeneration` changes whenever the graph was torn down and the plan rebuilt — the
 frames on which an aliasing bug surfaces (see
@@ -1244,8 +1252,17 @@ frames on which an aliasing bug surfaces (see
 Filter with `resource` (substring), and drop the pool half with `includePool:false`.
 
 The canonical question it answers in one lookup: *does this versioned name resolve to its
-base's physical, or to an orphan?* A version whose `glTexture` differs from its base's **is**
+base's physical, or to an orphan?* A version whose `identity` differs from its base's **is**
 the orphan-allocation bug.
+
+**Compare `identity`, never `nativeTexture`** (issue #890). Every resource reports its
+backing in two currencies: `identity` is the RHI handle (`"#index:generation"`) and is the
+only one that answers "same GPU object?" on both backends; `nativeTexture` is the
+backend-native handle as hex, there purely so you can find the object in a RenderDoc / RGP
+capture. Under Vulkan a framebuffer attachment has **no** native handle by design, so
+`nativeTexture` is legitimately absent for a fully-backed resource — reading its absence as
+"unbacked", or its shared `0` as "these two alias", is exactly the mistake that made
+`olo_render_validate` report 13 phantom resources before #890.
 
 ### Runtime transient debug instruments (`olo_render_debug_set`)
 

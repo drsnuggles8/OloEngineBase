@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
@@ -2490,19 +2491,29 @@ namespace OloEngine
             // think it is?" can only be answered by adding a one-off test.
             //
             // Declaration-presence gate (#530 / docs/agent-rules/render-pipeline-caches.md):
-            // whether these resources exist depends on the raw ids being
-            // non-zero, so ComputeBlackboardFingerprint hashes BOTH raw ids —
-            // not just the CSM/atlas ids. They are created and destroyed with
-            // the parent textures in ShadowMap::Init/Shutdown, so in practice
-            // they move in lockstep, but hashing the actual gate condition is
-            // the rule: a glTextureView failure (or a future lazy creation)
-            // would otherwise freeze the cached topology with the resource
+            // whether these resources exist depends on the raw views existing,
+            // so ComputeBlackboardFingerprint hashes BOTH raw handles — not
+            // just the CSM/atlas ones. They are created and destroyed with the
+            // parent textures in ShadowMap::Init/Shutdown, so in practice they
+            // move in lockstep, but hashing the actual gate condition is the
+            // rule: a view-creation failure (or a future lazy creation) would
+            // otherwise freeze the cached topology with the resource
             // permanently absent.
-            const u32 csmRawID = data.Shadow.GetCSMRawRendererID();
-            const u32 atlasRawID = data.Shadow.GetAtlasRawRendererID();
+            //
+            // The gate reads the IDENTITY, not a native id (issue #890). It
+            // used to test `GetCSMRawRendererID() != 0`, and every Vulkan
+            // texture class answers 0 to that by design — so on Vulkan the
+            // gate's correctness rested entirely on a truncated `VkImage`
+            // happening to be nonzero, and a view whose low 32 bits came out
+            // zero would have silently deleted `ShadowCSMRaw` /
+            // `ShadowAtlasRaw` from the graph. The native id is still what the
+            // declaration carries as its native currency; it is no longer what
+            // decides whether the declaration happens.
             const RHI::ResourceHandle csmRawTexture = data.Shadow.GetCSMRawHandle();
             const RHI::ResourceHandle atlasRawTexture = data.Shadow.GetAtlasRawHandle();
-            if (csmRawID != 0)
+            const u32 csmRawID = Debug::NativeTextureIdForDiagnostics(csmRawTexture);
+            const u32 atlasRawID = Debug::NativeTextureIdForDiagnostics(atlasRawTexture);
+            if (csmRawTexture.IsValid())
             {
                 [[maybe_unused]] const RGTextureHandle csmRaw = graph.DeclareTransientTexture(
                     ShadowMap::kCSMRawTargetName,
@@ -2511,7 +2522,7 @@ namespace OloEngine
                                            FrameBlackboard::MaxShadowMapCascades),
                     csmRawID, csmRawTexture);
             }
-            if (atlasRawID != 0)
+            if (atlasRawTexture.IsValid())
             {
                 auto atlasRawDesc = buildShadowTextureDesc(RGResourceHandle::Kind::Texture2DArray,
                                                            ShadowMap::kAtlasRawTargetName, 1u);

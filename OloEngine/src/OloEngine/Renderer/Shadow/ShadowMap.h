@@ -244,15 +244,14 @@ namespace OloEngine
         // textures, bound as plain sampler2DArray so the PCSS blocker search
         // can read raw occluder depth (the hardware sampler2DArrayShadow only
         // yields the comparison result). Created alongside the textures in
-        // Init(); 0 until then. See Renderer::CreateDepthArrayCompareOffView.
-        [[nodiscard]] u32 GetCSMRawRendererID() const
-        {
-            return m_CSMRawViewID;
-        }
-        [[nodiscard]] u32 GetAtlasRawRendererID() const
-        {
-            return m_AtlasRawViewID;
-        }
+        // Init(); null until then. See Renderer::CreateDepthArrayCompareOffView.
+        //
+        // The `GetCSMRawRendererID` / `GetAtlasRawRendererID` native accessors
+        // that used to sit here are GONE (issue #890). Their only caller was
+        // RenderPipeline's raw-view declaration gate, which now asks the
+        // identity — a native id is not something to decide on, and these two
+        // read 0 on Vulkan for every resource by design.
+        //
         // A texture VIEW is a distinct GPU object from the array it aliases, so
         // it carries its own identity rather than borrowing the array's — see
         // CreateDepthArrayCompareOffViewHandle.
@@ -407,8 +406,6 @@ namespace OloEngine
 
         // Comparison-OFF raw-depth views of the two depth textures above (for
         // PCSS blocker search). Owned GL texture-view objects; deleted in Shutdown().
-        u32 m_CSMRawViewID = 0;
-        u32 m_AtlasRawViewID = 0;
         // Identities for the two views above, minted by the facade's handle
         // form and retired by DeleteTexture(handle) (which unregisters too).
         RHI::ResourceHandle m_CSMRawViewHandle{};
