@@ -1,0 +1,82 @@
+# =============================================================================
+# Sandbox project input action maps (issue #879 — Drift).
+#
+# Loaded by EditorLayer::OpenProject from <project>/Config/InputActions.yaml and
+# handed to InputActionManager::ReplaceAllContextMaps, so every context below is
+# live the moment the project opens. Drift binds nothing directly to a key code:
+# the boat controller queries these action NAMES, which is what makes #883's
+# rebinding UI a pure editor feature rather than a script rewrite.
+#
+# The boat lives in the Vehicle context, not Gameplay — DriftBoatController.lua
+# switches to it in OnCreate. Gameplay is left empty on purpose so a scene with
+# no vehicle script starts in a context that binds nothing, rather than
+# inheriting boat bindings.
+#
+# Steering and throttle are authored as FOUR one-way actions rather than two
+# signed axes. InputActionManager::GetActionAxisValue only ever reports one
+# analog value per action (the strongest gamepad-axis binding, or +/-1 for a
+# digital press), so a single "Steer" action could not carry both directions
+# from a keyboard. The script recombines them as starboard-minus-port. A digital
+# press always reports +1 regardless of the binding's direction, so the script
+# takes the MAGNITUDE of each half and applies the sign itself.
+# =============================================================================
+InputActionContexts:
+  - Context: Gameplay
+    Map:
+      Name: Gameplay
+      Actions: []
+  - Context: Vehicle
+    Map:
+      Name: Vehicle
+      Actions:
+        # -- Throttle --------------------------------------------------------
+        - Name: Boat.ThrottleAhead
+          Bindings:
+            - Type: Keyboard
+              Code: 87        # W
+            - Type: Keyboard
+              Code: 265       # Up
+            - Type: GamepadAxis
+              Axis: RightTrigger
+              Threshold: 0.12
+              Positive: true
+        - Name: Boat.ThrottleAstern
+          Bindings:
+            - Type: Keyboard
+              Code: 83        # S
+            - Type: Keyboard
+              Code: 264       # Down
+            - Type: GamepadAxis
+              Axis: LeftTrigger
+              Threshold: 0.12
+              Positive: true
+        # -- Rudder ----------------------------------------------------------
+        - Name: Boat.SteerPort
+          Bindings:
+            - Type: Keyboard
+              Code: 65        # A
+            - Type: Keyboard
+              Code: 263       # Left
+            - Type: GamepadAxis
+              Axis: LeftX
+              Threshold: 0.15
+              Positive: false
+        - Name: Boat.SteerStarboard
+          Bindings:
+            - Type: Keyboard
+              Code: 68        # D
+            - Type: Keyboard
+              Code: 262       # Right
+            - Type: GamepadAxis
+              Axis: LeftX
+              Threshold: 0.15
+              Positive: true
+        # -- Camera ----------------------------------------------------------
+        # Held, not toggled: a look-back you have to keep holding cannot leave
+        # the camera stuck backwards when the player forgets about it.
+        - Name: Boat.LookAstern
+          Bindings:
+            - Type: Keyboard
+              Code: 67        # C
+            - Type: GamepadButton
+              Button: RightThumb
