@@ -1,0 +1,182 @@
+Scene: DecalModeMatrixTest.olo
+# Decal MODE MATRIX (issue #853).
+#
+# Four decals in a row on one flat, uniform ground plane — one per DecalMode —
+# so each mode's channel routing is observable in isolation against a known
+# neighbour. Run this scene with the renderer on the DEFERRED path
+# (RendererSettings::Path lives on the renderer, not in the .olo — use
+# olo_renderer_settings_set or the editor's renderer panel); on Forward /
+# Forward+ every mode collapses to the transparent albedo overlay and the
+# matrix is not exercised at all.
+#
+# What each mode owes, and what a leak looks like on THIS plane
+# (albedo 0.55 grey, metallic 0, roughness 0.85):
+#
+#   x = -6  Albedo   writes RT0.rgb, must preserve RT0.a (metallic).
+#                    Leak => RT0.a takes the decal's alpha (1) and the patch
+#                    turns fully METALLIC — a mirror disc on a matte floor.
+#   x = -2  Normal   writes RT1.xy (oct normal), must preserve RT1.zw
+#                    (roughness, AO). Leak => roughness 0, AO 1 — a glossy
+#                    patch.
+#   x =  2  RMA      writes RT0.a + RT1.zw, must preserve RT0.rgb and RT1.xy.
+#                    Leak => RT0.rgb = (0,0,0) — the floor goes BLACK under
+#                    the decal (Decal_GBuffer_RMA.glsl writes
+#                    `gAlbedo = vec4(0, 0, 0, metallic)`). This is the
+#                    loudest arm and the one to read first.
+#   x =  6  Emissive writes RT2.rgb additively, must preserve RT2.a (the
+#                    unlit flag). Its leak is the QUIET one: the mode blends
+#                    One/One, so dst.a + 0 leaves RT2.a unchanged whether or
+#                    not the mask survives. Kept in the row for completeness,
+#                    not as evidence.
+#
+# The plane is deliberately uniform so an inside-the-footprint texel can be
+# compared against an outside-the-footprint texel of the SAME attachment
+# (the in-frame comparison the pass tenant uses), rather than against a
+# separate capture.
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera: straight down the row, high enough that all four footprints fit ──
+  - Entity: 853000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 9, 9]
+      Rotation: [-0.8, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.05
+        PerspectiveFar: 500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Directional light only: no IBL / skybox, so the G-Buffer channels are
+  #    the only thing shaping the frame and a roughness/metallic leak is not
+  #    masked by an environment reflection. ──
+  - Entity: 853000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.45]
+      Color: [1, 1, 1]
+      Intensity: 3
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── The one uniform receiver every decal projects onto ──
+  - Entity: 853000000000003
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 0.1, 24]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.55, 0.55]
+      Metallic: 0
+      Roughness: 0.85
+  # ── Albedo decal (mode 0): RT0.rgb writable, RT0.a preserved ──
+  - Entity: 853000000000010
+    TagComponent:
+      Tag: Decal Albedo
+    TransformComponent:
+      Translation: [-6, 0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DecalComponent:
+      Color: [1, 0.25, 0.15, 1]
+      Size: [3.5, 2, 3.5]
+      FadeDistance: 0.02
+      NormalAngleThreshold: 0.5
+      Mode: 0
+      Transparent: false
+  # ── Normal decal (mode 1): RT1.xy writable, RT1.zw preserved ──
+  - Entity: 853000000000011
+    TagComponent:
+      Tag: Decal Normal
+    TransformComponent:
+      Translation: [-2, 0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DecalComponent:
+      Color: [1, 1, 1, 1]
+      Size: [3.5, 2, 3.5]
+      FadeDistance: 0.02
+      NormalAngleThreshold: 0.5
+      Mode: 1
+      Transparent: false
+  # ── RMA decal (mode 2): RT0.a + RT1.zw writable, RT0.rgb + RT1.xy preserved.
+  #    The loudest arm: a leak paints RT0.rgb black.
+  #    (The source file is packed occlusion/roughness/metallic; the engine's
+  #    RMA convention is R=roughness, G=metallic, B=AO, so the channel meanings
+  #    are permuted. That is irrelevant to what this scene measures — which
+  #    ATTACHMENT CHANNELS are written, not what value lands in them.) ──
+  - Entity: 853000000000012
+    TagComponent:
+      Tag: Decal RMA
+    TransformComponent:
+      Translation: [2, 0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DecalComponent:
+      Color: [1, 1, 1, 1]
+      Size: [3.5, 2, 3.5]
+      FadeDistance: 0.02
+      NormalAngleThreshold: 0.5
+      Mode: 2
+      Transparent: false
+  # ── Emissive decal (mode 3): RT2.rgb additive, RT2.a preserved ──
+  - Entity: 853000000000013
+    TagComponent:
+      Tag: Decal Emissive
+    TransformComponent:
+      Translation: [6, 0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DecalComponent:
+      Color: [0.2, 0.9, 1, 1]
+      Size: [3.5, 2, 3.5]
+      FadeDistance: 0.02
+      NormalAngleThreshold: 0.5
+      EmissiveTexturePath: Assets/Textures/Checkerboard.png
+      Mode: 3
+      Transparent: false

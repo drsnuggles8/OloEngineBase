@@ -138,9 +138,19 @@ namespace OloEngine
 
         // Detector-only guard: captures GL state at entry and on destruction
         // diffs against exit state, logging any field this pass failed to
-        // restore. The explicit restore calls further down still perform the
-        // actual restoration (the current GLStateGuard only detects leaks,
-        // it does not roll back).
+        // restore. The explicit restore calls further down are what actually
+        // restore -- the default Policy::Log does not roll anything back.
+        //
+        // ISSUE #895: it does not restore enough. This reports 8-9 escaped
+        // fields at ERROR level on EVERY frame that drains a decal, on both
+        // rendering paths (DepthTest, the four blend factors, ActiveProgram,
+        // VAO and the two bound texture slots). Note GLStateGuard::Policy
+        // ::Restore exists and DOES roll back via GLStateSnapshot::ApplyCore()
+        // -- an earlier version of this comment said rollback was impossible,
+        // which is probably why this call site never asked for it. Fixing the
+        // leak is #895; check render-pass-published-state.md before switching
+        // policy, since a pass whose outputs are engine-global bindings must
+        // not be wrapped in a restoring guard at all.
         GLStateGuard guard("DecalRenderPass");
 
         // Helper: decide whether a packet should be drained by *this*
@@ -424,33 +434,41 @@ namespace OloEngine
                 {
                     case DecalMode::Normal: // RT1 only, xy writable, zw preserved
                         RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawNormalOnly);
-                        RenderCommand::SetColorMaskForAttachment(0, false, false, false, false);
-                        RenderCommand::SetColorMaskForAttachment(1, true, true, false, false);
-                        RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
-                        RenderCommand::SetColorMaskForAttachment(3, false, false, false, false);
                         break;
                     case DecalMode::RMA: // RT0.a + RT1.zw writable
                         RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawAlbedoAndNormal);
-                        RenderCommand::SetColorMaskForAttachment(0, false, false, false, true);
-                        RenderCommand::SetColorMaskForAttachment(1, false, false, true, true);
-                        RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
-                        RenderCommand::SetColorMaskForAttachment(3, false, false, false, false);
                         break;
                     case DecalMode::Emissive: // RT2.rgb writable, RT2.a (unlit flag) preserved
                         RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawEmissiveOnly);
-                        RenderCommand::SetColorMaskForAttachment(0, false, false, false, false);
-                        RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);
-                        RenderCommand::SetColorMaskForAttachment(2, true, true, true, false);
-                        RenderCommand::SetColorMaskForAttachment(3, false, false, false, false);
                         break;
                     case DecalMode::Albedo:
                     default: // RT0.rgb writable, RT0.a preserved
                         RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawAlbedoOnly);
-                        RenderCommand::SetColorMaskForAttachment(0, true, true, true, false);
-                        RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);
-                        RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
-                        RenderCommand::SetColorMaskForAttachment(3, false, false, false, false);
                         break;
+                }
+
+                // The mode's per-attachment CHANNEL routing, read out of the
+                // one shared table (issue #853). These calls used to be four
+                // literal SetColorMaskForAttachment lines per mode inside the
+                // switch above; they now come from DecalGBufferChannelMask,
+                // which is also what Renderer3D::DrawDecal stamps onto each
+                // packet's PODRenderState -- so the masks the pass installs and
+                // the masks the draw re-asserts cannot drift apart. Only the
+                // four RGBA colour attachments are touched: RT4 is R32I (entity
+                // id), where a colour mask is a no-op, and no decal mode's draw
+                // map attaches it anyway.
+                //
+                // Setting them HERE is still load-bearing: it is what a draw
+                // that does not route through ApplyPODRenderState would see,
+                // and it is the state the pass restores from at the end.
+                const u32 modeChannelMask = DecalGBufferChannelMask(packetMode);
+                for (u32 rt = 0; rt < 4u; ++rt)
+                {
+                    const u8 channels = GetColorChannelMask(modeChannelMask, rt);
+                    RenderCommand::SetColorMaskForAttachment(rt, (channels & 0x1u) != 0u,
+                                                             (channels & 0x2u) != 0u,
+                                                             (channels & 0x4u) != 0u,
+                                                             (channels & 0x8u) != 0u);
                 }
                 currentMode = packetMode;
 

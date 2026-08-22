@@ -63,7 +63,9 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
@@ -100,6 +102,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ResourceHandle.h" // ResourceNames::*
 #include "OloEngine/Renderer/Shader.h"
@@ -7221,26 +7224,33 @@ namespace
         if (cmd->rmaTextureID.IsValid())
             api.BindTexture(ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID);
 
-        // Renderer3D::DrawDecal's PODRenderState, verbatim except culling:
-        // the proxy here is a single quad (see the tenant header), so there is
-        // no back face to cull and no winding to depend on.
-        api.SetDepthTest(true);
-        api.SetDepthFunc(RHI::CompareOp::LessOrEqual);
-        api.SetDepthMask(false);
-        const bool blendForThisMode = cmd->mode == DrawDecalCommand::DecalMode::Albedo;
-        api.SetBlendState(blendForThisMode);
-        if (blendForThisMode)
-        {
-            // ONLY when blending is on — ApplyPODRenderState guards it the same
-            // way, and that guard is load-bearing: a GLOBAL SetBlendFunc
-            // overwrites every draw buffer's factors (glBlendFunc semantics,
-            // which the recorded state mirrors via AttachmentBlendFuncSet), so
-            // an unconditional call here would silently replace the One/One
-            // the Emissive mode installed on RT2 with SrcAlpha/OneMinusSrcAlpha
-            // — and the emissive shader writes alpha 0, so the decal would
-            // blend to exactly the destination and vanish.
-            api.SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-        }
+        // Render state: the PRODUCTION application, not a hand-written copy of
+        // it (issue #853).
+        //
+        // This used to set depth / blend / culling by hand and never call
+        // SetColorMask at all — so the channel assertions below passed for a
+        // reason that did not hold in production. The real path is
+        // CommandDispatch::DrawDecal -> ApplyPODRenderState, and the defect the
+        // mode matrix has to be able to SEE lives inside ApplyPODRenderState:
+        // it issues the GLOBAL SetColorMask, which is the indexed call for
+        // every draw buffer, and flattens the per-attachment channel masks
+        // ExecuteOnGBuffer installed a moment earlier. A per-draw contract
+        // verified through a dispatch function the production path does not use
+        // is verifying the setup, not the draw.
+        //
+        // Everything above this line (shader bind, instance SSBO, decal UBO,
+        // texture binds) is still substituted, and that is deliberate: those
+        // are Renderer3D-owned statics which, mid-suite, are live OpenGL
+        // objects — binding them on the Vulkan device is not a thing this
+        // fixture can do. They are also orthogonal to what is under test here.
+        CommandDispatch::ApplyPODRenderState(cmd->renderStateIndex, api);
+        // The ONE deliberate deviation from production, unchanged from before:
+        // production culls FRONT faces because the decal is a closed cube and
+        // its far faces are what survives the depth test; this fixture's proxy
+        // is a single quad with one winding, so front-face culling would remove
+        // it entirely. Culling is orthogonal to the colour-mask contract, and
+        // it is applied AFTER the POD state so it overrides it rather than
+        // being overridden.
         api.DisableCulling();
 
         api.BindVertexArrayRaw(scaffold.ProxyVao->GetRHIHandle());
@@ -7336,11 +7346,38 @@ namespace
 // and this write is unused" — a WARNING, so it never tripped the zero-error
 // gate), which was corroboration from outside the engine. The Normal block
 // below now asserts the mode's real contract, like the other three.
+//
+// SECOND DEFECT FOUND HERE, FIXED IN THIS CHANGE (issue #853): this tenant
+// could not see it, and that is the more general finding. FixtureDecalDispatch
+// used to hand-write the decal's depth/blend/culling state and never call
+// SetColorMask — so every channel assertion below was measuring the masks
+// ExecuteOnGBuffer had installed, with nothing in between to disturb them.
+// Production puts CommandDispatch::DrawDecal -> ApplyPODRenderState in between,
+// and ApplyPODRenderState issues the GLOBAL SetColorMask, which is the indexed
+// call for EVERY draw buffer on both backends — so on the real path every one
+// of those masks was flattened before the draw and each mode wrote every
+// channel of the attachments its draw map selected. The fixture now applies the
+// production render state through the production function, which is what lets
+// this tenant fail on that bug: the RMA arm's "RT0.rgb is masked out" and the
+// Normal arm's "RT1.zw must survive" both go red without the fix.
+//
+// A per-draw contract verified through a dispatch function the production path
+// does not use is verifying the setup, not the draw.
 // =============================================================================
 TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
 {
     constexpr u32 kSize = 128;
     VulkanFrameArena::Get().BeginFrame(0);
+
+    // The packets now carry a real PODRenderState index, so the render-state
+    // table has to be up (that is the point — the production dispatch resolves
+    // the index and applies it). Own the lifecycle only when nothing else does:
+    // a renderer brought up by an earlier test in this process keeps the
+    // manager alive process-wide, and shutting down what we do not own would
+    // break every later test. Same rule as FrameDataBufferFixture.
+    const bool ownsFrameData = !FrameDataBufferManager::IsInitialized();
+    if (ownsFrameData)
+        FrameDataBufferManager::Init();
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     const u64 stubsBefore = api.GetUnimplementedStubHitCount();
@@ -7447,6 +7484,12 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
         command.mode = mode;
         command.transparent = 0;
         command.entityID = 42;
+        // The same PODRenderState Renderer3D::DrawDecal builds for a deferred
+        // decal of this mode — channel mask included. Shared builder, not a
+        // copy: a tenant that hand-rolls this pins its own copy of the contract
+        // (issue #853).
+        command.renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(
+            CreateDecalPODRenderState(mode, /*deferredPath=*/true));
         return command;
     };
 
@@ -7665,6 +7708,9 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     g_DecalScaffold = nullptr;
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the attachment-map matrix must ride real implementations, not stubs";
+
+    if (ownsFrameData)
+        FrameDataBufferManager::Shutdown();
 }
 
 // =============================================================================

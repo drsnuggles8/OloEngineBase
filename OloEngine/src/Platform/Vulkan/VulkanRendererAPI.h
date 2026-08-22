@@ -122,7 +122,10 @@ namespace OloEngine
         // The consequence is that a per-attachment blend DISABLE cannot
         // override a global enable (OITResolveRenderPass asks for one); that
         // asymmetry is real, is GL-divergent in the other direction, and is
-        // filed rather than changed here.
+        // filed as ISSUE #896 rather than changed here. Any fix must keep the
+        // DecalRenderPass Emissive case above working -- the naive symmetric
+        // version was written during #823 and reverted because it deleted that
+        // additive accumulation on Vulkan while fixing nothing on GL.
         bool AttachmentBlend[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendSrc[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendDst[kMaxAttachments] = {};
