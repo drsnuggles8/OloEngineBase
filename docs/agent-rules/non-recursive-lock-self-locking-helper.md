@@ -156,6 +156,21 @@ things about how it is written are worth copying:
   either end. The worker exists only so that a regression fails *this case* instead of hanging the
   whole suite.
 
+**To exercise the same path in a live editor** (worth doing once for any change to this seam), you
+must first get the asset genuinely *loaded* — a filewatch event on a tracked-but-unloaded asset
+resolves to `Ignore`, so touching a file proves nothing by itself:
+
+1. Open `VirtualGeometryTest.olo` and set `olo_renderer_settings_set renderpath=deferred`. The
+   `VirtualMeshComponent` submission loop runs only on Deferred, and it is the only thing that
+   resolves those mesh-source handles — on Forward nothing loads and every event is ignored. See
+   [notes-editor-and-assets.md](notes-editor-and-assets.md) §2.
+2. Confirm a `Loaded asset: <path>` trace appeared for the file you are about to touch.
+3. Touch it. You should see `🔄 Hot-reload triggered` followed by `Reloaded asset`, about a second
+   apart, with the editor still answering MCP in single-digit milliseconds.
+4. Re-check `olo_virtual_geometry_stats` afterwards: `unresolvedAssets: 0` and a non-zero
+   `submitted` prove the reload republished the asset rather than dropping it. Liveness alone does
+   not.
+
 ## 7. Checklist
 
 - Calling a sibling method from inside a locked scope? Open it and check what it locks. "It's just
