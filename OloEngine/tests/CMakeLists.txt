@@ -953,6 +953,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/HumanoidLocomotionWalkTest.cpp
 		Functional/AnimationPhysics/MorphTargetGraphAnimationTest.cpp
 		Functional/Navigation/NavAgentReachesTargetTest.cpp
+		Functional/Asset/AssetHotReloadDoesNotDeadlockTest.cpp
 		Functional/Asset/AssetManagerImportsStagedAssetTest.cpp
 		Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp
 		Functional/Gameplay/AbilityCooldownTicksDownViaSceneTickTest.cpp
