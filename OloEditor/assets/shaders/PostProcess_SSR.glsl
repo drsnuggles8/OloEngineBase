@@ -77,6 +77,12 @@ layout(binding = 43) uniform sampler2D u_GBufferAlbedo; // RT0: rgb = albedo, a 
 layout(binding = 35) uniform sampler2D u_MinHZB;        // min-depth (nearest-surface) HZB pyramid (#284)
 #endif
 
+// The shared blue-noise tile at TEX_BLUE_NOISE (17) plus the sampler and the
+// GGX VNDF helpers it feeds. Must come AFTER BindlessHeap.glsl — the bindless
+// branch of the tile declaration expands OLO_HEAP_TEX_2D.
+#define OLO_BLUE_NOISE_GLOBAL_SAMPLER
+#include "include/StochasticCommon.glsl"
+
 layout(std140, binding = 38) uniform SSRParams
 {
     mat4 u_Projection;
@@ -85,11 +91,14 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_RayParams;    // x = MaxSteps, y = MaxDistance, z = Thickness, w = Stride (view units)
     vec4 u_ShadeParams;  // x = Intensity, y = MaxRoughness, z = EdgeFade (UV), w = BinarySearchSteps
     vec4 u_ScreenParams; // x = width, y = height, z = 1/width, w = 1/height
-    vec4 u_Flags;        // x = DebugView (0/1)
+    vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, zw = pad
     vec4 u_HZBParams;    // xy = HZB UVFactor, z = HZB mip count, w = UseHiZ (0/1)
 };
 
-const float MIN_ROUGHNESS = 0.045;
+// Named SSR_MIN_ROUGHNESS, not MIN_ROUGHNESS: PBRCommon.glsl (pulled in by
+// StochasticCommon.glsl above) #defines the latter, and a macro followed by a
+// `const float MIN_ROUGHNESS = ...` here would expand into a syntax error.
+const float SSR_MIN_ROUGHNESS = 0.045;
 const float SKY_DEPTH = 0.999999;
 const int HARD_MAX_STEPS = 256;
 const int HARD_MAX_BIN_STEPS = 32;
@@ -165,10 +174,14 @@ void main()
     }
 
     vec4 gN = texture(u_GBufferNormal, v_TexCoord);
-    float roughness = max(gN.z, MIN_ROUGHNESS);
+    float roughness = max(gN.z, SSR_MIN_ROUGHNESS);
     float maxRoughness = u_ShadeParams.y;
 
-    // Rougher-than-cutoff surfaces receive no SSR (sharp mirror reflections only).
+    // Rougher-than-cutoff surfaces still receive no SSR. The cutoff predates the
+    // VNDF ray below and is deliberately left where it was: a single stochastic
+    // sample per pixel with no temporal resolve behind it cannot carry a wide
+    // lobe, so raising it would trade the old too-sharp reflection for a noisy
+    // one. Raise it when SSR gets a history buffer, not before.
     float roughFade = 1.0 - smoothstep(maxRoughness * 0.75, maxRoughness, roughness);
     if (roughFade <= 0.0)
     {
@@ -186,7 +199,41 @@ void main()
 
     vec3 P = ViewPosFromDepth(v_TexCoord, depth); // view-space position (z < 0)
     vec3 V = normalize(P);                         // eye -> fragment direction
-    vec3 R = normalize(reflect(V, Nview));         // reflected ray direction
+
+    // ---- Stochastic reflection ray (issue #706) ---------------------------
+    //
+    // The ray now reflects about a microfacet normal drawn from the GGX
+    // distribution of VISIBLE normals, not about the macrosurface normal. On a
+    // near-mirror surface the VNDF collapses onto N and this reproduces the old
+    // hard reflection exactly; as roughness rises the ray spreads into the lobe
+    // the surface actually has, which is the reflection this pass was
+    // previously approximating by fading out and handing over to the IBL.
+    //
+    // Sampling the VISIBLE distribution rather than D matters most at exactly
+    // the grazing angles SSR is used at: sampling D there draws mostly masked
+    // microfacets whose contribution is discarded, so the same ray budget buys
+    // far less. The 2D sample is blue-noise-distributed across the screen, so
+    // the residual is the kind of noise the neighbourhood filters downstream
+    // can actually remove.
+    //
+    // vndfWeight is G2/G1 and is NOT optional — see ggxVNDFWeight() in
+    // PBRCommon.glsl. Without it this pass would be biased bright at grazing
+    // angles and nothing would say so.
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    uint frameIndex = uint(max(u_Flags.y, 0.0));
+    vec2 Xi = OloSampleStratified2D(pixel, frameIndex, 0u, 1u, 0u);
+
+    vec3 H = sampleGGXVNDF(Nview, -V, roughness, Xi);
+    vec3 R = normalize(reflect(V, H));            // reflected ray direction
+
+    float NdotV = max(dot(Nview, -V), 0.0);
+    float NdotL = max(dot(Nview, R), 0.0);
+    float vndfWeight = ggxVNDFWeight(NdotV, NdotL, roughness);
+    if (vndfWeight <= 0.0) // sampled microfacet sent the ray below the horizon
+    {
+        o_Color = vec4(baseColor, 1.0);
+        return;
+    }
 
     float maxSteps = u_RayParams.x;
     float maxDist = u_RayParams.y;
@@ -338,8 +385,14 @@ void main()
     float facingFade = 1.0 - smoothstep(0.25, 0.6, backFacing);
 
     // Fresnel (Schlick): dielectrics ~0.04, metals reflect strongly.
+    //
+    // Evaluated against the sampled MICROFACET normal H, not the macrosurface
+    // normal — Fresnel is a property of the facet that actually reflected the
+    // ray. On a smooth surface H == N and this is unchanged; on a rough one it
+    // is the pairing the VNDF estimator assumes, and using N there would put a
+    // different Fresnel on the sample than the one its weight was derived for.
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    float cosTheta = clamp(dot(-V, Nview), 0.0, 1.0);
+    float cosTheta = clamp(dot(-V, H), 0.0, 1.0);
     vec3 fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
     float fresnelScalar = dot(fresnel, vec3(0.299, 0.587, 0.114)); // perceptual reflectance
 
@@ -357,7 +410,12 @@ void main()
     // reflection occlude the background reflection the way a real mirror does.
     // Metals (high F0) approach a full mirror; dielectrics get a faint,
     // grazing-weighted sheen; an SSR miss leaves baseColor untouched.
-    float blend = clamp(fresnelScalar * roughFade * edgeFade * distFade * facingFade * u_ShadeParams.x, 0.0, 1.0);
+    // vndfWeight (G2/G1) rides in here as an ordinary factor because that is
+    // what it is: the Monte-Carlo weight of the single VNDF sample this pixel
+    // drew. Omitting it leaves every sample weighted 1 and biases the pass
+    // bright — most at grazing angles, invisibly, forever.
+    float blend =
+        clamp(fresnelScalar * vndfWeight * roughFade * edgeFade * distFade * facingFade * u_ShadeParams.x, 0.0, 1.0);
 
     if (u_Flags.x > 0.5) // debug: show the (blended) reflection contribution in isolation
     {

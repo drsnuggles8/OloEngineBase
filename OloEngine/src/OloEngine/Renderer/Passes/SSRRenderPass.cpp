@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
+#include "OloEngine/Renderer/BlueNoiseTexture.h"
 
 #include <span>
 
@@ -16,6 +17,11 @@ namespace OloEngine
     {
         SetName("SSRPass");
         OLO_CORE_INFO("Creating SSRRenderPass.");
+    }
+
+    SSRRenderPass::~SSRRenderPass()
+    {
+        DestroyBlueNoiseTexture(m_BlueNoiseTexture);
     }
 
     void SSRRenderPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
@@ -73,6 +79,9 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
         m_SSRShader = Shader::Create("assets/shaders/PostProcess_SSR.glsl");
+
+        if (!m_BlueNoiseTexture.IsValid())
+            m_BlueNoiseTexture = CreateBlueNoiseTexture();
 
         // Dedicated min-depth HZB for HiZ ray traversal (#284).
         m_MinHZB.Initialize();
@@ -217,6 +226,9 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSR_HZB, minHZBID, hzbLifetime);
+        // Pass-owned and immutable, so Persistent rather than FrameTransient
+        // (issue #706). Nearest+Repeat sampler state rides in the descriptor.
+        BindBlueNoiseTexture(context, m_BlueNoiseTexture);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

@@ -56,6 +56,13 @@ void main()
 // hit the sky see no on-screen light and contribute zero — screen-space GI can
 // only gather what is already on screen, so it fades out at screen borders.
 //
+// The hemisphere directions come from the shared blue-noise sampler (issue
+// #706) rather than the interleaved-gradient hash this pass used to carry. Same
+// ray count, same cost: what changes is that the residual error is now
+// blue-noise-distributed across the screen instead of white, so the low
+// spatial frequencies the eye is most sensitive to — and that no small filter
+// can remove — carry far less of it. See include/StochasticCommon.glsl.
+//
 // The math here is mirrored on the CPU by ScreenSpaceGIMathTest, and the
 // rendered frame is checked by SSGIVisualEvidenceTest.
 
@@ -80,6 +87,12 @@ layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world n
 layout(binding = 43) uniform sampler2D u_GBufferAlbedo; // RT0: rgb = albedo, a = metallic
 #endif
 
+// The shared blue-noise tile at TEX_BLUE_NOISE (17) plus the sample sequence
+// that rotates by it. Must come AFTER BindlessHeap.glsl — the bindless branch
+// of the tile declaration expands OLO_HEAP_TEX_2D.
+#define OLO_BLUE_NOISE_GLOBAL_SAMPLER
+#include "include/StochasticCommon.glsl"
+
 layout(std140, binding = 40) uniform SSGIParams
 {
     mat4 u_Projection;
@@ -88,14 +101,12 @@ layout(std140, binding = 40) uniform SSGIParams
     vec4 u_RayParams;    // x = MaxSteps, y = MaxDistance (view units), z = Thickness, w = Stride (view units)
     vec4 u_ShadeParams;  // x = Intensity, y = RayCount, z = EdgeFade (UV), w = unused
     vec4 u_ScreenParams; // x = width, y = height, z = 1/width, w = 1/height
-    vec4 u_Flags;        // x = DebugView (0/1), yzw = pad
+    vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, zw = pad
 };
 
 const float SKY_DEPTH = 0.999999;
 const int HARD_MAX_STEPS = 64;  // loop-safety cap; must match kSSGIMaxSteps
 const int HARD_MAX_RAYS = 32;   // loop-safety cap; must match kSSGIMaxRays
-const float PI = 3.14159265359;
-const float GOLDEN_RATIO_CONJ = 0.61803398875; // fract(golden ratio) — low-discrepancy azimuth rotation
 
 // Octahedral decode — matches octEncodeGB() in PBR_GBuffer.glsl / OctDecode() in
 // PostProcess_SSR.glsl.
@@ -123,22 +134,11 @@ vec2 ProjectToUV(vec3 viewPos)
     return ndc * 0.5 + 0.5;
 }
 
-// Branchless orthonormal basis around n (Duff et al. 2017, "Building an
-// Orthonormal Basis, Revisited"). Mirrored in the CPU contract test.
-void BuildBasis(vec3 n, out vec3 t, out vec3 b)
-{
-    float s = (n.z >= 0.0) ? 1.0 : -1.0;
-    float a = -1.0 / (s + n.z);
-    float d = n.x * n.y * a;
-    t = vec3(1.0 + s * n.x * n.x * a, s * d, -s * n.x);
-    b = vec3(d, s + n.y * n.y * a, -n.y);
-}
-
-// Interleaved gradient noise (Jimenez 2014) — cheap per-pixel hash in [0,1).
-float InterleavedGradientNoise(vec2 p)
-{
-    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
-}
+// (The orthonormal basis and the Malley mapping both moved into the shared
+// header — OrthonormalBasis() in MathCommon.glsl and OloCosineHemisphere() in
+// StochasticCommon.glsl. They were byte-identical to the local copies this
+// pass carried; keeping one copy is what stops the sampler and the basis
+// drifting apart the way the IBL bake shaders' radical inverses did (#262).)
 
 void main()
 {
@@ -172,13 +172,8 @@ void main()
     // self-intersect the originating surface.
     vec3 vStart = P + Nview * (0.02 * -P.z);
 
-    vec3 tangent;
-    vec3 bitangent;
-    BuildBasis(Nview, tangent, bitangent);
-
-    // Per-pixel azimuth rotation decorrelates the hemisphere pattern between
-    // neighbouring pixels, trading banding for noise the spatial average eats.
-    float ign = InterleavedGradientNoise(gl_FragCoord.xy);
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    uint frameIndex = uint(max(u_Flags.y, 0.0));
 
     vec3 indirect = vec3(0.0);
 
@@ -187,14 +182,16 @@ void main()
         if (r >= rayCount)
             break;
 
-        // Cosine-weighted hemisphere sample (Malley's method). u1 is stratified
-        // across rays; u2 is a golden-ratio-rotated, per-pixel-jittered azimuth.
-        float u1 = (float(r) + 0.5) / float(rayCount);
-        float u2 = fract(ign + float(r) * GOLDEN_RATIO_CONJ);
-        float radius = sqrt(u1);
-        float phi = 2.0 * PI * u2;
-        vec3 localDir = vec3(radius * cos(phi), radius * sin(phi), sqrt(max(0.0, 1.0 - u1)));
-        vec3 dir = normalize(tangent * localDir.x + bitangent * localDir.y + Nview * localDir.z);
+        // Cosine-weighted hemisphere sample (Malley's method), issue #706.
+        //
+        // The radius stays stratified across rays exactly as before; what the
+        // shared sampler adds is a blue-noise jitter WITHIN each stratum (the
+        // old form used the same u1 at every pixel, making its dimension-0 error
+        // a screen-wide constant) and a blue-noise-rotated azimuth in place of
+        // the interleaved-gradient hash. See OloSampleStratified2D for why
+        // rotating the radius instead measured WORSE than the noise it replaced.
+        vec2 u = OloSampleStratified2D(pixel, frameIndex, uint(r), uint(rayCount), 0u);
+        vec3 dir = OloCosineHemisphere(u, Nview);
 
         // Linear view-space march along the ray.
         float traveled = 0.0;
