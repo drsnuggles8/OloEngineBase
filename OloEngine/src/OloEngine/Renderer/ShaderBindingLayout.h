@@ -919,6 +919,24 @@ namespace OloEngine
             i32 DebugDrawClusters;             // 132 — bit field, 0 = off (issue #725)
             u32 DebugDrawClusterStride;        // 136
             i32 _pad0;                         // 140
+            // ---- Culling-camera override (issue #726) ---------------------
+            // Unlike InstanceCullUBO's unconditional field, this one is a
+            // flagged override because THIS shader is bound by two views: the
+            // main perspective view and the ortho shadow cascades, which pass
+            // their light matrices through the camera UBO. The shadow path
+            // leaves the value-initialised struct alone, so CullOverride == 0
+            // and it reads the camera UBO exactly as before — the same
+            // "zero-init reproduces the old behaviour" contract the rest of this
+            // block relies on. The main view always sets it (frozen or not), so
+            // the override path is exercised every frame rather than only while
+            // the observer is on.
+            glm::mat4 CullViewProjection; // 144 — render-origin-relative
+            glm::vec4 CullCameraPosition; // 208 — xyz relative pos, w = override enable
+            // x = |projection[1][1]| (cot(fovY/2)), y = near-plane distance —
+            // the two scalars ProjectErrorPixels()/NearPlane() would otherwise
+            // pull out of the camera UBO's projection. Extracted CPU-side
+            // because the frozen projection is not on the GPU anywhere else.
+            glm::vec4 CullProjParams; // 224
 
             static constexpr u32 GetSize()
             {
@@ -928,8 +946,8 @@ namespace OloEngine
 
         static_assert(sizeof(VirtualClusterCullUBO) % 16 == 0,
                       "VirtualClusterCullUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(VirtualClusterCullUBO) == 144,
-                      "VirtualClusterCullUBO std140 size drifted from GLSL expectation (144 B)");
+        static_assert(sizeof(VirtualClusterCullUBO) == 240,
+                      "VirtualClusterCullUBO std140 size drifted from GLSL expectation (240 B)");
 
         // @brief Virtualized-geometry software-raster / debug-colorize
         // parameters, uploaded at UBO_VIRTUAL_RASTER (70). GLSL twin: the
@@ -978,14 +996,27 @@ namespace OloEngine
             i32 WriteRejected;             // 116 — phase 1 appends to the reject list
             i32 Phase2;                    // 120
             // 124 — entries the cull's compacted output (and, in phase 1, the
-            // reject list) may hold. Was `_pad0`. The shader BOUND-CHECKS its
-            // atomic append against this and reports the refusal through the
-            // GPU readback-stats channel (issue #721) instead of writing past
-            // the allocation. Set to the real allocation size in production; the
+            // reject list) may hold. Was `_pad0`, which is why this and #726's
+            // CullViewProjection below are complementary rather than competing:
+            // #726 added a mat4 at 128 and left the pad alone, #721 spent the
+            // pad. The shader BOUND-CHECKS its atomic append against this and
+            // reports the refusal through the GPU readback-stats channel
+            // (issue #721) instead of writing past the allocation. Set to the
+            // real allocation size in production; the
             // `GPUFrustumCuller::SetDebugOutputCapacity` knob shrinks it on
             // demand, which is how acceptance criterion #2 forces a genuine
             // truncation rather than faking a flag.
             u32 OutputCapacity; // 124
+            // The CULLING camera's view-projection, made relative to this
+            // frame's render origin (issue #726). Read UNCONDITIONALLY by both
+            // instance-cull shaders in place of the camera UBO's
+            // u_ViewProjection: the camera UBO describes the observer once the
+            // culling camera is frozen, and a cull that follows the observer is
+            // precisely the "plausible but not the frozen set" lie the observer
+            // camera exists to rule out. Equal to the camera UBO's relative VP
+            // whenever nothing is frozen, so the frozen path is not a
+            // separately-rotting branch — it is the only path.
+            glm::mat4 CullViewProjection; // 128
 
             static constexpr u32 GetSize()
             {
@@ -994,8 +1025,8 @@ namespace OloEngine
         };
 
         static_assert(sizeof(InstanceCullUBO) % 16 == 0, "InstanceCullUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(InstanceCullUBO) == 128,
-                      "InstanceCullUBO std140 size drifted from GLSL expectation (128 B)");
+        static_assert(sizeof(InstanceCullUBO) == 192,
+                      "InstanceCullUBO std140 size drifted from GLSL expectation (192 B)");
 
         // @brief Ocean FFT compute-chain parameters, uploaded at UBO_OCEAN_FFT
         // (73). GLSL twin: the OceanFFTParams block shared verbatim by

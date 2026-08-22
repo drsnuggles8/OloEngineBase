@@ -44,6 +44,17 @@ namespace OloEngine
         if (!s_Data.HZBOcclusionCullingEnabled)
             return;
 
+        // Frozen culling camera (issue #726): stop regenerating. The depth that
+        // just rendered is the OBSERVER's, and a pyramid built from it would
+        // occlusion-cull against surfaces the frozen camera never saw -- a
+        // plausible cut that is not the frozen one. Retaining the pre-freeze
+        // pyramid keeps it paired with CullPrevViewProjectionMatrix, which is
+        // pinned at the same instant, so the occlusion test stays exactly the
+        // one the frozen camera made. OcclusionHZBValid deliberately stays true:
+        // the pyramid is stale by design here, not missing.
+        if (s_Data.CullingCameraFrozen)
+            return;
+
         // Any path that fails to regenerate the pyramid must invalidate it:
         // leaving OcclusionHZBValid true would let next frame's phase-1 sample a
         // stale pyramid (older than PrevViewProjectionMatrix) and mis-cull.
@@ -114,6 +125,15 @@ namespace OloEngine
         if (!depthTexture.IsValid() || width == 0 || height == 0)
             return inputs;
 
+        // Frozen culling camera (issue #726): refuse. This rebuild overwrites
+        // the retained pyramid IN PLACE, so running it while frozen would
+        // destroy the frozen depth every phase-1 cull is testing against. Both
+        // callers already gate their two-phase paths on the freeze; this is the
+        // backstop, because the failure it prevents is silent -- the frame still
+        // renders, with a cut that is not the frozen one.
+        if (s_Data.CullingCameraFrozen)
+            return inputs;
+
         // Rebuild the persistent pyramid from THIS frame's partial depth
         // (occluders + phase-1 survivors). This overwrites the previous-frame
         // pyramid, which phase 1 already consumed at submission; the tail-of-
@@ -154,7 +174,7 @@ namespace OloEngine
         // reads are shifted by THIS frame's render origin, so the previous VP has
         // to be made relative to that same origin or `clip = VP_world *
         // relativePos` is garbage far from the origin (issue #429).
-        inputs.PrevViewProjection = MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, s_Data.RenderOrigin);
+        inputs.PrevViewProjection = MakeViewProjectionRelative(s_Data.CullPrevViewProjectionMatrix, s_Data.RenderOrigin);
         inputs.HZBSize = glm::vec2(static_cast<f32>(s_Data.OcclusionHZB.GetHZBWidth()),
                                    static_cast<f32>(s_Data.OcclusionHZB.GetHZBHeight()));
         inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor();
@@ -301,6 +321,14 @@ namespace OloEngine
 
         // Store current VP as previous for next frame's motion blur
         s_Data.PrevViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+        // The culling camera's own history rotates only while unfrozen, so it
+        // keeps describing the pyramid GenerateOcclusionHZB() last produced
+        // (issue #726). Two matrices because they answer different questions:
+        // PrevViewProjectionMatrix is "where was the camera last frame" (motion
+        // vectors), CullPrevViewProjectionMatrix is "what VP does the bound
+        // depth pyramid correspond to".
+        if (!s_Data.CullingCameraFrozen)
+            s_Data.CullPrevViewProjectionMatrix = s_Data.CullViewProjectionMatrix;
 
         // Don't return the allocator to the pool - it's managed by FrameResourceManager
         // The allocator will be reset at the start of the next frame when this buffer is reused

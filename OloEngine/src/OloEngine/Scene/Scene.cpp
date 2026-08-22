@@ -57,6 +57,7 @@
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Renderer/LightCommon.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
@@ -6888,6 +6889,16 @@ namespace OloEngine
 
         glm::mat4 viewProjection = projectionMatrix * viewMatrix;
 
+        // The CULLING camera (issue #726). Identical to the matrices above
+        // unless the observer camera has frozen it, at which point everything
+        // that decides WHAT IS DRAWN has to keep using the frozen values while
+        // the arguments to this function describe the free-flying observer.
+        // Read from Renderer3D rather than threaded through the signature
+        // because BeginScene already owns the freeze, and one source of truth is
+        // the point -- a second copy is a second thing to forget to freeze.
+        const glm::mat4& cullViewProjection = Renderer3D::GetCullViewProjectionMatrix();
+        const glm::vec3& cullCameraPosition = Renderer3D::GetCullViewPosition();
+
         // Collect all scene lights into MultiLight UBO and set up shadows
         glm::vec3 directionalLightDir(0.0f, -1.0f, 0.0f);
         bool hasDirectionalShadow = false;
@@ -7139,12 +7150,19 @@ namespace OloEngine
 
             if (hasDirectionalShadow && shadowMap.IsEnabled())
             {
+                // Cascades are fitted to the CULLING camera's frustum (#726).
+                // A cascade is a cull volume: fitting it to the observer would
+                // re-render shadows for geometry the frozen camera never
+                // considered, and the #652 class of bug (shadow cull using the
+                // wrong frustum) is exactly what this tool has to be able to
+                // show. The visible consequence while frozen -- shadows only
+                // inside the frozen frustum -- is the honest picture.
                 shadowMap.ComputeCSMCascades(
                     directionalLightDir,
-                    viewMatrix,
-                    projectionMatrix,
-                    cameraNearClip,
-                    cameraFarClip);
+                    Renderer3D::GetCullViewMatrix(),
+                    Renderer3D::GetCullProjectionMatrix(),
+                    Renderer3D::GetCullNearClip(),
+                    Renderer3D::GetCullFarClip());
             }
 
             // ---------------------------------------------------------------
@@ -7995,8 +8013,12 @@ namespace OloEngine
                     if (terrain.m_TessellationEnabled && terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
                     {
                         const auto& terrainTransform = terrainView.get<TransformComponent>(entity);
+                        // Culling camera (#726): the quadtree descent is LOD
+                        // selection AND frustum culling in one, so both halves
+                        // must stay frozen or the terrain silently re-tessellates
+                        // around the observer.
                         const TerrainLocalCullInputs local = MakeTerrainLocalCullInputs(
-                            terrainTransform.GetTransform(), cameraPosition, viewProjection);
+                            terrainTransform.GetTransform(), cullCameraPosition, cullViewProjection);
 
                         // GPU descent first (issue #714): it does the whole
                         // selection + seam resolution on the GPU and leaves an
@@ -8210,12 +8232,12 @@ namespace OloEngine
                         auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
-                                                   &hasActiveShadows, &cameraPosition, &viewProjection](const TerrainChunkManager& chunkMgr,
-                                                                                                        const TerrainData* terrainData,
-                                                                                                        const TerrainMaterial* tileMaterial,
-                                                                                                        f32 worldSizeX, f32 worldSizeZ,
-                                                                                                        f32 heightScale,
-                                                                                                        const glm::vec3& tileWorldOrigin)
+                                                   &hasActiveShadows, &cullCameraPosition, &cullViewProjection](const TerrainChunkManager& chunkMgr,
+                                                                                                                const TerrainData* terrainData,
+                                                                                                                const TerrainMaterial* tileMaterial,
+                                                                                                                f32 worldSizeX, f32 worldSizeZ,
+                                                                                                                f32 heightScale,
+                                                                                                                const glm::vec3& tileWorldOrigin)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -8239,7 +8261,7 @@ namespace OloEngine
                             // single-tile path (WorldOrigin = 0) tileModel == the entity
                             // transform, so this is identical to the pre-#613 frustum.
                             const TerrainLocalCullInputs tileCull =
-                                MakeTerrainLocalCullInputs(tileModel, cameraPosition, viewProjection);
+                                MakeTerrainLocalCullInputs(tileModel, cullCameraPosition, cullViewProjection);
 
                             RHI::ResourceHandle heightmapID{};
                             if (terrainData && terrainData->GetGPUHeightmap())
@@ -9444,6 +9466,13 @@ namespace OloEngine
             // skipping it, so the scene looks the same and only the renderer differs.
             const bool virtualGeometryEnabled = Renderer3D::GetRendererSettings().VirtualGeometryEnabled;
 
+            // Issue #864: count what this loop actually managed to submit, so a scene that
+            // asks for virtual geometry and draws NONE of it can say so instead of settling
+            // quietly. Filled here, consumed by the editor Statistics panel and the MCP
+            // olo_virtual_geometry_stats tool. BeginFrame reset it.
+            auto& vgDiagnostics = VirtualMeshRegistry::Get().GetMutableSubmissionDiagnostics();
+            vgDiagnostics.FellBackToClassic = !virtualGeometryEnabled;
+
             auto virtualView = m_Registry.view<TransformComponent, VirtualMeshComponent>();
             for (auto entity : virtualView)
             {
@@ -9452,10 +9481,12 @@ namespace OloEngine
                 {
                     continue;
                 }
+                ++vgDiagnostics.EnabledComponents;
 
                 auto meshSource = AssetManager::GetAsset<MeshSource>(virtualMesh.m_MeshSource);
                 if (!meshSource)
                 {
+                    ++vgDiagnostics.UnresolvedAssets;
                     // An unresolvable handle here is TOTAL and otherwise SILENT: the entity
                     // renders nothing, every frame, with no other symptom. An empty viewport
                     // looks exactly like a camera, lighting or culling problem, so this used to
@@ -9471,7 +9502,9 @@ namespace OloEngine
                         OLO_CORE_WARN("Scene: VirtualMeshComponent on entity '{}' references mesh-source asset {} "
                                       "which did not load — this entity renders NOTHING. Check that the handle is in "
                                       "the asset registry, that its file exists, and that it imports (the asset "
-                                      "manager logs the failure). Warned once per asset handle.",
+                                      "manager logs the failure). If it is a fetch-on-demand asset, it is absent "
+                                      "until you run 'scripts/Fetch-Assets.ps1' — see "
+                                      "scripts/assets/asset-manifest.json. Warned once per asset handle.",
                                       m_Registry.all_of<TagComponent>(entity)
                                           ? m_Registry.get<TagComponent>(entity).Tag
                                           : std::string{ "<unnamed>" },
@@ -9503,10 +9536,64 @@ namespace OloEngine
                 }
 
                 bool const castsShadow = virtualMesh.m_CastShadows && meshHasActiveShadows;
-                Renderer3D::SubmitVirtualMesh(virtualMesh.m_MeshSource, meshSource,
-                                              worldTransform, overrideMaterial,
-                                              GetDefaultMaterial(), entityID,
-                                              virtualMesh.m_ErrorThresholdPixels, castsShadow);
+
+                // Count what actually landed rather than what we asked for:
+                // SubmitVirtualMesh drops the entity when the cluster DAG will not
+                // build, and it is the only place that knows that — so it reports
+                // the outcome directly rather than us inferring it from a queue-size
+                // delta, which would silently mis-count if it ever queued zero or
+                // more than one submission per call.
+                const bool queued = Renderer3D::SubmitVirtualMesh(
+                    virtualMesh.m_MeshSource, meshSource, worldTransform, overrideMaterial,
+                    GetDefaultMaterial(), entityID, virtualMesh.m_ErrorThresholdPixels, castsShadow);
+                if (queued)
+                {
+                    ++vgDiagnostics.Submitted;
+                }
+                else
+                {
+                    ++vgDiagnostics.RegistrationFailures;
+                }
+            }
+
+            // The loud check (issue #864). A scene holding enabled VirtualMeshComponents
+            // that ends the submission loop having queued NOTHING is the silent-zero this
+            // issue exists for: the viewport is empty, every VG counter reads 0, and that
+            // is indistinguishable from a camera/lighting/culling problem — or, worse, it
+            // makes a VG A/B pass vacuously because neither mode drew anything.
+            //
+            // Deliberately cannot fire for:
+            //   * a scene with no VirtualMeshComponent at all (EnabledComponents == 0),
+            //   * components with no mesh assigned yet (a zero handle never counts),
+            //   * the master switch being off, which draws the same geometry through the
+            //     classic path on purpose (FellBackToClassic).
+            //
+            // Warned once per (scene, cause-shape) rather than per frame: this runs every
+            // frame, and the interesting event is the state, not its repetition.
+            if (vgDiagnostics.SilentlyDrewNothing())
+            {
+                const u64 signature = (static_cast<u64>(vgDiagnostics.EnabledComponents) << 32) ^
+                                      (static_cast<u64>(vgDiagnostics.UnresolvedAssets) << 16) ^
+                                      static_cast<u64>(vgDiagnostics.RegistrationFailures);
+                if (m_VirtualGeometrySilentZeroWarned != signature)
+                {
+                    m_VirtualGeometrySilentZeroWarned = signature;
+                    OLO_CORE_WARN(
+                        "Scene: {} enabled VirtualMeshComponent(s) submitted ZERO virtual-geometry "
+                        "instances this frame ({} with an unresolvable mesh-source asset, {} whose "
+                        "cluster DAG failed to build) — this scene renders NO virtual geometry and "
+                        "every VG statistic will read 0. If the mesh is a fetch-on-demand asset, run "
+                        "'scripts/Fetch-Assets.ps1' (see scripts/assets/asset-manifest.json); "
+                        "otherwise check the per-asset warnings above. Do NOT treat a VG measurement "
+                        "taken on this scene as meaningful.",
+                        vgDiagnostics.EnabledComponents, vgDiagnostics.UnresolvedAssets,
+                        vgDiagnostics.RegistrationFailures);
+                }
+            }
+            else
+            {
+                // Re-arm, so a scene that is fixed and then broken again warns again.
+                m_VirtualGeometrySilentZeroWarned = 0;
             }
         }
 

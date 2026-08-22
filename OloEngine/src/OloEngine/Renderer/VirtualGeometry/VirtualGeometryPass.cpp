@@ -292,7 +292,13 @@ namespace OloEngine
         // Gated on the same global toggle as the instance HZB cull (off by
         // default); non-usable on frame 0 → frustum + cone only, no phase 2.
         const GPUFrustumCuller::HZBOcclusionInputs prevHZB = Renderer3D::GetRetainedOcclusionHZB();
-        bool const twoPhase = prevHZB.IsUsable();
+        // Two-phase is OFF while the culling camera is frozen (issue #726):
+        // BuildCurrentOcclusionHZB below rebuilds the retained pyramid IN PLACE
+        // from this frame's depth, which once frozen is the observer's depth --
+        // it would destroy the very pyramid phase 1 tested against and re-admit
+        // clusters the frozen camera occluded. Single-phase against the frozen
+        // pyramid is the honest cut.
+        bool const twoPhase = prevHZB.IsUsable() && !Renderer3D::IsCullingCameraFrozen();
 
         // ── 1. DAG-cut + cull compute, one dispatch per instance ──
         // The cull program's whole parameter set (issue #691 Phase 7): what
@@ -300,6 +306,19 @@ namespace OloEngine
         // std140 block re-uploaded before every dispatch. Declared out here
         // because both phases and the occlusion lambda below fill it.
         UBOStructures::VirtualClusterCullUBO cullParams{};
+
+        // Culling-camera override for the MAIN view (issue #726). Always filled,
+        // frozen or not, so the override path in VirtualClusterCull.comp is the
+        // one this view exercises every frame rather than a branch that only
+        // runs in debug mode. The ortho shadow cascades deliberately leave these
+        // at zero and keep reading the camera UBO's light matrices.
+        const auto applyCullCameraOverride = [](UBOStructures::VirtualClusterCullUBO& params)
+        {
+            params.CullViewProjection =
+                RHI::AdjustProjectionForBackend(Renderer3D::GetCullViewProjectionRelative());
+            params.CullCameraPosition = glm::vec4(Renderer3D::GetCullViewPositionRelative(), 1.0f);
+            params.CullProjParams = glm::vec4(Renderer3D::GetCullProjParams(), 0.0f, 0.0f);
+        };
 
         // Re-bind every SSBO the dispatch touches: binding points are
         // process-global GL state shared with other subsystems.
@@ -438,6 +457,7 @@ namespace OloEngine
         cullParams.RejectCapacity = frameClusterCount;
         cullParams.CommandSlotBase = 0u;
         cullParams.ArgsSlotBase = 0u;
+        applyCullCameraOverride(cullParams);
         bindOcclusionInputs(prevHZB);
         // Once, before the loop. bindOcclusionInputs stages the HZB offset a
         // single time above, so re-publishing it per instance uploaded the same
@@ -660,6 +680,7 @@ namespace OloEngine
             cullParams.RejectCapacity = frameClusterCount;
             cullParams.CommandSlotBase = frameClusterCount;
             cullParams.ArgsSlotBase = instanceCount;
+            applyCullCameraOverride(cullParams);
             // If the rebuild failed, occlusion goes off for phase 2 and EVERY
             // reject is emitted — a phase-1 reject that is never re-tested is
             // exactly the hole this scheme must not have.

@@ -4706,12 +4706,46 @@ namespace OloEngine::MCP
                 j["cull"] = std::move(cullJson);
                 j["residency"] = std::move(residencyJson);
                 j["settings"] = VirtualGeometrySettingsJson();
+                // Explain a zero rather than guess at it (issue #864). The old
+                // "no VirtualMeshComponent in the scene, or all of them are
+                // disabled" note was actively MISLEADING on the one case that
+                // matters: a scene full of VirtualMeshComponents whose mesh
+                // assets did not load reads exactly zero here, and that note
+                // sent the reader looking for a scene-authoring mistake that
+                // does not exist. The submission loop now records WHY, so say so.
+                const auto& diagnostics = registry.GetSubmissionDiagnostics();
+                j["diagnostics"] = Json{
+                    { "enabledComponents", diagnostics.EnabledComponents },
+                    { "unresolvedAssets", diagnostics.UnresolvedAssets },
+                    { "registrationFailures", diagnostics.RegistrationFailures },
+                    { "submitted", diagnostics.Submitted },
+                    { "fellBackToClassic", diagnostics.FellBackToClassic },
+                    { "silentlyDrewNothing", diagnostics.SilentlyDrewNothing() },
+                };
+
                 if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
                     j["note"] = "Virtual geometry only renders on the Deferred path; the scene does not submit "
                                 "VirtualMeshComponents on Forward/Forward+, so every counter reads zero.";
+                else if (diagnostics.SilentlyDrewNothing())
+                    j["note"] = "WARNING: this scene contains " + std::to_string(diagnostics.EnabledComponents) +
+                                " enabled VirtualMeshComponent(s) but submitted ZERO virtual-geometry instances (" +
+                                std::to_string(diagnostics.UnresolvedAssets) +
+                                " mesh-source asset(s) did not load, " +
+                                std::to_string(diagnostics.RegistrationFailures) +
+                                " failed to build a cluster DAG). Every counter below reads zero for that reason, "
+                                "NOT because virtual geometry is working and finding nothing to draw. A missing "
+                                "asset is usually a fetch-on-demand one — run scripts/Fetch-Assets.ps1 (see "
+                                "scripts/assets/asset-manifest.json) — otherwise check OloEngine.log. Do NOT treat "
+                                "an A/B or performance measurement taken on this scene as meaningful: it will pass "
+                                "vacuously because nothing draws in either mode.";
+                else if (diagnostics.FellBackToClassic && diagnostics.EnabledComponents > 0)
+                    j["note"] = "The virtual-geometry master switch is OFF, so this scene's " +
+                                std::to_string(diagnostics.EnabledComponents) +
+                                " VirtualMeshComponent(s) were drawn through the CLASSIC mesh path instead. Zero "
+                                "counters are expected here — this is the intended A/B baseline, not a fault.";
                 else if (registry.GetFrameInstances().empty())
-                    j["note"] = "No virtual-mesh instances were submitted this frame (no VirtualMeshComponent in "
-                                "the scene, or all of them are disabled).";
+                    j["note"] = "No virtual-mesh instances were submitted this frame: the scene contains no "
+                                "VirtualMeshComponent, or every one of them is disabled or has no mesh assigned.";
                 return j; });
             return ToolResult::Structured(result);
         }
@@ -6637,8 +6671,12 @@ namespace OloEngine::MCP
                 "page budget, and cumulative page uploads + evictions). Use it to verify the cull is "
                 "actually culling (tested >> drawn), to check the HW/SW split after "
                 "olo_virtual_geometry_set { swRasterMode }, and to catch streaming thrash (uploads and "
-                "evictions climbing every frame under a tight budget). Zero everywhere means no "
-                "VirtualMeshComponent was submitted — virtual geometry renders on the DEFERRED path only.";
+                "evictions climbing every frame under a tight budget). When everything reads zero, "
+                "'diagnostics' says WHY — crucially it distinguishes a scene with no virtual meshes from "
+                "a scene whose VirtualMeshComponents all failed to load their mesh asset, which looks "
+                "identical in the counters and makes any A/B measured on that scene pass VACUOUSLY. "
+                "Check diagnostics.silentlyDrewNothing before trusting a zero. Virtual geometry renders "
+                "on the DEFERRED path only.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("renderingPath", Schema::String())
@@ -6661,8 +6699,16 @@ namespace OloEngine::MCP
                                                            .Prop("pageUploads", Schema::Int().Min(0))
                                                            .Prop("pageEvictions", Schema::Int().Min(0)))
                                     .Prop("settings", VirtualGeometrySettingsSchema().Desc("Live knob state (same shape as olo_virtual_geometry_set's previous/current)."))
-                                    .Prop("note", Schema::String().Desc("Non-Deferred-path / no-instances caveat; omitted otherwise."))
-                                    .Required({ "renderingPath", "frameInstances", "frameClusters", "cull", "residency", "settings" });
+                                    .Prop("diagnostics", Schema::Object()
+                                                             .Desc("Why the counters read what they do (issue #864). Tells a real zero apart from a broken scene.")
+                                                             .Prop("enabledComponents", Schema::Int().Min(0).Desc("VirtualMeshComponents that asked to render (enabled, with a mesh assigned)."))
+                                                             .Prop("unresolvedAssets", Schema::Int().Min(0).Desc("...whose mesh-source asset did not load — usually an unfetched fetch-on-demand asset."))
+                                                             .Prop("registrationFailures", Schema::Int().Min(0).Desc("...that resolved but whose cluster DAG failed to build."))
+                                                             .Prop("submitted", Schema::Int().Min(0).Desc("...that actually reached the renderer."))
+                                                             .Prop("fellBackToClassic", Schema::Bool().Desc("Master switch off: drawn through the classic mesh path, so zero VG counters are expected."))
+                                                             .Prop("silentlyDrewNothing", Schema::Bool().Desc("TRUE means the scene asked for virtual geometry and got none. Any measurement taken here is vacuous.")))
+                                    .Prop("note", Schema::String().Desc("Plain-language explanation of a zero (broken scene / classic fallback / non-Deferred path / genuinely no virtual meshes); omitted when there is nothing to caveat."))
+                                    .Required({ "renderingPath", "frameInstances", "frameClusters", "cull", "residency", "settings", "diagnostics" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_VirtualGeometryStats;
             server.RegisterTool(std::move(tool));

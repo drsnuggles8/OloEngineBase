@@ -263,6 +263,25 @@ namespace OloEngine
         // sub-sample rather than an overflowing prefix of an arbitrary order.
         u32 ShaderDebugDrawClusterStride = 32;
 
+        // ---- Observer camera (issue #726) ---------------------------------
+        // Freeze the camera used for culling, LOD selection and Hi-Z; the
+        // viewport keeps rendering from the live camera, so flying away shows
+        // the frozen cut from outside and anything the frozen camera culled is
+        // visibly missing. That missing-ness IS the diagnostic.
+        //
+        // Lives in RendererSettings so the editor panel, the F3 overlay and MCP
+        // all drive one value, but it is deliberately NOT the storage: the
+        // authority is Renderer3D::SetCullingCameraFrozen, which snapshots the
+        // camera on the transition. ApplyRendererSettings forwards this to it.
+        bool ObserverCameraEnabled = false;
+
+        // Draw the frozen frustum as a wireframe box through the shader-debug-
+        // draw channel. Requires ShaderDebugDrawEnabled -- the pass that
+        // consumes the channel is not even declared otherwise, so this reads as
+        // "the frustum never drew" rather than as an error. On by default so the
+        // frozen volume is visible the moment the observer is switched on.
+        bool ObserverCameraDrawFrustum = true;
+
         // The structured GPU readback-stats channel (issue #721).
         //
         // ON by default, unlike the debug draws above, and that is a considered

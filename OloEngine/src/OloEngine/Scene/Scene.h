@@ -1168,6 +1168,13 @@ namespace OloEngine
         // Deliberately NOT copied by Scene::Copy() — the runtime copy
         // re-resolves at Play start so stale state cannot survive a transition.
         Ref<SceneLightmapRuntime> m_LightmapRuntime;
+
+        // Issue #864: signature of the last virtual-geometry "silent zero" state warned
+        // about, so the per-frame check in the submission loop logs a state CHANGE rather
+        // than the same line every frame. 0 means "not currently in the silent-zero state",
+        // which is also what re-arms the warning if a fixed scene breaks again.
+        u64 m_VirtualGeometrySilentZeroWarned = 0;
+
         // Runtime-only origin accumulator: absolute = rebased + m_WorldOrigin.
         // Reset to (0,0,0) at OnRuntimeStart; never serialized or copied.
         glm::vec3 m_WorldOrigin{ 0.0f };

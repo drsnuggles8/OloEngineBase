@@ -41,6 +41,7 @@ run is **not** evidence.
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | every glyph in the engine invisible on AMD, with the font loaded, 189 glyphs packed and 852 quads submitted — bake that and the nightly defends a blank UI forever |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | a merged quad with U and V swapped, or width and height transposed, still merges and still draws — five of the six face directions look right |
 | [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) | 7/7 green on every CI run and every clean checkout — a runner never has a warm cache, so the failing path is the one nothing runs twice |
+| [observer-camera.md](observer-camera.md) | the frozen cut looks entirely plausible when culling quietly follows the observer -- so an instrument built to be ground truth can be wrong in exactly the way it exists to detect |
 | [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) §14 | every tenant + sweep green while the first FULL virtual-geometry frame on Vulkan found a pipeline-creation failure, a device fault and a missing device feature bit — a subsystem's first full frame on a backend is an audit of the subsystem, and runtime mode levers are what make its failures attributable |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
@@ -251,6 +252,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) ·
 [lazy-static-release-ownership.md](lazy-static-release-ownership.md) ·
 [gpu-debug-draws.md](gpu-debug-draws.md) ·
+[observer-camera.md](observer-camera.md) ·
 [gpu-scan-compaction.md](gpu-scan-compaction.md) ·
 [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) ·
 [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) ·

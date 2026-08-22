@@ -116,7 +116,7 @@ namespace OloEngine
                matches(s_Data.DecalGBufferRMAShader) || matches(s_Data.DecalGBufferEmissiveShader);
     }
 
-    void Renderer3D::SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
+    bool Renderer3D::SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                        const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                        const Material& defaultMaterial, i32 entityID,
                                        f32 errorThresholdPixels, bool castShadows)
@@ -125,19 +125,19 @@ namespace OloEngine
 
         if (static_cast<u64>(meshHandle) == 0 || !meshSource)
         {
-            return;
+            return false;
         }
 
         auto& registry = VirtualMeshRegistry::Get();
         if (!registry.IsRegistered(meshHandle) && !registry.RegisterMeshSource(meshHandle, *meshSource))
         {
-            return; // unsupported source — warned once at registration
+            return false; // unsupported source — warned once at registration
         }
 
         VirtualMeshRegistry::MeshParts const parts = registry.FindParts(meshHandle);
         if (!parts.Valid)
         {
-            return;
+            return false;
         }
 
         VirtualMeshSubmission submission;
@@ -179,6 +179,7 @@ namespace OloEngine
         }
 
         registry.Submit(submission);
+        return true;
     }
 
     auto Renderer3D::CreatePODMaterialDataForMaterial(const Material& material, RHI::ResourceHandle shaderRendererID) -> PODMaterialData
@@ -301,7 +302,11 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.ViewPos, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
+        // CullViewPos, not ViewPos (issue #726): LOD is part of the cut, so a
+        // frozen frame must keep the LOD levels it was frozen with. Flying the
+        // observer closer would otherwise swap in a finer mesh and the picture
+        // would stop being the one the culling camera produced.
+        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.CullViewPos, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
             if (lodResult.SelectedLODIndex >= static_cast<i32>(s_Data.Stats.ObjectsPerLODLevel.size()))
             {
@@ -927,7 +932,16 @@ namespace OloEngine
             return packet;
         };
 
-        const bool hzbOcclusion = IsHZBOcclusionCullingEnabled();
+        // Two-phase occlusion is switched OFF while the culling camera is frozen
+        // (issue #726). Phase 2 rebuilds the pyramid from THIS frame's depth --
+        // which is the observer's depth once frozen -- and that rebuild
+        // overwrites the retained pyramid in place, destroying the frozen one
+        // phase 1 tested against. The single-phase path below keeps culling
+        // against the retained frozen pyramid, which is the honest answer: an
+        // instance the frozen camera occluded stays occluded, which is the
+        // property the whole feature rests on. See
+        // docs/agent-rules/two-phase-occlusion-culling.md.
+        const bool hzbOcclusion = IsHZBOcclusionCullingEnabled() && !IsCullingCameraFrozen();
         const bool deferred = (GetRendererSettings().Path == RenderingPath::Deferred);
 
         // Two-phase GPU-driven occlusion (#431 Stage 2): Forward / Forward+ with
@@ -1546,7 +1560,9 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        if (const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->ViewPosition, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
+        // CullViewPosition, not ViewPosition (issue #726) - see the
+        // single-threaded twin in DrawMesh().
+        if (const auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->CullViewPosition, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
             if (lodResult.SelectedLODIndex >= static_cast<i32>(ctx.ObjectsPerLODLevel.size()))
             {

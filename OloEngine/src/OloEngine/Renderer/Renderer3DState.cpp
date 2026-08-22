@@ -122,6 +122,12 @@ namespace OloEngine
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
         s_Data.ViewPos = position;
+        // Keep the culling camera following unless it is frozen (issue #726).
+        // Scene pushes the position here AFTER BeginScene, so the mirror in
+        // RefreshCullingCamera() alone would leave the cull position one call
+        // behind on the runtime-camera path.
+        if (!s_Data.CullingCameraFrozen)
+            s_Data.CullViewPos = position;
     }
 
     void Renderer3D::SetPrimaryDirectionalLightDirection(const glm::vec3& direction)
@@ -133,6 +139,11 @@ namespace OloEngine
     {
         s_Data.CameraNearClip = nearClip;
         s_Data.CameraFarClip = farClip;
+        if (!s_Data.CullingCameraFrozen)
+        {
+            s_Data.CullNearClip = nearClip;
+            s_Data.CullFarClip = farClip;
+        }
     }
 
     void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data, i32 activeLightCount)
@@ -307,6 +318,107 @@ namespace OloEngine
         return s_Data.ViewFrustum;
     }
 
+    // ---- Observer camera / frozen culling camera (issue #726) --------------
+
+    void Renderer3D::SetCullingCameraFrozen(bool frozen)
+    {
+        if (frozen == s_Data.CullingCameraFrozen)
+            return;
+
+        if (frozen)
+        {
+            // Snapshot the CURRENT render camera as the culling camera. Doing
+            // it here rather than letting the next RefreshCullingCamera() skip
+            // its copy means the freeze captures the frame the user was looking
+            // at when they pressed the button, not whatever the observer has
+            // already drifted to by the next BeginScene.
+            s_Data.CullViewMatrix = s_Data.ViewMatrix;
+            s_Data.CullProjectionMatrix = s_Data.ProjectionMatrix;
+            s_Data.CullViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+            s_Data.CullViewPos = s_Data.ViewPos;
+            s_Data.CullNearClip = s_Data.CameraNearClip;
+            s_Data.CullFarClip = s_Data.CameraFarClip;
+            // The retained Hi-Z pyramid stops being regenerated from this point
+            // (GenerateOcclusionHZB early-outs while frozen), so the VP that
+            // describes it has to be pinned to the same instant. Without this
+            // the pyramid is the frozen camera's depth while the reprojection
+            // matrix is the observer's, and the occlusion cull rejects a
+            // plausible-but-wrong set — the exact failure mode this whole tool
+            // exists to make impossible to miss.
+            s_Data.CullPrevViewProjectionMatrix = s_Data.PrevViewProjectionMatrix;
+        }
+
+        s_Data.CullingCameraFrozen = frozen;
+        // Keep the settings bool in step so the checkboxes that read it show the
+        // truth after an MCP or code-driven toggle, and so the reconcile at the
+        // top of RefreshCullingCamera() does not immediately undo this.
+        s_Data.Settings.ObserverCameraEnabled = frozen;
+
+        if (!frozen)
+        {
+            // Unfreezing: re-mirror immediately so a consumer that reads the
+            // culling camera between here and the next BeginScene (an MCP query,
+            // an editor panel) never sees the stale frozen values.
+            RefreshCullingCamera();
+            // The pyramid still holds the frozen camera's depth and
+            // CullPrevViewProjectionMatrix still describes it, so the pair stays
+            // consistent; EndScene's regeneration resumes this frame and the
+            // next frame's cull is live again.
+        }
+
+        OLO_CORE_INFO("Renderer3D: culling camera {}", frozen ? "FROZEN (observer camera active)" : "unfrozen");
+    }
+
+    bool Renderer3D::IsCullingCameraFrozen()
+    {
+        return s_Data.CullingCameraFrozen;
+    }
+
+    const glm::mat4& Renderer3D::GetCullViewMatrix()
+    {
+        return s_Data.CullViewMatrix;
+    }
+
+    const glm::mat4& Renderer3D::GetCullProjectionMatrix()
+    {
+        return s_Data.CullProjectionMatrix;
+    }
+
+    const glm::mat4& Renderer3D::GetCullViewProjectionMatrix()
+    {
+        return s_Data.CullViewProjectionMatrix;
+    }
+
+    const glm::vec3& Renderer3D::GetCullViewPosition()
+    {
+        return s_Data.CullViewPos;
+    }
+
+    f32 Renderer3D::GetCullNearClip()
+    {
+        return s_Data.CullNearClip;
+    }
+
+    f32 Renderer3D::GetCullFarClip()
+    {
+        return s_Data.CullFarClip;
+    }
+
+    const glm::mat4& Renderer3D::GetCullViewProjectionRelative()
+    {
+        return s_Data.CullViewProjectionRelative;
+    }
+
+    const glm::vec3& Renderer3D::GetCullViewPositionRelative()
+    {
+        return s_Data.CullViewPosRelative;
+    }
+
+    const glm::vec2& Renderer3D::GetCullProjParams()
+    {
+        return s_Data.CullProjParams;
+    }
+
     void Renderer3D::SetForceDisableCulling(bool disable)
     {
         s_ForceDisableCulling = disable;
@@ -445,6 +557,10 @@ namespace OloEngine
         }
 
         // Sync culling toggles
+        // Observer camera (#726) first: SetCullingCameraFrozen snapshots the
+        // camera on the false->true edge, so it has to see the transition rather
+        // than a value that has already been mirrored somewhere else.
+        SetCullingCameraFrozen(settings.ObserverCameraEnabled);
         EnableFrustumCulling(settings.FrustumCullingEnabled);
         EnableOcclusionCulling(settings.OcclusionCullingEnabled);
         EnableHZBOcclusionCulling(settings.HZBOcclusionCullingEnabled);

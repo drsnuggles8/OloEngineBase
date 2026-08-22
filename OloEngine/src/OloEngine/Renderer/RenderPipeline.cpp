@@ -252,7 +252,13 @@ namespace OloEngine
                 // becomes GPU-visible (GPUFrustumCuller's cullParams upload and
                 // VirtualGeometryPass's), so it cannot be double-applied by a
                 // second producer.
-                occ.PrevViewProjection = MakeViewProjectionRelative(data.PrevViewProjectionMatrix, data.RenderOrigin);
+                // CullPrevViewProjectionMatrix, not PrevViewProjectionMatrix
+                // (issue #726): this matrix must describe the depth the bound
+                // pyramid actually holds. While the culling camera is frozen the
+                // pyramid stops being regenerated, so its VP is pinned with it;
+                // PrevViewProjectionMatrix keeps tracking the observer because
+                // TAA / motion-blur velocity depends on it doing exactly that.
+                occ.PrevViewProjection = MakeViewProjectionRelative(data.CullPrevViewProjectionMatrix, data.RenderOrigin);
                 occ.HZBSize = glm::vec2(static_cast<f32>(data.OcclusionHZB.GetHZBWidth()),
                                         static_cast<f32>(data.OcclusionHZB.GetHZBHeight()));
                 occ.HZBUVFactor = data.OcclusionHZB.GetUVFactor();
@@ -335,6 +341,21 @@ namespace OloEngine
             data.TAAJitterFrameIndex = 0;
         }
 
+        // Re-mirror the culling camera's projection AFTER the jitter (issue
+        // #726). BeginScene mirrored the unjittered matrices, but the jitter is
+        // baked into ProjectionMatrix HERE, and before #726 the frustum cull ran
+        // against the jittered VP. Re-mirroring keeps the unfrozen path
+        // byte-identical to the pre-#726 behaviour instead of quietly moving
+        // every cull plane by half a pixel -- a difference far too small to see
+        // and exactly the kind that turns up later as an unexplained golden
+        // delta. The view matrix and the camera position are untouched by
+        // jitter, so only these two need it.
+        if (!data.CullingCameraFrozen)
+        {
+            data.CullProjectionMatrix = data.ProjectionMatrix;
+            data.CullViewProjectionMatrix = data.ViewProjectionMatrix;
+        }
+
         // Camera-relative rendering (issue #429): data.RenderOrigin was snapped
         // to a coarse grid above (hoisted so the Hi-Z occlusion cull could use
         // it). Every world position / matrix is uploaded to the GPU relative to
@@ -375,7 +396,29 @@ namespace OloEngine
         data.InverseViewProjectionMatrix = glm::inverse(data.ViewProjectionMatrix);
         // Frustum culling stays in world space: submitted transforms and mesh
         // bounds are world-space, so cull against the world view-projection.
-        data.ViewFrustum.Update(data.ViewProjectionMatrix);
+        data.ViewFrustum.Update(data.CullViewProjectionMatrix);
+
+        // Render-origin-relative culling camera (issue #726). The GPU culls read
+        // instance transforms that GPUFrustumCuller / VirtualMeshRegistry have
+        // already shifted by data.RenderOrigin, so the culling VP has to be made
+        // relative to the SAME origin. Note the origin keeps following the
+        // RENDER camera even while the culling camera is frozen: the origin
+        // exists for f32 precision in the frame that is actually being drawn,
+        // and shifting both sides by it leaves the cull result unchanged.
+        data.CullViewProjectionRelative = MakeViewProjectionRelative(data.CullViewProjectionMatrix, renderOrigin);
+        data.CullViewPosRelative = MakePositionRelative(data.CullViewPos, renderOrigin);
+        data.CullProjParams = glm::vec2(
+            std::abs(data.CullProjectionMatrix[1][1]),
+            // Near plane recovered from the GL-form perspective projection,
+            // n = P[3][2] / (P[2][2] - 1), matching VirtualClusterCull.comp's
+            // NearPlane(). Guarded so a degenerate/orthographic projection
+            // cannot hand the shader a zero or negative denominator.
+            [&data]
+            {
+                const f32 denom = data.CullProjectionMatrix[2][2] - 1.0f;
+                const f32 nearPlane = (std::abs(denom) > 1e-6f) ? (data.CullProjectionMatrix[3][2] / denom) : data.CullNearClip;
+                return (std::isfinite(nearPlane) && nearPlane > 0.0f) ? nearPlane : 1e-4f;
+            }());
 
         data.Stats.Reset();
         data.CommandCounter = 0;
@@ -458,6 +501,7 @@ namespace OloEngine
         data.ParallelContext.ProjectionMatrix = data.ProjectionMatrix;
         data.ParallelContext.ViewProjectionMatrix = data.ViewProjectionMatrix;
         data.ParallelContext.ViewPosition = data.ViewPos;
+        data.ParallelContext.CullViewPosition = data.CullViewPos;
         data.ParallelContext.ViewFrustum = data.ViewFrustum;
         data.ParallelContext.FrustumCullingEnabled = data.FrustumCullingEnabled;
         data.ParallelContext.DynamicCullingEnabled = data.DynamicCullingEnabled;
@@ -1143,11 +1187,12 @@ namespace OloEngine
         // it later would reset the counters the GPU had already appended to.
         if (RenderStreamPasses.ShaderDebugDraw)
         {
-            // The observer camera is issue #726 and does not exist yet, so
-            // ObserverCameraNDC is fed the MAIN camera's inverse view-projection.
-            // That makes the space a faithful identity round-trip to
-            // MainCameraNDC rather than a source of garbage geometry, and leaves
-            // exactly one line to change when #726 lands.
+            // ObserverCameraNDC (issue #726, the line #725 left for it) is the
+            // CULLING camera's NDC: a shader that computes something in the
+            // space the cull ran in pushes it here and it lands correctly in the
+            // observer's view. Identical to MainCameraNDC whenever nothing is
+            // frozen, so the space stays an exact identity round-trip in the
+            // normal case, exactly as #725 left it.
             // A8 seam, rasterizer flavour (#691 Phase 7): u_DebugViewProjection
             // feeds gl_Position, so without F every debug primitive would draw
             // vertically mirrored AND half of them would fall outside Vulkan's
@@ -1157,7 +1202,18 @@ namespace OloEngine
             // is why this pays for one extra 4x4 inverse per frame rather than
             // reusing PrepareFrame's GL-convention one. Identity on GL.
             const glm::mat4 debugVP = RHI::AdjustProjectionForBackend(data.ViewProjectionMatrix);
-            RenderStreamPasses.ShaderDebugDraw->SetCameraState(debugVP, glm::inverse(debugVP));
+            const glm::mat4 debugCullVP = RHI::AdjustProjectionForBackend(data.CullViewProjectionMatrix);
+            RenderStreamPasses.ShaderDebugDraw->SetCameraState(debugVP, glm::inverse(debugCullVP));
+        }
+
+        // The frozen frustum itself, as a wireframe box, pushed through the same
+        // channel (issue #726). Deliberately here and not in the editor layer:
+        // the frozen cut is a renderer-level fact, so the runtime and any
+        // headless capture get the same picture the editor does. One push, so
+        // the channel cannot overflow from this consumer.
+        if (data.CullingCameraFrozen && data.Settings.ObserverCameraDrawFrustum)
+        {
+            Renderer3D::DrawFrustumWireframe(data.CullViewProjectionMatrix);
         }
         ShaderDebugDraw::BeginFrame();
 
