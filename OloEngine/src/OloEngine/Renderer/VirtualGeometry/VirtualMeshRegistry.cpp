@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -257,6 +258,7 @@ namespace OloEngine
         page.Resident = true;
         page.LastUsedFrame = m_FrameCounter;
         m_GroupStatesCpu[page.PooledGroup] |= kStateResident;
+        m_DirtyResidencyGroups.push_back(page.PooledGroup);
         ++m_ResidencyStats.PageUploads;
         ++m_ResidencyStats.ResidentPages;
         return true;
@@ -274,6 +276,7 @@ namespace OloEngine
         page.SlotIndex = kNoSlot;
         page.Resident = false;
         m_GroupStatesCpu[page.PooledGroup] &= ~kStateResident;
+        m_DirtyResidencyGroups.push_back(page.PooledGroup);
         ++m_ResidencyStats.PageEvictions;
         --m_ResidencyStats.ResidentPages;
     }
@@ -485,6 +488,14 @@ namespace OloEngine
         }
         m_GroupStatesBuffer->SetData(m_GroupStatesCpu.data(), statesBytes, 0);
 
+        // The group count just changed size, so any readback ring slot sized
+        // for the old count would decode garbage next poll — drop the ring and
+        // let ProcessResidency recreate it at the new size. Whatever it was
+        // draining is moot: the buffer it read from no longer exists in this
+        // shape, and this full publish above is already authoritative.
+        DestroyResidencyReadbackSlots();
+        m_DirtyResidencyGroups.clear();
+
         m_PoolsDirty = false;
 
         OLO_CORE_TRACE("VirtualMeshRegistry: pools rebuilt — {} clusters, {} groups, {} pages ({} pinned), "
@@ -510,11 +521,143 @@ namespace OloEngine
             return;
         }
 
-        // Read back last frame's request/touch bits (small: one u32 per group).
-        std::vector<u32> gpuStates(m_GroupStatesCpu.size());
-        m_GroupStatesBuffer->GetData(gpuStates.data(), static_cast<u32>(gpuStates.size() * sizeof(u32)), 0);
+        if (!EnsureResidencyReadbackSlots())
+        {
+            return;
+        }
 
-        // LRU touches first so this frame's loads cannot evict just-used pages
+        CaptureResidencyStates();
+        PollResidencyReadback();
+        m_ResidencyStats.RequestReadbackSlotsInFlight = m_ResidencyReadbackSlotsInFlight;
+    }
+
+    bool VirtualMeshRegistry::EnsureResidencyReadbackSlots()
+    {
+        auto const bytes = static_cast<u32>(m_GroupStatesCpu.size() * sizeof(u32));
+        if (bytes == 0)
+        {
+            return false;
+        }
+        if (m_ResidencyReadbackBytes == bytes && m_ResidencyReadbackSlots[0].m_Buffer.IsValid())
+        {
+            return true;
+        }
+
+        DestroyResidencyReadbackSlots();
+        for (ResidencyReadbackSlot& slot : m_ResidencyReadbackSlots)
+        {
+            slot.m_Buffer = RenderCommand::CreateBufferHandle();
+            // DeviceToHost, not persistent-mapped: the RHI's persistent mapping
+            // is WRITE-only (docs/agent-rules/gpu-readback-stats-channel.md
+            // §3), so a readback goes through a device-to-host buffer +
+            // glGetBufferSubData. What keeps this from stalling is the FENCE in
+            // CaptureResidencyStates/PollResidencyReadback, not the mapping.
+            RenderCommand::AllocateBufferStorage(slot.m_Buffer, bytes, RHI::MemoryResidency::DeviceToHost);
+        }
+        m_ResidencyReadbackBytes = bytes;
+        m_NextResidencyReadbackSlot = 0;
+        return true;
+    }
+
+    void VirtualMeshRegistry::DestroyResidencyReadbackSlots()
+    {
+        bool const deviceAlive = RenderCommand::IsDeviceAvailable();
+        for (ResidencyReadbackSlot& slot : m_ResidencyReadbackSlots)
+        {
+            if (deviceAlive)
+            {
+                if (slot.m_Fence != 0)
+                {
+                    RenderCommand::DestroyFence(slot.m_Fence);
+                }
+                if (slot.m_Buffer.IsValid())
+                {
+                    RenderCommand::DeleteBuffer(slot.m_Buffer);
+                }
+            }
+            slot = ResidencyReadbackSlot{};
+        }
+        m_ResidencyReadbackBytes = 0;
+        m_NextResidencyReadbackSlot = 0;
+        m_ResidencyReadbackSlotsInFlight = 0;
+    }
+
+    void VirtualMeshRegistry::CaptureResidencyStates()
+    {
+        // The cull dispatches OR request/touch bits into this buffer; make
+        // those writes visible to the copy below.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+
+        ResidencyReadbackSlot& slot = m_ResidencyReadbackSlots[m_NextResidencyReadbackSlot];
+        if (!slot.m_Pending && slot.m_Buffer.IsValid())
+        {
+            RenderCommand::CopyBufferSubData(m_GroupStatesBuffer->GetRHIHandle(), slot.m_Buffer, 0, 0,
+                                             m_ResidencyReadbackBytes);
+            slot.m_Fence = RenderCommand::CreateFence();
+            slot.m_Pending = true;
+            m_NextResidencyReadbackSlot = (m_NextResidencyReadbackSlot + 1u) % kResidencyReadbackSlots;
+        }
+        // A full ring means every slot is still executing — skip the capture
+        // and keep the newest retired snapshot instead of blocking on the
+        // oldest.
+
+        // Unconditional, including on the skipped-capture path (mirrors
+        // TerrainVirtualTexture::CaptureFeedback). The copy above already has
+        // whatever this word held; leaving the request/touch bits in place
+        // instead of resetting them here would freeze LastUsedFrame at
+        // "touched" forever for a page the camera turned away from frames ago
+        // (nothing else clears them — the SlotCache LRU has no other signal),
+        // corrupting eviction, and would make an abandoned request read as
+        // permanently pending. Nothing is lost by resetting: THIS frame's cull
+        // dispatch, which always runs right after ProcessResidency returns,
+        // re-derives and re-asserts via atomicOr whatever is still actually
+        // true — exactly the cadence the pre-#719 synchronous version had
+        // (it republished resident-only bits at the end of every call).
+        m_GroupStatesBuffer->SetData(m_GroupStatesCpu.data(),
+                                     static_cast<u32>(m_GroupStatesCpu.size() * sizeof(u32)), 0);
+    }
+
+    void VirtualMeshRegistry::PollResidencyReadback()
+    {
+        u32 inFlight = 0;
+        // OLDEST FIRST, not array order. m_NextResidencyReadbackSlot is the
+        // slot the NEXT capture will use, so it is also the oldest one still
+        // in flight; walking from there wraps the ring in ISSUE order. Array
+        // order would let a wrapped ring apply an older snapshot after a newer
+        // one already applied — residency decided from a camera pose that has
+        // already moved on.
+        for (u32 offset = 0; offset < kResidencyReadbackSlots; ++offset)
+        {
+            ResidencyReadbackSlot& slot =
+                m_ResidencyReadbackSlots[(m_NextResidencyReadbackSlot + offset) % kResidencyReadbackSlots];
+            if (!slot.m_Pending)
+            {
+                continue;
+            }
+            // Ask, never wait. IsFenceSignaled is a poll — no ClientWaitFence
+            // anywhere in this path, ever: a slot the GPU has not finished
+            // copying into is simply left for a later frame.
+            if (!RenderCommand::IsFenceSignaled(slot.m_Fence))
+            {
+                ++inFlight;
+                continue;
+            }
+
+            std::vector<u32> gpuStates(m_GroupStatesCpu.size());
+            RenderCommand::ReadBufferSubData(slot.m_Buffer, 0, m_ResidencyReadbackBytes, gpuStates.data());
+
+            RenderCommand::DestroyFence(slot.m_Fence);
+            slot.m_Fence = 0;
+            slot.m_Pending = false;
+
+            ApplyResidencySnapshot(gpuStates);
+        }
+        m_ResidencyReadbackSlotsInFlight = inFlight;
+    }
+
+    void VirtualMeshRegistry::ApplyResidencySnapshot(const std::vector<u32>& gpuStates)
+    {
+        // LRU touches first so this snapshot's loads cannot evict just-used pages.
         for (u32 g = 0; g < gpuStates.size(); ++g)
         {
             if ((gpuStates[g] & kStateTouched) != 0u)
@@ -545,9 +688,30 @@ namespace OloEngine
             }
         }
 
-        // Republish clean states (resident bits only; request/touch bits reset)
-        m_GroupStatesBuffer->SetData(m_GroupStatesCpu.data(),
-                                     static_cast<u32>(m_GroupStatesCpu.size() * sizeof(u32)), 0);
+        // Publish exactly the groups LoadPage/OnResidencyEvicted touched above —
+        // a single-word write per group, never a whole-array overwrite. The
+        // snapshot this call just applied is already stale, for groups it did
+        // NOT touch, against whatever the GPU has OR'd into them on frames
+        // after the snapshot was captured; a whole-array republish would stomp
+        // those live bits. A stale request/touch bit left on an untouched word
+        // is harmless and self-heals (a still-missing page just stays
+        // requested; a stale touch only makes LRU a little more conservative)
+        // — see docs/agent-rules/gpu-readback-stats-channel.md §5 on why a
+        // reserved/observed slot must never be handed back on a guess.
+        //
+        // Deduplicated: an eviction cascade (LoadPage's slot allocation can
+        // evict a victim as a side effect) can push the same group in twice
+        // within one call — harmless either way (last write wins, and it
+        // always reads the current m_GroupStatesCpu value), but redundant.
+        std::sort(m_DirtyResidencyGroups.begin(), m_DirtyResidencyGroups.end());
+        m_DirtyResidencyGroups.erase(std::unique(m_DirtyResidencyGroups.begin(), m_DirtyResidencyGroups.end()),
+                                     m_DirtyResidencyGroups.end());
+        for (u32 group : m_DirtyResidencyGroups)
+        {
+            u32 const value = m_GroupStatesCpu[group];
+            m_GroupStatesBuffer->SetData(&value, sizeof(u32), group * static_cast<u32>(sizeof(u32)));
+        }
+        m_DirtyResidencyGroups.clear();
     }
 
     void VirtualMeshRegistry::EnsureVisbuffer(u32 viewportWidth, u32 viewportHeight)
@@ -934,6 +1098,8 @@ namespace OloEngine
             m_ArgsReadbackBytes = 0;
         }
         m_UploadRing.Destroy();
+        DestroyResidencyReadbackSlots();
+        m_DirtyResidencyGroups.clear();
         if (m_Vao.IsValid())
         {
             RenderCommand::DeleteVertexArray(m_Vao);
