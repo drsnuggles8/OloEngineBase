@@ -2,7 +2,7 @@
 // OLO_TEST_LAYER: Functional
 
 // =============================================================================
-// LocomotionControllerTest — Functional Test (issue #631 part 4).
+// LocomotionControllerTest — Functional Test (issue #631).
 //
 // Cross-subsystem seam under test:
 //   Scene tick × LocomotionSystem × AnimationGraphComponent parameters.

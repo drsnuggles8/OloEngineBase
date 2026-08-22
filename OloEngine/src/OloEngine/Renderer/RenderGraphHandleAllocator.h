@@ -11,8 +11,8 @@
 namespace OloEngine::RenderGraphHandleAllocator
 {
     // Generic handle-allocator templates extracted from
-    // `RenderGraph::EnsureResourceRegistryBuilt` (Phase B) as the final
-    // Phase 7 module-split slice (2026-05-12). The graph keeps three
+    // `RenderGraph::EnsureResourceRegistryBuilt` as the final
+    // module-split step (2026-05-12). The graph keeps three
     // identical handle families (texture / buffer / framebuffer) — each
     // with a `Name → Handle` map, a slot table (alive flag + generation
     // counter + name), a free-index list, and a parallel physical-resource

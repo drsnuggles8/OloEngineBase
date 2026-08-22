@@ -2,7 +2,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): vertex pulling from the engine-wide binding 57
+// #691 (ADR 0011 §5): vertex pulling from the engine-wide binding 57
 // (standard 20-byte {vec3 position, vec2 uv} stream). Only the INPUT source
 // changes; the 11 varyings and the vertex-stage JumpFloodUBO below are shared
 // with the GL branch — this is the one vertex stage in the post suite that
@@ -86,7 +86,7 @@ layout(location = 10) in vec2 v_UV8;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// Heap-bindless conversion (issue #691, bucket 1). The BODY below is
 // byte-identical between the two variants.
 #ifdef OLO_BINDLESS
 #define u_Texture OLO_HEAP_TEX_2D(0)

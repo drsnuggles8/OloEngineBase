@@ -1,7 +1,7 @@
 #pragma once
 
 // Pure, engine-light name tables + result shaping for the ephemeral render-override
-// MCP tools (issue #316 Part 4 — the rendering A/B inner loop):
+// MCP tools (issue #316 — the rendering A/B inner loop):
 //
 //   * olo_render_toggle_pass     — flip a post-process / fog feature on or off
 //                                  (bloom, SSAO, SSR, SSGI, fog, god-rays, …). The

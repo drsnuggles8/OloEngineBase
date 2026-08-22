@@ -7,7 +7,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the Renderer2D circle batch (Renderer2D.cpp
 // CircleVertex, 52 B / 13 words): vec3 WorldPosition @0, vec3 LocalPosition
 // @12, vec4 Color @24, f32 Thickness @40, f32 Fade @44, int EntityID @48.

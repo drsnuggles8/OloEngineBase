@@ -48,7 +48,7 @@ namespace OloEngine
         /// If empty, the default OloEngine icon is used.
         std::filesystem::path IconPath;
 
-        /// Default renderer backend the shipped game starts with (#691 Phase 9).
+        /// Default renderer backend the shipped game starts with (#691).
         /// Written to `config/renderer.yaml` next to the game executable —
         /// exactly the file the engine's backend selection reads, so the
         /// player's later `--rhi=` flag or an in-game settings write overrides

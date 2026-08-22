@@ -42,7 +42,7 @@ namespace OloEngine::RHI
             case RendererAPI::API::OpenGL:
             default:
             {
-                // No GL implementation in Phase 6 (ADR 0011 §6: migrating the
+                // No GL implementation yet (ADR 0011 §6: migrating the
                 // GL-side FrameResourceManager fence chain is a follow-up).
                 // Callers branch on null, the same contract as
                 // DescriptorHeap::IsBindlessSupported().

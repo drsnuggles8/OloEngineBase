@@ -251,16 +251,16 @@ namespace OloEngine::RenderGraphSubmissionPlan
             flags = flags | planned.Flags;
         }
 
-        // Map: passName → deduplicated transition records (Phase 5, the
+        // Map: passName → deduplicated transition records (the
         // explicit-barrier currency). The planner emits one barrier per prior
         // writer, but for layout purposes only the LAST writer's state
         // matters — earlier writers are ordered transitively through the WAW
         // barriers between the writers themselves — so per-writer duplicates
         // collapse on (resource, range, from, to). Known caveat, recorded in
-        // ADR 0011's Phase 5 amendments: two prior writers touching DISJOINT
+        // ADR 0011's barrier amendments: two prior writers touching DISJOINT
         // subresources of one resource collapse to the last writer's stage
         // and access masks; sync validation is the instrument that would
-        // surface a real graph relying on that (Phase 7 hardening item).
+        // surface a real graph relying on that (a hardening item).
         std::unordered_map<std::string, std::vector<RenderGraph::ResourceTransition>> transitionsForPass;
         for (const auto& transition : input.Transitions)
         {

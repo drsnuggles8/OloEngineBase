@@ -15,7 +15,7 @@ namespace OloEngine
     //   - Classic (OIT off): renders into the ScenePass framebuffer with
     //     depth-test read-only and GL_SRC_ALPHA / GL_ONE_MINUS_SRC_ALPHA
     //     alpha blending. Sort order is back-to-front via DrawKey.
-    //   - Weighted-blended OIT (Phase 6, toggle via
+    //   - Weighted-blended OIT (toggle via
     //     RendererSettings::OITEnabled): renders into the
     //     graph-owned OIT framebuffer with per-attachment blend funcs
     //     (accum: GL_ONE/GL_ONE, revealage: GL_ZERO/GL_ONE_MINUS_SRC_COLOR)

@@ -1,7 +1,7 @@
 #pragma once
 
 // VulkanPipelineBuilder — thin PSOs + the root-data binding-mapping ABI.
-// Issue #691 Phase 6, ADR 0011 §4 (root data) + §5 (thin PSO).
+// Issue #691, ADR 0011 §4 (root data) + §5 (thin PSO).
 //
 // THE ABI, in one place (the single source of truth both the mapping array
 // and the draw-time writer consume — they structurally cannot disagree, the
@@ -16,7 +16,7 @@
 //     from root + Field.Offset), then one u32 heap slot index per sampled
 //     texture (HEAP_WITH_INDIRECT_INDEX reads the index from root +
 //     Field.Offset and scales by the heap's descriptor stride).
-//   - Samplers come from the SAMPLER HEAP (#691 Phase 8, §1.2a's
+//   - Samplers come from the SAMPLER HEAP (#691, §1.2a's
 //     deduplicated second heap): each combined-image-sampler field carries a
 //     second u32 (Offset + kSamplerIndexOffset) that indexes
 //     VulkanSamplerHeap; BindTexture stages it from the image's own recorded
@@ -54,7 +54,7 @@ namespace OloEngine
             u32 Offset = 0; ///< Byte offset of this field inside the root struct.
         };
 
-        // A CombinedImageSampler field is TWO u32s (#691 Phase 8): the image
+        // A CombinedImageSampler field is TWO u32s (#691): the image
         // heap index at Offset and the sampler heap index at
         // Offset + kSamplerIndexOffset — the mapping's samplerAddressOffset
         // and AssembleAndPushRootData both add this same constant.
@@ -67,7 +67,7 @@ namespace OloEngine
         [[nodiscard]] const Field* Find(u32 set, u32 binding) const;
     };
 
-    // VulkanRenderTargetDesc moved to VulkanRendererAPI.h (#691 Phase 7):
+    // VulkanRenderTargetDesc moved to VulkanRendererAPI.h (#691):
     // the draw path's rendering scope holds one, and this header includes
     // that one — declaring it here would cycle.
 
@@ -78,7 +78,7 @@ namespace OloEngine
 
         // Cached lookup or creation of the thin graphics pipeline for
         // (shader, targets[, baked blend]). Sampler state is NOT a pipeline
-        // axis (#691 Phase 8): the mappings source the sampler half from the
+        // axis (#691): the mappings source the sampler half from the
         // SAMPLER heap, indexed per draw from root data — the embedded
         // per-pipeline sampler retired with the sampler heap.
         //
@@ -93,7 +93,7 @@ namespace OloEngine
                                                      const VulkanRecordedPipelineState& state,
                                                      const VulkanRenderTargetDesc& targets);
 
-        // The compute sibling (#691 Phase 7): same mapping chain, same
+        // The compute sibling (#691): same mapping chain, same
         // VK_NULL_HANDLE layout + DESCRIPTOR_HEAP flag, no fixed-function
         // state at all. Keyed on (shaderKey, layout) — target and
         // blend fields stay zero, and shader keys are process-unique so a
@@ -155,7 +155,7 @@ namespace OloEngine
             /// Baked patch size for a tessellated pipeline; 0 when the shader
             /// has no TCS/TES stage. patchControlPoints is only dynamic under
             /// extendedDynamicState2PatchControlPoints, which is NOT on the
-            /// ADR 0010 floor — so it is a PSO axis here (#691 Wave C, A10).
+            /// ADR 0010 floor — so it is a PSO axis here (#691, A10).
             u32 PatchControlPoints = 0;
 
             bool operator==(const Key&) const = default;

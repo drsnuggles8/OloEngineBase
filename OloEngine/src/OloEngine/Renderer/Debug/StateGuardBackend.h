@@ -4,7 +4,7 @@
 // Internal seam between the backend-neutral GLStateGuard shell
 // (Renderer/Debug/GLStateGuard.cpp) and the OpenGL implementation of its
 // snapshot capture/apply (Platform/OpenGL/OpenGLStateGuard.cpp) — issue #691
-// Phase 9, ADR 0011 §1.6.
+// ADR 0011 §1.6.
 //
 // Free functions rather than a virtual backend interface, on purpose: the
 // guard is constructed BY VALUE on the stack at ~20 pass boundaries, so there
@@ -15,7 +15,7 @@
 // the early-outs already encoded). The definitions live in the OpenGL TU and
 // resolve at link time, which keeps GLStateGuard.cpp free of both
 // <glad/gl.h> and Platform/ includes — an include the ratchet cannot see but
-// that would leak the GL API (rhi_boundary_baseline.json, Phase 2 note).
+// that would leak the GL API (rhi_boundary_baseline.json).
 // =============================================================================
 
 #pragma once

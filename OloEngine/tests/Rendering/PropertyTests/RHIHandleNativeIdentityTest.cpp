@@ -1,7 +1,7 @@
 // =============================================================================
 // RHIHandleNativeIdentityTest.cpp
 //
-// Issue #691 Phase 2 step 3. `RHIResourceRegistryTest` proves the registry's
+// Issue #691. `RHIResourceRegistryTest` proves the registry's
 // *bookkeeping* against synthetic values — it never touches a device, because
 // the registry stores an opaque u64 and does not know what one is.
 //
@@ -14,7 +14,7 @@
 // The reload case is the one that could not be tested before this file existed.
 // `ResourceRegistry::UpdateNative` is what makes a handle survive an in-place
 // hot-reload, and its whole justification is that GL may hand recreated storage
-// a *different* name (issue #544 Part B; TextureInPlaceReloadTest's header
+// a *different* name (issue #544; TextureInPlaceReloadTest's header
 // states exactly this and concludes that consumers must therefore re-read the
 // renderer ID every frame). That conclusion is what the handle is supposed to
 // overturn, so it has to be checked against a driver rather than a mock.
@@ -297,7 +297,7 @@ namespace OloEngine::Tests
     }
 
     // ==========================================================================
-    // The facade's handle forms are now the ONLY forms (issue #691 step 3, item
+    // The facade's handle forms are now the ONLY forms (issue #691, item
     // 4), so every caller exercises them. This test predates that and is kept
     // for the property it pins rather than the coverage it once provided: the
     // delegation resolves an identity to a native name, and a transposed
@@ -328,7 +328,7 @@ namespace OloEngine::Tests
             << "The handle form must reach GL with the object its identity names — "
                "it resolves and delegates, so a transposed argument would land here.";
 
-        // The u32 spelling this used to cross-check is GONE (issue #691 step 3,
+        // The u32 spelling this used to cross-check is GONE (issue #691,
         // item 4) — there is no second form left to agree with, which is the
         // point. What is still worth asserting is that RHI::NullResource
         // unbinds, because that is the contract the deleted `0` had.

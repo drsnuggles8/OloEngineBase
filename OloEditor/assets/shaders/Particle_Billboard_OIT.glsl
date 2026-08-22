@@ -1,6 +1,6 @@
 //--------------------------
 // - OloEngine -
-// Particle Billboard Shader — Weighted-Blended OIT variant (Phase 6).
+// Particle Billboard Shader — Weighted-Blended OIT variant.
 //
 // Shares the vertex stage with Particle_Billboard.glsl verbatim.
 // Fragment stage emits accum + revealage for WB-OIT composite in
@@ -11,7 +11,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): same V5+V6 pull as Particle_Billboard.glsl —
+// #691 (ADR 0011 §5): same V5+V6 pull as Particle_Billboard.glsl —
 // the instance BUFFER keeps its full 96-byte stride even though this variant
 // only reads through a_StretchFactor (locs 6-9 simply go unpulled).
 layout(std430, binding = 57) readonly buffer OloVertexPull
@@ -152,7 +152,7 @@ layout(location = 0) in VertexOutput Input;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Both slots move
+// Heap-bindless conversion (issue #691, bucket 1). Both slots move
 // together because ParticleBatchRenderer::BindParticleTextures stages both in
 // one call — converting one and leaving the other would leave the unconverted
 // sampler unbound once this program builds as the bindless variant (§5c).

@@ -180,7 +180,7 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_entity_set_field (main-marshaled; PROJECT WRITE) --------------
-        // The GENERIC consented, undoable write tool (#306 item C, second slice):
+        // The GENERIC consented, undoable write tool (#306):
         // set ANY registered component field by (component, field, value) through the
         // editor's undo stack — the catch-all successor to olo_set_collision_layer's
         // one-tool-per-field shape. Gated at dispatch by the "Allow writes" session
@@ -286,7 +286,7 @@ namespace OloEngine::MCP
         // it) — a driver that reacts to that "timeout" by immediately queuing the
         // NEXT scene's open compounds a single-threaded backlog that never
         // recovers (found running scripts/perf/run-perf-battery.ps1 against a
-        // long-lived editor instance, #316 Part 5 follow-up). olo_scene_open /
+        // long-lived editor instance, #316 follow-up). olo_scene_open /
         // olo_scene_play / olo_scene_stop are the only tools that legitimately need
         // more room; every other MarshalRead call site is a fast query and keeps
         // the 5s default deliberately, so slow tools genuinely hang rather than
@@ -295,7 +295,7 @@ namespace OloEngine::MCP
 
         // ---- olo_scene_open (main-marshaled; PROJECT WRITE) --------------------
         // Open / switch the active scene over MCP — the consented-write scene switch
-        // (issue #316 Part 5). Loads the requested scene file directly through the
+        // (issue #316). Loads the requested scene file directly through the
         // editor's OpenSceneFromMcp hook, which installs it the same way the editor's
         // Open Scene menu does but WITHOUT the auto-save recovery modal (a remote
         // agent can't click it) and without the file dialog. Gated at dispatch by the
@@ -363,7 +363,7 @@ namespace OloEngine::MCP
 
         // ---- olo_scene_play / olo_scene_stop (main-marshaled; PROJECT WRITE) ---
         // Toggle Play mode over MCP — the consented-write, fully-reversible play/stop
-        // switch (issue #316 Part 5). Wraps the editor's OnScenePlay / OnSceneStop
+        // switch (issue #316). Wraps the editor's OnScenePlay / OnSceneStop
         // (the same path the editor's Play / Stop toolbar buttons drive) through the
         // SetScenePlayState hook. Gated at dispatch by the "Allow writes" session
         // toggle (ToolDef::ProjectWrite): entering Play copies the scene and executes
@@ -651,7 +651,7 @@ namespace OloEngine::MCP
             tool.Name = "olo_entity_set_field";
             tool.Toolset = "scene";
             tool.Title = "Set component field (undoable)";
-            // The generic project-WRITE tool (#306 item C, second slice): gated behind
+            // The generic project-WRITE tool (#306): gated behind
             // the session "Allow writes" toggle and routed through the editor undo
             // stack. readOnlyHint:false (not idempotent — each call snapshots the prior
             // value into a distinct undo command; not destructive — fully reversible

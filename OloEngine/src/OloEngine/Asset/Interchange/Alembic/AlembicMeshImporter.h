@@ -9,11 +9,11 @@
 
 namespace OloEngine
 {
-    // Imports Alembic geometry caches (.abc, Ogawa backend) into a MeshSource (issue #655
-    // Tier 2). Reads IPolyMesh / ISubD prims' rest-pose (sample 0) positions, normals, and UVs,
+    // Imports Alembic geometry caches (.abc, Ogawa backend) into a MeshSource (issue #655).
+    // Reads IPolyMesh / ISubD prims' rest-pose (sample 0) positions, normals, and UVs,
     // fan-triangulates, and accumulates each prim's world transform from its IXform parents.
     //
-    // Scope of this first slice (documented in the PR): static rest-pose geometry only. Alembic
+    // Scope (documented in the PR): static rest-pose geometry only. Alembic
     // carries no standardized PBR material (its material side-channel is DCC-specific shader
     // dictionaries), so every submesh gets the engine-default material — callers assign their
     // own. Multi-sample vertex animation (schema.getNumSamples() > 1) is detected and logged but

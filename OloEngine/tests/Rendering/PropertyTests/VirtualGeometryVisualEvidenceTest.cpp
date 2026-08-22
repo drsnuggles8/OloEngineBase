@@ -1,7 +1,7 @@
 // OLO_TEST_LAYER: integration
 //
 // Visual evidence for the virtualized-geometry hardware raster path
-// (issue #629, slice 2): a VirtualMeshComponent icosphere rendered through
+// (issue #629): a VirtualMeshComponent icosphere rendered through
 // the FULL Deferred pipeline — Scene loop -> Renderer3D::SubmitVirtualMesh ->
 // VirtualGeometryPass (DAG-cut cull compute + glMultiDrawElementsIndirectCount
 // into the borrowed G-Buffer) -> DeferredLightingPass -> composite.

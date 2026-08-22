@@ -33,7 +33,7 @@ namespace OloEngine
 
         // -------------------------------------------------------------------
         // Whether the CURRENTLY BOUND program reads the descriptor heap
-        // (issue #691 Phase 3).
+        // (issue #691).
         //
         // `RHI::DescriptorHeap::IsEnabled()` is global; whether a given program
         // actually indexes the heap is PER SHADER, because the bindless compile
@@ -70,7 +70,7 @@ namespace OloEngine
         // CommandDispatch::BindPBRTextures skips nine binds when this is true, so
         // answering the broader question there leaves those samplers unbound and
         // the mesh renders unlit — observed as a black sphere on an unlit ground
-        // (issue #691 Phase 3).
+        // (issue #691).
         //
         // Set from the source scan in CreateProgramFromRawGLSL: a shader that
         // declares `u_MaterialHeapOffsets` reads its material textures from the
@@ -113,7 +113,7 @@ namespace OloEngine
         [[nodiscard]] virtual u32 GetRendererID() const = 0;
 
         // Generation-checked identity, minted by RHI::ResourceRegistry
-        // (issue #691 Phase 2 step 3). Sibling of GetRendererID() during the
+        // (issue #691). Sibling of GetRendererID during the
         // migration: that one hands out the raw backend name and is deleted once
         // every caller has moved. Turning a handle back into a native object is
         // Platform/<Backend>/'s business.

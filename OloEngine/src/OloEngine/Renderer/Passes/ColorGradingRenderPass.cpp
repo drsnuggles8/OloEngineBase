@@ -29,7 +29,7 @@ namespace OloEngine
             // in-place reload, so a view's own generation cannot detect that its
             // descriptor now names a deleted object — OffsetOf would go on
             // answering a valid offset, and the persistent view cache would keep
-            // serving the stale entry on a hit (issue #691 Phase 3).
+            // serving the stale entry on a hit (issue #691).
             RHI::DescriptorHeap::Get().InvalidateResource(m_IdentityLUTTexture);
             RenderCommand::DeleteTexture(m_IdentityLUTTexture);
             m_IdentityLUTTexture = RHI::NullResource;

@@ -1,7 +1,7 @@
 #pragma once
 
 // Shared, editor-side logic behind the consented MCP write tool
-// `olo_renderer_settings_set` (issue #306 item C): set a multi-valued, session-
+// `olo_renderer_settings_set` (issue #306): set a multi-valued, session-
 // global renderer / post-process setting — the FSR1 spatial-upscale mode, the
 // tone-map operator, or the rendering path — so an agent can verify a rendering
 // feature LIVE at each setting over MCP (the motivating case is #480's FSR1

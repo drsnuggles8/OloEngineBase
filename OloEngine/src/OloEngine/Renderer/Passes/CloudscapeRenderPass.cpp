@@ -255,7 +255,7 @@ namespace OloEngine
         // CloudscapeCommon.glsl). UploadExecutionState bound these already;
         // re-pin them in case an earlier pass touched the units.
         //
-        // MOVED BELOW THE SHADER BIND (issue #691 Phase 3): the seam picks
+        // MOVED BELOW THE SHADER BIND (issue #691): the seam picks
         // offset-vs-bind from the program in flight, so re-pinning before
         // m_RaymarchShader->Bind() made these take the fallback path while the
         // raymarch shader read offsets nobody wrote.
@@ -308,7 +308,7 @@ namespace OloEngine
         // live texture); fall back to the pipeline-supplied raw id, then to
         // the current frame when no valid history exists — with Misc.x
         // forced to 0 in that case (UploadAndBindUBO) the shader ignores it.
-        // All three candidates are identities now (issue #691 step 3, slice 7):
+        // All three candidates are identities now (issue #691):
         // the graph import, the pipeline-owned history texture, and this
         // frame's raymarch. The last native operand here was the transient
         // resolve, which the planner now answers in both currencies.

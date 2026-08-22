@@ -195,7 +195,7 @@ namespace OloEngine
         // forks on the program in flight, so bound ahead of the shader they would
         // take the slot-path fallback while the shader — a bindless variant
         // because its output image is converted — read offsets nobody wrote
-        // (issue #691 Phase 3).
+        // (issue #691).
         m_ScatterShader->Bind();
         // Persistent: the shadow maps are renderer-owned (or fixed placeholders)
         // and the froxel volumes are pass-owned and double-buffered across frames,

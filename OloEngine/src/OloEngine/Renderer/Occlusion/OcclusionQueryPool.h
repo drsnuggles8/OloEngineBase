@@ -49,7 +49,7 @@ namespace OloEngine
         /// Initialize() in between frees the native names, and GL may hand one of
         /// them back to an unrelated query. A retired handle resolves to 0 and
         /// the conditional render is skipped; a recycled name would have gated the
-        /// draw on someone else's occlusion result (issue #691 step 3, item 4).
+        /// draw on someone else's occlusion result (issue #691).
         RHI::ResourceHandle GetQueryHandle(u32 objectIndex) const;
 
         /// @brief Number of queries issued in the previous (now-readable) frame.

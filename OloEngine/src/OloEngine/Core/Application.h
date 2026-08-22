@@ -265,7 +265,7 @@ namespace OloEngine
         // graph executes) plus the ImGui phase. On GL this runs inline in
         // Run(); on a backend that owns frame recording (Vulkan) it runs
         // INSIDE the swap path's command-buffer bracket, driven by
-        // GraphicsContext::SetFrameRenderCallback (#691 Phase 7). Returns
+        // GraphicsContext::SetFrameRenderCallback (#691). Returns
         // false when the frame was declined (minimized / zero-area / no
         // renderer), which is the seam's "fall back to the clear frame".
         bool RenderFrameLayers(Timestep timestep);

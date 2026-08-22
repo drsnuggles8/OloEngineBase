@@ -7,7 +7,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the Renderer2D text batch (Renderer2D.cpp
 // TextVertex, 72 B / 18 words): vec3 Position @0, vec4 Color @12, vec2
 // TexCoord @28, vec4 BandTransform @36, ivec4 GlyphData @52, int EntityID

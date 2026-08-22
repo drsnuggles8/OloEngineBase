@@ -14,7 +14,7 @@ namespace OloEngine
     {
         // Defined in RHI/RHIResources.h — forward-declared so the explicit-
         // sampler BindTexture overload (whose default body ignores it) does
-        // not pull that header into every RendererAPI includer (#691 Phase 8).
+        // not pull that header into every RendererAPI includer (#691).
         struct SamplerDesc;
     } // namespace RHI
 
@@ -33,10 +33,10 @@ namespace OloEngine
         {
             None = 0,
             OpenGL = 1,
-            // Vulkan bring-up (#691 Phase 4): selectable via `--rhi=vulkan`, which routes
+            // Vulkan bring-up (#691): selectable via `--rhi=vulkan`, which routes
             // window + context creation to Platform/Vulkan. The renderer proper does NOT
             // run under it yet — every factory below the context switches to a loud
-            // "unsupported until Phase 5/6" assert, and Application skips Renderer::Init.
+            // "unsupported backend" assert, and Application skips Renderer::Init.
             // The member exists even when OLO_WITH_VULKAN=0 so selection code can parse
             // the flag and report "not compiled in" instead of "unknown backend".
             Vulkan = 2
@@ -53,14 +53,14 @@ namespace OloEngine
         {
             Texture2D = 0,
             TextureCubeMap,
-            // Added by the Phase 2 step-2 sweep (issue #691): the per-sample
+            // Added by the call-site sweep (issue #691): the per-sample
             // MSAA paths copy *multisample* G-Buffer attachments, and a
             // multisample image cannot be copied as if it were a plain 2D one —
             // glCopyImageSubData requires matching targets and Vulkan requires
             // matching VkImageCreateInfo::samples. Without this member those
             // call sites had to keep a raw GL_TEXTURE_2D_MULTISAMPLE.
             Texture2DMultisample,
-            // Terrain VT cache tiles (issue #715 slice 4): the staging->cache
+            // Terrain VT cache tiles (issue #715): the staging->cache
             // copies address individual array layers through
             // CopyImageSubDataFull's srcZ/dstZ, which needs the array target
             // on both operands. Append only — never renumber.
@@ -102,7 +102,7 @@ namespace OloEngine
         virtual void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) = 0;
 
         // Raw-vertex-array overloads for POD shadow casters (no Ref<VertexArray>
-        // available). Identity forms since issue #691 step 3 slice 6; the u32
+        // available). Identity forms since issue #691; the u32
         // siblings are gone as of item 4.
         virtual void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount) = 0;
         virtual void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex) = 0;
@@ -150,7 +150,7 @@ namespace OloEngine
         virtual void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) = 0;
         // Raw-VAO variant used by the GPU-frustum-cull path which only has a
         // RendererID (the dispatcher's BindVAOIfNeeded() cache populates it).
-        // Draws from the ALREADY-BOUND vertex array (issue #691 step 3, slice 6).
+        // Draws from the ALREADY-BOUND vertex array (issue #691).
         // Replaces the DrawElementsIndirectRaw(vaoID, ...) pair: its only caller
         // had just run BindVAOIfNeeded, so re-binding inside the draw was both
         // redundant and a bind behind the redundant-bind cache's back. Mirrors
@@ -197,7 +197,7 @@ namespace OloEngine
         virtual void MemoryBarrier(MemoryBarrierFlags flags) = 0;
 
         // The render graph's pre-pass barrier batch, carrying BOTH barrier
-        // currencies (ADR 0011 §1.5, Phase 5). `flags` is the GL lowering —
+        // currencies (ADR 0011 §1.5). `flags` is the GL lowering —
         // the glMemoryBarrier bitmask the planner derives; `barriers` is the
         // neutral truth — the handle-resolved per-resource transitions for
         // the same batch. The GL backend executes `flags` and ignores
@@ -213,7 +213,7 @@ namespace OloEngine
         virtual void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) = 0;
 
         // ---------------------------------------------------------------------
-        // The bind family (issue #691 step 3, slice 2; u32 siblings deleted in
+        // The bind family (issue #691; u32 siblings deleted in
         // item 4).
         //
         // The migration ran in two steps because the conversion is asymmetric:
@@ -231,7 +231,7 @@ namespace OloEngine
         // RHI::NullResource unbinds, exactly as a native 0 used to.
         // ---------------------------------------------------------------------
         virtual void BindTexture(u32 slot, RHI::ResourceHandle texture) = 0;
-        // The EXPLICIT-SAMPLER form (#691 Phase 8). On GL the slot path
+        // The EXPLICIT-SAMPLER form (#691). On GL the slot path
         // samples with the texture OBJECT's parameters and always has — the
         // default body preserves exactly that, so GL and every mock see one
         // entry point. The Vulkan backend overrides it: its "object state"
@@ -269,7 +269,7 @@ namespace OloEngine
         //
         // width/height are SOURCE-image texels, and no backend may scale them.
         // That is load-bearing for a mixed compressed/uncompressed pair (the
-        // terrain VT tile stage, issue #715 slice 4): GL's 128-bit view class
+        // terrain VT tile stage, issue #715): GL's 128-bit view class
         // makes one RGBA32UInt texel one 16-byte BC7 block, so an
         // RGBA32UInt -> BC7 copy passes the source's texel (= block) dimensions
         // and covers 4x width/height in destination texels. A copy that needs
@@ -309,7 +309,7 @@ namespace OloEngine
         // provide). Source must be DEPTH_COMPONENT32F immutable storage. Returns
         // RHI::NullResource if the platform lacks texture-view support.
         //
-        // (issue #691 step 3, slice 6 — the command-layer bind cache). The view
+        // (issue #691 — the command-layer bind cache). The view
         // is a DISTINCT GPU object from the array it aliases, so it gets its own
         // identity: ShadowMap holds both, and binding the wrong one is a silent
         // PCSS bug rather than a loud one.
@@ -336,14 +336,14 @@ namespace OloEngine
         virtual void EndConditionalRender() = 0;
 
         // =====================================================================
-        // Phase 2 step 2 additions (issue #691) — the operations the sweep
+        // Call-site sweep additions (issue #691) — the operations the sweep
         // found the facade had never abstracted at all.
         //
         // Step 1 converted the vocabulary of the 74 virtuals that already
         // existed. This block is the other half of the finding: 84 distinct GL
         // entry points appear across the 313 swept call sites and ~60% of them
         // had NO facade equivalent, so passes reached past it. See ADR 0011's
-        // "Amendments from Phase 2 step 2" for the category table and the
+        // "Amendments from the call-site sweep" for the category table and the
         // reasoning behind each shape.
         // =====================================================================
 
@@ -445,18 +445,18 @@ namespace OloEngine
         virtual void ClearBufferFloat(RHI::ResourceHandle buffer, f32 value) = 0;
 
         // ---------------------------------------------------------------------
-        // The resource creators (issue #691 step 3, slice 4 added them beside
+        // The resource creators (issue #691 added them beside
         // u32-returning siblings; item 4 deleted those siblings).
         //
         // These are the migration ROOT: the ids that passes used to hold came
         // from here, and ImportTexture -> ResolveTexture -> every pass sits
         // downstream.
         //
-        // Still spelled `...Handle` even though the u32 forms are gone. Slice 4
+        // Still spelled `...Handle` even though the u32 forms are gone. The move
         // called the suffix temporary, expecting to take the plain name back
         // here; on arriving, renaming ~40 call sites bought no semantic gain and
         // `CreateTexture2DHandle` reads as "create a texture, get its identity",
-        // which is what it does. Revisit in Phase 3, where ViewHandle lands and
+        // which is what it does. Revisit when ViewHandle lands and
         // the create family is reshaped anyway.
         //
         // Each Delete* sibling must BOTH destroy the object and retire its
@@ -543,7 +543,7 @@ namespace OloEngine
         // slot), never bracketed by Begin/EndQuery. GetQueryResultU64 on a
         // timestamp query returns NANOSECONDS on both backends: the Vulkan arm
         // owes the timestampPeriod scaling so GPUPassTimerPool's subtraction
-        // math is backend-blind (#691 Phase 9).
+        // math is backend-blind (#691).
         virtual void WriteTimestamp(RHI::ResourceHandle query) = 0;
         [[nodiscard("Store this!")]] virtual bool IsQueryResultAvailable(RHI::ResourceHandle query) = 0;
         [[nodiscard("Store this!")]] virtual u32 GetQueryResultU32(RHI::ResourceHandle query) = 0;
@@ -578,9 +578,9 @@ namespace OloEngine
         // Name-keyed default-block uniform. THIS IS THE ONE VIRTUAL A VULKAN
         // BACKEND CANNOT IMPLEMENT FAITHFULLY — SPIR-V has push constants and
         // UBO members, not a queryable default uniform block. It has exactly one
-        // call site (CommandDispatch::DrawInfiniteGrid's u_GridScale) and Phase 6
+        // call site (CommandDispatch::DrawInfiniteGrid's u_GridScale) and the pipeline layer
         // must fold that into a UBO and delete this. Recorded deliberately in
-        // ADR 0011 amendment (9) rather than left to surprise Phase 7 bring-up.
+        // ADR 0011 amendment (9) rather than left to surprise a later bring-up.
         virtual void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value) = 0;
 
         // GPU capability queries
@@ -599,7 +599,7 @@ namespace OloEngine
         // SlugFontProcessor — reaching into the GL loader's symbol table is a
         // real need expressed unportably, and it is invisible to the boundary
         // ratchet's `gl[A-Z]` scan because the character after `gl` is `a`
-        // (issue #691 Phase 2).
+        // (issue #691).
         [[nodiscard("Store this!")]] virtual bool IsDeviceAvailable() const = 0;
 
         [[nodiscard("Store this!")]] virtual u32 GetMaxUniformBlockSize() const = 0;
@@ -628,9 +628,9 @@ namespace OloEngine
         // this must run BEFORE Window::Create — WindowsWindow::Init reads GetAPI()
         // ahead of glfwCreateWindow (client-API hint), so a late set selects the
         // wrong window kind. Note RenderCommand::s_RendererAPI is ALSO created at
-        // static init from the default value; Phase 4 tolerates that because the
+        // static init from the default value; device bring-up tolerates that because the
         // Vulkan path never routes through RenderCommand (Renderer::Init is skipped
-        // entirely), but Phase 5 must re-create it after selection. Never call this
+        // entirely), but the execution layer must re-create it after selection. Never call this
         // after a window or context exists.
         static void SetAPI(API api)
         {

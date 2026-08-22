@@ -2,7 +2,7 @@
 
 // =============================================================================
 // VulkanRendererAPI — the Vulkan implementation of the RendererAPI facade
-// (issue #691; brought to editor-parity scope in Phase 8).
+// (issue #691; brought to editor-parity scope later).
 //
 // Current scope: the full facade — barrier batches, transient clears, draws
 // (lazy dynamic-rendering scopes + root-data assembly per ADR 0011 §4/§5),
@@ -60,9 +60,9 @@ namespace OloEngine
 
     // Pipeline-key state recorded from the facade's state-setter entry
     // points. Vulkan bakes nearly all of this into the VkPipeline, so
-    // Phase 5 RECORDS it for Phase 6's pipeline-key derivation instead of
+    // this backend RECORDS it for pipeline-key derivation instead of
     // stubbing the setters — a state packet is a real dispatch, not a
-    // Phase 6 loss (the execution test pins that state packets never touch
+    // loss (the execution test pins that state packets never touch
     // the stub counter).
     struct VulkanRecordedPipelineState
     {
@@ -126,7 +126,7 @@ namespace OloEngine
         bool AttachmentBlend[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendSrc[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendDst[kMaxAttachments] = {};
-        // GL parity (#691 Phase 7 Wave A, found by the OITResolve tenant):
+        // GL parity (#691, found by the OITResolve tenant):
         // glEnablei(GL_BLEND, i) alone does NOT give buffer i its own blend
         // func — the GLOBAL glBlendFunc applies until glBlendFunci names the
         // buffer. A pass that per-attachment-ENABLES but sets only the global
@@ -142,7 +142,7 @@ namespace OloEngine
     // -------------------------------------------------------------------------
     // VulkanQueryRegistry — the object-less occlusion-query family behind the
     // CreateQueries / BeginQuery / EndQuery / GetQueryResult* / DeleteQueries
-    // facade entries (#691 Phase 7 Wave C, ADR item A6).
+    // facade entries (#691, ADR item A6).
     //
     // GL's shape is N independent query NAMES; Vulkan's is one VkQueryPool with
     // N slots. `CreateQueries` is the natural pool boundary — OcclusionQueryPool
@@ -166,7 +166,7 @@ namespace OloEngine
             VkQueryPool Pool = VK_NULL_HANDLE;
             u32 Index = 0;
             bool Recorded = false; ///< the query's write(s) reached a command buffer
-            // How this entry reads back (#691 Phase 9): OcclusionAnySamples is
+            // How this entry reads back (#691): OcclusionAnySamples is
             // one occlusion slot (raw count); Timestamp is one timestamp slot
             // (ticks × timestampPeriod → nanoseconds, stamped via
             // WriteTimestamp); TimeElapsed is a PAIR of timestamp slots
@@ -174,7 +174,7 @@ namespace OloEngine
             // native elapsed query, and vkCmdBeginQuery on a TIMESTAMP pool is
             // invalid, which the pre-Phase-9 single-slot shape would have hit
             // the moment a TimeElapsed tenant ran (none did: the only user was
-            // GL-gated until the Phase 9 tool conversions).
+            // GL-gated until the tool conversions).
             RHI::QueryType Type = RHI::QueryType::OcclusionAnySamples;
         };
 
@@ -227,7 +227,7 @@ namespace OloEngine
             return m_State;
         }
 
-        // --- Phase 5 recording bracket (backend-internal, not facade) -----
+        // --- Recording bracket (backend-internal, not facade) ------------
         void BeginRecording(VkCommandBuffer cmd);
         void EndRecording();
         [[nodiscard]] VkCommandBuffer CurrentCommandBuffer() const
@@ -235,7 +235,7 @@ namespace OloEngine
             return m_Cmd;
         }
 
-        // --- Mid-frame flush (#691 Phase 8) --------------------------------
+        // --- Mid-frame flush (#691) --------------------------------
         // A synchronous mid-frame readback (StorageBuffer::GetData between
         // two dispatches — the fluid solver's coupling shape) needs the
         // frame command buffer SUBMITTED first, or it reads the previous
@@ -253,7 +253,7 @@ namespace OloEngine
         [[nodiscard]] VkCommandBuffer SuspendRecordingForFlush();
         void ResumeRecordingAfterFlush(VkCommandBuffer cmd);
 
-        // Backend-internal (#691 Phase 8): record a staged buffer→image copy
+        // Backend-internal (#691): record a staged buffer→image copy
         // of one (mip, layer) region into the CURRENT frame command buffer,
         // with tracker-exact transitions and the staging buffer routed
         // through deferred reclaim. The cubemap face-upload paths call this
@@ -267,7 +267,7 @@ namespace OloEngine
             return m_LayoutTracker;
         }
 
-        // --- The default framebuffer (#691 Phase 7, Final pass) -----------
+        // --- The default framebuffer (#691, Final pass) -----------
         // GL's "default framebuffer" is a fixed object (name 0) that outlives
         // every frame; Vulkan's is a DIFFERENT image every frame — whichever
         // one vkAcquireNextImageKHR just handed the swap loop. So the backend
@@ -328,8 +328,8 @@ namespace OloEngine
         [[nodiscard]] bool FinalizeBackbufferForPresent(bool frameRendered);
 
         // Observability for the execution test: how many packets/entry points
-        // hit a Phase 6 stub (nothing may fall through silently). Split by
-        // KIND (#691 Phase 8, Step 4): a deferred FEATURE (no Vulkan lowering
+        // hit an unimplemented stub (nothing may fall through silently). Split by
+        // KIND (#691): a deferred FEATURE (no Vulkan lowering
         // yet), a PRECONDITION failure (the lowering exists but an input
         // handle/image did not resolve), and an outside-recording-bracket
         // call (the timing contract). The total stays the back-compat sum.
@@ -340,9 +340,9 @@ namespace OloEngine
             OutsideRecording,
             Count
         };
-        [[nodiscard]] u64 GetPhase6StubHitCount() const
+        [[nodiscard]] u64 GetUnimplementedStubHitCount() const
         {
-            return m_Phase6StubHits;
+            return m_UnimplementedStubHits;
         }
         [[nodiscard]] u64 GetStubHitCount(StubKind kind) const
         {
@@ -352,7 +352,7 @@ namespace OloEngine
             return index < static_cast<sizet>(StubKind::Count) ? m_StubHitsByKind[index] : 0u;
         }
 
-        // Draw observability (issue #691 Phase 7): PrepareDraw's failure
+        // Draw observability (issue #691): PrepareDraw's failure
         // paths drop the draw with at most a warn-once — a fixture asserting
         // "N draws prepared, 0 dropped" turns a silently black frame into a
         // named failure. Reset by BeginRecording.
@@ -499,8 +499,8 @@ namespace OloEngine
         void WriteTimestamp(RHI::ResourceHandle query) override;
 
         // The bind-time layout seam, callable by BOTH descriptor routes (#691
-        // Phase 9; closes the "amendment (63) covers the slot path only" debt
-        // the Phase 8 issue text carried). BindTexture / BindImageTexture used
+        // closes the "amendment (63) covers the slot path only" debt
+        // the issue text carried). BindTexture / BindImageTexture used
         // to own private copies for the SLOT path; the HEAP route
         // (VulkanDescriptorHeapBackend::UploadSlots) wrote descriptors
         // declaring SHADER_READ_ONLY / GENERAL with no transition at all —
@@ -534,9 +534,9 @@ namespace OloEngine
       private:
         // Const: several facade getters are const-qualified and still must
         // count their stub hit (nothing may fall through silently).
-        void Phase6Stub(const char* entryPoint, StubKind kind = StubKind::DeferredFeature) const;
+        void UnimplementedStub(const char* entryPoint, StubKind kind = StubKind::DeferredFeature) const;
 
-        // --- Phase 7: lazy dynamic-rendering scope + draw assembly ----------
+        // Lazy dynamic-rendering scope + draw assembly ----------
         //
         // GL passes freely interleave framebuffer binds, state calls, clears,
         // draws, barriers and copies; Vulkan forbids most non-draw commands
@@ -559,16 +559,16 @@ namespace OloEngine
             VkImageView BackbufferView = VK_NULL_HANDLE;
             /// The per-layer depth view this scope was opened with, or
             /// VK_NULL_HANDLE when the target's OWN depth attachment was used
-            /// (#691 Wave C §4). A shadow pass walks N cascades against ONE
+            /// (#691 §4). A shadow pass walks N cascades against ONE
             /// framebuffer object, so "same Target" is NOT enough to reuse the
             /// scope — see ScopeMatchesCurrentTarget.
             VkImageView DepthArrayView = VK_NULL_HANDLE;
         };
 
         // A clear requested while no scope was open, waiting to fold into the
-        // next scope-open's loadOp (#691 Phase 8). GL clears the BOUND
+        // next scope-open's loadOp (#691). GL clears the BOUND
         // framebuffer eagerly, so the request must remember WHO asked:
-        // Phase 7's target-blind bool pair meant `Bind(A); Clear(); Bind(B);
+        // The old target-blind bool pair meant `Bind(A); Clear(); Bind(B);
         // Draw()` cleared B and left A untouched, and a clear whose target
         // never drew again (a shadow-atlas entry culled to zero draws)
         // survived into the NEXT pass as that pass's loadOp — a pass that
@@ -611,7 +611,7 @@ namespace OloEngine
         /// nothing bound (GL's framebuffer 0) and a publication live.
         [[nodiscard]] bool ShouldTargetBackbuffer() const;
 
-        // --- Pending-clear plumbing (#691 Phase 8; see PendingClear) --------
+        // --- Pending-clear plumbing (#691; see PendingClear) --------
         /// True when the pending clear's recorded requester is what a draw
         /// would target right now (the ScopeMatchesCurrentTarget triple).
         [[nodiscard]] bool PendingClearMatchesCurrentTarget() const;
@@ -634,7 +634,7 @@ namespace OloEngine
         // PERSISTENT state, and both the bound form (SetDrawBuffers) and the
         // raw-handle form (SetFramebufferDrawAttachments) mutate the SAME
         // state on GL — so this backend models one map, keyed by the FB's
-        // RHI handle, that both forms write (#691 Phase 7 Wave C; replaces
+        // RHI handle, that both forms write (#691; replaces
         // the earlier scope-transient DrawList, which forgot the selection on
         // every target switch and could not express the raw form at all).
         // The scope build consumes DrawList at vkCmdBeginRendering; blits
@@ -678,7 +678,7 @@ namespace OloEngine
         // Bind the VAO's index buffer if it changed (redundant-bind cache,
         // reset per recording). False when the VAO has no index buffer.
         [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
-        // Handle -> VkBuffer for the indirect-draw family (#691 Wave C). Any
+        // Handle -> VkBuffer for the indirect-draw family (#691). Any
         // Vulkan-backend buffer identity resolves (its registry native IS the
         // VkBuffer); null + a counted stub on kind mismatch / stale handles.
         [[nodiscard]] VkBuffer ResolveIndirectBuffer(RHI::ResourceHandle indirectBuffer, const char* entryPoint) const;
@@ -690,7 +690,7 @@ namespace OloEngine
         // `commandOrderedBufferReads` — draws pass true so SSBO reads embed
         // the command-ordered SetData snapshot (VulkanStorageBuffer::
         // GetRootDataAddress); compute passes false to keep the persistent
-        // address its GPU-write participants require (#691 Phase 8).
+        // address its GPU-write participants require (#691).
         [[nodiscard]] bool AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
                                                    const VulkanVertexArray* vao, bool commandOrderedBufferReads);
 
@@ -721,7 +721,7 @@ namespace OloEngine
         // API-side state outlives the object: the live scope ends if it
         // targets the dying framebuffer, and a pending lazy clear naming it
         // is dropped — materializing it later would dereference the freed
-        // object (review finding, #691 Phase 8). Covers both death paths
+        // object (review finding, #691). Covers both death paths
         // (raw-registry Destroy and object-owned destruction) through the
         // one destructor they share.
         void NotifyFramebufferDestroyed(const VulkanFramebuffer* framebuffer, RHI::ResourceHandle handle);
@@ -770,7 +770,7 @@ namespace OloEngine
         VulkanImageLayoutTracker m_LayoutTracker;
         Viewport m_Viewport{};
 
-        mutable u64 m_Phase6StubHits = 0;
+        mutable u64 m_UnimplementedStubHits = 0;
         mutable std::array<u64, static_cast<sizet>(StubKind::Count)> m_StubHitsByKind{};
         mutable std::unordered_set<std::string> m_WarnedStubs;
 

@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 // Unit tests for the pure reasoning behind olo_physics_why_no_collision (issue
-// #306 item A). The reasoning lives in a header-only free function with no Jolt /
+// #306). The reasoning lives in a header-only free function with no Jolt /
 // EnTT / editor dependencies precisely so it can be exercised here without a live
 // editor, GPU, or physics simulation — the test binary compiles the MCP dispatch
 // core but deliberately NOT McpTools.cpp (the editor-backed handlers). The live

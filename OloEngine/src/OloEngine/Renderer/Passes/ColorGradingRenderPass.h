@@ -11,7 +11,7 @@ namespace OloEngine
 {
     // @brief Standalone colour-grading post-process pass.
     //
-    // Phase F slice 17 — standalone effect in the dynamic post chain
+    // Standalone effect in the dynamic post chain
     // following the pattern established by FXAARenderPass (slice 16).
     //
     // Sits second in the extracted-effect sub-chain:

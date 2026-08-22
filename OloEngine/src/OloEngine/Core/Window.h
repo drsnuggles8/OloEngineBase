@@ -48,7 +48,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual void* GetNativeWindow() const = 0;
 
         // The window's rendering context. Non-owning; null only before Init.
-        // Needed by the frame-render seam (#691 Phase 7): a backend whose swap
+        // Needed by the frame-render seam (#691): a backend whose swap
         // path owns frame recording is handed the frame's work through
         // GraphicsContext::SetFrameRenderCallback.
         [[nodiscard("Store this!")]] virtual GraphicsContext* GetGraphicsContext() const = 0;

@@ -16,7 +16,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
+// #691 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
 // vertex data is READ, not fetched -- binding 57 is the engine-wide vertex-pull
 // binding and the root struct carries this buffer's device address. The stream
 // is the engine `Vertex` (32 B: vec3 position @0, vec3 normal @12, vec2 uv @24),
@@ -48,7 +48,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 #define OLO_INSTANCE_NO_FORWARD 1
 #include "include/InstanceBlock_Vertex.glsl"
 
-// ROUTE PARITY, not a bindless conversion (issue #691 Phase 3, glsl-shaders §7a-bis).
+// ROUTE PARITY, not a bindless conversion (issue #691, glsl-shaders §7a-bis).
 // This shader declares no samplers, so it has nothing to convert and would
 // never mention OLO_BINDLESS on its own. It must still follow the COLOUR pass
 // onto the raw-GLSL route, because `invariant gl_Position` below is a promise

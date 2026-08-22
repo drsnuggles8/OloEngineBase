@@ -24,7 +24,7 @@ namespace OloEngine
         // shader-side struct (5 active fields + 3 pad uints).
         constexpr u32 kIndirectBufferSize = 32;
 
-        // Two-phase reject-list SSBO bindings (#431 Stage 2). These overlap the
+        // Two-phase reject-list SSBO bindings (#431). These overlap the
         // nominal SSBO_FPLUS_SPHERE_AREA_LIGHTS (18) / SSBO_AUTO_EXPOSURE_HISTOGRAM
         // (19) slots, but the cull is a STANDALONE compute dispatch where neither
         // of those systems is bound, so the reuse is conflict-free. Must match
@@ -240,11 +240,11 @@ namespace OloEngine
             // 0 is safe to clobber — the real draws rebind their own textures at
             // graph-execute time.
             // Persistent: the HZB pyramid is owned by the culler's own generator,
-            // not acquired from the graph's transient pool (issue #691 Phase 3).
+            // not acquired from the graph's transient pool (issue #691).
             HeapBinding::BindTextureOrOffset(0, m_Occlusion.HZBTexture,
                                              RHI::HeapSlotLifetime::Persistent);
             cullParams.OcclusionEnabled = 1;
-            // A8 seam, shader-reconstruction flavour (#691 Phase 7): the cull
+            // A8 seam, shader-reconstruction flavour (#691): the cull
             // samples the HZB at `ndc.xy * 0.5 + 0.5`, and that pyramid reduces
             // the row-mirrored scene depth — so the reprojection must mirror
             // with it. Row flip only: `ndc.z * 0.5 + 0.5` is already right
@@ -375,7 +375,7 @@ namespace OloEngine
         const Ref<ComputeShader>& shader = occlusionActive ? m_OcclusionCullShader : m_CullShader;
 
         shader->Bind();
-        // One std140 refill per dispatch (issue #691 Phase 7).
+        // One std140 refill per dispatch (issue #691).
         UBOStructures::InstanceCullUBO cullParams{};
         // The culling camera, render-origin-relative and in the rasterizer
         // flavour the camera UBO's u_ViewProjection uses -- the shader's plane
@@ -393,7 +393,7 @@ namespace OloEngine
             HeapBinding::BindTextureOrOffset(0, m_Occlusion.HZBTexture,
                                              RHI::HeapSlotLifetime::Persistent); // previous-frame HZB
             cullParams.OcclusionEnabled = 1;
-            // A8 seam, shader-reconstruction flavour (#691 Phase 7): the cull
+            // A8 seam, shader-reconstruction flavour (#691): the cull
             // samples the HZB at `ndc.xy * 0.5 + 0.5`, and that pyramid reduces
             // the row-mirrored scene depth — so the reprojection must mirror
             // with it. Row flip only: `ndc.z * 0.5 + 0.5` is already right
@@ -476,7 +476,7 @@ namespace OloEngine
         // fallback while InstanceOcclusionCull.comp — a bindless variant once its
         // u_HZB is converted — read an offset nobody wrote. The two sibling call
         // sites in this file already bound the shader first; only this one did
-        // not (issue #691 Phase 3). The storage-buffer binds above are unaffected:
+        // not (issue #691). The storage-buffer binds above are unaffected:
         // they do not go through the heap.
         m_OcclusionCullShader->Bind();
         // Persistent — culler-owned pyramid.

@@ -9,7 +9,7 @@
 >
 > The engine-side design decided *within* this scope — the neutral
 > resource/binding model, backend selection, and the PSO-cache story — lives in
-> [ADR 0011](0011-rhi-neutral-resource-and-binding-model.md) (issue #691 Phase 1).
+> [ADR 0011](0011-rhi-neutral-resource-and-binding-model.md) (issue #691).
 
 Issue [#691](https://github.com/drsnuggles8/OloEngineBase/issues/691) is the
 phased roadmap for adding a second, modern graphics-API backend to the
@@ -253,7 +253,7 @@ time"* — writing ~January 2026. It improved, within six months, exactly as
 predicted. When weighing that write-up, discount the tooling con accordingly;
 the *driver-support* con is the one that survived re-verification.
 
-**Consequence for #691 Phase 4:** when the SDK is vendored, pin **1.4.357.0 as
+**Consequence for #691:** when the SDK is vendored, pin **1.4.357.0 as
 the floor**, and say so. This is not "use the newest thing" — the repo pins
 vendor dependencies to fixed versions for reproducibility (#294), and this is
 the first SDK in which the binding model this ADR committed to exclusively can
@@ -271,7 +271,7 @@ tooling date the driver-floor picture above is meant to track.
 - The renderer will, for the duration of issue #691's roadmap, carry two
   backends with a shared render-graph/command-recording layer but two
   genuinely different physical resource and binding implementations — the
-  abstraction-hardening work in #691 Phase 2 exists specifically to make that
+  abstraction-hardening work in #691 exists specifically to make that
   tractable rather than the ~620 scattered `glXxx()` call sites it starts
   from.
 - No D3D12/Metal decision is made here; a future backend would need its own

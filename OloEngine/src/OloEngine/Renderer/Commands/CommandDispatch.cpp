@@ -76,7 +76,7 @@ namespace OloEngine
         glm::vec3 RenderOrigin = glm::vec3(0.0f);
 
         // The redundant-bind cache keys on IDENTITIES, not driver names
-        // (issue #691 step 3, slice 6). That is a correctness change, not a
+        // (issue #691). That is a correctness change, not a
         // type change: GL reissues object names, so a deleted texture and a
         // newly created one could compare equal here and the cache would SKIP
         // a bind that genuinely had to happen. Two live handles cannot
@@ -88,7 +88,7 @@ namespace OloEngine
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         // Heap re-initialisation epoch the cached material UBO was built under.
         // Its per-material heap offsets index THAT heap, so the cache must be
-        // dropped when it bumps (issue #691 Phase 3).
+        // dropped when it bumps (issue #691).
         u64 HeapEpoch = 0u;
         // Whether the CACHED material UBO was built with live heap offsets.
         //
@@ -98,7 +98,7 @@ namespace OloEngine
         // shader was bound holds null offsets, and re-using that cached upload for
         // a BINDLESS shader would skip the binds (BindPBRTextures) AND supply no
         // offsets — the material renders with no textures at all. The program kind
-        // is therefore part of the cache key (issue #691 Phase 3).
+        // is therefore part of the cache key (issue #691).
         bool LastMaterialOffsetsLive = false;
         std::array<RHI::ResourceHandle, ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS> BoundTextures{};
         u32 CurrentViewportWidth = 0;
@@ -457,7 +457,7 @@ namespace OloEngine
     // told which target of the unit to touch; the facade's BindTexture is the
     // DSA form, where the target is a property of the texture object itself. The
     // 2D-vs-cubemap distinction was therefore never carrying information the
-    // driver did not already have (issue #691 Phase 2 step 2).
+    // driver did not already have (issue #691).
     // THE REDUNDANT-BIND CACHE MUST NOT SHORT-CIRCUIT THE OFFSET WRITE, and the
     // reason is that the two caches guard different claims. `BoundTextures[slot]`
     // means "this slot's GL BINDING is already correct", which is sound because a
@@ -478,7 +478,7 @@ namespace OloEngine
     // slot hits the cache and skips its own bind, sampling whatever that unit
     // last held. The two helpers below got this right while every direct
     // dispatch-handler call site (skybox, quad, decal, foliage) did not, which is
-    // exactly the kind of divergence a free function stops (issue #691 Phase 3).
+    // exactly the kind of divergence a free function stops (issue #691).
     [[nodiscard]] static auto CacheEntryAfterSeam(const RHI::HeapOffset staged, const RHI::ResourceHandle texture)
         -> RHI::ResourceHandle
     {
@@ -508,7 +508,7 @@ namespace OloEngine
         // consumer of the same slot would hit the cache and skip its own bind —
         // sampling whatever that unit last held. Latent until a shader sharing a
         // slot with an unconverted one converts, which is precisely what the
-        // shadow arrays and the IBL trio do (issue #691 Phase 3).
+        // shadow arrays and the IBL trio do (issue #691).
         s_Data.BoundTextures[slot] = CacheEntryAfterSeam(staged, texture);
         ++s_Data.Stats.TextureBinds;
     }
@@ -518,7 +518,7 @@ namespace OloEngine
     // Persistent lifetime throughout: these are asset-owned textures, never
     // graph-pooled, so the descriptors are memoised and the offsets are stable
     // across frames — which is what keeps the material UBO cacheable
-    // (issue #691 Phase 3, ADR 0011 amendment (32)).
+    // (issue #691, ADR 0011 amendment (32)).
     //
     // Order MUST match OLO_MATERIAL_* in include/BindlessHeap.glsl. Getting it
     // wrong swaps two real textures rather than producing an obvious error.
@@ -531,7 +531,7 @@ namespace OloEngine
         // minting with SamplerDesc{} makes the converted shader sample
         // differently from the unconverted one, plausibly and silently. Measured
         // at RMSE 5.861 vs 1.413 on WorldOriginRebaseVisualEvidence before this
-        // was carried through (issue #691 Phase 3).
+        // was carried through (issue #691).
         //
         // The right state is READ OFF THE BACKEND, not assumed: every
         // OpenGLTexture2D path sets LINEAR / LINEAR_MIPMAP_LINEAR + GL_REPEAT and
@@ -608,7 +608,7 @@ namespace OloEngine
                     {
                         OLO_CORE_WARN("CommandDispatch: material texture heap-descriptor ACQUISITION failed — the "
                                       "bindless program will sample the reserved null and render BLACK (it cannot "
-                                      "fall back to slot binds, issue #691 Phase 3).");
+                                      "fall back to slot binds, issue #691).");
                     }
                 }
                 return RHI::NullOffsetForSamplerKind(kind);
@@ -645,7 +645,7 @@ namespace OloEngine
     //
     // Gated on the PROGRAM, not on the heap toggle: a slot-based shader in a
     // bindless-enabled build still needs every one of these
-    // (HeapBinding::WritesOffsetsForBoundProgram, issue #691 Phase 3).
+    // (HeapBinding::WritesOffsetsForBoundProgram, issue #691).
     static void BindPBRTextures(const PODMaterialData& mat)
     {
         // THE NARROW QUESTION, not the broad one. WritesOffsetsForBoundProgram()
@@ -660,7 +660,7 @@ namespace OloEngine
         // frame. Routing those through per-material offsets resolves an invalid
         // handle to the reserved null and the mesh loses all ambient light — a
         // dark scene with no error. They stay on the shared offset table, which is
-        // exactly what BindTrackedTexture stages (issue #691 Phase 3).
+        // exactly what BindTrackedTexture stages (issue #691).
         if (const bool materialLocalFromHeap = Shader::ReadsMaterialHeapOffsets(); !materialLocalFromHeap)
         {
             BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE);
@@ -695,7 +695,7 @@ namespace OloEngine
         // re-uploaded when the material actually changes. That cache has to be
         // dropped across a heap re-initialisation, though: the offsets in it index
         // the PREVIOUS heap, and unlike a stale texture bind that reads as a
-        // plausible wrong image rather than an obvious one (issue #691 Phase 3).
+        // plausible wrong image rather than an obvious one (issue #691).
         if (const u64 heapEpoch = RHI::DescriptorHeap::Get().GetInitEpoch(); heapEpoch != s_Data.HeapEpoch)
         {
             s_Data.HeapEpoch = heapEpoch;
@@ -846,7 +846,7 @@ namespace OloEngine
 
         // The KIND travels with the bind, not just the sampler: these four are the
         // array-typed inputs on the shared table, so a retired one must poison to
-        // its own typed null rather than the 2D one (issue #691 Phase 3).
+        // its own typed null rather than the 2D one (issue #691).
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTexture, kShadowCompare,
                                RHI::NullSamplerKind::Texture2DArrayShadow);
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS, s_Data.AtlasShadowTexture, kShadowCompare,
@@ -1119,7 +1119,7 @@ namespace OloEngine
             inst.EntityID = modelData.EntityID;
             inst.LightmapScaleOffset = lightmapScaleOffset;
             // Color / Custom keep their defaults (white tint, 0) — the explicit
-            // instancing path populates them in Phase 3.
+            // instancing path populates them later.
 
             const std::span<const InstanceData> oneInstance(&inst, 1);
             instanceBuffer->Upload(oneInstance);
@@ -1322,7 +1322,7 @@ namespace OloEngine
         cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(
             MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, origin));
         cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)
-        // Reconstruction flavour (#691 Phase 8): terrain tessellation scale,
+        // Reconstruction flavour (#691): terrain tessellation scale,
         // water depth math and the culling compute read this member.
         cameraData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(projection);
         s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
@@ -1582,7 +1582,7 @@ namespace OloEngine
         // Bind VAO (cached) and draw.
         //
         // EVERY DRAW IN THIS FILE PUBLISHES THE STAGED OFFSETS, and the uniformity
-        // is the point (issue #691 Phase 3). Whether a handler owes a flush is a
+        // is the point (issue #691). Whether a handler owes a flush is a
         // property of the SHADER it happens to be dispatching — which changes as
         // shaders convert — not of the handler, so pairing them per site is a rule
         // that has to be re-derived every time a `.glsl` gains an `#ifdef
@@ -1827,7 +1827,7 @@ namespace OloEngine
         // ever written to the CPU mirror. It survived because descriptors are
         // persistent and some later pass flushes them, so the damage is confined
         // to the first frame a material is seen — a one-frame wrong image, which
-        // is the hardest kind to notice (issue #691 Phase 3).
+        // is the hardest kind to notice (issue #691).
         //
         // Cheap when nothing changed: FlushOffsets early-outs on a clean table
         // and DescriptorHeap::Flush uploads only the dirty span.
@@ -2088,7 +2088,7 @@ namespace OloEngine
         // ever written to the CPU mirror. It survived because descriptors are
         // persistent and some later pass flushes them, so the damage is confined
         // to the first frame a material is seen — a one-frame wrong image, which
-        // is the hardest kind to notice (issue #691 Phase 3).
+        // is the hardest kind to notice (issue #691).
         //
         // Cheap when nothing changed: FlushOffsets early-outs on a clean table
         // and DescriptorHeap::Flush uploads only the dirty span.
@@ -2289,9 +2289,9 @@ namespace OloEngine
         //
         // This is the one facade call with no faithful Vulkan lowering — SPIR-V
         // has push constants and UBO members, not a name-queryable default
-        // uniform block. Phase 6 folds u_GridScale into a UBO and deletes
+        // uniform block. The pipeline work folds u_GridScale into a UBO and deletes
         // SetProgramUniformFloat (ADR 0011 amendment (9)); the debt is recorded
-        // rather than hidden so Phase 7 bring-up is not surprised by it.
+        // rather than hidden so a later bring-up is not surprised by it.
         api.SetProgramUniformFloat(cmd->shaderRendererID, "u_GridScale", cmd->gridScale);
 
         // Bind fullscreen quad VAO (cached) and draw
@@ -2724,7 +2724,7 @@ namespace OloEngine
         // color program is swapped for Water_Depth — the same VS/TCS/TES
         // displacement chain with a no-color-output fragment stage, so the
         // depth-only capture target needs no scene-MRT attachment mirroring
-        // (the depth-prepass shader-swap shape, #691 Phase 8).
+        // (the depth-prepass shader-swap shape, #691).
         RHI::ResourceHandle shaderToBind = cmd->shaderRendererID;
         if (s_Data.WaterDepthCaptureActive && s_Data.WaterDepthShaderID.IsValid())
         {

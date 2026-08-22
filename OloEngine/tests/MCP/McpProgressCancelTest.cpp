@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: unit
 //
-// MCP progress notifications + request cancellation (issue #357 item B, spec
+// MCP progress notifications + request cancellation (issue #357, spec
 // 2025-06-18 / 2025-11-25 utilities):
 //   * a tools/call carrying params._meta.progressToken gets
 //     notifications/progress delivered through the transport-agnostic

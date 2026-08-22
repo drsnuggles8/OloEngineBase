@@ -3,7 +3,7 @@
 
 // The MCP dispatch core (McpServer.cpp) is compiled into the test binary; this
 // header only forward-declares httplib, so no socket / winsock types are pulled
-// in here. We exercise the transport-agnostic seam added for issue #306 item D:
+// in here. We exercise the transport-agnostic seam added for issue #306:
 //   * HandleMessage(Json)        — one JSON-RPC message in, one response out
 //   * ProcessRequestBody(string) — the framing layer (parse, batch, sessions)
 //   * CheckBearerAuth / IsOriginAllowed — the security checks, as pure helpers
@@ -154,7 +154,7 @@ TEST_F(McpDispatchTest, InitializeReturnsHandshakeShape)
     EXPECT_TRUE(caps.contains("resources"));
     EXPECT_TRUE(caps.contains("prompts"));
     // `logging` is advertised because GET /mcp pushes diagnostics events as
-    // notifications/message log notifications (#306 item B server-push stream).
+    // notifications/message log notifications (#306 server-push stream).
     // Spec 2026-07-28 DEPRECATED it (≥12-month offramp), so #777 added a
     // successor carrier — resources.subscribe below — that runs BESIDE it. This
     // assertion is the pin that stops the deprecated carrier being dropped early:

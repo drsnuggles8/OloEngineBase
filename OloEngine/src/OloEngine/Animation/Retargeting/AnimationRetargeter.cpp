@@ -111,7 +111,7 @@ namespace OloEngine::Animation
             else if (options.Translation == RetargetOptions::TranslationMode::PerBoneRatio &&
                      static_cast<int>(t) != rootBone)
             {
-                // Bone-length-ratio transfer (issue #631 part 2): the source
+                // Bone-length-ratio transfer (issue #631): the source
                 // bone's translation delta carries over scaled to the target's
                 // proportions.
                 const f32 ratio = BoneTranslationRatio(sourceRestLocal[s].Translation, targetRest.Translation,
@@ -176,7 +176,7 @@ namespace OloEngine::Animation
 
             // Translation: target rest by default; transfer the scaled delta for
             // the root bone (locomotion / hip motion) and — in PerBoneRatio mode —
-            // for every mapped bone, scaled by its bone-length ratio (#631 part 2).
+            // for every mapped bone, scaled by its bone-length ratio (#631).
             const bool isRootBone = static_cast<int>(t) == rootBone;
             const bool transferTranslation =
                 !srcAnim->PositionKeys.empty() &&
@@ -209,7 +209,7 @@ namespace OloEngine::Animation
         }
 
         // Carry the source clip's root-motion configuration onto the baked clip
-        // so extraction (issue #631 part 1) keeps working after a retarget. The
+        // so extraction (issue #631) keeps working after a retarget. The
         // root-bone index must be remapped into the TARGET skeleton: the baked
         // clip's tracks are named for target bones and play against the target
         // skeleton's bone indices. An unmapped source root disables extraction

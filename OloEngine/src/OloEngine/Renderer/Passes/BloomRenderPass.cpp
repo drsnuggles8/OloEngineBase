@@ -132,7 +132,7 @@ namespace OloEngine
             return;
         }
 
-        // Phase D / H follow-up: resolve the bloom mip-chain entirely from the
+        // Follow-up: resolve the bloom mip-chain entirely from the
         // transient pool. The execute path no longer seeds from an owned
         // fallback chain.
         std::array<Ref<Framebuffer>, MAX_BLOOM_MIPS> bloomMips{};

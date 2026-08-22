@@ -200,7 +200,7 @@ namespace OloEngine
         // Accumulation parameters. Formerly bare uniforms driven by
         // ComputeShader::Set*, which GLSL-for-Vulkan cannot express and whose
         // Set* is a deliberate no-op on that route — one std140 refill per
-        // dispatch instead (issue #691 Phase 7).
+        // dispatch instead (issue #691).
         //
         // Clipmap center and extent are ring 0 (innermost).
         const auto& ce = gpu.ClipmapCenterAndExtent[0];
@@ -269,7 +269,7 @@ namespace OloEngine
 
         // Dispatch deformation compute
         s_Data.m_DeformShader->Bind();
-        // Same shared block as the accumulate dispatch (issue #691 Phase 7).
+        // Same shared block as the accumulate dispatch (issue #691).
         // The accumulate-only tail stays at its value-initialised zero here;
         // Snow_Deform.comp does not read it.
         const auto& ce = s_Data.m_GPUData.ClipmapCenterAndExtent[0];

@@ -214,7 +214,7 @@ namespace OloEngine
         // or the read is undefined, so a shader that resolves an unset input to a
         // null offset and builds `samplerCube` from it needs a real CUBE there.
         // A 2D null is not a conservative fallback for those — it is the defect
-        // (issue #691 Phase 3; it surfaced as an order-dependent visible pop,
+        // (issue #691; it surfaced as an order-dependent visible pop,
         // because undefined behaviour may depend on whatever ran before).
         //
         // FAIL-CLOSED, exactly as the two above are — see the branch below this
@@ -284,7 +284,7 @@ namespace OloEngine
             // environment probe is unset resolves to the cube null on the COMMON
             // path, so losing it makes the ordinary case undefined. Refusing the
             // extension puts the renderer back on the slot path, which is the
-            // supported configuration on any device without it (issue #691 Phase 3).
+            // supported configuration on any device without it (issue #691).
             OLO_CORE_ERROR("[RHI/GL] Could not create every typed null descriptor (cube={}, array={}, "
                            "arrayShadow={}). Disabling heap-bindless; the slot-based binding path stays "
                            "in use.",
@@ -599,9 +599,9 @@ namespace OloEngine
         //     `VkImageViewType`) and the resolution of `FormatOverride ==
         //     Unknown` against the resource's own format. Neither is needed by
         //     the image path, so neither has been added — an unexercised neutral
-        //     field is the sort of invented vocabulary Phase 2 step 2 paid for.
+        //     field is the sort of invented vocabulary the call-site sweep paid for.
         //
-        // So the remaining half is still a Phase 4 input, and it is now a SMALLER
+        // So the remaining half is still a device-bring-up input, and it is now a SMALLER
         // and better-specified one.
         const RHI::SubresourceRange defaultRange;
         if (!(view.Range == defaultRange) || view.FormatOverride != RHI::Format::Unknown)
@@ -647,7 +647,7 @@ namespace OloEngine
         // WHAT THIS COSTS, stated plainly because it is a real trade: the plain
         // form re-admits the GL-ism the neutral SamplerDesc exists to keep out.
         // Vulkan has no "inherit" — a VkSampler must be described — so every site
-        // passing a default desc today is a site Phase 4 has to give real sampler
+        // passing a default desc today is a site device bring-up has to give real sampler
         // state. `DefaultSamplerInherits` counts them, so that work is measurable
         // instead of discovered.
         // THE DISCRIMINATOR DECIDES, not a comparison against the defaults.
@@ -690,7 +690,7 @@ namespace OloEngine
                 s_Warned.fetch_add(1, std::memory_order_relaxed) < 4)
             {
                 OLO_CORE_WARN("[RHI/GL] SamplerDesc sets fields but leaves Source = InheritTexture. Honouring the "
-                              "fields; set RHI::SamplerSource::Explicit to say so (issue #691 Phase 3).");
+                              "fields; set RHI::SamplerSource::Explicit to say so (issue #691).");
             }
         }
 

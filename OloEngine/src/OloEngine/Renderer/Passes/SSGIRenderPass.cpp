@@ -160,7 +160,7 @@ namespace OloEngine
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
-        // Heap-bindless conversion (issue #691 Phase 3, bucket 1). Shader bound
+        // Heap-bindless conversion (issue #691, bucket 1). Shader bound
         // first — the seam forks on the program in flight. All four inputs are
         // graph-resolved (pooled), so FrameTransient rather than Persistent.
         m_SSGIShader->Bind();

@@ -22,7 +22,7 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                // Deliberate, documented stub (#691 Phase 9, ADR 0011 §1.6):
+                // Deliberate, documented stub (#691, ADR 0011 §1.6):
                 // resource registration is a GL-side instrument — the
                 // OLO_GPU_REGISTER_* macros fire only from Platform/OpenGL
                 // TUs, so under Vulkan there is nothing to inspect here.

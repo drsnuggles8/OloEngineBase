@@ -1,7 +1,7 @@
 #pragma once
 
 // Shared, editor-side schema + result shaping for the consented MCP scene-control
-// write tools (issue #316 Part 5): `olo_scene_open` (open/switch the active scene),
+// write tools (issue #316): `olo_scene_open` (open/switch the active scene),
 // `olo_scene_play` and `olo_scene_stop` (toggle Play mode). Together they give an
 // agent scriptable control over which scene is loaded and whether the runtime is
 // simulating — the "scriptable repro setup" the read-only server couldn't drive

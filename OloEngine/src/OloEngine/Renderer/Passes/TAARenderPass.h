@@ -11,7 +11,7 @@ namespace OloEngine
 {
     // @brief Standalone temporal anti-aliasing post-process pass.
     //
-    // Phase F slice 19 — standalone TAA stage in the dynamic chain:
+    // Standalone TAA stage in the dynamic chain:
     //   AOApply/Bloom/DOF/MotionBlur/Precipitation → TAA → Fog → ...
     //
     // Uses:

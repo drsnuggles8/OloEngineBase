@@ -5,7 +5,7 @@
 // McpConsentedWriteTest — unit test (headless, no GL, no live editor).
 //
 // Pins the first consented, undoable MCP WRITE tool: olo_set_collision_layer
-// (issue #306 item C, first slice). Two seams are exercised:
+// (issue #306). Two seams are exercised:
 //
 //   1. The dispatch seam (McpServer.cpp, compiled into the test binary): a tool
 //      flagged ToolDef::ProjectWrite is REFUSED with a clean JSON-RPC error while

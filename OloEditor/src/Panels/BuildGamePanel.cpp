@@ -103,7 +103,7 @@ namespace OloEngine
         ImGui::Spacing();
         ImGui::Combo("Build Configuration", &m_ConfigIndex, s_ConfigOptions, IM_ARRAYSIZE(s_ConfigOptions));
 
-        // Default renderer backend the shipped game boots with (#691 Phase 9)
+        // Default renderer backend the shipped game boots with (#691)
         // — written to config/renderer.yaml next to the game exe; the player's
         // --rhi= flag or a later settings write overrides it.
         ImGui::Combo("Default Renderer", &m_BackendIndex, kBackendOptions, IM_ARRAYSIZE(kBackendOptions));

@@ -74,7 +74,7 @@ namespace OloEngine
         std::array<char, 256> m_GameNameBuffer{};
         std::array<char, 512> m_OutputPathBuffer{};
         int m_ConfigIndex = 2;  // 0=Debug, 1=Release, 2=Dist
-        int m_BackendIndex = 0; // 0=opengl, 1=vulkan (#691 Phase 9)
+        int m_BackendIndex = 0; // 0=opengl, 1=vulkan (#691)
 
         // Build tracking
         std::atomic<f32> m_BuildProgress{ 0.0f }; // 0.0-1.0 real progress written by GameBuildPipeline

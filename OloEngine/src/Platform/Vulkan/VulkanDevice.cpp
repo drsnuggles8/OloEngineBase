@@ -216,7 +216,7 @@ namespace OloEngine
         // Chained into pNext so create/destroy of the instance itself is covered
         // before/after the persistent messenger exists.
         VkDebugUtilsMessengerCreateInfoEXT messengerInfo = MakeDebugMessengerCreateInfo();
-        // Synchronization validation is the real test of Phase 5's barrier
+        // Synchronization validation is the real test of the barrier
         // translation: the core validation layer checks structure, sync
         // validation checks that the barriers actually cover every hazard.
         const VkValidationFeatureEnableEXT enabledValidationFeatures[] = {
@@ -394,9 +394,9 @@ namespace OloEngine
         vulkan13Features.synchronization2 = VK_TRUE;
         // glslang at vulkan1.4 lowers `discard` to OpDemoteToHelperInvocation
         // — without the feature every discard shader fails module creation
-        // (VUID 08740; found by the fluid splat shaders, issue #691 Phase 7).
+        // (VUID 08740; found by the fluid splat shaders, issue #691).
         vulkan13Features.shaderDemoteToHelperInvocation = VK_TRUE;
-        // dynamicRendering backs Phase 6's VkPipelineRenderingCreateInfo pipelines
+        // dynamicRendering backs the VkPipelineRenderingCreateInfo pipelines
         // (no VkRenderPass objects anywhere in the backend). Same class as
         // synchronization2: core in 1.3 and MANDATORY for 1.3+ devices, so no
         // capability-gate entry — but it still defaults OFF at device creation.
@@ -409,7 +409,7 @@ namespace OloEngine
         vulkan13Features.maintenance4 = VK_TRUE;
         vulkan13Features.pNext = &untypedFeatures;
 
-        // Phase 6 (#691): two more core-promoted-but-default-OFF features, both
+        // #691: two more core-promoted-but-default-OFF features, both
         // MANDATORY at the 1.3+ floor so neither is a capability-gate row:
         //  - timelineSemaphore backs RHI::GpuFence (ADR 0011 §6 — the split-barrier
         //    signal/wait primitive IS a timeline semaphore).
@@ -420,7 +420,7 @@ namespace OloEngine
         // shaderBufferInt64Atomics lives HERE, not in a standalone
         // VkPhysicalDeviceShaderAtomicInt64Features: the feature was promoted
         // in 1.2 and VUID-VkDeviceCreateInfo-pNext-02830 forbids chaining both
-        // structs (caught by validation on Phase 6's first device run — the
+        // structs (caught by validation on the first device run — the
         // standalone struct was fine only while no Vulkan12Features existed).
         VkPhysicalDeviceVulkan12Features vulkan12Features{};
         vulkan12Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
@@ -428,7 +428,7 @@ namespace OloEngine
         vulkan12Features.bufferDeviceAddress = VK_TRUE;
         vulkan12Features.pNext = &vulkan13Features;
 
-        // #691 Phase 7 Wave C: shaderDrawParameters backs the SPIR-V
+        // #691: shaderDrawParameters backs the SPIR-V
         // DrawParameters capability (gl_DrawID / gl_BaseInstance — the
         // virtual-geometry MDI shaders). Promoted to Vulkan11Features and
         // enabled WHEN SUPPORTED (never a gate row); drawIndirectCount (set
@@ -442,7 +442,7 @@ namespace OloEngine
         // VK_EXT_extended_dynamic_state3: OPTIONAL (ADR 0011 §5 — dynamic blend
         // state when available, blend baked into the PSO when not). Never a gate
         // row; requiring it would silently widen the ADR 0010 contract. Only the
-        // three blend states Phase 6 uses are enabled — enabling feature bits a
+        // three blend states the pipelines use are enabled — enabling feature bits a
         // pipeline never sets dynamic would be dead weight the validation layer
         // still has to reason about.
         VkPhysicalDeviceExtendedDynamicState3FeaturesEXT supportedEds3{};
@@ -525,12 +525,12 @@ namespace OloEngine
         enabledFeatures.tessellationShader = supported.tessellationShader;
         enabledFeatures.geometryShader = supported.geometryShader;
         // multiDrawIndirect: maxDrawCount > 1 on vkCmdDrawIndexedIndirectCount
-        // requires the feature (#691 Phase 7 Wave C, same when-supported rule).
+        // requires the feature (#691, same when-supported rule).
         enabledFeatures.multiDrawIndirect = supported.multiDrawIndirect;
         // Vertex-stage SSBO writes (ShaderDebugDraw's channel buffers) and
         // fragment-stage storage images (VirtualGeometry's debug images) are
         // rejected at pipeline creation without these two core features
-        // (#691 Phase 7 Wave C batch 2, when-supported rule as above).
+        // (#691, when-supported rule as above).
         enabledFeatures.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;
         enabledFeatures.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
         // samplerCubeArray in a shader declares the SampledCubeArray SPIR-V
@@ -549,7 +549,7 @@ namespace OloEngine
         // glEnablei/glBlendFunci/glColorMaski — exists to make those elements
         // DIFFER (WB-OIT's accum-vs-revealage split, and the decal G-Buffer
         // mode matrix's per-RT colour masks). Enabled when supported, never a
-        // gate row (#691 Phase 7 Wave C batch 3).
+        // gate row (#691).
         enabledFeatures.independentBlend = supported.independentBlend;
         m_TessellationShaderEnabled = supported.tessellationShader == VK_TRUE;
         m_GeometryShaderEnabled = supported.geometryShader == VK_TRUE;
@@ -558,7 +558,7 @@ namespace OloEngine
         // shaderBufferInt64Atomics: the facade REPORTS this capability
         // (SupportsInt64ShaderAtomics feeds the virtual-geometry software
         // rasterizer's path choice), and a queried-but-not-enabled feature is
-        // a Phase 6 shader crash waiting to happen. Enabled when supported,
+        // a shader crash waiting to happen. Enabled when supported,
         // never required — set on vulkan12Features (see the comment there).
         VkPhysicalDeviceShaderAtomicInt64Features supportedAtomics{};
         supportedAtomics.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
@@ -700,7 +700,7 @@ namespace OloEngine
                                                  : "VK_EXT_mesh_shader not present");
         }
 
-        // --- VMA (vendoring proof + the allocator Phase 5's VMA-backed --------
+        // --- VMA (vendoring proof + the allocator the VMA-backed ---------------
         // transient resources allocate from, reached via VulkanDevice::Get())
         {
             VmaVulkanFunctions vulkanFunctions{};
@@ -709,7 +709,7 @@ namespace OloEngine
             allocatorInfo.device = m_Device;
             allocatorInfo.instance = m_Instance;
             allocatorInfo.vulkanApiVersion = VulkanCapabilities::kMinApiVersion;
-            // bufferDeviceAddress is enabled above (Phase 6); without this flag
+            // bufferDeviceAddress is enabled above; without this flag
             // VMA refuses to pass VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
             // through to its pooled allocations and vkGetBufferDeviceAddress
             // on a VMA buffer is undefined.
@@ -735,7 +735,7 @@ namespace OloEngine
         // Idempotent: also runs from the dtor after an explicit Shutdown, and
         // after a partially-failed Init (whatever came up gets torn down).
         // Order: pool -> VMA -> device -> messenger -> instance — the tail of
-        // Phase 4's teardown, unchanged. The caller destroys its surface and
+        // The original teardown, unchanged. The caller destroys its surface and
         // frame-loop objects BEFORE calling this (surface before instance).
         if (m_Device != VK_NULL_HANDLE)
         {

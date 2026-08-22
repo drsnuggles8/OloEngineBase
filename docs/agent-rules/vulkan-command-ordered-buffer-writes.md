@@ -1,6 +1,6 @@
 # Vulkan: a CPU buffer write between two recorded draws is a semantic, not a memcpy
 
-Postmortem of the #691 Phase 8 screenshot-parity failure: two of three sandbox
+Postmortem of the #691 screenshot-parity failure: two of three sandbox
 scenes rendered **skybox-only** under Vulkan — every sphere, cube and floor
 plane missing — while the third scene rendered perfectly, the full Vulkan pass
 suite stayed green, and the log carried zero errors, zero validation messages

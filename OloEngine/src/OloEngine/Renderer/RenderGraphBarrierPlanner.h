@@ -23,7 +23,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
     // the result is a pure data structure the executor consumes via the
     // abstract `RGCommandContext::MemoryBarrier(flags)` entry point.
     //
-    // Phase 7 module split (2026-05-11): this file isolates the barrier planner
+    // Module split (2026-05-11): this file isolates the barrier planner
     // from the `RenderGraph` god-class. The previous in-class
     // `RenderGraph::ComputeBarrierPlan` and `RenderGraph::GetResourceTransitions`
     // methods now delegate here.
@@ -39,7 +39,7 @@ namespace OloEngine::RenderGraphBarrierPlanner
     [[nodiscard]] auto ResolveConsumerBarrierFlags(RGReadUsage usage) -> MemoryBarrierFlags;
 
     // ------------------------------------------------------------------------
-    // Builder-usage → unified-access mapping (ADR 0011 §1.5, Phase 5).
+    // Builder-usage → unified-access mapping (ADR 0011 §1.5).
     //
     // RGWriteUsage / RGReadUsage stay the builder's declaration vocabulary;
     // the transition record is typed with RHI::Access so a write→write pair

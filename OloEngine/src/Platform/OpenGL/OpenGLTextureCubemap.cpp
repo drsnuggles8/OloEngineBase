@@ -243,7 +243,7 @@ namespace OloEngine
         // Both lifecycle calls, through the shared helper — the same skip-bind
         // hazard applies when the recycled ID is later supplied for a cubemap
         // slot, and the heap's descriptors name the GL object and so dangle
-        // across this deletion (issue #691 Phase 3).
+        // across this deletion (issue #691).
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;

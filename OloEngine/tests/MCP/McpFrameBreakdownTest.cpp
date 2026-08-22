@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 // Unit tests for the pure JSON shaping behind olo_render_frame_breakdown (issue
-// #306 item D, bullet 2: surface the CommandPacketDebugger / FrameCaptureManager
+// #306, bullet 2: surface the CommandPacketDebugger / FrameCaptureManager
 // data over MCP). The shaping lives in a header that touches ONLY the already-
 // captured frame data (MCP/McpFrameBreakdown.h), so it is exercised here against a
 // synthetic CapturedFrameData — the test binary deliberately does NOT compile
@@ -215,7 +215,7 @@ TEST(McpFrameBreakdown, StatsAndStageCountsPassThrough)
     EXPECT_EQ(0u, stage["postBatch"].get<sizet>());
 }
 
-// ---- graph-wide command-bucket attribution (#316 Part 4) --------------------
+// ---- graph-wide command-bucket attribution (#316) --------------------
 
 namespace
 {
@@ -325,7 +325,7 @@ TEST(McpFrameBreakdown, CaptureSourceFallsBackToAttributionWhenFrameUnset)
     EXPECT_FALSE(passes[2]["isCaptureSource"].get<bool>());
 }
 
-// ---- full per-pass command capture (#463 / #316 Part 4) ---------------------
+// ---- full per-pass command capture (#463 / #316) ---------------------
 
 namespace
 {

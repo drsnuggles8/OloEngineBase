@@ -1184,7 +1184,7 @@ TEST_F(LowLevelTaskUserDataTest, ConcurrencyLimiterSimulation)
     TArray<TSharedPtr<LowLevelTasks::FTask>> Tasks;
     Tasks.Reserve(NumTasks);
 
-    // Phase 1: Create and queue all tasks (similar to Push)
+    // Create and queue all tasks (similar to Push)
     for (u32 i = 0; i < NumTasks; ++i)
     {
         TSharedPtr<LowLevelTasks::FTask> Task = MakeShared<LowLevelTasks::FTask>();
@@ -1203,7 +1203,7 @@ TEST_F(LowLevelTaskUserDataTest, ConcurrencyLimiterSimulation)
         WorkQueue.Push(Task.Get());
     }
 
-    // Phase 2: Pop and launch all tasks with slots (similar to ProcessQueue)
+    // Pop and launch all tasks with slots (similar to ProcessQueue)
     u32 SlotCounter = 0;
     while (LowLevelTasks::FTask* PoppedTask = WorkQueue.Pop())
     {

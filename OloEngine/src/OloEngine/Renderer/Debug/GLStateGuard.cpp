@@ -1,7 +1,7 @@
 // =============================================================================
 // GLStateGuard.cpp
 //
-// Backend-neutral shell (#691 Phase 9, ADR 0011 §1.6): the raw-GL snapshot
+// Backend-neutral shell (#691, ADR 0011 §1.6): the raw-GL snapshot
 // capture and apply live in Platform/OpenGL/OpenGLStateGuard.cpp, reached
 // through the free-function seam declared in StateGuardBackend.h. This TU
 // keeps the backend gates, the CPU-side diff, and the guard's policy /
@@ -160,7 +160,7 @@ namespace OloEngine
         // ctor/dtor path, but a pass may call ApplyCore() DIRECTLY on the
         // guard's entry snapshot to roll its own reconfiguration back before
         // the dtor's diff runs — PlanarReflectionRenderPass does exactly that
-        // (#691 Phase 7 Wave C). On a non-GL backend that snapshot is the
+        // (#691). On a non-GL backend that snapshot is the
         // default-constructed one the inert ctor left behind, so the raw GL
         // calls behind the seam are at best meaningless and at worst fatal: in
         // a Vulkan-only process the glad pointers are NULL, and mid-suite (a GL
@@ -184,8 +184,8 @@ namespace OloEngine
         // The guard is a GL-STATE instrument: on any other backend there is
         // no GL state to capture and the glad pointers may be NULL (a
         // Vulkan-only process never loads GL), so Capture() would fault.
-        // Finalise immediately — ctor and dtor become inert (#691 Phase 7
-        // Wave C: DeferredLighting / FluidComposite / Overdraw are the first
+        // Finalise immediately — ctor and dtor become inert (#691
+        // DeferredLighting / FluidComposite / Overdraw are the first
         // guard-carrying pass bodies to execute on the Vulkan backend).
         if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
         {

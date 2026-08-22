@@ -163,7 +163,7 @@ namespace OloEngine::MCP
             tool.Name = "olo_reload_script";
             tool.Toolset = "scripting";
             tool.Title = "Reload script assembly";
-            // A project-WRITE tool (#306 item C): reloading swaps in the user's
+            // A project-WRITE tool (#306): reloading swaps in the user's
             // freshly-built C# assembly and runs its code, so it is gated behind the
             // session "Allow writes" toggle, like the other writes. readOnlyHint:false
             // (not idempotent — each reload re-reads from disk into a fresh app domain;

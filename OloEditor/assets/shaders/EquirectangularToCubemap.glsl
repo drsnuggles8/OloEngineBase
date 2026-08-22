@@ -8,7 +8,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
+// #691 (ADR 0011 §5): V1 engine-vertex pull. On the Vulkan route the
 // pipeline has no vertex-input state, so attributes are READ from binding 57
 // (the engine-wide vertex-pull binding; the root struct carries this buffer's
 // device address). This bake draws MeshPrimitives::CreateSkyboxCube(), whose

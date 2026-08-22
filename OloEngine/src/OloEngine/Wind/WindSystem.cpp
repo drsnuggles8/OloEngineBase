@@ -137,7 +137,7 @@ namespace OloEngine
         // Generation parameters. Formerly bare uniforms driven by
         // ComputeShader::Set*, which GLSL-for-Vulkan cannot express and whose
         // Set* is a deliberate no-op on that route — one std140 refill per
-        // generation instead (issue #691 Phase 7).
+        // generation instead (issue #691).
         if (!s_Data.m_GenerateUBO)
         {
             s_Data.m_GenerateUBO = UniformBuffer::Create(UBOStructures::WindGenerateUBO::GetSize(),

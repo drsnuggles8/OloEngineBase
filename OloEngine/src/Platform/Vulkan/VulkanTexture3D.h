@@ -6,7 +6,7 @@
 
 // =============================================================================
 // VulkanTexture3D.h — the VMA-backed Texture3D backend twin of OpenGLTexture3D
-// (#691; split out of the single VulkanTransientResources.h in Phase 9).
+// (#691; split out of the single VulkanTransientResources.h).
 //
 // This header exposes Vulkan types directly — it is included only by
 // Platform/Vulkan siblings and by OLO_WITH_VULKAN-guarded engine factory TUs
@@ -25,8 +25,8 @@
 namespace OloEngine
 {
     // -------------------------------------------------------------------------
-    // VulkanTexture3D — the Texture3D backend twin (issue #691 Phase 7
-    // Wave B: froxel-fog volumes, 3D noise fields). Sampled (sampler3D) +
+    // VulkanTexture3D — the Texture3D backend twin (issue #691
+    // Froxel-fog volumes, 3D noise fields). Sampled (sampler3D) +
     // storage (image3D) usage in one image; registers
     // VK_IMAGE_VIEW_TYPE_3D in VulkanImageInfoRegistry so both bind paths
     // build 3D views instead of the 2D default.

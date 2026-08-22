@@ -128,7 +128,7 @@ bulk/binary path or runtime spawner is the fix direction.
 
 ## Update (2026-07-03, later same day): reworked onto real scene control
 
-`olo_scene_open`/`olo_scene_play`/`olo_scene_stop` (#316 Part 5) merged to
+`olo_scene_open`/`olo_scene_play`/`olo_scene_stop` (#316) merged to
 master shortly after the section above was written. Merged into this branch
 and reworked the driver to keep **one** editor instance for the whole battery,
 switching scenes over MCP instead of relaunching per scene — see

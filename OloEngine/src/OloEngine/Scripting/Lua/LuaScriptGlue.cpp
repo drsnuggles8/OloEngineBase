@@ -1486,7 +1486,7 @@ namespace OloEngine
                                                   "collideConnected", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                     { return j.m_CollideConnected; }, [](PhysicsJoint3DComponent& j, bool v)
                                                                                     { j.m_CollideConnected = v; }),
-                                                  // Pulley (world-space fixed points + ratio/length) — issue #308 item 4.
+                                                  // Pulley (world-space fixed points + ratio/length) — issue #308.
                                                   "pulleyFixedPointA", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                      { return j.m_PulleyFixedPointA; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
                                                                                      { if (IsFiniteVec3(v)) j.m_PulleyFixedPointA = v; }),
@@ -1502,7 +1502,7 @@ namespace OloEngine
                                                   "pulleyMaxLength", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                    { return j.m_PulleyMaxLength; }, [](PhysicsJoint3DComponent& j, f32 v)
                                                                                    { if (std::isfinite(v)) j.m_PulleyMaxLength = std::clamp(v, -1.0f, 1.0e9f); }),
-                                                  // Gear / RackAndPinion (connected-body axis + ratio) — issue #308 item 4.
+                                                  // Gear / RackAndPinion (connected-body axis + ratio) — issue #308.
                                                   "connectedAxis", sol::property([](const PhysicsJoint3DComponent& j)
                                                                                  { return j.m_ConnectedAxis; }, [](PhysicsJoint3DComponent& j, const glm::vec3& v)
                                                                                  { if (IsFiniteVec3(v)) j.m_ConnectedAxis = v; }),
@@ -2448,7 +2448,7 @@ namespace OloEngine
                                                                       { return c.Weight; }, [](SpringBoneComponent& c, f32 v)
                                                                       { if (std::isfinite(v)) c.Weight = std::clamp(v, 0.0f, 1.0f); }));
 
-        // --- LocomotionComponent (issue #631 part 4) ---
+        // --- LocomotionComponent (issue #631) ---
         // Scripts steer a root-motion character by setting desiredVelocity and
         // useDesiredVelocity; everything else is authored tuning.
         lua.new_usertype<LocomotionComponent>("LocomotionComponent",
@@ -2465,7 +2465,7 @@ namespace OloEngine
                                                                              { return c.RunEnterSpeed; }, [](LocomotionComponent& c, f32 v)
                                                                              { if (std::isfinite(v) && v >= 0.0f) c.RunEnterSpeed = v; }));
 
-        // --- FootIKComponent (issue #631 part 3) ---
+        // --- FootIKComponent (issue #631) ---
         // Ground-adaptation knobs + hand IK targets; runtime state stays native.
         lua.new_usertype<FootIKComponent>("FootIKComponent",
                                           "enabled", &FootIKComponent::Enabled,
@@ -2495,7 +2495,7 @@ namespace OloEngine
                                                                       { return c.HandWeight; }, [](FootIKComponent& c, f32 v)
                                                                       { if (std::isfinite(v)) c.HandWeight = std::clamp(v, 0.0f, 1.0f); }));
 
-        // --- RetargetingComponent (issue #631 part 2) ---
+        // --- RetargetingComponent (issue #631) ---
         // Authored settings only; the baked-clip cache is runtime state. UUID
         // bridged as u64 like the IKTargetComponent target entities.
         lua.new_usertype<RetargetingComponent>("RetargetingComponent",

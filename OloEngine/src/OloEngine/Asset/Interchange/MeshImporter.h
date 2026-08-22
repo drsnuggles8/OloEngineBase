@@ -54,7 +54,7 @@ namespace OloEngine
     };
 
     // Abstract translator from a source geometry file (FBX / glTF / OBJ / USD / Alembic / …)
-    // to the engine's unified MeshSource. This is the thin interchange seam issue #655 Tier 2
+    // to the engine's unified MeshSource. This is the thin interchange seam issue #655
     // asks for: a MeshImporter fronting every parser so new formats plug in behind
     // MeshImporterRegistry without touching AssetSerializer/AssetImporter call sites.
     //

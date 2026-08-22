@@ -11,7 +11,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is Renderer3D::DrawLightCube (deferred variant), which
 // draws s_Data.CubeMesh = MeshPrimitives::CreateCube() — the engine `Vertex`
 // (32 B: vec3 position @0, vec3 normal @12, vec2 uv @24), so the stride is

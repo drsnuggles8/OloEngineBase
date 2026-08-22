@@ -129,7 +129,7 @@ counts merged quads.
 
 Without it, `instances[gl_InstanceIndex]` reads `224 × quadIndex` bytes into a 224-byte upload.
 Under GL that clamps to garbage and the chunk collapses; under Vulkan it is a buffer-device-address
-page fault that loses the device (the #691 Phase 8 foliage `VK_ERROR_DEVICE_LOST`).
+page fault that loses the device (the #691 foliage `VK_ERROR_DEVICE_LOST`).
 
 ## 7. The chunk origin and voxel size ride the model matrix
 

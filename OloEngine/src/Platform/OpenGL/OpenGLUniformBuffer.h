@@ -17,7 +17,7 @@ namespace OloEngine
         void SetData(const UniformData& data) override;
         void Bind() const override;
 
-        // Phase 6.1: Resource handle caching support
+        // Resource handle caching support
         u32 GetRendererID() const override
         {
             return m_RendererID;

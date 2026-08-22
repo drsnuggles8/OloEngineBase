@@ -98,7 +98,7 @@ namespace OloEngine
             // in-place reload, so a view's own generation cannot detect that its
             // descriptor now names a deleted object — OffsetOf would go on
             // answering a valid offset, and the persistent view cache would keep
-            // serving the stale entry on a hit (issue #691 Phase 3).
+            // serving the stale entry on a hit (issue #691).
             RHI::DescriptorHeap::Get().InvalidateResource(m_NoiseTexture);
             RenderCommand::DeleteTexture(m_NoiseTexture);
         }
@@ -156,10 +156,10 @@ namespace OloEngine
             return;
         }
 
-        // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
+        // Self-resolving SceneDepth and SceneNormals: look
         // up directly from the render graph blackboard so no per-frame
         // side-channel setter calls are needed from EndScene().
-        // Identities (issue #691 step 3, slice 7). These resolve now that the
+        // Identities (issue #691). These resolve now that the
         // transient planner records a handle alongside the native id — before
         // that, ResolveTextureHandle answered null for every pooled texture and
         // this pass had to stay on driver names.
@@ -184,7 +184,7 @@ namespace OloEngine
             return;
         }
 
-        // Phase D / H follow-up: resolve the raw SSAO scratch framebuffer from
+        // Follow-up: resolve the raw SSAO scratch framebuffer from
         // the transient pool via the blackboard. This pass now requires the
         // graph-owned scratch target; the owned fallback framebuffer has been
         // retired.
@@ -231,7 +231,7 @@ namespace OloEngine
         m_SSAOShader->Bind();
 
         // Heap-bindless where available, slot-based otherwise — one call, and the
-        // slot constant keeps its meaning either way (issue #691 Phase 3). The
+        // slot constant keeps its meaning either way (issue #691). The
         // LIFETIME argument is the only judgement each site needs, and it is not
         // cosmetic: a FrameTransient view is retired at the frame boundary so a
         // held offset reports stale, while a Persistent one is memoised and its
@@ -245,7 +245,7 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTexture,
                                         RHI::HeapSlotLifetime::FrameTransient);
 
-        // Nearest+Repeat — the combination the two-bool sampler of Phase 1 could
+        // Nearest+Repeat — the combination the original two-bool sampler could
         // not express, and the reason RHI::Filter / RHI::AddressMode exist. Under
         // the heap this sampler state rides in the descriptor rather than on the
         // texture object, which is what a split sampler heap will need.
@@ -278,7 +278,7 @@ namespace OloEngine
         // The attachment's identity, not its GL name — attachments started
         // minting handles in slice 3, so this consumer can take one.
         // FrameTransient: it is a graph-pooled attachment either way
-        // (issue #691 Phase 3).
+        // (issue #691).
         context.BindTextureOrHeapOffset(0, rawFB->GetColorAttachmentHandle(0),
                                         RHI::HeapSlotLifetime::FrameTransient);
 

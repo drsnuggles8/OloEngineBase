@@ -144,7 +144,7 @@ namespace OloEngine
         // a stale 1024 spec cleared and rendered only the top-left quarter of
         // each 4096 cascade while sampling spanned the full layer — depth 0
         // everywhere else, every fragment fully shadowed, and the whole
-        // directional-light term vanished from the frame (#691 Phase 8; found
+        // directional-light term vanished from the frame (#691; found
         // via olo_render_capture_target on ShadowMapCSMCascade0: GL all-white,
         // Vulkan black with one white quarter).
         if (m_ShadowFramebuffer->GetSpecification().Width != resolution ||
@@ -382,7 +382,7 @@ namespace OloEngine
         // far plane needs to ride the camera UBO.
         cameraUBOData.Position = glm::vec3(0.0f);
         cameraUBOData._padding0 = 0.0f;
-        // Reconstruction flavour of the same matrix (#691 Phase 8) — no known
+        // Reconstruction flavour of the same matrix (#691) — no known
         // caster shader reads it under this camera, but the member must never
         // be a zero/identity mismatch with Projection on any writer.
         cameraUBOData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(lightVPRel);
@@ -588,7 +588,7 @@ namespace OloEngine
                         // Persistent: a terrain heightmap is an asset-owned texture,
                         // not a graph-pooled target. The shader was bound once above
                         // the loop, so the seam's program fork is already correct
-                        // (issue #691 Phase 3).
+                        // (issue #691).
                         HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP,
                                                          caster.heightmapTextureID,
                                                          RHI::HeapSlotLifetime::Persistent);

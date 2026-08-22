@@ -98,7 +98,7 @@ namespace OloEngine
         {
             // Former bare uniforms via ComputeShader::Set*, a deliberate no-op
             // on the Vulkan route — now one std140 refill per dispatch (issue
-            // #691 Phase 8, the HZB pattern: GL re-uploads the bound buffer;
+            // #691, the HZB pattern: GL re-uploads the bound buffer;
             // the Vulkan arena mints a fresh address each SetData).
             if (!s_GenParamsUBO)
             {

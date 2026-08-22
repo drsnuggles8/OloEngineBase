@@ -1,7 +1,7 @@
 #pragma once
 
 // Pure, transport-agnostic serialization for the MCP server-push event stream
-// (issue #306 item B — the "live push" half of olo_events_tail).
+// (issue #306 — the "live push" half of olo_events_tail).
 //
 // `GET /mcp` opens a persistent `text/event-stream` (Server-Sent Events) and the
 // engine's diagnostics ring buffer (Debug/DiagnosticsEventLog.h) is bridged onto it:
@@ -127,7 +127,7 @@ namespace OloEngine::MCP
     }
 
     // Frame a payload as an SSE data-only event block (no `id:` line). Used by the
-    // SSE-upgraded POST response (issue #357 item B — progress notifications +
+    // SSE-upgraded POST response (issue #357 — progress notifications +
     // the final response frame): a POST stream closes right after its response,
     // so it is not resumable and its frames carry no ids — unlike the GET event
     // stream above, whose ids map onto the diagnostics ring for Last-Event-ID

@@ -10,7 +10,7 @@
 
 namespace OloEngine
 {
-    // Ground-adaptation foot & hand IK (issue #631 part 3): per-foot ground
+    // Ground-adaptation foot & hand IK (issue #631): per-foot ground
     // raycasts pull the feet onto uneven terrain, the pelvis lowers so the
     // downhill leg can reach, a grounded slow foot plants (world-locks) during
     // stance, the foot rotates to the slope (with an optional toe counter-roll),

@@ -4,13 +4,13 @@
 // RHIResources.h — API-neutral descriptions of textures, buffers, views,
 // pipelines, barriers, and the descriptor heap.
 //
-// Issue #691 Phase 1, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
+// Issue #691, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
 //
 // **Partly live.** GetNativeHandleForDebug at the bottom is in use — by
 // RHIResourceRegistry.cpp, which defines it, and by
 // Renderer/Debug/RenderGraphResourceIdentity.cpp, which is the sanctioned
 // caller for the introspection tools. The resource *descriptions* below are
-// still forward-looking (Phase 2 step 3 minted RHI::ResourceHandle, but that
+// still forward-looking (the sweep minted RHI::ResourceHandle, but that
 // lives in RHITypes.h). Same two
 // rules as RHITypes.h: no backend headers, no backend types, and these are engine
 // enums that a backend converts explicitly.
@@ -114,7 +114,7 @@ namespace OloEngine::RHI
         return (static_cast<u32>(value) & static_cast<u32>(flag)) != 0u;
     }
 
-    // MemoryResidency MOVED to RHITypes.h in Phase 2 step 2. It turned out to be
+    // MemoryResidency MOVED to RHITypes.h by the call-site sweep. It turned out to be
     // vocabulary rather than resource description: RendererAPI::AllocateBufferStorage
     // needs it, and RendererAPI.h includes only RHITypes.h. See the note there.
 
@@ -142,12 +142,12 @@ namespace OloEngine::RHI
     // second view, and under this model a second heap slot.
     // =========================================================================
 
-    // TextureAspect and SubresourceRange MOVED to RHITypes.h in Phase 5: the
+    // TextureAspect and SubresourceRange MOVED to RHITypes.h: the
     // barrier facade entry point (RendererAPI::IssueBarrierBatch) takes
     // RHI::Barrier, and RendererAPI.h includes only RHITypes.h — same
-    // move-don't-duplicate precedent as MemoryResidency (Phase 2 step 2).
+    // move-don't-duplicate precedent as MemoryResidency.
 
-    // WHICH KIND OF DESCRIPTOR a view produces (issue #691 Phase 3, ADR 0011
+    // WHICH KIND OF DESCRIPTOR a view produces (issue #691, ADR 0011
     // amendment (26)).
     //
     // A heap holds descriptors of several types, and "sampled" and "storage" are
@@ -316,15 +316,15 @@ namespace OloEngine::RHI
     // rather than plumbing: on OpenGL today, filter/wrap state lives ON the
     // texture object (glTextureParameteri), so the engine has no concept of a
     // shareable sampler. Under a split heap the same sampler state used by 500
-    // textures should occupy ONE sampler slot, which means Phase 3/4 has to
+    // textures should occupy ONE sampler slot, which means the bindless work has to
     // introduce sampler deduplication that has no GL counterpart to port from.
     //
     // Immutable/embedded samplers are deliberately NOT modelled. Descriptor-heap
     // makes them markedly more complicated (for drivers too), the engine does
     // not use them, and adding them speculatively would buy nothing — but any
     // middleware that wants them becomes a sampler-heap management problem, so
-    // this is a Phase 4 device-bring-up checklist item, not a silent omission.
-    // Phase 2 widened the filter/wrap members from bools to RHI::Filter /
+    // this is a device-bring-up checklist item, not a silent omission.
+    // The sweep widened the filter/wrap members from bools to RHI::Filter /
     // RHI::AddressMode. The bools could not express the combinations the sweep
     // actually had to replace — SSAORenderPass's noise texture is Nearest+Repeat,
     // and CreateDepthArrayCompareOffView is Nearest+ClampToBorder — so a
@@ -332,7 +332,7 @@ namespace OloEngine::RHI
     // hatch. See RHITypes.h's Filter/AddressMode note.
     // Where a view's sampling state comes from. `SamplerDesc::Source` carries it,
     // so "inherit" and "these exact values" stay distinct even when the values
-    // coincide (issue #691 Phase 3).
+    // coincide (issue #691).
     //
     // WITHOUT THE DISCRIMINATOR the two are indistinguishable, because the test
     // for inherit is "the desc equals a default-constructed one". A caller
@@ -349,7 +349,7 @@ namespace OloEngine::RHI
     };
 
     // A DEFAULT-CONSTRUCTED SamplerDesc IS A REQUEST TO INHERIT, not a request for
-    // these values (issue #691 Phase 3). The heap backend mints a view for
+    // these values (issue #691). The heap backend mints a view for
     // `SamplerDesc{}` with `glGetTextureHandleARB`, which bakes the TEXTURE
     // OBJECT's own state — because the slot path samples with the object's
     // parameters, so a caller that expresses no intent is asking for those.
@@ -474,7 +474,7 @@ namespace OloEngine::RHI
     };
 
     // =========================================================================
-    // Barriers — struct Barrier MOVED to RHITypes.h in Phase 5, when
+    // Barriers — struct Barrier MOVED to RHITypes.h when
     // RendererAPI::IssueBarrierBatch made it facade vocabulary (RendererAPI.h
     // includes only RHITypes.h). See the note at TextureAspect above.
     // =========================================================================
@@ -489,10 +489,10 @@ namespace OloEngine::RHI
     //
     // Legitimate callers are the introspection tools in Renderer/Debug/ and the
     // MCP capture endpoints they back (olo_render_capture_target,
-    // olo_render_transient_plan). Those tools are Phase 8 relocation work, not
+    // olo_render_transient_plan). Those tools are relocation work, not
     // permanent exemptions: CLAUDE.md's rendering-verification rule is enforced
     // through them, so a Vulkan backend they cannot see is a Vulkan backend
-    // Phase 7 cannot verify.
+    // nothing can verify.
     //
     // RHIBoundaryRatchetTest baselines uses outside Renderer/Debug/ and
     // Platform/ at zero.

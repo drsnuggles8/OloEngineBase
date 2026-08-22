@@ -715,7 +715,7 @@ TEST(AnimationRetarget, RetargetClipPerBoneRatioBakesScaledTranslationKeys)
 }
 
 // -----------------------------------------------------------------------------
-// Root-motion settings carry across a clip bake (issue #631 parts 1+2 interlock):
+// Root-motion settings carry across a clip bake (issue #631 interlock):
 // the baked clip keeps extraction working with the root bone index remapped
 // into the TARGET skeleton.
 // -----------------------------------------------------------------------------

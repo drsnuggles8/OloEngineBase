@@ -182,7 +182,7 @@ void main() { o_Color = vec4(1.0); }
         GLuint program = LinkProgram();
         ::glUseProgram(program);
 
-        // The facade takes identities only (issue #691 step 3, item 4), so this
+        // The facade takes identities only (issue #691), so this
         // hand-rolled VAO has to be registered like a backend-created one. The
         // draw then goes through the same resolve path the engine uses.
         const RHI::ResourceHandle vaoHandle = RHI::ResourceRegistry::Get().Register(

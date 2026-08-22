@@ -10,7 +10,7 @@
 
 namespace OloEngine
 {
-    // Imports OpenUSD stages (.usd/.usda/.usdc/.usdz) into a MeshSource (issue #655 Tier 1).
+    // Imports OpenUSD stages (.usd/.usda/.usdc/.usdz) into a MeshSource (issue #655).
     // Traverses every UsdGeomMesh, triangulates it honoring the prim's orientation (winding),
     // resolves per-corner normals + primvars:st UVs by their declared interpolation, composes
     // each prim's world transform (UsdGeomXformCache) with the stage up-axis + metersPerUnit,

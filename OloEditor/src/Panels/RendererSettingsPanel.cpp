@@ -507,7 +507,7 @@ namespace OloEngine
             selection != m_ConfiguredBackend)
         {
             // One writer shape, owned by BackendSelection.cpp next to the parser
-            // (#691 Phase 9) — the schema cannot drift between the two, and a
+            // (#691) — the schema cannot drift between the two, and a
             // future runtime settings screen writes through the same helper.
             const auto path = DefaultRendererConfigPath();
             if (WriteRendererConfig(path, selection == 1 ? RendererAPI::API::Vulkan : RendererAPI::API::OpenGL))
@@ -737,7 +737,7 @@ namespace OloEngine
                         ImGui::EndDisabled();
                 }
 
-                if (ImGui::Checkbox("G-Buffer Decals (Phase 4)", &deferred.GBufferDecalsEnabled))
+                if (ImGui::Checkbox("G-Buffer Decals", &deferred.GBufferDecalsEnabled))
                 {
                     Renderer3D::ApplyRendererSettings();
                 }

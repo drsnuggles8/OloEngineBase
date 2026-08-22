@@ -134,7 +134,7 @@ namespace OloEngine
         // input is sampled and we write to the graph-owned SSSColor target.
         // FrameTransient: graph-resolved, so the descriptor comes from the
         // per-frame ring rather than being memoised onto a pooled object the
-        // planner may reassign next frame (issue #691 Phase 3).
+        // planner may reassign next frame (issue #691).
         context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         // Bind scene depth for bilateral filtering
@@ -152,7 +152,7 @@ namespace OloEngine
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
         // The flush lives with the draw — see OITResolveRenderPass for why
-        // (issue #691 Phase 3).
+        // (issue #691).
         context.FlushHeapOffsets();
         context.DrawIndexed(va);
     }

@@ -175,7 +175,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 
 ### Tools
 
-Since the #673 Tier 1 schema sweep, tools whose result is a JSON document declare a real
+Since the #673 schema sweep, tools whose result is a JSON document declare a real
 `outputSchema` in `tools/list` and return it as typed `structuredContent` alongside the
 spec-required text mirror — parse that instead of scraping the text blob. The exceptions are
 deliberate: `olo_log_tail` returns raw log lines (free text an `outputSchema` cannot
@@ -256,7 +256,7 @@ and for what to do when adding a tool.
 | `olo_set_collision_layer` | **(consented write)** set an entity's rigidbody collision layer (`entity`, `layer`). The counterpart to `olo_physics_why_no_collision`: that one explains why two bodies do not collide, this one fixes the common cause. Routed through the editor's undo stack, so an applied change is a single Ctrl-Z |
 | `olo_input_inject` | **(consented write)** inject synthetic mouse/keyboard input — `click` / `move` / `drag` / `mouseDelta` / `key` / `text` — into the editor's own input stream, so you can verify that an interactive handler actually FIRES (a viewport click selects the right entity; a panel button does what it claims), not merely that the editor renders. Synchronous: returns once the injected frames have been rendered, with the resulting selected/hovered entity in `after`. `mouseDelta` drives **delta-integrating** consumers (mouse-look rigs) that absolute injection provably cannot — see [Relative mouse movement](#relative-mouse-movement-mousedelta). Refuses loudly when the editor's loop is parked. Gated behind **Agent writes**. See [Interactive UI verification](#interactive-ui-verification-olo_input_inject) |
 
-### Write consent — Disabled / Prompt / Allow all (issue #306 item C)
+### Write consent — Disabled / Prompt / Allow all (issue #306)
 
 Every tool marked **(consented write)** above is gated in the MCP panel by a
 three-way **Agent writes** control. That per-tool marking is the source of truth
@@ -589,7 +589,7 @@ component bindings.
   "scriptClassCount": 7, "message": "Reloaded the C# app assembly (7 script class(es) registered)." }
 ```
 
-- **It is a consented WRITE tool** (issue #306 item C): like the other writes it is
+- **It is a consented WRITE tool** (issue #306): like the other writes it is
   refused while **Agent writes** is *Disabled* in the editor's MCP panel (the default),
   prompts for per-action consent in *Prompt* mode, and applies directly in *Allow all*
   — see [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
@@ -613,7 +613,7 @@ component bindings.
 
 ### Scriptable scene control (`olo_scene_open` / `olo_scene_play` / `olo_scene_stop`)
 
-The **scriptable repro setup** (issue #316 Part 5): switch which scene is loaded and
+The **scriptable repro setup** (issue #316): switch which scene is loaded and
 toggle the runtime, so an agent can set up and drive a repro over MCP instead of the
 old manual dance — editing `Sandbox.oloproj`'s `StartScene` + relaunching the editor
 per target scene, and `OLO_EDITOR_AUTOPLAY=1` + a relaunch to reach Play.
@@ -636,7 +636,7 @@ per target scene, and `OLO_EDITOR_AUTOPLAY=1` + a relaunch to reach Play.
   Entering Play can fail if the scene has no primary `CameraComponent`; then
   `ok:false` and the editor stays in Edit (see the `message`).
 
-All three are **consented WRITE tools** (issue #306 item C): refused while **Agent
+All three are **consented WRITE tools** (issue #306): refused while **Agent
 writes** is *Disabled* in the MCP panel (the default), prompted per-action in
 *Prompt* mode, applied directly in *Allow all*. They cross the read-only line
 because `olo_scene_open` discards the current in-memory scene and `olo_scene_play`
@@ -1337,7 +1337,7 @@ because the read-only server couldn't drive #480's FSR1 "Spatial Upscale" dropdo
 so multi-setting / multi-angle rendering verification of a new feature wasn't
 possible from a session.
 
-It is a **consented WRITE tool** (issue #306 item C): like the other writes it is
+It is a **consented WRITE tool** (issue #306): like the other writes it is
 refused while **Agent writes** is *Disabled* in the MCP panel (the default), prompts
 per-action in *Prompt* mode, and applies directly in *Allow all*. A
 settings change crosses the read-only line — but it is **session-scoped and
@@ -1626,7 +1626,7 @@ deserialization on load would otherwise flood the ring with hundreds of
 512 events; older ones are evicted, but `sinceId` polling means an agent that checks
 in regularly never misses anything between checks.
 
-> **Companion (issue #306 item B, server-push half — done):** `olo_events_tail` is the
+> **Companion (issue #306, server-push half — done):** `olo_events_tail` is the
 > *poll-based* read of the ring buffer; the same buffer is now also **pushed live** over a
 > persistent SSE stream on `GET /mcp` (previously `405`). See **Live event push** below.
 > `resources/subscribe` landed with the `logging` offramp (#777) — see **Subscribing to
@@ -1929,7 +1929,7 @@ so keep a write-tier tool's description honest about what it changes.
 - `olo://events/recent` — the most recent 200 diagnostics events as JSON
   (`{"events": [...], "lastId": <n>}`, entries identical to `olo_events_tail`'s). The one
   **subscribable** resource: see [Subscribing to the event resource](#subscribing-to-the-event-resource-the-logging-offramp--777).
-- `olo://capture/<seq>/<kind>.png` — **ephemeral capture resources** (issue #673 Tier 1):
+- `olo://capture/<seq>/<kind>.png` — **ephemeral capture resources** (issue #673):
   when a capture tool is called with `delivery: "resource_link"` (`olo_screenshot`,
   `olo_render_capture_target`, `olo_render_compare_golden`), the PNG is published here
   instead of being inlined as base64, and the tool result carries a `resource_link`
@@ -1940,7 +1940,7 @@ so keep a write-tier tool's description honest about what it changes.
   `notifications/resources/list_changed` on the live SSE stream, so re-list after it.
   Inline base64 stays the default — opt into links for high-res captures.
 
-### Audience-tagged content blocks (#673 Tier 2)
+### Audience-tagged content blocks (#673)
 
 MCP 2025-06-18 lets each **content block** carry
 `annotations: { audience: ["user"|"assistant"], priority: <0..1> }`. A client that honours
@@ -1995,7 +1995,7 @@ it too. Update the expected list there deliberately, not to make the test pass.
 > `openWorldHint`, …). Those annotate the tool *declaration* in `tools/list`; these annotate
 > content blocks inside a tool *result*. Different spec field, different object.
 
-### Outbound MCP servers (stdio) — composing external tools in (issue #673 Tier 1)
+### Outbound MCP servers (stdio) — composing external tools in (issue #673)
 
 The editor can also *consume* MCP tools: the MCP panel's **"Outbound MCP servers (stdio)"**
 section spawns a local MCP server process (e.g. `npx -y @modelcontextprotocol/server-filesystem

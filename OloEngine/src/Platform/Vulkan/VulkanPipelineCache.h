@@ -1,7 +1,7 @@
 #pragma once
 
 // VulkanPipelineCache — the process-wide VkPipelineCache plus the
-// shader→pipeline reverse index. Issue #691 Phase 6, ADR 0011 §3(c)/(d).
+// shader→pipeline reverse index. Issue #691, ADR 0011 §3(c)/(d).
 //
 // DISK BLOB (§3(c)). One VkPipelineCache for the whole process, serialised to
 // <cache>/pipeline_cache.vkpc. NO side-car driver stamp: the blob's own

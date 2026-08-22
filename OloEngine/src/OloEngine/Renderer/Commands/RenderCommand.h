@@ -32,7 +32,7 @@ namespace OloEngine
 
     // Type aliases for POD command fields
     using AssetHandle = UUID; // u64 asset identifier
-    // `using RendererID = u32` lived here and is GONE (issue #691 step 3,
+    // `using RendererID = u32` lived here and is GONE (issue #691,
     // slice 6). Every GPU-object field below is an RHI::ResourceHandle now:
     // the command layer's redundant-bind cache keys on these values, and a
     // driver name cannot key it safely — GL reissues names, so a deleted
@@ -973,7 +973,7 @@ namespace OloEngine
     static_assert(std::is_trivially_copyable_v<DrawWaterCommand>, "DrawWaterCommand must be trivially copyable for radix sort");
 
     // Maximum command size for allocation purposes. 1024 (PBR + bone
-    // matrices) until issue #715 slice 3 grew DrawTerrainPatchCommand's
+    // matrices) until issue #715 grew DrawTerrainPatchCommand's
     // inlined TerrainUBO by the adaptive sector table. Commands are packed at
     // their exact size, so this is a sanity bound, not a per-command cost.
     // Mirrored in Commands/CommandAllocator.h — keep the two identical.

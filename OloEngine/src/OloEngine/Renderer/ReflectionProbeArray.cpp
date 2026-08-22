@@ -387,8 +387,8 @@ namespace OloEngine
 
             m_GridSSBO->Bind();
             m_CullShader->Bind();
-            // Former bare uniforms — a std140 refill per dispatch (#691
-            // Phase 8): the Set* route is a deliberate no-op on Vulkan, so
+            // Former bare uniforms — a std140 refill per dispatch (#691)
+            // The Set* route is a deliberate no-op on Vulkan, so
             // these read zero there and the cull rejected every cluster.
             if (!m_CullParamsUBO)
             {

@@ -500,7 +500,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Connect Input Event to Input Event
         void AddRoute(InputEvent& source, InputEvent& destination) const noexcept
         {
-            // Phase 4 (docs/design/soundgraph-metasounds.md): forward the sample
+            // docs/design/soundgraph-metasounds.md: forward the sample
             // offset so a graph-input trigger fired at frame N reaches the destination
             // node's trigger input at frame N instead of being quantised to the block
             // boundary. This is the hop an *external* (game-code) trigger takes —
@@ -523,7 +523,7 @@ namespace OloEngine::Audio::SoundGraph
             sizet currentRouteId = routeCounter.fetch_add(1, std::memory_order_relaxed);
             std::string routeIdStr = "Route_" + std::to_string(currentRouteId);
             Identifier routeId(routeIdStr);
-            // Phase 4: forward the sample offset through the output→output hop too, so
+            // Forward the sample offset through the output→output hop too, so
             // a node firing its output trigger mid-block keeps the exact frame as the
             // event propagates onward (the offset defaults to 0 for value-only fires).
             AddInEvent(routeId, [dest](float v, i32 sampleOffset)
@@ -812,7 +812,7 @@ namespace OloEngine::Audio::SoundGraph
             RebuildRuntimeCaches();
         }
 
-        /// Phase 3 contiguous output-buffer pool (docs/design/soundgraph-metasounds.md).
+        /// Contiguous output-buffer pool (docs/design/soundgraph-metasounds.md).
         /// Gathers every node's audio-output AudioBuffer into one contiguous allocation
         /// so the per-node output buffers live in a single block (cache locality, one
         /// allocation) instead of N scattered kMaxAudioBlockFrames vectors.
@@ -875,9 +875,9 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        // Phase 2 block-rate entry point: each node's Process(numFrames) is called
+        // Block-rate entry point: each node's Process(numFrames) is called
         // exactly once per chunk, in producer-before-consumer order, with typed
-        // connections carrying whole blocks between nodes. This replaces the Phase 1
+        // connections carrying whole blocks between nodes. This replaces the older
         // per-sample node walk (numFrames=1, 48 000 node sweeps/sec) that scalar
         // ValueView wiring forced, and with it the Debug-build real-time deficit
         // documented in docs/design/soundgraph-metasounds.md.
@@ -999,7 +999,7 @@ namespace OloEngine::Audio::SoundGraph
             return cell.SetScalarFromValue(value);
         }
 
-        /// Fire a graph input event. `sampleOffset` (Phase 4) is the frame within the
+        /// Fire a graph input event. `sampleOffset` is the frame within the
         /// current block at which the event takes effect; it threads through the
         /// offset-aware event system to the consuming node's trigger so an externally
         /// scheduled (game-code) trigger lands on the exact sample instead of being
@@ -1012,7 +1012,7 @@ namespace OloEngine::Audio::SoundGraph
             if (endpoint == InEvents.end() || !endpoint->second)
                 return false;
 
-            // A trigger-consuming node (and, after Phase 4, a graph-input route) binds
+            // A trigger-consuming node (and a graph-input route) binds
             // m_OffsetEvent; a value-only consumer binds m_Event. Dispatch through
             // operator() so whichever is bound is invoked and the sample offset is
             // forwarded — the offset is dropped only if the endpoint has no handler.
@@ -1188,8 +1188,8 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         /// Lower the topological node order (m_ProcessOrder) to a flat array of
-        /// operator handles — the "compiled execution plan" (Phase 3,
-        /// docs/design/soundgraph-metasounds.md). Each op pairs a node's
+        /// operator handles — the "compiled execution plan"
+        /// (docs/design/soundgraph-metasounds.md). Each op pairs a node's
         /// devirtualized ProcessFn (set by the factory; vtable fallback otherwise)
         /// with the node instance, so the audio-thread walk in ProcessChunk is a
         /// straight-line sweep over a contiguous vector of {fn, state} pairs — no
@@ -1291,7 +1291,7 @@ namespace OloEngine::Audio::SoundGraph
         };
 
         /// The compiled execution plan: m_ProcessOrder lowered to flat {fn, state}
-        /// pairs (Phase 3). The audio thread's per-chunk node sweep. Rebuilt
+        /// pairs. The audio thread's per-chunk node sweep. Rebuilt
         /// off-thread by CompileExecutionPlan.
         std::vector<CompiledOp> m_CompiledOps;
 
@@ -1303,7 +1303,7 @@ namespace OloEngine::Audio::SoundGraph
         /// per-block maintenance. Rebuilt off-thread by RebuildRuntimeCaches.
         std::vector<GraphValueCell*> m_RampBufferCells;
 
-        /// Contiguous backing store for all node audio-output buffers (Phase 3). Sized
+        /// Contiguous backing store for all node audio-output buffers. Sized
         /// once by AllocateNodeOutputPool (before wiring) and never resized — each
         /// node's AudioBuffer points into a fixed kMaxAudioBlockFrames slot here, so
         /// the pointers consumers capture at wire time stay valid for the graph's life.

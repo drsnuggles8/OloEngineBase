@@ -2,7 +2,7 @@
 
 // =============================================================================
 // VulkanImageLayoutTracker — per-subresource image-layout state
-// (issue #691 Phase 5).
+// (issue #691).
 //
 // GL has no image layouts, so this state machine is NEW with the Vulkan
 // backend, and it is the piece a wrong guess turns into a validation error
@@ -59,8 +59,8 @@ namespace OloEngine
         // `initialLayout` is the layout every subresource starts in when the
         // state is (re)created — UNDEFINED for ordinary attachments/storage
         // (first use discards), SHADER_READ_ONLY_OPTIMAL for images a
-        // load-time one-shot uploaded (VulkanImageInfo::InitialLayout, #691
-        // Phase 7): transitioning those from UNDEFINED would legally discard
+        // load-time one-shot uploaded (VulkanImageInfo::InitialLayout, #691)
+        // Transitioning those from UNDEFINED would legally discard
         // the uploaded pixels.
         void RegisterImage(VkImage image, u32 mipCount, u32 layerCount, u64 registrationId = 0,
                            VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);

@@ -13,7 +13,7 @@ namespace OloEngine
         Texture2D,
         TextureCube,
         Image2D,
-        // Array resource types (Phase 1.2)
+        // Array resource types
         UniformBufferArray,
         StorageBufferArray,
         Texture2DArray,

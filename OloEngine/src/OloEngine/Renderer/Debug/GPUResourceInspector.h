@@ -63,7 +63,7 @@
 
 namespace OloEngine
 {
-    // Backend data plane (#691 Phase 9, ADR 0011 §1.6) — see
+    // Backend data plane (#691, ADR 0011 §1.6) — see
     // Renderer/Debug/ResourceInspectorBackend.h. The inspector shell here is
     // graphics-API-neutral: every GL-touching step goes through this interface.
     class IResourceInspectorBackend;
@@ -376,7 +376,7 @@ namespace OloEngine
         const char* GetResourceTypeName(ResourceType type) const;
         const char* GetBufferTargetName(u32 target) const;
 
-        // The backend data plane (#691 Phase 9). Created lazily (thread-safe,
+        // The backend data plane (#691). Created lazily (thread-safe,
         // once) so the static capture entry points and SaveTextureToFile work
         // without Initialize() having run — the tests call them directly.
         // Null when the active renderer API has no inspector backend (the

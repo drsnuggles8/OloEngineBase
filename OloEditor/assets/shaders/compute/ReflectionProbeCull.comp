@@ -41,10 +41,10 @@ layout(std140, binding = 58) uniform ReflectionProbeData
     ReflectionProbe u_Probes[32];
 };
 
-// Former bare uniforms, migrated to a std140 block (issue #691 Phase 8):
+// Former bare uniforms, migrated to a std140 block (issue #691):
 // GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
 // VulkanComputeShader::Set* is a deliberate no-op there — this shader was the
-// SEVENTH such file, invisible to the Phase 7 sweep because its pass never
+// SEVENTH such file, invisible to the sweep because its pass never
 // ran in that session's live log. C++ twin:
 // UBOStructures::ReflectionProbeCullUBO (UBO_REFLECTION_PROBE_CULL).
 layout(std140, binding = 77) uniform ReflectionProbeCullParams

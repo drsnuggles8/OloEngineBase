@@ -5,7 +5,7 @@
 // McpGenericFieldWriteTest — unit test (headless, no GL, no live editor).
 //
 // Pins the GENERIC consented, undoable MCP write tool olo_entity_set_field and
-// its read companion olo_entity_list_fields (issue #306 item C, second slice —
+// its read companion olo_entity_list_fields (issue #306 —
 // the catch-all successor to olo_set_collision_layer). Same two seams as
 // McpConsentedWriteTest.cpp:
 //

@@ -59,8 +59,8 @@ namespace OloEngine
 
         // Resolve #include against the .comp file's own directory (the GL
         // twin's rule, OpenGLComputeShader.cpp) — "" made `../include/*.glsl`
-        // resolve against assets/shaders/ and miss (found by the Wave B
-        // VolumetricFog tenant, issue #691 Phase 7).
+        // resolve against assets/shaders/ and miss (found by the compute
+        // VolumetricFog tenant, issue #691).
         const auto dirEnd = filepath.find_last_of("/\\");
         const std::string directory = (dirEnd != std::string::npos) ? filepath.substr(0, dirEnd) : "";
         std::vector<std::string> includes;
@@ -218,7 +218,7 @@ namespace OloEngine
             const auto append = [&](const spirv_cross::Resource& resource, VulkanShaderBinding::Kind kind)
             {
                 // Same dimensionality capture as VulkanShader::ReflectStage —
-                // the unfed-binding null-texture fallback (#691 Phase 8).
+                // the unfed-binding null-texture fallback (#691).
                 auto imageDim = VulkanShaderBinding::TexDim::Tex2D;
                 if (kind == VulkanShaderBinding::Kind::CombinedImageSampler ||
                     kind == VulkanShaderBinding::Kind::StorageImage)

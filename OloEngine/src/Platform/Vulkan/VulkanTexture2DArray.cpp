@@ -54,11 +54,11 @@ namespace OloEngine
         // Mirror the 2D twin (VulkanTexture2D's spec ctor): block-compressed
         // formats have no population path here — a BC image cannot take the
         // colour-attachment usage below, and its GPU-side transcode staging is
-        // Phase 6 for Vulkan. Refuse loudly but non-fatally.
+        // Not yet implemented for Vulkan. Refuse loudly but non-fatally.
         if (spec.Format == Texture2DArrayFormat::BC7)
         {
             OLO_CORE_ERROR("VulkanTexture2DArray: block-compressed format cannot be created — the "
-                           "VT tile-stage copy path is Phase 6");
+                           "VT tile-stage copy path is not implemented");
             return;
         }
 
@@ -164,8 +164,8 @@ namespace OloEngine
         // — unlike Texture2D — the client data is NATIVE per format (RGBA8 =
         // u8x4, RGBA16F = halves via GL_HALF_FLOAT, RGBA32F = f32). The
         // terrain material's layer albedo/normal arrays are the production
-        // caller; this was the last "Wave C concern" no-op a real scene hit
-        // (#691 Phase 8 — FoliageGenerationTest rendered black terrain).
+        // caller; this was the last "deferred concern" no-op a real scene hit
+        // (#691 — FoliageGenerationTest rendered black terrain).
         auto* device = VulkanDevice::Get();
         if (device == nullptr || m_Image == VK_NULL_HANDLE || data == nullptr)
         {
@@ -258,7 +258,7 @@ namespace OloEngine
                                                  // Src scope stays MEMORY_WRITE even from UNDEFINED — prior
                                                  // copy-writes into other layers/mips of this image must be in
                                                  // scope or sync validation flags WRITE_AFTER_WRITE (the
-                                                 // cubemap-chain lesson, #691 Phase 8).
+                                                 // cubemap-chain lesson, #691).
                                                  VK_ACCESS_2_MEMORY_WRITE_BIT,
                                                  VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
                                                  layerCount);

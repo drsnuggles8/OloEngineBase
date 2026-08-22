@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: plumbing
 //
-// #691 Phase 4: Vulkan bring-up. Headless (no window, no surface, no swapchain):
+// #691: Vulkan bring-up. Headless (no window, no surface, no swapchain):
 // what is testable without a display is the device-selection gate — the ADR 0010
 // capability contract — and that a satisfying device actually accepts a logical
 // device created with the contract's extensions + feature bits enabled. The
@@ -12,7 +12,7 @@
 // missing environment rung SKIPs cleanly rather than failing, so headless CI
 // passes while a GPU-equipped run gates. The clears+presents checkpoint itself
 // is verified live (OloEditor --rhi=vulkan + OS-level screenshot), not here —
-// MCP capture is GL-readback until Phase 8.
+// MCP capture is GL-readback for now.
 
 #include <gtest/gtest.h>
 

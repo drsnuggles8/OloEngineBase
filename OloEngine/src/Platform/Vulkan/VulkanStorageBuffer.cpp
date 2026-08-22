@@ -64,7 +64,7 @@ namespace OloEngine
         // Vulkan refuses a zero-sized buffer; clamp defensively (GetSize keeps
         // reporting the authored size).
         bufferInfo.size = std::max<VkDeviceSize>(m_Size, 1u);
-        // SHADER_DEVICE_ADDRESS: Phase 6's root-data model (ADR 0011 §4)
+        // SHADER_DEVICE_ADDRESS: the root-data model (ADR 0011 §4)
         // addresses buffers by VkDeviceAddress embedded in the root struct, so
         // every storage buffer must be addressable. bufferDeviceAddress is
         // enabled at device creation and the VMA allocator carries
@@ -73,7 +73,7 @@ namespace OloEngine
         // argument sources (the ShaderDebugDraw channels ARE their own
         // DrawArraysIndirect args; the virtual-geometry command/args buffers
         // feed vkCmdDrawIndexedIndirectCount; GPU particles' indirect-draw
-        // SSBO) — #691 Phase 7 Wave C. Costs nothing on buffers never drawn
+        // SSBO) — #691. Costs nothing on buffers never drawn
         // from.
         bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -115,8 +115,8 @@ namespace OloEngine
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VulkanUpload::VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
         // Root-object registration so the dispatch path can resolve a
-        // BindStorageBuffer packet's handle back to this object (#691
-        // Phase 7). Identity is preserved across Resize (Sync), so
+        // BindStorageBuffer packet's handle back to this object (#691).
+        // Identity is preserved across Resize (Sync), so
         // re-registering the same key just refreshes the same entry.
         VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::StorageBuffer, this);
         // GL twins occupy their binding point from creation (glBindBufferBase
@@ -186,7 +186,7 @@ namespace OloEngine
             VulkanOneShot::UploadToBuffer(m_Buffer, offset, data, size, "VulkanStorageBuffer::SetData");
         }
 
-        // Command-ordered draw reads (#691 Phase 8): draws recorded after
+        // Command-ordered draw reads (#691): draws recorded after
         // this write must see THESE bytes even though the persistent buffer
         // keeps getting overwritten until submit. See GetRootDataAddress.
         PushSnapshot(data, size, offset);
@@ -320,7 +320,7 @@ namespace OloEngine
             return;
         }
 
-        // Mid-frame (#691 Phase 8): the producing dispatch may still sit
+        // Mid-frame (#691): the producing dispatch may still sit
         // unsubmitted in the frame command buffer, and queue submissions
         // execute in submit order — the one-shot below would read the
         // PREVIOUS frame's contents (plus a full GPU stall for nothing).
@@ -422,7 +422,7 @@ namespace OloEngine
         // never SetData mid-frame.
         InvalidateSnapshot();
 
-        // Mid-frame (#691 Phase 8): a ClearData between two GPU uses
+        // Mid-frame (#691): a ClearData between two GPU uses
         // (ToneMap's exposure-reset shape, the fluid solver's grid-head
         // clears) must be ORDERED within the frame command buffer — both the
         // one-shot below (submits BEFORE the still-recording frame) and the

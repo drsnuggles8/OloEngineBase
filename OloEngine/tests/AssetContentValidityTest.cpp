@@ -1414,13 +1414,13 @@ namespace OloEngine::Tests
             // (Matching is find_if on Subdir — one entry per subdir, so the
             // stamp must live in this regex, not a second "shader" row.)
             // The optional `.bindless` infix is the heap-bindless program-binary
-            // variant (issue #691 Phase 3). It MUST be a separate file from the
+            // variant (issue #691). It MUST be a separate file from the
             // slot-based `.pgr`: a driver stamps a program binary with its own
             // version, not with which GLSL branch produced it, so a bindless
             // binary loaded into a slot-based run would link cleanly and sample
             // nothing. This test caught the new filename the first time it was
             // written, which is the whitelist working as intended.
-            // #691 Phase 6 (ADR 0011 §3(b)): the SPIR-V tier's shaderc target
+            // #691 (ADR 0011 §3(b)): the SPIR-V tier's shaderc target
             // env joined the filename — the GL path's shared tier is
             // `.cached_vulkan12.*`, the Vulkan backend's own tier is
             // `.cached_vulkan14.*`. Bare `vulkan` stays admitted so stale

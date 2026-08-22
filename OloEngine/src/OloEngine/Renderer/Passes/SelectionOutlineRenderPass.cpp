@@ -175,7 +175,7 @@ namespace OloEngine
         const u32 w = outputSpec.Width;
         const u32 h = outputSpec.Height;
 
-        // Phase D / H follow-up: resolve JFA ping-pong framebuffers entirely
+        // Follow-up: resolve JFA ping-pong framebuffers entirely
         // from the transient pool. The execute path no longer keeps owned
         // fallback framebuffers for headless / unit-test contexts.
         std::array<Ref<Framebuffer>, 2> jfaFBs{};
@@ -223,7 +223,7 @@ namespace OloEngine
         // describes the program *in flight*, so a texture bound ahead of the
         // shader silently takes the slot-path fallback even with the heap on:
         // the conversion would compile, move the counter, and do nothing
-        // (issue #691 Phase 3; §4c "bind the shader before the image").
+        // (issue #691; §4c "bind the shader before the image").
         //
         // The SetInt companions are gone with the binds — under the bindless
         // variant the sampler name is a #define, not a uniform, so each would log

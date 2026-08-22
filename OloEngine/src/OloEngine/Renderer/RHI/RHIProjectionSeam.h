@@ -2,7 +2,7 @@
 
 // =============================================================================
 // RHIProjectionSeam.h — the backend projection-convention seam (ADR 0011,
-// issue #691 Phase 7 Wave C, ADR item A8).
+// issue #691, ADR item A8).
 //
 // The engine authors every projection in GL clip conventions (glm RH_NO:
 // y up, z in [-1, 1]). Vulkan's fixed function wants y down and clip z in
@@ -54,14 +54,14 @@
 // translates a recorded GL winding to the SAME VkFrontFace (see the long note
 // at its vkCmdSetFrontFace call). Call sites never hand-flip winding either.
 //
-// KNOWN LIMIT (deliberate, documented for the later Wave C items): a
+// KNOWN LIMIT (deliberate, documented for the later items): a
 // DIRECTION-ADDRESSED capture (cubemap face bakes — SkyCubemapBake,
 // IBLPrecompute, DDGI capture atlas) rasterizes with F like everything else,
 // which stores each face row-flipped relative to the GL bake while cubemap
 // direction->texel addressing is API-identical. Those passes are dormant on
 // Vulkan in this batch; when their port lands (items 10-15), the face bases
 // must compensate (or the bake target must flip at readback) — tracked in
-// the Wave C notes, NOT solved by sprinkling extra flips at call sites.
+// the notes, NOT solved by sprinkling extra flips at call sites.
 // =============================================================================
 
 #include <glm/glm.hpp>
@@ -80,7 +80,7 @@ namespace OloEngine::RHI
     // Spelled here so call sites cannot drift into inverting first.
     [[nodiscard]] glm::mat4 AdjustedInverseForShaderReconstruction(const glm::mat4& forward);
 
-    // The KNOWN LIMIT above, closed for the passes that opt in (#691 Wave C
+    // The KNOWN LIMIT above, closed for the passes that opt in (#691
     // item 15). A DIRECTION-ADDRESSED capture — a cubemap/atlas face bake whose
     // consumer addresses the result by DIRECTION, not by screen uv — wants the
     // z half of the seam and NOT the y half. The y flip exists so that a
@@ -105,7 +105,7 @@ namespace OloEngine::RHI
     // today and is called out here rather than guessed at.
     [[nodiscard]] glm::mat4 AdjustCaptureProjectionForBackend(const glm::mat4& projection);
 
-    // The ROW-ORDER half of the same seam (#691 Phase 9, ADR 0011 amendment
+    // The ROW-ORDER half of the same seam (#691, ADR 0011 amendment
     // (85)): every off-screen target is bottom-up on GL and top-down on
     // Vulkan, so this one predicate answers "does a top-left-origin consumer
     // have to flip?" for every reader — ImGui uv pairs, PNG row emission,

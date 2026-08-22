@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 // Unit tests for the unified diagnostics event ring buffer behind olo_events_tail
-// (issue #306 item B). The buffer is a header-only engine facility with no editor /
+// (issue #306). The buffer is a header-only engine facility with no editor /
 // GPU / scene dependency, so it is exercised here directly — push, wrap/overflow,
 // the sinceId incremental-poll cursor, the category filter, the newest-N cap, and the
 // bulk-suppression scope. The live MCP tool (which only serializes these records) is

@@ -116,7 +116,7 @@ namespace OloEngine::RHI
             // One per SAMPLER TYPE — a shader constructing samplerCube /
             // sampler2DArray / sampler2DArrayShadow from a null offset must find a
             // descriptor of that target, or the read is undefined rather than
-            // black (issue #691 Phase 3).
+            // black (issue #691).
             m_Mirror[kNullCubeHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Cube);
             m_Mirror[kNullArrayHeapOffset] =
                 backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2DArray);
@@ -849,7 +849,7 @@ namespace OloEngine::RHI
         // the 2D null regardless of the view's type put a samplerCube reader that
         // still held this offset — a cached material UBO, say — back onto an
         // undefined read, which is the defect the typed nulls exist to remove
-        // (issue #691 Phase 3).
+        // (issue #691).
         const NullSamplerKind releasedKind = slot.NullKind;
         // Captured for the same reason and at the same moment: slot.View is about
         // to be reset, and a storage view's format is the only thing that says
@@ -986,16 +986,16 @@ namespace OloEngine::RHI
     }
 
     // -------------------------------------------------------------------------
-    // The free function Phase 1 declared in RHIResources.h.
+    // The free function declared in RHIResources.h.
     //
     // Declared there and left undefined — the same state `GetNativeHandleForDebug`
-    // was in before Phase 2 step 3 defined it in the registry. Defined here
+    // was in before the registry defined it. Defined here
     // because the heap is the only thing that can answer it.
     //
     // The spelling is `RHI::OffsetOf`, not `Heap::OffsetOf`. ADR 0011 and the
-    // Phase 3 handover both say `Heap::OffsetOf`, but the DECLARATION Phase 1
+    // handover both say `Heap::OffsetOf`, but the DECLARATION
     // actually left behind is a namespace-scope free function, and implementing
-    // the declared vocabulary rather than the described one is the lesson Phase 2
+    // the declared vocabulary rather than the described one is the lesson the sweep
     // step 2 paid for (`RHI::MemoryResidency` was nearly reinvented as
     // `BufferUsage`). The member `DescriptorHeap::OffsetOf` exists for callers
     // that already hold a heap reference; this is the one the ADR's call sites

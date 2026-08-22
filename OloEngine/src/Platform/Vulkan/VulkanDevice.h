@@ -31,7 +31,7 @@
 
 namespace OloEngine
 {
-    // #691 Phase 5: the WINDOW-INDEPENDENT half of the Vulkan bring-up, split
+    // #691: the WINDOW-INDEPENDENT half of the Vulkan bring-up, split
     // out of VulkanContext so headless tests (and later the render graph's
     // execution layer) can bring a device up without a window. Owns: volk
     // loader init, VkInstance, debug messenger (OLO_DEBUG only), physical-
@@ -113,7 +113,7 @@ namespace OloEngine
         {
             return m_ShaderBufferInt64AtomicsEnabled;
         }
-        // #691 Phase 7 Wave C (the virtual-geometry MDI-count path). All three
+        // #691 (the virtual-geometry MDI-count path). All three
         // are enabled-when-supported, never contract rows:
         //  - drawIndirectCount gates vkCmdDrawIndexedIndirectCount (core 1.2,
         //    feature-gated) — MultiDrawElementsIndirectCountRaw drops without it.
@@ -134,7 +134,7 @@ namespace OloEngine
         {
             return m_ShaderDrawParametersEnabled;
         }
-        // Phase 6 (#691, ADR 0011 §5): VK_EXT_extended_dynamic_state3's three
+        // #691, ADR 0011 §5: VK_EXT_extended_dynamic_state3's three
         // blend states (enable/equation/write-mask) are enabled when the driver
         // has them. TRUE → the pipeline builder makes blend state dynamic;
         // FALSE → blend is baked into the PSO key (the fallback path the ADR
@@ -170,7 +170,7 @@ namespace OloEngine
         // (page fault vs. hang) and the faulting GPU address — so a device
         // loss names its cause instead of just its VkResult. Safe to call
         // any time; no-ops when the extension is absent or no fault is
-        // pending. (#691 Phase 8 — added to diagnose the foliage device
+        // pending. (#691 — added to diagnose the foliage device
         // loss, kept as a permanent post-mortem instrument.)
         void LogDeviceFaultInfo() const;
 
@@ -182,7 +182,7 @@ namespace OloEngine
 
         // Process-wide accessor for the live device (set by Init, cleared by
         // Shutdown). Null when no Vulkan device is up. Backend resource
-        // classes (Phase 5's VMA-backed transients) reach the allocator
+        // classes (the VMA-backed transients) reach the allocator
         // through this.
         static VulkanDevice* Get();
 

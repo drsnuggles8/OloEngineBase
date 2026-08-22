@@ -6,8 +6,8 @@
 
 // =============================================================================
 // VulkanStorageBuffer.h — the VMA-backed StorageBuffer backend twin of
-// OpenGLStorageBuffer (#691; split out of the single VulkanTransientResources.h
-// in Phase 9).
+// OpenGLStorageBuffer (#691; split out of the single VulkanTransientResources.h)
+// .
 //
 // This header exposes Vulkan types directly — it is included only by
 // Platform/Vulkan siblings and by OLO_WITH_VULKAN-guarded engine factory TUs
@@ -38,7 +38,7 @@ namespace OloEngine
         // addresses in root data): silent no-ops.
         void Bind() const override;
         void Unbind() const override;
-        // Real paths (#691 Phase 7): mapped write-through (BAR/UMA) or a
+        // Real paths (#691): mapped write-through (BAR/UMA) or a
         // staged one-shot copy; readback via a one-shot copy to host memory.
         void SetData(const void* data, u32 size, u32 offset = 0) override;
         void GetData(void* outData, u32 size, u32 offset = 0) const override;
@@ -88,7 +88,7 @@ namespace OloEngine
         // ordered glNamedBufferSubData semantics. Without this, every draw
         // in the frame reads the LAST SetData at execute time: the exact
         // failure that emptied the auto-batched instanced draws (all batches
-        // sampling the final ModelInstanceBuffer upload — #691 Phase 8).
+        // sampling the final ModelInstanceBuffer upload — #691).
         // Falls back to the persistent address when no snapshot is live
         // (GPU-written buffers never SetData mid-frame, so they always
         // resolve persistent).

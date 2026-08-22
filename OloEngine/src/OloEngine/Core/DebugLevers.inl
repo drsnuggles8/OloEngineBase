@@ -74,7 +74,7 @@ OLO_LEVER_EXACT(TerrainCpuLod, "OLO_TERRAIN_CPU_LOD",
                 "Force the CPU terrain LOD selection path instead of the GPU quadtree descent.")
 OLO_LEVER_EXACT(TerrainVtFullRebuild, "OLO_TERRAIN_VT_FULL_REBUILD",
                 "Publish the terrain virtual texture's indirection map by rebuilding the whole thing (issue "
-                "#715 slice 1) instead of by incremental deltas (slice 2). The two are required to produce the "
+                "#715) instead of by incremental deltas (slice 2). The two are required to produce the "
                 "SAME map, so a frame that changes with this on is an indirection bug and one that does not is "
                 "somewhere else — and it is how the rebuild's GPU cost gets measured under real camera "
                 "movement rather than only on the first frame.")

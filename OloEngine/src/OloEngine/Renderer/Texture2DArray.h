@@ -12,7 +12,7 @@ namespace OloEngine
         RGBA8,
         RGBA16F,
         RGBA32F,
-        // Appended (issue #715 slice 4) — the terrain VT compressed cache pair.
+        // Appended (issue #715) — the terrain VT compressed cache pair.
         // RGBA32UI: 128-bit unsigned integer. Integer textures cannot linear-
         // filter, so the backend forces NEAREST min/mag; one texel is bit-
         // compatible with one 16-byte BC7 block (the staging side of the
@@ -45,7 +45,7 @@ namespace OloEngine
         [[nodiscard]] virtual u32 GetRendererID() const = 0;
 
         // Generation-checked identity, minted by RHI::ResourceRegistry
-        // (issue #691 Phase 2 step 3). Sibling of GetRendererID() during the
+        // (issue #691). Sibling of GetRendererID during the
         // migration: that one hands out the raw backend name and is deleted once
         // every caller has moved. Turning a handle back into a native object is
         // Platform/<Backend>/'s business.

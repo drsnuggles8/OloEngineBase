@@ -1,9 +1,9 @@
 // OLO_TEST_LAYER: plumbing
 // =============================================================================
-// VulkanPassSuiteTest — #691 Phase 7 Stage 1.6b: REAL render passes through
+// VulkanPassSuiteTest — #691.6b: REAL render passes through
 // the REAL render graph on Vulkan.
 //
-// This is the Wave A vehicle. Where VulkanDrawPathTest proves the facade in
+// This is the end-to-end vehicle. Where VulkanDrawPathTest proves the facade in
 // isolation, this fixture runs the graph end-to-end: transient declaration,
 // BuildFrameGraph (Setup + planner), Execute through RenderGraphPlanExecutor
 // — pass bodies recording through the PROCESS-GLOBAL VulkanRendererAPI (the
@@ -15,7 +15,7 @@
 // pilot's hard-edge pattern (via FullscreenBlit.glsl, whose OLO_VULKAN
 // pulling branch is this fixture's sibling change), FXAA consumes it through
 // its ordinary versioned-input scan, and the output must match the SAME
-// golden PNG the Phase 6 pilot matched — the pilot's proof, re-established
+// golden PNG the original pilot matched — the pilot's proof, re-established
 // through the machinery that replaces it.
 //
 // Device-gated; SKIPs cleanly headless (the VulkanShaderPipelineTest ladder).
@@ -446,7 +446,7 @@ namespace
         // Opt-in (see IsSideEffecting): defaults off so the versioned-input
         // tenants keep exercising the real reachability chain.
         bool TreatAsSideEffecting = false;
-        // OITPrepare's depth-seed chain (#691 Wave C): clear the target
+        // OITPrepare's depth-seed chain (#691): clear the target
         // (color + depth -> 1.0) at scope open, then author depth from the
         // raw-NDC triangle (z = 0 -> Vulkan depth 0.0).
         bool ClearTargetFirst = false;
@@ -561,7 +561,7 @@ class VulkanPassSuite : public ::testing::Test
         if (!m_Device)
             return;
         vkDeviceWaitIdle(m_Device->GetDevice());
-        // Wave C batch 2 failure-path net: a tenant that re-homed the
+        // Failure-path net: a tenant that re-homed the
         // ShaderDebugDraw / particle-batch statics onto this device normally
         // shuts them down itself, but an ASSERT exit skips that — and a
         // Vulkan-currency static surviving past device teardown asserts in
@@ -588,7 +588,7 @@ class VulkanPassSuite : public ::testing::Test
         VulkanPipelineCache::Get().SaveAndDestroy();
         VulkanFrameArena::Get().ReleaseBuffers();
         VulkanResourceHeap::Get().Release();
-        // #691 Phase 8: raw facade resources (CreateTexture2DHandle /
+        // #691: raw facade resources (CreateTexture2DHandle /
         // CreateFramebufferHandle) are OWNED by process-wide side registries.
         // Tenants normally retire them through DeleteTexture/DeleteFramebuffer
         // in their pass destructors, but an ASSERT exit skips that — and a
@@ -628,7 +628,7 @@ class VulkanPassSuite : public ::testing::Test
         if (glfwGetCurrentContext() != nullptr)
         {
             RenderCommand::Init();
-            // Wave C batch 2: tenants that re-home process-wide renderer
+            // Tenants that re-home process-wide renderer
             // statics onto the Vulkan device (the ShaderDebugDraw channels,
             // the particle batch renderer) tear the GL-currency versions down
             // first and release their Vulkan versions before device teardown.
@@ -647,7 +647,7 @@ class VulkanPassSuite : public ::testing::Test
         m_ReinitParticleBatchRendererOnTearDown = false;
     }
 
-    // The Wave A tenant harness: producer(input) -> passNode -> caller-backed
+    // The tenant harness: producer(input) -> passNode -> caller-backed
     // output, through the real graph on the process-global Vulkan backend.
     // Asserts the shared execute contracts (both draws prepared, none
     // dropped, zero resolve failures, the pass's GetTarget() non-null) and
@@ -705,12 +705,12 @@ class VulkanPassSuite : public ::testing::Test
         // ADR amendment (57) lists zero-stub among the instruments every wave
         // fixture carries, but this shared harness was omitting it — so nine
         // tenants could have had a facade entry point fall through to
-        // Phase6Stub while still producing their pixels by other means. A
+        // UnimplementedStub while still producing their pixels by other means. A
         // DELTA, not an absolute: the counter is cumulative across a fixture's
         // tenants (and historically the SSAO stub-floor tenant deliberately
-        // accumulated hits before its Phase 8 promotion).
+        // accumulated hits before its promotion).
         const u32 stubsBefore =
-            static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI()).GetPhase6StubHitCount();
+            static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI()).GetUnimplementedStubHitCount();
 
         SubmitFrame(
             [&]()
@@ -736,8 +736,8 @@ class VulkanPassSuite : public ::testing::Test
             auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
             EXPECT_EQ(vkApi.GetPreparedDrawsThisRecording(), 2u) << finalPassName << ": expected exactly two draws";
             EXPECT_EQ(vkApi.GetDroppedDrawsThisRecording(), 0u) << finalPassName << ": a draw dropped silently";
-            EXPECT_EQ(vkApi.GetPhase6StubHitCount(), stubsBefore)
-                << finalPassName << ": the chain fell through to a Phase 6 stub";
+            EXPECT_EQ(vkApi.GetUnimplementedStubHitCount(), stubsBefore)
+                << finalPassName << ": the chain fell through to an unimplemented stub";
         }
 
         auto* vkOutput = static_cast<VulkanFramebuffer*>(outputFramebuffer.Raw());
@@ -788,7 +788,7 @@ class VulkanPassSuite : public ::testing::Test
     // scope from the wrong access is a WRITE_AFTER_READ hazard the sync
     // validation names (the layout half is tracker-exact either way).
     RHI::Access m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
-    // Wave C batch 2 restore flags — see TearDown. A tenant that shuts down a
+    // Restore flags — see TearDown. A tenant that shuts down a
     // production (GL-currency) renderer static to re-home it on Vulkan sets
     // its flag IMMEDIATELY (before its own Init), so the restore happens even
     // when the tenant fails mid-way.
@@ -1005,11 +1005,11 @@ TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
     EXPECT_LT(rmse, 0.02) << "FXAA through the render graph must match the GL golden (pilot bar)";
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the graph execution must not fall through to a stub";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "the graph execution must not fall through to a stub";
 }
 
 // =============================================================================
-// Wave A tenants — one test per ported pass, on the RunSinglePassChain
+// Single-pass tenants — one test per ported pass, on the RunSinglePassChain
 // harness. Contract style: analytic (the pass's defining property asserted on
 // pixels), not golden — self-contained, no GL-side generation step.
 // =============================================================================
@@ -1067,7 +1067,7 @@ TEST_F(VulkanPassSuite, VignettePassDarkensCornersThroughTheRenderGraph)
     }
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 TEST_F(VulkanPassSuite, ChromaticAberrationSplitsChannelsAcrossAnOffCentreEdge)
@@ -1136,7 +1136,7 @@ TEST_F(VulkanPassSuite, ChromaticAberrationSplitsChannelsAcrossAnOffCentreEdge)
     EXPECT_GT(deepWhite[2], 245);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 TEST_F(VulkanPassSuite, ColorGradingIdentityLutPassesThePatternThrough)
@@ -1204,7 +1204,7 @@ TEST_F(VulkanPassSuite, ColorGradingIdentityLutPassesThePatternThrough)
     // z-mix quantization. The old floor of 2 was calibrated while the Vulkan
     // LUT upload was a stub — the pass detected the null LUT and PASSED THE
     // PATTERN THROUGH untouched, so the tolerance measured the disabled path,
-    // not LUT sampling (#691 Phase 8: the raw-texture family made the LUT
+    // not LUT sampling (#691: the raw-texture family made the LUT
     // real, and the measured max error is exactly one LUT quantum). Follow-up
     // recorded in the PR: capture the same tenant scene through the GL pass
     // and pin both backends to a shared bound.
@@ -1919,7 +1919,7 @@ TEST_F(VulkanPassSuite, PrecipitationPassesThePatternThroughAtZeroIntensity)
 }
 
 // =============================================================================
-// Wave B tenants — the compute-centric passes (#691 Phase 7 Wave B).
+// Compute-centric tenants — the compute-driven passes (#691).
 // =============================================================================
 
 // ToneMap: the mixed pass — auto-exposure metering computes (histogram +
@@ -2042,7 +2042,7 @@ TEST_F(VulkanPassSuite, ToneMapAppliesManualExposureAndMetersAutoExposure)
                                    "(128 here means the metering computes never wrote the exposure SSBO)";
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
     m_ExtraSetup = nullptr;
 }
 
@@ -2075,7 +2075,7 @@ TEST_F(VulkanPassSuite, ToneMapAppliesManualExposureAndMetersAutoExposure)
 // storage since production writes them in RenderPipeline::PrepareFrame, which
 // never runs headlessly.
 //
-// Layout note (#691 Phase 7 Wave B, reported in the plan): the pass's
+// Layout note (#691, reported in the plan): the pass's
 // volumes are import-only graph resources, so the planner emits no barriers
 // for them — the fixture pre-transitions each volume to its FIRST use's
 // descriptor-baked layout per frame (storage => GENERAL, sampled =>
@@ -2386,7 +2386,7 @@ TEST_F(VulkanPassSuite, VolumetricFogIntegratesAUniformMediumMonotonically)
         vkUnmapMemory(m_Device->GetDevice(), readbackMemory);
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u) << "the froxel chain must not fall through to a stub";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "the froxel chain must not fall through to a stub";
 
     // --- restore what the tenant displaced ----------------------------------
     vkDeviceWaitIdle(m_Device->GetDevice());
@@ -2575,7 +2575,7 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
             ADD_FAILURE() << "GTAO resolve failure: pass='" << failure.PassName << "' reason='" << failure.Reason
                           << "' x" << failure.Count;
         }
-        EXPECT_EQ(api.GetPhase6StubHitCount(), 0u)
+        EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u)
             << "the GTAO chain (incl. CopyImageSubData) must not fall through to a stub";
 
         if (!aoOutput->GetData(aoBytes, 0))
@@ -2654,7 +2654,7 @@ TEST_F(VulkanPassSuite, GtaoIsOpenOnUniformDepthAndDarkensACrease)
 // The three engine gaps the floor predecessor of this tenant documented are
 // all CLOSED now:
 //
-//   1. (CLOSED in this batch — #691 Phase 8) The raw-handle resource family
+//   1. (CLOSED in this batch — #691) The raw-handle resource family
 //      (CreateTexture2DHandle, CreateFramebufferHandle,
 //      AttachFramebufferColor/DepthTexture, SetFramebufferDrawAttachments,
 //      IsFramebufferComplete, SetTextureFilter/Wrap,
@@ -2699,7 +2699,7 @@ TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyO
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto fluid = Ref<FluidIntermediatesPass>::Create();
     FramebufferSpecification initSpec;
@@ -2715,9 +2715,9 @@ TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyO
         << "raw R32F depth target must survive the IsFramebufferComplete gate (raw family bring-up)";
     EXPECT_TRUE(fluid->GetThicknessTextureID().IsValid())
         << "raw RG16F thickness target must survive the IsFramebufferComplete gate (raw family bring-up)";
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "raw target creation (textures, FBOs, attach, filter/wrap, completeness) must not fall through "
-           "to a Phase 6 stub";
+           "to an unimplemented stub";
 
     // (b) empty draw list: Setup declares nothing, Execute early-returns.
     {
@@ -2783,12 +2783,12 @@ TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyO
         EXPECT_FALSE(fluid->RanThisFrame()) << "without a scene-depth attachment the body must reject the frame";
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the raw-family bring-up and both gated graph paths must record zero stub hits";
 }
 
 // =============================================================================
-// Wave A MEDIUM tenants (#691 Phase 7) — the multi-draw / multi-resolution /
+// MEDIUM tenants (#691) — the multi-draw / multi-resolution /
 // history-carrying passes. FinalRenderPass is deliberately absent (it needs
 // the swapchain import — the FrameRenderCallback live bring-up slice).
 // =============================================================================
@@ -2979,11 +2979,11 @@ TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
     EXPECT_LE(maxBlack, 2) << "a black input must pass the threshold + additive chain as black";
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 // =============================================================================
-// SSAO: full tenant (#691 Phase 8 — promoted from the raw-texture stub floor
+// SSAO: full tenant (#691 — promoted from the raw-texture stub floor
 // the moment the raw-handle family gained its Vulkan arm, exactly as the
 // floor's embedded instruction demanded). Init creates the 4x4 RG16F
 // rotation-noise texture through that family for real — CreateTexture2DHandle
@@ -3041,7 +3041,7 @@ TEST_F(VulkanPassSuite, SsaoRunsBothHalfResDrawsAndCopiesUnoccludedAOThroughTheG
     }
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto ssao = Ref<SSAORenderPass>::Create();
     FramebufferSpecification initSpec;
@@ -3051,7 +3051,7 @@ TEST_F(VulkanPassSuite, SsaoRunsBothHalfResDrawsAndCopiesUnoccludedAOThroughTheG
     SubmitFrame([&]()
                 { ssao->Init(initSpec); });
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the noise-import calls (CreateTexture2DHandle + UploadTextureSubImage2D + "
            "SetTextureFilter/Wrap) must not fall through to a stub anymore";
     ASSERT_TRUE(ssao->IsReadyForExecution())
@@ -3132,7 +3132,7 @@ TEST_F(VulkanPassSuite, SsaoRunsBothHalfResDrawsAndCopiesUnoccludedAOThroughTheG
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u)
         << "raw SSAO + bilateral blur — exactly the two half-res draws";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a draw dropped silently";
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the whole chain (noise bind + 2 draws + CopyImageSubData) must record without a stub";
 
     std::vector<u8> aoBytes;
@@ -3343,7 +3343,7 @@ TEST_F(VulkanPassSuite, SelectionOutlineRingsTheSelectedBlobAndIdlesWithoutSelec
     EXPECT_EQ(idleDraws, 1u) << "only the producer may draw with an empty selection";
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 // =============================================================================
@@ -3614,7 +3614,7 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
         << "the striped weather coverage must render cloud deck AND clear-sky gaps (uniform veil = dead "
            "density/weather path)";
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 // =============================================================================
@@ -3839,7 +3839,7 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
     EXPECT_LE(maxDiff, 2u) << "zero density must pass the scene through the two-draw chain untouched";
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 // =============================================================================
@@ -4011,7 +4011,7 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
     EXPECT_TRUE(historyValid) << "frame 2 must re-extract for the frame after it";
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
     m_ExtraSetup = nullptr;
     m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
 }
@@ -4149,7 +4149,7 @@ TEST_F(VulkanPassSuite, OitResolveCompositesAccumOverTheSceneByRevealage)
     EXPECT_EQ(discarded[1], 0);
     EXPECT_NEAR(discarded[2], 200, 1);
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 // =============================================================================
@@ -4294,7 +4294,7 @@ TEST_F(VulkanPassSuite, DepthVelocityUpscaleNearestUpsamplesExactValues)
     EXPECT_NEAR(bottomVelocity.x, 80.0f / 255.0f, 2e-3f);
     EXPECT_NEAR(bottomVelocity.y, 30.0f / 255.0f, 2e-3f);
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 // =============================================================================
@@ -4405,7 +4405,7 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
     EXPECT_LE(maxDiff, 2u) << "Intensity 0 must pass the scene through while the march + HZB chain run";
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u)
         << "the in-Execute HZB compute chain (Resize/Generate dispatches) must not fall through to a stub";
     m_ExtraSetup = nullptr;
 }
@@ -4553,12 +4553,12 @@ TEST_F(VulkanPassSuite, UiCompositeClearsBlitsAndBlendsTheOverlayCallback)
             << ")";
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u)
         << "the mixed int/float clear must ride the real ClearAllAttachments implementation";
 }
 
 // =============================================================================
-// OITPrepare (#691 Wave C item 1): the clears + depth-seed pass, in two chains.
+// OITPrepare (#691): the clears + depth-seed pass, in two chains.
 //
 // Chain A (scene HAS a blit-compatible depth): the producer authors depth 0.0
 // into the scene FB, OITPreparePass clears accum -> (0,0,0,0) / revealage ->
@@ -4603,7 +4603,7 @@ TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
     probeVA->SetIndexBuffer(probeIB);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u32 stubsBefore = api.GetPhase6StubHitCount();
+    const u32 stubsBefore = api.GetUnimplementedStubHitCount();
 
     struct ChainResult
     {
@@ -4780,21 +4780,21 @@ TEST_F(VulkanPassSuite, OitPrepareClearsTargetsAndSeedsDepthFromTheScene)
             << "fallback revealage clear at (" << x << "," << y << ")";
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "OITPrepare must ride the real clears + depth blit, not stubs";
 }
 
 // =============================================================================
-// FluidComposite (#691 Wave C item 2), two halves:
+// FluidComposite (#691), two halves:
 //
 // (a) PASS-LEVEL FLOOR: the composite's Execute gates on its intermediates
 //     partner's RanThisFrame() — and FluidIntermediatesPass::Execute cannot
 //     reach `m_RanThisFrame = true` on this backend yet (its targets come
-//     from the raw texture/FBO facade family, still Phase6Stub — the
-//     documented Wave C raw-FBO slice). The floor pins that the composite
+//     from the raw texture/FBO facade family, still UnimplementedStub — the
+//     documented raw-FBO gap). The floor pins that the composite
 //     DECLARES its graph resources with a pending draw and then early-outs
 //     cleanly, leaving the scene untouched — the same "documented floor"
-//     shape FluidIntermediates itself pinned in Wave B.
+//     shape FluidIntermediates itself pinned earlier.
 //
 // (b) SHADER-LEVEL REFRACTION PASSTHROUGH: the composite's V3 draw with the
 //     REAL FluidComposite.glsl (its pull branch is this batch's sibling
@@ -5035,7 +5035,7 @@ TEST_F(VulkanPassSuite, FluidCompositeFloorsWithoutIntermediatesAndPassesRefract
 }
 
 // =============================================================================
-// Overdraw (#691 Wave C item 3), two halves:
+// Overdraw (#691), two halves:
 //
 // (a) PASS-LEVEL: the REAL OverdrawRenderPass through the graph with an
 //     EMPTY SceneRenderPass bucket — the replay plumbing runs end to end
@@ -5264,7 +5264,7 @@ namespace
 } // namespace
 
 // =============================================================================
-// DeferredLighting (#691 Wave C item 4): the G-buffer sampling tenant.
+// DeferredLighting (#691): the G-buffer sampling tenant.
 //
 // Imports 5 G-buffer stand-ins under the pass's blackboard names, runs the
 // UNMODIFIED pass against a caller-backed {RGBA8, R32I, D24S8} scene FB and
@@ -5569,11 +5569,11 @@ namespace
 } // namespace
 
 // =============================================================================
-// VirtualGeometry (#691 Wave C item 5): the MDI-count indirect-draw entry.
+// VirtualGeometry (#691): the MDI-count indirect-draw entry.
 //
 // The FULL VirtualGeometryPass is disproportionate headlessly: its cull/raster
 // compute shaders drive ~15 bare uniforms through ComputeShader::Set* calls
-// (no-ops on the SPIR-V route — they need the Wave B "bare uniforms -> UBO"
+// (no-ops on the SPIR-V route — they need the "bare uniforms -> UBO"
 // migration first), VirtualMeshRegistry seeding needs cooked VirtualMeshAssets
 // (the VirtualMeshBuilder cook, not reachable from a plain run), and the
 // material loop rides CommandDispatch::UploadMaterialForDirectDraw (port-order
@@ -5598,7 +5598,7 @@ namespace
 //
 // The shader's debug SSBOs (33/38) and UBO 50 are bound with zeroed stand-ins
 // (mode 0 = off); its VirtualDebugViz storage images (image units 0/1) stay
-// unbound — never accessed under mode 0, the Wave B "content-safe, heap
+// unbound — never accessed under mode 0, the "content-safe, heap
 // descriptors invisible to validation" precedent (no R32UI ImageFormat exists
 // to stage a real one).
 // =============================================================================
@@ -5608,7 +5608,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     // --- the real MDI shader (DrawParameters capability gate) ---------------
     auto vgShader = Shader::Create("assets/shaders/VirtualMeshGBuffer.glsl");
@@ -5822,7 +5822,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
         EXPECT_EQ(right[2], 0);
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "MDI-count + TextureBarrier must ride real implementations, not stubs";
 }
 
@@ -5858,7 +5858,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMeshTasksMatchTheMdiPath)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto mdiShader = Shader::Create("assets/shaders/VirtualMeshGBuffer.glsl");
     ASSERT_TRUE(mdiShader);
@@ -6103,7 +6103,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMeshTasksMatchTheMdiPath)
             << "args.DrawCount (read by the TASK stage) must bound the launch — cluster 1 must vanish";
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "DrawMeshTasks must ride a real implementation, not stubs";
 }
 
@@ -6139,7 +6139,7 @@ namespace
 } // namespace
 
 // =============================================================================
-// ShaderDebugDraw (#691 Wave C item 6): the GPU-pushable debug channels'
+// ShaderDebugDraw (#691): the GPU-pushable debug channels'
 // DRAW side + the stats readback ring, through the REAL pass in the graph.
 //
 // One line + one AABB go through the CPU appenders into the SAME channel
@@ -6181,7 +6181,7 @@ TEST_F(VulkanPassSuite, ShaderDebugDrawIndirectDrawsChannelsAndReadsBackStats)
         m_ReinitShaderDebugDrawOnTearDown = true;
         ShaderDebugDraw::Shutdown();
     }
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto patternTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // black: hue floors never match it
     ASSERT_NE(patternTexture, nullptr);
@@ -6309,7 +6309,7 @@ TEST_F(VulkanPassSuite, ShaderDebugDrawIndirectDrawsChannelsAndReadsBackStats)
             << "untouched channel " << static_cast<int>(std::to_underlying(primitive)) << " must read back empty";
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "DrawArraysIndirect + the CreateBufferHandle/AllocateBufferStorage/CopyBufferSubData/"
            "ReadBufferSubData ring must be real, not stubs";
 
@@ -6321,7 +6321,7 @@ TEST_F(VulkanPassSuite, ShaderDebugDrawIndirectDrawsChannelsAndReadsBackStats)
 }
 
 // =============================================================================
-// Foliage (#691 Wave C item 7, first half): the V8 TWO-STREAM instance pull.
+// Foliage (#691, first half): the V8 TWO-STREAM instance pull.
 //
 // FoliageRenderer::Render itself cannot run headless — it dereferences
 // Renderer3D statics that only Renderer3D::Init creates (GetFoliageUBO /
@@ -6351,7 +6351,7 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto foliageShader = Shader::Create("assets/shaders/Foliage_Instance.glsl");
     ASSERT_TRUE(foliageShader);
@@ -6554,11 +6554,11 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     EXPECT_EQ(background[1], 0);
     EXPECT_EQ(background[2], 0);
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);
 }
 
 // =============================================================================
-// ForwardOverlay (#691 Wave C item 7, second half): the empty-bucket floor.
+// ForwardOverlay (#691, second half): the empty-bucket floor.
 //
 // The pass is pure bucket replay: its Setup declares nothing when the bucket
 // is empty (so the node is unreachable and culled) and its Execute would
@@ -6578,7 +6578,7 @@ TEST_F(VulkanPassSuite, ForwardOverlayEmptyBucketFloorLeavesTheSceneUntouched)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     // Setup gates on the Deferred path (Forward routes overlay draws through
     // SceneRenderPass) — force it and restore.
@@ -6664,12 +6664,12 @@ TEST_F(VulkanPassSuite, ForwardOverlayEmptyBucketFloorLeavesTheSceneUntouched)
     EXPECT_EQ(rendered[centre + 1], 40);
     EXPECT_EQ(rendered[centre + 2], 90);
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);
     settings.Path = prevPath;
 }
 
 // =============================================================================
-// Particle (#691 Wave C item 8), three chains:
+// Particle (#691), three chains:
 //
 // (a) CPU CLASSIC through the REAL ParticleRenderPass in the graph: the pass
 //     binds the scene FB, sets the LEqual/no-write depth + per-attachment
@@ -6694,7 +6694,7 @@ TEST_F(VulkanPassSuite, ForwardOverlayEmptyBucketFloorLeavesTheSceneUntouched)
 //     RenderGPUBillboards shape. The full GPUParticleSystem sim is
 //     DISPROPORTIONATE here, deliberately: its emit/simulate/compact .comp
 //     chain drives bare uniforms through the no-op SPIR-V Set* route (the
-//     Wave B "bare uniforms -> UBO" migration owes it a dedicated slice), so
+//     "bare uniforms -> UBO" migration owes it dedicated work), so
 //     the hand-seeded buffer pins the indirect-draw entry itself and the
 //     sim stays documented debt.
 // =============================================================================
@@ -6704,7 +6704,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto patternTexture = MakeSolidTexture(kSize, 16, 16, 16, 255);
     ASSERT_NE(patternTexture, nullptr);
@@ -7120,7 +7120,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         EXPECT_EQ(background[0], 0) << "uncovered pixels keep the clear";
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "DrawElementsIndirect + the pull streams must be real, not stubs";
 
     // Batch-renderer statics hold Vulkan buffers/shaders — release before the
@@ -7132,7 +7132,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
 namespace
 {
     // -------------------------------------------------------------------------
-    // Decal scaffolding (#691 Wave C item 9).
+    // Decal scaffolding (#691).
     //
     // The packets a decal pass drains are ordinary CommandPackets, but
     // CommandDispatch::DrawDecal reaches for Renderer3D's OWN per-frame objects
@@ -7295,7 +7295,7 @@ namespace
 } // namespace
 
 // =============================================================================
-// Decal (#691 Wave C item 9): the ATTACHMENT-MAP MATRIX (ADR item A4).
+// Decal (#691): the ATTACHMENT-MAP MATRIX (ADR item A4).
 //
 // DecalRenderPass::ExecuteOnGBuffer switches between FIVE draw-attachment maps
 // (each 5 entries wide, RHI::NoAttachment for the holes) plus per-attachment
@@ -7343,7 +7343,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     // --- the four G-Buffer decal variants + the two forward ones ------------
     DecalDispatchScaffold scaffold;
@@ -7663,12 +7663,12 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
     }
 
     g_DecalScaffold = nullptr;
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the attachment-map matrix must ride real implementations, not stubs";
 }
 
 // =============================================================================
-// DeferredOpaqueDecal (#691 Wave C item 9, second half): the graph node that
+// DeferredOpaqueDecal (#691, second half): the graph node that
 // owns the drain and the G-Buffer EXPORTS.
 //
 // The node declares TransferDest writes on the blackboard's G-Buffer texture
@@ -7704,7 +7704,7 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto gbuffer = GBuffer::Create(kSize, kSize, 1);
     ASSERT_TRUE(gbuffer);
@@ -7816,11 +7816,11 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
             << "the SceneNormals export is a SECOND declared slot — its RGBA16F copy must run too";
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);
 }
 
 // =============================================================================
-// Occlusion queries (#691 Wave C item 10, second half — ADR item A6).
+// Occlusion queries (#691, second half — ADR item A6).
 //
 // The facade's query family is GL's: N independent query names, glBeginQuery /
 // glEndQuery around the proxy draws, a host read next frame. Vulkan's is one
@@ -7854,7 +7854,7 @@ TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto depthOnlyShader = Shader::Create("assets/shaders/DepthPrepass.glsl");
     auto proxyShader = Shader::Create("assets/shaders/OcclusionProxy.glsl");
@@ -8040,12 +8040,12 @@ TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
     EXPECT_FALSE(RenderCommand::IsQueryResultAvailable(queries[0]))
         << "a deleted query's handle must be stale, never a silent zero";
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the query family must ride real VkQueryPool implementations, not stubs";
 }
 
 // =============================================================================
-// SceneRenderPass (#691 Wave C item 10, first half): the Deferred FLOOR.
+// SceneRenderPass (#691, first half): the Deferred FLOOR.
 //
 // The full opaque bucket is DISPROPORTIONATE here and this is exactly what it
 // would take: CommandDispatch::DrawMesh reads Renderer3D's own per-frame
@@ -8192,7 +8192,7 @@ TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebu
 }
 
 // =============================================================================
-// Wave C item 11 — SHADOW: the layered depth path + the skinned two-stream pull
+// SHADOW: the layered depth path + the skinned two-stream pull
 // =============================================================================
 namespace
 {
@@ -8326,7 +8326,7 @@ TEST_F(VulkanPassSuite, ShadowCascadesRenderIntoTheirOwnDepthArrayLayers)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto shadowShader = Shader::Create("assets/shaders/ShadowDepth.glsl");
     auto skinnedShader = Shader::Create("assets/shaders/ShadowDepthSkinned.glsl");
@@ -8451,8 +8451,8 @@ TEST_F(VulkanPassSuite, ShadowCascadesRenderIntoTheirOwnDepthArrayLayers)
 
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "one draw per cascade";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a cascade draw dropped silently";
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
-        << "AttachDepthTextureArrayLayer must no longer be a Phase 6 stub";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
+        << "AttachDepthTextureArrayLayer must no longer be an unimplemented stub";
 
     std::vector<f32> cascade0;
     std::vector<f32> cascade1;
@@ -8487,7 +8487,7 @@ TEST_F(VulkanPassSuite, ShadowCascadesRenderIntoTheirOwnDepthArrayLayers)
 }
 
 // =============================================================================
-// Wave C item 12 — PLANAR REFLECTION: the mirror camera through the Y-flip seam
+// PLANAR REFLECTION: the mirror camera through the Y-flip seam
 // =============================================================================
 //
 // PlanarReflectionRenderPass swaps the GLOBAL camera to a mirrored one (oblique
@@ -8518,7 +8518,7 @@ TEST_F(VulkanPassSuite, PlanarReflectionMirrorCameraProducesTheVerticallyMirrore
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto depthShader = Shader::Create("assets/shaders/ShadowDepth.glsl");
     ASSERT_TRUE(depthShader);
@@ -8649,7 +8649,7 @@ TEST_F(VulkanPassSuite, PlanarReflectionMirrorCameraProducesTheVerticallyMirrore
 
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), kLayers);
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);
 
     std::array<std::vector<f32>, kLayers> layers;
     for (u32 layer = 0; layer < kLayers; ++layer)
@@ -8773,7 +8773,7 @@ TEST_F(VulkanPassSuite, PlanarReflectionMirrorCameraProducesTheVerticallyMirrore
 // The production cull (assets/shaders/compute/InstanceOcclusionCull.comp) is
 // NOT the compute stage here. It DOES compile on Vulkan now — its 15 bare
 // default-block uniforms moved into the std140 InstanceCullParams block at
-// binding 71 in this batch, and Phase7MigratedComputeShadersCompileOnVulkan
+// binding 71 in this batch, and MigratedComputeShadersCompileOnVulkan
 // asserts exactly that — so the original reason (SPIR-V cannot express a bare
 // uniform) no longer applies. What still keeps it out is that driving it needs
 // the instance-buffer plumbing this device-local fixture has no producer for.
@@ -8798,7 +8798,7 @@ TEST_F(VulkanPassSuite, GpuOcclusionPhaseTwoDrawsThroughGpuAuthoredIndirectArgs)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto depthShader = Shader::Create("assets/shaders/DepthPrepass.glsl");
     auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
@@ -8933,7 +8933,7 @@ void main()
                 // SSBO write -> indirect-args fetch.
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
 
-                // --- phase 2: the indirect replay ----------------------------
+                // The indirect replay ----------------------------
                 chain.Phase2->Bind();
                 RenderCommand::SetViewport(0, 0, kSize, kSize);
                 RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
@@ -8987,12 +8987,12 @@ void main()
         }
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
-        << "TextureBarrier / DrawBoundElementsIndirect must no longer be Phase 6 stubs";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
+        << "TextureBarrier / DrawBoundElementsIndirect must no longer be unimplemented stubs";
 }
 
 // =============================================================================
-// Wave C item 15 — DDGI: the direction-addressed capture's row convention
+// DDGI: the direction-addressed capture's row convention
 // =============================================================================
 //
 // RHIProjectionSeam.h carried a KNOWN LIMIT from batch 1: a cubemap FACE BAKE
@@ -9191,7 +9191,7 @@ TEST_F(VulkanPassSuite, DdgiCaptureFaceBasisCancelsTheSeamRowMirror)
 }
 
 // =============================================================================
-// Wave C item 14 — WATER: the tessellated pipeline shape (A10)
+// WATER: the tessellated pipeline shape (A10)
 // =============================================================================
 //
 // Water.glsl is the engine's only four-stage program (vertex -> TCS -> TES ->
@@ -9217,7 +9217,7 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto waterShader = Shader::Create("assets/shaders/Water.glsl");
     ASSERT_TRUE(waterShader);
@@ -9372,8 +9372,8 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
     EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u)
         << "the patch draw must reach the recorder — a tessellation pipeline that failed to build drops it";
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
-        << "DrawIndexedPatches must no longer be a Phase 6 stub";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
+        << "DrawIndexedPatches must no longer be an unimplemented stub";
 
     std::vector<f32> depth;
     ASSERT_TRUE(ReadDepthArrayLayer(patchDepth, 0u, depth)) << "patch depth readback failed";
@@ -9403,7 +9403,7 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
     EXPECT_GT(coveredTexels, 1000u) << "the patch covered " << coveredTexels << " texels";
     EXPECT_LT(coveredTexels, 2600u) << "the patch covered " << coveredTexels << " texels";
 
-    // --- Phase 2: the SAME patch with back-face culling ON (#691 Phase 8, the
+    // --- Phase 2: the SAME patch with back-face culling ON (#691, the
     // water-murk regression). The TES declares `ccw` against GL's LOWER_LEFT
     // tessellation domain; Vulkan's default UPPER_LEFT origin mirrors the
     // generated v coordinate, which flips every emitted triangle's winding —
@@ -9453,7 +9453,7 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
 }
 
 // =============================================================================
-// FinalRenderPass — the swapchain import (#691 Phase 7, the LAST pass).
+// FinalRenderPass — the swapchain import (#691, the LAST pass).
 //
 // Every other pass in the suite renders into a VulkanFramebuffer the graph
 // owns. This one targets "the default framebuffer", which on GL is a fixed
@@ -9650,13 +9650,13 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
     }
 
     // ORIENTATION: the presented image PRESERVES the chain's row order — the
-    // contract since #691 Phase 9 (ADR 0011 amendment (85)), inverting the
-    // Phase 7 mirror that used to live here. The (59) seam's clip-y negation
+    // contract since #691 (ADR 0011 amendment (85)), inverting the
+    // mirror that used to live here. The (59) seam's clip-y negation
     // lands every rasterized target TOP-DOWN under Vulkan and passthrough
-    // hops preserve that (the Phase 9 live inventory measured every archetype
+    // hops preserve that (the live inventory measured every archetype
     // agreeing), so the chain's row 0 IS the top of the picture, exactly what
     // the swapchain displays at the top: the final blit must not flip. The
-    // Phase 7 mirror was derived from a chain believed to be GL-ordered and
+    // mirror was derived from a chain believed to be GL-ordered and
     // nothing displayed the graph through this path since (the editor
     // composites via ImGui; the runtime was Vulkan-gated) — (67)'s rule that
     // orientation is a window-only proof, twice over. Note the CHAIN here was
@@ -9716,11 +9716,11 @@ TEST_F(VulkanPassSuite, FinalPassBlitsThroughTheDefaultFramebufferIntoThePublish
         EXPECT_LE(clearedTexel(x, y, 2), 5) << "clear-only frame (" << x << "," << y << ") must be red";
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 // =============================================================================
-// Issue #691 Phase 7 — the compute bare-uniform sweep.
+// Issue #691 — the compute bare-uniform sweep.
 //
 // GLSL-for-Vulkan forbids a non-opaque uniform outside a block, so every
 // `uniform float u_Foo;` in a .comp was a HARD SPIR-V compile error on the
@@ -9748,10 +9748,10 @@ namespace
     // The files this sweep migrated. Each declares exactly one pass-owned
     // std140 block (some SHARE one block across the sibling shaders of a
     // system — see UBOStructures in ShaderBindingLayout.h for which). The
-    // Phase 8 tail (CloudNoise/CloudShadow, the three Ocean FFT passes,
+    // remaining tail (CloudNoise/CloudShadow, the three Ocean FFT passes,
     // Precipitation_Feed) carried the identical debt but never appeared in the
-    // Phase 7 live log — their passes never ran in that session.
-    constexpr const char* kPhase7MigratedComputeShaders[] = {
+    // live log — their passes never ran in that session.
+    constexpr const char* kMigratedComputeShaders[] = {
         "assets/shaders/compute/Particle_Simulate.comp",
         "assets/shaders/compute/Particle_Emit.comp",
         "assets/shaders/compute/Particle_Compact.comp",
@@ -9765,7 +9765,7 @@ namespace
         "assets/shaders/compute/VirtualDebugColorize.comp",
         "assets/shaders/compute/InstanceOcclusionCull.comp",
         "assets/shaders/compute/InstanceFrustumCull.comp",
-        // Issue #691 Phase 8 — the sweep's completion.
+        // Issue #691 — the sweep's completion.
         "assets/shaders/compute/CloudNoise_Generate.comp",
         "assets/shaders/compute/CloudShadow_Generate.comp",
         "assets/shaders/compute/Ocean_SpectrumEvolve.comp",
@@ -9774,7 +9774,7 @@ namespace
         "assets/shaders/compute/Precipitation_Feed.comp",
         "assets/shaders/compute/ReflectionProbeCull.comp",
         // Issue #713 — the GPU prefix-sum primitive and the particle
-        // compaction retrofitted onto it. Not part of the Phase 7 sweep (they
+        // compaction retrofitted onto it. Not part of the original sweep (they
         // never had bare uniforms), but they belong to the same contract this
         // test enforces: a pass-owned std140 block compiled through the REAL
         // Vulkan compute path. PrefixSum_Scan additionally pulls in
@@ -9790,13 +9790,13 @@ namespace
 // The decisive check: each migrated .comp compiles through the REAL Vulkan
 // compute path (shaderc -> SPIR-V -> VkShaderModule + compute pipeline). Before
 // the sweep every one of these returned an invalid program.
-TEST_F(VulkanPassSuite, Phase7MigratedComputeShadersCompileOnVulkan)
+TEST_F(VulkanPassSuite, MigratedComputeShadersCompileOnVulkan)
 {
     ASSERT_EQ(RendererAPI::GetAPI(), RendererAPI::API::Vulkan)
         << "the fixture must have switched the process-global backend to Vulkan";
 
     std::vector<std::string> failures;
-    for (const char* path : kPhase7MigratedComputeShaders)
+    for (const char* path : kMigratedComputeShaders)
     {
         Ref<ComputeShader> shader = ComputeShader::Create(path);
         if (!shader || !shader->IsValid())
@@ -9834,7 +9834,7 @@ TEST_F(VulkanPassSuite, Phase7MigratedComputeShadersCompileOnVulkan)
     EXPECT_TRUE(failures.empty())
         << failures.size() << " migrated compute shader(s) still fail to compile on Vulkan:" << joined
         << "\nCheck OloEngine.log for the glslang diagnostic. A 'non-opaque uniforms outside a block' "
-           "error means a bare uniform came back (issue #691 Phase 7).";
+           "error means a bare uniform came back (issue #691).";
 }
 
 // The ratchet. Pure text, no device: fails on any machine the moment a
@@ -9848,7 +9848,7 @@ TEST(VulkanComputeBareUniformSweep, MigratedComputeShadersDeclareNoBareUniforms)
     ASSERT_TRUE(ChangeToOloEditorDir()) << "OloEditor/ not found from the test cwd";
 
     std::vector<std::string> offenders;
-    for (const char* path : kPhase7MigratedComputeShaders)
+    for (const char* path : kMigratedComputeShaders)
     {
         std::ifstream file{ path };
         ASSERT_TRUE(file.is_open()) << "could not open " << path;
@@ -9875,13 +9875,13 @@ TEST(VulkanComputeBareUniformSweep, MigratedComputeShadersDeclareNoBareUniforms)
         joined += "\n  " + o;
     }
     EXPECT_TRUE(offenders.empty())
-        << "default-block uniform(s) reintroduced into a shader the #691 Phase 7 sweep migrated:" << joined
+        << "default-block uniform(s) reintroduced into a shader the #691 sweep migrated:" << joined
         << "\nThe Vulkan SPIR-V route rejects these outright and VulkanComputeShader::Set* is a no-op "
            "there — move the value into the shader's pass-owned std140 block instead.";
 }
 
 // =============================================================================
-// ReadTextureSubImage / ReadTextureImage (#691 Phase 8b): the MCP diagnostics
+// ReadTextureSubImage / ReadTextureImage (#691b): the MCP diagnostics
 // readback spine — olo_screenshot / olo_render_capture_target, thumbnail
 // capture, the probe bakers and entity picking all lower onto these. Pins
 // three contracts: the identity path returns the uploaded bytes verbatim
@@ -9917,7 +9917,7 @@ TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion
     texture->SetData(texels.data(), static_cast<u32>(texels.size()));
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     // Identity: RGBA8 image read as RGBA8 — byte-exact, no row flip.
     std::vector<u8> identity(texels.size(), 0u);
@@ -9950,7 +9950,7 @@ TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion
                                      whole.data()));
     EXPECT_EQ(whole, texels);
 
-    // Half-float client contract (#691 Phase 8): the GL facade takes f32 PER
+    // Half-float client contract (#691): the GL facade takes f32 PER
     // CHANNEL for the 16F formats and converts driver-side — this backend
     // must convert CPU-side, not size-assert (SlugFontProcessor's RGBA16F
     // curve texture crashed the first Vulkan play of a scene with UI text)
@@ -9975,12 +9975,12 @@ TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion
         EXPECT_NEAR(halfBack[i], halfClient[i], 1.0e-2f) << "texel float " << i;
     }
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore)
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
         << "the readback family must not fall through to a stub anymore";
 }
 
 // =============================================================================
-// Command-ordered SSBO SetData (#691 Phase 8): the batched-instance archetype.
+// Command-ordered SSBO SetData (#691): the batched-instance archetype.
 //
 // CommandDispatch::DrawMeshInstanced re-uploads the ONE shared
 // ModelInstanceBuffer (SSBO 15) before every batch and records the draw
@@ -9988,7 +9988,7 @@ TEST_F(VulkanPassSuite, ReadTextureSubImageReadsBackUploadedTexelsWithConversion
 // draws execute at submit, so with a life-stable buffer address every draw in
 // the frame read the LAST upload — which emptied every auto-batched instanced
 // draw in the sandbox scenes (spheres/cubes vanished while unique-mesh draws
-// survived; found by the Phase 8 Step 3 screenshot parity gate, root-caused
+// survived; found by the screenshot parity gate, root-caused
 // through an all-far-plane SceneDepth capture). VulkanStorageBuffer::SetData
 // now snapshots the written range into the frame arena and draws embed the
 // snapshot's address (GetRootDataAddress), so each recorded draw keeps the
@@ -10005,7 +10005,7 @@ TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDr
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     auto lightCubeShader = Shader::Create("assets/shaders/LightCube.glsl");
     ASSERT_TRUE(lightCubeShader);
@@ -10146,7 +10146,7 @@ TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDr
     EXPECT_EQ(px(64, 64)[0], 0) << "the strip between the quads keeps the clear";
     EXPECT_EQ(px(5, 5)[0], 0) << "corner background keeps the clear";
 
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);
 }
 
 // =============================================================================
@@ -10164,7 +10164,7 @@ TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDr
 //     is where a std140/std430 layout disagreement surfaces;
 //   * the R32UI physical pool as a storage image, and the 4096^2 raster scope
 //     framebuffer, whose spec IS the render area on Vulkan — unlike GL, where a
-//     stale spec is forgiven (the #691 Phase 8 lesson recorded in
+//     stale spec is forgiven (the #691 lesson recorded in
 //     ShadowRenderPass, where a 1024 spec rendered a quarter of each cascade);
 //   * MultiDrawElementsIndirectCountRaw, which needs the drawIndirectCount
 //     feature and silently drops the draw without it;
@@ -10186,7 +10186,7 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-    const u64 stubsBefore = api.GetPhase6StubHitCount();
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 
     // A 2048^2 pool (1024 pages) rather than the 4096^2 default: the clear
     // kernel dispatches one workgroup per PHYSICAL page, so the default runs
@@ -10271,7 +10271,7 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
     // INSIDE SubmitFrame's recording bracket, which is not optional and not
     // obvious: on Vulkan every DispatchCompute/Draw issued outside a bracket is
     // a logged NO-OP that returns success. The first version of this test ran
-    // the frames bare and scored 90 Phase 6 stub hits — an empty page table and
+    // the frames bare and scored 90 unimplemented-stub hits — an empty page table and
     // an all-sentinel pool that looked exactly like a broken raster. The other
     // tests in this suite never hit it because the render graph opens the
     // bracket for them; VSM is driven directly, so it has to open its own.
@@ -10358,9 +10358,9 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
     vsm.Shutdown();
     RenderCommand::DeleteTexture(sceneDepth);
 
-    // No facade call fell through to a Phase 6 stub. A stub returns quietly, so
+    // No facade call fell through to an unimplemented stub. A stub returns quietly, so
     // without this the pass could "succeed" having done nothing at all.
-    EXPECT_EQ(api.GetPhase6StubHitCount(), stubsBefore) << "VSM hit an unimplemented Vulkan facade path";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore) << "VSM hit an unimplemented Vulkan facade path";
 }
 
 #endif // OLO_WITH_VULKAN

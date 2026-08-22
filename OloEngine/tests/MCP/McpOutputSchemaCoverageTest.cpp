@@ -2,7 +2,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
-// OutputSchema adoption guard for the REAL builtin tool surface (#673 Tier 1,
+// OutputSchema adoption guard for the REAL builtin tool surface (#673,
 // schema-adoption sweep). Unlike McpStructuredOutputTest (which pins the
 // outputSchema/structuredContent MECHANISM with fake tools), this test drives
 // the actual RegisterBuiltinTools registration and inspects tools/list — a
@@ -101,7 +101,7 @@ TEST(McpOutputSchemaCoverage, EveryDeclaredOutputSchemaIsWellFormed)
     }
 }
 
-// Full-surface adoption (the #673 Tier 1 sweep): EVERY registered tool
+// Full-surface adoption (the #673 sweep): EVERY registered tool
 // declares an OutputSchema, except the deliberate text-only exemptions below.
 // This is the sweep's ratchet in both directions — a new tool returning
 // stringified JSON without a schema fails here, and an exemption that quietly

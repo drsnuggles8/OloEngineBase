@@ -2769,7 +2769,7 @@ namespace OloEngine
 
         DrawComponent<InstancedMeshComponent>("Instanced Mesh", entity, [](auto& component)
                                               {
-            // Phase 5 inspector: read-only summary of the component's resource
+            // Inspector: read-only summary of the component's resource
             // bindings + flag editors + a basic scatter-brush MVP for inline
             // placements. Procedural density / slope-aware surface scatter is
             // a dedicated viewport-tool feature — see
@@ -5526,7 +5526,7 @@ namespace OloEngine
                 ImGui::DragFloat("Noise Frequency", &sys.NoiseModule.Frequency, 0.1f, 0.0f, 100.0f);
             }
 
-            // Phase 2 modules
+            // Collision, force fields, trails and sub-emitters
             if (ImGui::CollapsingHeader("Collision"))
             {
                 ImGui::Checkbox("Collision Enabled", &sys.CollisionModule.Enabled);
@@ -5981,7 +5981,7 @@ namespace OloEngine
                 }
             }
 
-            // ── Adaptive Virtual Texturing (issue #715, slice 1) ──────────
+            // ── Adaptive Virtual Texturing (issue #715) ──────────
             //
             // The residency / request read-outs below are acceptance criterion 3
             // of the issue, and they are the only way to tell the two failure
@@ -6087,7 +6087,7 @@ namespace OloEngine
                                 stats.m_CacheCompressed ? "BC7" : "RGBA8",
                                 static_cast<f64>(stats.m_IndirectionBytes) / (1024.0 * 1024.0));
 
-                    // ── Adaptive images (#715 slice 3) ────────────────────
+                    // ── Adaptive images (#715) ────────────────────
                     if (cfg.AdaptiveEnabled)
                     {
                         ImGui::Separator();
@@ -6113,7 +6113,7 @@ namespace OloEngine
                         ImGui::Text("Tiles BC7-compressed: %u total", stats.m_TilesCompressedTotal);
                     }
 
-                    // ── Indirection publishing (#715 slice 2) ─────────────
+                    // ── Indirection publishing (#715) ─────────────
                     //
                     // Both halves of the A/B, side by side. The publish only
                     // happens on frames where residency changed, so the rate is

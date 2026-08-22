@@ -65,7 +65,7 @@ namespace OloEngine
         // Droplet parameters. Formerly bare uniforms fed by
         // ComputeShader::Set*, which GLSL-for-Vulkan cannot express and whose
         // Set* is a deliberate no-op on that route — one std140 refill per
-        // iteration instead (issue #691 Phase 7; the seed advances per call).
+        // iteration instead (issue #691; the seed advances per call).
         if (!m_ParamsUBO)
         {
             m_ParamsUBO = UniformBuffer::Create(UBOStructures::TerrainErosionUBO::GetSize(),

@@ -2,7 +2,7 @@
 // =============================================================================
 // TerrainVirtualTextureTest.cpp
 //
-// The CPU half of terrain virtual texturing (issue #715, slices 1-4): the
+// The CPU half of terrain virtual texturing (issue #715): the
 // packings that are MIRRORED IN GLSL, the feedback reduction that runs on a
 // Task worker, the page-cache residency behaviour built on #704's
 // GPUPagedCache, and the adaptive per-sector image sizing and resize-remap
@@ -2045,7 +2045,7 @@ TEST(TerrainVirtualTexture, TheEquivalenceCheckFailsWhenTheDeltaOmitsItsUnmaps)
     // The negative control. The equivalence test above is only worth anything if
     // it can tell the two paths apart, and the specific mistake it exists to
     // catch — a delta that records mappings but not evictions — has to make it
-    // fail. Slice 1's own history is the reason this is here: a pin that did not
+    // fail. The original's own history is the reason this is here: a pin that did not
     // hold was found by undoing a rule and watching the test stay green.
     const TerrainVirtualTextureConfig config = MakeConfig();
 

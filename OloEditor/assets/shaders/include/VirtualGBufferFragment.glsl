@@ -51,7 +51,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;
     int u_AlphaMode;        // 0=Opaque, 1=Mask, 2=Blend
     int _pbrPad2;
-    // Per-material heap offsets (issue #691 Phase 3). MUST mirror
+    // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
     // declaration reads garbage rather than failing to link.

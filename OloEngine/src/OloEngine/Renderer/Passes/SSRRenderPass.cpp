@@ -200,7 +200,7 @@ namespace OloEngine
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
-        // Heap-bindless conversion (issue #691 Phase 3, bucket 1). The shader is
+        // Heap-bindless conversion (issue #691, bucket 1). The shader is
         // bound FIRST because the seam forks on Shader::IsBoundProgramBindless(),
         // which describes the program in flight — a bind issued before it would
         // silently take the slot-path fallback even with the heap on.

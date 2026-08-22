@@ -2,11 +2,11 @@
 // =============================================================================
 // RHIBoundaryRatchetTest.cpp
 //
-// Phase 2 ratchet for issue #691 (RHI: add a Vulkan backend alongside OpenGL
-// 4.6). Pulled forward from Phase 2 into Phase 1 — see ADR 0011
+// Boundary ratchet for issue #691 (RHI: add a Vulkan backend alongside OpenGL
+// 4.6). Landed ahead of the call-site sweep — see ADR 0011
 // (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
 //
-// Phase 2 is a ~313-call-site sweep whose only stated safety net is
+// That sweep is a ~313-call-site change whose only stated safety net is
 // golden-image parity. That makes it a single heroic diff nobody can review.
 // This test turns it into a measurable, incremental one: it counts raw OpenGL
 // usage outside Platform/OpenGL/ and fails when any counter RISES above a
@@ -31,9 +31,9 @@
 #include "OloEnginePCH.h"
 
 // Compile the declaration-only RHI vocabulary. Nothing else includes these yet
-// (that is the point — Phase 1 is "no code motion"), so without this they would
+// (that is the point — the ratchet itself is "no code motion"), so without this they would
 // never be parsed by a compiler and could rot into non-compiling code before
-// Phase 2 picks them up.
+// the sweep picks them up.
 #include "OloEngine/Renderer/RHI/RHIGpuFence.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
@@ -245,7 +245,7 @@ namespace OloEngine::Tests
             return count;
         }
 
-        // Phase 3's bind-site rule, in ONE place so the corpus scan and the
+        // The bind-site rule, in ONE place so the corpus scan and the
         // unit test cannot drift apart.
         //
         // The identifier-boundary guard is not cosmetic: `BindTexture(` is a
@@ -316,8 +316,8 @@ namespace OloEngine::Tests
 
         enum class Bucket
         {
-            Sweep,   ///< OloEngine/** minus Renderer/Debug/ — Phase 2, must reach zero
-            Tools,   ///< OloEngine/Renderer/Debug/ — Phase 8, relocated not exempted
+            Sweep,   ///< OloEngine/** minus Renderer/Debug/ — must reach zero
+            Tools,   ///< OloEngine/Renderer/Debug/ — relocated not exempted
             Backend, ///< Platform/OpenGL/ — the backend itself, never a violation
         };
 
@@ -347,7 +347,7 @@ namespace OloEngine::Tests
             u32 ToolsGLCalls = 0;
             u32 DebugEscapeHatch = 0;
 
-            // Phase 2 step 3 (the identity currency). `sweep_renderer_id` counts
+            // The identity currency. `sweep_renderer_id` counts
             // the identifier `RendererID` in any spelling — the `GetRendererID()`
             // accessor, the `using RendererID = u32` alias, and the backend's
             // `m_RendererID` member — anywhere outside Platform/ and
@@ -359,7 +359,7 @@ namespace OloEngine::Tests
             // both zero where they do not belong.
             u32 BackendResolveHatch = 0;
 
-            // Phase 3 (the bindless rehearsal). Slot-based texture-binding call
+            // The bindless rehearsal. Slot-based texture-binding call
             // sites outside Platform/ and Renderer/Debug/ — every `BindTexture(`
             // and `BindImageTexture(` the engine still performs. Under
             // heap-bindless there is no slot to bind to: the pass writes
@@ -368,7 +368,7 @@ namespace OloEngine::Tests
             // phase's actual conversion rather than its infrastructure.
             //
             // IT IS NOT EXPECTED TO REACH ZERO IN PHASE 3, and that is a
-            // deliberate difference from the Phase 2 counters. `ARB_bindless_texture`
+            // deliberate difference from the sweep counters. `ARB_bindless_texture`
             // is not universally available, so the slot-based path must survive
             // as the fallback on any device without it — a zero here would mean
             // the engine had stopped working on those machines, not that the
@@ -458,10 +458,10 @@ namespace OloEngine::Tests
                     tally.DebugEscapeHatch += CountOccurrences(blanked, "GetNativeHandleForDebug");
                 }
 
-                // --- Phase 2 step 3: the identity currency -------------------
+                // The identity currency -------------------
                 //
                 // `Platform/` owns native names, and `Renderer/Debug/` still
-                // holds them pending its Phase 8 relocation. Everywhere else,
+                // holds them pending relocation. Everywhere else,
                 // naming one at all is the regression.
                 //
                 // Renderer/RHI/ is NOT exempted here, unlike for the debug
@@ -489,7 +489,7 @@ namespace OloEngine::Tests
                     tally.BackendResolveHatch += CountOccurrences(blanked, "ResolveNativeForBackend");
                 }
 
-                // --- Phase 3: the act of binding ----------------------------
+                // The act of binding ----------------------------
                 //
                 // Same bucket rule as the identity currency: `Platform/` is the
                 // backend and legitimately binds, and `Renderer/Debug/` binds to
@@ -545,7 +545,7 @@ namespace OloEngine::Tests
                 << "  New raw OpenGL was added outside Platform/OpenGL/ (issue #691, ADR 0011).\n"
                 << "  Do NOT raise the baseline to make this green — route the call through the\n"
                 << "  RendererAPI facade instead. If the facade genuinely cannot express it,\n"
-                << "  that is a Phase 2 design gap worth a comment on #691.\n";
+                << "  that is a design gap worth a comment on #691.\n";
 
             if (measured < allowed)
             {
@@ -604,7 +604,7 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // The structural half of Phase 2 step 3, and the reason the counters above
+    // The structural half of the identity currency, and the reason the counters above
     // are a regression guard rather than the proof.
     //
     // A count of `RendererID` mentions is gameable: rename the accessor and the
@@ -661,7 +661,7 @@ namespace OloEngine::Tests
             EXPECT_EQ(RHI::ResourceRegistry::Get().ResolveNativeForBackend(smuggled), 0u);
         }
 
-        // (c) The two identity levels stay mutually unrelated, so Phase 3 can
+        // (c) The two identity levels stay mutually unrelated, so the bindless work can
         //     introduce ViewHandle over the top of this without a sweep. See
         //     ADR 0011 amendment (11) for why ViewHandle is deferred rather than
         //     built now.
@@ -740,7 +740,7 @@ namespace OloEngine::Tests
             << "OpenGL backend is the one place raw GL is expected, so a low count here means the "
             << "literal-stripper or the call matcher is broken, not that the backend shrank.";
 
-        // Phase 3's counter needs its own floor, and for a reason the other two
+        // The bind-site counter needs its own floor, and for a reason the other two
         // do not have: it is the ONLY counter here that a legitimate change
         // could drive to zero, so "zero" is not self-evidently a broken
         // scanner. It is nonetheless not reachable — the slot-based path must
@@ -789,7 +789,7 @@ namespace OloEngine::Tests
         // A block comment closed on a later line must not swallow real calls.
         EXPECT_EQ(count("/* note\n   about glClear(0) */\nglClear(0);"), 1u);
 
-        // Phase 3's bind-site needle rides on the same blanking, so pin it the
+        // The bind-site needle rides on the same blanking, so pin it the
         // same way. The trailing '(' is what separates a call from the facade's
         // own prose, and the two needles must not double-count each other —
         // "BindTexture(" is deliberately NOT a substring of "BindImageTexture(",
@@ -972,7 +972,7 @@ namespace OloEngine::Tests
                    "cannot throw out of a destructor (Platform/OpenGL/OpenGLUtilities.h). Skipping it "
                    "leaves a resident bindless descriptor on a deleted GL object: undefined behaviour "
                    "when sampled, and a lone 'GL_INVALID_OPERATION: Not a valid texture' at shutdown "
-                   "if you are lucky (issue #691 Phase 3).";
+                   "if you are lucky (issue #691).";
         }
 
         // The anchor that stops a broken scan from passing silently: the four

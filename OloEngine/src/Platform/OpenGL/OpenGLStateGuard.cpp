@@ -2,7 +2,7 @@
 // OpenGLStateGuard.cpp
 //
 // The GL implementation of GLStateGuard's snapshot capture and apply, moved
-// here from Renderer/Debug/GLStateGuard.cpp (#691 Phase 9, ADR 0011 §1.6).
+// here from Renderer/Debug/GLStateGuard.cpp (#691, ADR 0011 §1.6).
 // The neutral shell keeps the backend gates, the diff, and the guard's
 // policy/finalisation logic; everything that touches glad lives in this TU.
 // =============================================================================

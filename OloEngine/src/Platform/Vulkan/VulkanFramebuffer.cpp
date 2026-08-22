@@ -51,7 +51,7 @@ namespace OloEngine
                     return ImageFormat::RG16F;
                 case FramebufferTextureFormat::RG32F:
                     return ImageFormat::RG32F;
-                // Carried across the Phase 9 file split from the monolith this
+                // Carried across the file split from the monolith this
                 // switch used to live in: #802 (#772) added the R32F colour
                 // attachment, and the merge's modify/delete conflict would
                 // otherwise have dropped it silently.
@@ -143,11 +143,11 @@ namespace OloEngine
         CreateAttachments();
 
         // The framebuffer's own identity: native = 0 because under dynamic
-        // rendering no VkFramebuffer object exists to name (render passes are
-        // Phase 6). The attachments carry their own nonzero-native handles.
+        // rendering no VkFramebuffer object exists to name. The attachments
+        // carry their own nonzero-native handles.
         m_RHIHandle.Adopt(RHI::ResourceKind::Framebuffer, 0u, RHI::Backend::Vulkan);
         // Raw-handle framebuffer ops (ClearFramebuffer* / BlitFramebuffer /
-        // the per-FB draw-attachment selection, #691 Phase 7 Wave C) receive
+        // the per-FB draw-attachment selection, #691) receive
         // only this handle and need the OBJECT back — the native is 0, so the
         // root-object side table is the resolve path, exactly as for VAOs.
         VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::Framebuffer, this);
@@ -210,8 +210,8 @@ namespace OloEngine
 
         // GL's PrepareTexture (OpenGLUtilities.cpp) stamps every framebuffer
         // attachment CLAMP_TO_EDGE + LINEAR — different from a plain
-        // OpenGLTexture2D's REPEAT — and the inherit sampler path (#691
-        // Phase 8) reproduces whatever the creator stamped. Without this, a
+        // OpenGLTexture2D's REPEAT — and the inherit sampler path (#691)
+        // reproduces whatever the creator stamped. Without this, a
         // post-process read past uv 1.0 wraps to the far side of the frame
         // (the chromatic-aberration tenant's white edge sampled the black
         // left border the moment inherit landed).
@@ -297,8 +297,8 @@ namespace OloEngine
     int VulkanFramebuffer::ReadPixel(u32 attachmentIndex, int x, int y)
     {
         // glReadPixels(GL_RED_INTEGER, GL_INT) of one texel, on the
-        // ReadTextureSubImage spine (#691 Phase 8b; coordinate contract
-        // re-derived in Phase 9, ADR 0011 amendment (85)): every Vulkan
+        // ReadTextureSubImage spine (#691b; coordinate contract
+        // re-derived later, ADR 0011 amendment (85)): every Vulkan
         // off-screen target is TOP-DOWN, so the caller hands TOP-DOWN
         // coordinates (mouse/viewport y, unconverted) and they address texel
         // rows verbatim — the GL arm is the one that converts, at the caller
@@ -329,7 +329,7 @@ namespace OloEngine
     {
         // Single-attachment integer clear (the entity-ID -1 wipe) — the
         // per-attachment slice of ClearAllAttachments, riding the same facade
-        // transfer clear (#691 Phase 8: last ClearAttachment stub retired).
+        // transfer clear (#691: last ClearAttachment stub retired).
         if (attachmentIndex >= m_ColorAttachments.size() || m_ColorAttachments[attachmentIndex] == nullptr)
         {
             return;
@@ -357,8 +357,8 @@ namespace OloEngine
         // attachment via the registries, ends the rendering scope first, and
         // issues exact per-layout-run transitions through the layout tracker
         // (the ClearTextureFloat/UInt shape), so the tracker stays true for
-        // whatever samples or renders these attachments next (#691 Phase 7
-        // Wave A — UICompositePass's mixed int/float clear is the first
+        // whatever samples or renders these attachments next (#691
+        // UICompositePass's mixed int/float clear is the first
         // caller on this backend).
         for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
         {
@@ -370,7 +370,7 @@ namespace OloEngine
             // spec) or shadow a spec entry with a different format — decide
             // int-vs-float from the attached texture itself there, because a
             // float clear on an integer image is a validation error (review
-            // finding, #691 Phase 8).
+            // finding, #691).
             const bool isExternal = m_ExternalColorIndices.contains(static_cast<u32>(i));
             const bool isInteger =
                 (!isExternal && i < m_ColorAttachmentSpecifications.size())
@@ -560,7 +560,7 @@ namespace OloEngine
         // mismatched extent is a caller bug: refuse it rather than silently
         // renaming the framebuffer's size under the existing attachments,
         // which would skew the scope's renderArea for all of them (review
-        // finding, #691 Phase 8).
+        // finding, #691).
         const u32 width = texture.GetWidth();
         const u32 height = texture.GetHeight();
         if (m_Specification.Width != 0u && m_Specification.Height != 0u &&

@@ -1,7 +1,7 @@
 #pragma once
 
 // Pure, engine-light result shaping for the olo_shader_reload MCP tool (issue
-// #316 Part 4 — the rendering inner-loop harness). The tool reloads/recompiles a
+// #316 — the rendering inner-loop harness). The tool reloads/recompiles a
 // single shader from disk by name so an agent can run the tight shader loop —
 // edit .glsl -> reload -> read the compile/link log -> screenshot — without
 // restarting the editor.

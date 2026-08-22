@@ -102,7 +102,7 @@ namespace OloEngine
         // the terrain-erosion heightmap, all of which are bound as storage-image
         // descriptors through the heap, so destroying one used to leave a
         // resident image handle on a texture that was about to be deleted
-        // (issue #691 Phase 3).
+        // (issue #691).
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
@@ -119,5 +119,5 @@ namespace OloEngine
 
     // (The Texture3D::Create factory moved to Renderer/Texture3D.cpp — the
     // backend switch cannot live in a Platform/OpenGL/ TU once a second
-    // backend exists, issue #691 Phase 7.)
+    // backend exists, issue #691.)
 } // namespace OloEngine

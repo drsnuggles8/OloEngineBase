@@ -95,7 +95,7 @@ namespace OloEngine
         Overdraw = 3   // per-pixel cluster fragment count as a heat ramp
     };
 
-    // Streaming residency statistics (page pools, issue #629 slice 5).
+    // Streaming residency statistics (page pools, issue #629).
     struct VirtualResidencyStats
     {
         u32 TotalPages = 0;
@@ -156,7 +156,7 @@ namespace OloEngine
     //
     // Owns the pooled cluster/group/vertex/index SSBOs shared by all virtual
     // meshes, plus the per-frame instance/command/args/visible buffers the cull
-    // compute writes and the hardware MDI path consumes. Slice 2 keeps every
+    // compute writes and the hardware MDI path consumes. The layout keeps every
     // registered mesh fully resident; the streaming slice replaces the all-
     // resident pools with budgeted page pools.
     //

@@ -12,7 +12,7 @@
 namespace OloEngine::RenderGraphHazardValidator
 {
     // Resource-hazard validator extracted from `RenderGraph::ValidateResourceHazardsInternal`
-    // as part of the Phase 7 module split (2026-05-11). The validator runs after
+    // as part of the module split (2026-05-11). The validator runs after
     // the resource registry and topological order are ready; it checks:
     //   - registry-stage diagnostics (e.g. kind mismatches) are still relevant
     //     for reachable passes.

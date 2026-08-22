@@ -369,7 +369,7 @@ namespace OloEngine
 
             // Bind albedo texture. THROUGH THE SEAM, not Texture::Bind — a direct
             // bind is invisible to the heap, so a converted Foliage_Instance would
-            // read an offset nobody staged (issue #691 Phase 3). Persistent: the
+            // read an offset nobody staged (issue #691). Persistent: the
             // atlas is asset-owned and outlives the frame.
             if (layer.AlbedoTexture)
             {

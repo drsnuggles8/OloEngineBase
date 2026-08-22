@@ -25,7 +25,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the terrain patch VBO (TerrainChunk.cpp /
 // TerrainVertex.h — 32 B: vec3 Position @0, vec2 TexCoord @12, vec3 Normal
 // @20), so the stride is 8 floats but the FIELD ORDER differs from the
@@ -105,7 +105,7 @@ float calcTessLevel(vec3 p0, vec3 p1)
     float dist = distance(mid, u_CameraPosition);
     float edgeLen = distance(p0, p1);
     // abs(): u_Projection[1][1] is NEGATIVE on Vulkan (the projection-seam y
-    // flip, #691 Phase 8) — see Terrain_PBR.glsl's calcTessLevel.
+    // flip, #691) — see Terrain_PBR.glsl's calcTessLevel.
     float projScale = abs(u_Projection[1][1]) * 0.5;
     float screenLen = (edgeLen * projScale) / max(dist, 0.001);
     return clamp(screenLen / 8.0, 1.0, 64.0);

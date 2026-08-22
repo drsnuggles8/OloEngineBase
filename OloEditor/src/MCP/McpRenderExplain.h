@@ -1,8 +1,8 @@
 #pragma once
 
 // Pure, engine-light reasoning for the olo_render_why_not_visible "explain" tool
-// (issue #306 item A, rendering half; the inspection counterpart called out by
-// #316 Part 3). It is the rendering sibling of McpPhysicsExplain.h: the MCP tool
+// (issue #306, rendering half; the inspection counterpart called out by
+// #316). It is the rendering sibling of McpPhysicsExplain.h: the MCP tool
 // handler in McpTools.cpp gathers raw facts off the live scene/renderer on the
 // editor main thread, then hands them here to be turned into a human/machine
 // "why isn't this on screen?" answer.

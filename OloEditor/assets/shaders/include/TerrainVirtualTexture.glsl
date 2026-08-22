@@ -6,7 +6,7 @@
 // blend itself now happens once per cache tile in
 // compute/TerrainVTTileBake.comp.
 //
-// Slice 3 (adaptive): the terrain is cut into SectorsWide^2 sectors, each
+// Adaptive images: the terrain is cut into SectorsWide^2 sectors, each
 // owning a variable-size square image inside the shared virtual ATLAS. All the
 // address math below operates in atlas space and is unchanged from the fixed
 // grid — adaptivity enters in exactly three per-sector scalars (UV origin/size

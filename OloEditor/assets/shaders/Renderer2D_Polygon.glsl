@@ -7,7 +7,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the Renderer2D polygon batch (Renderer2D.cpp
 // PolygonVertex, 32 B / 8 words): vec3 Position @0, vec4 Color @12, int
 // EntityID @28. The stream carries an INT attribute, so the pull buffer is

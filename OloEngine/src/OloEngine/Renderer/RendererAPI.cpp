@@ -30,7 +30,7 @@ namespace OloEngine
             }
             case RendererAPI::API::Vulkan:
             {
-                // Reachable since Phase 5 ONLY through
+                // Reachable ONLY through
                 // RenderCommand::RecreateForSelectedBackend() — the static-init
                 // construction (RenderCommand.cpp) always runs before --rhi=
                 // parses and therefore always builds the OpenGL default

@@ -40,7 +40,7 @@ namespace OloEngine
         }
 
         // Read the colour attachment (index 0) back by IDENTITY, not by driver
-        // name (issue #691 step 3): the attachment is a distinct GPU object
+        // name (issue #691): the attachment is a distinct GPU object
         // from the framebuffer, and a resize destroys and recreates it.
         const RHI::ResourceHandle colorAttachment = framebuffer->GetColorAttachmentHandle(0);
         if (!colorAttachment.IsValid())

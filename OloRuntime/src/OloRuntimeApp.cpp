@@ -648,10 +648,10 @@ namespace OloEngine
             // path either, so GetIO() must not be touched. See CreateApplication
             // below.
             //
-            // #691 Phase 9: the layer is pushed on BOTH backends, mirroring the
-            // editor's Phase 8 un-gate (OloEditorApp.cpp). The two reasons the old
-            // Phase 4 gate cited are both gone — the scene renders through the
-            // Vulkan graph since Phase 7/8, and the ImGui layer is pushed on both
+            // #691: the layer is pushed on BOTH backends, mirroring the
+            // editor's un-gate (OloEditorApp.cpp). The two reasons the old
+            // gate cited are both gone — the scene renders through the
+            // Vulkan graph now, and the ImGui layer is pushed on both
             // backends (platform-only vs. VulkanImGuiBackend is an Application
             // concern, not ours).
             if (pushRuntimeLayer)
@@ -664,7 +664,7 @@ namespace OloEngine
                 if (Renderer::GetAPI() != RendererAPI::API::OpenGL)
                 {
                     OLO_CORE_INFO("[RHI] RuntimeLayer under --rhi=vulkan: full game session through "
-                                  "the Vulkan graph (#691 Phase 9)");
+                                  "the Vulkan graph (#691)");
                 }
             }
         }

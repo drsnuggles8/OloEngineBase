@@ -218,7 +218,7 @@ namespace OloEngine
     // accumulates one of these per command-bucket pass that executed this frame
     // (SceneRenderPass, WaterRenderPass, FoliageRenderPass, DecalRenderPass,
     // ForwardOverlayPass), so olo_render_frame_breakdown can list every pass's
-    // commands rather than only the scene pass's (issue #463 / #316 Part 4).
+    // commands rather than only the scene pass's (issue #463 / #316).
     //
     // PassName is the graph node's GetName(); the three stage lists mirror
     // CapturedFrameData's own top-level lists (which remain the *source* / scene
@@ -265,7 +265,7 @@ namespace OloEngine
         std::vector<CapturedCommandData> PostBatchCommands; // After batching
 
         // Per-pass captured command buckets for the whole render graph (issue
-        // #463 / #316 Part 4). One entry per command-bucket pass that executed
+        // #463 / #316). One entry per command-bucket pass that executed
         // this frame, in execution order. Empty for a legacy single-pass capture
         // (the top-level lists above are then the only view).
         std::vector<CapturedPassData> Passes;

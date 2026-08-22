@@ -22,9 +22,9 @@
 // The chain terminates because the analyzer pins the 1x1 coarsest page, which is
 // therefore always a direct entry at the top level.
 //
-// ── Slice 2: this runs over a SUB-RECTANGLE, not the whole level ─────────────
+// This runs over a SUB-RECTANGLE, not the whole level ─────────────
 //
-// Slice 1 dispatched every texel of every level on any residency change. The
+// The original dispatched every texel of every level on any residency change. The
 // texels that can actually have changed are the descendants of the handful that
 // did — a change at mip m dirties a 2^k x 2^k block at mip m-k — so the CPU
 // derives one bounding rectangle per level and hands it over in the update

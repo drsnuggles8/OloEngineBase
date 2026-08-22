@@ -2,7 +2,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
-// Resource links + the dynamic resource registry (#673 Tier 1, bullet 3).
+// Resource links + the dynamic resource registry (#673, bullet 3).
 // Drives the httplib-free dispatch seam (McpServer.cpp is compiled into the
 // test binary) with fake resources/tools — no live editor, GPU, or socket:
 //   * the binary `blob` contents variant of resources/read (ResourceDef::BlobReader);

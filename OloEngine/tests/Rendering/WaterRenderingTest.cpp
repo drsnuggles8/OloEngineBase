@@ -179,7 +179,7 @@ TEST(WaterRendering, DrawWaterCommandZeroInitNoNaN)
     ValidateVec4(cmd.tessParams, "tessParams");
     // A value-initialised command must leave every texture slot NAMING NOTHING.
     // The assertion is against RHI::NullResource, not TestHandle(0u): after
-    // issue #691 step 3 slice 6 these are identities, and index 0 is a perfectly
+    // issue #691 these are identities, and index 0 is a perfectly
     // ordinary live slot — asserting equality with it would let a command that
     // wrongly points at whatever occupies registry slot 0 pass this test.
     EXPECT_FALSE(cmd.normalMap0ID.IsValid());
@@ -418,7 +418,7 @@ TEST(WaterRendering, WavelengthPackedIntoWaveDir)
 }
 
 // =============================================================================
-// Texture Binding Slots — Phase 2+3+5
+// Texture Binding Slots — depth, foam and tessellation
 // =============================================================================
 
 TEST(WaterRendering, WaterTextureBindingSlots)

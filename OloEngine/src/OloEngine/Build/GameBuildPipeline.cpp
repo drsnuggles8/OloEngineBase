@@ -84,7 +84,7 @@ namespace OloEngine
 
         result.OutputPath = outputDir;
 
-        // Ship the renderer-backend config next to the exe (#691 Phase 9): the
+        // Ship the renderer-backend config next to the exe (#691): the
         // engine's backend selection reads `config/renderer.yaml` (cwd first,
         // then the executable's directory), so this is what makes a packaged
         // game start on the developer's chosen default without a command-line

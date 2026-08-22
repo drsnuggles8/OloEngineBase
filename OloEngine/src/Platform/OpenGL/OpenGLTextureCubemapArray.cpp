@@ -143,7 +143,7 @@ namespace OloEngine
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
         // Same skip-bind / dangling-descriptor hazard as every other texture
-        // type when the recycled name is later reused (issue #691 Phase 3).
+        // type when the recycled name is later reused (issue #691).
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 const id = m_RendererID;

@@ -52,7 +52,7 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        // Register a phase-2 (#431 Stage 2) draw. `packet` is a
+        // Register a phase-2 (#431) draw. `packet` is a
         // DrawMeshInstancedCommand whose cull buffers point at `cull`'s phase-2
         // survivor/indirect; `cull` carries the reject buffer the phase-2 cull
         // re-tests against the current-frame HZB. Both are consumed in Execute
@@ -66,7 +66,7 @@ namespace OloEngine
         // cull[i].Phase2Output after DispatchPhase2 fills it). Cleared each Execute.
         std::vector<CommandPacket*> m_Phase2Packets;
         std::vector<GPUFrustumCuller::TwoPhaseCullResult> m_Phase2Culls;
-        // SceneDepth / SceneNormals export targets (#431 Stage 3). After drawing,
+        // SceneDepth / SceneNormals export targets (#431). After drawing,
         // the pass re-copies the live framebuffer depth + view-normals into these
         // so the downstream AO / SSR passes (which sample the exported textures,
         // not the framebuffer) see the instanced geometry. ScenePass exported

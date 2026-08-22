@@ -216,7 +216,7 @@ the sampler namespace.
 
 Cross-namespace reuse is fine on GL and fine on Vulkan **except within one shader**, where the
 single-set model makes it a real collision — the reason `TEX_DDGI_VISIBILITY` had to move off 57 in
-#691 Phase 7 Wave C (ADR item A2). The constraint has a checkable form, and it is checked:
+#691 (ADR item A2). The constraint has a checkable form, and it is checked:
 `GPUReadbackStatsLayoutTest.NoStatsConsumerAlsoSamplesBinding64` asserts no shader includes both
 `GPUReadbackStats.glsl` and `DDGICommon.glsl`. **If that test fails, renumber — do not delete it.**
 

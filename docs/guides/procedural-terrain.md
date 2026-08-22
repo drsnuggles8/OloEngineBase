@@ -95,7 +95,7 @@ material" yields a textured planet out of the box.
 ### Virtual texturing (optional surfacing path)
 
 `TerrainComponent::m_VirtualTextureEnabled` swaps the per-pixel splat blend for a
-feedback-driven virtual texture (issue #715, slice 1). The blend itself is
+feedback-driven virtual texture (issue #715). The blend itself is
 unchanged — it just runs **once per cache tile** in a compute kernel instead of
 once per pixel. The *virtual* surface is up to 32 768 texels across the terrain
 against the splatmap's 512; only the pages the camera actually asked for are
@@ -309,9 +309,10 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
   plant meshes is still manual).
 - **Non-square / streamed generation.** The generator is single-tile; wiring it
   into `TerrainStreamer` would allow infinite procedural worlds.
-- **Virtual texturing, slices 2-4** (tracked on #715). Slice 1 shipped the fixed
-  grid, the uncompressed cache and the mip-chained indirection map. Still open:
-  incremental indirection deltas instead of a full rebuild, adaptive /
-  variable-size virtual images (which want the shared power-of-two atlas
-  allocator from #718), and BC-compressed cache tiles (which want the GPU
-  compressor from item 3 of #624).
+- ~~**Virtual texturing.**~~ **Done** (#715) — the terrain now runs a full
+  feedback-driven virtual texture: a fixed grid with a mip-chained indirection
+  map, incremental indirection deltas instead of a whole-map rebuild, adaptive
+  variable-size virtual images allocated from the shared power-of-two
+  `AtlasAllocator` (#718), and BC7-compressed cache tiles. The invariants and
+  the failure modes are in
+  [terrain-virtual-texturing.md](../agent-rules/terrain-virtual-texturing.md).

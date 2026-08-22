@@ -14,7 +14,7 @@ namespace OloEngine::MaterialXImport
 {
     // Reads a standalone MaterialX document (.mtlx) and maps its surface shader
     // (standard_surface / UsdPreviewSurface / gltf_pbr) onto the engine's PBR Material
-    // (issue #655 Tier 3). Maps the scalar/colour FACTORS — base color, metallic, roughness,
+    // (issue #655). Maps the scalar/colour FACTORS — base color, metallic, roughness,
     // emissive — which fully define an untextured material and are GL-free (so this is unit
     // testable headless). Texture inputs are resolved to their file paths and logged; wiring
     // those paths through the asset manager into the material's map slots is a follow-up

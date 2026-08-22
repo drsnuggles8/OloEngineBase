@@ -128,7 +128,7 @@ namespace OloEngine
         {
             // No swapchain yet (window minimised at startup): the UI pipeline
             // bakes the swapchain color format, so initialisation cannot
-            // proceed. The layer stays in Phase 7 platform-only mode.
+            // proceed. The layer stays in platform-only mode.
             return false;
         }
 
@@ -164,7 +164,7 @@ namespace OloEngine
             return false;
         }
         s_Initialized = true;
-        OLO_CORE_INFO("[ImGui/Vulkan] renderer backend initialised (#691 Phase 8): dynamic rendering, "
+        OLO_CORE_INFO("[ImGui/Vulkan] renderer backend initialised (#691): dynamic rendering, "
                       "format {}, {} swapchain images",
                       static_cast<u32>(s_SwapchainFormat), imageCount);
         return true;

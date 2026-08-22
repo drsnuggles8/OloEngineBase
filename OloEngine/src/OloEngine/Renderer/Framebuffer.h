@@ -96,7 +96,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual u32 GetColorAttachmentRendererID(u32 index) const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetDepthAttachmentRendererID() const = 0;
 
-        // Attachment IDENTITIES (issue #691 step 3). Separate from the
+        // Attachment IDENTITIES (issue #691). Separate from the
         // framebuffer's own GetRHIHandle(): the attachments are distinct GPU
         // objects that the engine samples through ResolveTexture, so "the
         // framebuffer's handle" is the wrong answer to "which texture is this?".
@@ -112,7 +112,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual u32 GetRendererID() const = 0;
 
         // Generation-checked identity, minted by RHI::ResourceRegistry
-        // (issue #691 Phase 2 step 3). Sibling of GetRendererID() during the
+        // (issue #691). Sibling of GetRendererID during the
         // migration: that one hands out the raw backend name and is deleted once
         // every caller has moved. Turning a handle back into a native object is
         // Platform/<Backend>/'s business.

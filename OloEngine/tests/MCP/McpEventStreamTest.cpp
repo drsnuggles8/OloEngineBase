@@ -2,7 +2,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
-// Unit tests for the MCP server-push serialization seam (issue #306 item B). The
+// Unit tests for the MCP server-push serialization seam (issue #306). The
 // SSE transport (GET /mcp) lives in OloEditor and needs a live socket, but the pure
 // event -> MCP-notification -> SSE-frame serialization is header-only
 // (MCP/McpEventStream.h), so it is exercised here directly with no editor / socket /

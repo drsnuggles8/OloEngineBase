@@ -77,7 +77,7 @@ namespace OloEngine
         RGTextureHandle m_SelectedAOOutputTexture{};
         RGFramebufferHandle m_SelectedBlurFramebuffer{};
 
-        // Migrated to the identity currency (issue #691 step 3). Its whole
+        // Migrated to the identity currency (issue #691). Its whole
         // chain moves together — created via CreateTexture2DHandle, configured,
         // imported via ImportTextureHandle, bound through the handle overload,
         // deleted through the handle Delete*. That is the migration grain: a

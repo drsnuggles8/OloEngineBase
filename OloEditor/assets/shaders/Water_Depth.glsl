@@ -4,7 +4,7 @@
 // the include stage files so the captured depth can never drift from the drawn
 // surface; the fragment stage keeps ONLY the waterline-side discard and writes
 // no color outputs, so the capture framebuffer needs no scene-MRT mirroring
-// (#691 Phase 8 — this retires the RGBA16F/RED_INTEGER/RG16F padding
+// (#691 — this retires the RGBA16F/RED_INTEGER/RG16F padding
 // attachments the capture target used to carry for pipeline-interface parity).
 // CommandDispatch swaps this program in while WaterDepthCaptureActive, the same
 // shape as the depth-prepass shader swap.

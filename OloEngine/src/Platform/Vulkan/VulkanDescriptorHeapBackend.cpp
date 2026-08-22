@@ -127,8 +127,8 @@ namespace OloEngine
         auto& viewInfo = staged.ViewInfo;
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = image;
-        // The registry's recorded dimensionality is the authority (#691
-        // Phase 8): deriving from layerCount alone handed a CUBE image a
+        // The registry's recorded dimensionality is the authority (#691):
+        // deriving from layerCount alone handed a CUBE image a
         // 2D_ARRAY view against a samplerCube declaration (and a 3D volume a
         // 2D one). Storage views are the exception — imageCube is not a
         // declared consumer, so cube-compatible images bind as their layer
@@ -196,8 +196,8 @@ namespace OloEngine
 
             const Staged& staged = it->second;
             // The heap route's half of the bind-time layout seam (#691
-            // Phase 9; the slot route's BindTexture/BindImageTexture always
-            // had it — the debt the Phase 8 issue text recorded as "the heap
+            // the slot route's BindTexture/BindImageTexture always
+            // had it — the debt the issue text recorded as "the heap
             // path's own mid-pass visibility seam, amendment (63) covers the
             // slot path only"). A descriptor written here BAKES its layout,
             // so an image that is not in that layout when the draw samples it

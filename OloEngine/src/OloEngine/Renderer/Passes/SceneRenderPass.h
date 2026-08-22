@@ -44,7 +44,7 @@ namespace OloEngine
         // replayed pipeline's fragment interface must match its render
         // targets, so a mirror that drifts from this list resurrects the
         // per-draw unused-output validation warnings under Vulkan
-        // (#691 Phase 8).
+        // (#691).
         [[nodiscard]] static FramebufferAttachmentSpecification SceneMRTAttachments()
         {
             return { FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
@@ -77,7 +77,7 @@ namespace OloEngine
         // Lazily create / resize the G-Buffer to match the forward target.
         void EnsureGBuffer(u32 width, u32 height, u32 sampleCount);
         // Blit the requested G-Buffer channel into m_Target color[0] so the
-        // editor viewport shows something meaningful before Phase 3 lighting.
+        // editor viewport shows something meaningful before deferred lighting.
         void BlitGBufferDebug(u32 channel);
 
         // Blit the forward scene FB's velocity attachment (RG16F at slot 3)

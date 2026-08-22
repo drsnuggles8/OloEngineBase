@@ -207,7 +207,7 @@ namespace OloEngine::Ocean
         // Persistent: the twiddle table is pass-owned and never pooled. Staged
         // once here rather than per stage — the offset scratch persists across
         // flushes, and the loop below already flushes per iteration for the
-        // ping-pong images (issue #691 Phase 3).
+        // ping-pong images (issue #691).
         HeapBinding::BindTextureOrOffset(0, m_ButterflyTex->GetRHIHandle(),
                                          RHI::HeapSlotLifetime::Persistent);
 

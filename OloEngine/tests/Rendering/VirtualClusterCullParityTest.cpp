@@ -100,7 +100,7 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
     auto cameraUBO = UniformBuffer::Create(sizeof(CameraBlock), ShaderBindingLayout::UBO_CAMERA);
     cameraUBO->SetData(&camera, sizeof(CameraBlock));
 
-    // VirtualClusterCull.comp's parameters (issue #691 Phase 7): one std140
+    // VirtualClusterCull.comp's parameters (issue #691): one std140
     // block where the shader used to declare ~18 bare uniforms. Refilled before
     // each dispatch below.
     auto cullParamsUBO = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(),
@@ -196,7 +196,7 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
 
             cullShader->Bind();
             // The cull's parameters moved into the VirtualClusterCullParams
-            // std140 block at UBO_VIRTUAL_CLUSTER_CULL (issue #691 Phase 7 —
+            // std140 block at UBO_VIRTUAL_CLUSTER_CULL (issue #691 —
             // GLSL-for-Vulkan forbids default-block uniforms). The block is
             // value-initialised, so every control this parity case does not set
             // (ortho mode, occlusion, the two-phase and debug flags) is a

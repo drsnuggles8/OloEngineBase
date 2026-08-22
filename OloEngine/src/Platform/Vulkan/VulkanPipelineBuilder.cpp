@@ -230,7 +230,7 @@ namespace OloEngine
             }
             else if (binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler)
             {
-                // #691 Phase 8: two u32s — the image heap index at Offset and
+                // #691: two u32s — the image heap index at Offset and
                 // the SAMPLER heap index at Offset + kSamplerIndexOffset. The
                 // mapping's samplerAddressOffset and the root-data writer both
                 // derive from this one layout, so they cannot disagree.
@@ -291,7 +291,7 @@ namespace OloEngine
     VulkanPipelineBuilder::BuildBindingMappings(const VulkanRootDataLayout& layout)
     {
         // The sampler-heap strides feed the mappings below, so the heap must
-        // exist BEFORE the first pipeline bakes them (#691 Phase 8).
+        // exist BEFORE the first pipeline bakes them (#691).
         if (!VulkanSamplerHeap::Get().EnsureCreated())
         {
             OLO_CORE_WARN("VulkanPipelineBuilder: sampler heap unavailable — sampler mappings will use zero strides");
@@ -345,8 +345,8 @@ namespace OloEngine
                                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_IMAGE_BIT_EXT);
                     // Heap slot index lives in the root struct at Field.Offset.
                     // The sampler half comes from the SAMPLER heap, indexed by
-                    // the u32 at Field.Offset + kSamplerIndexOffset (#691
-                    // Phase 8) — per-draw sampler state with no PSO axis,
+                    // the u32 at Field.Offset + kSamplerIndexOffset (#691)
+                    // Per-draw sampler state with no PSO axis,
                     // replacing the per-pipeline embedded sampler that baked
                     // linear/clamp into every texture read.
                     const bool combined =
@@ -460,7 +460,7 @@ namespace OloEngine
         key.ColorCount = safeTargets.ColorCount;
         key.Samples = safeTargets.Samples;
         key.LayoutHash = HashLayout(layout);
-        // A10 (#691 Wave C): a shader carrying a tessellation-control stage is
+        // A10 (#691): a shader carrying a tessellation-control stage is
         // a PATCH pipeline — VK_PRIMITIVE_TOPOLOGY_PATCH_LIST is then the ONLY
         // legal topology (VUID-…-pStages-00736) and the patch size must be
         // baked, so it joins the key.
@@ -570,7 +570,7 @@ namespace OloEngine
         // draw front-end sets PATCH_LIST through the dynamic topology so the
         // baked value above and the recorded one agree.
         //
-        // Domain origin (#691 Phase 8, the water-murk bug): Vulkan's default
+        // Domain origin (#691, the water-murk bug): Vulkan's default
         // is UPPER_LEFT, GL's convention is LOWER_LEFT. The GLSL tess stages
         // were authored against GL semantics — with the default, the
         // tessellator's v coordinate mirrors and every generated triangle's
@@ -709,7 +709,7 @@ namespace OloEngine
         // aspects (EnsureRenderingScopeForDraw passes pStencilAttachment for
         // it), and VUID-08917 requires the PSO's stencil format to match the
         // rendering info's — the first D24S8/D32S8 scene FB on this backend
-        // (#691 Wave C: OITPrepare / DeferredLighting) tripped it.
+        // (#691: OITPrepare / DeferredLighting) tripped it.
         rendering.stencilAttachmentFormat =
             (safeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ||
              safeTargets.DepthFormat == VK_FORMAT_D24_UNORM_S8_UINT)
@@ -781,7 +781,7 @@ namespace OloEngine
         const VulkanShader* boundShader = VulkanShader::GetCurrentlyBound();
         const bool meshPipeline = boundShader != nullptr && boundShader->HasMeshStage();
         vkCmdSetCullMode(cmd, ToVk(state.CullFace, state.Culling));
-        // A1/A8 (issue #691 Phase 7): the recorded GL winding translates to the
+        // A1/A8 (issue #691): the recorded GL winding translates to the
         // SAME VkFrontFace — no swap.
         //
         // Batch 1 shipped the opposite (recorded CCW -> VK_FRONT_FACE_CLOCKWISE)

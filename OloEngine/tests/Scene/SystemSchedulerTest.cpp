@@ -464,7 +464,7 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("MorphEval", "Animation"));  // morph eval after weight writers
     EXPECT_TRUE(sched.DependsOn("MorphEval", "AnimationGraph"));
 
-    // Locomotion seam (issue #631 part 4): the graph evaluation consumes the
+    // Locomotion seam (issue #631): the graph evaluation consumes the
     // parameters the controller writes (RAW on AnimationParams).
     EXPECT_TRUE(sched.DependsOn("AnimationGraph", "Locomotion"));
 
@@ -475,7 +475,7 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     // scene-level settings structs aren't scheduler channels).
     EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Weather"));
 
-    // Live-retargeting seam (issue #631 part 2): both animation systems sample
+    // Live-retargeting seam (issue #631): both animation systems sample
     // the clip lists the bake writes (RAW on AnimationClips).
     EXPECT_TRUE(sched.DependsOn("Animation", "Retargeting"));
     EXPECT_TRUE(sched.DependsOn("AnimationGraph", "Retargeting"));

@@ -24,7 +24,7 @@ namespace OloEngine
             case RendererAPI::API::Vulkan:
             {
 #if OLO_WITH_VULKAN
-                // #691 Phase 5: the TransientPool's attribute-only path. A
+                // #691: the TransientPool's attribute-only path. A
                 // Vulkan resource cannot exist without a device, so fall
                 // through to the loud assert when none is up.
                 if (VulkanDevice::Get() != nullptr)
@@ -57,7 +57,7 @@ namespace OloEngine
             case RendererAPI::API::Vulkan:
             {
                 // Block-compressed upload (the BCn staging path) is #691
-                // Phase 8. Degrading to null rather than asserting keeps an
+                // Degrading to null rather than asserting keeps an
                 // asset that happens to be compressed from killing the app —
                 // the caller falls back to its missing-texture handling
                 // (see asset-degradation-and-constructor-preconditions.md).
@@ -65,7 +65,7 @@ namespace OloEngine
                 if (!s_Warned)
                 {
                     s_Warned = true;
-                    OLO_CORE_WARN("[RHI/Vulkan] compressed-texture upload is not implemented (#691 Phase 8) — "
+                    OLO_CORE_WARN("[RHI/Vulkan] compressed-texture upload is not implemented (#691) — "
                                   "these textures load as null");
                 }
                 return nullptr;
@@ -92,7 +92,7 @@ namespace OloEngine
             case RendererAPI::API::Vulkan:
             {
 #if OLO_WITH_VULKAN
-                // #691 Phase 7: file-load arm (stbi + one-shot upload).
+                // #691: file-load arm (stbi + one-shot upload).
                 if (VulkanDevice::Get() != nullptr)
                 {
                     return Ref<VulkanTexture2D>::Create(path, srgb);

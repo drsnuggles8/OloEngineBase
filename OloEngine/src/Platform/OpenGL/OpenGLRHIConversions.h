@@ -3,7 +3,7 @@
 // =============================================================================
 // OpenGLRHIConversions.h — the ONE place RHI:: enums become GLenum.
 //
-// Issue #691 Phase 2, ADR 0011 §1.7. RendererAPI's virtuals used to be spelled
+// Issue #691, ADR 0011 §1.7. RendererAPI's virtuals used to be spelled
 // in GLenum, which handed the whole OpenGL API to every translation unit that
 // included RendererAPI.h and let 40 files include <glad/gl.h> while calling no
 // GL at all — purely to name the GL_* constants those signatures demanded.

@@ -40,7 +40,7 @@ namespace OloEngine
     [[nodiscard]] BackendSelection SelectRendererBackend(int argc, char** argv, const std::filesystem::path& configFile);
 
     // The config file the engine reads the fallback setting from. Resolution
-    // (#691 Phase 9): `config/renderer.yaml` under the process working directory
+    // (#691): `config/renderer.yaml` under the process working directory
     // if that file exists (the editor's shape — Application pins the cwd from its
     // specification before selection runs); otherwise the same relative path under
     // the executable's own directory if THAT file exists (the packaged-game shape,

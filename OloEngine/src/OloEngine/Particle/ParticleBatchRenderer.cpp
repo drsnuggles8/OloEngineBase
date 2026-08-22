@@ -22,7 +22,7 @@ namespace OloEngine
         Ref<VertexBuffer> QuadVBO;     // Unit quad vertices (per-vertex)
         Ref<VertexBuffer> InstanceVBO; // Per-instance data
         Ref<Shader> ParticleShader;
-        Ref<Shader> ParticleShaderOIT; // Phase 6: weighted-blended OIT variant
+        Ref<Shader> ParticleShaderOIT; // weighted-blended OIT variant
         bool UseOITShader = false;     // Set by ParticleRenderPass when OIT is active for this frame
 
         std::unique_ptr<ParticleInstance[]> InstanceBase;
@@ -364,7 +364,7 @@ namespace OloEngine
     static void BindParticleTextures(bool hasTexture, RHI::ResourceHandle texture)
     {
         // Every caller binds its shader BEFORE calling this, which is what makes the
-        // seam's IsBoundProgramBindless() fork meaningful here (issue #691 Phase 3).
+        // seam's IsBoundProgramBindless fork meaningful here (issue #691).
         //
         // Slot 0 is always an asset-owned texture (the particle atlas or the shared
         // white fallback) — Persistent. Slot 1 is MIXED: the soft-particle depth is
@@ -477,7 +477,7 @@ namespace OloEngine
         // the OpenGL shaderc pass; see Particle_Billboard_GPU.glsl for a
         // working example). Migrating this mesh-particle path to a real
         // DrawMeshInstanced + ModelInstanceBuffer upload is a future
-        // optimisation — see GPU instancing (#173) Phase 4.
+        // optimisation — see GPU instancing (#173).
         for (u32 i = 0; i < instances.size(); ++i)
         {
             s_Data.MeshInstanceUBO->SetData(&instances[i], sizeof(MeshParticleInstance));

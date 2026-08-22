@@ -18,7 +18,7 @@ namespace OloEngine
     struct FrameBlackboard;
 
     // ========================================================================
-    // Phase C — RGBuilder
+    // RGBuilder
     //
     // Declarative API for pass setup callbacks. Passes use RGBuilder to
     // declare which resources they read, write, create, import, or extract.
@@ -79,7 +79,7 @@ namespace OloEngine
         u32 BaseSlice = 0;
         u32 SliceCount = ~0u; // ~0u means "all slices from BaseSlice"
 
-        // Phase 5: the submission plan dedupes per-consumer transitions on
+        // The submission plan dedupes per-consumer transitions on
         // (resource, range, from, to). Trailing-return form for MSVC (see
         // cpp-coding-quality.md §7).
         [[nodiscard]] auto operator==(const RGSubresourceRange& other) const -> bool = default;
@@ -333,7 +333,7 @@ namespace OloEngine
         }
 
         // -------------------------------------------------------------------
-        // Phase C compile-time declaration capture
+        // Compile-time declaration capture
         // -------------------------------------------------------------------
 
         void BeginPass(std::string_view passName);

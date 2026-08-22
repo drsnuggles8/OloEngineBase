@@ -29,10 +29,10 @@ namespace OloEngine
             return RendererAPI::GetAPI() == RendererAPI::API::OpenGL;
         }
 
-        // #691 Phase 8: the Vulkan renderer backend (imgui_impl_vulkan via
+        // #691: the Vulkan renderer backend (imgui_impl_vulkan via
         // VulkanImGuiBackend) is live once Init succeeded. When it did NOT
         // (no swapchain at attach — e.g. minimised at startup — or a non-GL,
-        // non-Vulkan future backend), the layer falls back to Phase 7's
+        // non-Vulkan future backend), the layer falls back to the
         // PLATFORM-ONLY mode: the context, the GLFW input backend and every
         // panel's ImGui code work exactly as on GL, and only the draw-data
         // submission is absent. That is what lets the editor layer — and its
@@ -66,7 +66,7 @@ namespace OloEngine
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
         // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable Docking
-        // Multi-viewport stays GL-only for now: the Phase 8 Vulkan renderer
+        // Multi-viewport stays GL-only for now: the Vulkan renderer
         // backend draws the MAIN window's UI, but its secondary-viewport path
         // (imgui_impl_vulkan-owned swapchains + imgui_impl_glfw's
         // Platform_CreateVkSurface, which our GLFW_INCLUDE_NONE build compiles
@@ -163,7 +163,7 @@ namespace OloEngine
 #if OLO_WITH_VULKAN
             if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
             {
-                // #691 Phase 8: the real Vulkan renderer backend. InitForVulkan
+                // #691: the real Vulkan renderer backend. InitForVulkan
                 // installs the same input callbacks as InitForOpenGL (the
                 // ClientApi tag only matters to multi-viewport, which stays
                 // off here); VulkanImGuiBackend wires imgui_impl_vulkan to the
@@ -175,7 +175,7 @@ namespace OloEngine
                     return;
                 }
                 // Init can only fail without a swapchain (minimised at
-                // startup) — degrade to Phase 7 platform-only below rather
+                // startup) — degrade to platform-only below rather
                 // than crash panel logic.
                 OLO_CORE_WARN("[ImGui] Vulkan renderer backend unavailable — falling back to platform-only mode");
             }

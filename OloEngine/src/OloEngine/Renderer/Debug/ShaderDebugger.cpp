@@ -1383,7 +1383,7 @@ namespace OloEngine
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No resource binding information available");
         }
 
-        // Frame-in-flight information (Phase 1.3)
+        // Frame-in-flight information
         ImGui::Separator();
         ImGui::Text("Frame-in-Flight Status");
 
@@ -1391,7 +1391,7 @@ namespace OloEngine
         // Note: This would require extending ShaderInfo to include frame-in-flight data
         // For now, we'll show a placeholder
         ImGui::BulletText("Frame-in-flight support: Available");
-        ImGui::BulletText("Current implementation: Phase 1.3 complete");
+        ImGui::BulletText("Frame-in-flight inspection available");
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Note: Frame-in-flight statistics require shader registry access");
     }
 

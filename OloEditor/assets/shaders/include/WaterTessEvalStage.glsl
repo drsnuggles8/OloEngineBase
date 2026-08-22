@@ -17,7 +17,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
     float _padding1;
-    // Reconstruction flavour of u_Projection (#691 Phase 8) — every stage's
+    // Reconstruction flavour of u_Projection (#691) — every stage's
     // declaration must match or glLinkProgram rejects the program; only the
     // fragment stage reads it. Identical to u_Projection on GL.
     mat4 u_ProjectionForReconstruction;

@@ -142,7 +142,7 @@ namespace OloEngine
         // FrameTransient: graph-resolved. The SetInt companion is gone — it was
         // redundant against the shader's layout(binding = 0) and would log
         // "uniform not found" every frame under the bindless variant, where the
-        // name is a #define (issue #691 Phase 3).
+        // name is a #define (issue #691).
         context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         {

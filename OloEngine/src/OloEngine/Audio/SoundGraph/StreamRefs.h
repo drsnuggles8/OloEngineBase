@@ -8,7 +8,7 @@
 namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
-    // Phase 2 typed connections (docs/design/soundgraph-metasounds.md).
+    // Typed connections (docs/design/soundgraph-metasounds.md).
     //
     // A connection is a raw pointer from a consumer's input ref into a producer's
     // output storage, patched once at wire time. The audio thread reads through the
@@ -42,7 +42,7 @@ namespace OloEngine::Audio::SoundGraph
     /// is stable for the node's lifetime — consumers capture the raw pointer at wire
     /// time. The producer writes the first numFrames samples each Process call.
     ///
-    /// Storage modes (Phase 3 contiguous pool, docs/design/soundgraph-metasounds.md):
+    /// Storage modes (contiguous pool, docs/design/soundgraph-metasounds.md):
     ///   * Default — self-owned fallback vector. Used by graph ramp buffers, directly
     ///     constructed nodes (tests), and any buffer the graph chooses not to pool.
     ///   * Pooled — after AdoptPoolStorage(slot), Data() points into the graph's one
@@ -182,7 +182,7 @@ namespace OloEngine::Audio::SoundGraph
                                                                           : EStreamType::Bool;
 
     //==============================================================================
-    /// Sample-accurate trigger (Phase 4 — docs/design/soundgraph-metasounds.md).
+    /// Sample-accurate trigger (docs/design/soundgraph-metasounds.md).
     ///
     /// Carries the frame offset within the current block at which a trigger fires.
     /// kNotFired (-1) means "did not fire this block". Trigger-consuming nodes
@@ -196,7 +196,7 @@ namespace OloEngine::Audio::SoundGraph
     /// in one block collapse to the first, matching the old Flag/dirty semantics
     /// (N SetDirty()s = one action) while keeping the earliest moment requested.
     /// Genuine sub-block multi-fire needs the full event-queue scheduling that is
-    /// out of Phase 4's scope.
+    /// out of scope here.
     struct Trigger
     {
         static constexpr i32 kNotFired = -1;
@@ -238,7 +238,7 @@ namespace OloEngine::Audio::SoundGraph
     };
 
     //==============================================================================
-    /// Trigger input reference (Phase 4). Mirrors AudioBufferRef / ValueRef: it
+    /// Trigger input reference. Mirrors AudioBufferRef / ValueRef: it
     /// owns an inline default Trigger and points at it until Bind() repoints it at
     /// a producer's Trigger. Trigger-consuming nodes own a TriggerRef per trigger
     /// input; the node's InputEvent handler Fire()s it with the event's sample

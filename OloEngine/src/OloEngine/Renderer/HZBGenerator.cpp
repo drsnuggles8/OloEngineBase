@@ -192,7 +192,7 @@ namespace OloEngine
         // (FrameTransient — a Persistent view would memoise an offset onto an
         // object the planner may reassign next frame), while the HZB pyramid is
         // this generator's own texture (Persistent, memoisable). The lifetime
-        // follows the RESOURCE, never the slot (issue #691 Phase 3).
+        // follows the RESOURCE, never the slot (issue #691).
         if (isFirstPass)
         {
             HeapBinding::BindTextureOrOffset(4, sceneDepthTexture, RHI::HeapSlotLifetime::FrameTransient);
@@ -240,7 +240,7 @@ namespace OloEngine
         // Set uniforms
         // One std140 refill per 4-mip batch — these were bare uniforms via
         // ComputeShader::Set*, a deliberate no-op on the Vulkan route (issue
-        // #691 Phase 7). Per-batch SetData is legal on both backends (GL
+        // #691). Per-batch SetData is legal on both backends (GL
         // re-uploads the bound buffer; Vulkan's arena-versioned UBOs mint a
         // fresh per-dispatch address on every SetData).
         if (!m_ParamsUBO)

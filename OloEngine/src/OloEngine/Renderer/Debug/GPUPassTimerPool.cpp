@@ -22,7 +22,7 @@ namespace OloEngine
         if (m_Initialized)
             return;
 
-        // Timestamp queries through the facade (#691 Phase 9): RHI::QueryType::
+        // Timestamp queries through the facade (#691): RHI::QueryType::
         // Timestamp stamps via WriteTimestamp on both backends (glQueryCounter /
         // vkCmdWriteTimestamp), with results in nanoseconds either way. The
         // former GL-only early-out is gone with the direct glad calls it

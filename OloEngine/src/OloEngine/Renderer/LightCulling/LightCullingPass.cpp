@@ -87,7 +87,7 @@ namespace OloEngine
         // One std140 refill per dispatch. These were bare uniforms fed through
         // ComputeShader::Set*, which the Vulkan SPIR-V route cannot express and
         // whose Set* is a no-op there — so Forward+ culling would have read
-        // zeros and left every cluster empty (issue #691 Phase 7).
+        // zeros and left every cluster empty (issue #691).
         if (!m_ParamsUBO)
         {
             m_ParamsUBO = UniformBuffer::Create(UBOStructures::LightCullingUBO::GetSize(),

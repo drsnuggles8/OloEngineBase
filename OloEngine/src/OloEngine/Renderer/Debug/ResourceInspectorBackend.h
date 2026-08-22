@@ -8,7 +8,7 @@
 
 namespace OloEngine
 {
-    // @brief Backend data plane for GPUResourceInspector (#691 Phase 9, ADR 0011 §1.6).
+    // @brief Backend data plane for GPUResourceInspector (#691, ADR 0011 §1.6).
     //
     // GPUResourceInspector keeps the registration bookkeeping, the download-
     // request lifecycle and the ImGui presentation; everything that must touch

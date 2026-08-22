@@ -69,7 +69,7 @@ namespace OloEngine
         RHI::ScopedResourceHandle m_RHIHandle;
         bool m_IsValid = false;
         // Whether this program was built with the heap-bindless branch enabled
-        // (issue #691 Phase 3). Read by Bind(), which publishes it through
+        // (issue #691). Read by Bind, which publishes it through
         // Shader::SetBoundProgramBindless so the binding seam knows whether the
         // program in flight reads the offset table or its own image units.
         //

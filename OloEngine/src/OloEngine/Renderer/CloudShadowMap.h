@@ -72,7 +72,7 @@ namespace OloEngine
         struct CloudShadowMapData
         {
             Ref<ComputeShader> m_GenerateShader;
-            // Owned R8 512² identity (issue #691 step 3, slice 6). Migrated off the
+            // Owned R8 512² identity (issue #691). Migrated off the
             // raw GL name because it is bound through CommandDispatch's redundant-bind
             // cache, which now keys on identities — feeding it a native id would not
             // compile, and half-migrating the chain would leave a step that cannot

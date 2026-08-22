@@ -461,7 +461,7 @@ namespace OloEngine
             // The render origin itself, so pattern shaders can rebuild an
             // absolute world position (triplanar tiling, procedural noise, etc.).
             cameraData.RenderOrigin = renderOrigin;
-            // The reconstruction flavour (#691 Phase 8): for shaders doing
+            // The reconstruction flavour (#691): for shaders doing
             // their own z remap / near-far extraction / inverse — identical to
             // Projection on GL, row-flip-only on Vulkan.
             cameraData.ProjectionForReconstruction =
@@ -1091,7 +1091,7 @@ namespace OloEngine
                 wanted && RenderStreamPasses.ShaderDebugDraw->IsReadyForExecution());
         }
 
-        // Phase 6: propagate OIT toggle to transparent passes that still
+        // Propagate OIT toggle to transparent passes that still
         // participate in the WB-OIT path, plus the prepare/resolve passes,
         // every frame so UI changes take effect immediately.
         {
@@ -1193,7 +1193,7 @@ namespace OloEngine
             // observer's view. Identical to MainCameraNDC whenever nothing is
             // frozen, so the space stays an exact identity round-trip in the
             // normal case, exactly as #725 left it.
-            // A8 seam, rasterizer flavour (#691 Phase 7): u_DebugViewProjection
+            // A8 seam, rasterizer flavour (#691): u_DebugViewProjection
             // feeds gl_Position, so without F every debug primitive would draw
             // vertically mirrored AND half of them would fall outside Vulkan's
             // [0,w] clip volume. The partner matrix must be the inverse of the
@@ -1484,7 +1484,7 @@ namespace OloEngine
                 // PUBLISHED-GLOBAL: staged here at pipeline level for the Cloudscape
                 // pass, whose program is not bound yet (only its UBO is), so the
                 // seam's IsBoundProgramBindless() fork is meaningless — publish does
-                // both (issue #691 Phase 3).
+                // both (issue #691).
                 //
                 // The two noise volumes are CloudNoise-owned and never pooled
                 // (Persistent); the weather map is FrameTransient because it can
@@ -1722,7 +1722,7 @@ namespace OloEngine
         HashU32(h, data.Shadow.GetResolution());
         HashU32(h, data.Shadow.GetAtlasResolution());
         // By IDENTITY, not driver name — the same defect the DDGI atlases had
-        // (issue #691 step 3). ShadowMap::SetSettings calls Shutdown() BEFORE
+        // (issue #691). ShadowMap::SetSettings calls Shutdown BEFORE
         // Init() on a resolution change, so the old textures are freed first
         // and GL may reissue their names to the replacements; a raw-id hash
         // then sees no change and the graph keeps an import describing the OLD
@@ -2405,7 +2405,7 @@ namespace OloEngine
             // diagnostics and the capture endpoints read.
             const RHI::ResourceHandle csmTexture = data.Shadow.GetCSMHandle();
             const RHI::ResourceHandle atlasTexture = data.Shadow.GetAtlasHandle();
-            // Gate on the IDENTITY, not the native GL name (#691 Phase 8): the
+            // Gate on the IDENTITY, not the native GL name (#691): the
             // renderer id is the diagnostics currency and is 0 by contract on
             // the Vulkan backend, so an `id != 0` gate silently kept the CSM
             // and atlas OUT of the Vulkan graph — every shadow consumer then
@@ -3345,7 +3345,7 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // IBL resources
         // ------------------------------------------------------------------
-        // Handle imports since issue #691 step 3 item 4. The IBL trio used to
+        // Handle imports since issue #691. The IBL trio used to
         // carry a SECOND, native currency purely so these three lines could
         // import it — the last reason SetGlobalIBL took both. That parameter
         // triple is gone with it.

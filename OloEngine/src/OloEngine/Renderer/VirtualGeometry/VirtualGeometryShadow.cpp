@@ -25,7 +25,7 @@ namespace OloEngine::VirtualGeometryShadow
         // main pass's so the ortho-mode uniforms never leak between the two
         // program objects.
         Ref<ComputeShader> s_CullShader;
-        // VirtualClusterCull.comp's former bare uniforms (issue #691 Phase 7),
+        // VirtualClusterCull.comp's former bare uniforms (issue #691),
         // at UBO_VIRTUAL_CLUSTER_CULL. Refilled per instance dispatch.
         Ref<UniformBuffer> s_CullParamsUBO;
         Ref<Shader> s_DepthShader;
@@ -89,7 +89,7 @@ namespace OloEngine::VirtualGeometryShadow
 
         s_CullShader->Bind();
         // Former bare uniforms, now one std140 block refilled per dispatch
-        // (issue #691 Phase 7). The struct is value-initialised, so every
+        // (issue #691). The struct is value-initialised, so every
         // two-phase / debug control this path never set is a deterministic 0 —
         // which is exactly the single-phase, no-debug behaviour the shadow cull
         // relied on when it simply skipped those Set* calls.

@@ -21,7 +21,7 @@
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test utility header
 
 // =============================================================================
-// Synthetic identities for POD-command tests (issue #691 step 3, slice 6)
+// Synthetic identities for POD-command tests (issue #691)
 // =============================================================================
 //
 // These tests exercise SORTING, BATCHING and packet layout — they never resolve

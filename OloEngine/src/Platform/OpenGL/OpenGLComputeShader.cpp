@@ -99,7 +99,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // The heap-bindless branch (issue #691 Phase 3, bucket 3).
+        // The heap-bindless branch (issue #691, bucket 3).
         //
         // A compute shader needs NO second compile route: this function has
         // always handed include-resolved GLSL straight to glShaderSource, so it

@@ -90,7 +90,7 @@ namespace OloEngine
         /// @return OpenGL texture ID of the snow depth map (for debug overlay).
         [[nodiscard]] static RHI::ResourceHandle GetSnowDepthTextureID();
         // Identity form, for the command layer's redundant-bind cache
-        // (issue #691 step 3). The raw id stays for the graph/debug paths.
+        // (issue #691). The raw id stays for the graph/debug paths.
         [[nodiscard]] static RHI::ResourceHandle GetSnowDepthTextureHandle();
 
         /// Mark the snow depth buffer for clearing; the actual zeroing
@@ -99,7 +99,7 @@ namespace OloEngine
 
       private:
         // Upload + re-bind the shared Snow_Accumulate/_Deform params block
-        // (issue #691 Phase 7). Lazily creates the UBO on first use.
+        // (issue #691). Lazily creates the UBO on first use.
         static void UploadComputeParams(const UBOStructures::SnowComputeUBO& params);
 
         struct SnowAccumulationData
@@ -109,8 +109,8 @@ namespace OloEngine
             Ref<ComputeShader> m_ClearShader;
             Ref<Texture2D> m_SnowDepthTexture;    // R32F, 2048×2048
             Ref<UniformBuffer> m_AccumulationUBO; // binding 16
-            // Snow_Accumulate/_Deform.comp's former bare uniforms (issue #691
-            // Phase 7), at UBO_SNOW_COMPUTE. Distinct from m_AccumulationUBO
+            // Snow_Accumulate/_Deform.comp's former bare uniforms (issue #691)
+            // At UBO_SNOW_COMPUTE. Distinct from m_AccumulationUBO
             // above: that one is what the snow SHADING path samples; this is
             // the two computes' own clipmap/rate description, one block shared
             // verbatim by both. C++ twin: UBOStructures::SnowComputeUBO.

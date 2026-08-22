@@ -11,7 +11,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// #691 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
 // the pipeline has no vertex-input state at all. Binding 57 is the engine-wide
 // vertex-pull binding (ShaderBindingLayout::SSBO_VERTEX_PULL); the root struct
 // carries this buffer's device address, so the SAME 20-byte
@@ -98,7 +98,7 @@ vec2 octEncode(vec3 n)
 // projection's focal terms: x_ndc = P00 * x_view / d  =>  x_view = x_ndc * d / P00.
 vec3 ReconstructViewPos(vec2 uv, float viewDepth)
 {
-    // Reconstruction flavour (#691 Phase 8). The negated [1][1] on Vulkan is
+    // Reconstruction flavour (#691). The negated [1][1] on Vulkan is
     // deliberate here: it cancels the y-down uv convention exactly like SSR's
     // marcher — do not abs() it.
     vec2 ndc = uv * 2.0 - 1.0;

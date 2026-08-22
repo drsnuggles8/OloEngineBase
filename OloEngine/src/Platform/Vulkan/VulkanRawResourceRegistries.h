@@ -7,8 +7,8 @@
 // =============================================================================
 // VulkanRawResourceRegistries.h — the raw-handle registries backing the
 // Create*/Delete*/Attach* facade family: VulkanRawTextureRegistry and
-// VulkanRawFramebufferRegistry (#691 Phase 8; split out of the single
-// VulkanTransientResources.h in Phase 9).
+// VulkanRawFramebufferRegistry (#691; split out of the single
+// VulkanTransientResources.h).
 // =============================================================================
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
@@ -23,7 +23,7 @@ namespace OloEngine
     // -------------------------------------------------------------------------
     // VulkanRawTextureRegistry — the object-less texture family behind the
     // CreateTexture2DHandle / CreateTextureCubemapHandle / DeleteTexture
-    // facade entries (#691 Phase 8; the VulkanRawBufferRegistry pattern).
+    // facade entries (#691; the VulkanRawBufferRegistry pattern).
     //
     // GL's shape is a bare glCreateTextures name with immutable single-mip
     // storage; production consumers are pass-owned render targets
@@ -85,7 +85,7 @@ namespace OloEngine
 
     // -------------------------------------------------------------------------
     // VulkanRawFramebufferRegistry — ownership side table for the raw
-    // CreateFramebufferHandle / DeleteFramebuffer framebuffers (#691 Phase 8).
+    // CreateFramebufferHandle / DeleteFramebuffer framebuffers (#691).
     //
     // The OBJECT resolution path needs nothing new: VulkanFramebuffer's
     // constructor registers itself in VulkanRootObjectRegistry, which is what

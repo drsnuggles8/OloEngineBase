@@ -25,7 +25,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // first grid cell (near origin), so the add-back is a no-op there.
     vec3 u_RenderOrigin;
     float _padding1;
-    // The SHADER-RECONSTRUCTION flavour of u_Projection (#691 Phase 8).
+    // The SHADER-RECONSTRUCTION flavour of u_Projection (#691).
     // u_Projection carries the rasterizer flavour (Vulkan: y flip + z remap
     // into [0,1]) and is ONLY for gl_Position. Any math that re-applies the
     // GL depth remap itself — `(clip.z/clip.w) * 0.5 + 0.5`, near/far

@@ -1,6 +1,6 @@
 // =============================================================================
 // Terrain_VoxelDepth.glsl - Voxel Override Depth-Only Shader for Shadow Maps
-// Part of OloEngine Terrain System (Phase 6)
+// Part of OloEngine Terrain System
 // Simple VS → FS pipeline (no tessellation)
 // =============================================================================
 
@@ -8,7 +8,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the marching-cubes chunk VBO
 // (Terrain/Voxel/MarchingCubes.cpp VoxelVertex — 24 B: vec3 Position @0,
 // vec3 Normal @12), so the stride is 6 floats, NOT the 8-float engine

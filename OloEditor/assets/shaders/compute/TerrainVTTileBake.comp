@@ -1,7 +1,7 @@
 #version 450 core
 
 // =============================================================================
-// Terrain virtual texture — physical cache tile bake (issue #715, slice 1).
+// Terrain virtual texture — physical cache tile bake (issue #715).
 //
 // **This is where the splat blend moved to.** One invocation per cache texel
 // composites the whole up-to-8-layer triplanar + height blend ONCE and writes

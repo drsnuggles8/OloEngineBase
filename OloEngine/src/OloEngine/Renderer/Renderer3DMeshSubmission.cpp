@@ -944,7 +944,7 @@ namespace OloEngine
         const bool hzbOcclusion = IsHZBOcclusionCullingEnabled() && !IsCullingCameraFrozen();
         const bool deferred = (GetRendererSettings().Path == RenderingPath::Deferred);
 
-        // Two-phase GPU-driven occlusion (#431 Stage 2): Forward / Forward+ with
+        // Two-phase GPU-driven occlusion (#431): Forward / Forward+ with
         // HZB occlusion on. Phase 1 culls against the previous frame's HZB and
         // appends occluded survivors to a reject list; both the phase-1 draw and
         // a phase-2 draw are routed to GPUDrivenOcclusionPass, which re-tests the

@@ -1,7 +1,7 @@
 #pragma once
 
 // Pure, engine-light reasoning for the olo_physics_* "explain" tools (issue
-// #306 item A, physics half). The MCP tool handlers in McpTools.cpp gather raw
+// #306, physics half). The MCP tool handlers in McpTools.cpp gather raw
 // facts off the live Jolt simulation on the main thread, then hand them here to
 // be turned into a human/machine answer. Keeping the reasoning in a free
 // function with NO Jolt / EnTT / editor dependencies means it can be unit-tested

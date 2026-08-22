@@ -14,7 +14,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V8 foliage two-stream pull — stream 0 = the
+// #691 (ADR 0011 §5): V8 foliage two-stream pull — stream 0 = the
 // 20-byte card quad on the engine-wide binding 57, stream 1 = FoliageRenderer's
 // 48-byte per-instance VB {PositionScale, RotationHeight, ColorAlpha} on the
 // reserved stream-1 binding 63, indexed by gl_InstanceIndex. Pulled locals

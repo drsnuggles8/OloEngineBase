@@ -5,7 +5,7 @@
 // Uses standard depth (near=0, far=1)
 
 #ifdef OLO_VULKAN
-// #691 Phase 8 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
+// #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. This draw site is Renderer3D::DrawInfiniteGrid's
 // FullscreenQuadVAO (Renderer3DLifecycle.cpp) — a bare {vec3 a_Position} NDC
 // quad at 12-byte stride, so the stride is 3 floats, NOT the 8-float engine
@@ -32,7 +32,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
     float _padding1;
-    // Reconstruction flavour of u_Projection (#691 Phase 8): the ndc z = ±1
+    // Reconstruction flavour of u_Projection (#691): the ndc z = ±1
     // unprojection and the *0.5+0.5 depth remap in this shader are
     // GL-convention math — the rasterizer flavour double-applies the remap
     // on Vulkan. Identical to u_Projection on GL.
@@ -86,7 +86,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
     float _padding1;
-    // Reconstruction flavour (#691 Phase 8) — see the vertex stage's note.
+    // Reconstruction flavour (#691) — see the vertex stage's note.
     mat4 u_ProjectionForReconstruction;
 };
 
@@ -119,7 +119,7 @@ vec4 Grid(vec3 fragPos3D, float scale, bool drawAxis) {
 }
 
 float ComputeDepth(vec3 pos) {
-    // Reconstruction flavour composed with the view (#691 Phase 8): the
+    // Reconstruction flavour composed with the view (#691): the
     // *0.5+0.5 below is the GL remap, so u_ViewProjection (rasterizer
     // flavour, z already remapped on Vulkan) would double-apply it and write
     // a gl_FragDepth in [0.5,1] — the grid would float above everything.

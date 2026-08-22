@@ -301,7 +301,7 @@ rendering change as done on the strength of unit tests alone."* That rule is
 **enforced through these exact tools** and the MCP endpoints they back
 (`olo_render_capture_target`, `olo_render_transient_plan`, `olo_screenshot`). A
 Vulkan backend they cannot see is a Vulkan backend Phase 7 cannot verify — which
-is what #691 Phase 8 is already warning about.
+is what #691 is already warning about.
 
 So they are a third category: **relocate, don't exempt.** Neutral interface stays
 in `Renderer/Debug/`, GL implementation moves under `Platform/OpenGL/`. They get

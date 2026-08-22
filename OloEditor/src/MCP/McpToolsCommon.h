@@ -80,11 +80,11 @@ namespace OloEngine::MCP
     }
 
     // (Base64Encode moved to McpServer.h — resources/read's binary `blob`
-    // contents variant needs it in the dispatch core, issue #673 Tier 1. Call
+    // contents variant needs it in the dispatch core, issue #673. Call
     // sites here are unchanged: this header includes McpServer.h.)
 
     // Monotonic per-process sequence for olo://capture/... resource URIs
-    // (issue #673 Tier 1, resource-link delivery). Uniqueness is what matters —
+    // (issue #673, resource-link delivery). Uniqueness is what matters —
     // RegisterEphemeralResource REPLACES a duplicate URI — ordering is cosmetic.
     inline u64 NextCaptureSequence()
     {
@@ -289,7 +289,7 @@ namespace OloEngine::MCP
     // `baseFrame` and the framebuffer is capture-ready (not throttle-skipped
     // and not mid viewport-resize transient), so a camera change is actually
     // visible in the framebuffer before a capture. Returns false on timeout —
-    // and also on MCP cancellation (#357 item B): callers that must distinguish
+    // and also on MCP cancellation (#357): callers that must distinguish
     // check server.IsCurrentCallCancelled() and abort instead of capturing.
     // Emits notifications/progress as frames advance when the caller opted in
     // via a progressToken (a no-op otherwise).

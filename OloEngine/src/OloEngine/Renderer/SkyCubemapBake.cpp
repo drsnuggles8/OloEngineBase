@@ -115,7 +115,7 @@ namespace OloEngine::SkyBake
             data.Position = glm::vec3(0.0f);
             data._padding0 = 0.0f;
             // Reconstruction sibling of the CAPTURE flavour is the RAW matrix
-            // (#691 Phase 8): no y flip (capture never flips), no z remap (a
+            // (#691): no y flip (capture never flips), no z remap (a
             // reconstructing shader applies its own).
             data.ProjectionForReconstruction = mats.Projection;
             cameraUBO->SetData(&data, ShaderBindingLayout::CameraUBO::GetSize());

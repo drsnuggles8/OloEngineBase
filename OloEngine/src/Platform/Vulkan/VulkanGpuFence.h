@@ -1,7 +1,7 @@
 #pragma once
 
 // VulkanGpuFence — RHI::GpuFence backed by a timeline VkSemaphore.
-// Issue #691 Phase 6, ADR 0011 §6.
+// Issue #691, ADR 0011 §6.
 //
 // The fence IS the timeline semaphore: §6's Signal(pointer, value, op) /
 // Wait(pointer, value, compareOp) pair is deliberately unified with the
@@ -50,7 +50,7 @@ namespace OloEngine
         // immediately before it fills VkSubmitInfo2 — the staged ops attach to
         // exactly one submission, in staging order. Wait stages are
         // ALL_COMMANDS: a split-barrier wait guards the whole consuming
-        // submission (per-stage narrowing is a Phase 7 profiling refinement).
+        // submission (per-stage narrowing is a profiling refinement).
         static void DrainPendingSubmitOps(std::vector<VkSemaphoreSubmitInfo>& outWaits,
                                           std::vector<VkSemaphoreSubmitInfo>& outSignals);
 

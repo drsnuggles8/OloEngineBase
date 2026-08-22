@@ -13,7 +13,7 @@
 
 namespace OloEngine
 {
-    // Live (un-baked) animation retargeting (issue #631 part 2 — deferral #3 of
+    // Live (un-baked) animation retargeting (issue #631 — deferral #3 of
     // docs/design/animation-retargeting.md): plays clips authored for a FOREIGN
     // skeleton on this entity's rig with no offline bake step. The retargeting
     // system lazily retargets every source clip onto the entity's skeleton

@@ -22,7 +22,7 @@ namespace OloEngine
         if (m_Initialized)
             return;
 
-        // Elapsed-time queries through the facade (#691 Phase 9): RHI::QueryType::
+        // Elapsed-time queries through the facade (#691): RHI::QueryType::
         // TimeElapsed lowers to GL_TIME_ELAPSED on GL and a timestamp pair on
         // Vulkan (VulkanQueryRegistry), so the pool runs on both backends. The
         // former GL-only early-out is gone with the direct glad calls it guarded.

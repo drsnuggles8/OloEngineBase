@@ -4,7 +4,7 @@
 // OLO_TEST_LAYER: unit
 
 // Unit tests for the pure JSON / Mermaid shaping behind olo_render_graph_topology_export
-// (issue #316 Part 4, "LLM-analysis exports"). The shaping lives in a header that
+// (issue #316, "LLM-analysis exports"). The shaping lives in a header that
 // touches ONLY a plain engine-free Snapshot (MCP/McpRenderGraphTopology.h), so it is
 // exercised here against a synthetic graph — the test binary deliberately does NOT
 // compile McpTools.cpp (the editor-backed handler that reads the live RenderGraph).

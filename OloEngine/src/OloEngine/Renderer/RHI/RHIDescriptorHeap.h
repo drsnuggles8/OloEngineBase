@@ -3,10 +3,10 @@
 // =============================================================================
 // RHIDescriptorHeap.h — the view registry and the shader-visible descriptor heap.
 //
-// Issue #691 Phase 3, ADR 0011 §1.1 / §1.2 / §1.2a.
+// Issue #691, ADR 0011 §1.1 / §1.2 / §1.2a.
 //
-// Phase 1 declared `RHI::ViewHandle` and `RHI::HeapOffset` and specified what
-// they mean; Phase 2 amendment (11) deferred them to this phase "as a matched
+// `RHI::ViewHandle` and `RHI::HeapOffset` were declared up front with what
+// they mean; amendment (11) deferred them to this header "as a matched
 // pair", on the grounds that a `ViewHandle` with no heap behind it detects
 // nothing and a `HeapOffset` with no heap is a `u32` with a wrapper. This is
 // the heap that makes both real.
@@ -72,7 +72,7 @@ namespace OloEngine::RHI
     // somewhere honest to point, and this is it.
     inline constexpr u32 kNullHeapOffset = 0u;
 
-    // The reserved null STORAGE-IMAGE descriptor (issue #691 Phase 3, bucket 3).
+    // The reserved null STORAGE-IMAGE descriptor (issue #691, bucket 3).
     //
     // A second reserved slot, and the reason generalises past this engine: a null
     // needs to exist PER DESCRIPTOR KIND, not per heap. Slot 0 holds a sampler
@@ -98,7 +98,7 @@ namespace OloEngine::RHI
     // kNullHeapOffset, so a converted PBR shader with no environment probe built a
     // samplerCube from the 1x1 2D null on every draw.
     //
-    // It read as an ORDER-DEPENDENT visible pop (issue #691 Phase 3): the rebase
+    // It read as an ORDER-DEPENDENT visible pop (issue #691): the rebase
     // evidence test passed alone and popped at boundaries 2 and 3 once a sibling
     // test had run first, because undefined behaviour is free to depend on
     // whatever the driver did previously. Four state-leak hypotheses died before
@@ -490,7 +490,7 @@ namespace OloEngine::RHI
         // descriptor for it naming a deleted object while the view's own
         // generation is unchanged — so `OffsetOf` cannot detect it.
         //
-        // This is the exact mirror image of the Phase 2 slice-6 finding, where
+        // This is the exact mirror image of the earlier finding, where
         // stable identity made the redundant-bind cache SKIP a bind that had to
         // happen. Same root cause, opposite symptom: any site that recreates a
         // resource's storage must call this, exactly as it must call

@@ -24,7 +24,7 @@ namespace OloEngine
             static std::unordered_set<std::string> s_Warned;
             if (s_Warned.insert(what).second)
             {
-                OLO_CORE_WARN("[RHI/Vulkan] TextureCubemapArray::{} is not implemented (#691 Phase 8: the probe "
+                OLO_CORE_WARN("[RHI/Vulkan] TextureCubemapArray::{} is not implemented (#691: the probe "
                               "bake fill path is capture work) — no-op",
                               what);
             }

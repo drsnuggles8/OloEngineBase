@@ -2,7 +2,7 @@
 // =============================================================================
 // BindlessHeapGpuTest.cpp
 //
-// Issue #691 Phase 3. The END-TO-END proof that the heap model works on real
+// Issue #691. The END-TO-END proof that the heap model works on real
 // hardware: a texture goes into RHI::DescriptorHeap, the pass writes nothing but
 // an integer offset into a UBO, and a shader that never names a sampler binding
 // reads the right texels back.
@@ -885,7 +885,7 @@ void main()
     // the texture's own state. There is no set of defaults that is right for all
     // four targets (2D is REPEAT, colour arrays and cubemaps are CLAMP_TO_EDGE,
     // depth arrays are CLAMP_TO_BORDER), which is why a per-target table was
-    // whack-a-mole: fixing 2D broke the terrain arrays (issue #691 Phase 3).
+    // whack-a-mole: fixing 2D broke the terrain arrays (issue #691).
     // -------------------------------------------------------------------------
     TEST_F(HeapGpuFixture, ADefaultSamplerDescInheritsTheTextureObjectRatherThanMintingOne)
     {
@@ -1016,7 +1016,7 @@ void main()
         // reason the test needed revisiting: `SamplerDesc{}` now means "inherit
         // the texture object's state" and mints its view with
         // glGetTextureHandleARB, so it creates NO sampler object at all
-        // (issue #691 Phase 3, AcquireSampledDescriptor). An earlier version of
+        // (issue #691, AcquireSampledDescriptor). An earlier version of
         // this test built `linearRepeat` out of what happen to be the default
         // values and would have silently started measuring one object instead of
         // two. ClampToEdge is what makes it an intent rather than a shrug.

@@ -32,7 +32,7 @@ layout(binding = 0) uniform sampler2D u_Butterfly; // rg = twiddle, ba = gather 
 
 #include "../include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the
 // declarations move into main() as locals built from the heap descriptors at
 // these image units; the body below is unchanged either way.
 #ifndef OLO_BINDLESS
@@ -40,7 +40,7 @@ layout(rgba32f, binding = 0) readonly uniform image2DArray u_Input;
 layout(rgba32f, binding = 1) writeonly uniform image2DArray u_Output;
 #endif
 
-// Former bare uniforms, migrated to a std140 block (issue #691 Phase 8):
+// Former bare uniforms, migrated to a std140 block (issue #691):
 // GLSL-for-Vulkan forbids a non-opaque uniform outside a block, and
 // VulkanComputeShader::Set* is a deliberate no-op there — so these were both a
 // hard SPIR-V compile error and a guaranteed zero-read on the Vulkan route.

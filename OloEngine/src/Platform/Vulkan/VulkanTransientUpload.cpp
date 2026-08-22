@@ -22,7 +22,7 @@ namespace OloEngine::VulkanUpload
     namespace
     {
         // Teardown forensics for object textures / storage buffers (#691
-        // Phase 8 — the close-button VMA abort): a Ref surviving the full
+        // The close-button VMA abort): a Ref surviving the full
         // renderer teardown keeps its VMA allocation alive into
         // vmaDestroyAllocator. The VAO twin lives in VulkanBufferResources
         // (LogSurvivingVertexArrays); this covers the classes owned by the

@@ -1,6 +1,6 @@
 // =============================================================================
 // VirtualVisibilityResolve.glsl — visibility-buffer material resolve for the
-// virtualized-geometry pipeline (issue #629, slice 4).
+// virtualized-geometry pipeline (issue #629).
 //
 // Fullscreen pass, one draw per virtual-mesh instance (the engine's material
 // model binds textures per draw — per-pixel material selection would need
@@ -17,7 +17,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 6 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// #691 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
 // the pipeline has no vertex-input state at all, so an attribute-consuming
 // stage fails pipeline creation (VUID-VkGraphicsPipelineCreateInfo-Input-07904;
 // found by the first full virtual-geometry frame on Vulkan, issue #813).
@@ -150,7 +150,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;
     int u_AlphaMode;
     int _pbrPad2;
-    // Per-material heap offsets (issue #691 Phase 3). MUST mirror
+    // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
     // declaration reads garbage rather than failing to link.
@@ -167,7 +167,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // INSTANCE and each one re-uploads the material UBO through
 // CommandDispatch::UploadMaterialForDirectDraw, so the offsets ride in a buffer
 // the loop already writes — which is ADR 0011 §1.2's "stable for the object's
-// life, so it can be baked once into material data" (issue #691 Phase 3).
+// life, so it can be baked once into material data" (issue #691).
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
 #define OLO_MATERIAL_HEAP_READER 1

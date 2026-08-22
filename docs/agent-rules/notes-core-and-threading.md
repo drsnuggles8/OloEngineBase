@@ -415,7 +415,7 @@ Unknown `--olo-*` flags are deliberately **fatal**: a silently-ignored
 process. Before it existed the engine had grown three separate escape hatches,
 each added *after* someone lost time to a hang:
 
-* `OLO_EDITOR_AUTOSAVE_RECOVERY` — the auto-save recovery modal (#316 Part 5)
+* `OLO_EDITOR_AUTOSAVE_RECOVERY` — the auto-save recovery modal (#316)
 * `OLO_EDITOR_UNSAVED_PROMPT` — the unsaved-changes modal
 * the assert dialog — `OLO_CORE_ASSERT` called `MessageBoxA` unconditionally (#714)
 

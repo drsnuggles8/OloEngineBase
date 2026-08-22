@@ -1049,7 +1049,7 @@ namespace OloEngine::Tests
         const f32 expectedHingeSpringDamping = 0.7f;
         const f32 expectedSliderSpringFreq = 3.0f;
         const f32 expectedSliderSpringDamping = 1.1f; // overdamped is valid
-        // Pulley + Gear/RackAndPinion (issue #308 item 4).
+        // Pulley + Gear/RackAndPinion (issue #308).
         const glm::vec3 expectedPulleyFixedA{ 2.5f, -1.0f, 0.5f };
         const glm::vec3 expectedPulleyFixedB{ -3.0f, 4.0f, -2.5f };
         const f32 expectedPulleyRatio = 2.5f;

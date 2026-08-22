@@ -7,7 +7,7 @@
 // =============================================================================
 // VulkanTextureCubemapArray.h — the VMA-backed TextureCubemapArray backend
 // twin of OpenGLTextureCubemapArray (#691; split out of the single
-// VulkanTransientResources.h in Phase 9).
+// VulkanTransientResources.h).
 //
 // This header exposes Vulkan types directly — it is included only by
 // Platform/Vulkan siblings and by OLO_WITH_VULKAN-guarded engine factory TUs
@@ -32,12 +32,12 @@ namespace OloEngine
 {
     // -------------------------------------------------------------------------
     // VulkanTextureCubemapArray — a 6*Layers-layer 2D image with a CUBE_ARRAY
-    // view type (#691 Phase 8).
+    // view type (#691).
     //
     // Brought up for the reflection-probe arrays (issue #705's radiance /
     // distance-field arrays): ReflectionProbeArray::Init creates two of these
     // eagerly, so without this class the factory's assert wedged the first
-    // --rhi=vulkan editor launch of Phase 8 during init — the same
+    // --rhi=vulkan editor launch during init — the same
     // backend-blind-factory shape as amendment (64). Scope matches
     // VulkanTextureCubemap's: real image, real identity (binds / barriers /
     // layout tracking all work), with the CPU upload and GPU layer-copy

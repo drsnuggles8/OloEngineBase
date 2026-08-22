@@ -2,7 +2,7 @@
 // =============================================================================
 // RHIDescriptorHeapTest.cpp
 //
-// Contract tests for the Phase 3 view registry + descriptor heap (issue #691,
+// Contract tests for the view registry + descriptor heap (issue #691,
 // ADR 0011 §1.1 / §1.2 / §1.2a).
 //
 // THE TESTS THAT JUSTIFY THE DESIGN, in the order they matter:
@@ -230,7 +230,7 @@ namespace OloEngine::Tests
             //
             // It used to be the capacity, which quietly meant "capacity minus
             // however many slots are reserved" — and that number changed when the
-            // typed sampler nulls took reserved slots 2..4 (issue #691 Phase 3).
+            // typed sampler nulls took reserved slots 2..4 (issue #691).
             // Every test then lost three allocations it thought it had, and the two
             // that allocate six views failed on the fourth with an invalid handle:
             // a real regression signal pointing at the wrong thing entirely. Adding
@@ -616,7 +616,7 @@ namespace OloEngine::Tests
     // been retired. If that slot is poisoned with a 2D descriptor while the
     // shader still builds `samplerCube` from it, the read is UNDEFINED — which is
     // exactly the defect the typed nulls were added to remove, one level down
-    // from where they were added (issue #691 Phase 3).
+    // from where they were added (issue #691).
     //
     // Checks the sampler-typed cases; a storage view has no sampler type to keep.
     TEST_F(HeapFixture, PoisonKeepsTheViewsSamplerKind)
@@ -832,7 +832,7 @@ namespace OloEngine::Tests
         // makes caching a ResourceHandle safe. The descriptors do not inherit
         // that safety: an ARB_bindless_texture handle names the object that was
         // just deleted, and the view's own generation has not moved, so
-        // OffsetOf cannot detect it. Exact mirror of the Phase 2 slice-6
+        // OffsetOf cannot detect it. Exact mirror of the earlier
         // finding, where stable identity made the bind cache SKIP a needed bind.
         heap.InvalidateResource(resource);
 
@@ -993,8 +993,8 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // The free function Phase 1 declared. Implementing the DECLARED vocabulary
-    // rather than the one the prose describes is the Phase 2 step 2 lesson
+    // The free function as declared. Implementing the DECLARED vocabulary
+    // rather than the one the prose describes is the call-site sweep's lesson
     // (`RHI::MemoryResidency` was nearly reinvented as `BufferUsage`), so it is
     // worth a test that the declared spelling is the one that works.
     // -------------------------------------------------------------------------

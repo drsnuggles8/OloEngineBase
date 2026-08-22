@@ -1065,7 +1065,7 @@ namespace OloEngine
         TrySet(sys.NoiseModule.Strength, particleComponent["NoiseStrength"]);
         TrySet(sys.NoiseModule.Frequency, particleComponent["NoiseFrequency"]);
 
-        // Phase 2: Collision
+        // Collision
         TrySet(sys.CollisionModule.Enabled, particleComponent["CollisionEnabled"]);
         if (auto val = particleComponent["CollisionMode"]; val)
             sys.CollisionModule.Mode = static_cast<CollisionMode>(val.as<int>());
@@ -1075,7 +1075,7 @@ namespace OloEngine
         TrySet(sys.CollisionModule.LifetimeLoss, particleComponent["CollisionLifetimeLoss"]);
         TrySet(sys.CollisionModule.KillOnCollide, particleComponent["CollisionKillOnCollide"]);
 
-        // Phase 2: Force Fields (vector, with backward compat for old single-field format)
+        // Force Fields (vector, with backward compat for old single-field format)
         if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
         {
             sys.ForceFields.clear();
@@ -1110,7 +1110,7 @@ namespace OloEngine
             // No additional handling required.
         }
 
-        // Phase 2: Trail
+        // Trail
         TrySet(sys.TrailModule.Enabled, particleComponent["TrailEnabled"]);
         if (auto val = particleComponent["TrailMaxPoints"]; val)
             sys.TrailModule.MaxTrailPoints = val.as<u32>();
@@ -1121,10 +1121,10 @@ namespace OloEngine
         TrySet(sys.TrailModule.ColorStart, particleComponent["TrailColorStart"]);
         TrySet(sys.TrailModule.ColorEnd, particleComponent["TrailColorEnd"]);
 
-        // Phase 2: Sub-Emitter
+        // Sub-Emitter
         TrySet(sys.SubEmitterModule.Enabled, particleComponent["SubEmitterEnabled"]);
 
-        // Phase 2: LOD
+        // LOD
         TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
         TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
         TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
@@ -1577,7 +1577,7 @@ namespace OloEngine
         SanitizeVec3(water.m_WaterColor, { 0.1f, 0.4f, 0.5f });
         SanitizeVec3(water.m_DeepColor, { 0.0f, 0.1f, 0.2f });
 
-        // Phase 2+3+5 fields
+        // Depth, foam and tessellation fields
         SanitizeFloat(water.m_DepthSofteningDistance, 0.0f, 50.0f, 2.0f);
         SanitizeFloat(water.m_RefractionDistortion, 0.0f, 0.5f, 0.05f);
         SanitizeFloat(water.m_RefractionHeightFactor, 0.0f, 2.0f, 0.5f);
@@ -2641,7 +2641,7 @@ namespace OloEngine
             joint.m_CollideConnected = jointComponent["CollideConnected"].as<bool>(joint.m_CollideConnected);
 
             // Pulley fixed points (world space) + ratio/length, Gear/RackAndPinion
-            // connected axis + ratio (issue #308 item 4). glm::vec3 decode rejects
+            // connected axis + ratio (issue #308). glm::vec3 decode rejects
             // non-finite components; floats are sanitized below.
             joint.m_PulleyFixedPointA = jointComponent["PulleyFixedPointA"].as<glm::vec3>(joint.m_PulleyFixedPointA);
             joint.m_PulleyFixedPointB = jointComponent["PulleyFixedPointB"].as<glm::vec3>(joint.m_PulleyFixedPointB);
@@ -4553,7 +4553,7 @@ namespace OloEngine
             out << YAML::Key << "SixDOFRotationMinDeg" << YAML::Value << joint.m_SixDOFRotationMinDeg;
             out << YAML::Key << "SixDOFRotationMaxDeg" << YAML::Value << joint.m_SixDOFRotationMaxDeg;
             out << YAML::Key << "CollideConnected" << YAML::Value << joint.m_CollideConnected;
-            // Pulley (world-space fixed points) + Gear / RackAndPinion (issue #308 item 4).
+            // Pulley (world-space fixed points) + Gear / RackAndPinion (issue #308).
             out << YAML::Key << "PulleyFixedPointA" << YAML::Value << joint.m_PulleyFixedPointA;
             out << YAML::Key << "PulleyFixedPointB" << YAML::Value << joint.m_PulleyFixedPointB;
             out << YAML::Key << "PulleyRatio" << YAML::Value << joint.m_PulleyRatio;
@@ -4812,7 +4812,7 @@ namespace OloEngine
             out << YAML::Key << "NoiseStrength" << YAML::Value << sys.NoiseModule.Strength;
             out << YAML::Key << "NoiseFrequency" << YAML::Value << sys.NoiseModule.Frequency;
 
-            // Phase 2: Collision
+            // Collision
             out << YAML::Key << "CollisionEnabled" << YAML::Value << sys.CollisionModule.Enabled;
             out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(std::to_underlying(sys.CollisionModule.Mode));
             out << YAML::Key << "CollisionPlaneNormal" << YAML::Value << sys.CollisionModule.PlaneNormal;
@@ -4821,7 +4821,7 @@ namespace OloEngine
             out << YAML::Key << "CollisionLifetimeLoss" << YAML::Value << sys.CollisionModule.LifetimeLoss;
             out << YAML::Key << "CollisionKillOnCollide" << YAML::Value << sys.CollisionModule.KillOnCollide;
 
-            // Phase 2: Force Fields (vector)
+            // Force Fields (vector)
             out << YAML::Key << "ForceFields" << YAML::Value << YAML::BeginSeq;
             for (const auto& ff : sys.ForceFields)
             {
@@ -4836,7 +4836,7 @@ namespace OloEngine
             }
             out << YAML::EndSeq;
 
-            // Phase 2: Trail
+            // Trail
             out << YAML::Key << "TrailEnabled" << YAML::Value << sys.TrailModule.Enabled;
             out << YAML::Key << "TrailMaxPoints" << YAML::Value << sys.TrailModule.MaxTrailPoints;
             out << YAML::Key << "TrailLifetime" << YAML::Value << sys.TrailModule.TrailLifetime;
@@ -4846,10 +4846,10 @@ namespace OloEngine
             out << YAML::Key << "TrailColorStart" << YAML::Value << sys.TrailModule.ColorStart;
             out << YAML::Key << "TrailColorEnd" << YAML::Value << sys.TrailModule.ColorEnd;
 
-            // Phase 2: Sub-Emitter
+            // Sub-Emitter
             out << YAML::Key << "SubEmitterEnabled" << YAML::Value << sys.SubEmitterModule.Enabled;
 
-            // Phase 2: LOD
+            // LOD
             out << YAML::Key << "LODDistance1" << YAML::Value << sys.LODDistance1;
             out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
 
@@ -6158,7 +6158,7 @@ namespace OloEngine
         // Deserialize-driven entity creation is bulk load, not an interactive/runtime
         // spawn, so keep it out of the "what just happened" timeline (the editor records
         // one SceneLoad event for the whole load instead). Also mutes the error-path
-        // DestroyEntity below. (#306 item B)
+        // DestroyEntity below. (#306)
         DiagnosticsEventLog::SuppressScope suppressSpawnFlood;
 
         Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);

@@ -118,7 +118,7 @@ namespace OloEngine
         // are backend-neutral and ship f32 by that contract.
         // SlugFontProcessor's RGBA16F curve texture was the first to hit the
         // mismatch: the whole-texture size assert fired the moment a scene
-        // with a UI text component played under Vulkan (#691 Phase 8).
+        // with a UI text component played under Vulkan (#691).
         [[nodiscard]] bool EngineFormatClientIsF32ToHalf(ImageFormat format)
         {
             return format == ImageFormat::RGBA16F || format == ImageFormat::RG16F;
@@ -148,11 +148,11 @@ namespace OloEngine
 
         // Mirror the GL twin: block-compressed formats have no population path
         // through the spec ctor — they MUST come via the CompressedTextureImage
-        // overload (Phase 6 for Vulkan). Refuse loudly but non-fatally.
+        // overload (not yet implemented for Vulkan). Refuse loudly but non-fatally.
         if (IsCompressedFormat(m_Specification.Format))
         {
             OLO_CORE_ERROR("VulkanTexture2D: block-compressed format {} cannot be created from a "
-                           "TextureSpecification — the CompressedTextureImage overload is Phase 6",
+                           "TextureSpecification — the CompressedTextureImage overload is not implemented",
                            static_cast<u32>(m_Specification.Format));
             m_IsLoaded = false;
             return;
@@ -250,7 +250,7 @@ namespace OloEngine
         {
             usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             // STORAGE only where the format-feature contract allows it without
-            // a per-format query (Phase 6): sRGB image views don't support
+            // a per-format query: sRGB image views don't support
             // storage writes, and multisampled storage images need an opt-in
             // device feature.
             if (!IsSrgbVkFormat(format) && m_Specification.Samples == 1u)
@@ -605,7 +605,7 @@ namespace OloEngine
             dataSize = static_cast<u32>(halfPayload.size() * sizeof(u16));
         }
 
-        // Mid-frame (#691 Phase 8): a region flush between two GPU uses (the
+        // Mid-frame (#691): a region flush between two GPU uses (the
         // terrain sculpt/paint shape) must be ORDERED within the frame
         // command buffer — the one-shot below submits BEFORE the
         // still-recording frame and also diverges from the API's layout
@@ -621,7 +621,7 @@ namespace OloEngine
             // path the image's own 4-channel format. Passing the raw RGB
             // format matched neither the image nor any conversion pair
             // downstream, so the mid-frame region upload silently dropped
-            // (review finding, #691 Phase 8).
+            // (review finding, #691).
             std::vector<u8> widened;
             const void* stagedData = data;
             const RHI::Format clientFormat = [&]
@@ -805,7 +805,7 @@ namespace OloEngine
 
     void VulkanTexture2D::Bind(u32 slot) const
     {
-        // #691 Phase 8: forward like the 3D/array/cube classes always did —
+        // #691: forward like the 3D/array/cube classes always did —
         // this stub was the one dead end in the family, silently dropping
         // every ShaderResourceRegistry-routed bind (shader-graph materials,
         // ShadowMap's raw views, wind/snow fields, video textures).

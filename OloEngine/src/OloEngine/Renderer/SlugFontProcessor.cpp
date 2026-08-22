@@ -587,7 +587,7 @@ namespace OloEngine
         // Texture2D::Create without a device segfaults inside the backend
         // rather than raising an error, so the question has to be asked before
         // the call. RenderCommand::IsDeviceAvailable() is the backend-neutral
-        // form of that check (issue #691 Phase 2).
+        // form of that check (issue #691).
         //
         // When NO device is available we do NOT discard the packed data: it is
         // retained on the SlugFontData so EnsureGpuTextures() can upload it the

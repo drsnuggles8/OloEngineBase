@@ -128,7 +128,7 @@ namespace OloEngine
                 m_SceneFramebuffer = resolvedSceneFB;
         }
 
-        // Phase F slice 36 / Phase H follow-up — self-resolving SceneDepth
+        // Follow-up — self-resolving SceneDepth
         // (for decal projection). No raw framebuffer fallback; if the
         // blackboard is absent the depth slot is left unbound (acceptable for
         // headless / unit-test contexts where no geometry is dispatched).
@@ -237,7 +237,7 @@ namespace OloEngine
             // command bucket dispatches below, and each of those draws binds its
             // own program. BindTextureOrHeapOffset would fork on whatever program
             // happens to be in flight here — never the decal shaders — so the seam
-            // must stage the offset AND issue the bind (issue #691 Phase 3).
+            // must stage the offset AND issue the bind (issue #691).
             HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID,
                                                      RHI::HeapSlotLifetime::FrameTransient);
             HeapBinding::FlushOffsets();

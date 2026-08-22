@@ -10,7 +10,7 @@ namespace OloEngine
     // at a time. Three separate escape hatches were added, each after a hang:
     //
     //   * `OLO_EDITOR_AUTOSAVE_RECOVERY` — pre-answers the auto-save recovery
-    //     modal, added when a headless attach hung on it (issue #316 Part 5).
+    //     modal, added when a headless attach hung on it (issue #316).
     //   * `OLO_EDITOR_UNSAVED_PROMPT` — pre-answers the unsaved-changes modal,
     //     added when WM_CLOSE with a dirty scene hung on it.
     //   * The assert dialog — `OLO_CORE_ASSERT` called `MessageBoxA`

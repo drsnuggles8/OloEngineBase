@@ -619,7 +619,7 @@ RegisterMcpTool{ name = "script_bad_icon", description = "malformed icons",
         EXPECT_FALSE((*withoutIcon).contains("icons"));
     }
 
-    // ---- outbound-client tools are unreachable from scripts (#673 Tier 1) -----
+    // ---- outbound-client tools are unreachable from scripts (#673) -----
 
     // The strongest possible caller — a WRITE-tier script tool under
     // AllowSession — still cannot reach a tool bridged from an outbound MCP

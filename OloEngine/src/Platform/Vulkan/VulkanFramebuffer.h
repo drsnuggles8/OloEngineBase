@@ -6,7 +6,7 @@
 
 // =============================================================================
 // VulkanFramebuffer.h — the Framebuffer backend twin of OpenGLFramebuffer
-// (#691; split out of the single VulkanTransientResources.h in Phase 9):
+// (#691; split out of the single VulkanTransientResources.h):
 // attachments, external attach, per-layer depth views, resize semantics
 // matching the GL twin.
 //
@@ -35,7 +35,7 @@ namespace OloEngine
     // -------------------------------------------------------------------------
     // VulkanFramebuffer — a bag of attachment images, no VkFramebuffer.
     //
-    // The Vulkan backend targets dynamic rendering (render passes are Phase 6),
+    // The Vulkan backend targets dynamic rendering (no render-pass objects),
     // so there is deliberately NO VkFramebuffer object here: a framebuffer IS
     // its attachment images. Attachments are real VulkanTexture2D instances
     // (created via a FramebufferTextureFormat -> ImageFormat translation), so
@@ -73,7 +73,7 @@ namespace OloEngine
             return m_RenderViewportHeight;
         }
 
-        // Readback / clear-shaped — Phase 6 concerns, warn-once no-ops.
+        // Readback / clear-shaped — pipeline concerns, warn-once no-ops.
         int ReadPixel(u32 attachmentIndex, int x, int y) override;
         void ClearAttachment(u32 attachmentIndex, int value) override;
         void ClearAttachment(u32 attachmentIndex, const glm::vec4& value) override;
@@ -109,7 +109,7 @@ namespace OloEngine
 
         void AttachDepthTextureArrayLayer(RHI::ResourceHandle textureArray, u32 layer) override;
 
-        // #691 Phase 7 Wave C §4 (layered shadow depth): the GL twin re-points
+        // #691 §4 (layered shadow depth): the GL twin re-points
         // the FBO's depth attachment at ONE LAYER of a depth texture array
         // (glNamedFramebufferTextureLayer), then clears + renders a cascade
         // into it. Under dynamic rendering there is no FBO object to re-point,
@@ -144,7 +144,7 @@ namespace OloEngine
             return m_DepthAttachment;
         }
 
-        // #691 Phase 8 — the raw (object-less) framebuffer facade. A
+        // #691 — the raw (object-less) framebuffer facade. A
         // CreateFramebufferHandle framebuffer starts with ZERO attachments and
         // AttachFramebufferColorTexture/AttachFramebufferDepthTexture install
         // externally-owned raw-registry textures into the same
@@ -217,7 +217,7 @@ namespace OloEngine
         // installed that this framebuffer does not own. Resize would silently
         // REPLACE the external wiring with fresh internal attachments
         // (CreateAttachments rebuilds every slot), so it refuses instead
-        // (review finding, #691 Phase 8) — the owner re-attaches at its own
+        // (review finding, #691) — the owner re-attaches at its own
         // new size. Recomputed from the per-slot tracking below on every
         // detach, so detaching the last external attachment unblocks Resize.
         bool m_HasExternalAttachments = false;

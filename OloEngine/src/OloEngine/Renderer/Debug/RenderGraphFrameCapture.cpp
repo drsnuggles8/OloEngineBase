@@ -231,7 +231,7 @@ namespace OloEngine
         // (cleared to vec4(0,0,0,0); only opaque shaders may set it). ImGui
         // renders our debug thumbnails with blending, so a 0 alpha makes the
         // entire image appear transparent (i.e. grey panel background).
-        // Behind the seam (#691 Phase 9): texture swizzle has no RendererAPI
+        // Behind the seam (#691): texture swizzle has no RendererAPI
         // equivalent — see FrameCaptureBackend.h.
         Detail::SetTextureAlphaSwizzleOne(tex);
 
@@ -341,7 +341,7 @@ namespace OloEngine
             return;
         }
 
-        // Behind the seam (#691 Phase 9): saving the read/draw framebuffer
+        // Behind the seam (#691): saving the read/draw framebuffer
         // bindings and the read-buffer selection, and pointing the DEFAULT
         // framebuffer's read buffer at the backbuffer, have no RendererAPI
         // equivalent — the facade has no state-query family, no split

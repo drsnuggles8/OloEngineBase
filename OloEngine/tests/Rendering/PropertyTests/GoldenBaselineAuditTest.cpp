@@ -814,14 +814,14 @@ namespace OloEngine::Tests
     //
     // Two tiers, because the two metrics fail in opposite directions:
     //
-    //   Tier 1 — the four renderer goldens: TIGHT PIXEL parity. These frames
+    //   The four renderer goldens: TIGHT PIXEL parity. These frames
     //   are procedural (no scene load, no assets, nothing accumulating across
     //   frames) and drift-free, so a pixel gate here means what it says. The
     //   bar is GoldenImageTests' own kRmsePassBelow: the vendor golden must sit
     //   close enough to the shared one that it would PASS that test's compare.
     //   #735 measured max |delta| = 1 LSB, RMSE <= 0.0016.
     //
-    //   Tier 2 — the Atmosphere captures: DERIVED band parity plus a loose
+    //   The Atmosphere captures: DERIVED band parity plus a loose
     //   pixel backstop. A tight pixel gate would be actively wrong here, and
     //   this is the trap the whole #735 cross-check had to untangle: the two
     //   sets are NOT required to be baked at the same commit, and when they are

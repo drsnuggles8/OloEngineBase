@@ -7,7 +7,7 @@
 #version 450 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V5 pull — the 8-byte {vec2 a_QuadPos} unit
+// #691 (ADR 0011 §5): V5 pull — the 8-byte {vec2 a_QuadPos} unit
 // quad on the engine-wide binding 57. Everything per-particle already rides
 // the GPU-particle SSBOs below, indexed by gl_InstanceIndex.
 layout(std430, binding = 57) readonly buffer OloVertexPull
@@ -100,7 +100,7 @@ void main()
 	float size = p.InitialVelocitySize.w;
 	float rotation = p.Misc.y;
 	vec3 velocity = p.VelocityMaxLifetime.xyz;
-	float stretchFactor = 0.0; // GPU path: billboard only for Phase 1
+	float stretchFactor = 0.0; // GPU path: billboard only
 
 	vec3 right;
 	vec3 up;
@@ -181,7 +181,7 @@ layout(location = 4) in vec4 v_ClipPosPrev;
 
 #include "include/BindlessHeap.glsl"
 
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Both slots move
+// Heap-bindless conversion (issue #691, bucket 1). Both slots move
 // together — ParticleBatchRenderer::BindParticleTextures stages both in one
 // call (glsl-shaders.md §5c).
 //

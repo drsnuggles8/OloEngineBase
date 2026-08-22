@@ -10,7 +10,7 @@ namespace OloEngine
 {
     // @brief Standalone FXAA post-process pass.
     //
-    // Phase F slice 16 — first standalone effect in the dynamic post chain.
+    // First standalone effect in the dynamic post chain.
     // Establishes
     // the pattern for the remaining post-process effect splits.
     //

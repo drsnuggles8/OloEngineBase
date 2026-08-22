@@ -169,7 +169,7 @@ namespace
         ASSERT_TRUE(response.contains("result")) << response.dump(2);
         EXPECT_EQ(response["result"]["capabilities"]["tools"]["listChanged"], true);
         // The resource registry is republishable at runtime too since the
-        // resource-link work (#673 Tier 1: ephemeral capture resources); only
+        // resource-link work (#673: ephemeral capture resources); only
         // prompts are still fixed for a server run.
         EXPECT_EQ(response["result"]["capabilities"]["resources"]["listChanged"], true);
         // `subscribe` flipped to true with the `logging`-capability offramp (#777):

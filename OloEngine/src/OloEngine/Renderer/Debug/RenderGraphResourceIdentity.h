@@ -5,7 +5,7 @@
 //
 // "What backend-native object backs this render-graph texture resource?" —
 // asked by the introspection tools and the MCP capture endpoints they back
-// (issue #691 Phase 2 step 3).
+// (issue #691).
 //
 // WHY THIS EXISTS AS A SHARED FUNCTION RATHER THAN AN INLINE AT EACH CALLER.
 // A PhysicalTexture carries a native id OR an identity, never both:

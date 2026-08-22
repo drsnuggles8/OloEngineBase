@@ -151,7 +151,7 @@ namespace OloEngine
             captureManager.OnPostSort(m_CommandBucket);
         m_CommandBucket.Execute(rendererAPI);
 
-        // Phase 2 (#431 Stage 2): the phase-1 draws are now in the depth buffer.
+        // Phase 2 (#431): the phase-1 draws are now in the depth buffer.
         // Rebuild a Hi-Z from the live framebuffer depth (occluders + phase-1
         // survivors), re-test each batch's reject list against it, and replay
         // the recovered (disoccluded) instances. This is the step that removes
@@ -188,11 +188,11 @@ namespace OloEngine
         }
 
         // Re-export depth + view-normals so AO / SSR include our instanced
-        // geometry (#431 Stage 3). The framebuffer attachments now hold the
+        // geometry (#431). The framebuffer attachments now hold the
         // occluders + phase-1 + phase-2 survivors; copy them over ScenePass's
         // earlier export. Texture-to-texture copies — no framebuffer needed.
         {
-            // Identities (issue #691 step 3, slice 7) -- same unblock as
+            // Identities (issue #691) -- same unblock as
             // SceneRenderPass's exports: the destinations are graph transients.
             const RHI::ResourceHandle fbDepth = m_SceneFramebuffer->GetDepthAttachmentHandle();
             const RHI::ResourceHandle sceneDepthExport =

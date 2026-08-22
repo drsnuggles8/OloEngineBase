@@ -16,7 +16,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 7 (ADR 0011 §5): V1 engine-vertex pull. Binding 57 is the
+// #691 (ADR 0011 §5): V1 engine-vertex pull. Binding 57 is the
 // engine-wide vertex-pull binding; the stream is the engine `Vertex` (32 B), so
 // the stride is 8 floats even though this pass only needs the position.
 layout(std430, binding = 57) readonly buffer OloVertexPull

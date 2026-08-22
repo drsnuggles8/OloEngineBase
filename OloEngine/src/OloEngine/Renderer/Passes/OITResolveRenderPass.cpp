@@ -127,7 +127,7 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);
         RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
 
-        // Heap-bindless conversion (issue #691 Phase 3, bucket 1). Shader first —
+        // Heap-bindless conversion (issue #691, bucket 1). Shader first —
         // the seam forks on the program in flight. Both inputs are graph-resolved
         // (pooled), hence FrameTransient. DrawFullscreenTriangle flushes.
         m_ResolveShader->Bind();
@@ -214,7 +214,7 @@ namespace OloEngine
         // (§4b) is a rule someone has to remember at every call site; putting it
         // in the one helper that issues this pass's draw makes it structural
         // instead. Publishes the descriptors minted since the last flush AND the
-        // offsets indexing them, in that order (issue #691 Phase 3).
+        // offsets indexing them, in that order (issue #691).
         context.FlushHeapOffsets();
         context.DrawIndexed(va);
     }

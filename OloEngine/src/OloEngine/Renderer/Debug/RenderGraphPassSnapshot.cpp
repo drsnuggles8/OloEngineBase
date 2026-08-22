@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <format>
 
-// This TU is orchestration only (#691 Phase 9): request lifecycle, the
+// This TU is orchestration only (#691): request lifecycle, the
 // scratch-slot reuse cache, and result bookkeeping. The GL clone engine —
 // native introspection, scratch allocation, the per-mip bitwise copy, error
 // draining — lives behind the PassSnapshotBackend.h seam in

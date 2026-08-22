@@ -324,7 +324,7 @@ namespace OloEngine
         u32 m_TotalReloads = 0;
     };
 
-    // NOTE (#691 Phase 9): the GLenum-taking GLStageToShaderStage helper that
+    // NOTE (#691): the GLenum-taking GLStageToShaderStage helper that
     // used to live here moved to its one caller, Platform/OpenGL/OpenGLShader.cpp
     // — this header is graphics-API-neutral and includes no <glad/gl.h>.
 } // namespace OloEngine

@@ -2,7 +2,7 @@
 // OpenGLFrameCapture.cpp
 //
 // GL definitions for the RenderGraphFrameCapture seam declared in
-// Renderer/Debug/FrameCaptureBackend.h (#691 Phase 9, ADR 0011 §1.6). The
+// Renderer/Debug/FrameCaptureBackend.h (#691, ADR 0011 §1.6). The
 // orchestration — capture cache, hook lifecycle, probe bookkeeping — stays in
 // Renderer/Debug/RenderGraphFrameCapture.cpp; everything that needs glad or a
 // GL state query lives here.

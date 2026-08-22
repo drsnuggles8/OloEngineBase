@@ -1,7 +1,7 @@
 #pragma once
 
 // Pure, engine-light structural breakdown of a captured frame for the
-// olo_render_frame_breakdown MCP tool (issue #306 item D, bullet 2: surface the
+// olo_render_frame_breakdown MCP tool (issue #306, bullet 2: surface the
 // CommandPacketDebugger / FrameCaptureManager data over MCP). The MCP handler in
 // McpTools.cpp triggers a one-frame capture on the editor main thread, then hands
 // the resulting CapturedFrameData here to be turned into the per-command /
@@ -15,7 +15,7 @@
 // CommandPacketDebugger.h (which pulls in ImGui). This mirrors the sibling pattern
 // of McpRenderExplain.h / McpGoldenCompare.h.
 //
-// Graph attribution + full per-pass capture (issue #316 Part 4 / issue #463).
+// Graph attribution + full per-pass capture (issue #316 / issue #463).
 // FrameCaptureManager now captures EVERY command-bucket pass that runs in the
 // frame, not just SceneRenderPass's: each pass (Scene, Water, Foliage, Decal,
 // ForwardOverlay) registers itself and snapshots its own bucket, and the commit
@@ -288,7 +288,7 @@ namespace OloEngine::MCP::FrameBreakdown
                              { "executeMs", Detail::Round(stats.ExecuteTimeMs, 3) },
                              { "totalMs", Detail::Round(stats.TotalFrameTimeMs, 3) } };
 
-        // Per-pass command breakdown (issue #463 / #316 Part 4). One entry per
+        // Per-pass command breakdown (issue #463 / #316). One entry per
         // command-bucket pass that executed this frame (Scene, Water, Foliage,
         // Decal, ForwardOverlay), each tagged with its graph pass name and shaped
         // identically to the top-level bucket. The capture is no longer limited to
@@ -321,7 +321,7 @@ namespace OloEngine::MCP::FrameBreakdown
                                           : static_cast<u32>(frame.Passes.size());
 
         // Graph-wide command-bucket attribution: place the captured per-pass
-        // buckets in the context of the whole render graph (issue #316 Part 4).
+        // buckets in the context of the whole render graph (issue #316).
         if (attribution != nullptr)
         {
             // Command-bucket passes that RAN this frame (non-culled). This is the

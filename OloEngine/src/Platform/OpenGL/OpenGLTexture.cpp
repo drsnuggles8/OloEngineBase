@@ -623,7 +623,7 @@ namespace OloEngine
         //
         // Wiring it into the texture lifecycle here is what makes it automatic
         // rather than a rule every future call site has to remember
-        // (issue #691 Phase 3).
+        // (issue #691).
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;

@@ -90,7 +90,7 @@ precisely the situation §The trap warns about.
 **The procedure, and it is cheap.** Stash nothing; just take three snapshots:
 `HEAD` (via `git show HEAD:<path>`), your run, and a *second* run of the same
 binary. Then compare `HEAD→run1` against `run1→run2`. If the first is not
-clearly larger than the second, you have measured noise. On the Phase 3 heap
+clearly larger than the second, you have measured noise. On the descriptor-heap
 work this was unambiguous: two images landed **byte-identical to HEAD** on the
 second run after "differing" on the first, and the largest `HEAD→run1` delta was
 smaller than that image's own `run1→run2` delta.

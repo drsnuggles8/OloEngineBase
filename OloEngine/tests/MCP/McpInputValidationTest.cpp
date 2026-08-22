@@ -3,7 +3,7 @@
 #include <gtest/gtest.h>
 
 // Server-side `inputSchema` enforcement for tools/call (issue #357 conformance /
-// #306 item D hardening). Two surfaces are exercised, both httplib-free:
+// #306 hardening). Two surfaces are exercised, both httplib-free:
 //   * McpServer::ValidateArguments(schema, args) — the pure validator, driven with
 //     schemas built by the real schema-builder DSL (McpSchemaBuilder.h), so the
 //     tests assert against exactly what the live tools emit.

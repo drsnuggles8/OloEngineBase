@@ -814,7 +814,7 @@ float ddgiBounceCoverageWeight(vec3 relPos)
 
 // Slots mirror ShaderBindingLayout::TEX_DDGI_* — bound once per frame by the
 // DDGI update pass to the CURRENT (just-blended) atlases.
-// The visibility atlas moved 57 -> 64 (issue #691 Phase 7, ADR item A2):
+// The visibility atlas moved 57 -> 64 (issue #691, ADR item A2):
 // 57 is the engine-wide Vulkan vertex-pull SSBO, and DDGI_Capture.glsl both
 // pulls its vertices AND includes this block — a real within-shader collision
 // on Vulkan's single-set binding model (GL's disjoint namespaces hid it).

@@ -36,7 +36,7 @@ namespace OloEngine::MCP
     namespace
     {
         // ======================================================================
-        // olo_physics_* — physics introspection + "explain" tools (#306 item A).
+        // olo_physics_* — physics introspection + "explain" tools (#306).
         //
         // The layer matrix is static / mutex-guarded registry data and reads
         // lock-safe from the handler thread. Everything else touches the live
@@ -728,7 +728,7 @@ namespace OloEngine::MCP
                       "olo_set_collision_layer layer cap is out of sync with the Jolt object-layer budget");
 
         // ---- olo_set_collision_layer (main-marshaled; PROJECT WRITE) -----------
-        // The first consented, undoable write tool (#306 item C, first slice): set an
+        // The first consented, undoable write tool (#306): set an
         // entity's physics-body collision layer through the editor's undo stack, so an
         // agent can try a fix the user can Ctrl-Z. The mutation is gated at dispatch by
         // the "Allow writes" session toggle (ToolDef::ProjectWrite); the shared apply

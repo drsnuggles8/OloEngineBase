@@ -14,7 +14,7 @@ namespace OloEngine
 {
     // @brief Standalone Bloom post-process pass.
     //
-    // Phase F slice 23 — standalone bloom stage in the dynamic chain:
+    // Standalone bloom stage in the dynamic chain:
     //   AOApply/SSS/Scene -> Bloom -> DOF -> MotionBlur -> TAA -> ...
     //
     // Algorithm:

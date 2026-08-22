@@ -62,7 +62,7 @@ namespace OloEngine
         // of a hard-coded label.
         void SetSourcePass(std::string_view passName);
 
-        // Per-pass capture (issue #463 / #316 Part 4) ------------------------
+        // Per-pass capture (issue #463 / #316) ------------------------
         // Each command-bucket pass (Scene, Water, Foliage, Decal, ForwardOverlay)
         // calls BeginPass(GetName()) at the top of its Execute() before any early
         // return, so even a pass with an empty bucket registers itself. The
@@ -91,7 +91,7 @@ namespace OloEngine
         // render state, pushes it to the captured-frame ring) and advances the
         // state machine. No-op when idle. Frame numbers auto-increment.
         //
-        // One-shot captures are committed DEFERRED (issue #316 Part 4 follow-up):
+        // One-shot captures are committed DEFERRED (issue #316 follow-up):
         // the capture frame's per-draw GL_TIME_ELAPSED queries only become
         // readable a frame-plus later, so the first CommitFrame after the capture
         // parks the pending frame in AwaitingGpuResults and a subsequent

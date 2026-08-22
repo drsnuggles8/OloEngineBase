@@ -970,7 +970,7 @@ namespace OloEngine::Audio::SoundGraph
             // ppFramesOut[0][frame * m_ChannelCount + channel].
             if (float* const busOut = (ppFramesOut && ppFramesOut[0]) ? ppFramesOut[0] : nullptr; busOut)
             {
-                // Phase 1: a single block-rate Process call replaces the old per-sample
+                // A single block-rate Process call replaces the old per-sample
                 // inner loop. The graph fills m_OutputBuffers[c][i] with `frameCount`
                 // samples per channel; we deinterleave-to-interleave-copy them into the
                 // miniaudio output bus below.

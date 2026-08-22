@@ -2,8 +2,8 @@
 //
 // Pins the RHI:: -> GLenum lowering table (Platform/OpenGL/OpenGLRHIConversions.h).
 //
-// Issue #691 Phase 2. This is the test that guards the phase's actual failure
-// mode. Phase 2 rewrote ~270 call sites from `GL_SRC_ALPHA` to
+// Issue #691. This is the test that guards the phase's actual failure
+// mode. The sweep rewrote ~270 call sites from `GL_SRC_ALPHA` to
 // `RHI::BlendFactor::SrcAlpha`; a single wrong entry in the lowering table
 // renders subtly wrong — a slightly off blend, a depth test that passes one
 // fragment too many — while every existing test stays green, because nothing
@@ -73,7 +73,7 @@ namespace
                   "RHI::Format changed — update ToGLInternalFormat() and FormatLowering");
     // Access and PrimitiveTopology are lowered by ToGLImageAccess() / ToGL() and
     // so need the same growth tripwire. Access is the one most likely to gain a
-    // member — ADR 0011 §1.5 has Phase 5 unifying ResourceTransition's read/write
+    // member — ADR 0011 §1.5 unifies ResourceTransition's read/write
     // enum pair onto it — and only its three Storage* values are image-load/store
     // accesses, so a new member falling through ToGLImageAccess()'s default would
     // silently bind as GL_READ_WRITE.
@@ -82,7 +82,7 @@ namespace
     static_assert(static_cast<int>(RHI::PrimitiveTopology::PatchList) == 5,
                   "RHI::PrimitiveTopology changed — update ToGL() and PrimitiveTopologyLowering");
 
-    // Phase 2 step 2 vocabulary (ADR 0011 amendment (10)). Same tripwire
+    // Call-site sweep vocabulary (ADR 0011 amendment (10)). Same tripwire
     // discipline: IndexType in particular has only two members, which makes a
     // swapped mapping look harmless right up until a u16-indexed mesh reads its
     // element buffer at 4-byte stride and renders as scattered triangles.
@@ -248,7 +248,7 @@ TEST(RHIEnumLowering, PrimitiveTopologyLowersToTheNamedGLPrimitive)
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 step 2 vocabulary (ADR 0011 amendment (10)).
+// Call-site sweep vocabulary (ADR 0011 amendment (10)).
 // ---------------------------------------------------------------------------
 
 TEST(RHIEnumLowering, IndexTypeLowersToTheNamedGLType)

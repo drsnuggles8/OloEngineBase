@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: plumbing
 // =============================================================================
-// VulkanResourceFactoryTest — #691 Phase 7 Stage 1.2: the buffer/texture
+// VulkanResourceFactoryTest — #691.2: the buffer/texture
 // factory arms on Vulkan.
 //
 // Device-gated (VulkanShaderPipelineTest's probe ladder): headless CI and
@@ -20,7 +20,7 @@
 //  - StorageBuffer SetData/GetData/ClearData on both usage classes.
 //
 // Zero validation errors is asserted in TearDown — sync validation included
-// (debug builds), per the Phase 5 bar.
+// (debug builds), per the validation bar.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"

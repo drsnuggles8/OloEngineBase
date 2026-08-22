@@ -1,7 +1,7 @@
 #pragma once
 
 // Pure, engine-light topology export for the olo_render_graph_topology_export MCP
-// tool (issue #316 Part 4, "LLM-analysis exports"). The MCP handler in
+// tool (issue #316, "LLM-analysis exports"). The MCP handler in
 // McpTools.cpp reads the live RenderGraph on the editor main thread, fills the
 // engine-free Snapshot below, and hands it here to be turned into the JSON (or a
 // Mermaid DAG) an agent can reason about: the render passes, their topologically-

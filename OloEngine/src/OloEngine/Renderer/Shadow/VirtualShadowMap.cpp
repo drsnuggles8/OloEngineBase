@@ -1143,7 +1143,7 @@ namespace OloEngine
     void VirtualShadowMap::BindPhysicalPoolImage() const
     {
         // Image unit 0, through the heap seam rather than RenderCommand directly
-        // (issue #691 Phase 3 — the RHI boundary ratchet counts raw facade bind
+        // (issue #691 — the RHI boundary ratchet counts raw facade bind
         // sites, and this is the sanctioned spelling).
         //
         // MUST BE CALLED WITH THE CONSUMING SHADER ALREADY BOUND.
@@ -1990,7 +1990,7 @@ namespace OloEngine
         RHI::SamplerDesc poolSampler{};
         // Explicit, not the default: a default-constructed SamplerDesc is a request
         // to INHERIT the texture object's state, so the fields below would be
-        // ignored (issue #691 Phase 3) and the pool could end up sampled with
+        // ignored (issue #691) and the pool could end up sampled with
         // whatever GL's texture default happens to be.
         poolSampler.Source = RHI::SamplerSource::Explicit;
         poolSampler.LinearMipFilter = false;

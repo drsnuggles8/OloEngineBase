@@ -2,7 +2,7 @@
 // =============================================================================
 // RHIResourceRegistryTest.cpp
 //
-// Contract tests for the generation-checked handle mint (issue #691 Phase 2
+// Contract tests for the generation-checked handle mint (issue #691
 // step 3, ADR 0011 §1.1).
 //
 // THE TEST THAT JUSTIFIES THE WHOLE DESIGN is
@@ -11,7 +11,7 @@
 // texture B, and B can be handed A's name. Every `GetRendererID()` comparison
 // in the engine — including `Texture::operator==` — then reports A == B. A
 // generation makes that detectable; a u32 structurally cannot. If that test is
-// ever weakened, the rest of Phase 2 step 3 buys nothing.
+// ever weakened, the rest of the identity currency buys nothing.
 //
 // These are pure CPU tests: the registry stores an opaque u64 and never talks
 // to a device, so they run headless with no GL context.
@@ -125,7 +125,7 @@ namespace OloEngine::Tests
 
     // The cache-fingerprint corollary of the test above, and the reason
     // RenderPipeline::ComputeBlackboardFingerprint hashes RHI::HashKey(handle)
-    // rather than the raw id (issue #691 step 3, slice 5).
+    // rather than the raw id (issue #691).
     //
     // The concrete bug: DDGIProbeUpdatePass::EnsureResources calls
     // DestroyResources() BEFORE creating the replacement atlases, so every
@@ -164,7 +164,7 @@ namespace OloEngine::Tests
 
     TEST(RHIResourceRegistry, UpdateNativeKeepsIdentityAcrossAnInPlaceReload)
     {
-        // Models texture hot-reload (issue #544 Part B): the C++ object survives,
+        // Models texture hot-reload (issue #544): the C++ object survives,
         // its GL storage is recreated, and GL may hand the new storage a
         // different name. The handle must stay live and follow the object.
         auto& registry = Registry();
@@ -325,8 +325,8 @@ namespace OloEngine::Tests
     TEST(RHIResourceRegistry, ResourceAndViewHandlesAreMutuallyNonConvertible)
     {
         // Guards the property RHITypes.h claims for the tag-templated Handle:
-        // ViewHandle is declared but not minted in Phase 2 (see ADR 0011's
-        // "Amendments from Phase 2 step 3"), and when Phase 3 does mint it, a
+        // ViewHandle is declared but not minted yet (see ADR 0011's
+        // "Amendments from the call-site sweep"), and when it is minted, a
         // resource id must not be silently passable where a view id is wanted.
         static_assert(!std::is_convertible_v<RHI::ResourceHandle, RHI::ViewHandle>);
         static_assert(!std::is_convertible_v<RHI::ViewHandle, RHI::ResourceHandle>);

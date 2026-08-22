@@ -1,6 +1,6 @@
 #pragma once
 
-// VulkanShader — the direct-SPIR-V shader path. Issue #691 Phase 6,
+// VulkanShader — the direct-SPIR-V shader path. Issue #691,
 // ADR 0011 §3(a)/(b) + §4.
 //
 // GLSL → shaderc(vulkan_1_4) → SPIR-V → VkShaderModule. No SPIRV-Cross
@@ -17,7 +17,7 @@
 // VkDescriptorSetAndBindingMappingEXT (INDIRECT_ADDRESS for buffer blocks,
 // HEAP_WITH_INDIRECT_INDEX for samplers) with the root pointer arriving
 // through one vkCmdPushDataEXT. So one .glsl serves both backends with zero
-// per-backend declaration ifdefs — the Phase 3 amendment (25) property, one
+// per-backend declaration ifdefs — the amendment (25) property, one
 // level up. (Vertex-pulling stages are the exception: they declare an
 // SSBO-shaped vertex block behind #ifdef OLO_VULKAN, compiled into this
 // tier only via the OLO_VULKAN=1 macro.)
@@ -61,7 +61,7 @@ namespace OloEngine
             StorageImage,
         };
 
-        // Sampled-image dimensionality from SPIR-V reflection (#691 Phase 8).
+        // Sampled-image dimensionality from SPIR-V reflection (#691).
         // The unfed-binding fallback must hand the shader a null texture whose
         // VIEW TYPE matches the sampler declaration — a 2D view under a
         // samplerCube is undefined under the descriptor heap, and the old
@@ -171,7 +171,7 @@ namespace OloEngine
         // bindings and cached; a successful Reload/rebuild resets it (the
         // bindings may have changed). This is THE layout the draw path
         // assembles root structs against — one owner, so the writer and the
-        // pipeline's mapping array cannot drift (#691 Phase 7).
+        // pipeline's mapping array cannot drift (#691).
         [[nodiscard]] const VulkanRootDataLayout& GetRootDataLayout();
         [[nodiscard]] const std::unordered_map<VkShaderStageFlagBits, std::vector<u32>>& GetSPIRV() const
         {
@@ -189,7 +189,7 @@ namespace OloEngine
         // draw-time pipeline lookup consumes. Null when none.
         [[nodiscard]] static VulkanShader* GetCurrentlyBound();
 
-        // Forced device-object release for context teardown (#691 Phase 8):
+        // Forced device-object release for context teardown (#691):
         // a shader Ref surviving in some static (a library, a cached
         // material) would otherwise carry its VkShaderModules into
         // vkDestroyDevice (VUID-vkDestroyDevice-device-05137). The context

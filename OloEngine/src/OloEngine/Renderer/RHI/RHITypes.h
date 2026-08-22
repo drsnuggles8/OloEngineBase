@@ -3,16 +3,16 @@
 // =============================================================================
 // RHITypes.h — the API-neutral vocabulary of the render hardware interface.
 //
-// Issue #691 Phase 1, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
+// Issue #691, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
 //
-// Written declaration-only in Phase 1, so that the Phase 2 sweep of ~313 raw
+// Written declaration-only up front, so that the later sweep of ~313 raw
 // `glXxx()` call sites had a fixed target to convert *toward* instead of
 // inventing a vocabulary one file at a time and discovering the disagreements at
 // merge time. **That is history now** — `ResourceHandle` below is the live
 // identity currency: minted by RHI::ResourceRegistry, carried by the
 // Platform/OpenGL resource classes, RenderCommand's handle-taking siblings, the
 // render graph, and the framebuffer attachment getters. `ViewHandle` /
-// `HeapOffset` are still forward-looking and land in Phase 3 as a matched pair
+// `HeapOffset` are still forward-looking and land later as a matched pair
 // (ADR 0011 amendment (11)).
 //
 // Two hard rules, both enforced by RHIBoundaryRatchetTest:
@@ -196,11 +196,11 @@ namespace OloEngine::RHI
     // Formats.
     //
     // Superset of the engine's existing `ImageFormat` (Renderer/Texture.h) and
-    // `RGResourceFormat` (Renderer/ResourceHandle.h), which Phase 2 collapses
+    // `RGResourceFormat` (Renderer/ResourceHandle.h), which the sweep collapses
     // into this one. Kept separate for now so this header stays declaration-only
     // and no existing serialised enum value moves.
     //
-    // NOTE for Phase 2: `ImageFormat`'s integer values are persisted in scene
+    // NOTE: `ImageFormat`'s integer values are persisted in scene
     // YAML and asset packs, so its members may only ever be appended. Mapping
     // ImageFormat -> RHI::Format must therefore be an explicit switch, never a
     // static_cast.
@@ -241,7 +241,7 @@ namespace OloEngine::RHI
         BC7UNorm,
         BC7SRGB,
 
-        // 128-bit unsigned integer, appended (issue #715 slice 4) — members may
+        // 128-bit unsigned integer, appended (issue #715) — members may
         // only ever be appended, RHIEnumLoweringTest pins the ordinals. One
         // RGBA32UInt texel is bit-compatible with one 16-byte BC block, which is
         // what lets an image copy stage compressed VT cache tiles out of an
@@ -270,7 +270,7 @@ namespace OloEngine::RHI
     // BindImageTexture(..., GLenum access, GLenum format).
     //
     // That leakage is the single highest-leverage thing to fix, and it must go
-    // FIRST in Phase 2 (ADR 0011 §1.7): 40 files outside Platform/OpenGL/
+    // FIRST (ADR 0011 §1.7): 40 files outside Platform/OpenGL/
     // include <glad/gl.h> while making zero GL calls, purely to name the GL_*
     // constants these signatures demand. RendererAPI.h itself includes
     // <glad/gl.h>, so until these are gone, removing a per-file include
@@ -358,11 +358,11 @@ namespace OloEngine::RHI
     };
 
     // -------------------------------------------------------------------------
-    // Sampler state — added in Phase 2 (ADR 0011 amendment, see §1.7).
+    // Sampler state (ADR 0011 amendment, see §1.7).
     //
-    // Phase 1 modelled sampler state as two bools on SamplerDesc
+    // The first model was two bools on SamplerDesc
     // (`LinearFilter` / `ClampToEdge`), which was enough to describe the
-    // *typical* texture but not enough to replace the call sites Phase 2 had to
+    // *typical* texture but not enough to replace the call sites the sweep had to
     // sweep: RendererAPI::SetTextureParameter(id, GLenum pname, GLint value)
     // took an open-ended GL enum space, and SSAORenderPass's noise texture uses
     // the combination the bools cannot express — Nearest filtering with Repeat
@@ -409,7 +409,7 @@ namespace OloEngine::RHI
         OpaqueWhite,          ///< (1,1,1,1) — "outside the shadow map is lit"
     };
 
-    // Index buffer element width. Added in Phase 2 so the POD draw commands in
+    // Index buffer element width, so the POD draw commands in
     // Commands/RenderCommand.h can describe their index buffer without a
     // GLenum field; the direct Vulkan counterpart is VkIndexType.
     enum class IndexType : u8
@@ -421,7 +421,7 @@ namespace OloEngine::RHI
     // -------------------------------------------------------------------------
     // Access — the unified barrier lattice.
     //
-    // ADR 0011 §1.5. Before Phase 5, RenderGraph::ResourceTransition typed its
+    // ADR 0011 §1.5. Originally RenderGraph::ResourceTransition typed its
     // transition as `RGWriteUsage FromUsage` -> `RGReadUsage ToUsage`, which
     // structurally could NOT express a write->write transition: the barrier
     // planner emitted WAW barriers, BuildResourceTransitions found no read
@@ -431,7 +431,7 @@ namespace OloEngine::RHI
     // storage-image WAW into SHADER_READ_ONLY_OPTIMAL with a read-only access
     // mask — wrong layout, wrong access, silent.
     //
-    // Phase 5 fixed it at the source: PlannedBarrier captures the consumer's
+    // The fix was at the source: PlannedBarrier captures the consumer's
     // access (read OR write) AT EMISSION, and ResourceTransition carries this
     // enum as `FromAccess` / `ToAccess`.
     //
@@ -451,8 +451,8 @@ namespace OloEngine::RHI
     {
         // The resource has no defined contents. First use of a transient this
         // frame, and the state a Vulkan backend uses to discard rather than
-        // preserve. Since Phase 5, `ProducerPass == "external"` transitions
-        // carry this as FromAccess (the pre-Phase-5 record defaulted to
+        // preserve. `ProducerPass == "external"` transitions
+        // carry this as FromAccess (the original record defaulted to
         // RenderTarget, wrong for a genuine first use — ADR 0011 §1.5).
         Undefined = 0,
 
@@ -478,7 +478,7 @@ namespace OloEngine::RHI
         // Clear is intentionally split. RGWriteUsage::Clear conflates
         // clear-as-a-load-op (free, folded into the render pass) with an
         // explicit vkCmdClearColorImage (a transfer-queue write needing a
-        // TRANSFER_DST transition). Phase 5 must distinguish them.
+        // TRANSFER_DST transition). The planner must distinguish them.
         ClearAsLoadOp,
         ClearAsTransfer,
 
@@ -510,10 +510,10 @@ namespace OloEngine::RHI
     };
 
     // -------------------------------------------------------------------------
-    // Barrier vocabulary. MOVED here from RHIResources.h in Phase 5, when
+    // Barrier vocabulary. MOVED here from RHIResources.h when
     // `RendererAPI::IssueBarrierBatch` made these facade vocabulary and
     // RendererAPI.h includes only this header — the same move-don't-duplicate
-    // rule as MemoryResidency below (Phase 2 step 2's amendment method).
+    // rule as MemoryResidency below (the amendment method).
     // -------------------------------------------------------------------------
 
     // Which plane(s) of a resource an access refers to. A depth-stencil format
@@ -575,7 +575,7 @@ namespace OloEngine::RHI
     };
 
     // -------------------------------------------------------------------------
-    // Added in Phase 2 step 2 (the call-site sweep) — ADR 0011 amendment (10).
+    // Added by the call-site sweep — ADR 0011 amendment (10).
     //
     // Step 1 converted the facade's existing vocabulary; step 2 discovered the
     // facade was also INCOMPLETE. 84 distinct GL entry points appear at the 313
@@ -595,7 +595,7 @@ namespace OloEngine::RHI
         TimeElapsed,             ///< GL_TIME_ELAPSED / a VK_QUERY_TYPE_TIMESTAMP pair
         Timestamp,               ///< GL_TIMESTAMP / VK_QUERY_TYPE_TIMESTAMP — written via
                                  ///< WriteTimestamp (never Begin/EndQuery); result is
-                                 ///< NANOSECONDS on both backends (#691 Phase 9)
+                                 ///< NANOSECONDS on both backends (#691)
     };
 
     // The four outcomes of a client-side fence wait. Mirrors glClientWaitSync's
@@ -628,7 +628,7 @@ namespace OloEngine::RHI
     // the choice reviewable — "this buffer is written once per frame by the CPU"
     // is a fact about the engine, "VK_MEMORY_PROPERTY_HOST_COHERENT_BIT" is not.
     //
-    // MOVED here from RHIResources.h in Phase 2 step 2. Phase 1 had already
+    // MOVED here from RHIResources.h by the call-site sweep. The original design had already
     // designed exactly this and put it next to BufferDesc, where nothing outside
     // the (then declaration-only) resource header could reach it; the sweep
     // started to reinvent it as a "BufferUsage" access-pattern enum and only the
@@ -656,7 +656,7 @@ namespace OloEngine::RHI
 } // namespace OloEngine::RHI
 
 // -----------------------------------------------------------------------------
-// Logging support, added in Phase 2 step 3.
+// Logging support.
 //
 // The ~100 diagnostic sites that used to print a bare renderer ID
 // ("aoTex={}, depthTex={}") keep working, and say more than they did: a handle

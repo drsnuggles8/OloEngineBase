@@ -326,7 +326,7 @@ namespace OloEngine::Tests
                "Suspect the page key, the physical-UV mapping or the fallback mip.";
     }
 
-    // ── Slice 2: the delta must publish the same map the rebuild did ──────────
+    // The delta must publish the same map the rebuild did ──────────
     //
     // TerrainVirtualTexture.TheDeltaProducesTheSameMapAsAFullRebuildOverRandomTraffic
     // pins this headlessly, but against a CPU MODEL of the three kernels. What it
@@ -553,7 +553,7 @@ namespace OloEngine::Tests
                "page.";
     }
 
-    // ── Slice 3: images grow where the camera actually looks ─────────────────
+    // Images grow where the camera actually looks ─────────────────
     //
     // The headless policy tests pin VTDesiredImageSize against synthetic
     // feedback; what they cannot reach is the loop that FEEDS it — the shader
@@ -653,7 +653,7 @@ namespace OloEngine::Tests
                "arithmetic, or the BC7 block layout.";
     }
 
-    // ── Slice 4's cost claim, pinned on the frame and the byte counter ───────
+    // ── The BC7 cost claim, pinned on the frame and the byte counter ────────
     //
     // The BC7 A/B on the fixed grid, isolated from adaptivity: same scene, same
     // pose, converged once with compressed tiles and once without. The bytes

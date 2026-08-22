@@ -9,7 +9,7 @@ namespace OloEngine
 
 namespace OloEngine::Animation
 {
-    // Velocity-driven locomotion controller pass (issue #631 part 4): for every
+    // Velocity-driven locomotion controller pass (issue #631): for every
     // entity with an enabled LocomotionComponent + AnimationGraphComponent it
     // measures (or takes) the character velocity, smooths speed/turn-rate,
     // selects a gait with hysteresis, writes the graph parameters, and

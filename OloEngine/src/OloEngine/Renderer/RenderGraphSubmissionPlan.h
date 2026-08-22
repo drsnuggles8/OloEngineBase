@@ -13,7 +13,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
 {
     // Submission-plan / async-compute scheduler module extracted from
     // `RenderGraph::GetAsyncComputeBatches` + `RenderGraph::GetSubmissionPlan`
-    // as part of the Phase 7 split (2026-05-11). This module turns the
+    // as part of the module split (2026-05-11). This module turns the
     // compiled execution order + barrier plan + per-pass work-type / async
     // candidate metadata into a backend-agnostic submission IR
     // (`std::vector<SubmissionCommand>`) that the executor consumes verbatim.
@@ -41,7 +41,7 @@ namespace OloEngine::RenderGraphSubmissionPlan
     {
         std::span<const std::string> ExecutionOrder;
         std::span<const RenderGraph::PlannedBarrier> PlannedBarriers;
-        // Phase 5 (ADR 0011 §1.5): the per-resource transition records for
+        // ADR 0011 §1.5: the per-resource transition records for
         // the same barrier plan. Attached (deduplicated) to each emitted
         // MemoryBarrier command so an explicit-barrier backend can lower
         // per-resource layout transitions without re-querying the graph.

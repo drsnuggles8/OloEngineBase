@@ -900,8 +900,8 @@ namespace OloEngine
             MemoryBarrierFlags Flags = MemoryBarrierFlags::None;
             RGSubresourceRange Range; ///< subresource range from the consuming access declaration
 
-            // The consumer's access, captured AT EMISSION (ADR 0011 §1.5,
-            // Phase 5). For a read-after-write barrier this is the consumer's
+            // The consumer's access, captured AT EMISSION (ADR 0011 §1.5).
+            // For a read-after-write barrier this is the consumer's
             // read access; for a write-after-write barrier it is the
             // consumer's WRITE access — which is exactly what the old
             // transition-building rescan could not recover (it looked only at
@@ -1159,7 +1159,7 @@ namespace OloEngine
         // GetPlannedBarriers(): same resource/consumerPass pairing, with the
         // producer's and consumer's accesses added.
         //
-        // Phase 5 (ADR 0011 §1.5): the pair is typed with the unified
+        // ADR 0011 §1.5: the pair is typed with the unified
         // RHI::Access lattice, NOT the old RGWriteUsage -> RGReadUsage pair —
         // that pair structurally could not express a write->write transition
         // (the planner emits WAW barriers, and the old record silently
@@ -1174,7 +1174,7 @@ namespace OloEngine
         //             layout). FromAccess == Undefined means the contents may
         //             be discarded (oldLayout UNDEFINED).
         //   GL 4.6  : glMemoryBarrier(Flags) — Flags stays the GL lowering,
-        //             derived by the planner exactly as before Phase 5.
+        //             derived by the planner exactly as before.
         struct ResourceTransition
         {
             std::string ResourceName;                            ///< virtual resource in the graph
@@ -1282,7 +1282,7 @@ namespace OloEngine
         // m_PassAccessDeclarations are populated.
         [[nodiscard]] std::vector<ResourceTransition> GetResourceTransitions() const;
 
-        // Phase 5 (ADR 0011 §1.5): resolve name-keyed transition records into
+        // ADR 0011 §1.5: resolve name-keyed transition records into
         // the handle-keyed RHI::Barrier form the facade's IssueBarrierBatch
         // takes. Runs at EXECUTE time, never at plan-bake time — transient
         // physicals change per frame under pooling, so a baked handle would
@@ -1517,7 +1517,7 @@ namespace OloEngine
         struct PhysicalTexture
         {
             // For an IMPORTED entry, TextureID and Handle are ALTERNATIVES and
-            // exactly one is set (issue #691 step 3, slice 5).
+            // exactly one is set (issue #691).
             //
             // They cannot drift, because neither can be derived from the other:
             // `native -> handle` is unrecoverable (a driver name does not
@@ -1564,7 +1564,7 @@ namespace OloEngine
         struct PhysicalBuffer
         {
             u32 BufferID = 0;
-            // Phase 5: the identity currency, set alongside BufferID wherever
+            // The identity currency, set alongside BufferID wherever
             // the graph itself does the setting (transient materialization —
             // the planner holds the pooled Ref and reads both off one
             // pointer, same contract as PhysicalTexture). A native-only
@@ -1706,7 +1706,7 @@ namespace OloEngine
 
       public:
         // Format-conversion helpers exposed publicly so the extracted
-        // RenderGraphTransientPlanner module (Phase 7 slice 5) can consume them
+        // RenderGraphTransientPlanner module can consume them
         // without needing friend access into the graph's private region.
         [[nodiscard]] static ImageFormat ToImageFormat(RGResourceFormat format);
         [[nodiscard]] static FramebufferTextureFormat ToFramebufferFormat(RGResourceFormat format);

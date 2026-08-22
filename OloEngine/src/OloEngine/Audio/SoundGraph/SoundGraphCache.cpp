@@ -550,7 +550,7 @@ namespace OloEngine::Audio::SoundGraph
         for (const auto& buffer : graph->m_OutputBuffers)
             totalMemory += buffer.capacity() * sizeof(f32);
 
-        // Per-node audio output block buffers (Phase 2: every audio-rate output owns
+        // Per-node audio output block buffers (every audio-rate output owns
         // a fixed kMaxAudioBlockFrames buffer). The per-node count isn't reachable
         // from the base NodeProcessor interface, so approximate with one buffer per
         // node — typical nodes have 1-2 audio outputs.

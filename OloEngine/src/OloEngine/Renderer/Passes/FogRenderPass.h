@@ -11,7 +11,7 @@ namespace OloEngine
 {
     // @brief Standalone volumetric fog post-process pass.
     //
-    // Phase F slice 18 — standalone fog stage in the dynamic post chain
+    // Standalone fog stage in the dynamic post chain
     // following the pattern established by FXAARenderPass (slice 16) and the
     // four effects extracted in slice 17.
     //

@@ -7,7 +7,7 @@
 // =============================================================================
 // VulkanTexture2DArray.h — the VMA-backed Texture2DArray backend twin of
 // OpenGLTexture2DArray (#691; split out of the single
-// VulkanTransientResources.h in Phase 9).
+// VulkanTransientResources.h).
 //
 // This header exposes Vulkan types directly — it is included only by
 // Platform/Vulkan siblings and by OLO_WITH_VULKAN-guarded engine factory TUs
@@ -26,8 +26,7 @@
 namespace OloEngine
 {
     // -------------------------------------------------------------------------
-    // VulkanTexture2DArray — the Texture2DArray backend twin (issue #691
-    // Phase 7 Wave B). First consumer: ShadowMap's CSM/atlas placeholder
+    // VulkanTexture2DArray — the Texture2DArray backend twin (issue #691). First consumer: ShadowMap's CSM/atlas placeholder
     // (sampler2DArrayShadow), which VolumetricFogPass::Execute materialises
     // lazily — under --rhi=vulkan the old GL-only factory constructed an
     // OpenGLTexture2DArray whose glCreateTextures call went through a null
@@ -36,7 +35,7 @@ namespace OloEngine
     // VK_IMAGE_VIEW_TYPE_2D_ARRAY so both bind paths build array views
     // (sampler2DArrayShadow needs the array dimensionality, not the 2D
     // default). Allocation/identity/lifetime are full; the upload/mip
-    // virtuals are warn-once no-ops until the Wave C shadow work needs them.
+    // virtuals are warn-once no-ops until the shadow work needs them.
     // -------------------------------------------------------------------------
     class VulkanTexture2DArray : public Texture2DArray
     {

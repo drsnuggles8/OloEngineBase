@@ -139,7 +139,7 @@ namespace OloEngine
             case RendererAPI::API::Vulkan:
             {
 #if OLO_WITH_VULKAN
-                // #691 Phase 6: direct SPIR-V consumption, no cross-compile
+                // #691: direct SPIR-V consumption, no cross-compile
                 // hop. A Vulkan shader cannot exist without a device.
                 if (VulkanDevice::Get() != nullptr)
                 {

@@ -181,7 +181,7 @@ Slots 13–31 are reserved for shadows, terrain layers, post-process, wind field
 
 ### 5a. The heap-bindless alternative — opt-in, and `SSAO.glsl` is the worked example
 
-Issue #691 Phase 3 added a second way to reach a texture. It is **off by
+Issue #691 added a second way to reach a texture. It is **off by
 default** (`OLO_RHI_BINDLESS=1` enables it) and only shaders that opt in take
 it, so the rule for an unrelated shader is still: keep writing
 `layout(binding = N)`.
@@ -260,7 +260,7 @@ Practical rules:
 ### 5b. Storage images through the heap — three things differ, and each is forced
 
 `imageLoad`/`imageStore` bindings go through the same heap, but they are a
-**different descriptor kind** (issue #691 Phase 3 bucket 3, ADR 0011 amendments
+**different descriptor kind** (issue #691 bucket 3, ADR 0011 amendments
 (26)–(29)), and the recipe is not the sampler one with a different macro name.
 
 ```glsl
@@ -584,7 +584,7 @@ of `ClampToEdge` turned `Water.glsl`'s tiled FFT field into flat terraces, and
 integer format as *incomplete* and it samples as **zero**, on Mesa but not NVIDIA.
 See ADR 0011 amendment (38).
 
-### 5f. The Vulkan backend (#691 Phase 6): your declarations survive; only a vertex stage changes
+### 5f. The Vulkan backend (#691): your declarations survive; only a vertex stage changes
 
 The Vulkan backend consumes the same `.glsl` files through its own shaderc
 tier (`vulkan_1_4`, compiled with **`OLO_VULKAN=1`** defined — a different

@@ -2,7 +2,7 @@
 #version 460 core
 
 #ifdef OLO_VULKAN
-// #691 Phase 6 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
+// #691 (ADR 0011 §5): on the Vulkan backend vertex data is PULLED —
 // the pipeline has no vertex-input state at all. Binding 57 is the engine-wide
 // vertex-pull binding; the root struct carries this buffer's device address,
 // so the SAME 20-byte {vec3 position, vec2 uv} stream the attribute path
@@ -38,7 +38,7 @@ void main()
 #type fragment
 #version 460 core
 
-// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// Texture inputs. Under heap-bindless (issue #691) these become heap
 // lookups keyed by the SAME slot numbers the bindful branch declares, so the two
 // variants cannot disagree about which texture is which — and the shader BODY
 // below is unchanged between them. Inert without OLO_BINDLESS; the engine only

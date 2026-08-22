@@ -112,7 +112,7 @@ namespace OloEngine
         Ref<ComputeShader> m_ColorizeShader; // overdraw count -> heat colour (debug capture)
         Ref<SceneRenderPass> m_ScenePass;
         Ref<UniformBuffer> m_DrawInfoUBO; // UBO_VIRTUAL_DRAW, one update per MDI/resolve draw
-        // VirtualClusterCull.comp's former bare uniforms (issue #691 Phase 7),
+        // VirtualClusterCull.comp's former bare uniforms (issue #691),
         // at UBO_VIRTUAL_CLUSTER_CULL — refilled PER instance dispatch (the
         // loop varies u_InstanceIndex). C++ twin:
         // UBOStructures::VirtualClusterCullUBO.

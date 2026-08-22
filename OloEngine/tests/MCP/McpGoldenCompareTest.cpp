@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 // Unit tests for the pure image-comparison core behind olo_render_compare_golden
-// (issue #316 Part 4). The math lives in a header-only free function with no GL /
+// (issue #316). The math lives in a header-only free function with no GL /
 // renderer / editor / stb dependencies precisely so it can be exercised here
 // without a live editor or GPU — the test binary compiles the MCP diff core but
 // deliberately NOT McpTools.cpp (the editor-backed handler). The live tool is

@@ -2,7 +2,7 @@
 
 // =============================================================================
 // VulkanOneShot — record-submit-wait helper for load-time GPU work
-// (issue #691 Phase 7).
+// (issue #691).
 //
 // Asset uploads (texture pixels, mesh vertex/index data) happen at LOAD time,
 // outside any frame's command buffer. On GL the driver hides the transfer; on

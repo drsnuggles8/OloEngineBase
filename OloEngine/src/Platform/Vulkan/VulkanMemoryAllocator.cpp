@@ -2,7 +2,7 @@
 
 #if OLO_WITH_VULKAN
 
-// The single VMA_IMPLEMENTATION TU for the engine (#691 Phase 4). The
+// The single VMA_IMPLEMENTATION TU for the engine (#691). The
 // function-pointer config must match VulkanDevice.h exactly: every Vulkan
 // entry point reaches VMA through volk's loaded pointers
 // (vmaImportVulkanFunctionsFromVolk at allocator creation) — nothing links

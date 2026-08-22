@@ -1,7 +1,7 @@
 // OLO_TEST_LAYER: unit
 // =============================================================================
 // FootIKTest — CPU contract tests for the ground-adaptation foot/hand IK
-// post-pass (issue #631 part 3). The pass consumes an injected ground cache
+// post-pass (issue #631). The pass consumes an injected ground cache
 // (in production filled Scene-side from Jolt raycasts), which makes every
 // geometric contract testable without physics:
 //   * ground conformance (foot pulled to ground + FootHeight, clip lift kept),

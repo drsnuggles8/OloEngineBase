@@ -10,7 +10,7 @@ namespace OloEngine
 {
     // @brief Standalone motion-blur post-process pass.
     //
-    // Phase F slice 21 — standalone motion-blur stage in the dynamic chain:
+    // Standalone motion-blur stage in the dynamic chain:
     //   AOApply/Bloom/DOF -> MotionBlur -> TAA -> Precipitation -> Fog -> ...
     //
     // Inputs:

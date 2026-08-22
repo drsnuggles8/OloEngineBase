@@ -87,7 +87,7 @@ namespace OloEngine
     // backends across its lifetime (the test suite does, per test) — handing
     // a GL-built VAO to the Vulkan draw path (or vice versa) is a silent
     // wrong-type cast, so a backend mismatch drops the cache and rebuilds
-    // (#691 Phase 7).
+    // (#691).
     static RendererAPI::API s_FullscreenTriangleAPI = RendererAPI::API::None;
 
     Ref<VertexArray> MeshPrimitives::GetFullscreenTriangle()
