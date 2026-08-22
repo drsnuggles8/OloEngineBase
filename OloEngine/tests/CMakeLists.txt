@@ -94,6 +94,7 @@ add_executable(OloEngine-Tests
 		Async/MutexLockRateTest.cpp
 		Async/SemaphoreTest.cpp
 		Async/ManualResetEventTest.cpp
+		Async/LockDebugTest.cpp
 		Async/SharedMutexTest.cpp
 		Async/SharedRecursiveMutexTest.cpp
 		Async/ExternalMutexTest.cpp
@@ -202,6 +203,7 @@ add_executable(OloEngine-Tests
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
+		Rendering/PODRenderStateChannelMaskTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
 		Rendering/RenderGraphTest.cpp
 		# Phase 2 ratchet for the Vulkan-RHI epic (#691, ADR 0011): counts raw
@@ -958,6 +960,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/HumanoidLocomotionWalkTest.cpp
 		Functional/AnimationPhysics/MorphTargetGraphAnimationTest.cpp
 		Functional/Navigation/NavAgentReachesTargetTest.cpp
+		Functional/Asset/AssetHotReloadDoesNotDeadlockTest.cpp
 		Functional/Asset/AssetManagerImportsStagedAssetTest.cpp
 		Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp
 		Functional/Gameplay/AbilityCooldownTicksDownViaSceneTickTest.cpp

@@ -76,6 +76,24 @@ by the Newport Loft HDR environment + a soft fill directional. Camera at
 
 ---
 
+### [DecalModeMatrixTest.olo](DecalModeMatrixTest.olo)
+
+**Purpose**: The decal **mode matrix** acceptance scene (issue #853) — one decal per `DecalMode` on a single uniform floor, so each mode's G-Buffer *channel* routing is observable against a known neighbour. Before this scene existed, no sandbox scene put a decal on the deferred path at all, which is a large part of why #853 stayed invisible.
+**Contents**: One flat grey plane (albedo 0.55, metallic 0, roughness 0.85), a single directional light, no skybox/IBL (an environment reflection would mask a roughness/metallic leak), and four opaque decals in a row: Albedo at x=−6, Normal at x=−2, RMA at x=+2, Emissive at x=+6.
+**Pass** — open with renderer set to **Deferred** (`olo_renderer_settings_set`, or the renderer panel; on Forward/Forward+ every mode collapses to the transparent albedo overlay and nothing here is exercised):
+- **Albedo** patch: a red/white checker tints the floor; the patch stays **matte**, exactly as rough and as non-metallic as the floor around it. RT0.a (metallic) is the mode's masked-out channel.
+- **Normal** patch: surface relief appears (the lighting response gains bumps); the patch's **gloss is unchanged** from the surrounding floor. RT1.zw (roughness, AO) are masked out.
+- **RMA** patch: the floor's **albedo is unchanged** — same grey, same checker-free surface — while its roughness/metallic response changes. RT0.rgb is masked out.
+- **Emissive** patch: a cyan checker glows additively over the lit floor and the surface stays lit (not flagged unlit). RT2.a is masked out.
+**Fail** — each of these is the corresponding channel mask being lost before the draw (#853's exact signature; probe the G-Buffer with `olo_render_capture_target` / `olo_render_probe_pixel` rather than trusting the composite):
+- RMA patch turns **black** — `Decal_GBuffer_RMA.glsl` writes `gAlbedo = vec4(0, 0, 0, metallic)`, so an unmasked RT0.rgb paints the floor black. This is the loudest arm; read it first.
+- Albedo patch turns **mirror-metallic** on a matte floor — the decal's alpha reached RT0.a.
+- Normal patch turns **glossy** — the Normal shader's `vec4(oct, 0.0, 1.0)` reached RT1.zw (roughness 0, AO 1).
+- (The Emissive arm's mask leak is *not* observable here and is not evidence: RT2 blends One/One, so `dst.a + 0` leaves the unlit flag alone either way.)
+
+---
+
+
 ### [LightmapTest.olo](LightmapTest.olo)
 
 **Purpose**: The baked-GI acceptance scene (issue #439) — static geometry lit by a baked lightmap, a dynamic object lit by baked probes, and the staleness gate demonstrable in one room.
