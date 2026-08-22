@@ -199,6 +199,16 @@ namespace OloEngine::Tests
             cullParams.HZBUVFactor = glm::vec2(1.0f);
             cullParams.HZBMipCount = static_cast<i32>(kHZBMips);
             cullParams.OcclusionDepthBias = 0.0f;
+            // Issue #726: the shaders read u_CullViewProjection UNCONDITIONALLY
+            // for their frustum planes -- the camera UBO's VP describes the
+            // observer once the culling camera is frozen. A hand-filled block
+            // that leaves it zero hands extractPlane a zero vector to normalise,
+            // so every plane is NaN and every `signedDistance < -radius` test is
+            // false: the frustum stage goes SILENTLY INERT. These tests pass
+            // either way today, because none of them places an instance outside
+            // the frustum -- which is exactly what makes it a trap for whoever
+            // adds the first one.
+            cullParams.CullViewProjection = vp;
             // Issue #721: the cull now bound-checks its atomic append against
             // this. It is zero in a default-constructed block, and a zero
             // capacity refuses EVERY append — so a hand-filled InstanceCullUBO
@@ -406,8 +416,10 @@ namespace OloEngine::Tests
             cullParams.HZBUVFactor = glm::vec2(1.0f);
             cullParams.HZBMipCount = static_cast<i32>(kHZBMips);
             cullParams.OcclusionDepthBias = 0.0f;
-            // See the twin comment in the single-phase harness above: zero
-            // refuses every append, in the reject list as well as the output.
+            // Both for the same reason as the single-phase harness above: a
+            // zero CullViewProjection makes the frustum stage inert (#726), and
+            // a zero OutputCapacity refuses every append (#721).
+            cullParams.CullViewProjection = vp;
             cullParams.OutputCapacity = count;
         };
         const auto uploadParams = [&]()
