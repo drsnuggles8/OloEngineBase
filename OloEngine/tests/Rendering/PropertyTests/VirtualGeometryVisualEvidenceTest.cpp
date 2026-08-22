@@ -1039,6 +1039,7 @@ namespace OloEngine::Tests
         // would still converge here, just far slower, and this catches that.
         u32 minRed = coarseBaseline;
         int firstUploadFrame = -1;
+        int saturatedFrames = 0;
         u64 const pinnedPages = registry.GetResidencyStats().PinnedPages;
         for (int frameIndex = 0; frameIndex < 20; ++frameIndex)
         {
@@ -1049,13 +1050,23 @@ namespace OloEngine::Tests
             const VirtualResidencyStats& stats = registry.GetResidencyStats();
             EXPECT_LE(stats.ResidentPages, stats.BudgetSlots)
                 << "streaming exceeded the fixed page budget at frame " << frameIndex;
-            EXPECT_LE(stats.RequestReadbackSlotsInFlight, 3u)
-                << "more requests in flight than the readback ring has slots at frame " << frameIndex;
+            // RequestReadbackSlotsInFlight is structurally <= the ring's 3
+            // slots (PollResidencyReadback counts it inside a 3-iteration
+            // loop), so a bare upper bound on it can never fail — including on
+            // a wedged ring. What's worth catching is PERMANENT saturation
+            // (nothing ever retires), tracked below and asserted after the loop.
+            if (stats.RequestReadbackSlotsInFlight >= 3u)
+            {
+                ++saturatedFrames;
+            }
             if (firstUploadFrame < 0 && stats.PageUploads > pinnedPages)
             {
                 firstUploadFrame = frameIndex;
             }
         }
+        EXPECT_LT(saturatedFrames, 20)
+            << "the readback ring reported every slot in flight on all 20 frames — no slot ever retired, "
+               "so the ring is wedged and residency requests are never applied";
 
         {
             const VirtualResidencyStats& stats = registry.GetResidencyStats();

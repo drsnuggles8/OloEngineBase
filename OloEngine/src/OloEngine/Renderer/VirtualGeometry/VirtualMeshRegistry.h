@@ -596,7 +596,11 @@ namespace OloEngine
         // request/touch bits the GPU wrote for LATER frames than the snapshot
         // being applied.
         void PollResidencyReadback();
-        void ApplyResidencySnapshot(const std::vector<u32>& gpuStates);
+        // uploadBudget is SHARED across every snapshot one PollResidencyReadback
+        // call applies (several ring slots can signal in the same frame) and is
+        // decremented in place, so the per-frame page-load cap holds across the
+        // whole poll, not per snapshot.
+        void ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& uploadBudget);
 
         std::unordered_map<AssetHandle, MeshParts> m_EntryLookup;
         std::vector<MeshEntry> m_Entries; // stable order => deterministic pool layout
@@ -645,7 +649,7 @@ namespace OloEngine
         // Residency-request readback ring (issue #719) — see ProcessResidency.
         std::array<ResidencyReadbackSlot, kResidencyReadbackSlots> m_ResidencyReadbackSlots{};
         u32 m_NextResidencyReadbackSlot = 0;
-        u32 m_ResidencyReadbackBytes = 0; // group count this ring is sized for
+        u32 m_ResidencyReadbackBytes = 0; // byte size of the group-states copy this ring is sized for
         u32 m_ResidencyReadbackSlotsInFlight = 0;
         // Groups whose resident bit changed since the last full-buffer publish
         // (RebuildPools). Drained to targeted per-group writes at the end of

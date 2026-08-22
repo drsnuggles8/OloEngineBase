@@ -594,8 +594,19 @@ namespace OloEngine
             RenderCommand::CopyBufferSubData(m_GroupStatesBuffer->GetRHIHandle(), slot.m_Buffer, 0, 0,
                                              m_ResidencyReadbackBytes);
             slot.m_Fence = RenderCommand::CreateFence();
-            slot.m_Pending = true;
-            m_NextResidencyReadbackSlot = (m_NextResidencyReadbackSlot + 1u) % kResidencyReadbackSlots;
+            if (slot.m_Fence == 0)
+            {
+                // A pending slot with a zero fence would never poll signaled,
+                // permanently wedging this ring slot (mirrors
+                // GPUReadbackStats::EndFrame's handling of the same case).
+                // Leave the slot free and drop this capture rather than that.
+                OLO_CORE_WARN("VirtualMeshRegistry: residency fence creation failed; dropping this capture");
+            }
+            else
+            {
+                slot.m_Pending = true;
+                m_NextResidencyReadbackSlot = (m_NextResidencyReadbackSlot + 1u) % kResidencyReadbackSlots;
+            }
         }
         // A full ring means every slot is still executing — skip the capture
         // and keep the newest retired snapshot instead of blocking on the
@@ -620,6 +631,13 @@ namespace OloEngine
     void VirtualMeshRegistry::PollResidencyReadback()
     {
         u32 inFlight = 0;
+        // One upload budget for the WHOLE call, not one per snapshot: several
+        // slots can signal in the same frame (e.g. the GPU catching up after a
+        // hitch), and a per-snapshot budget would let one call load up to
+        // kResidencyReadbackSlots * m_MaxPageUploadsPerFrame pages — the exact
+        // per-frame spike this cap exists to prevent, since each load stages
+        // through the finite CopyThroughRing upload ring.
+        u32 uploadBudget = m_MaxPageUploadsPerFrame;
         // OLDEST FIRST, not array order. m_NextResidencyReadbackSlot is the
         // slot the NEXT capture will use, so it is also the oldest one still
         // in flight; walking from there wraps the ring in ISSUE order. Array
@@ -650,12 +668,12 @@ namespace OloEngine
             slot.m_Fence = 0;
             slot.m_Pending = false;
 
-            ApplyResidencySnapshot(gpuStates);
+            ApplyResidencySnapshot(gpuStates, uploadBudget);
         }
         m_ResidencyReadbackSlotsInFlight = inFlight;
     }
 
-    void VirtualMeshRegistry::ApplyResidencySnapshot(const std::vector<u32>& gpuStates)
+    void VirtualMeshRegistry::ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& uploadBudget)
     {
         // LRU touches first so this snapshot's loads cannot evict just-used pages.
         for (u32 g = 0; g < gpuStates.size(); ++g)
@@ -670,8 +688,7 @@ namespace OloEngine
             }
         }
 
-        u32 uploadsThisFrame = 0;
-        for (u32 g = 0; g < gpuStates.size() && uploadsThisFrame < m_MaxPageUploadsPerFrame; ++g)
+        for (u32 g = 0; g < gpuStates.size() && uploadBudget > 0; ++g)
         {
             if ((gpuStates[g] & kStateRequested) == 0u)
             {
@@ -684,7 +701,7 @@ namespace OloEngine
             }
             if (LoadPage(pageIndex))
             {
-                ++uploadsThisFrame;
+                --uploadBudget;
             }
         }
 
