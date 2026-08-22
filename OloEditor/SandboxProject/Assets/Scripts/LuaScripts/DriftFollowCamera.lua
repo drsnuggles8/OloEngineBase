@@ -2,23 +2,22 @@
 --
 -- Attach to the "Camera Target" ROOT entity (transform + tag only). The camera
 -- entity carries CameraComponent + CameraRigComponent with Target pointing at
--- that proxy, NOT at the boat. Two reasons the proxy exists, and neither is
--- cosmetic:
+-- that proxy, NOT at the boat.
 --
--- 1. CONVENTION MISMATCH. CameraRigSystem derives a non-player target's facing
---    as rotation * (0,0,-1) (PlayerRigSystem.cpp, YawDegreesFromRotation) —
---    the camera convention. Every force-model vehicle in this engine is Jolt's:
---    BoatSystem reads hull forward as rotation * (0,0,+1). Pointed straight at
---    the boat, the rig therefore parks itself AHEAD of the hull looking back at
---    it — a perfectly steady shot of the boat sailing into the lens. The proxy
---    carries the boat's yaw turned through 180 degrees, which is the whole fix.
---    Filed as an engine gap rather than patched here (#879 is content work).
+-- The proxy exists for YAW SMOOTHING. CameraRigComponent smooths POSITION
+-- (m_PositionSmoothTime) but writes rotation outright, so a boat that snaps 40
+-- degrees in a hard turn whips the camera with it. Smoothing the proxy's yaw is
+-- the only place a scene can damp that without an engine change, and it is also
+-- where the look-astern hold lives.
 --
--- 2. YAW SMOOTHING. CameraRigComponent smooths POSITION (m_PositionSmoothTime)
---    but writes rotation outright, so a boat that snaps 40 degrees in a hard
---    turn whips the camera with it. Smoothing the proxy's yaw is the only place
---    a scene can damp that without an engine change, and it is also where the
---    look-astern hold lives.
+-- It carries the boat's heading as-is. It used to carry that heading turned
+-- through 180 degrees, because CameraRigSystem read every non-player target's
+-- facing as rotation * (0,0,-1) while every force-model vehicle is Jolt's
+-- rotation * (0,0,+1) — so aimed at the boat the rig parked itself AHEAD of the
+-- hull looking back at it. Issue #897 fixed that: the rig now asks the target's
+-- own components which convention they use, and the scene tells it about a
+-- proxy like this one through CameraRigComponent's TargetForward field, which
+-- Drift.olo sets to 2 (+Z forward).
 --
 -- The rig still does the real work — boom, collision pull-in, position
 -- smoothing — and it does it at the right point in the tick (the CameraRig
@@ -131,14 +130,14 @@ function FollowCamera.OnUpdate(id, dt)
     prevPos = boatPos
 
     -- ── Yaw ─────────────────────────────────────────────────────────────────
-    -- +pi turns the boat's Jolt-forward heading into the rig's camera-forward
-    -- convention; the look-astern hold adds another pi on top of it.
+    -- The proxy is declared +Z-forward in Drift.olo, so the boat's heading goes
+    -- through unturned; the look-astern hold is the only pi in here.
     asternMix = asternMix + ((Input.IsActionPressed("Boat.LookAstern") and 1.0 or 0.0) - asternMix)
                             * blend(kLookAsternTau, dt)
     -- A boat pointing straight up or down has no heading; hold the last one
     -- rather than snapping the camera to an arbitrary direction.
-    if boatHeading == nil then boatHeading = (yaw or math.pi) - math.pi end
-    local desired = boatHeading + math.pi + asternMix * math.pi
+    if boatHeading == nil then boatHeading = yaw or 0.0 end
+    local desired = boatHeading + asternMix * math.pi
 
     if yaw == nil then
         yaw = desired
