@@ -25,16 +25,54 @@ namespace OloEngine::BuildPipelinePlatform
     namespace
     {
         // Desktop Entry Specification quoting for a value inside a quoted Exec
-        // field: a backslash or double quote must be backslash-escaped, or the
-        // entry is malformed and desktop environments may refuse to parse it.
+        // field: a backslash, double quote, backtick or dollar sign must be
+        // backslash-escaped, or the entry is malformed and desktop environments
+        // may refuse to parse it.
         // https://specifications.freedesktop.org/desktop-entry-spec/latest/exec-variables.html
-        std::string EscapeForQuotedDesktopValue(const std::string& value)
+        std::string EscapeForQuotedExecValue(const std::string& value)
         {
             std::string escaped;
             escaped.reserve(value.size());
             for (char c : value)
             {
                 if (c == '\\' || c == '"' || c == '`' || c == '$')
+                {
+                    escaped += '\\';
+                }
+                escaped += c;
+            }
+            return escaped;
+        }
+
+        // The Exec key also reserves `%` for field codes (%f, %u, ...) — a
+        // literal percent must be doubled to `%%` or a GameName containing one
+        // (e.g. "Game%Game", which passes GameBuildPipeline's name validation)
+        // would be misinterpreted as an undefined field code. This is a
+        // separate, later pass: general escaping happens first, then this.
+        std::string EscapePercentForExecField(const std::string& value)
+        {
+            std::string escaped;
+            escaped.reserve(value.size());
+            for (char c : value)
+            {
+                if (c == '%')
+                {
+                    escaped += '%';
+                }
+                escaped += c;
+            }
+            return escaped;
+        }
+
+        // Name is a plain localestring — no `%`/backtick/`$` field-code or
+        // shell-quoting concerns, just the general backslash/quote escaping.
+        std::string EscapeForDesktopName(const std::string& value)
+        {
+            std::string escaped;
+            escaped.reserve(value.size());
+            for (char c : value)
+            {
+                if (c == '\\')
                 {
                     escaped += '\\';
                 }
@@ -49,6 +87,11 @@ namespace OloEngine::BuildPipelinePlatform
                            const std::string& gameName,
                            std::string& outError)
     {
+        // Known limitation: Exec= embeds exePath's build-time absolute path,
+        // so relocating the finished game folder to a different path (or a
+        // different machine) breaks the launcher until it's regenerated —
+        // a proper fix is an install-time step, out of scope for #891, whose
+        // ask is a working .desktop entry for a build run in place.
         if (!std::filesystem::exists(exePath))
         {
             outError = "Executable not found: " + exePath.string();
@@ -70,8 +113,8 @@ namespace OloEngine::BuildPipelinePlatform
 
         out << "[Desktop Entry]\n";
         out << "Type=Application\n";
-        out << "Name=" << EscapeForQuotedDesktopValue(gameName) << "\n";
-        out << "Exec=\"" << EscapeForQuotedDesktopValue(exePath.string()) << "\"\n";
+        out << "Name=" << EscapeForDesktopName(gameName) << "\n";
+        out << "Exec=\"" << EscapePercentForExecField(EscapeForQuotedExecValue(exePath.string())) << "\"\n";
         if (!iconPath.empty())
         {
             // freedesktop Icon= expects a PNG/SVG/XPM file or icon-theme name,

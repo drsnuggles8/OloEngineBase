@@ -385,7 +385,9 @@ namespace OloEngine
 
         // Linux does not use a file extension to mark a file runnable —
         // copy_file does not reliably preserve the executable bit across
-        // filesystems, so set it explicitly.
+        // filesystems, so set it explicitly. Unlike the DLL/Mono/icon steps,
+        // this one is fatal: an unrunnable binary is exactly the "folder that
+        // looks fine and does not run" acceptance criterion #4 exists to catch.
         if (settings.TargetPlatform == BuildTargetPlatform::Linux)
         {
             std::filesystem::permissions(destExe,
@@ -393,8 +395,18 @@ namespace OloEngine
                                          std::filesystem::perm_options::add, ec);
             if (ec)
             {
-                OLO_CORE_WARN("[GameBuild] Failed to mark {} executable: {}", destExe.string(), ec.message());
-                ec.clear();
+                errorMessage = "Failed to mark " + destExe.string() + " executable: " + ec.message();
+                return false;
+            }
+
+            constexpr std::filesystem::perms execBits =
+                std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec;
+            const auto status = std::filesystem::status(destExe, ec);
+            if (ec || (status.permissions() & execBits) == std::filesystem::perms::none)
+            {
+                errorMessage = "Copied runtime executable " + destExe.string() + " is not runnable — "
+                                                                                 "no execute permission bit is set after copy.";
+                return false;
             }
         }
 

@@ -191,8 +191,14 @@ namespace OloEngine
         ImGui::SameLine();
         if (ImGui::Button("Browse##Icon"))
         {
+            // Windows embeds a .ico PE resource; Linux's .desktop Icon= field
+            // expects a PNG/SVG/XPM file instead (#891) — offer the filter
+            // that actually matches what the selected target will use.
+            const bool targetIsLinux = static_cast<BuildTargetPlatform>(m_TargetPlatformIndex) == BuildTargetPlatform::Linux;
             std::filesystem::path selected = FileDialogs::OpenFile(
-                "Icon Files (*.ico)\0*.ico\0");
+                targetIsLinux
+                    ? "Icon Files (*.png;*.svg;*.xpm)\0*.png;*.svg;*.xpm\0"
+                    : "Icon Files (*.ico)\0*.ico\0");
             if (!selected.empty())
             {
                 m_IconPath = selected;

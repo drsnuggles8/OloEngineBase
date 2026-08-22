@@ -14,6 +14,7 @@
 // =============================================================================
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Build/GameBuildSettings.h"
@@ -86,6 +87,7 @@ TEST(GameBuildPipelineTest, BuildRejectsATargetThisHostCannotProduce)
     GameBuildSettings settings;
     settings.GameName = "UnsupportedTargetTestGame";
     settings.TargetPlatform = unsupportedPlatform;
+    settings.OutputDirectory = OloEngine::Tests::TempDir("unsupported-target-build");
 
     std::atomic<f32> progress{ 0.0f };
     GameBuildResult result = GameBuildPipeline::Build(settings, progress);
@@ -98,8 +100,12 @@ TEST(GameBuildPipelineTest, BuildRejectsATargetThisHostCannotProduce)
 
     // No output should have been produced for a build that never got past
     // the platform gate — the whole point is to avoid a folder that looks
-    // fine and doesn't run.
+    // fine and doesn't run. Check the filesystem directly, not just the
+    // returned struct: the gate must reject before EVER creating the
+    // <OutputDirectory>/<GameName> staging directory.
     EXPECT_TRUE(result.OutputPath.empty());
+    EXPECT_FALSE(std::filesystem::exists(settings.OutputDirectory / settings.GameName))
+        << "the platform gate must reject before creating any output directory.";
 }
 
 TEST(GameBuildPipelineTest, BuildAcceptsTheHostPlatformPastTheGate)
