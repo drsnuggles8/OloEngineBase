@@ -2355,10 +2355,22 @@ namespace OloEngine::Tests
         auto node = ParseYAMLFile(path, reason);
         ASSERT_TRUE(node) << "InputActions.yaml failed to parse: " << reason;
 
-        // Accept either a top-level `InputActions` (canonical) or
-        // `ActionMap` (engine has historically used both — match either).
-        EXPECT_TRUE((*node)["InputActions"] || (*node)["ActionMap"])
-            << "InputActions.yaml missing top-level 'InputActions' (or 'ActionMap') key.";
+        // The two roots InputActionSerializer actually accepts: the canonical
+        // `InputActionContexts` sequence it writes, and the legacy
+        // `InputActionMap` single-map root it still reads (see
+        // InputActionSerializer.cpp's "Missing 'InputActionContexts' sequence
+        // or legacy 'InputActionMap' root node" error).
+        //
+        // This assertion previously named `InputActions` / `ActionMap`, which
+        // the serializer has never read. It went unnoticed because the check
+        // above returns early when the file is absent, so the test passed
+        // VACUOUSLY for as long as the sandbox shipped no InputActions.yaml —
+        // and started failing the moment #879 added one. A guard whose subject
+        // is optional needs its positive branch exercised at least once, or it
+        // is only ever asserting that the file is missing.
+        EXPECT_TRUE((*node)["InputActionContexts"] || (*node)["InputActionMap"])
+            << "InputActions.yaml missing top-level 'InputActionContexts' (or legacy "
+               "'InputActionMap') key — neither root InputActionSerializer can load.";
     }
 
     // -------------------------------------------------------------------------
