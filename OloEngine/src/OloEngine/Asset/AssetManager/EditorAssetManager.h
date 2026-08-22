@@ -294,6 +294,15 @@ namespace OloEngine
 
         /**
          * @brief Serialize the asset registry to disk
+         *
+         * Takes no EditorAssetManager-level lock — AssetRegistry::Serialize does its
+         * own shared locking, which is all a single self-synchronised call needs. It
+         * is therefore safe to call from anywhere, including from a caller that
+         * already holds m_RegistryMutex. That is deliberate: m_RegistryMutex is a
+         * non-recursive FSharedMutex, so while this function did lock, a caller that
+         * reached it holding the lock parked forever with no assert and no log line
+         * (issues #439 and #863, same line, two different triggers).
+         *
          * @return True if serialization was successful
          */
         bool SerializeAssetRegistry();

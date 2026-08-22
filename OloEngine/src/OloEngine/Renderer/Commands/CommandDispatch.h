@@ -40,6 +40,19 @@ namespace OloEngine
         // State tracking for current frame rendering
         static void ResetState();
         static void InvalidateRenderStateCache();
+
+        // Apply a command's PODRenderState (skipped when the index matches the
+        // last one applied -- InvalidateRenderStateCache() is how a pass that
+        // touched state behind the queue's back forces a re-apply).
+        //
+        // Public because it is the half of every dispatch function that a
+        // per-draw render-state contract has to be tested through: issue #853's
+        // defect lives HERE, in the global SetColorMask this issues, and the
+        // decal tenant that was supposed to catch it substituted its own
+        // dispatch function that never called it. A per-draw contract verified
+        // through a dispatch function the production path does not use is
+        // verifying the setup, not the draw.
+        static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api);
         static void InvalidateUBOCache(u32 bindingPoint);
 
         // Clear any cached texture-slot binding that points at this OpenGL texture ID.

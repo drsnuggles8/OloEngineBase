@@ -73,7 +73,22 @@ namespace OloEngine
         spec.GenerateMips = false;
 
         m_Texture = Texture2D::Create(spec);
-        // Note: Data upload may require additional API not available here
+        if (m_Texture)
+        {
+            // The whole point of this asset is to be LOUD: a failed load should
+            // shout magenta, not fail open. The pixels above used to be built
+            // and then dropped on the floor ("Note: Data upload may require
+            // additional API not available here" — stale; Texture2D::SetData
+            // has been on the interface for as long as this class has existed),
+            // so every placeholder in the engine was an UNINITIALISED texture.
+            // In practice that samples as zeros, i.e. transparent black — which
+            // does not read as "this asset is missing", it reads as "there is
+            // nothing here". A decal whose texture path did not resolve had its
+            // alpha zeroed and discarded every fragment, so the decal simply
+            // vanished with nothing on screen to connect it to the three
+            // "Failed to load asset" lines in the log.
+            m_Texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+        }
 
         OLO_CORE_TRACE("PlaceholderTexture: Created {}x{} checkerboard texture", size, size);
     }

@@ -63,6 +63,7 @@ you are in.
 
 **Testing & verification**
 
+- [substituted-seams-compound.md](docs/agent-rules/substituted-seams-compound.md) — every substitution a tenant makes is a seam it stops testing, and they compound: one decal tenant's three substitutions hid four separate live bugs.
 - [testing-architecture.md](docs/agent-rules/testing-architecture.md) — which of the renderer's 11 layers or the Functional axis a new test belongs to, and the registration contract.
 - [docs/testing.md](docs/testing.md) — *why* we test what we test: value heuristic, named anti-patterns, retirement criteria.
 - [reference-path-tracer.md](docs/agent-rules/reference-path-tracer.md) — the ground-truth oracle: how to ask "is it *correct*?" when a golden can only answer "did it change?".
@@ -148,6 +149,7 @@ you are in.
 **Concurrency & memory**
 
 - [intrusive-refcount-weakref-races.md](docs/agent-rules/intrusive-refcount-weakref-races.md) — a decrement-then-reread of a refcount is a TOCTOU double-free even when both operations are atomic.
+- [non-recursive-lock-self-locking-helper.md](docs/agent-rules/non-recursive-lock-self-locking-helper.md) — a helper that locks internally, called under the same non-recursive lock, parks the thread silently; fix the callee, and don't wrap a self-synchronised member in a redundant outer lock.
 - [spinlock-payload-cache-line-separation.md](docs/agent-rules/spinlock-payload-cache-line-separation.md) — a lock sharing a cache line with its payload costs the owner an invalidate round-trip on every acquire.
 - [per-frame-scratch-reuse.md](docs/agent-rules/per-frame-scratch-reuse.md) — three things to check before promoting a per-tick scratch vector to persistent state.
 

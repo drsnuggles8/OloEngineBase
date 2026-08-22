@@ -134,7 +134,30 @@ namespace OloEngine
             // invalidation.
             const AssetHandle imported = assetManager->ImportAsset(texPath);
             if (imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
-                return AssetManager::GetAsset<Texture2D>(imported);
+            {
+                Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(imported);
+                if (!texture)
+                {
+                    // The import registered a handle but nothing usable came
+                    // back. Say so HERE, naming the path: the component-level
+                    // consequence is silent and does not look like an asset
+                    // problem — a decal whose texture is missing draws nothing
+                    // at all, several thousand log lines away from the
+                    // "Failed to load asset" that caused it. Note the path is
+                    // resolved against the PROJECT asset root, so a path
+                    // written relative to the working directory (the spelling
+                    // used for shaders and environment maps) never resolves.
+                    OLO_CORE_WARN("SceneSerializer: texture '{}' imported but could not be loaded — the component "
+                                  "referencing it will fall back to its default or draw nothing. Scene texture paths "
+                                  "resolve against the project asset root.",
+                                  texPath);
+                }
+                return texture;
+            }
+
+            OLO_CORE_WARN("SceneSerializer: texture path '{}' did not resolve to a Texture2D asset. Scene texture "
+                          "paths resolve against the project asset root.",
+                          texPath);
         }
 
         // Runtime path (no EditorAssetManager): legacy raw load. The runtime

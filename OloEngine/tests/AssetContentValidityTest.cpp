@@ -2068,8 +2068,9 @@ namespace OloEngine::Tests
     // `<project>/Config/InputActions.yaml`. The engine loads it on
     // project open if present; missing is fine (input actions are an
     // optional engine feature). If present, malformed YAML or a missing
-    // top-level `InputActions` key crashes the editor's input subsystem
-    // on startup.
+    // top-level `InputActionContexts` (or legacy `InputActionMap`) key
+    // crashes the editor's input subsystem on startup — see
+    // `InputActionSerializer::Deserialize`.
     // -------------------------------------------------------------------------
     // -------------------------------------------------------------------------
     // Path-based asset references in scenes resolve on disk
@@ -2355,10 +2356,11 @@ namespace OloEngine::Tests
         auto node = ParseYAMLFile(path, reason);
         ASSERT_TRUE(node) << "InputActions.yaml failed to parse: " << reason;
 
-        // Accept either a top-level `InputActions` (canonical) or
-        // `ActionMap` (engine has historically used both — match either).
-        EXPECT_TRUE((*node)["InputActions"] || (*node)["ActionMap"])
-            << "InputActions.yaml missing top-level 'InputActions' (or 'ActionMap') key.";
+        // Accept either the canonical `InputActionContexts` sequence or the
+        // legacy `InputActionMap` root — the two shapes `InputActionSerializer::
+        // Deserialize` actually understands.
+        EXPECT_TRUE((*node)["InputActionContexts"] || (*node)["InputActionMap"])
+            << "InputActions.yaml missing top-level 'InputActionContexts' (or legacy 'InputActionMap') key.";
     }
 
     // -------------------------------------------------------------------------

@@ -54,19 +54,74 @@ TEST_F(SharedMutexTest, SingleThreadShared)
 
 TEST_F(SharedMutexTest, MultipleReaders)
 {
+    // This used to take three shared locks on ONE thread. That is not "multiple
+    // readers" — it is recursive locking, which FSharedMutex explicitly does not
+    // support ("is not fair and does not support recursive locking"), and it is a
+    // latent deadlock: LockShared blocks once a writer is queued, because waiting
+    // writers get priority over new readers. It passed only because no writer ever
+    // contended in this test. LockDebug (added with issue #863) flags it, which is
+    // how it was found.
+    //
+    // Multiple readers means multiple THREADS holding the shared lock at the same
+    // time, so that is what this now asserts: every reader must be able to acquire
+    // while all the others are still holding.
+    constexpr u32 ReaderCount = 3;
     FSharedMutex Mutex;
+    std::atomic<u32> Acquired{ 0 };
+    std::atomic<bool> Release{ false };
+    std::atomic<u32> Failures{ 0 };
 
-    // Multiple readers should be allowed
-    Mutex.LockShared();
-    Mutex.LockShared();
-    Mutex.LockShared();
+    std::vector<std::thread> Readers;
+    Readers.reserve(ReaderCount);
+    for (u32 i = 0; i < ReaderCount; ++i)
+    {
+        Readers.emplace_back([&]
+                             {
+            Mutex.LockShared();
+            Acquired.fetch_add(1, std::memory_order_acq_rel);
 
-    EXPECT_FALSE(Mutex.IsLocked());
+            // Hold until every reader is in. If shared locks were exclusive of one
+            // another this never completes, which the bounded wait below reports as
+            // a failure rather than hanging the suite.
+            while (!Release.load(std::memory_order_acquire))
+            {
+                std::this_thread::yield();
+            }
+
+            if (Mutex.IsLocked())
+                Failures.fetch_add(1, std::memory_order_relaxed);
+
+            Mutex.UnlockShared(); });
+    }
+
+    // Bounded: a genuine regression here is "a reader never acquires", which would
+    // otherwise hang forever. One-sided and generous — this is a liveness bound, not
+    // a timing measurement.
+    const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (Acquired.load(std::memory_order_acquire) < ReaderCount &&
+           std::chrono::steady_clock::now() < Deadline)
+    {
+        std::this_thread::yield();
+    }
+
+    const u32 AcquiredCount = Acquired.load(std::memory_order_acquire);
+    EXPECT_EQ(AcquiredCount, ReaderCount)
+        << "only " << AcquiredCount << " of " << ReaderCount
+        << " readers acquired the shared lock concurrently — shared locking is behaving "
+           "exclusively, which defeats the entire point of a reader-writer lock.";
     EXPECT_TRUE(Mutex.IsLockedShared());
+    EXPECT_FALSE(Mutex.IsLocked());
 
-    Mutex.UnlockShared();
-    Mutex.UnlockShared();
-    Mutex.UnlockShared();
+    Release.store(true, std::memory_order_release);
+    for (std::thread& Reader : Readers)
+    {
+        Reader.join();
+    }
+
+    EXPECT_EQ(Failures.load(), 0u)
+        << "a reader observed the mutex as exclusively locked while it held a shared lock.";
+    EXPECT_FALSE(Mutex.IsLockedShared())
+        << "the shared count did not return to zero after every reader released.";
 }
 
 TEST_F(SharedMutexTest, TryLockWhenUnlocked)

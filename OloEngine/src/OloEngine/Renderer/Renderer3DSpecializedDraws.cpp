@@ -140,22 +140,11 @@ namespace OloEngine
         cmd->transparent = transparent ? u8{ 1 } : u8{ 0 };
         cmd->entityID = entityID;
 
-        // Decal render state: blend on for albedo (soft edges), blend off for
-        // normal/RMA (hard discard threshold — see shader comments). Depth
-        // read-only, front-face culling in all cases.
-        {
-            PODRenderState decalState = CreateDefaultPODRenderState();
-            const bool blendForThisMode = (cmd->mode == DrawDecalCommand::DecalMode::Albedo);
-            decalState.blendEnabled = blendForThisMode;
-            decalState.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
-            decalState.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
-            decalState.depthTestEnabled = true;
-            decalState.depthFunction = RHI::CompareOp::LessOrEqual;
-            decalState.depthWriteMask = false;
-            decalState.cullingEnabled = true;
-            decalState.cullFace = RHI::CullMode::Front;
-            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(decalState);
-        }
+        // Decal render state, including the deferred mode matrix's per-attachment
+        // channel mask. Shared with the pass tenant on purpose — see
+        // CreateDecalPODRenderState (issue #853).
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(
+            CreateDecalPODRenderState(cmd->mode, deferredPath));
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));

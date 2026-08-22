@@ -44,6 +44,20 @@ To surface a file live without the user pressing F5, call
 - **Hot-reload only assets that are currently loaded** (`IsAssetLoaded`). Otherwise a large new
   file spams partial-content reloads as it streams in. The decision lives in the pure,
   unit-tested `DecideFileWatchAction` (`Asset/AssetFileWatchPolicy.h`).
+- **"Currently loaded" is decided by whether anything actually *resolved* the handle this
+  session, which a renderer setting can gate — so `Reload` can look permanently dead when it is
+  merely idle.** `m_LoadedAssets` is populated by `EditorAssetManager::GetAsset`, i.e. by a
+  consumer asking for the asset. A `VirtualMeshComponent`'s mesh source is resolved *only* by the
+  submission loop in `Scene.cpp`, which runs **only on the Deferred path** — so with the editor on
+  Forward, opening `VirtualGeometryTest.olo` loads no mesh at all, every filewatch event on those
+  files reports `loaded=false`, and every decision is `Ignore`. Nothing is wrong; nothing asked.
+  This cost an hour during #863 and produced a nearly-filed phantom bug ("hot-reload is unreachable
+  for scene assets"). **Before concluding a path is unreachable, check `olo_virtual_geometry_stats`
+  — its `renderingPath` field and its own `note` say this in plain words — and confirm a
+  `Loaded asset: <path>` trace exists for the asset you are about to touch.** An absence in the log
+  is not evidence of a broken code path; it is equally evidence of an idle one. Related:
+  [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) §6, on why
+  this seam had no headless coverage at all.
 - The registry file is `<project>/AssetRegistry.oar`; `.oar` maps to no `AssetType`, so persisting
   it cannot re-enter the handler. It is **git-tracked** — revert it after any live drop-file test.
 
