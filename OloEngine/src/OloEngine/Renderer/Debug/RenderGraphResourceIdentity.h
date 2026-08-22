@@ -62,4 +62,37 @@ namespace OloEngine::Debug
     // The identity leg on its own, for a caller that already resolved one by
     // name (the graph's by-name lookups live on Renderer3D, not on RenderGraph).
     [[nodiscard]] u32 NativeTextureIdForDiagnostics(RHI::ResourceHandle identity);
+
+    // -------------------------------------------------------------------------
+    // The same two questions, asked in the shapes a DIAGNOSTIC actually needs
+    // (issue #890, ADR 0011 amendment (89)). The u32 forms above stay: they are
+    // GL-shaped by design and feed the graph's own native-id currency. What
+    // #890 established is that they are a DISPLAY answer, and a tool that
+    // *decides* on one is wrong on Vulkan in a way that looks confidently right.
+    // -------------------------------------------------------------------------
+
+    // The FULL backend-native handle, never truncated. A GL name widens
+    // losslessly; a `VkImage` is a 64-bit pointer-shaped value, and squeezing
+    // one into a u32 turns "no answer" into an answer that passes a validity
+    // check. Print it as hex — it exists to correlate with a RenderDoc / RGP
+    // capture, and nothing else may rest on it: 0 is LEGITIMATE (every Vulkan
+    // texture class returns 0 from GetRendererID(), and a Vulkan framebuffer
+    // attachment has no 32-bit name at all).
+    [[nodiscard]] u64 NativeHandleForDiagnostics(const RenderGraph& graph, RGTextureHandle handle);
+    [[nodiscard]] u64 NativeHandleForDiagnostics(RHI::ResourceHandle identity);
+
+    // "Is there really a GPU object with storage behind this?" — the BACKING
+    // question, and the only form a verdict may be built on. Asks the backend
+    // through the facade rather than inspecting a name, so it answers the same
+    // way on both backends.
+    //
+    // The graph overload asks the IDENTITY first and treats its answer as
+    // final in both directions; it falls back to the native leg only when
+    // there is no identity to interrogate (a resource imported as a bare
+    // native id). Do not reorder those: under OpenGL a transient the planner
+    // never allocated still resolves to a recycled, NON-ZERO GL name, so a
+    // native-first check reports "backed" for a resource with no storage and
+    // never runs the query at all.
+    [[nodiscard]] bool HasLiveTextureStorage(RHI::ResourceHandle identity);
+    [[nodiscard]] bool HasLiveTextureStorage(const RenderGraph& graph, RGTextureHandle handle);
 } // namespace OloEngine::Debug

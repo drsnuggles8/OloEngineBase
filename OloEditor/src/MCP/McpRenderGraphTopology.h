@@ -18,6 +18,8 @@
 // Only OloEngine/Core/Base.h is pulled in (for the integer typedefs); everything
 // else is the standard library + nlohmann::json.
 
+#include "MCP/McpNativeHandle.h"
+
 #include "OloEngine/Core/Base.h"
 
 #include <nlohmann/json.hpp>
@@ -69,18 +71,31 @@ namespace OloEngine::MCP::RenderGraphTopology
         std::vector<std::string> Producers;
         std::vector<std::string> Consumers;
 
-        // Resolved physical GL object ids, as of the last executed frame
-        // (issue #607) — the one-call answer to "do these two passes touch
-        // the same physical texture this frame". 0 = unbacked / not that
-        // kind. Texture VIEWS resolve to their PARENT texture object;
+        // Resolved physical backing, as of the last executed frame (issue
+        // #607), in BOTH currencies (issue #890, ADR 0011 amendments (77) and
+        // (89)). `Native*` is the backend-native object handle — a GL name or
+        // a `VkImage` — carried at full 64-bit width and printed as hex,
+        // because it exists to correlate with a RenderDoc / RGP capture and a
+        // truncated `VkImage` correlates with nothing. `*Identity` is
+        // `RHI::HashKey` of the RHI handle, 0 when there is none, and it is
+        // the currency the "do these two passes touch the same physical
+        // texture" question is answered in: a Vulkan framebuffer attachment
+        // has native handle 0 by design, so grouping on the native value
+        // collapses every one of them into a single false match.
+        //
+        // Texture VIEWS resolve to their PARENT texture object;
         // ViewOfParentLayer carries the layer a layer/face view addresses.
-        // Transient ids are only meaningful within the frame they were
+        // Transient values are only meaningful within the frame they were
         // resolved in (the transient pool memory-aliases across frames).
-        u32 GLTextureId = 0;
-        u32 GLFramebufferId = 0;
-        u32 GLBufferId = 0;
-        u32 GLDepthAttachmentId = 0;
-        std::vector<u32> GLColorAttachmentIds;
+        u64 NativeTextureHandle = 0;
+        u64 NativeFramebufferHandle = 0;
+        u64 NativeBufferHandle = 0;
+        u64 NativeDepthAttachmentHandle = 0;
+        std::vector<u64> NativeColorAttachmentHandles;
+        u64 TextureIdentity = 0;
+        u64 BufferIdentity = 0;
+        u64 DepthAttachmentIdentity = 0;
+        std::vector<u64> ColorAttachmentIdentities;
         u32 ViewOfParentLayer = 0;
     };
 
@@ -98,37 +113,79 @@ namespace OloEngine::MCP::RenderGraphTopology
     // default. Counts are reported alongside each array so a truncating client can
     // tell the full size, and a trailing `note` documents the edge / culled / final
     // semantics for the reader.
-    // The "gl" sub-object of one resource: every resolved id that is set.
-    // Returns an empty (null) Json when the resource has no resolved backing.
-    [[nodiscard]] inline Json ResourceGLJson(const ResourceInfo& r)
+    // The "native" sub-object of one resource: every backend-native handle
+    // that is set, as hex. DISPLAY ONLY — this is what a RenderDoc / RGP
+    // capture shows, and 0 is a legitimate value here (issue #890), so a
+    // reader must not conclude "unbacked" from its absence. Returns an empty
+    // (null) Json when nothing native was resolved.
+    [[nodiscard]] inline Json ResourceNativeJson(const ResourceInfo& r)
     {
-        Json gl;
-        if (r.GLTextureId != 0)
-            gl["textureId"] = r.GLTextureId;
-        if (r.GLFramebufferId != 0)
-            gl["framebufferId"] = r.GLFramebufferId;
-        if (!r.GLColorAttachmentIds.empty())
-            gl["colorAttachmentIds"] = r.GLColorAttachmentIds;
-        if (r.GLDepthAttachmentId != 0)
-            gl["depthAttachmentId"] = r.GLDepthAttachmentId;
-        if (r.GLBufferId != 0)
-            gl["bufferId"] = r.GLBufferId;
-        if (r.ViewOfParentLayer != 0)
-            gl["viewOfParentLayer"] = r.ViewOfParentLayer;
-        return gl;
+        Json native;
+        if (r.NativeTextureHandle != 0)
+            native["texture"] = NativeHandleHex(r.NativeTextureHandle);
+        if (r.NativeFramebufferHandle != 0)
+            native["framebuffer"] = NativeHandleHex(r.NativeFramebufferHandle);
+        if (!r.NativeColorAttachmentHandles.empty())
+        {
+            Json attachments = Json::array();
+            for (const u64 handle : r.NativeColorAttachmentHandles)
+                attachments.push_back(NativeHandleHex(handle));
+            native["colorAttachments"] = std::move(attachments);
+        }
+        if (r.NativeDepthAttachmentHandle != 0)
+            native["depthAttachment"] = NativeHandleHex(r.NativeDepthAttachmentHandle);
+        if (r.NativeBufferHandle != 0)
+            native["buffer"] = NativeHandleHex(r.NativeBufferHandle);
+        return native;
     }
 
-    // The physical texture id a pass ACCESSES through this resource: the
-    // resolved texture for texture kinds, otherwise the framebuffer's first
-    // colour attachment (or depth attachment for depth-only targets) — the
-    // same physical-identity rule the capture tools use. 0 when unbacked.
-    [[nodiscard]] inline u32 AccessedPhysicalTextureId(const ResourceInfo& r)
+    // The "identity" sub-object: the same resources in the currency a reader
+    // may DECIDE on. Two accesses naming the same identity touch the same
+    // physical object on every backend; two naming native handle 0 tell you
+    // nothing at all.
+    [[nodiscard]] inline Json ResourceIdentityJson(const ResourceInfo& r)
     {
-        if (r.GLTextureId != 0)
-            return r.GLTextureId;
-        if (!r.GLColorAttachmentIds.empty() && r.GLColorAttachmentIds.front() != 0)
-            return r.GLColorAttachmentIds.front();
-        return r.GLDepthAttachmentId;
+        Json identity;
+        if (const std::string token = IdentityToken(r.TextureIdentity); !token.empty())
+            identity["texture"] = token;
+        if (const std::string token = IdentityToken(r.BufferIdentity); !token.empty())
+            identity["buffer"] = token;
+        if (!r.ColorAttachmentIdentities.empty())
+        {
+            Json attachments = Json::array();
+            for (const u64 key : r.ColorAttachmentIdentities)
+                attachments.push_back(IdentityToken(key));
+            identity["colorAttachments"] = std::move(attachments);
+        }
+        if (const std::string token = IdentityToken(r.DepthAttachmentIdentity); !token.empty())
+            identity["depthAttachment"] = token;
+        if (r.ViewOfParentLayer != 0)
+            identity["viewOfParentLayer"] = r.ViewOfParentLayer;
+        return identity;
+    }
+
+    // The physical KEY a pass ACCESSES through this resource: the resolved
+    // texture for texture kinds, otherwise the framebuffer's first colour
+    // attachment (or depth attachment for depth-only targets) — the same
+    // physical-identity rule the capture tools use. 0 when unbacked.
+    //
+    // Identity-first, and that ordering is the #890 fix: under Vulkan every
+    // framebuffer attachment reports native handle 0, so keying this on the
+    // native value silently collapsed every one of them into a single false
+    // "these passes share a texture" match.
+    [[nodiscard]] inline u64 AccessedPhysicalKey(const ResourceInfo& r)
+    {
+        if (r.TextureIdentity != 0)
+            return r.TextureIdentity;
+        if (!r.ColorAttachmentIdentities.empty() && r.ColorAttachmentIdentities.front() != 0)
+            return r.ColorAttachmentIdentities.front();
+        if (r.DepthAttachmentIdentity != 0)
+            return r.DepthAttachmentIdentity;
+        if (r.NativeTextureHandle != 0)
+            return r.NativeTextureHandle;
+        if (!r.NativeColorAttachmentHandles.empty() && r.NativeColorAttachmentHandles.front() != 0)
+            return r.NativeColorAttachmentHandles.front();
+        return r.NativeDepthAttachmentHandle;
     }
 
     [[nodiscard]] inline Json BuildJson(const Snapshot& snap)
@@ -143,10 +200,14 @@ namespace OloEngine::MCP::RenderGraphTopology
             Json access;
             access["resource"] = r.Name;
             access["mode"] = mode;
-            if (const u32 physicalId = AccessedPhysicalTextureId(r); physicalId != 0)
-                access["glTextureId"] = physicalId;
-            if (r.GLBufferId != 0)
-                access["glBufferId"] = r.GLBufferId;
+            if (const u64 physicalKey = AccessedPhysicalKey(r); physicalKey != 0)
+                access["physicalKey"] = IdentityToken(physicalKey);
+            if (r.NativeTextureHandle != 0)
+                access["nativeTexture"] = NativeHandleHex(r.NativeTextureHandle);
+            if (r.NativeBufferHandle != 0)
+                access["nativeBuffer"] = NativeHandleHex(r.NativeBufferHandle);
+            if (const std::string token = IdentityToken(r.BufferIdentity); !token.empty())
+                access["bufferIdentity"] = token;
             auto [it, inserted] = accessesByPass.try_emplace(pass, Json::array());
             it->second.push_back(std::move(access));
         };
@@ -195,8 +256,10 @@ namespace OloEngine::MCP::RenderGraphTopology
             e["hasExternalBacking"] = r.HasExternalBacking;
             e["producers"] = r.Producers;
             e["consumers"] = r.Consumers;
-            if (Json gl = ResourceGLJson(r); !gl.is_null() && !gl.empty())
-                e["gl"] = std::move(gl);
+            if (Json native = ResourceNativeJson(r); !native.is_null() && !native.empty())
+                e["native"] = std::move(native);
+            if (Json identity = ResourceIdentityJson(r); !identity.is_null() && !identity.empty())
+                e["identity"] = std::move(identity);
             resources.push_back(std::move(e));
         }
 
@@ -213,10 +276,14 @@ namespace OloEngine::MCP::RenderGraphTopology
                       "execution-ordering dependencies (from must run before to). 'executionOrder' is the "
                       "topologically-sorted run order. 'culled' passes were unreachable from the final pass "
                       "this frame and are skipped. Each resource's 'producers' write it and 'consumers' read "
-                      "it. Each resource's 'gl' (and each pass access's glTextureId) is the RESOLVED physical "
-                      "GL object id as of the last executed frame — two passes whose accesses share an id "
-                      "touch the same physical texture; texture views resolve to their parent object "
-                      "(see viewOfParentLayer); transient ids are only meaningful within one frame. "
+                      "it. Each resource carries its resolved physical backing as of the last executed frame "
+                      "in TWO currencies: 'identity' (and each pass access's physicalKey) is the RHI handle - "
+                      "two passes whose accesses share a physicalKey touch the same physical object, on every "
+                      "backend, and this is the only field a verdict should rest on. 'native' is the "
+                      "backend-native handle as hex, for correlating with a RenderDoc / RGP capture; 0 is "
+                      "legitimate there (a Vulkan framebuffer attachment has no native name), so absence "
+                      "never means unbacked. Texture views resolve to their parent object (see "
+                      "identity.viewOfParentLayer); transient values are only meaningful within one frame. "
                       "Use format:\"mermaid\" for a flowchart DAG of the pass graph.";
         return out;
     }

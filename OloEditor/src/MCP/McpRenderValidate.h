@@ -8,8 +8,10 @@
 // The default sweep gathers, from the live graph: the compiled resource-hazard
 // validation, the barrier/build diagnostics and execute-path resolve failures
 // the graph already records, and a physical-identity report — every resource's
-// resolved GL id grouped by base name, with resources that are CONSUMED but
-// resolve to no physical backing flagged. The optional {compare:{a,b,...}}
+// resolved physical backing grouped by base name, with resources that are
+// CONSUMED but resolve to no physical backing flagged. That last verdict rests
+// on the IDENTITY currency, never on the backend-native handle (issue #890);
+// see McpNativeHandle.h for why the two are not interchangeable. The optional {compare:{a,b,...}}
 // mode reads both textures back as floats and compares bit-exactly (with the
 // first differing texels listed), optionally AS OF a given pass via the
 // afterPass snapshot.
@@ -18,6 +20,8 @@
 // pre-stringifies engine enums; everything below is free functions over PODs
 // with NO GL / renderer / editor dependency, unit-tested headlessly — the
 // same split McpRenderProbePixel.h / McpRenderGraphTopology.h use.
+
+#include "MCP/McpNativeHandle.h"
 
 #include "OloEngine/Core/Base.h"
 
@@ -62,11 +66,30 @@ namespace OloEngine::MCP::RenderValidate
     };
 
     // One registered resource's physical identity this frame.
+    //
+    // TWO currencies, and the distinction is the whole point (issue #890, ADR
+    // 0011 amendments (77) and (89)). `Native*` is what a RenderDoc / RGP
+    // capture shows and is DISPLAY ONLY; `*Identity` and `TextureHasStorage`
+    // are what a verdict may rest on. The predicate below used to read a
+    // GL-shaped `u32` native id. Measured live, that was wrong on BOTH
+    // backends in opposite directions: on Vulkan it flagged 11 backed,
+    // readable, scene-content-carrying resources (a native 0 is what every
+    // framebuffer attachment reports there, by design) and returned a false
+    // `ok: false`; on OpenGL it returned `ok: true` while MISSING two
+    // genuinely storage-less resources whose recycled GL names were non-zero.
     struct ResourceIdentity
     {
         std::string Name;
-        u32 GLTextureId = 0; // the physical texture accesses resolve to (0 = none)
-        u32 GLBufferId = 0;
+        // Display currency: the FULL backend-native handle (GL name / VkImage).
+        // 0 is legitimate here — it can confirm backing, never deny it.
+        u64 NativeTextureHandle = 0;
+        u64 NativeBufferHandle = 0;
+        // Decision currency: RHI::HashKey of the resolved identity, 0 = none.
+        u64 TextureIdentity = 0;
+        u64 BufferIdentity = 0;
+        // The backend's own answer to "is there storage here" (a successful
+        // dimension query through the facade). Conclusive on both backends.
+        bool TextureHasStorage = false;
         bool HasProducers = false;
         bool HasConsumers = false;
         std::string LastWriter; // empty when none recorded
@@ -79,15 +102,43 @@ namespace OloEngine::MCP::RenderValidate
         return at == std::string_view::npos ? name : name.substr(0, at);
     }
 
+    [[nodiscard]] inline bool HasTextureBacking(const ResourceIdentity& r) noexcept
+    {
+        return HasBacking(r.TextureIdentity, r.TextureHasStorage, r.NativeTextureHandle);
+    }
+
+    [[nodiscard]] inline bool HasBufferBacking(const ResourceIdentity& r) noexcept
+    {
+        return MCP::HasBufferBacking(r.BufferIdentity, r.NativeBufferHandle);
+    }
+
     // A resource that is read by at least one pass but resolves to no
     // physical backing — a reader sampling nothing (or a stale binding).
     [[nodiscard]] inline bool IsUnbackedConsumed(const ResourceIdentity& r) noexcept
     {
-        return r.HasConsumers && r.GLTextureId == 0 && r.GLBufferId == 0;
+        return r.HasConsumers && !HasTextureBacking(r) && !HasBufferBacking(r);
+    }
+
+    // The key that answers "did these two versions resolve to the same physical
+    // object". The IDENTITY when there is one — it is the only currency that
+    // distinguishes a recycled name from the same object on either backend —
+    // and the native handle only as the fallback for a resource imported as a
+    // bare native id, which has no identity to give. Returns 0 for "unbacked",
+    // which callers exclude from the distinctness count rather than treating
+    // as a physical object shared by everything unbacked.
+    [[nodiscard]] inline u64 PhysicalKey(const ResourceIdentity& r) noexcept
+    {
+        if (r.TextureIdentity != 0)
+            return r.TextureIdentity;
+        if (r.BufferIdentity != 0)
+            return r.BufferIdentity;
+        if (r.NativeTextureHandle != 0)
+            return r.NativeTextureHandle;
+        return r.NativeBufferHandle;
     }
 
     // Group identities by base name and report every group where versions
-    // resolve to MORE THAN ONE distinct physical texture — legitimate for
+    // resolve to MORE THAN ONE distinct physical resource — legitimate for
     // copy-on-write versioning, but exactly the map an agent needs to answer
     // "which physical texture did this reader actually see". Pure and
     // deterministic (insertion order preserved).
@@ -103,30 +154,37 @@ namespace OloEngine::MCP::RenderValidate
             seenBases.push_back(base);
 
             Json versions = Json::array();
-            std::vector<u32> distinctIds;
+            std::vector<u64> distinctKeys;
             for (const auto& other : identities)
             {
                 if (BaseName(other.Name) != base)
                     continue;
                 Json v;
                 v["name"] = other.Name;
-                if (other.GLTextureId != 0)
-                    v["glTextureId"] = other.GLTextureId;
-                if (other.GLBufferId != 0)
-                    v["glBufferId"] = other.GLBufferId;
+                if (other.NativeTextureHandle != 0)
+                    v["nativeTextureHandle"] = NativeHandleHex(other.NativeTextureHandle);
+                if (other.NativeBufferHandle != 0)
+                    v["nativeBufferHandle"] = NativeHandleHex(other.NativeBufferHandle);
+                if (const std::string token = IdentityToken(other.TextureIdentity); !token.empty())
+                    v["textureIdentity"] = token;
+                if (const std::string token = IdentityToken(other.BufferIdentity); !token.empty())
+                    v["bufferIdentity"] = token;
+                v["backed"] = HasTextureBacking(other) || HasBufferBacking(other);
                 if (!other.LastWriter.empty())
                     v["lastWriter"] = other.LastWriter;
                 versions.push_back(std::move(v));
-                const u32 id = other.GLTextureId != 0 ? other.GLTextureId : other.GLBufferId;
-                if (id != 0 && std::find(distinctIds.begin(), distinctIds.end(), id) == distinctIds.end())
-                    distinctIds.push_back(id);
+                if (const u64 key = PhysicalKey(other);
+                    key != 0 && std::find(distinctKeys.begin(), distinctKeys.end(), key) == distinctKeys.end())
+                {
+                    distinctKeys.push_back(key);
+                }
             }
             if (versions.size() <= 1)
                 continue; // a single version can't alias-split
             Json group;
             group["baseName"] = base;
             group["versions"] = std::move(versions);
-            group["multiplePhysicalIds"] = distinctIds.size() > 1;
+            group["multiplePhysicalIds"] = distinctKeys.size() > 1;
             groups.push_back(std::move(group));
         }
         return groups;
