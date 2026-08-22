@@ -156,22 +156,70 @@ voice): such a voice is **never** auto-retired and its owner must `Release` it �
 `AudioSource` / `SoundGraphSound` happens in `Stop()` *and* in the destructor, because the
 manager holds a raw `IVoiceHost*` and must never drive a torn-down host.
 
-## 8. The two backends virtualize differently, and one of them can't do it properly
+## 8. The two backends virtualize differently, and the difference is not a gap in the API
 
 | | clip path (`AudioSource`) | graph path (`SoundGraphSound`) |
 |---|---|---|
-| virtualize | `ma_sound_stop` — frees mixer *and* DSP cost | mute the graph's `Volume` input |
-| devirtualize | `ma_sound_seek_to_pcm_frame(position)` + start | un-mute |
-| resume phase | exact (sample cursor) | exact for free (the graph never stopped) |
-| reclaims CPU | yes | **no** |
+| virtualize | `ma_sound_stop` — frees mixer *and* DSP cost | mute `Volume` **and** `SetVoiceSuspended(true)` — freezes the runtime |
+| devirtualize | `ma_sound_seek_to_pcm_frame(position)` + start | thaw, then un-mute |
+| resume phase | the position it *would* have reached | the frame it was frozen on |
+| reclaims CPU | yes | **yes** (since #745) |
 
-`SoundGraphSource` exposes `SendPlayEvent()` and nothing to seek or suspend with, so a
-virtualized graph voice is silenced rather than suspended. That still holds the audible cap
-— which is the acceptance criterion — but it does not reclaim the DSP cost. Fixing that
-needs a stop/seek API on `SoundGraphSource` first (tracked as **#745**, which also raises
-the harder question of whether the graph's stateful nodes can be resumed deterministically
-at all); don't "fix" it by stopping the graph, which would restart it from its initial
-state on devirtualization and reintroduce §3's bug.
+**Suspending is a freeze, not a stop.** `SoundGraphSource::SetVoiceSuspended(true)` makes
+`ProcessSamples` emit silence and skip the whole graph step — no `BeginProcessBlock`, no
+`SoundGraph::Process`, no outgoing-event pump, no frame-counter advance. That skipped block
+*is* the DSP cost, so it is genuinely reclaimed rather than merely inaudible.
+
+**It needs no per-node save/restore, and #745's feared blocker does not apply.** The worry
+that stateful nodes (envelope phases, IIR filter histories, `WavePlayer` read cursors) would
+need their own snapshot machinery is a worry about *stopping and restarting*. A freeze saves
+and restores nothing because it destroys nothing: the graph object is untouched for the
+whole suspension and the next block continues the identical sample stream. The audit that
+backs this: every node's state is advanced only by its own `Process(numFrames)`, and nothing
+in the graph runtime is driven by wall-clock time — the only two `std::chrono` reads under
+`Nodes/` are noise-seed initialisation (`ArrayNodes.h`, `GeneratorNodes.h`), read once at
+`Init()` and never during playback. So "not stepped" and "stopped for a while" are
+indistinguishable from inside the graph.
+
+**Do NOT "fix" it by stopping the graph and re-raising `SendPlayEvent()`.** That restarts
+every node from its initial state on devirtualization, which is §3's
+restart-instead-of-resume bug and #730's acceptance criterion 2. It is also the reason the
+freeze is a *separate* flag from `SoundGraphSource::SuspendProcessing`: that one is the
+graph-swap handshake, and **its resume deliberately zeroes the playback counters**. Reusing
+it for the voice budget would silently turn a resume into a restart.
+
+**What a graph voice still cannot do — and this is inherent, not missing API.** It cannot
+come back at the position it *would* have reached had it never been suspended (§3's rule 3;
+the clip path's `ma_sound_seek_to_pcm_frame`). For a procedural graph, advancing to frame N
+*is* the DSP work of frames 0..N — "reclaim the CPU" and "preserve that phase" are the same
+computation, so you get one or the other and never both. The clip path escapes it only
+because a decoded PCM stream has an O(1) seek: its position is an index, not a result.
+
+A bounded catch-up burst on resume is not a way out either. The graph runtime is roughly
+real-time in a Debug build (`docs/design/soundgraph-metasounds.md` gates on
+`effectiveRateHz` staying within 10% of the sample rate), so fast-forwarding even 85 ms of
+silence inside one audio callback costs ~85 ms of CPU in a callback with a ~10 ms budget.
+An underrun, not an optimisation. Amortising it over later blocks re-pays the entire saving
+and leaves the voice audible-but-out-of-phase while it catches up.
+
+The engine does not carry the resulting inconsistency: `OnVoiceQueryPosition` is
+authoritative while a voice is audible (§3), so `VoiceManager::Update` pulls the record back
+to the graph's real frame on the first tick after devirtualization. Nothing else reads a
+graph voice's logical position — `DurationSeconds == 0` means no auto-retire and no loop
+wrap (§7) — so `OnVoiceStart`'s `positionSeconds` is honoured exactly where it is reachable
+(a fresh start at 0) and self-corrects everywhere else.
+
+**Two consequences worth not re-deriving:**
+
+- **A voice that enters the budget over cap is never handed to `OnVoiceStop`.** `Acquire`
+  emits transitions only for state *changes*, and every voice *enters* virtual — so nothing
+  drives the host into the virtualized state on that path. `SoundGraphSound::Play` therefore
+  checks `IsVirtual(handle)` itself and applies it. Before that check a graph voice which
+  lost the budget at `Play()` time ran at full gain, over the cap; the clip path never had
+  the bug because it starts the backend *only* from `OnVoiceStart`.
+- **A stopped or completed graph voice stays frozen.** `ReleaseVoice(resumePlayback=false)`
+  leaves it muted *and* suspended, so a one-shot graph that simply ended costs nothing until
+  something plays it again. Before #745 that path could only leave it muted-but-running.
 
 Watch the polarity trap while you are in there: `SoundGraphSound::m_Priority` is
 miniaudio-flavoured (**0 = highest**) while `VoiceParams::Priority` is the other way round

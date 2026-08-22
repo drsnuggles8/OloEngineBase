@@ -91,6 +91,52 @@ namespace OloEngine::Audio::SoundGraph
         {
             return m_Suspended.load(std::memory_order_relaxed);
         }
+
+        /** Voice-budget suspension (issue #745) - freeze the graph runtime.
+
+            A SECOND, INDEPENDENT suspension axis from SuspendProcessing above, and the two
+            must not be conflated. That one is the graph-swap handshake: the main thread
+            raises a flag, waits for the audio thread to acknowledge it, swaps m_Graph, and
+            resumes - and its resume deliberately RESETS the playback counters, because a
+            freshly installed graph starts from zero. This one is the concurrent-voice
+            budget virtualizing a voice, and it resets nothing.
+
+            While it is set, ProcessSamples emits silence and does not step the graph at
+            all: no BeginProcessBlock, no SoundGraph::Process, no outgoing-event pump, no
+            frame-counter advance. That whole skipped block IS the DSP cost virtualization
+            is supposed to reclaim, and which muting the graph's Volume input did not.
+
+            Resuming is exact rather than approximate. Node state - envelope phases, filter
+            histories, WavePlayer read cursors - is neither saved nor restored; it is simply
+            not advanced, so the sample stream continues from the frame it stopped on
+            instead of restarting from the graph's initial state (issue #730's acceptance
+            criterion 2). No per-node save/restore is needed, because nothing is torn down.
+
+            What a resume canNOT do is jump forward to the position the voice would have
+            reached had it never been suspended. For a procedural graph, advancing to frame
+            N *is* the DSP work of frames 0..N - "reclaim the CPU" and "come back in the
+            phase it would have been in" are the same computation, so you get one or the
+            other and never both. The clip path escapes that only because a decoded PCM
+            stream has an O(1) seek. See docs/agent-rules/audio-voice-budget.md section 8.
+
+            Unlike SuspendProcessing there is no suspend/ack handshake: nothing is being
+            torn down here, so a one-block overlap in either direction is inaudible (the
+            owner mutes before freezing and thaws before un-muting, which covers the click).
+            Callable from any thread.
+
+            Default (sequentially consistent) ordering, unlike the acquire/release on
+            m_Suspended next to it, and the difference is deliberate: m_Suspended publishes
+            the m_Graph swap, so it needs a release/acquire pair to make that write visible.
+            This flag publishes nothing - it is a lone boolean gate with no data hanging off
+            it - so there is nothing for a weaker order to buy. On x86-64 a seq_cst load is
+            the same plain mov as an acquire load, and the store happens on a virtualize /
+            devirtualize transition rather than per block. */
+        void SetVoiceSuspended(bool suspended);
+        bool IsVoiceSuspended() const
+        {
+            return m_VoiceSuspended.load();
+        }
+
         bool IsFinished() const noexcept;
         bool IsPlaying() const;
 
@@ -328,6 +374,10 @@ namespace OloEngine::Audio::SoundGraph
 
         std::atomic<bool> m_Suspended{ false };
         AtomicFlag m_SuspendFlag;
+        // Voice-budget freeze (issue #745). Deliberately separate from m_Suspended: that
+        // one is the graph-swap handshake whose resume resets the playback counters, which
+        // is exactly what a virtualized voice must NOT do. See SetVoiceSuspended.
+        std::atomic<bool> m_VoiceSuspended{ false };
         u32 m_SampleRate = 0;
         u32 m_BlockSize = 0;
         u32 m_ChannelCount = 2;

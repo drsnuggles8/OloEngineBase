@@ -87,14 +87,21 @@ namespace OloEngine
             /// clip path. Both paths MUST route through VoiceManager or the cap is
             /// enforced on only half the engine's sounds.
             ///
-            /// Limitation, deliberate: the SoundGraph runtime has no transport control
-            /// (SoundGraphSource exposes SendPlayEvent and nothing to seek or suspend
-            /// with), so virtualizing a graph voice mutes it rather than stopping it. That
-            /// still frees the audible slot and keeps the mix within budget — and it makes
-            /// resume-in-phase trivially correct, because the graph never stopped
-            /// advancing — but unlike the clip path it does NOT reclaim the DSP cost.
-            /// Reclaiming that needs a stop/seek API on SoundGraphSource first (issue
-            /// #745).
+            /// Virtualizing a graph voice mutes it AND freezes the graph runtime
+            /// (SoundGraphSource::SetVoiceSuspended, issue #745): while it is virtual the
+            /// graph is not stepped at all, so the DSP cost is genuinely reclaimed the way
+            /// ma_sound_stop reclaims it on the clip path. Thawing continues the same
+            /// sample stream — node state is not saved and restored, it is simply not
+            /// advanced — so it is a resume rather than #730's restart-instead-of-resume
+            /// bug.
+            ///
+            /// The one thing it cannot do, and this is inherent rather than missing API:
+            /// come back at the position the voice WOULD have reached had it kept running.
+            /// For a procedural graph, advancing to frame N is exactly the DSP work of
+            /// frames 0..N, so reclaiming the CPU and preserving that phase are the same
+            /// computation and you get one or the other. OnVoiceStart's positionSeconds is
+            /// therefore honoured only where it is reachable (a fresh start at 0); see the
+            /// comment there and docs/agent-rules/audio-voice-budget.md section 8.
             class SoundGraphSound : public IPlayableAudio, public OloEngine::Audio::IVoiceHost
             {
               public:
@@ -250,13 +257,19 @@ namespace OloEngine
                 OloEngine::Audio::VoiceParams BuildVoiceParams() const;
                 /// Hand the slot back and forget the handle. Idempotent.
                 ///
-                /// `restoreGain` decides whether the budget's mute is lifted on the way
-                /// out. Pass true when the voice is about to play again (Play) or the
-                /// object is going away (teardown); pass FALSE when retiring a voice that
-                /// is meant to fall silent (Stop, natural completion) — the graph runtime
-                /// has no transport, so un-muting a still-running virtualized graph would
-                /// make a stopped sound audible again.
-                void ReleaseVoice(bool restoreGain) const;
+                /// `resumePlayback` decides which state the live source is left in, because
+                /// the budget is no longer tracking this voice and nothing else would ever
+                /// lift its virtualization. Pass TRUE when the voice is about to play again
+                /// (Play) or the object is going away (teardown). Pass FALSE when retiring a
+                /// voice that is meant to fall silent (Stop, natural completion): the source
+                /// stays muted and frozen, which is both silent and free — before #745 the
+                /// graph had no transport, so this could only leave it muted-but-running.
+                void ReleaseVoice(bool resumePlayback) const;
+
+                /// Enter or leave the virtualized state on the live source: the budget's
+                /// gain mute plus the graph-runtime freeze that actually reclaims the DSP
+                /// cost. Order matters in both directions — see the definition.
+                void SetVirtualized(bool virtualized) const;
                 /// Push refreshed scoring inputs at the budget.
                 void SyncVoiceParams() const;
                 /// Apply m_Volume scaled by the budget's mute state to the live graph.
