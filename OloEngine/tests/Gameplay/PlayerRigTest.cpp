@@ -31,11 +31,14 @@
 #include "OloEngine/Gameplay/PlayerRig/PlayerRigComponents.h"
 #include "OloEngine/Gameplay/PlayerRig/PlayerRigPresets.h"
 #include "OloEngine/Gameplay/PlayerRig/PlayerRigSystem.h"
+#include "OloEngine/Scene/EntityFacing.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <cmath>
+#include <limits>
 
 namespace OloEngine::Tests
 {
@@ -468,5 +471,60 @@ namespace OloEngine::Tests
             EXPECT_LT(rig.m_MaxPitchDeg, 90.0f);
             EXPECT_LT(rig.m_MinPitchDeg, rig.m_MaxPitchDeg);
         }
+    }
+
+    // -- Forward conventions (issue #897) -------------------------------------
+    //
+    // The engine has two, and the whole point of EntityFacing is that the yaw
+    // math is written ONCE and parameterised by which one applies. These pin the
+    // axes and the inverse property; which convention a given ENTITY gets is a
+    // component question, covered by the Functional camera-rig tests.
+
+    TEST(ForwardConvention, StarboardIsForwardCrossUpInBothConventions)
+    {
+        constexpr glm::vec3 kUp{ 0.0f, 1.0f, 0.0f };
+
+        for (const ForwardConvention convention : { ForwardConvention::MinusZ, ForwardConvention::PlusZ })
+        {
+            const glm::vec3 forward = EntityFacing::LocalForward(convention);
+            const glm::vec3 starboard = EntityFacing::LocalStarboard(convention);
+            ExpectVec3Near(starboard, glm::cross(forward, kUp));
+        }
+
+        // Spelled out, because this is the pair the bug got backwards: a
+        // +Z-forward hull's starboard beam is -X, NOT +X.
+        ExpectVec3Near(EntityFacing::LocalForward(ForwardConvention::PlusZ), glm::vec3(0.0f, 0.0f, 1.0f));
+        ExpectVec3Near(EntityFacing::LocalStarboard(ForwardConvention::PlusZ), glm::vec3(-1.0f, 0.0f, 0.0f));
+        ExpectVec3Near(EntityFacing::LocalForward(ForwardConvention::MinusZ), kForward);
+        ExpectVec3Near(EntityFacing::LocalStarboard(ForwardConvention::MinusZ), kRight);
+    }
+
+    TEST(ForwardConvention, YawDegreesInvertsYawRotationForWhicheverConventionApplies)
+    {
+        for (const f32 yawDeg : { -179.0f, -90.0f, -12.5f, 0.0f, 33.0f, 90.0f, 178.0f })
+        {
+            const glm::quat cameraFacing = PlayerRigSystem::YawRotation(yawDeg);
+            EXPECT_NEAR(EntityFacing::YawDegrees(cameraFacing, ForwardConvention::MinusZ), yawDeg, kEpsilon)
+                << "at yaw " << yawDeg;
+
+            // The same physical heading, expressed by a body whose forward is
+            // +Z: it must read back as the SAME yaw, or a camera rig following
+            // it would be pointed the other way.
+            const glm::quat vehicleFacing = cameraFacing * glm::angleAxis(glm::pi<f32>(), glm::vec3(0.0f, 1.0f, 0.0f));
+            EXPECT_NEAR(EntityFacing::YawDegrees(vehicleFacing, ForwardConvention::PlusZ), yawDeg, 1e-3f)
+                << "at yaw " << yawDeg;
+        }
+    }
+
+    TEST(ForwardConvention, ADegenerateOrNonFiniteRotationYieldsZeroRatherThanGarbage)
+    {
+        // Nose straight up: the planar part of forward vanishes and yaw is
+        // genuinely undefined, so it must not fall out of atan2 as noise.
+        const glm::quat noseUp = glm::angleAxis(glm::half_pi<f32>(), glm::vec3(1.0f, 0.0f, 0.0f));
+        EXPECT_NEAR(EntityFacing::YawDegrees(noseUp, ForwardConvention::MinusZ), 0.0f, kEpsilon);
+        EXPECT_NEAR(EntityFacing::YawDegrees(noseUp, ForwardConvention::PlusZ), 0.0f, kEpsilon);
+
+        const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+        EXPECT_NEAR(EntityFacing::YawDegrees(glm::quat(nan, nan, nan, nan), ForwardConvention::PlusZ), 0.0f, kEpsilon);
     }
 } // namespace OloEngine::Tests

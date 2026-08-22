@@ -166,3 +166,70 @@ target — the reference would point at the authoring-time UUID, which no longer
 exists. Ship the single-entity half as a prefab and the wired pair as a demo
 **scene**; say which in the guide rather than shipping a prefab that silently
 comes up unwired.
+
+## 6. "The target's facing" is not one thing — ask which convention it uses (issue #897)
+
+The rig derives a non-player target's yaw from its rotation, and it originally
+did so with one hard-coded axis:
+
+```cpp
+constexpr glm::vec3 kLocalForward{ 0.0f, 0.0f, -1.0f };
+yawDeg = YawDegreesFromRotation(target.GetComponent<TransformComponent>().GetRotation());
+```
+
+That is right for a `PlayerRigComponent` target, because `PlayerRigSystem` is
+what writes that rotation, via `YawRotation`, which maps `-Z`. It is backwards
+for every **force-model vehicle**: `BoatSystem` reads hull forward as
+`rotation * (0,0,+1)`, and `VehicleComponent` / `AircraftComponent` document
+`+Z` to match Jolt.
+
+Aimed straight at a boat, the rig therefore parked itself **ahead of the hull
+looking back at it** — a steady, well-framed shot of the boat sailing into the
+lens. That is the part worth remembering: it does not look like a bug. It looks
+deliberate, so it reads as a scene-authoring mistake and gets worked around in
+content (Drift carried a proxy entity holding the boat's heading turned through
+180°) rather than reported.
+
+Three things this cost, and how each is now closed:
+
+* **The engine must own the answer.** `EntityFacing::ConventionFor(entity)`
+  (`Scene/EntityFacing.h`) reads it off the target's own components — a
+  `BoatComponent` / `VehicleComponent` / `AircraftComponent` means `+Z`,
+  everything else means `-Z`. A rig aimed at a vehicle now works with nothing
+  authored. Adding another force-model vehicle means adding it to that roster.
+* **A scene still needs an override, and not as an escape hatch.** Drift's proxy
+  is a bare root transform that carries the boat's *smoothed* heading plus a
+  look-astern hold — real work the rig doesn't do — and it has no vehicle
+  component for the derivation to see. `CameraRigComponent::m_TargetForward`
+  (`Auto` / `MinusZ` / `PlusZ`) is that seam. `Reject`, not `Clamp`, on load: a
+  corrupt value must fall back to `Auto`, never saturate into a different valid
+  convention.
+* **Write the yaw math once.** `PlayerRigSystem`'s local `YawDegreesFromRotation`
+  now delegates to `EntityFacing::YawDegrees(rotation, convention)`. Two copies
+  of "yaw", differing only in an axis constant, is exactly how the two halves
+  drift apart again.
+
+**Test it by the SIGN of the offset, never the distance.** Every assertion the
+rig had was "the camera is one boom length from the target", which a rig pointed
+180° the wrong way satisfies perfectly. The tests that catch it assert
+`(camera - target) · targetForward < 0`.
+
+### The same mistake, one layer down: starboard is `-X` for a `+Z`-forward body
+
+Right-handed, `+Y` up, `right == forward × up`. The camera convention gives the
+familiar `(0,0,-1) × (0,1,0) == (+1,0,0)`. Turn the body round to `+Z` forward
+and the same formula gives `(0,0,1) × (0,1,0) == (-1,0,0)`: **`+X` is to port.**
+Jolt agrees — `VehicleConstraint` builds its wheel basis as forward × up.
+
+#438 got this backwards in three separate places and the suite stayed green in
+all three, because each is a sign and every test measured a magnitude or a rate:
+
+| Site | Was | Symptom |
+| --- | --- | --- |
+| `BoatSystem` rudder torque | `+Y` for a starboard helm | boat turned to **port** on the starboard binding |
+| `AircraftSystem` roll / yaw | signed off `right = +X` | aircraft rolled and yawed the wrong way |
+| `JoltScene` wheel layout | wheel 0 "FL" at `-halfTrack` | `m_LeftRightSplit = 1` ("all to the right") fed the **left** wheels |
+
+`BoatSystem`'s own `rightFlat` helper had it backwards too and nothing noticed —
+it is only used to decompose hull drag, which is symmetric. A convention error
+in a symmetric consumer is invisible until an asymmetric one arrives.

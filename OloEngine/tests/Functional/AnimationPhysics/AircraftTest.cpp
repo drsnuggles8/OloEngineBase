@@ -121,12 +121,22 @@ class AircraftTest : public FunctionalTest
         return glm::degrees(std::asin(std::clamp(fwd.y, -1.0f, 1.0f)));
     }
 
-    /// Bank angle in degrees, signed so that rolling to starboard (the right
+    /// Bank angle in degrees, signed so that rolling to starboard (the starboard
     /// wing dropping) is positive — matching AircraftComponent::m_RollInput.
+    /// The starboard wing is local -X for a +Z-forward airframe (forward x up);
+    /// reading it as +X is what let issue #897's inverted roll sign pass.
     static f32 BankDeg(Entity e)
     {
-        const glm::vec3 rightWing = Rot(e) * glm::vec3(1.0f, 0.0f, 0.0f);
-        return glm::degrees(std::asin(std::clamp(-rightWing.y, -1.0f, 1.0f)));
+        const glm::vec3 starboardWing = Rot(e) * glm::vec3(-1.0f, 0.0f, 0.0f);
+        return glm::degrees(std::asin(std::clamp(-starboardWing.y, -1.0f, 1.0f)));
+    }
+
+    /// Heading in degrees about world up, signed so that yawing to starboard
+    /// increases it — same convention as BoatTest::HeadingDeg.
+    static f32 HeadingDeg(Entity e)
+    {
+        const glm::vec3 fwd = Rot(e) * glm::vec3(0.0f, 0.0f, 1.0f);
+        return glm::degrees(std::atan2(-fwd.x, fwd.z));
     }
 
     Ref<JoltBody> Body(Entity e)
@@ -286,8 +296,32 @@ TEST_F(AircraftTest, RollInputBanksTheAircraftToStarboard)
     const f32 bankAfter = BankDeg(plane);
 
     EXPECT_GT(bankAfter - bankBefore, 10.0f)
-        << "roll-right input did not drop the right wing; " << bankBefore << " -> " << bankAfter << " deg";
+        << "roll-starboard input did not drop the starboard wing; " << bankBefore << " -> " << bankAfter << " deg";
     EXPECT_TRUE(std::isfinite(Pos(plane).y));
+}
+
+// -----------------------------------------------------------------------------
+// Rudder input yaws the nose the correct way. Same shape as the roll test above
+// and the same reason it exists: issue #897 had this sign inverted too, and
+// nothing caught it because the only aircraft yaw coverage was a MAGNITUDE
+// check (ControlsAreSlackWithoutAirspeed) that a mirrored model satisfies
+// exactly. Measured over a window short enough that atan2 cannot wrap.
+// -----------------------------------------------------------------------------
+TEST_F(AircraftTest, YawInputSwingsTheNoseToStarboard)
+{
+    Entity plane = SpawnAircraft();
+    EnablePhysics3D();
+    TickFor(1.0f);
+
+    const f32 headingBefore = HeadingDeg(plane);
+    plane.GetComponent<AircraftComponent>().m_YawInput = 1.0f;
+    TickFor(1.5f);
+    const f32 turned = HeadingDeg(plane) - headingBefore;
+
+    ASSERT_TRUE(std::isfinite(turned));
+    ASSERT_LT(std::abs(turned), 180.0f) << "heading sample wrapped — shorten the window";
+    EXPECT_GT(turned, 3.0f)
+        << "yaw-starboard input swung the nose " << turned << " deg — negative is to PORT (issue #897)";
 }
 
 // -----------------------------------------------------------------------------

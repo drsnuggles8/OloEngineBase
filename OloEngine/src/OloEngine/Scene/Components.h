@@ -1519,7 +1519,9 @@ namespace OloEngine
     // just sits there.
     //
     // Axis convention matches VehicleComponent / Jolt: local +Z is forward,
-    // +Y is up, +X is starboard (right).
+    // +Y is up, and starboard is forward x up == local -X (+X is the PORT
+    // beam). See Scene/EntityFacing.h — issue #897 fixed a rudder that had this
+    // the other way round.
     struct BoatComponent
     {
         OLO_PROPERTY()
@@ -1585,8 +1587,9 @@ namespace OloEngine
         f32 m_ImmersionDepth = 0.3f;
 
         // --- Live driver input (sanitized + read each physics step) ---
-        // Throttle in [-1, 1] (negative = astern), steer-right in [-1, 1]
-        // (1 = full starboard). Default 0 = a boat that just floats.
+        // Throttle in [-1, 1] (negative = astern), steer in [-1, 1] (1 = full
+        // starboard, i.e. the bow swings toward local -X). Default 0 = a boat
+        // that just floats.
         OLO_PROPERTY()
         OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
         f32 m_ThrottleInput = 0.0f;
@@ -1639,7 +1642,9 @@ namespace OloEngine
     //     an oscillator. See the tuning note on m_WeathervaneStrength.
     //
     // Axis convention matches VehicleComponent / Jolt: local +Z is forward
-    // (nose), +Y is up, +X is the right wing.
+    // (nose), +Y is up, and the STARBOARD wing is forward x up == local -X
+    // (+X is the port wing). See Scene/EntityFacing.h — issue #897 fixed roll
+    // and yaw inputs that were signed off the opposite reading.
     struct AircraftComponent
     {
         OLO_PROPERTY()
@@ -1791,7 +1796,8 @@ namespace OloEngine
 
         // --- Live pilot input (sanitized + read each physics step) ---
         // Throttle in [0, 1]; pitch/roll/yaw in [-1, 1] with positive meaning
-        // nose-up, roll-right, and yaw-right respectively.
+        // nose-up, roll-starboard (the -X wing drops) and yaw-starboard (the
+        // nose swings toward -X) respectively.
         OLO_PROPERTY()
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_ThrottleInput = 0.0f;

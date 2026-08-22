@@ -1155,6 +1155,8 @@
 		"OloEngine/Scene/TransformComponent.cpp"
 		"OloEngine/Scene/Entity.cpp"
 		"OloEngine/Scene/Entity.h"
+		"OloEngine/Scene/EntityFacing.cpp"
+		"OloEngine/Scene/EntityFacing.h"
 		"OloEngine/Scene/Prefab.cpp"
 		"OloEngine/Scene/Prefab.h"
 		"OloEngine/Scene/Scene.cpp"

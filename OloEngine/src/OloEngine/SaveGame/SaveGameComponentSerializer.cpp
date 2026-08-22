@@ -4278,6 +4278,14 @@ namespace OloEngine
         ar << c.m_PositionSmoothTime;
         ar << c.m_HeadBobAmplitude << c.m_HeadBobFrequency;
         ar << c.m_FallbackPitchDeg;
+        // Appended when kSaveGameFormatVersion was bumped 19->20 (issue #897's
+        // forward-convention fix). A v19-or-older save omits this byte, so gate
+        // the read: the field then keeps its Auto default, which derives the
+        // convention from the target's components — the pre-#897 behaviour for
+        // every target that was working before, and the fix for the ones that
+        // weren't.
+        if (HasFieldsSince(ar, 20))
+            ar << c.m_TargetForward;
         // m_CurrentBoomLength / m_SmoothedPosition / m_BobPhase /
         // m_PrevTargetPosition / m_Initialized are excluded: the rig re-derives
         // them on its first tick after the load, which is also what makes the
@@ -4310,6 +4318,11 @@ namespace OloEngine
             sanitize(c.m_HeadBobAmplitude, 0.0f, 1.0f, 0.0f);
             sanitize(c.m_HeadBobFrequency, 0.0f, 50.0f, 1.1f);
             sanitize(c.m_FallbackPitchDeg, -89.9f, 89.9f, -12.0f);
+            // Reject, not clamp — see the note on the field. An unrecognised
+            // value falls back to Auto rather than saturating to PlusZ, which
+            // would silently be a different valid convention.
+            if (c.m_TargetForward != ForwardConvention::MinusZ && c.m_TargetForward != ForwardConvention::PlusZ)
+                c.m_TargetForward = ForwardConvention::Auto;
         }
     }
 

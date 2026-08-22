@@ -107,8 +107,11 @@ namespace OloEngine
 
             const glm::vec3 forward = rot * glm::vec3(0.0f, 0.0f, 1.0f);
             const glm::vec3 up = rot * glm::vec3(0.0f, 1.0f, 0.0f);
-            const glm::vec3 right = rot * glm::vec3(1.0f, 0.0f, 0.0f);
-            if (!IsFinite(forward) || !IsFinite(up) || !IsFinite(right))
+            // Starboard, not "+X". For a +Z-forward, +Y-up right-handed body
+            // right == forward x up == local -X; +X is the PORT wing. Issue
+            // #897 — see Scene/EntityFacing.h.
+            const glm::vec3 starboard = rot * glm::vec3(-1.0f, 0.0f, 0.0f);
+            if (!IsFinite(forward) || !IsFinite(up) || !IsFinite(starboard))
                 continue;
 
             // --- Sanitize tunables (a script can write any raw field) ---------
@@ -166,10 +169,10 @@ namespace OloEngine
                     cl = LiftCoefficient(alpha, zeroLift, liftSlope, stallRad);
 
                     // Lift acts perpendicular to the airflow, in the aircraft's
-                    // plane of symmetry. cross(velDir, right) reduces to the body
-                    // up-axis in level flight and correctly tilts with bank —
-                    // which is what makes a banked turn work at all.
-                    const glm::vec3 liftAxis = glm::cross(velDir, right);
+                    // plane of symmetry. cross(starboard, velDir) reduces to the
+                    // body up-axis in level flight and correctly tilts with bank
+                    // — which is what makes a banked turn work at all.
+                    const glm::vec3 liftAxis = glm::cross(starboard, velDir);
                     const f32 liftAxisLen = glm::length(liftAxis);
                     if (liftAxisLen > kMinLiftAxisLength)
                     {
@@ -212,13 +215,18 @@ namespace OloEngine
             const f32 authority = std::clamp(airspeed / authoritySpeed, 0.0f, 1.0f);
             if (authority > 0.0f)
             {
-                // +X torque pitches the nose DOWN (it rotates +Z toward -Y), so
-                // nose-up input is a NEGATIVE torque about the right wing.
-                torque += -right * (pitchTorque * pitchInput * authority);
-                // +Z torque rolls the right wing UP, so roll-right is negative.
-                torque += -forward * (rollTorque * rollInput * authority);
-                // +Y torque yaws the nose toward +X (right) — this one is direct.
-                torque += up * (yawTorque * yawInput * authority);
+                // Every one of these three is a torque about a body axis, and
+                // every sign follows from starboard == -X (see above).
+                //
+                // Nose-up rotates +Z toward +Y, which is a POSITIVE torque about
+                // starboard: (-1,0,0) x (0,0,1) == (0,1,0).
+                torque += starboard * (pitchTorque * pitchInput * authority);
+                // Roll-starboard drops the -X wing toward -Y, which is a
+                // POSITIVE torque about the nose: (0,0,1) x (-1,0,0) == (0,-1,0).
+                torque += forward * (rollTorque * rollInput * authority);
+                // Yaw-starboard swings the nose toward -X, which is a NEGATIVE
+                // torque about up: (0,-1,0) x (0,0,1) == (-1,0,0).
+                torque += -up * (yawTorque * yawInput * authority);
             }
 
             // --- Rate damping ---------------------------------------------------
@@ -230,7 +238,7 @@ namespace OloEngine
             const glm::vec3 angVel = body->GetAngularVelocity();
             if (IsFinite(angVel))
             {
-                torque += -right * (glm::dot(angVel, right) * pitchDamping * dampingMassScale);
+                torque += -starboard * (glm::dot(angVel, starboard) * pitchDamping * dampingMassScale);
                 torque += -forward * (glm::dot(angVel, forward) * rollDamping * dampingMassScale);
                 torque += -up * (glm::dot(angVel, up) * yawDamping * dampingMassScale);
             }

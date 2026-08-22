@@ -3947,6 +3947,19 @@ namespace OloEngine
             "headBobFrequency", sol::property([](const CameraRigComponent& c)
                                               { return c.m_HeadBobFrequency; }, [](CameraRigComponent& c, f32 v)
                                               { if (std::isfinite(v) && v >= 0.0f) c.m_HeadBobFrequency = v; }),
+            // The one field that matters most when the rig is following
+            // something that is not a player, and the one that was missing from
+            // this table until issue #897.
+            "fallbackPitchDeg", sol::property([](const CameraRigComponent& c)
+                                              { return c.m_FallbackPitchDeg; }, [](CameraRigComponent& c, f32 v)
+                                              { if (std::isfinite(v)) c.m_FallbackPitchDeg = std::clamp(v, -89.9f, 89.9f); }),
+            // ForwardConvention as an integer: 0 = Auto (derive it from the
+            // target's components), 1 = MinusZ (camera/player), 2 = PlusZ
+            // (Jolt vehicle). Anything else is rejected rather than clamped —
+            // see the field's note in PlayerRigComponents.h.
+            "targetForward", sol::property([](const CameraRigComponent& c)
+                                           { return static_cast<int>(c.m_TargetForward); }, [](CameraRigComponent& c, int v)
+                                           { if (v >= 0 && v <= 2) c.m_TargetForward = static_cast<ForwardConvention>(v); }),
             "currentBoomLength", sol::readonly(&CameraRigComponent::m_CurrentBoomLength));
 
         // --- NavMeshBoundsComponent ---
