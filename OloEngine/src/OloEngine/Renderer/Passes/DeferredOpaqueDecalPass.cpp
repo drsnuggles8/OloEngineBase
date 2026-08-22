@@ -31,7 +31,10 @@ namespace OloEngine
 
         const bool hasDecalWork = m_DecalPass && m_DecalPass->GetCommandBucket().GetCommandCount() > 0;
 
-        if (hasDecalWork && blackboard.Scene.SceneDepth.IsValid())
+        // The decal shader reconstructs world position from the scene depth, so
+        // this pass samples the DEPTH attachment while writing the COLOUR ones.
+        const bool samplesSceneDepth = hasDecalWork && blackboard.Scene.SceneDepth.IsValid();
+        if (samplesSceneDepth)
         {
             [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
@@ -56,6 +59,34 @@ namespace OloEngine
         {
             m_SelectedGBufferEmissiveExport = blackboard.GBuffer.GBufferEmissive;
             builder.Write(blackboard.GBuffer.GBufferEmissive, RGWriteUsage::TransferDest);
+        }
+
+        // SceneDepth, SceneNormals and the three GBuffer* views are all
+        // attachment views of the SAME framebuffer (RenderPipeline.cpp's
+        // resolvedGBuffer). Read() propagates to the parent framebuffer and the
+        // validator then expands that parent read back down onto every sibling
+        // attachment view — so the depth sample above reads, by name, every
+        // colour view this pass writes, and each one is reported as a same-pass
+        // feedback hazard. The subresources never actually overlap: one depth
+        // attachment read, four colour attachments written. This is the exact
+        // legitimate-RMW case RGBuilder::Write's comment names, and
+        // AllowSamePassReadWrite is how a pass states it.
+        //
+        // Not cosmetic: OLO_CORE_ASSERT on the compiled-hazard list is a
+        // __debugbreak, so in a Debug build without a debugger this KILLED the
+        // editor on the first frame after opening any Deferred scene containing
+        // an opaque decal. It went unnoticed because no sandbox scene put a
+        // decal on the deferred path until DecalModeMatrixTest.olo — the graph
+        // validation only runs when the graph's shape changes, and the decal
+        // pass only declares these accesses when it has decal work.
+        if (samplesSceneDepth)
+        {
+            for (const auto& written : { m_SelectedSceneNormalsExport, m_SelectedGBufferAlbedoExport,
+                                         m_SelectedGBufferNormalExport, m_SelectedGBufferEmissiveExport })
+            {
+                if (written.IsValid())
+                    builder.AllowSamePassReadWrite(written);
+            }
         }
 
         if (blackboard.GBuffer.GBufferAlbedoMS.IsValid())
