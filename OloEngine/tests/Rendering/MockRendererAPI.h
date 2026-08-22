@@ -774,13 +774,25 @@ namespace OloEngine::Testing
         {
             Record("DisableMultisampling");
         }
-        void SetColorMask(bool /*r*/, bool /*g*/, bool /*b*/, bool /*a*/) override
+        // Both colour-mask entry points record their CHANNELS, not just their
+        // name: the per-draw contract in issue #853 is *which channels of which
+        // attachment*, and a name-only record cannot tell a mask that masks from
+        // one that does nothing. ParamU32_0 = attachment (always 0 for the
+        // global call, which is the indexed call for every draw buffer),
+        // ParamU32_1 = the RGBA nibble, low bit = red (RenderCommand.h's
+        // MakeColorChannelMask packing).
+        void SetColorMask(bool r, bool g, bool b, bool a) override
         {
-            Record("SetColorMask");
+            RecordedCall c{ "SetColorMask" };
+            c.ParamU32_1 = MakeColorChannelMask(r, g, b, a);
+            m_Calls.push_back(c);
         }
-        void SetColorMaskForAttachment(u32 /*attachment*/, bool /*r*/, bool /*g*/, bool /*b*/, bool /*a*/) override
+        void SetColorMaskForAttachment(u32 attachment, bool r, bool g, bool b, bool a) override
         {
-            Record("SetColorMaskForAttachment");
+            RecordedCall c{ "SetColorMaskForAttachment" };
+            c.ParamU32_0 = attachment;
+            c.ParamU32_1 = MakeColorChannelMask(r, g, b, a);
+            m_Calls.push_back(c);
         }
         void BeginConditionalRender(RHI::ResourceHandle query) override
         {
