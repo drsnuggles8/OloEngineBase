@@ -268,6 +268,23 @@ namespace OloEngine::RHI
     //    "R32I"), so a GL reading and a Vulkan reading of the same target are
     //    comparable side by side rather than needing a translation table.
     // -------------------------------------------------------------------------
+    // How a texture's storage is ADDRESSED. Distinct from Format (what a texel
+    // holds) and from the layer count (how many there are): a 64-slice volume
+    // and a 64-layer array report the same count and are not
+    // interchangeable — an image copy that names the wrong one is rejected by
+    // the driver, not silently reinterpreted. Declared here rather than reusing
+    // RHIResources.h's TextureDimension because that header includes this one.
+    enum class TextureShape : u8
+    {
+        Unknown = 0,
+        Texture2D,
+        Texture2DArray,
+        Texture2DMultisample,
+        TextureCube,
+        TextureCubeArray,
+        Texture3D,
+    };
+
     struct TextureFormatInfo
     {
         Format Neutral = Format::Unknown;
@@ -277,6 +294,16 @@ namespace OloEngine::RHI
         bool IsInteger = false;
         bool IsDepth = false;
         bool IsFloat = false;
+        // Layout, not format — but it comes from the same backend lookup (GL's
+        // level parameters / the Vulkan image-info registry), and every
+        // consumer that asks "how do I decode this?" also has to ask "how many
+        // levels and layers are there?". A separate query would read the same
+        // table twice and could disagree with itself between the two reads.
+        u32 MipLevels = 1;
+        // Array layers, cube faces (6), or volume slices — which of the three
+        // is decided by `Shape`, never by the number.
+        u32 ArrayLayers = 1;
+        TextureShape Shape = TextureShape::Unknown;
     };
 
     [[nodiscard]] constexpr bool IsCompressed(Format format) noexcept

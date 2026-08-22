@@ -1817,10 +1817,50 @@ label, per (79). Two things it pinned:
   `Neutral` is allowed to be `Unknown` while the token and channel count still
   describe the storage.
 
-**What did NOT change, deliberately.** The afterPass mid-frame snapshot clone
-stays native-currency and GL-only. `PassSnapshotBackend.h` pins that
-instrument's contract native at both ends — the resolver hands in a raw
-texture name and `Result::TextureID` hands one back — and `native -> handle`
-is not recoverable, so the capture/probe/stats tools refuse `afterPass` under
-Vulkan rather than pretending. Every other path in those three tools now runs
-one code path on both backends.
+**The afterPass clone went neutral too, and that reversed a prior decision.**
+`PassSnapshotBackend.h` pinned the mid-frame snapshot's contract native at
+both ends, on the stated grounds that `native -> handle` is not recoverable.
+That reasoning is sound for CONVERTING a name somebody else minted; it does
+not apply to the scratch clone, which that code **creates itself** and can
+therefore mint WITH an identity from birth. Nobody had drawn the distinction
+because nothing yet wanted the identity. The seam and its GL clone engine are
+deleted; the snapshot now allocates through
+`RendererAPI::CreateMatchingTextureHandle` and copies through
+`CopyImageSubDataFull`, so capture / probe / stats / validate-compare run one
+code path on both backends, `afterPass` included.
+
+`CreateMatchingTextureHandle` takes a SOURCE HANDLE rather than an
+`RHI::TextureDesc`, and that shape is the decision. What the caller needs is
+not "a texture roughly like that one" but a destination the backend's own
+image copy will accept. Routing it through a neutral format vocabulary would
+mean translating the source's native format out to `RHI::Format` and back —
+and `RHI::Format` is deliberately narrower than what the render graph creates
+(a packed 11/11/10 target, an sRGB swapchain flavour). A near-miss
+translation does not fail loudly: both `glCopyImageSubData` and
+`vkCmdCopyImage` require format compatibility, so it yields an empty or
+garbage clone the diagnostic then reports as fact. Phrasing the contract as
+"match this" lets each backend reproduce its OWN description and never
+translate. `RHI::TextureFormatInfo` grew `MipLevels` / `ArrayLayers` /
+`Shape` to go with it — the shape matters because a 64-slice volume and a
+64-layer array report the same count and are not interchangeable.
+
+Two Vulkan-side consequences. The copy must record into the CURRENT frame's
+command buffer, which `CopyImageSubDataRegion` already does; a
+`VulkanOneShot` would execute BEFORE the still-recording frame (amendment
+(72)) and silently clone the PREVIOUS one — identical output on a static
+scene, wrong for every reason you would reach for the tool. And the clone is
+owned by a new `VulkanRawImageRegistry` rather than a `VulkanTexture2D`,
+because that class builds its image from an engine `ImageFormat` and the
+whole point is not to translate.
+
+**Every MCP render tool now answers on Vulkan.** The remaining refusals
+(`olo_cluster_grid_stats`' SSBO read, `olo_froxel_fog_probe`'s volume read)
+went the same way — `ReadBufferSubData` and a 1x1x1 `ReadTextureSubImage`
+were already implemented on both backends. `olo_render_validate`'s `compare`
+was not refusing at all: it had **no** backend guard and resolved through
+`NativeTextureIdForDiagnostics`, which truncates a `VkImage` pointer to a
+nonzero garbage `u32` that then reached `glGetTextureLevelParameteriv` with
+no GL context. A crash, not a gap — fixed by the same identity resolve.
+
+The one honest remaining limitation is texture PREVIEWS in the inspector
+panel, which are a GL PBO+fence pipeline feeding the GL ImGui backend.

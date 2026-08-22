@@ -753,6 +753,12 @@ namespace OloEngine::Testing
             // needs a format takes its own not-available path.
             return false;
         }
+        [[nodiscard]] RHI::ResourceHandle CreateMatchingTextureHandle(RHI::ResourceHandle) override
+        {
+            // Same reasoning as QueryTextureFormat: there is no storage to
+            // match, so the null handle is the honest answer.
+            return {};
+        }
 
       private:
         // Kind-checked, mirroring Platform/OpenGL's Utils::ResolveNativeAs. An

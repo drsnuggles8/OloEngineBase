@@ -740,6 +740,11 @@ namespace OloEngine
             return s_RendererAPI->QueryTextureFormat(texture, mipLevel, out);
         }
 
+        [[nodiscard("Store this!")]] static RHI::ResourceHandle CreateMatchingTextureHandle(RHI::ResourceHandle source)
+        {
+            return s_RendererAPI->CreateMatchingTextureHandle(source);
+        }
+
         static void TextureBarrier()
         {
             s_RendererAPI->TextureBarrier();

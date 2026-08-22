@@ -800,7 +800,6 @@
 		"OloEngine/Renderer/Debug/FrameCaptureBackend.h"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.h"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.cpp"
-		"OloEngine/Renderer/Debug/PassSnapshotBackend.h"
 		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.cpp"
 		"OloEngine/Renderer/Debug/CapturedFrameData.h"
@@ -1560,9 +1559,6 @@
 		"Platform/OpenGL/OpenGLRendererAPI.h"
 		"Platform/OpenGL/OpenGLProgramBinaryCache.cpp"
 		"Platform/OpenGL/OpenGLProgramBinaryCache.h"
-		# GL half of the RenderGraphPassSnapshot clone engine (#691 Phase 9): definitions
-		# for the Detail:: functions declared in Renderer/Debug/PassSnapshotBackend.h.
-		"Platform/OpenGL/OpenGLPassSnapshot.cpp"
 		"Platform/OpenGL/OpenGLShader.cpp"
 		"Platform/OpenGL/OpenGLShader.h"
 		# GL half of the GLStateGuard seam (#691 Phase 9): definitions for the

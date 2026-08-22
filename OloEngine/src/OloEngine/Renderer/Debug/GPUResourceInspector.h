@@ -364,9 +364,18 @@ namespace OloEngine
 
         // ---- Registry-driven discovery + machine-readable snapshot (#810) ---
         //
-        // Pull the live resource set from the backend when it discovers rather
-        // than self-registers (Vulkan). No-op on a self-registering backend and
-        // when there is no backend at all, so callers need not branch.
+        // Bring the tracked set up to date before reading it. Two jobs, one
+        // per discovery model (see the class comment):
+        //
+        //   * a DISCOVERING backend (Vulkan) has its live set pulled from
+        //     RHI::ResourceRegistry;
+        //   * a SELF-REGISTERING backend (OpenGL) keeps its macro-pushed map,
+        //     but the rows only carry the native id — the registration macros
+        //     are handed a raw name, not an identity. So the registry snapshot
+        //     is used to fill in the missing identity by matching (kind,
+        //     native), which is unique on GL because each object family has
+        //     its own name namespace. Without this the GL arm surfaces ONE
+        //     currency, and ADR 0011 amendment (77) asks for both.
         //
         // Main/render thread only: the Vulkan side tables it reads
         // (VulkanImageInfoRegistry, VulkanRootObjectRegistry) are documented
@@ -444,6 +453,8 @@ namespace OloEngine
         void RenderFramebufferDetails(FramebufferInfo& info);
         void RenderResourceStatistics();
         void RenderMemoryHeaps();
+        // See RefreshDiscoveredResources — the self-registering half.
+        void ReconcileIdentitiesFromRegistry();
 
         std::string FormatTextureFormat(u32 format) const;
         std::string FormatBufferUsage(u32 usage) const;

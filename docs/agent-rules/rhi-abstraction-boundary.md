@@ -2996,12 +2996,65 @@ through raw GL in ONE process and requires bit-equality — is the thing a
 cross-backend A/B cannot do, because that compares two binaries against two
 frames.
 
-### 15e. Refuse the sub-feature, not the tool
+### 15e. Refuse the sub-feature, not the tool — then check whether the corner is real
 
 `olo_render_probe_pixel` and `olo_render_target_stats` refused wholesale on
-Vulkan because ONE of their arguments (`afterPass`) rides a GL-only mid-frame
-clone. The port narrowed the refusal to that argument and left everything else
-working on both backends. When a tool has a GL-only corner, gate the corner: a
-whole-tool refusal reads to the next session as "this question is unanswerable
-here", which is a much more expensive wrong belief than "this option is
-unavailable".
+Vulkan because ONE of their arguments (`afterPass`) rode a GL-only mid-frame
+clone. The first cut narrowed the refusal to that argument. When a tool has a
+backend-specific corner, gate the corner: a whole-tool refusal reads to the
+next session as "this question is unanswerable here", which is a much more
+expensive wrong belief than "this option is unavailable".
+
+Then the corner turned out not to be real, which is the second half of the
+lesson. See 15f.
+
+### 15f. "This cannot be neutral" can be an artefact of who MINTED the object
+
+`PassSnapshotBackend.h` stated its native currency was deliberate and that "no
+`RHI::ResourceHandle` can exist on this path", because `native -> handle` is
+not recoverable. True — for a name somebody else minted. The snapshot's scratch
+clone is not that: the snapshot **creates** it, and anything you create can be
+created WITH an identity. Nobody had drawn the distinction because nothing yet
+wanted the identity, so a correct local observation hardened into a wrong
+global rule and a whole tool family inherited a refusal from it.
+
+The generalisable check, before accepting "this seam cannot be neutral":
+separate the objects the seam **adopts** from the ones it **allocates**. Only
+the adopted ones are constrained.
+
+Retiring it deleted more than it added — the GL clone engine, its seam header,
+and three native-currency readback helpers in the MCP layer all went.
+
+### 15g. Match the SOURCE, do not describe it, when the description is lossy
+
+The scratch allocator is spelled `CreateMatchingTextureHandle(source)`, not
+`CreateTexture(RHI::TextureDesc)`. A neutral desc would force the source's
+native format out to `RHI::Format` and back, and `RHI::Format` is deliberately
+narrower than what the render graph creates. The failure would not be loud:
+`glCopyImageSubData` and `vkCmdCopyImage` both require format compatibility, so
+a near-miss yields an empty or garbage clone that the diagnostic reports as
+fact. "Match this" lets each backend reproduce its own description and never
+translate.
+
+The corollary is a shape query, not just a format one. A 64-slice volume and a
+64-layer array report the same layer count and are NOT interchangeable — the
+copy names a target type on both operands and the driver rejects a mismatch. An
+early draft inferred dimensionality from the layer count with a hardcoded
+`isVolume = false`; that is the shape of a bug that only ever fires on the
+froxel-fog volumes. `RHI::TextureFormatInfo::Shape` exists so the question has
+an answer instead of a guess.
+
+### 15h. A tool with no backend guard is not the same as a tool that refuses
+
+Auditing the refusals turned up the one tool that did NOT refuse:
+`olo_render_validate`'s `compare` had no backend check at all, and resolved
+through `Debug::NativeTextureIdForDiagnostics`, which does
+`static_cast<u32>(nativeHandle)`. Under Vulkan that truncates a `VkImage`
+pointer to a **nonzero garbage** `u32` — so the zero-check passed — which then
+reached `glGetTextureLevelParameteriv` with no GL context. A crash that had
+been live since the tool shipped.
+
+When sweeping for "which tools are gated on backend X", the dangerous entries
+are the ones the sweep does not match. A truncating cast to a smaller native
+type is the specific mechanism to grep for: it turns "no answer" into "an
+answer that passes a validity check".

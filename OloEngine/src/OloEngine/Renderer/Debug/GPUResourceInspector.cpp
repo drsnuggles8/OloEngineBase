@@ -1099,11 +1099,77 @@ namespace OloEngine
 
     // ---- Registry-driven discovery + snapshot (#810) -----------------------
 
+    namespace
+    {
+        // The registry kind a tracked resource type belongs to. Used only to
+        // disambiguate the (kind, native) match below.
+        RHI::ResourceKind RegistryKindFor(GPUResourceInspector::ResourceType type)
+        {
+            using RT = GPUResourceInspector::ResourceType;
+            switch (type)
+            {
+                case RT::Texture2D:
+                case RT::TextureCubemap:
+                    return RHI::ResourceKind::Texture;
+                case RT::Framebuffer:
+                    return RHI::ResourceKind::Framebuffer;
+                case RT::VertexArray:
+                    return RHI::ResourceKind::VertexArray;
+                case RT::ShaderProgram:
+                    return RHI::ResourceKind::ShaderProgram;
+                case RT::Query:
+                    return RHI::ResourceKind::Query;
+                default:
+                    break;
+            }
+            return RHI::ResourceKind::Buffer;
+        }
+    } // namespace
+
+    void GPUResourceInspector::ReconcileIdentitiesFromRegistry()
+    {
+        // (kind, native) -> identity. Unique on a self-registering backend:
+        // GL gives textures, buffers, framebuffers and VAOs separate name
+        // namespaces, so a collision inside one kind cannot happen. Anything
+        // that DID collide is left alone rather than guessed at.
+        std::unordered_map<u64, RHI::ResourceHandle> byKindAndNative;
+        std::unordered_map<u64, u32> matchCount;
+        for (const auto& entry : RHI::ResourceRegistry::Get().Snapshot())
+        {
+            if (entry.Native == 0u)
+                continue;
+            const u64 key = (static_cast<u64>(std::to_underlying(entry.Kind)) << 56) ^ entry.Native;
+            byKindAndNative[key] = entry.Handle;
+            ++matchCount[key];
+        }
+
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
+        for (auto& [mapKey, resource] : m_Resources)
+        {
+            if (resource->m_Handle.IsValid() || resource->m_RendererID == 0u)
+                continue;
+            const u64 key = (static_cast<u64>(std::to_underlying(RegistryKindFor(resource->m_Type))) << 56) ^
+                            resource->m_RendererID;
+            const auto it = byKindAndNative.find(key);
+            if (it == byKindAndNative.end() || matchCount[key] != 1u)
+                continue;
+            resource->m_Handle = it->second;
+            resource->m_Backend = RHI::GetNativeHandleForDebug(it->second).Owner;
+        }
+    }
+
     void GPUResourceInspector::RefreshDiscoveredResources()
     {
         IResourceInspectorBackend* backend = GetBackend();
-        if (backend == nullptr || !backend->DiscoversResources())
+        if (backend == nullptr)
             return;
+        if (!backend->DiscoversResources())
+        {
+            // Self-registering backend: the map is already the live set, but
+            // the macro-pushed rows have no identity on them.
+            ReconcileIdentitiesFromRegistry();
+            return;
+        }
 
         // The backend reads render-thread-only side tables, so this must not
         // run under m_ResourceMutex with an MCP handler waiting on it — gather

@@ -31,6 +31,7 @@
 
 #include "PropertyTests/RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -38,6 +39,7 @@
 #include <glad/gl.h>
 
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -222,4 +224,52 @@ TEST(FacadeReadbackParity, StaleHandleIsRefusedRatherThanAnswered)
     std::array<f32, 4> destination{ 0.0f, 0.0f, 0.0f, 0.0f };
     EXPECT_FALSE(RenderCommand::ReadTextureSubImage(stale, 0, 0, 0, 0, 1, 1, 1, RHI::Format::RGBA32Float,
                                                     destination.size() * sizeof(f32), destination.data()));
+}
+
+// A DEPTH source read with a COLOUR destination format is the regression this
+// pins, and it is a nasty one: on GL only depth destinations lower to
+// GL_DEPTH_COMPONENT, and asking for GL_RED on a depth texture is
+// GL_INVALID_OPERATION. Before #810 folded the capture fork, the facade's
+// depth path was Vulkan-only and named R32Float; the fold routed GL through it
+// too, which broke every depth capture until this test's subject was fixed.
+//
+// It is asserted through a framebuffer's depth attachment because
+// Texture2D::Create has no depth format — that is also the only way the render
+// graph's depth targets exist, so this is the production shape.
+TEST(FacadeReadbackParity, DepthAttachmentReadsThroughADepthDestinationFormat)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    FramebufferSpecification spec;
+    spec.Width = kWidth;
+    spec.Height = kHeight;
+    spec.Attachments = FramebufferAttachmentSpecification{ { FramebufferTextureFormat::RGBA8 },
+                                                           { FramebufferTextureFormat::DEPTH24STENCIL8 } };
+    const Ref<Framebuffer> framebuffer = Framebuffer::Create(spec);
+    ASSERT_TRUE(framebuffer);
+
+    const RHI::ResourceHandle depth = framebuffer->GetDepthAttachmentHandle();
+    ASSERT_TRUE(depth.IsValid()) << "the fixture needs a real depth attachment to say anything";
+
+    RHI::TextureFormatInfo info;
+    ASSERT_TRUE(RenderCommand::QueryTextureFormat(depth, 0, info));
+    EXPECT_TRUE(info.IsDepth) << "a depth attachment must describe itself as depth, or every caller below "
+                                 "picks a colour destination for it";
+    EXPECT_EQ(info.Channels, 1);
+
+    // The destination the tools actually choose for a depth source.
+    std::vector<f32> depths(static_cast<sizet>(kWidth) * kHeight, -1.0f);
+    EXPECT_TRUE(RenderCommand::ReadTextureSubImage(depth, 0, 0, 0, 0, kWidth, kHeight, 1, RHI::Format::D32Float,
+                                                   depths.size() * sizeof(f32), depths.data()))
+        << "a depth readback with a depth destination must succeed on every backend";
+
+    // Every value must be a real depth. The buffer starts at -1.0f, so an
+    // untouched destination — the shape a silently-failed read leaves behind —
+    // is caught here rather than reported as "the depth buffer is negative".
+    for (const f32 d : depths)
+    {
+        EXPECT_TRUE(std::isfinite(d)) << "non-finite depth read back";
+        EXPECT_GE(d, 0.0f) << "the destination was not written — the readback silently did nothing";
+        EXPECT_LE(d, 1.0f);
+    }
 }

@@ -1083,6 +1083,10 @@ namespace OloEngine
                 return GL_TEXTURE_2D_MULTISAMPLE;
             case RendererAPI::TextureTargetType::Texture2DArray:
                 return GL_TEXTURE_2D_ARRAY;
+            case RendererAPI::TextureTargetType::Texture3D:
+                return GL_TEXTURE_3D;
+            case RendererAPI::TextureTargetType::TextureCubeMapArray:
+                return GL_TEXTURE_CUBE_MAP_ARRAY;
             default:
                 OLO_CORE_ERROR("ToGLTextureTarget: Unknown TextureTargetType");
                 return GL_TEXTURE_2D;
@@ -1950,8 +1954,45 @@ namespace OloEngine
             return false; // no storage at this level — GL's own answer
         }
 
+        // Layout, from the same object. GL_TEXTURE_DEPTH at a mip is the array
+        // layer count for array targets and the slice count for a 3D texture;
+        // it is 1 for a plain 2D one and 6 for a cubemap addressed as layers.
+        GLint immutableLevels = 0;
+        GLint depthOrLayers = 0;
+        GLint textureTarget = 0;
+        glGetTextureParameteriv(textureID, GL_TEXTURE_IMMUTABLE_LEVELS, &immutableLevels);
+        glGetTextureLevelParameteriv(textureID, static_cast<GLint>(mipLevel), GL_TEXTURE_DEPTH, &depthOrLayers);
+        glGetTextureParameteriv(textureID, GL_TEXTURE_TARGET, &textureTarget);
+
+        RHI::TextureShape shape = RHI::TextureShape::Unknown;
+        switch (textureTarget)
+        {
+            case GL_TEXTURE_2D:
+                shape = RHI::TextureShape::Texture2D;
+                break;
+            case GL_TEXTURE_2D_ARRAY:
+                shape = RHI::TextureShape::Texture2DArray;
+                break;
+            case GL_TEXTURE_2D_MULTISAMPLE:
+                shape = RHI::TextureShape::Texture2DMultisample;
+                break;
+            case GL_TEXTURE_CUBE_MAP:
+                shape = RHI::TextureShape::TextureCube;
+                break;
+            case GL_TEXTURE_CUBE_MAP_ARRAY:
+                shape = RHI::TextureShape::TextureCubeArray;
+                break;
+            case GL_TEXTURE_3D:
+                shape = RHI::TextureShape::Texture3D;
+                break;
+            default:
+                break;
+        }
+
         RHI::TextureFormatInfo info;
         info.Native = static_cast<u64>(static_cast<u32>(internalFormat));
+        const u32 mipLevels = immutableLevels > 0 ? static_cast<u32>(immutableLevels) : 1u;
+        const u32 arrayLayers = depthOrLayers > 0 ? static_cast<u32>(depthOrLayers) : 1u;
 
         // The neutral tokens are the spelling the Vulkan arm produces too, so a
         // GL reading and a Vulkan reading of the same target compare directly.
@@ -2032,8 +2073,95 @@ namespace OloEngine
                 return false;
         }
 
+        info.MipLevels = mipLevels;
+        info.ArrayLayers = arrayLayers;
+        info.Shape = shape;
         out = info;
         return true;
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateMatchingTextureHandle(RHI::ResourceHandle source)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const GLuint sourceID = Utils::ResolveNativeAs(source, RHI::ResourceKind::Texture);
+        if (sourceID == 0u)
+        {
+            return {};
+        }
+
+        // The source's OWN native description — no neutral vocabulary in the
+        // middle, which is the whole point of this entry (RendererAPI.h).
+        Utils::DrainGLErrors();
+        GLint target = 0;
+        GLint samples = 0;
+        GLint internalFormat = 0;
+        GLint width = 0;
+        GLint height = 0;
+        GLint depthOrLayers = 0;
+        GLint levels = 0;
+        glGetTextureParameteriv(sourceID, GL_TEXTURE_TARGET, &target);
+        glGetTextureParameteriv(sourceID, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
+        glGetTextureLevelParameteriv(sourceID, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+        glGetTextureLevelParameteriv(sourceID, 0, GL_TEXTURE_WIDTH, &width);
+        glGetTextureLevelParameteriv(sourceID, 0, GL_TEXTURE_HEIGHT, &height);
+        glGetTextureLevelParameteriv(sourceID, 0, GL_TEXTURE_DEPTH, &depthOrLayers);
+        glGetTextureLevelParameteriv(sourceID, 0, GL_TEXTURE_SAMPLES, &samples);
+        if (glGetError() != GL_NO_ERROR || width <= 0 || height <= 0)
+        {
+            return {};
+        }
+        if (samples > 1)
+        {
+            // A multisample copy destination would have to match sample count
+            // too, and every consumer of the clone reads it as a plain image.
+            // Refuse rather than silently resolving.
+            OLO_CORE_WARN("[RHI/GL] CreateMatchingTextureHandle: source is multisampled ({} samples) — refused",
+                          samples);
+            return {};
+        }
+
+        const auto mipLevels = static_cast<GLsizei>(levels > 0 ? levels : 1);
+        const auto layers = static_cast<GLsizei>(depthOrLayers > 0 ? depthOrLayers : 1);
+
+        GLuint clone = 0;
+        glCreateTextures(static_cast<GLenum>(target), 1, &clone);
+        switch (target)
+        {
+            case GL_TEXTURE_2D:
+            case GL_TEXTURE_CUBE_MAP:
+                glTextureStorage2D(clone, mipLevels, static_cast<GLenum>(internalFormat),
+                                   static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+                break;
+            case GL_TEXTURE_2D_ARRAY:
+            case GL_TEXTURE_3D:
+            case GL_TEXTURE_CUBE_MAP_ARRAY:
+                glTextureStorage3D(clone, mipLevels, static_cast<GLenum>(internalFormat),
+                                   static_cast<GLsizei>(width), static_cast<GLsizei>(height), layers);
+                break;
+            default:
+                glDeleteTextures(1, &clone);
+                OLO_CORE_WARN("[RHI/GL] CreateMatchingTextureHandle: unsupported target 0x{:X}",
+                              static_cast<u32>(target));
+                return {};
+        }
+
+        // NEAREST filters: an INTEGER-format texture (the R32I entity-id
+        // buffer) is texture-INcomplete under the default LINEAR filters
+        // (GL 4.6 §8.17), and glCopyImageSubData mandates INVALID_OPERATION on
+        // an incomplete texture (§18.3.2) — NVIDIA is lenient, other drivers
+        // are not. Harmless for every other format; a clone is readback-only
+        // and never shader-sampled.
+        glTextureParameteri(clone, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(clone, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        if (glGetError() != GL_NO_ERROR)
+        {
+            glDeleteTextures(1, &clone);
+            return {};
+        }
+
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, clone, RHI::Backend::OpenGL);
     }
 
     // --- Queries ----------------------------------------------------------------------------

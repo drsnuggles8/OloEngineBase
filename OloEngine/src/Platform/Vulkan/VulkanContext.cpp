@@ -145,6 +145,9 @@ namespace OloEngine
             // they hold Refs to the textures.
             VulkanRawFramebufferRegistry::Get().ReleaseAll();
             VulkanRawTextureRegistry::Get().ReleaseAll();
+            // Snapshot clones (#810) are owned separately — see
+            // VulkanRawImageRegistry's class comment.
+            VulkanRawImageRegistry::Get().ReleaseAll();
             // The engine heap's slots index the resource heap below — retire
             // them first (amendment (33): state must not outlive what gives
             // it meaning).

@@ -84,6 +84,61 @@ namespace OloEngine
     };
 
     // -------------------------------------------------------------------------
+    // VulkanRawImageRegistry — ownership side table for images created by
+    // CreateMatchingTextureHandle (#810): the mid-frame snapshot clone.
+    //
+    // Deliberately NOT a VulkanTexture2D in the raw-texture registry above.
+    // That class builds its image from an engine `ImageFormat`, and the whole
+    // point of the matching-create contract is that the clone reproduces the
+    // SOURCE's VkFormat without translating through a neutral vocabulary — a
+    // render-graph target can hold a format `ImageFormat` cannot name. So this
+    // owns the {VkImage, VmaAllocation} pair directly, keyed by the minted
+    // identity, and everything else about the image (barrier aspect, extent,
+    // layout seeding) works because it registers with VulkanImageInfoRegistry
+    // exactly like every object-backed texture does.
+    //
+    // Destroy routes the image through VulkanDeferredReclaim, which is also
+    // what unregisters it from the image-info registry — never an inline
+    // vkDestroyImage, because an in-flight command buffer may still reference
+    // the clone (it is written mid-frame and read after the frame).
+    //
+    // Render-thread only, same as its siblings here.
+    // -------------------------------------------------------------------------
+    class VulkanRawImageRegistry
+    {
+      public:
+        [[nodiscard]] static VulkanRawImageRegistry& Get();
+
+        // Takes ownership of an already-created image and mints its identity.
+        // Null image => null handle.
+        [[nodiscard]] RHI::ResourceHandle Adopt(VkImage image, VmaAllocation allocation);
+
+        [[nodiscard]] bool Contains(RHI::ResourceHandle handle) const;
+        // False when the handle was never adopted here — the caller decides
+        // how loudly to say so.
+        bool Destroy(RHI::ResourceHandle handle);
+        // Device-teardown net: anything still held must not outlive the
+        // allocator.
+        void ReleaseAll();
+
+      private:
+        VulkanRawImageRegistry() = default;
+
+        [[nodiscard]] static u64 Key(RHI::ResourceHandle handle)
+        {
+            return (static_cast<u64>(handle.Generation) << 32) | handle.Index;
+        }
+
+        struct Entry
+        {
+            VkImage Image = VK_NULL_HANDLE;
+            VmaAllocation Allocation = VK_NULL_HANDLE;
+            RHI::ScopedResourceHandle Identity;
+        };
+        std::unordered_map<u64, Entry> m_Entries;
+    };
+
+    // -------------------------------------------------------------------------
     // VulkanRawFramebufferRegistry — ownership side table for the raw
     // CreateFramebufferHandle / DeleteFramebuffer framebuffers (#691).
     //

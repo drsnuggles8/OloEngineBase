@@ -64,7 +64,14 @@ namespace OloEngine
             // copies address individual array layers through
             // CopyImageSubDataFull's srcZ/dstZ, which needs the array target
             // on both operands. Append only — never renumber.
-            Texture2DArray
+            Texture2DArray,
+            // The mid-frame snapshot clone (#810) reproduces WHATEVER shape a
+            // render-graph target has, and the froxel-fog volumes are 3D while
+            // the reflection-probe atlases are cube arrays. Copying either as
+            // if it were a plain 2D image is a GL error, not a wrong picture.
+            // Append only — never renumber.
+            Texture3D,
+            TextureCubeMapArray
         };
 
       public:
@@ -463,6 +470,28 @@ namespace OloEngine
         // identity — skip the second and a handle to a destroyed object keeps
         // resolving to a name the driver may reissue.
         // ---------------------------------------------------------------------
+        // Create an UNINITIALISED texture whose storage description matches
+        // `source` EXACTLY — same format, extent, mip count, array layers and
+        // dimensionality — i.e. a legal bit-copy destination for it (#810).
+        //
+        // WHY THIS TAKES A SOURCE HANDLE AND NOT AN RHI::TextureDesc. The
+        // caller is the mid-frame snapshot clone, and what it needs is not "a
+        // texture shaped roughly like that one" but a copy destination the
+        // backend's own image-copy will accept. Routing that through a NEUTRAL
+        // format vocabulary would mean translating the source's native format
+        // out to RHI::Format and back, and RHI::Format is deliberately narrower
+        // than what the render graph creates (a packed 11/11/10 target, an sRGB
+        // swapchain flavour). A near-miss translation does not fail loudly —
+        // glCopyImageSubData and vkCmdCopyImage both require format
+        // compatibility, so it produces an empty or garbage clone that the
+        // diagnostic then reports as fact. Phrasing the contract as "match this"
+        // lets each backend reproduce its OWN description and never translate.
+        //
+        // Returns the null handle when the source cannot be reproduced — an
+        // unresolvable handle, or a multisampled source (a resolve is a
+        // different operation, and this entry does not silently perform one).
+        // The result is owned by the backend and released with DeleteTexture.
+        [[nodiscard]] virtual RHI::ResourceHandle CreateMatchingTextureHandle(RHI::ResourceHandle source) = 0;
         [[nodiscard]] virtual RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat) = 0;
         [[nodiscard]] virtual RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat) = 0;
         [[nodiscard]] virtual RHI::ResourceHandle CreateFramebufferHandle() = 0;
