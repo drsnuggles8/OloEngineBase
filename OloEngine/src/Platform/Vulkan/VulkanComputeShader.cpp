@@ -9,11 +9,14 @@
 
 // Shared preprocessing, same Platform-to-Platform reuse VulkanShader records.
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "OloEngine/Core/Hash.h"
+#include "OloEngine/Renderer/ShaderCachePaths.h"
 
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <utility>
 
@@ -21,11 +24,21 @@ namespace OloEngine
 {
     namespace
     {
-        constexpr const char* kCacheDirectory = "assets/cache/shader/vulkan";
+        // Relocated behind OLO_SHADER_CACHE_DIR (issue #906) — see
+        // ShaderCachePaths::Root() and VulkanShader.cpp's matching helper.
+        std::filesystem::path CacheDirectory()
+        {
+            return ShaderCachePaths::Root() / "vulkan";
+        }
         // §3(b): the target env is part of the filename so this tier can never
         // cross-load with the GL path's vulkan_1_2 tier — or with the graphics
         // stages of this one.
         constexpr const char* kComputeCacheExtension = ".cached_vulkan14.comp";
+        // Mirrors VulkanShader.cpp's kOptionsDescriptor — same option set, same
+        // "keep this in sync with the shaderc calls below" contract (issue #906).
+        constexpr std::string_view kOptionsDescriptor =
+            "env=vulkan1.4;preserve_bindings=1;auto_bind_uniforms=0;"
+            "debug_info=1;opt=performance;suppress_warnings=1;define=OLO_VULKAN=1";
 
         [[nodiscard]] std::string ReadWholeFile(const std::string& filepath)
         {
@@ -63,12 +76,7 @@ namespace OloEngine
         // VolumetricFog tenant, issue #691).
         const auto dirEnd = filepath.find_last_of("/\\");
         const std::string directory = (dirEnd != std::string::npos) ? filepath.substr(0, dirEnd) : "";
-        std::vector<std::string> includes;
-        const std::string source = OpenGLShader::ProcessIncludes(raw, directory, includes);
-        m_IncludedFilePaths = std::move(includes);
-        std::sort(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end());
-        m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()),
-                                  m_IncludedFilePaths.end());
+        const std::string source = OpenGLShader::ProcessIncludes(raw, directory);
 
         (void)BuildFromSource(source, /*useCache=*/true);
     }
@@ -108,54 +116,37 @@ namespace OloEngine
             return false;
         }
 
+        // Content-addressed key (issue #906): preprocessed source + the fixed
+        // shaderc option set below — existence alone is validity, no mtime
+        // staleness check needed.
+        const std::string contentHash = std::format(
+            "{:016x}", Hash::FNV1a64(preprocessedSource.data(), preprocessedSource.size(),
+                                     Hash::FNV1a64(kOptionsDescriptor.data(), kOptionsDescriptor.size())));
         const std::filesystem::path cachePath =
-            std::filesystem::path(kCacheDirectory) /
-            (std::filesystem::path(m_FilePath.empty() ? m_Name : m_FilePath).filename().string() +
-             kComputeCacheExtension);
+            CacheDirectory() /
+            (std::filesystem::path(m_FilePath.empty() ? m_Name : m_FilePath).filename().string() + "." +
+             contentHash + kComputeCacheExtension);
 
         std::vector<u32> spirv;
         bool loaded = false;
         if (useCache && !m_FilePath.empty())
         {
             std::error_code ec;
-            std::filesystem::create_directories(kCacheDirectory, ec); // best-effort
+            std::filesystem::create_directories(CacheDirectory(), ec); // best-effort
 
-            // mtime + transitive includes staleness — the VulkanShader rule.
-            bool stale = true;
-            const auto cacheTime = std::filesystem::last_write_time(cachePath, ec);
-            if (!ec)
+            std::ifstream in(cachePath, std::ios::in | std::ios::binary | std::ios::ate);
+            if (in)
             {
-                const auto sourceTime = std::filesystem::last_write_time(m_FilePath, ec);
-                stale = ec || sourceTime > cacheTime;
-                for (const auto& include : m_IncludedFilePaths)
+                const auto size = static_cast<sizet>(in.tellg());
+                if (size > 0 && size % sizeof(u32) == 0)
                 {
-                    if (stale)
+                    spirv.resize(size / sizeof(u32));
+                    in.seekg(0);
+                    loaded = static_cast<bool>(
+                        in.read(reinterpret_cast<char*>(spirv.data()), static_cast<std::streamsize>(size)));
+                    if (!loaded)
                     {
-                        break;
-                    }
-                    const auto includeTime = std::filesystem::last_write_time(include, ec);
-                    if (!ec && includeTime > cacheTime)
-                    {
-                        stale = true;
-                    }
-                }
-            }
-            if (!stale)
-            {
-                std::ifstream in(cachePath, std::ios::in | std::ios::binary | std::ios::ate);
-                if (in)
-                {
-                    const auto size = static_cast<sizet>(in.tellg());
-                    if (size > 0 && size % sizeof(u32) == 0)
-                    {
-                        spirv.resize(size / sizeof(u32));
-                        in.seekg(0);
-                        loaded = static_cast<bool>(
-                            in.read(reinterpret_cast<char*>(spirv.data()), static_cast<std::streamsize>(size)));
-                        if (!loaded)
-                        {
-                            spirv.clear();
-                        }
+                        spirv.clear();
                     }
                 }
             }
@@ -301,9 +292,7 @@ namespace OloEngine
         }
         const auto dirEnd = m_FilePath.find_last_of("/\\");
         const std::string directory = (dirEnd != std::string::npos) ? m_FilePath.substr(0, dirEnd) : "";
-        std::vector<std::string> includes;
-        const std::string source = OpenGLShader::ProcessIncludes(raw, directory, includes);
-        m_IncludedFilePaths = std::move(includes);
+        const std::string source = OpenGLShader::ProcessIncludes(raw, directory);
 
         if (BuildFromSource(source, /*useCache=*/true))
         {

@@ -761,6 +761,8 @@
 		"OloEngine/Renderer/ShaderReflection.h"
 		"OloEngine/Renderer/ShaderDebugUtils.cpp"
 		"OloEngine/Renderer/ShaderDebugUtils.h"
+		"OloEngine/Renderer/ShaderCachePaths.cpp"
+		"OloEngine/Renderer/ShaderCachePaths.h"
 		"OloEngine/Renderer/ShaderGraph/ShaderGraph.cpp"
 		"OloEngine/Renderer/ShaderGraph/ShaderGraph.h"
 		"OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
