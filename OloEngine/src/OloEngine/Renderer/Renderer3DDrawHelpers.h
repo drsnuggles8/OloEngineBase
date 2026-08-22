@@ -76,6 +76,70 @@ namespace OloEngine
         return state;
     }
 
+    // The decal draw's render state, in ONE place.
+    //
+    // Renderer3D::DrawDecal stamps this onto every decal packet and
+    // CommandDispatch::DrawDecal applies it through ApplyPODRenderState. It is a
+    // shared function rather than an inline block because the decal tenant has
+    // to apply the SAME state the production draw applies -- a tenant that
+    // hand-copies it pins its own copy, which is how issue #853's channel-mask
+    // defect survived a green mode-matrix test.
+    //
+    // @param mode         the decal's G-Buffer mode (already collapsed to Albedo
+    //                     on the forward path by the caller).
+    // @param deferredPath true when this decal writes into the G-Buffer
+    //                     pre-lighting. ONLY then does the per-attachment
+    //                     channel mask apply: on the forward path the decal
+    //                     draws into scene colour (or the WB-OIT accum/revealage
+    //                     MRT), where the G-Buffer channel routing is meaningless
+    //                     and disabling channels would break OIT compositing.
+    inline auto CreateDecalPODRenderState(DrawDecalCommand::DecalMode mode, bool deferredPath) -> PODRenderState
+    {
+        PODRenderState state = CreateDefaultPODRenderState();
+
+        // Blend on for albedo (soft edges), off for normal/RMA/emissive (hard
+        // discard threshold -- see the shader comments). Depth read-only,
+        // front-face culling in all cases (the decal is a closed cube; its far
+        // faces are what survives the depth test).
+        const bool blendForThisMode = (mode == DrawDecalCommand::DecalMode::Albedo);
+        state.blendEnabled = blendForThisMode;
+        state.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+        state.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
+        state.depthTestEnabled = true;
+        // GreaterOrEqual, not LessOrEqual, and the pairing with cullFace below is
+        // the whole point: front-face culling keeps the projection box's BACK
+        // faces, and those are BEHIND the surface the decal projects onto. A
+        // LessOrEqual test rejects every one of them, so a decal straddling its
+        // receiving surface produced NO fragments at all -- on the deferred and
+        // the forward path alike, since both read this one state. That was true
+        // for as long as the decal existed (it predates the RHI refactor as
+        // GL_LEQUAL + GL_FRONT) and no test caught it, because the pass tenant
+        // substitutes a proxy QUAD placed in front of the surface for the
+        // production cube. Back-face decal rendering wants "the box's far side
+        // is at or behind the geometry", which is GreaterOrEqual; the shader's
+        // own in-box test then rejects surfaces that are merely far away.
+        // Measured: with LessOrEqual the G-Buffer is a uniform floor colour with
+        // no decal anywhere; with GreaterOrEqual an Albedo decal's authored
+        // (1, 0.25, 0.15) lands in GBufferAlbedo as (255, 64, 38).
+        state.depthFunction = RHI::CompareOp::GreaterOrEqual;
+        state.depthWriteMask = false;
+        state.cullingEnabled = true;
+        state.cullFace = RHI::CullMode::Front;
+
+        if (deferredPath)
+        {
+            // The mode matrix's channel routing, carried on the command so
+            // ApplyPODRenderState re-asserts it after its global SetColorMask
+            // (issue #853). Without this the pass's per-attachment masks are
+            // wiped between the pass setting them and the draw consuming them,
+            // and every mode writes every channel of the attachments its draw
+            // map selects.
+            state.colorAttachmentChannelMask = DecalGBufferChannelMask(mode);
+        }
+
+        return state;
+    }
+
     // Helper to populate POD render state from material properties.
     // Maps MaterialFlag to PODRenderState for proper render state setup.
     inline auto CreatePODRenderStateForMaterial(const Material& material) -> PODRenderState

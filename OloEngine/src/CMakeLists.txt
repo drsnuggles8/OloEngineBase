@@ -1239,6 +1239,8 @@
 
 		"OloEngine/Threading/ExternalMutex.h"
 		"OloEngine/Threading/IntrusiveMutex.h"
+		"OloEngine/Threading/LockDebug.cpp"
+		"OloEngine/Threading/LockDebug.h"
 		"OloEngine/Threading/LockTags.h"
 		"OloEngine/Threading/Mutex.cpp"
 		"OloEngine/Threading/Mutex.h"

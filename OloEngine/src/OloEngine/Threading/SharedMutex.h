@@ -14,6 +14,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Threading/IntrusiveMutex.h"
+#include "OloEngine/Threading/LockDebug.h"
 #include "OloEngine/Threading/SharedLock.h"
 #include "OloEngine/HAL/ParkingLot.h"
 #include "OloEngine/HAL/PlatformProcess.h"
@@ -58,26 +59,40 @@ namespace OloEngine
         [[nodiscard]] inline bool TryLock()
         {
             u32 Expected = m_State.load(std::memory_order_relaxed);
-            return !(Expected & (IsLockedFlag | SharedLockCountMask)) &&
-                   m_State.compare_exchange_strong(Expected, Expected | IsLockedFlag,
-                                                   std::memory_order_acquire, std::memory_order_relaxed);
+            const bool bAcquired = !(Expected & (IsLockedFlag | SharedLockCountMask)) &&
+                                   m_State.compare_exchange_strong(Expected, Expected | IsLockedFlag,
+                                                                   std::memory_order_acquire, std::memory_order_relaxed);
+            if (bAcquired)
+            {
+                OLO_LOCK_DEBUG_ON_ACQUIRED(this, LockDebug::EMode::Exclusive);
+            }
+            return bAcquired;
         }
 
         // @brief Acquire an exclusive lock, blocking until available
         inline void Lock()
         {
+            // Checked BEFORE the acquisition attempt: past this point a re-entrant call
+            // parks in ParkingLot::Wait and never returns, so an assert after the fact
+            // would never run.
+            OLO_LOCK_DEBUG_CHECK_ACQUIRE(this, LockDebug::EMode::Exclusive);
+
             u32 Expected = 0;
             if (OLO_LIKELY(m_State.compare_exchange_weak(Expected, IsLockedFlag,
                                                          std::memory_order_acquire, std::memory_order_relaxed)))
             {
+                OLO_LOCK_DEBUG_ON_ACQUIRED(this, LockDebug::EMode::Exclusive);
                 return;
             }
             LockSlow();
+            OLO_LOCK_DEBUG_ON_ACQUIRED(this, LockDebug::EMode::Exclusive);
         }
 
         // @brief Release an exclusive lock
         inline void Unlock()
         {
+            OLO_LOCK_DEBUG_ON_RELEASED(this, LockDebug::EMode::Exclusive);
+
             // Unlock immediately to allow other threads to acquire the lock while this thread
             // looks for a thread to wake.
             u32 LastState = m_State.fetch_sub(IsLockedFlag, std::memory_order_release);
@@ -109,6 +124,7 @@ namespace OloEngine
                 if (OLO_LIKELY(m_State.compare_exchange_weak(Expected, Expected + (1 << SharedLockCountShift),
                                                              std::memory_order_acquire, std::memory_order_relaxed)))
                 {
+                    OLO_LOCK_DEBUG_ON_ACQUIRED(this, LockDebug::EMode::Shared);
                     return true;
                 }
             }
@@ -118,19 +134,27 @@ namespace OloEngine
         // @brief Acquire a shared lock, blocking until available
         inline void LockShared()
         {
+            // See Lock(): the check has to precede the acquisition, because the failure
+            // mode is a park that never comes back.
+            OLO_LOCK_DEBUG_CHECK_ACQUIRE(this, LockDebug::EMode::Shared);
+
             u32 Expected = m_State.load(std::memory_order_relaxed);
             if (OLO_LIKELY(!(Expected & (IsLockedFlag | MayHaveWaitingLockFlag)) &&
                            m_State.compare_exchange_weak(Expected, Expected + (1 << SharedLockCountShift),
                                                          std::memory_order_acquire, std::memory_order_relaxed)))
             {
+                OLO_LOCK_DEBUG_ON_ACQUIRED(this, LockDebug::EMode::Shared);
                 return;
             }
             LockSharedSlow();
+            OLO_LOCK_DEBUG_ON_ACQUIRED(this, LockDebug::EMode::Shared);
         }
 
         // @brief Release a shared lock
         inline void UnlockShared()
         {
+            OLO_LOCK_DEBUG_ON_RELEASED(this, LockDebug::EMode::Shared);
+
             // Unlock immediately to allow other threads to acquire the lock while this thread
             // looks for a thread to wake.
             const u32 LastState = m_State.fetch_sub(1 << SharedLockCountShift, std::memory_order_release);

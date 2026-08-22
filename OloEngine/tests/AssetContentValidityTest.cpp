@@ -2068,8 +2068,9 @@ namespace OloEngine::Tests
     // `<project>/Config/InputActions.yaml`. The engine loads it on
     // project open if present; missing is fine (input actions are an
     // optional engine feature). If present, malformed YAML or a missing
-    // top-level `InputActions` key crashes the editor's input subsystem
-    // on startup.
+    // top-level `InputActionContexts` (or legacy `InputActionMap`) key
+    // crashes the editor's input subsystem on startup — see
+    // `InputActionSerializer::Deserialize`.
     // -------------------------------------------------------------------------
     // -------------------------------------------------------------------------
     // Path-based asset references in scenes resolve on disk
@@ -2355,17 +2356,11 @@ namespace OloEngine::Tests
         auto node = ParseYAMLFile(path, reason);
         ASSERT_TRUE(node) << "InputActions.yaml failed to parse: " << reason;
 
-        // The roots the REAL loader accepts, not a guess at them:
-        // InputActionSerializer writes `InputActionContexts` (a sequence, one
-        // InputActionMap per context) and still reads a legacy single-map
-        // `InputActionMap` root. Anything else it rejects outright with
-        // "Missing 'InputActionContexts' sequence or legacy 'InputActionMap'
-        // root node", so those two names are the whole contract — keep this
-        // assertion pinned to InputActionSerializer::Deserialize.
+        // Accept either the canonical `InputActionContexts` sequence or the
+        // legacy `InputActionMap` root — the two shapes `InputActionSerializer::
+        // Deserialize` actually understands.
         EXPECT_TRUE((*node)["InputActionContexts"] || (*node)["InputActionMap"])
-            << "InputActions.yaml has neither an 'InputActionContexts' sequence nor a legacy "
-               "'InputActionMap' root, so InputActionSerializer will refuse to load it and the "
-               "project opens with no bindings at all.";
+            << "InputActions.yaml missing top-level 'InputActionContexts' (or legacy 'InputActionMap') key.";
     }
 
     // -------------------------------------------------------------------------
